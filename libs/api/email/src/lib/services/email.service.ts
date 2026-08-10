@@ -129,26 +129,35 @@ export class EmailService {
   }
 
   /**
-   * Send the founding early-adopter invite to a waitlist member.
+   * Welcome an approved waitlist member into the free founding cohort.
    *
-   * Fired by an admin invite wave (POST /api/v1/admin/waitlist/invite). Carries
-   * BOTH checkout options with the founding discounts applied:
-   *   - Monthly at 70% off for the first 12 billing cycles
-   *   - Yearly at 70% off for the first year
+   * Fired once, after the approval transaction commits, by
+   * `WaitlistApprovalService`. This is the ONLY outbound message an approval
+   * produces (R3.3).
    *
-   * The CTA links point at the landing pricing page with `promo=founding`, the
-   * billing `cycle`, and a `d=<paddleDiscountId>` param so the landing checkout
-   * can pass the discount straight to Paddle. Discount IDs are read from
-   * `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY` / `_YEARLY` via ConfigService.
+   * ⚠️ THE LICENCE KEY TRAVELS IN THIS MAIL, AND THAT IS DELIBERATE.
+   * `sendLicenseKey` is NOT also sent on the approval path. The suppression is
+   * structural rather than conditional: `issueComplimentaryLicenseTx` has no
+   * mail side effect at all, so every caller owns its own outbound message and
+   * this one owns the approval's. Do not add a `sendEmail: false` flag to
+   * re-enable the other mail "when needed" — a flag is a second, silently
+   * flippable way to send an approved member two contradictory messages, which
+   * is the exact failure TASK_2026_201 removes.
    *
-   * Callers (WaitlistService.inviteBatch) treat a delivery failure as a signal
-   * NOT to stamp `notifiedAt`, so the row can be retried on the next wave.
+   * ⚠️ THE BODY SELLS NOTHING. No amount, no percentage, no checkout link, no
+   * refund or renewal terms. That is not a style preference: this mail replaced
+   * a paid invite, and `founding-cohort-welcome.spec.ts` fails the build on the
+   * rendered HTML if any of it comes back.
    *
-   * @param params - Email parameters (email)
+   * @param params - Email parameters (email, licenseKey, expiresAt)
    * @throws Error after 3 failed retry attempts
    */
-  async sendFoundingInvite(params: { email: string }): Promise<void> {
-    const { email } = params;
+  async sendFoundingCohortWelcome(params: {
+    email: string;
+    licenseKey: string;
+    expiresAt: Date | null;
+  }): Promise<void> {
+    const { email, licenseKey, expiresAt } = params;
 
     const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
     const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
@@ -156,13 +165,13 @@ export class EmailService {
     const msg = {
       from: `${fromName} <${fromEmail}>`,
       to: [email],
-      subject: "You're invited — founding member pricing",
-      html: this.getFoundingInviteTemplate(),
+      subject: "You're in — Ptah Builders, free for the founding cohort",
+      html: this.getFoundingCohortWelcomeTemplate({ licenseKey, expiresAt }),
     };
 
-    this.logger.log(`Sending founding invite to ${email}`);
+    this.logger.log(`Sending founding cohort welcome to ${email}`);
     await this.sendWithRetry(msg, 3);
-    this.logger.log(`Founding invite sent to ${email}`);
+    this.logger.log(`Founding cohort welcome sent to ${email}`);
   }
 
   /**
@@ -679,49 +688,47 @@ export class EmailService {
   }
 
   /**
-   * Build a founding-invite checkout link for the landing pricing page.
+   * Body for {@link sendFoundingCohortWelcome} — the free founding-cohort
+   * welcome (dark/gold house style).
    *
-   * Shape: `${frontendUrl}/pricing?promo=founding&cycle=<cycle>[&d=<discountId>]`.
-   * The `d` param is only appended when the corresponding Paddle discount ID is
-   * configured, so a missing env var degrades to a plain founding link rather
-   * than a broken `d=` query.
+   * ⚠️ FRAMING IS A DECISION, NOT A DRAFT (TASK_2026_201 C3).
+   * The mail leads with what the member KEEPS — the course, the recordings and
+   * the community for a full year — and never with a countdown. A gift framed
+   * as an expiring window reads as a trial, and this cohort is not a trial. The
+   * literal expiry date is real and is not hidden; it sits in the licence block
+   * at the bottom, where somebody checking specifics will look for it. Warm at
+   * the top, precise at the bottom.
    *
-   * @private
-   */
-  private buildFoundingCheckoutUrl(
-    frontendUrl: string,
-    cycle: 'monthly' | 'yearly',
-    discountId: string | undefined,
-  ): string {
-    const base = `${frontendUrl}/pricing?promo=founding&cycle=${cycle}`;
-    return discountId ? `${base}&d=${encodeURIComponent(discountId)}` : base;
-  }
-
-  /**
-   * Founding early-adopter invite email template (dark/gold).
+   * ⚠️ THE GRADIENT HAS NO PERCENTAGE COLOR STOPS, ON PURPOSE.
+   * Every sibling writes `linear-gradient(135deg, #d4af37 0%, #8a6d10 100%)`.
+   * Here the stops are omitted — the default stop positions are exactly 0 and
+   * 100, so the render is identical — because the R3 guard forbids a `%`
+   * ANYWHERE in this body. A blanket rule is enforceable by a regex; "a
+   * percentage, unless it is a CSS length" is not. Restoring `0%`/`100%` fails
+   * `founding-cohort-welcome.spec.ts`. Use unitless stops or none at all.
    *
    * @private
+   * @param params - Template parameters (licenseKey, expiresAt)
    * @returns HTML email content
    */
-  private getFoundingInviteTemplate(): string {
+  private getFoundingCohortWelcomeTemplate(params: {
+    licenseKey: string;
+    expiresAt: Date | null;
+  }): string {
+    const { licenseKey, expiresAt } = params;
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-    const monthlyDiscountId = this.config.get<string>(
-      'PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY',
-    );
-    const yearlyDiscountId = this.config.get<string>(
-      'PADDLE_DISCOUNT_ID_BUILDERS_YEARLY',
-    );
-    const monthlyUrl = this.buildFoundingCheckoutUrl(
-      frontendUrl,
-      'monthly',
-      monthlyDiscountId,
-    );
-    const yearlyUrl = this.buildFoundingCheckoutUrl(
-      frontendUrl,
-      'yearly',
-      yearlyDiscountId,
-    );
+
+    const accessText = expiresAt
+      ? `<p class="expiry"><strong>Access runs through:</strong> ${expiresAt.toLocaleDateString(
+          'en-US',
+          {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          },
+        )}</p>`
+      : '<p class="expiry"><strong>Access runs through:</strong> No end date</p>';
 
     return `
       <!DOCTYPE html>
@@ -729,26 +736,27 @@ export class EmailService {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>You're invited — founding member pricing</title>
+        <title>You're in — Ptah Builders, free for the founding cohort</title>
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
           .container { max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 32px 24px; text-align: center; }
+          .header { background: linear-gradient(135deg, #d4af37, #8a6d10); padding: 32px 24px; text-align: center; }
           .header h1 { color: #0a0a0a; margin: 0; font-size: 26px; font-weight: 700; }
           .header p { color: #0a0a0a; opacity: 0.8; margin: 8px 0 0; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
           .content { background-color: #1e293b; padding: 32px 24px; }
           .badge { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 4px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
           .content p { color: #cbd5e1; }
-          .plans { margin: 24px 0; }
-          .plan { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-          .plan.featured { border-color: #d4af37; }
-          .plan h3 { color: #f4d47c; margin: 0 0 4px; font-size: 18px; }
-          .plan .price { color: #f1f5f9; font-size: 15px; margin: 0 0 4px; }
-          .plan .price s { color: #64748b; }
-          .plan .save { color: #4ade80; font-size: 13px; font-weight: 600; margin: 0 0 16px; }
-          .cta { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 15px; }
-          .guarantee { background-color: #0f172a; border-left: 4px solid #d4af37; padding: 12px 16px; margin: 24px 0; border-radius: 4px; }
-          .guarantee strong { color: #f4d47c; }
+          .content ul { color: #cbd5e1; padding-left: 20px; margin: 8px 0 20px; }
+          .content li { margin-bottom: 8px; }
+          .content li strong { color: #f1f5f9; }
+          .keeps { background-color: #0f172a; border-left: 4px solid #d4af37; padding: 12px 16px; margin: 20px 0; border-radius: 4px; }
+          .keeps p { color: #f4d47c; margin: 0; }
+          .cta { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 12px 28px; border-radius: 8px; font-weight: 700; text-decoration: none; margin-top: 8px; }
+          .details { border-top: 1px solid #334155; margin-top: 32px; padding-top: 20px; }
+          .details h2 { color: #f4d47c; font-size: 16px; margin: 0 0 8px; }
+          .license-key { background-color: #0f172a; border: 2px solid #d4af37; border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 14px; word-break: break-all; margin: 12px 0; color: #f4d47c; }
+          .expiry { color: #94a3b8; font-size: 14px; margin: 0; }
+          .expiry strong { color: #cbd5e1; }
           .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
           .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
           .footer a { color: #d4af37; text-decoration: none; }
@@ -757,35 +765,36 @@ export class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>You're invited</h1>
-            <p>Founding Member Pricing</p>
+            <h1>You're in</h1>
+            <p>Ptah Builders — Founding Cohort</p>
           </div>
           <div class="content">
-            <div class="badge">Ptah Builders</div>
-            <p>You were one of the first to join the waitlist, so you get first access to <strong style="color: #f4d47c;">Ptah Builders</strong> — the premium SaaS-building course, weekly live sessions (Q&amp;A, tutorials and live builds) and the members' community — plus the <strong style="color: #f4d47c;">70% founding discount</strong> reserved for early adopters.</p>
-            <p>Pick the billing cycle that suits you:</p>
+            <div class="badge">Founding Member</div>
+            <p>Your place in the founding cohort of <strong style="color: #f4d47c;">Ptah Builders</strong> is confirmed, and it is <strong style="color: #f4d47c;">free</strong>. We have not asked you for a card, and we will not ask you for one when the cohort finishes.</p>
 
-            <div class="plans">
-              <div class="plan featured">
-                <h3>Yearly — best value</h3>
-                <p class="price"><s>$290/year</s> &nbsp; $87 for your first year</p>
-                <p class="save">70% off the first year</p>
-                <a href="${yearlyUrl}" class="cta">Claim yearly →</a>
-              </div>
-              <div class="plan">
-                <h3>Monthly</h3>
-                <p class="price"><s>$29/month</s> &nbsp; $8.70/month</p>
-                <p class="save">70% off for your first 12 billing cycles</p>
-                <a href="${monthlyUrl}" class="cta">Claim monthly →</a>
-              </div>
+            <div class="keeps">
+              <p>Founding members keep the course, the recordings and the community for a full year — the two-week cohort is the live part, not the whole of it.</p>
             </div>
 
-            <div class="guarantee">
-              <strong>30-day money-back guarantee.</strong>
-              <span style="color: #94a3b8;"> Full refund on your first charge if Builders isn't for you. Renewals are cancel-anytime and non-refundable.</span>
-            </div>
+            <p style="color: #f1f5f9; font-weight: 600; margin-bottom: 0;">What is waiting for you</p>
+            <ul>
+              <li><strong>The SaaS-building course</strong> — the full curriculum, yours to work through at your own pace.</li>
+              <li><strong>The live sessions</strong> — builds, walkthroughs and open questions, recorded so a missed hour is never a missed session.</li>
+              <li><strong>The members' community</strong> — the forum where the cohort thinks out loud, and its whole archive.</li>
+              <li><strong>The packs</strong> — the agent packs and templates the course builds on.</li>
+            </ul>
 
-            <p style="color: #94a3b8; font-size: 14px;">The open-source Community edition stays free forever — Builders simply layers the SaaS-building course, weekly live sessions and the community on top. Renewals are at the list price ($29/month or $290/year).</p>
+            <p>Everything lives behind one door:</p>
+            <p><a class="cta" href="${frontendUrl}/members">Open the members' area</a></p>
+
+            <p style="color: #94a3b8; font-size: 14px;">Sign in with <strong style="color: #cbd5e1;">this email address</strong> — the one this message arrived at. Your membership is already attached to it, so there is nothing to set up first.</p>
+
+            <div class="details">
+              <h2>Your licence</h2>
+              <p style="color: #94a3b8; font-size: 14px; margin: 0;">Paste this key into Ptah in VS Code or the desktop app to unlock the Builders features there.</p>
+              <div class="license-key">${licenseKey}</div>
+              ${accessText}
+            </div>
           </div>
           <div class="footer">
             <p>Questions? Just reply to this email.</p>
