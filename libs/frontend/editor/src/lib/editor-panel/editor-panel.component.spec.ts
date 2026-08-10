@@ -31,6 +31,11 @@ import { EditorPanelComponent } from './editor-panel.component';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
 import { VimModeService } from '../services/vim-mode.service';
+import { MonacoLoaderService } from '../services/monaco-loader.service';
+import { CodeEditorComponent } from '../code-editor/code-editor.component';
+import { EditorDiffSplitHelper } from '../services/editor/editor-diff-split';
+import { EditorTabsHelper } from '../services/editor/editor-tabs';
+import type { EditorInternalState } from '../services/editor/editor-internal-state';
 import { diffTabKey } from '../services/editor/editor-tab.types';
 
 // ---------------------------------------------------------------------------
@@ -155,7 +160,12 @@ function makeEditorServiceStub() {
     saveFile: jest.fn(() => Promise.resolve()),
     markTabClean: jest.fn(),
     updateTabContent: jest.fn(),
+    updateSplitContent: jest.fn(),
     hasUnabsorbedPeerEdit: jest.fn(() => false),
+    // Read by the REAL CodeEditorComponent (used by the keyboard-save block
+    // below, which mounts it instead of the stub).
+    targetLine: signal<number | undefined>(undefined),
+    clearTargetLine: jest.fn(),
   } as unknown as EditorService & {
     isLoading: ReturnType<typeof signal<boolean>>;
     activeFilePath: ReturnType<typeof signal<string | undefined>>;
@@ -172,6 +182,8 @@ function makeEditorServiceStub() {
     saveFile: jest.Mock;
     markTabClean: jest.Mock;
     updateTabContent: jest.Mock;
+    updateSplitContent: jest.Mock;
+    setFocusedPane: jest.Mock;
     hasUnabsorbedPeerEdit: jest.Mock;
   };
 }
@@ -191,6 +203,9 @@ function makeVimStub() {
     enabled: signal(false),
     loadPreference: jest.fn(async () => undefined),
     toggle: jest.fn(async () => undefined),
+    // Used by the REAL CodeEditorComponent's attach/detach effect.
+    attachToEditor: jest.fn(),
+    detach: jest.fn(),
   } as unknown as VimModeService;
 }
 
@@ -1551,5 +1566,502 @@ describe('EditorPanelComponent — save-conflict dialog focus management (C2)', 
     expect(() => dialogButton('Cancel')?.click()).not.toThrow();
     fixture.detectChanges();
     expect(dialogBox()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOCUSIN — keyboard focus retargets the pane (TASK_2026_173 addendum).
+//
+// `focusedPane` was written by the pane `(click)` handlers and NOTHING else, so
+// it was a mouse-only signal. It gates two things:
+//
+//   1. the Ctrl+S handler in code-editor.component.ts, which declines unless
+//      ITS OWN pane is the focused one — and the listener is attached per pane
+//      to that pane's own Monaco host, so the left pane's handler never sees a
+//      keystroke aimed at the right one. A keyboard user who tabbed into the
+//      split pane could not save from it AT ALL.
+//   2. `EditorDiffSplitHelper.setFocusedPane`, which cancels the pending mirror
+//      and reconciles both panes against the tab record. For keyboard-only
+//      users the reconciliation C2 built to close the split-pane divergence
+//      window never ran — the data-integrity half of the same defect.
+//
+// The fix is `(focusin)` alongside `(click)` on both pane containers, routed to
+// the same handler. `focusin` bubbles (`focus` does not), so focus landing on
+// Monaco's hidden textarea retargets the pane; the containers are siblings, so
+// neither pane's focusin can reach the other.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — keyboard focus retargets the pane (focusin)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+
+  function panes() {
+    return fixture.debugElement.queryAll(By.directive(StubCodeEditorComponent));
+  }
+
+  /**
+   * Focus arriving somewhere inside a pane, exactly as the browser reports it:
+   * a bubbling `focusin` dispatched at the element that received focus. No
+   * mouse event of any kind is involved.
+   */
+  function focusInto(pane: 0 | 1): void {
+    panes()[pane].nativeElement.dispatchEvent(
+      new FocusEvent('focusin', { bubbles: true }),
+    );
+    fixture.detectChanges();
+  }
+
+  /** Same target, but the mouse path — proof it is still wired. */
+  function clickInto(pane: 0 | 1): void {
+    panes()[pane].nativeElement.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+  }
+
+  function tabContent(): string {
+    const tabs = editor.openTabs() as Array<{
+      filePath: string;
+      content: string;
+    }>;
+    return tabs.find((t) => t.filePath === '/ws/a.ts')?.content ?? '';
+  }
+
+  /**
+   * Same file in both panes with the REAL EditorDiffSplitHelper behind the
+   * service stub, so `setFocusedPane` performs its actual mirror-cancel +
+   * reconciliation rather than being observed as a spy call. Only the two
+   * signals the helper needs are shared with the panel — they are the same
+   * signal instances the template binds to.
+   */
+  function shareFileInBothPanesWithRealHelper(): EditorDiffSplitHelper {
+    const state = {
+      vscodeService: {} as never,
+      fileTree: signal([]),
+      activeFilePath: editor.activeFilePath,
+      activeFileContent: editor.activeFileContent,
+      openTabs: editor.openTabs,
+      isLoading: editor.isLoading,
+      targetLine: signal<number | undefined>(undefined),
+      splitActive: editor.splitActive,
+      splitFilePath: editor.splitFilePath,
+      splitFileContent: editor.splitFileContent,
+      focusedPane: editor.focusedPane,
+      workspaceEditorState: new Map(),
+      getActiveWorkspacePath: () => '/ws',
+      setActiveWorkspacePath: () => undefined,
+      showError: jest.fn(),
+      clearError: jest.fn(),
+    } as unknown as EditorInternalState;
+
+    const tabs = new EditorTabsHelper(state, {
+      clearActiveFile: jest.fn(),
+      closeSplit: jest.fn(),
+    } as unknown as ConstructorParameters<typeof EditorTabsHelper>[1]);
+    const helper = new EditorDiffSplitHelper(state, tabs);
+
+    editor.setFocusedPane.mockImplementation((pane: 'left' | 'right') =>
+      helper.setFocusedPane(pane),
+    );
+    editor.updateSplitContent.mockImplementation((content: string) =>
+      helper.updateSplitContent(content),
+    );
+    editor.updateTabContent.mockImplementation(
+      (filePath: string, content: string) =>
+        tabs.updateTabContent(filePath, content),
+    );
+
+    editor.openTabs.set([
+      { filePath: '/ws/a.ts', fileName: 'a.ts', content: 'v0', isDirty: false },
+    ]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.activeFileContent.set('v0');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    editor.splitFileContent.set('v0');
+    fixture.detectChanges();
+    return helper;
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+    // The stub's `setFocusedPane` is a bare jest.fn(); give it the one line the
+    // real service performs first, so the template's gate can be observed.
+    editor.setFocusedPane.mockImplementation((pane: 'left' | 'right') =>
+      editor.focusedPane.set(pane),
+    );
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    editor.activeFilePath.set('/ws/a.ts');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('focus arriving in the split pane focuses it — with no click anywhere', () => {
+    const clicks = jest.fn();
+    fixture.nativeElement.addEventListener('click', clicks);
+    expect(editor.focusedPane()).toBe('left');
+
+    focusInto(1);
+
+    expect(editor.setFocusedPane).toHaveBeenCalledWith('right');
+    expect(editor.focusedPane()).toBe('right');
+    // Not a mouse event in sight — this is the path a Tab key produces.
+    expect(clicks).not.toHaveBeenCalled();
+    // `[isFocused]` is the exact input the Ctrl+S handler gates on, so the save
+    // gate is now open for the pane the keyboard is in, and shut for the other.
+    expect(panes().map((p) => p.componentInstance.isFocused())).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('focus returning to the primary pane focuses it back (both bindings, not just one)', () => {
+    focusInto(1);
+    expect(editor.focusedPane()).toBe('right');
+
+    focusInto(0);
+
+    expect(editor.focusedPane()).toBe('left');
+    expect(panes().map((p) => p.componentInstance.isFocused())).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  it('still focuses a pane on (click) — the keyboard path is added, not substituted', () => {
+    clickInto(1);
+    expect(editor.focusedPane()).toBe('right');
+
+    clickInto(0);
+    expect(editor.focusedPane()).toBe('left');
+  });
+
+  it('runs the C2 reconciliation and cancels the pending mirror on a KEYBOARD focus change', () => {
+    shareFileInBothPanesWithRealHelper();
+    editor.focusedPane.set('right');
+    fixture.detectChanges();
+
+    // Timer identity, not fake timers: the helper's setTimeout runs inside the
+    // Angular zone, whose patched timer functions are captured before any fake
+    // clock could replace them. Spying on the globals observes the real calls.
+    const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout');
+    const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout');
+
+    // The user types in the SPLIT pane. The tab record moves; the left pane is
+    // deliberately left behind until the mirror debounce elapses.
+    panes()[1].componentInstance.contentChanged.emit('v0 + right pane edit');
+    fixture.detectChanges();
+
+    expect(tabContent()).toBe('v0 + right pane edit');
+    expect(editor.activeFileContent()).toBe('v0');
+    expect(setTimeoutSpy).toHaveBeenCalled();
+    const mirrorTimer = setTimeoutSpy.mock.results.at(-1)?.value as unknown;
+    clearTimeoutSpy.mockClear();
+
+    // Keyboard focus moves to the primary pane. No click, and no waiting for
+    // the debounce: the reconciliation must have already happened.
+    focusInto(0);
+
+    expect(editor.focusedPane()).toBe('left');
+    expect(editor.activeFileContent()).toBe('v0 + right pane edit');
+    // ...and the now-redundant mirror was cancelled rather than left armed.
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(mirrorTimer);
+
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FOCUSIN — the whole keyboard save chain, with the REAL CodeEditorComponent.
+//
+// The block above pins the binding and the reconciliation against the service.
+// This one closes the loop the bug was actually reported as: focus reaches the
+// split pane without a click, Ctrl+S on that pane's Monaco host, and the file
+// is written with THAT pane's text. Monaco is faked (one editor per `create`
+// call, as the two panes really do get) so the component's own keydown gate
+// runs for real.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — a keyboard user can save from the split pane', () => {
+  interface PaneModel {
+    uri: { toString: () => string };
+    _value: string;
+    getValue: () => string;
+    setValue: (v: string) => void;
+    getFullModelRange: () => unknown;
+    pushEditOperations: (a: unknown, edits: Array<{ text: string }>) => null;
+    getLanguageId: () => string;
+    onDidChangeContent: () => { dispose: () => void };
+    dispose: () => void;
+  }
+
+  interface PaneEditor {
+    _active: PaneModel | null;
+    setModel: (m: PaneModel | null) => void;
+    getModel: () => PaneModel | null;
+    onDidChangeModelContent: (cb: () => void) => { dispose: () => void };
+    saveViewState: () => unknown;
+    restoreViewState: (s: unknown) => void;
+    revealLineInCenter: (l: number) => void;
+    setPosition: (p: unknown) => void;
+    layout: () => void;
+    updateOptions: (o: unknown) => void;
+    dispose: () => void;
+    getDomNode: () => HTMLElement;
+  }
+
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+  let editorsByHost: Map<HTMLElement, PaneEditor>;
+
+  function makeMonaco() {
+    const registry = new Map<string, PaneModel>();
+    editorsByHost = new Map<HTMLElement, PaneEditor>();
+
+    function makeModel(
+      value: string,
+      lang: string,
+      uri: { toString: () => string },
+    ): PaneModel {
+      const model: PaneModel = {
+        uri,
+        _value: value,
+        getValue: () => model._value,
+        setValue: (v: string) => {
+          model._value = v;
+        },
+        getFullModelRange: () => ({}),
+        pushEditOperations: (_a, edits) => {
+          model._value = edits[0].text;
+          return null;
+        },
+        getLanguageId: () => lang,
+        onDidChangeContent: () => ({ dispose: () => undefined }),
+        dispose: () => undefined,
+      };
+      return model;
+    }
+
+    return {
+      editor: {
+        // One editor instance per pane, keyed by the host it was mounted into —
+        // the same element the component attaches its keydown listener to.
+        create: (host: HTMLElement) => {
+          const ed: PaneEditor = {
+            _active: null,
+            setModel: (m) => {
+              ed._active = m;
+            },
+            getModel: () => ed._active,
+            onDidChangeModelContent: () => ({ dispose: () => undefined }),
+            saveViewState: () => ({}),
+            restoreViewState: () => undefined,
+            revealLineInCenter: () => undefined,
+            setPosition: () => undefined,
+            layout: () => undefined,
+            updateOptions: () => undefined,
+            dispose: () => undefined,
+            getDomNode: () => host,
+          };
+          editorsByHost.set(host, ed);
+          return ed;
+        },
+        createModel: (
+          value: string,
+          lang: string,
+          uri: { toString: () => string },
+        ) => {
+          const m = makeModel(value, lang, uri);
+          registry.set(uri.toString(), m);
+          return m;
+        },
+        getModel: (uri: { toString: () => string }) =>
+          registry.get(uri.toString()) ?? null,
+        setModelLanguage: () => undefined,
+        setTheme: () => undefined,
+      },
+      Uri: { parse: (s: string) => ({ toString: () => s }) },
+    };
+  }
+
+  /** The two Monaco host elements, in DOM order: primary pane, split pane. */
+  function monacoHosts(): HTMLElement[] {
+    return [
+      ...fixture.nativeElement.querySelectorAll<HTMLElement>(
+        '[data-testid="editor-monaco"] > div',
+      ),
+    ];
+  }
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  /** Put text in the model of the pane mounted into `host`, as typing would. */
+  function typeInto(host: HTMLElement, text: string): void {
+    const model = editorsByHost.get(host)?.getModel();
+    expect(model).toBeDefined();
+    if (model) model._value = text;
+  }
+
+  /** Focus lands on Monaco's hidden textarea, which lives inside the host. */
+  function tabInto(host: HTMLElement): HTMLTextAreaElement {
+    const textarea = document.createElement('textarea');
+    host.appendChild(textarea);
+    textarea.focus();
+    fixture.detectChanges();
+    return textarea;
+  }
+
+  function pressCtrlS(host: HTMLElement): void {
+    host.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
+    );
+  }
+
+  beforeEach(async () => {
+    editor = makeEditorServiceStub();
+    editor.setFocusedPane.mockImplementation((pane: 'left' | 'right') =>
+      editor.focusedPane.set(pane),
+    );
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+        {
+          provide: MonacoLoaderService,
+          useValue: { load: jest.fn(() => Promise.resolve(makeMonaco())) },
+        },
+      ],
+    });
+
+    // Everything stubbed EXCEPT the code editor — its Ctrl+S gate is the thing
+    // under test here.
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          CodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+
+    // One file, open in both panes, keyboard focus starting in the primary one.
+    editor.openTabs.set([
+      { filePath: '/ws/a.ts', fileName: 'a.ts', content: 'v0', isDirty: false },
+    ]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.activeFileContent.set('v0');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    editor.splitFileContent.set('v0');
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    await flush();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('Tab into the split pane, Ctrl+S, and THAT pane’s text is written', async () => {
+    const [leftHost, rightHost] = monacoHosts();
+    expect(editorsByHost.get(rightHost)).toBeDefined();
+
+    // Before the focus moves, a Ctrl+S aimed at the split pane is declined —
+    // this is the bug, and it is what makes the assertion after it meaningful.
+    typeInto(rightHost, 'typed with the keyboard');
+    pressCtrlS(rightHost);
+    await flush();
+    expect(editor.saveFile).not.toHaveBeenCalled();
+
+    // A keyboard user tabs in. No click of any kind.
+    const textarea = tabInto(rightHost);
+
+    expect(document.activeElement).toBe(textarea);
+    expect(editor.focusedPane()).toBe('right');
+
+    pressCtrlS(rightHost);
+    await flush();
+
+    expect(editor.saveFile).toHaveBeenCalledWith(
+      '/ws/a.ts',
+      'typed with the keyboard',
+    );
+    expect(editor.markTabClean).toHaveBeenCalledWith('/ws/a.ts');
+    // The primary pane's own handler stayed shut: the save came from the pane
+    // the keyboard was actually in, not from whichever pane happened to be
+    // marked focused.
+    expect(editor.saveFile).toHaveBeenCalledTimes(1);
+    expect(leftHost).toBeDefined();
+  });
+
+  it('hands the save gate back to the primary pane when focus returns to it', async () => {
+    const [leftHost, rightHost] = monacoHosts();
+
+    tabInto(rightHost);
+    expect(editor.focusedPane()).toBe('right');
+
+    tabInto(leftHost);
+    expect(editor.focusedPane()).toBe('left');
+
+    typeInto(leftHost, 'primary pane text');
+    pressCtrlS(leftHost);
+    await flush();
+
+    expect(editor.saveFile).toHaveBeenCalledWith(
+      '/ws/a.ts',
+      'primary pane text',
+    );
   });
 });

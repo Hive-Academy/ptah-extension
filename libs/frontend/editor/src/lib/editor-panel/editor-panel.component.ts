@@ -201,6 +201,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   : '1 1 auto'
               "
               (click)="onPaneClick('left')"
+              (focusin)="onPaneClick('left')"
             >
               <!-- Tab bar - minimal, clean design -->
               @if (editorService.openTabs().length > 0) {
@@ -364,6 +365,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                 [class.border-l-2]="editorService.focusedPane() === 'right'"
                 [class.border-primary]="editorService.focusedPane() === 'right'"
                 (click)="onPaneClick('right')"
+                (focusin)="onPaneClick('right')"
               >
                 <!-- Right pane header bar with file name and close button -->
                 <div
@@ -726,7 +728,20 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle click on a pane to update which pane has focus.
+   * Update which pane has focus. Bound to BOTH `(click)` and `(focusin)` on
+   * each pane container.
+   *
+   * `(click)` alone made `focusedPane` a mouse-only signal, and it gates two
+   * things: the Ctrl+S handler in `code-editor.component.ts` (which declines
+   * unless its own pane is the focused one), and — via
+   * `EditorDiffSplitHelper.setFocusedPane` — the mirror-cancel + pane
+   * reconciliation that C2 relies on. A keyboard user tabbing into the split
+   * pane therefore could not save from it AT ALL, and never ran the
+   * reconciliation that closes the split-pane divergence window.
+   *
+   * `focusin` bubbles (unlike `focus`), so focus landing anywhere inside a
+   * pane — Monaco's hidden textarea included — retargets that pane. The two
+   * containers are siblings, so neither pane's focusin can reach the other.
    */
   protected onPaneClick(pane: 'left' | 'right'): void {
     this.editorService.setFocusedPane(pane);
