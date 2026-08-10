@@ -101,7 +101,8 @@ const ACTOR_INCLUDE = {
  * person who receives it. Concentrating it here is the whole design.
  *
  * ── EVERY WRITE IS OWNERSHIP-SCOPED IN THE `where` (RISK-AH, NFR-S8) ───────
- * `markRead` and `markAllRead` are `updateMany` with `userId: ctx.userId` in the
+ * `markRead`, `markManyRead` and `markAllRead` are all `updateMany` with
+ * `userId: ctx.userId` in the
  * `where`, never `findUnique` → check → `update`. A cuid is not a secret: it is
  * short, it appears in a client-side list, and `POST :id/read` is the lowest-
  * value write on the surface, which is precisely why it is the one that gets
@@ -278,6 +279,56 @@ export class NotificationsService {
     });
 
     return { readAt: row?.readAt?.toISOString() ?? null };
+  }
+
+  /**
+   * Mark EXACTLY the named notifications read — R10.4, RISK-AH, NFR-S8.
+   *
+   * ── 🔴 WHY THIS EXISTS BETWEEN THE OTHER TWO ──────────────────────────────
+   * {@link NotificationsService.markRead} marks ONE row and
+   * {@link NotificationsService.markAllRead} marks THE WHOLE INBOX. A selection
+   * — "these seven" — could be served by neither. `markAllRead` marks rows the
+   * member never selected, INCLUDING ROWS ON PAGES THEY HAVE NEVER SEEN, and
+   * there is deliberately no un-read anywhere on this surface, so that
+   * over-reach is PERMANENT. The honest alternative was N calls to `markRead`,
+   * which is correct and costs N round trips. This is that, in one statement.
+   *
+   * ── 🔴 THE OWNERSHIP CLAUSE IS THE WHOLE SECURITY PROPERTY ────────────────
+   * `userId: ctx.userId` is in the `where`, beside `id: { in: … }`. It is not a
+   * check performed after a read, and there is no `findMany` → filter → update:
+   * that shape has a window between the read and the write, and it READS as
+   * correct, which is worse. A caller who names another member's id gets that
+   * id counted as zero and learns nothing about whether it was real.
+   *
+   * ── 🔴 `in: []` MATCHES NOTHING. `undefined` WOULD MATCH EVERYTHING ───────
+   * The ids are spread into the `where` UNCONDITIONALLY. The tempting
+   * "optimisation" — `id: ids.length ? { in: ids } : undefined` — is a
+   * catastrophe wearing a guard clause: Prisma treats an `undefined` filter as
+   * NO CONSTRAINT, so an empty selection would mark every unread notification
+   * this member owns, silently, with a `200`. `MarkNotificationsReadDto`
+   * rejects an empty array before it ever gets here, and this method is written
+   * so that it would still be safe if that rejection were ever removed.
+   *
+   * ⚠️ `readAt: null` IS IN THE `where` FOR THE SAME REASON IT IS IN THE OTHER
+   * TWO: a selection that includes rows the member already read must not push
+   * those timestamps forward. Those ids simply contribute nothing to `marked`.
+   *
+   * @returns `{ marked }` — rows this call ACTUALLY moved, the same field and
+   * the same meaning {@link NotificationsService.markAllRead} returns. It is
+   * NOT "the new unread count", and no partial-failure list is returned: an id
+   * that does not exist, is already read, or belongs to someone else are three
+   * situations a member cannot act on and an attacker could.
+   */
+  async markManyRead(
+    ctx: MemberContext,
+    ids: readonly string[],
+  ): Promise<{ marked: number }> {
+    const { count } = await this.prisma.notification.updateMany({
+      where: { id: { in: [...ids] }, userId: ctx.userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+
+    return { marked: count };
   }
 
   /**

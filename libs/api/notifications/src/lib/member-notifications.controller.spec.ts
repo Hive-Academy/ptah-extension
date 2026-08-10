@@ -15,12 +15,18 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
 import { MemberGuard } from '@ptah-api/membership';
 import type { MemberContext } from '@ptah-api/membership';
-import { DEFAULT_PAGE_SIZE, FIRST_PAGE } from '@ptah-contracts/community';
+import {
+  DEFAULT_PAGE_SIZE,
+  FIRST_PAGE,
+  MAX_BULK_MARK_READ_IDS,
+  MAX_PAGE_SIZE,
+} from '@ptah-contracts/community';
 
 import {
   ListNotificationsQueryDto,
   resolveNotificationPage,
 } from './dto/list-notifications.query.dto';
+import { MarkNotificationsReadDto } from './dto/mark-notifications-read.dto';
 import { MemberNotificationsController } from './member-notifications.controller';
 import { NotificationsService } from './notifications.service';
 
@@ -35,7 +41,11 @@ import { NotificationsService } from './notifications.service';
  *     no named primitive `@Query` (`NAMED_PRIMITIVE_PARAM_COUNT` is an EXACT
  *     equality at 6) and nothing is silently unvalidated (PRE-1);
  *   - `pageSize=51` is a `400`, not a clamp (NFR-P5);
- *   - both `@Post`s answer `200`, not Nest's default `201`;
+ *   - the bulk `ids` array is CAPPED, non-empty and string-typed, and the cap
+ *     is DERIVED from `MAX_PAGE_SIZE` rather than copied;
+ *   - `POST read` is one segment and `POST :id/read` is two, so `read` can
+ *     never be swallowed as an id (RI-3);
+ *   - all three `@Post`s answer `200`, not Nest's default `201`;
  *   - there is no `@Sse` and no long-poll anywhere (AD-14, R10.5).
  */
 
@@ -72,6 +82,7 @@ function build() {
     markRead: jest
       .fn()
       .mockResolvedValue({ readAt: '2026-08-10T00:00:00.000Z' }),
+    markManyRead: jest.fn().mockResolvedValue({ marked: 2 }),
     markAllRead: jest.fn().mockResolvedValue({ marked: 4 }),
   };
   const controller = new MemberNotificationsController(
@@ -153,7 +164,13 @@ describe('MemberNotificationsController', () => {
   });
 
   describe('the removed-guard tripwire', () => {
-    it.each(['list', 'unreadCount', 'markRead', 'markAllRead'] as const)(
+    it.each([
+      'list',
+      'unreadCount',
+      'markRead',
+      'markManyRead',
+      'markAllRead',
+    ] as const)(
       '%s refuses to serve without a memberContext',
       async (method) => {
         // 🔴 THE DEGRADED STATE IS NOT AN EMPTY LIST. Every `where` on this
@@ -169,11 +186,16 @@ describe('MemberNotificationsController', () => {
               ? controller.unreadCount(unguardedRequest())
               : method === 'markRead'
                 ? controller.markRead(unguardedRequest(), 'n_1')
-                : controller.markAllRead(unguardedRequest());
+                : method === 'markManyRead'
+                  ? controller.markManyRead(unguardedRequest(), {
+                      ids: ['n_1'],
+                    })
+                  : controller.markAllRead(unguardedRequest());
 
         await expect(call).rejects.toBeInstanceOf(InternalServerErrorException);
         expect(notifications.list).not.toHaveBeenCalled();
         expect(notifications.markAllRead).not.toHaveBeenCalled();
+        expect(notifications.markManyRead).not.toHaveBeenCalled();
       },
     );
   });
@@ -185,19 +207,22 @@ describe('MemberNotificationsController', () => {
       ).toEqual([JwtAuthGuard, MemberGuard]);
     });
 
-    it.each(['list', 'unreadCount', 'markRead', 'markAllRead'] as const)(
-      '%s declares no method-level guard',
-      (method) => {
-        const proto =
-          MemberNotificationsController.prototype as unknown as Record<
-            string,
-            object
-          >;
-        expect(
-          Reflect.getMetadata(GUARDS_METADATA, proto[method]),
-        ).toBeUndefined();
-      },
-    );
+    it.each([
+      'list',
+      'unreadCount',
+      'markRead',
+      'markManyRead',
+      'markAllRead',
+    ] as const)('%s declares no method-level guard', (method) => {
+      const proto =
+        MemberNotificationsController.prototype as unknown as Record<
+          string,
+          object
+        >;
+      expect(
+        Reflect.getMetadata(GUARDS_METADATA, proto[method]),
+      ).toBeUndefined();
+    });
   });
 
   describe('PRE-1 / ground truth 10 — validation and the param census', () => {
@@ -229,13 +254,127 @@ describe('MemberNotificationsController', () => {
       expect(paramData('list')).toEqual([undefined, undefined]);
       expect(paramData('unreadCount')).toEqual([undefined]);
       expect(paramData('markRead').sort()).toEqual(['id', undefined]);
+      // 🔴 The bulk ids arrive in a `@Body()`, NOT `@Query('ids')`. A query
+      // string is bounded by the server's URL limit rather than by anything
+      // this code controls, it is logged by every proxy in the path, and it
+      // would make the server-wide named count 7 against an EXACT 6.
+      expect(paramData('markManyRead')).toEqual([undefined, undefined]);
       expect(paramData('markAllRead')).toEqual([undefined]);
     });
 
-    it('binds no pipe it does not need — the writes take no payload', () => {
+    it('binds a real ValidationPipe with an expectedType on the bulk body', () => {
+      // Same trap as the query, with a worse blast radius: unbound, the array
+      // cap, the per-id length cap and `forbidNonWhitelisted` are ALL inert,
+      // and an arbitrary JSON body reaches the service.
+      const pipes = paramPipes('markManyRead').flat();
+      const validationPipes = pipes.filter(
+        (p) => p instanceof ValidationPipe,
+      ) as ValidationPipe[];
+
+      expect(validationPipes).toHaveLength(1);
+      expect(
+        (validationPipes[0] as unknown as { expectedType?: unknown })
+          .expectedType,
+      ).toBe(MarkNotificationsReadDto);
+    });
+
+    it('binds no pipe it does not need — the payload-less writes take none', () => {
       expect(paramPipes('markRead').flat()).toEqual([]);
       expect(paramPipes('markAllRead').flat()).toEqual([]);
       expect(paramPipes('unreadCount').flat()).toEqual([]);
+    });
+  });
+
+  describe('🔴 POST read — the bulk write, and the cap that bounds it', () => {
+    async function validateBody(raw: Record<string, unknown>) {
+      const dto = plainToInstance(MarkNotificationsReadDto, raw, {
+        enableImplicitConversion: false,
+      });
+      return validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    }
+
+    it('delegates the ids and the ownership decision to the service', async () => {
+      const { controller, notifications } = build();
+
+      await expect(
+        controller.markManyRead(guardedRequest(), { ids: ['n_1', 'n_2'] }),
+      ).resolves.toEqual({ marked: 2 });
+
+      // The controller performs NO ownership check of its own — the clause is
+      // in the service's `where` (RISK-AH), so there is exactly one place for
+      // it and it cannot be bypassed by a second caller.
+      expect(notifications.markManyRead).toHaveBeenCalledWith(CTX, [
+        'n_1',
+        'n_2',
+      ]);
+    });
+
+    it('🔴 REJECTS an empty array rather than treating it as a no-op', async () => {
+      // "these, where these is empty" is the ONE phrasing that could ever be
+      // re-read as "all", and that conflation is the irreversible mistake this
+      // endpoint exists to make impossible. Refusing it closes the door instead
+      // of documenting it shut.
+      const errors = await validateBody({ ids: [] });
+
+      expect(errors.map((e) => e.property)).toEqual(['ids']);
+      expect(JSON.stringify(errors)).toContain('arrayNotEmpty');
+    });
+
+    it(`accepts exactly ${MAX_BULK_MARK_READ_IDS} ids, the documented ceiling`, async () => {
+      const ids = Array.from({ length: MAX_BULK_MARK_READ_IDS }, (_, i) =>
+        String(i),
+      );
+
+      await expect(validateBody({ ids })).resolves.toEqual([]);
+    });
+
+    it('rejects one id past the ceiling — an unbounded array is a DoS vector', async () => {
+      const ids = Array.from({ length: MAX_BULK_MARK_READ_IDS + 1 }, (_, i) =>
+        String(i),
+      );
+      const errors = await validateBody({ ids });
+
+      expect(errors.map((e) => e.property)).toEqual(['ids']);
+      expect(JSON.stringify(errors)).toContain('arrayMaxSize');
+    });
+
+    it('derives its ceiling from MAX_PAGE_SIZE rather than copying a number', () => {
+      // The only honest way a member produces a selection is by ticking rows
+      // that are on screen, and the inbox cannot render more than one page.
+      // Deriving means raising the page ceiling cannot leave the two in
+      // disagreement.
+      expect(MAX_BULK_MARK_READ_IDS).toBe(MAX_PAGE_SIZE);
+    });
+
+    it('rejects a bare string — it must never be spread into characters', async () => {
+      // `[...'n_1']` is `['n','_','1']`, and `in: ['n','_','1']` matches
+      // nothing — so without `@IsArray()` the failure is a silent
+      // `{ marked: 0 }` rather than an error anyone sees.
+      const errors = await validateBody({ ids: 'n_1' });
+
+      expect(errors.map((e) => e.property)).toEqual(['ids']);
+    });
+
+    it('rejects a non-string element, an empty one, and an over-long one', async () => {
+      for (const ids of [[1, 2], [''], ['x'.repeat(65)]]) {
+        const errors = await validateBody({ ids });
+        expect({ ids, properties: errors.map((e) => e.property) }).toEqual({
+          ids,
+          properties: ['ids'],
+        });
+      }
+    });
+
+    it('rejects an unknown property (forbidNonWhitelisted)', async () => {
+      const errors = await validateBody({ ids: ['n_1'], all: true });
+
+      expect(errors.map((e) => e.property)).toEqual(['all']);
+    });
+
+    it('accepts a well-formed cuid-shaped selection', async () => {
+      await expect(
+        validateBody({ ids: ['cmsnaworh0001u0bi8w9c0yv8'] }),
+      ).resolves.toEqual([]);
     });
   });
 
@@ -311,7 +450,7 @@ describe('MemberNotificationsController', () => {
       ).toBe('v1/members/notifications');
     });
 
-    it('declares the four method paths plan §3.6 gives it', () => {
+    it('declares the five method paths plan §3.6 gives it', () => {
       const proto =
         MemberNotificationsController.prototype as unknown as Record<
           string,
@@ -331,13 +470,62 @@ describe('MemberNotificationsController', () => {
         path: ':id/read',
         verb: RequestMethod.POST,
       });
+      expect(route('markManyRead')).toEqual({
+        path: 'read',
+        verb: RequestMethod.POST,
+      });
       expect(route('markAllRead')).toEqual({
         path: 'read-all',
         verb: RequestMethod.POST,
       });
     });
 
-    it("🔴 both POSTs answer 200, not Nest's default 201", () => {
+    it('🔴 RI-3 — `read` cannot be swallowed by `:id/read`', () => {
+      // Different SEGMENT COUNTS never unify: `read` is one segment under the
+      // controller prefix, `:id/read` is two. `POST .../read` therefore cannot
+      // reach `markRead` with `id === 'read'` — that would require the path
+      // `.../read/read`. Asserted structurally here and proven live against a
+      // running server, because the consequence of being wrong is that a bulk
+      // request silently marks ONE row and reports success.
+      const proto =
+        MemberNotificationsController.prototype as unknown as Record<
+          string,
+          object
+        >;
+      const segments = (method: string) =>
+        (Reflect.getMetadata(PATH_METADATA, proto[method]) as string)
+          .split('/')
+          .filter(Boolean).length;
+
+      expect(segments('markManyRead')).toBe(1);
+      expect(segments('markAllRead')).toBe(1);
+      expect(segments('markRead')).toBe(2);
+    });
+
+    it('🔴 there is no un-read route — the writes are one / these / all', () => {
+      // The reason `read` had to exist. Nothing here can mark a notification
+      // UNREAD, so serving a partial selection with `read-all` would destroy
+      // unread state the member never selected, permanently. A route added
+      // later that could reverse a read would change that calculus, and it
+      // should be a conscious decision rather than a quiet one.
+      const proto =
+        MemberNotificationsController.prototype as unknown as Record<
+          string,
+          object
+        >;
+      const posts = Object.getOwnPropertyNames(proto)
+        .filter(
+          (name) =>
+            Reflect.getMetadata(METHOD_METADATA, proto[name]) ===
+            RequestMethod.POST,
+        )
+        .map((name) => Reflect.getMetadata(PATH_METADATA, proto[name]))
+        .sort();
+
+      expect(posts).toEqual([':id/read', 'read', 'read-all']);
+    });
+
+    it("🔴 all three POSTs answer 200, not Nest's default 201", () => {
       // Nothing is created: this is idempotent state on a row that already
       // exists. A client branching on the status would be reading a lie, and
       // the lie would be a framework default rather than anyone's decision.
@@ -350,6 +538,9 @@ describe('MemberNotificationsController', () => {
       expect(Reflect.getMetadata(HTTP_CODE_METADATA, proto['markRead'])).toBe(
         200,
       );
+      expect(
+        Reflect.getMetadata(HTTP_CODE_METADATA, proto['markManyRead']),
+      ).toBe(200);
       expect(
         Reflect.getMetadata(HTTP_CODE_METADATA, proto['markAllRead']),
       ).toBe(200);
@@ -385,7 +576,7 @@ describe('MemberNotificationsController', () => {
           string,
           object
         >;
-      for (const method of ['unreadCount', 'markAllRead']) {
+      for (const method of ['unreadCount', 'markManyRead', 'markAllRead']) {
         const path = Reflect.getMetadata(
           PATH_METADATA,
           proto[method],

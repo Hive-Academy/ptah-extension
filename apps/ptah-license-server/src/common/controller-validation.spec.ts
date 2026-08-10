@@ -246,8 +246,30 @@ const EXCLUDED: ReadonlyArray<{
  * `ListNotificationsQueryDto`; a single `@Query('page') page: string` there
  * would make the total read 78 against a named count of 7 and the arithmetic
  * would not close. `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 77 -> 78, TASK_2026_177 Phase 5 follow-up (bulk mark-read) ─────────────
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 78`.
+ *
+ * **+1, AND IT IS THE WHOLE CHANGE.** One route is added to an EXISTING
+ * controller — no new controller, so `ALL_CONTROLLERS` and the census are
+ * untouched:
+ *
+ *   notifications/MemberNotificationsController.markManyRead
+ *       `@Body(dtoPipe(MarkNotificationsReadDto))`                          +1
+ *                                                                          ---
+ *                                              71 + 1 = 72 whole-object
+ *                                                       72 + 6 = 78 total
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND THAT IS AGAIN THE
+ * LOAD-BEARING HALF (RISK-I). The obvious alternative shape for this endpoint
+ * is `POST .../read?ids=a,b,c` — one `@Query('ids') ids: string`. That would
+ * make the total read 78 against a named count of 7 and the arithmetic here
+ * would not close, which is one of three reasons the ids travel in a `@Body()`
+ * (the others: a query string's length is bounded by the server's URL limit
+ * rather than by `@ArrayMaxSize`, and every proxy in the path logs it).
+ * `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 77;
+const MIN_TOTAL_PAYLOAD_PARAMS = 78;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

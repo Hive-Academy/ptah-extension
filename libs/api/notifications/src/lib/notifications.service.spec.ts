@@ -91,10 +91,40 @@ function seedRow(overrides: Partial<Row> = {}): Row {
   };
 }
 
+/**
+ * The one Prisma OPERATOR this store models — `{ in: [...] }`, set membership.
+ *
+ * 🔴 IT IS MODELLED RATHER THAN COLLAPSED TO EQUALITY BECAUSE OF WHAT AN
+ * EMPTY LIST MEANS. `in: []` matches NOTHING; `undefined` in the same position
+ * means NO CONSTRAINT and would match EVERYTHING. `markManyRead` depends on the
+ * first of those, and the difference between them is the difference between an
+ * empty selection doing nothing and an empty selection marking a member's
+ * entire inbox read, irreversibly. A double that treated the whole `where` as
+ * equality could not tell those two apart.
+ */
+function isInFilter(value: unknown): value is { in: readonly unknown[] } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Array.isArray((value as { in?: unknown }).in)
+  );
+}
+
 function matches(row: Row, where: Where): boolean {
   return Object.entries(where).every(([key, expected]) => {
     const actual = (row as unknown as Record<string, unknown>)[key];
     if (expected === null) return actual === null;
+    if (isInFilter(expected)) return expected.in.includes(actual);
+    if (typeof expected === 'object') {
+      // ⚠️ LOUD, NOT QUIET. An implementation reaching for an operator this
+      // store does not model (`not`, `gte`, `contains`, …) would otherwise
+      // match zero rows and let an assertion pass for the wrong reason.
+      throw new Error(
+        `The notification store models scalar equality, null and { in: [...] } ` +
+          `only. The where clause used an unmodelled operator on "${key}": ` +
+          `${JSON.stringify(expected)}. Model it here before relying on it.`,
+      );
+    }
     return actual === expected;
   });
 }
@@ -660,6 +690,143 @@ describe('NotificationsService', () => {
 
       expect(result.readAt).toBe(original.toISOString());
       expect(store.rows[0]?.readAt).toEqual(original);
+    });
+
+    /* -------------------------------------------------------------------- */
+    /* markManyRead — the bulk write, and the property it exists to preserve  */
+    /* -------------------------------------------------------------------- */
+
+    it('markManyRead puts userId AND the id set in one where', async () => {
+      const { prisma, notification } = createStore([
+        seedRow({ id: 'a1' }),
+        seedRow({ id: 'a2' }),
+      ]);
+      const service = new NotificationsService(prisma);
+
+      await service.markManyRead(ctxFor(ALICE), ['a1', 'a2']);
+
+      const args = notification.updateMany.mock.calls[0]?.[0] as {
+        where: unknown;
+      };
+      expect(args.where).toEqual({
+        id: { in: ['a1', 'a2'] },
+        userId: ALICE,
+        readAt: null,
+      });
+      // ONE statement, not N. And never findMany → filter → update: that shape
+      // has a window between the read and the write and READS as correct.
+      expect(notification.updateMany).toHaveBeenCalledTimes(1);
+      expect(notification.findMany).not.toHaveBeenCalled();
+    });
+
+    it("🔴 identity B cannot mark identity A's notifications read in bulk", async () => {
+      // THE SINGLE MOST IMPORTANT ASSERTION IN THIS ENDPOINT. B names three
+      // ids: one of A's, one that never existed, and one of B's own.
+      const store = createStore([
+        seedRow({ id: 'a1', userId: ALICE }),
+        seedRow({ id: 'a2', userId: ALICE }),
+        seedRow({ id: 'b1', userId: BOB }),
+      ]);
+      const service = new NotificationsService(store.prisma);
+
+      const result = await service.markManyRead(ctxFor(BOB), [
+        'a1',
+        'does-not-exist',
+        'b1',
+      ]);
+
+      // Only B's own row moved. `marked` does not distinguish A's real id from
+      // an id that never existed — both simply are not counted, so the response
+      // is not an existence oracle over guessable cuids.
+      expect(result).toEqual({ marked: 1 });
+      expect(store.rows.find((r) => r.id === 'a1')?.readAt).toBeNull();
+      expect(store.rows.find((r) => r.id === 'a2')?.readAt).toBeNull();
+      expect(store.rows.find((r) => r.id === 'b1')?.readAt).toBeInstanceOf(
+        Date,
+      );
+    });
+
+    it("naming ONLY another member's ids answers exactly what naming nothing real answers", async () => {
+      const store = createStore([seedRow({ id: 'a1', userId: ALICE })]);
+      const service = new NotificationsService(store.prisma);
+
+      const notYours = await service.markManyRead(ctxFor(BOB), ['a1']);
+      const notFound = await service.markManyRead(ctxFor(BOB), ['nope']);
+
+      expect(notYours).toEqual(notFound);
+      expect(notYours).toEqual({ marked: 0 });
+      expect(store.rows[0]?.readAt).toBeNull();
+    });
+
+    it('marks exactly the named rows and leaves the UNNAMED ones unread', async () => {
+      // The whole point of the endpoint: a partial selection must not become
+      // `read-all`. `a3` is unread, unselected, and must stay that way.
+      const store = createStore([
+        seedRow({ id: 'a1' }),
+        seedRow({ id: 'a2' }),
+        seedRow({ id: 'a3' }),
+      ]);
+      const service = new NotificationsService(store.prisma);
+
+      await expect(
+        service.markManyRead(ctxFor(ALICE), ['a1', 'a2']),
+      ).resolves.toEqual({ marked: 2 });
+
+      expect(store.rows.find((r) => r.id === 'a3')?.readAt).toBeNull();
+    });
+
+    it('🔴 an EMPTY selection marks NOTHING — it does not mark everything', async () => {
+      // `in: []` matches no rows. The tempting `ids.length ? { in: ids } :
+      // undefined` would make this same call mark A's entire inbox read, with
+      // a 200, irreversibly. The DTO rejects an empty array before it reaches
+      // here; this asserts the service is safe even if that rejection were
+      // removed.
+      const store = createStore([seedRow({ id: 'a1' }), seedRow({ id: 'a2' })]);
+      const service = new NotificationsService(store.prisma);
+
+      await expect(service.markManyRead(ctxFor(ALICE), [])).resolves.toEqual({
+        marked: 0,
+      });
+      expect(store.rows.every((r) => r.readAt === null)).toBe(true);
+    });
+
+    it('does not rewrite an already-read timestamp inside the selection', async () => {
+      const original = new Date('2026-07-01T09:00:00.000Z');
+      const store = createStore([
+        seedRow({ id: 'a1', readAt: original }),
+        seedRow({ id: 'a2' }),
+      ]);
+      const service = new NotificationsService(store.prisma);
+
+      await expect(
+        service.markManyRead(ctxFor(ALICE), ['a1', 'a2']),
+      ).resolves.toEqual({ marked: 1 });
+
+      expect(store.rows.find((r) => r.id === 'a1')?.readAt).toEqual(original);
+    });
+
+    it('counts a duplicated id once — `in` is set membership', async () => {
+      const store = createStore([seedRow({ id: 'a1' })]);
+      const service = new NotificationsService(store.prisma);
+
+      await expect(
+        service.markManyRead(ctxFor(ALICE), ['a1', 'a1', 'a1']),
+      ).resolves.toEqual({ marked: 1 });
+    });
+
+    it('returns the same field and meaning markAllRead returns', async () => {
+      // The three writes stay consistent: `marked` is "rows this call moved",
+      // never "the new unread count". A client conflating the two would zero a
+      // badge that should not have moved.
+      const store = createStore([seedRow({ id: 'a1' }), seedRow({ id: 'a2' })]);
+      const service = new NotificationsService(store.prisma);
+
+      const many = await service.markManyRead(ctxFor(ALICE), ['a1']);
+      const all = await service.markAllRead(ctxFor(ALICE));
+
+      expect(Object.keys(many)).toEqual(Object.keys(all));
+      expect(many).toEqual({ marked: 1 });
+      expect(all).toEqual({ marked: 1 });
     });
 
     it("markAllRead touches exactly one member's unread rows", async () => {

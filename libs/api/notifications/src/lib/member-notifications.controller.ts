@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -26,35 +27,46 @@ import {
   ListNotificationsQueryDto,
   resolveNotificationPage,
 } from './dto/list-notifications.query.dto';
+import { MarkNotificationsReadDto } from './dto/mark-notifications-read.dto';
 import { NotificationsService } from './notifications.service';
 
 /**
  * `MemberNotificationsController` — `/api/v1/members/notifications` (R10.3,
  * R10.4, R10.5, plan §3.6).
  *
- * ── ONE PREFIX, FOUR ROUTES, AND `unread-count` / `read-all` ARE NOT SIBLING
- *    CONTROLLERS (RI-1, ground truth 11) ────────────────────────────────────
+ * ── ONE PREFIX, FIVE ROUTES, AND `unread-count` / `read` / `read-all` ARE NOT
+ *    SIBLING CONTROLLERS (RI-1, ground truth 11) ─────────────────────────────
  * `v1/members/notifications` is a single depth-3 literal prefix joining the nine
  * that already exist (`entitlement`, `hub`, `sessions`, `session-requests`,
  * `live`, `community`, `courses`, `lesson-comments`, `search`); segment 3
- * differs in every pair. `unread-count`, `:id/read` and `read-all` are METHOD
- * PATHS INSIDE this controller, so RI-1 sees one prefix and has nothing to
- * arbitrate. `route-map.spec.ts`'s two excuse ledgers (`PREFIX_EXCEPTIONS`,
+ * differs in every pair. `unread-count`, `:id/read`, `read` and `read-all` are
+ * METHOD PATHS INSIDE this controller, so RI-1 sees one prefix and has nothing
+ * to arbitrate. `route-map.spec.ts`'s two excuse ledgers (`PREFIX_EXCEPTIONS`,
  * `KNOWN_PREFIX_DEBT`) gain nothing.
  *
- * ⚠️ RI-3 — `unread-count` and `read-all` ARE LITERALS AT THE SAME DEPTH AS
- * `:id/read`'s FIRST SEGMENT, and they do not contest it: `GET unread-count`
- * has no `@Post` twin, and `POST read-all` is one segment where `POST :id/read`
- * is two. Nest also matches literals before parameters within a controller, so
- * even the near-miss resolves the way a reader expects.
+ * ⚠️ RI-3 — `unread-count`, `read` and `read-all` ARE LITERALS AT THE SAME
+ * DEPTH AS `:id/read`'s FIRST SEGMENT, and none of them contests it:
+ * `GET unread-count` has no `@Post` twin, and `POST read` / `POST read-all` are
+ * ONE segment where `POST :id/read` is TWO — different segment counts never
+ * unify. `read` and `read-all` are two distinct literals and do not contest
+ * each other. Nest also matches literals before parameters within a controller,
+ * so even the near-miss resolves the way a reader expects.
+ *
+ * ── THE THREE WRITES ARE ONE / THESE / ALL, AND THERE IS NO UN-READ ────────
+ * `POST :id/read` marks one, `POST read` marks exactly the ids in its body, and
+ * `POST read-all` marks the member's whole inbox. Nothing on this surface can
+ * mark a notification UNREAD, which is why the middle route exists: without it
+ * a partial selection had to be served by `read-all`, destroying unread state
+ * the member never selected, irreversibly.
  *
  * ── 🔴 NO NAMED PRIMITIVE `@Query`, ANYWHERE (ground truth 10) ────────────
  * `NAMED_PRIMITIVE_PARAM_COUNT` is asserted by EXACT EQUALITY at 6. `page` and
- * `pageSize` arrive inside {@link ListNotificationsQueryDto}, bound with
- * `dtoPipe` (PRE-1). `@Param('id')` is a PATH parameter, not a `@Query`, and it
- * is the one named primitive this surface has — the census counts route-arg
- * `data` on payload params, and a `:id` path segment is how every other member
- * controller in this task addresses a row.
+ * `pageSize` arrive inside {@link ListNotificationsQueryDto}, and `ids` inside
+ * {@link MarkNotificationsReadDto}, both bound with `dtoPipe` (PRE-1).
+ * `@Param('id')` is a PATH parameter, not a `@Query`, and it is the one named
+ * primitive this surface has — the census counts route-arg `data` on payload
+ * params, and a `:id` path segment is how every other member controller in this
+ * task addresses a row.
  *
  * ── 🔴 NO SSE, NO WEBSOCKET, NO LONG-POLL, NO EMAIL (AD-14, R10.5, §5) ────
  * The badge is a plain `GET` on a ≥60 s client timer. `libs/api/licensing`
@@ -141,6 +153,45 @@ export class MemberNotificationsController {
     @Param('id') id: string,
   ): Promise<{ readAt: string | null }> {
     return this.notifications.markRead(this.context(req), id);
+  }
+
+  /**
+   * `POST read` — mark EXACTLY the notifications named in the body (R10.4).
+   *
+   * ── 🔴 WHY IT IS NOT SERVED BY `read-all` ────────────────────────────────
+   * A selection toolbar means "act on the N things I selected". Before this
+   * route the surface offered ONE row or THE WHOLE INBOX and nothing between,
+   * so a partial selection had to choose between N round trips and `read-all`
+   * — which marks rows the member never selected, INCLUDING ROWS ON PAGES THEY
+   * HAVE NEVER SEEN. There is deliberately no un-read endpoint anywhere here,
+   * so that over-reach cannot be undone. This route is the honest middle.
+   *
+   * 🔴 `POST read` DOES NOT CONTEST `POST :id/read` (RI-3). It is FOUR path
+   * segments where `:id/read` is FIVE, and different segment counts never
+   * unify — so `route-map.spec.ts`'s `KNOWN_CONTESTED` ledger gains nothing.
+   * It does not contest `read-all` either: two distinct literals at the same
+   * depth. The trio now reads one / these / all.
+   *
+   * ⚠️ THE IDS ARRIVE IN A `@Body()` RATHER THAN A `?ids=` QUERY, AND THAT IS
+   * NOT A STYLE CHOICE. A query string is bounded by the server's URL limit
+   * rather than by anything this code controls, it is logged by every proxy in
+   * the path, and `NAMED_PRIMITIVE_PARAM_COUNT` is an EXACT equality at 6 —
+   * `@Query('ids')` would make it 7 and fail the build, deliberately.
+   *
+   * `200` for the same reason as the other two writes: nothing is created.
+   * `marked` is how many rows this call ACTUALLY moved — the identical field
+   * and meaning `read-all` returns, so the three writes stay consistent. Ids
+   * that do not exist, are already read, or belong to another member each
+   * contribute zero and are not reported individually (RISK-AH: a per-id
+   * result is an existence oracle over guessable cuids).
+   */
+  @Post('read')
+  @HttpCode(200)
+  async markManyRead(
+    @Req() req: Request,
+    @Body(dtoPipe(MarkNotificationsReadDto)) body: MarkNotificationsReadDto,
+  ): Promise<{ marked: number }> {
+    return this.notifications.markManyRead(this.context(req), body.ids);
   }
 
   /**

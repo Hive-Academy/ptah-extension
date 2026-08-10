@@ -136,10 +136,12 @@ export {
   type MemberPack,
 } from './lib/member/member-pack.contract';
 export {
+  MAX_BULK_MARK_READ_IDS,
   hubNotificationSummarySchema,
   memberNotificationSchema,
   type HubNotificationSummary,
   type MemberNotification,
+  type MarkNotificationsReadRequest,
 } from './lib/member/member-notification.contract';
 export {
   memberSessionRequestSchema,

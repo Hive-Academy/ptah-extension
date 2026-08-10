@@ -8,6 +8,7 @@ import type {
   NotificationKind,
   NotificationTargetType,
 } from '../shared/notification-kind';
+import { MAX_PAGE_SIZE } from '../shared/paged';
 
 /**
  * MEMBER-facing notification contracts — R10.
@@ -42,14 +43,22 @@ import type {
  * admin-publish action has no admin surface in this task (RK-1), and a producer
  * for an action nobody can take is dead code. The kind stays in the enum.
  *
- * ⚠️ THE TWO WRITE ENDPOINTS HAVE NO RESPONSE CONTRACT HERE, DELIBERATELY.
- * `POST :id/read` returns `{ readAt }` and `POST read-all` returns
- * `{ marked }`, but the client treats both as FIRE-AND-REFETCH: it decrements
- * optimistically and then re-reads the count from
- * `GET .../unread-count`, which is the only writer of the badge. Nothing parses
- * either body, so declaring a schema for them would add two exported symbols
- * with no boundary to guard. If a client ever reads one of those bodies, the
- * contract is added THEN, in the change that reads it.
+ * ⚠️ THE THREE WRITE ENDPOINTS HAVE NO RESPONSE CONTRACT HERE, DELIBERATELY.
+ * `POST :id/read` returns `{ readAt }`, and `POST read` and `POST read-all`
+ * both return `{ marked }`, but the client treats all three as
+ * FIRE-AND-REFETCH: it decrements optimistically and then re-reads the count
+ * from `GET .../unread-count`, which is the only writer of the badge. Nothing
+ * parses any of those bodies, so declaring schemas for them would add exported
+ * symbols with no boundary to guard. If a client ever reads one of those
+ * bodies, the contract is added THEN, in the change that reads it.
+ *
+ * ⚠️ {@link MarkNotificationsReadRequest} IS A REQUEST SHAPE AND HAS NO ZOD
+ * SCHEMA, FOR THE SAME REASON READ BACKWARDS. A client does not parse its own
+ * outgoing body; the boundary that has to reject a malformed one is the
+ * SERVER's, and there it is `MarkNotificationsReadDto` bound with `dtoPipe`
+ * (`libs/api/notifications`). The type is declared here so the field name and
+ * {@link MAX_BULK_MARK_READ_IDS} are single-sourced across the two sides — the
+ * two things that CAN drift — and nothing more.
  */
 
 /**
@@ -123,3 +132,60 @@ export const memberNotificationSchema = z.object({
   readAt: z.string().nullable(),
   createdAt: z.string(),
 }) satisfies z.ZodType<MemberNotification>;
+
+/**
+ * The largest selection `POST /v1/members/notifications/read` will accept.
+ *
+ * 🔴 AN UNBOUNDED ID ARRAY IS A DoS VECTOR, AND THE BOUND IS NOT AN ARBITRARY
+ * ROUND NUMBER. It is {@link MAX_PAGE_SIZE} — DERIVED, not copied — because the
+ * only honest way a member produces a selection is by ticking rows that are on
+ * screen, and the inbox cannot render more than one page at a time. A request
+ * naming more ids than the largest page the same API will serve is not a
+ * selection; it is a client that has stopped describing what the member did.
+ *
+ * Deriving it also means the two numbers cannot drift into disagreement: raise
+ * the page ceiling and the largest possible selection follows it by
+ * construction, with no second edit to forget.
+ *
+ * ⚠️ A member who wants their WHOLE inbox marked read has `POST read-all`,
+ * which takes no ids at all and is not bounded by this. This cap constrains
+ * "these N", never "all".
+ */
+export const MAX_BULK_MARK_READ_IDS = MAX_PAGE_SIZE;
+
+/**
+ * The body of `POST /v1/members/notifications/read` — mark exactly the named
+ * notifications read (R10.4).
+ *
+ * ⚠️ WHY THIS ENDPOINT EXISTS AT ALL. Before it there were two writes: one row
+ * (`POST :id/read`) and THE WHOLE INBOX (`POST read-all`). A selection toolbar
+ * — a control whose entire semantic is "act on the N things I selected" — could
+ * be served by neither: `read-all` marks rows the member never selected,
+ * including rows on pages they have never seen, and nothing can un-read a row,
+ * so that over-reach is permanent. N separate `:id/read` calls were correct and
+ * cost N round trips.
+ *
+ * ⚠️ `ids` IS NEVER EMPTY, AND THE SERVER REJECTS AN EMPTY ARRAY WITH A `400`
+ * RATHER THAN TREATING IT AS A NO-OP. The toolbar renders nothing at zero
+ * selected, so an empty array is a client bug — but that is the smaller half of
+ * the reason. The larger half is that "these, where these is empty" is the one
+ * phrasing that could ever be re-read as "all", and conflating those two is
+ * precisely the irreversible mistake this endpoint was added to make
+ * impossible. Refusing it closes that door permanently instead of documenting
+ * it shut.
+ *
+ * ⚠️ AN ID THAT DOES NOT EXIST, IS ALREADY READ, OR BELONGS TO ANOTHER MEMBER
+ * IS NOT AN ERROR. It contributes zero to `marked` and the call still answers
+ * `200`. A per-id failure report would tell a caller which of the ids they
+ * guessed are real — an existence oracle over guessable cuids, and the same
+ * reason `POST :id/read` answers `{ readAt: null }` for both a missing id and
+ * someone else's.
+ */
+export interface MarkNotificationsReadRequest {
+  /**
+   * The notification ids to mark read. 1..{@link MAX_BULK_MARK_READ_IDS}
+   * entries. Duplicates are harmless — the server matches with a set `in`, so a
+   * repeated id is counted once.
+   */
+  ids: string[];
+}

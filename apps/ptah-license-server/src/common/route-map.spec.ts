@@ -430,10 +430,25 @@ const EXPECTED_ROUTES: readonly string[] = [
   // in `PacksModule` is mounted under `v1/admin/`, and Phase 5 did not weaken
   // it — the member controller lives in the same DIRECTORY and a different
   // MODULE.
+  //
+  // ── TASK_2026_177 Phase 5 follow-up: the bulk mark-read route ─────────────
+  //
+  // 🔴 `POST v1/members/notifications/read` DOES NOT CONTEST
+  // `POST v1/members/notifications/:id/read`, AND THE REASON IS ARITHMETIC
+  // RATHER THAN LUCK: four segments against five, and `unifiable()` returns
+  // false for any pair of differing segment counts (its own hand-computed table
+  // in the anti-vacuity block pins that — `v1/admin/:model` vs
+  // `v1/admin/packs/:id` is `false`). It does not contest `read-all` either:
+  // two distinct literals at the same depth. `KNOWN_CONTESTED` stays empty.
+  //
+  // The controller prefix is UNCHANGED, so RI-1 still sees
+  // `v1/members/notifications` exactly once and neither `PREFIX_EXCEPTIONS` nor
+  // `KNOWN_PREFIX_DEBT` gains an entry — both stay at their floor.
   'GET v1/members/notifications',
   'GET v1/members/notifications/unread-count',
   'GET v1/members/packs',
   'POST v1/members/notifications/:id/read',
+  'POST v1/members/notifications/read',
   'POST v1/members/notifications/read-all',
   // ── everything that existed before ──────────────────────────────────────
   'DELETE v1/admin/groups/:id/members/:userId',

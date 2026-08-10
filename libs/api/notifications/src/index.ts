@@ -12,6 +12,7 @@
 // `NotificationTargetType` and `MemberNotification` are owned there; a second
 // export site for one vocabulary is a second place for it to drift.
 export * from './lib/dto/list-notifications.query.dto';
+export * from './lib/dto/mark-notifications-read.dto';
 export * from './lib/member-notifications.controller';
 export * from './lib/notification-kinds';
 export * from './lib/notifications.module';

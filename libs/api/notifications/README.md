@@ -14,9 +14,30 @@ this server.
 | `notifications.service.ts`            | THE write facade + the three member reads. Owns the R10.2 self-suppression         |
 | `notification-retention.service.ts`   | `@Cron` daily 04:00 — deletes READ notifications older than 90 days (R10.6)        |
 | `notification-kinds.ts`               | `buildNotificationRoute` — the ONE place a stored `route` is constructed (RISK-AJ) |
-| `member-notifications.controller.ts`  | `GET /`, `GET unread-count`, `POST :id/read`, `POST read-all`                      |
+| `member-notifications.controller.ts`  | `GET /`, `GET unread-count`, `POST :id/read`, `POST read`, `POST read-all`         |
 | `dto/list-notifications.query.dto.ts` | Whole-object query DTO; `pageSize > 50` is a `400`, not a clamp                    |
+| `dto/mark-notifications-read.dto.ts`  | Whole-object body DTO; `ids` is 1..50 bounded strings, empty is a `400`            |
 | `notifications.module.ts`             | `@Global()`; exports `NotificationsService` and nothing else                       |
+
+## The three writes are one / these / all, and there is no un-read
+
+`POST :id/read` marks one row, `POST read` marks exactly the ids in its body, and
+`POST read-all` marks the member's whole inbox. **Nothing here can mark a
+notification UNREAD**, and that is what makes the middle route necessary rather
+than convenient: with only the outer two, a partial selection had to be served by
+`read-all`, which marks rows the member never selected — including rows on pages
+they have never seen — and that over-reach cannot be undone.
+
+All three carry `userId: ctx.userId` **in the `where`**, never as a check after a
+read. `POST read` additionally spreads its ids in unconditionally: `in: []`
+matches nothing, whereas an `undefined` filter would mean NO CONSTRAINT and mark
+the member's entire inbox read. `MarkNotificationsReadDto` rejects an empty array
+before it can get that far, and the service is written to be safe even if that
+rejection were removed.
+
+An id that does not exist, is already read, or belongs to another member is not
+an error: it contributes zero to `marked` and the call still answers `200`. A
+per-id failure report would be an existence oracle over guessable cuids.
 
 ## Why the suppression is a SERVICE and not four inline `create` calls
 
@@ -124,6 +145,14 @@ on a ≥60 s client timer (AD-14, R10.5). `libs/api/licensing`'s `@Sse` endpoint
 not imported, extended or referenced. There are no notification preferences, no
 mute settings and no per-kind opt-out. There is no admin surface: R10 describes a
 member-owned inbox, and if one is ever added it goes in `admin/`, re-declared.
+
+**There is deliberately no mark-UNREAD endpoint.** It was considered when
+`POST read` was added and not chosen: the bulk route removes the reason anyone
+wanted one (a partial selection no longer has to over-reach through `read-all`),
+and an un-read write would give `readAt` a second meaning — "when you read it"
+becomes "when you last chose to say you had". The badge, the retention prune
+(which deletes READ rows only) and the client's optimistic decrement all read
+that column as monotonic.
 
 **Four of the five `NOTIFICATION_KINDS` have a producer.** `announcement` is
 declared, accepted by the service, and written by nothing — R10.1's admin-publish
