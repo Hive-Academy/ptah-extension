@@ -278,6 +278,90 @@ capture it on a quiet machine (or the scratch-repo methodology again with
 tooling running — a live-repo run could misleadingly report "0" for the
 wrong reason (debounce starvation) even before the B4 fix lands.
 
+### AFTER — Batch 5 (B4), captured 2026-08-10
+
+**Result: 1 `git status` invocation over the 60-second window, and that one
+invocation was triggered by the deliberate tracked-source-file edit.
+Invocations attributable to excluded (cache) paths: 0. Target MET.**
+
+| Metric                                                     | Baseline (pre-B4) | Paired control (pre-B4 predicate, same session) | **After (B4)** |
+| ---------------------------------------------------------- | ----------------- | ----------------------------------------------- | -------------- |
+| `git status` invocations / 60 s                            | 25                | 26                                              | **1**          |
+| GIT_TRACE stderr lines (1 per invocation)                  | 25                | 26                                              | **1**          |
+| Qualifying (non-excluded) fs events                        | 734 (live repo)   | 170                                             | **2**          |
+| Invocations attributable to `.nx` / `.angular` cache churn | 25                | 26                                              | **0**          |
+| Mid-window tracked-file change fired its own status update | Yes               | Yes (latency 2923 ms)                           | **Yes**        |
+
+- **Sample count**: 2 after-runs (60 s each), both returning **1** invocation
+  and **2** qualifying events — median 1, max 1, no spread. Plus 1 paired
+  control run (60 s) on the same machine, same scratch repo, same session.
+- **Why a paired control was added.** The recorded baseline (25) was captured
+  in an earlier session under unknown ambient load. Re-running the _old_
+  predicate immediately before the after-run, on the same scratch repo and
+  machine, removes that confound. The control reproduced **26** against the
+  recorded **25** — a 4% delta, confirming the environment is stable and the
+  before/after comparison is apples-to-apples. The drop to 1 is therefore
+  attributable to the exclusion change, not to a quieter machine.
+- **Workload**: identical to the baseline — isolated scratch git repository at
+  `C:\temp\ptah-m3-scratch-after` (`git init`, one tracked file `src/file.ts`,
+  empty `.nx/cache` + `.angular/cache`), synthetic probe writes into both cache
+  directories every 2200 ms (28 writes to each over 60 s), `WORKSPACE_DEBOUNCE_MS`
+  unchanged at 2000 ms.
+- **Method**: `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`,
+  whose exclusion predicate was updated in this batch to mirror the new
+  `WATCH_IGNORED_DIRS` / `isExcludedWorkspacePath` from
+  `libs/shared/src/lib/constants/workspace-scan.constants.ts`. Counts
+  `GIT_TRACE=1` stderr lines, one per invocation.
+- **Machine**: same Windows 11 dev workstation as the baseline; the live
+  monorepo was deliberately NOT used, per the FINDING above.
+- **Reproduce**:
+  ```bash
+  mkdir -p /c/temp/ptah-m3-scratch-after/src \
+           /c/temp/ptah-m3-scratch-after/.nx/cache \
+           /c/temp/ptah-m3-scratch-after/.angular/cache
+  cd /c/temp/ptah-m3-scratch-after
+  git init -q && git config user.email m3@test.local && git config user.name M3
+  printf 'export const x = 1;\n' > src/file.ts
+  printf '.nx/\n.angular/\n' > .gitignore
+  git add -A && git commit -q -m init
+  node <repo>/apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs \
+    "C:\temp\ptah-m3-scratch-after" 60000 "src/file.ts"
+  ```
+
+#### B4 AC3 — genuine changes still surface (the R-9 mitigation)
+
+This is the half of the measurement that distinguishes a fix from a broken
+watcher, and it passes on the strongest available evidence: the **single**
+status invocation in the after-window was triggered by the tracked source file,
+by name. The script's own invocation log:
+
+```json
+"statusInvocations": 1,
+"midWindowProbeFired": true,
+"midWindowProbeConfirmedByStatusCall": true,
+"invocationLog": [
+  { "t": 1786368874011, "trigger": "change:src\\file.ts", "traceLineCount": 1 }
+]
+```
+
+The mid-window edit to `src/file.ts` produced its own `git status` inside the
+unchanged 2000 ms debounce window. Nothing else did. An after-figure of "0"
+would in fact have been a **failure signal** here, not a better result — it
+would have meant the tracked-file edit was swallowed too.
+
+#### Honest caveats
+
+- The after-figure's precision (1, twice, zero spread) comes from the
+  controlled scratch repo. It is not a claim about absolute invocation counts
+  during a real `nx build` on a busy machine; it is a claim about the
+  _mechanism_ — writes under `.nx/` and `.angular/` no longer re-arm the
+  debounce timer, and writes under `src/` still do.
+- The script's exclusion list is a hand-maintained third copy living in the e2e
+  harness (it is `.mjs` run by bare `node` and cannot import the TypeScript
+  shared constant without dragging the harness into the build graph). It now
+  carries an explicit ⚠️ pointer at `workspace-scan.constants.ts`. Flagged as a
+  known follow-up, not silently accepted.
+
 ---
 
 ## M4 — change-detection passes during sidebar-splitter drag

@@ -12,13 +12,23 @@
  * and would only add noise and risk to a 60s timing window.
  *
  * Replicated behavior, with the exact source it mirrors:
- *   - Exclusion predicate: `.git/`, `node_modules/`, `dist/` only — NOT
- *     `.nx/` or `.angular/`. (git-watcher.service.ts:376-393,
+ *   - Exclusion predicate: `WATCH_IGNORED_DIRS` + `isExcludedWorkspacePath`,
+ *     segment-level. (libs/shared/src/lib/constants/workspace-scan.constants.ts,
+ *     consumed by `GitWatcherService.isIgnoredWorkspaceEvent` /
  *     `watchWorkspaceRoot`)
  *   - Debounce: WORKSPACE_DEBOUNCE_MS = 2000ms, timer reset on every
- *     qualifying event. (git-watcher.service.ts:102, :394-397)
+ *     qualifying event. (git-watcher.service.ts:114, `scheduleUpdate`)
  *   - The fetch itself: `git status --porcelain=v2 --branch`.
  *     (git-info.service.ts:54-55, `GitInfoService.getGitInfo`)
+ *
+ * ⚠️ THE EXCLUSION LIST BELOW IS A HAND-MAINTAINED COPY. It cannot import the
+ * shared constant: this file is plain `.mjs` executed by bare `node`, while
+ * `workspace-scan.constants.ts` is TypeScript behind the `@ptah-extension/shared`
+ * path mapping, with no node-resolvable build artifact at a stable location.
+ * Adding a build step purely to feed a measurement script would drag this
+ * harness into the build graph and forfeit the "zero product-code change"
+ * property that makes the M3 before/after numbers comparable.
+ * **If you change `workspace-scan.constants.ts`, update `IGNORED_DIRS` below.**
  *
  * Workload: rather than shelling out a full multi-minute `nx build` (slow,
  * non-deterministic wall-clock, and this repo's dev build is already the
@@ -95,23 +105,31 @@ function scheduleUpdate(trigger) {
   }, WORKSPACE_DEBOUNCE_MS);
 }
 
-/** Mirrors git-watcher.service.ts:376-393 exactly. */
+/**
+ * Hand-maintained mirror of `WATCH_IGNORED_DIRS` in
+ * libs/shared/src/lib/constants/workspace-scan.constants.ts — see the
+ * ⚠️ note in the file header for why it cannot be imported.
+ */
+const IGNORED_DIRS = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  '.DS_Store',
+  '.Trash',
+  '.cache',
+  '.tmp',
+  '.temp',
+  '.nx',
+  'node_modules',
+  'dist',
+  '.angular',
+]);
+
+/** Mirrors `isExcludedWorkspacePath(filename, WATCH_IGNORED_DIRS)`. */
 function isExcluded(filename) {
-  if (typeof filename !== 'string') return false;
-  if (
-    filename.startsWith('.git/') ||
-    filename.startsWith('.git\\') ||
-    filename === '.git'
-  ) {
-    return true;
-  }
-  if (
-    filename.startsWith('node_modules/') ||
-    filename.startsWith('node_modules\\') ||
-    filename.startsWith('dist/') ||
-    filename.startsWith('dist\\')
-  ) {
-    return true;
+  if (typeof filename !== 'string' || filename.length === 0) return false;
+  for (const segment of filename.split(/[\\/]/)) {
+    if (segment.length > 0 && IGNORED_DIRS.has(segment)) return true;
   }
   return false;
 }

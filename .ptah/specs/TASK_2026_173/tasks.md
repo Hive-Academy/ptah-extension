@@ -511,7 +511,7 @@ effect(() => { for (const key of cache.keys()) if (!liveDiffKeys().has(key)) dis
 
 ---
 
-## Batch 4: Tree & Drag Performance (B3 + B5) ✅ COMPLETE — 2026-08-10
+## Batch 4: Tree & Drag Performance (B3 + B5) ✅ COMPLETE — `06b900d85` (2026-08-10)
 
 > B5 _behavior_ landed early and out of order in `16da79d2f` (2026-08-03). Tasks 4.1, 4.2, 4.3 and
 > 4.5 were executed by a `frontend-developer` sub-agent per `batch-4-dispatch.md` and reviewed by
@@ -643,7 +643,7 @@ startDragTracking({ onMove(e), onCommit(), onCancel() })
 
 ---
 
-## Batch 5: Watcher Exclusions (B4) ⏸️ PENDING
+## Batch 5: Watcher Exclusions (B4) 🔄 IN PROGRESS — dispatched 2026-08-10 to `backend-developer` per `batch-5-dispatch.md`
 
 **Recommended Executor**: `backend-developer`
 **Fallback Executor**: `devops-engineer`
@@ -681,7 +681,26 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 >
 > **Task 5.1 is unblocked.**
 
-### Task 5.1: Shared exclusion constants ⏸️ PENDING
+> ### ✅ AXIS 2 RATIFIED 2026-08-10 — recorded retroactively, per the Batch 5 review
+>
+> **The shared predicate matches at every path segment, not just the root — a deliberate widening
+> ratified in Batch 5's review.** The plan (`implementation-plan.md:377`) and the Batch 5 dispatch
+> both described the watcher's mechanism as a "path-level test", so the executor's segment-level
+> choice went beyond their literal text; it self-flagged the widening rather than burying it, and
+> `code-logic-reviewer` ruled **ACCEPT**. It is the more correct reading of B4 AC1/AC2's intent: the
+> tree builder has always been segment-level (`buildFileTree` recurses and re-applies the filter at
+> every depth — verified against `git show HEAD:…` as pre-dating Batch 5), so a prefix-only watcher
+> would have left the two consumers still disagreeing, which is the exact defect B4 exists to close.
+> For 12 of the 13 names the widening provably cannot hide anything new, because those names were
+> already tree-invisible at every depth. **This is settled — do not re-litigate it in a later batch.**
+>
+> The 13th name, `.angular`, was the review's one open correctness tail and is now **closed by direct
+> verification, not inference**: the root `.gitignore` entry (line 51) is the bare unanchored token
+> `.angular`, which git matches at any depth, confirmed via `git check-ignore -v` against four probe
+> paths at different nesting depths. Evidence recorded in the `WATCH_IGNORED_DIRS` docstring so the
+> claim travels with the code rather than living only in a report file.
+
+### Task 5.1: Shared exclusion constants ✅ COMPLETE — 2026-08-10; reviewer APPROVED. `TREE_HIDDEN_DIRS` (12) ⊆ `WATCH_IGNORED_DIRS` (13), subset derived in code so it cannot drift; `.angular` the only addition
 
 **File**: `D:\projects\ptah-extension\libs\shared\src\lib\constants\workspace-scan.constants.ts` (NEW)
 **Requirement**: B4 AC2
@@ -689,14 +708,14 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 **Set contents** — conservative per R-9: current `HIDDEN_SKIP` (`.git .hg .svn .DS_Store .Trash .cache .tmp .temp .nx`) ∪ current watcher list (`node_modules dist`) ∪ **`.angular`** (the only addition; it is the named M3 churner alongside `.nx/cache`).
 **Validation Notes**: **Do NOT speculatively add `out`, `build`, `coverage`, `.next`, `.turbo`** — those are plausible source directories in some projects, and R-9 rates missing changes a correctness defect against churn's mere annoyance.
 
-### Task 5.2: Both consumers use the shared predicate ⏸️ PENDING
+### Task 5.2: Both consumers use the shared predicate ✅ COMPLETE — 2026-08-10; reviewer APPROVED. `HIDDEN_SKIP` deleted outright (zero occurrences in product code); Axis 2 segment-level widening ratified, see the block above
 
-**Files**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.service.ts` (`:378-393`), `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\editor-rpc.handlers.ts` (`:70` `HIDDEN_SKIP`, `:858`)
+**Files**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-watcher.service.ts` (~~`:378-393`~~ → **`:382-405`**, `watchWorkspaceRoot`; re-verified 2026-08-10, the old offsets now land on the doc comment), `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\editor-rpc.handlers.ts` (`:70` `HIDDEN_SKIP` and `:855`/`:858` in `buildFileTree` — both still resolve exactly)
 **Requirement**: B4 AC1, AC2, AC4
 **Details**: Watcher does a path-level test against the `fs.watch` filename; the tree builder does a segment-level test. **`HIDDEN_SKIP` is deleted.** One implementation, one predicate.
 **Validation Notes**: **B4 AC2 states that reintroducing a second hand-maintained list SHALL be treated as not-done.** After this task that must be structurally impossible, not merely avoided. Note the tree builder currently applies `HIDDEN_SKIP` only to entries starting with `.` (`:858`) — the Task 5.0 decision governs what changes here.
 
-### Task 5.3: M3 after-measurement + genuine-change proof ⏸️ PENDING
+### Task 5.3: M3 after-measurement + genuine-change proof ✅ COMPLETE — 2026-08-10; reviewer APPROVED. M3 target **MET**: 26 → 1, **0 from excluded paths**, with a paired same-session control. B4 AC3 proved positively — the one surviving invocation was the tracked-file edit, by name
 
 **File**: `D:\projects\ptah-extension\.ptah\specs\TASK_2026_173\measurements.md`
 **Requirement**: B4 AC1, AC3, AC5; B0
@@ -959,10 +978,31 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 **Requirement**: DoD item 9; task-description Out-of-Scope item 8
 **Details**: Every case in `r3-triage.md` marked "follow-up finding" becomes a filed record. Same for any additional hot path profiling revealed during B-group work — **recorded as findings for a follow-up task, never absorbed into this one**.
 
+### Task 9.3: File the accumulated per-batch follow-up candidates ⏸️ PENDING
+
+**Requirement**: DoD item 9 (same "file, never absorb" rule as Task 9.2)
+**Details**: These were raised by `code-logic-reviewer` during batch execution, dispositioned as
+**genuine follow-ups rather than blockers**, and deliberately **not** fixed in the batch that found
+them (NFR-9). Each becomes its own filed record. **Do not fix any of them inside TASK_2026_173.**
+
+| #   | Candidate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Raised by                                | Severity |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | -------- |
+| 1   | **Drift detection between `libs/shared/src/lib/constants/workspace-scan.constants.ts` and `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`'s hand-maintained `IGNORED_DIRS` copy.** The `.mjs` harness cannot import the TS constant without dragging itself into the build graph and forfeiting the "zero product-code change" property that makes the M3 before/after numbers comparable — so the copy is justified, but its only safeguard today is a comment banner. A text/AST-level test that fails CI when the two lists diverge turns that comment's promise into an enforced invariant. Tooling-only: drift corrupts a future measurement, never production behaviour. | Batch 5 review, Failure Mode 4 / Issue 2 | MODERATE |
+| 2   | **Pre-existing B4 AC4 asymmetry, undocumented anywhere.** An explicitly-targeted ignored directory is enumerable via `editor:getFileTree` with an explicit `rootPath` (`buildFileTree` filters `root`'s _children_, never `root` itself) and openable via `handleFileOpen` (which applies no exclusion filter at all) — even though the same directory is unreachable by navigation from the workspace root. Confirmed byte-identical to `HEAD` before and after Batch 5, so genuinely pre-existing and untouched. Arguably the correct "user asked for it explicitly" behaviour, but it is written down nowhere. **File as documentation, not as a bug**, unless a decision is taken to change it.       | Batch 5 review, Judgment Call 3          | LOW      |
+| 3   | **Pointer capture on the three editor-panel resize handles**, carried over from Batch 4's review. Would make the double-`mousedown` drag re-entry structurally impossible rather than merely benign. Batch 4's reviewer ruled **no action needed** there — the post-refactor code is strictly safer than the pre-refactor behaviour, which registered two racing listener quartets — so this is a hardening improvement, not a defect fix.                                                                                                                                                                                                                                                                | Batch 4 review, Failure Mode 3           | LOW      |
+
+**Validation Notes**: Also still open from Batch 5 §10.2, already covered by Task 9.2's "any
+additional findings" clause but repeated here so it is not lost: the two **glob-string** exclusion
+lists at `editor-rpc.handlers.ts:487` and `:736` (serving `editor:searchInFiles` and
+`editor:listAllFiles`) carry only 5 of `TREE_HIDDEN_DIRS`' 12 names and are **already drifted**.
+B4 AC2's "single source of truth" is true of the _predicate mechanism_, which is what Option B
+scoped — it is not true of every exclusion decision in that file.
+
 **Batch 9 Acceptance Criteria**:
 
 - B6 filed with the M2 measurement attached
 - Every R-3 follow-up finding filed; **none re-suppressed**
+- **Every Task 9.3 candidate filed as its own record; none silently dropped and none fixed in-task**
 - `measurements.md` complete: M1–M4, before and after, each with workload, sample count, method, median and max
 
 ---

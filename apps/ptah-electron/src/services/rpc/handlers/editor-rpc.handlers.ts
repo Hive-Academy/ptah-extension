@@ -26,7 +26,11 @@ import type {
   EditorRevertFilesParams,
   EditorRevertFilesResult,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  TREE_HIDDEN_DIRS,
+  isExcludedWorkspacePath,
+} from '@ptah-extension/shared';
 import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 
 /** Extends FileOpenParams with legacy 'filePath' for backward compatibility. */
@@ -65,19 +69,6 @@ interface SearchFileResultInternal {
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
-/** Hidden directory names to skip when building the file tree. */
-const HIDDEN_SKIP = new Set([
-  '.git',
-  '.hg',
-  '.svn',
-  '.DS_Store',
-  '.Trash',
-  '.cache',
-  '.tmp',
-  '.temp',
-  '.nx',
-]);
 
 /** File extensions considered binary (skip during text search). */
 const BINARY_EXTENSIONS = new Set([
@@ -852,10 +843,14 @@ export class EditorRpcHandlers {
       );
 
       for (const entry of sorted) {
-        if (entry.name === 'node_modules' || entry.name === 'dist') {
-          continue;
-        }
-        if (entry.name.startsWith('.') && HIDDEN_SKIP.has(entry.name)) {
+        // `TREE_HIDDEN_DIRS` (@ptah-extension/shared) is the single source of
+        // truth this shares with the workspace watcher. It is the exact union
+        // of the two checks that stood here before — the `node_modules`/`dist`
+        // test and the dot-gated `HIDDEN_SKIP` test — so tree visibility is
+        // unchanged. The dot gate is intentionally NOT reproduced: every name
+        // it guarded already begins with '.', which made it a no-op, and
+        // keeping it would let `node_modules` and `dist` back into the tree.
+        if (isExcludedWorkspacePath(entry.name, TREE_HIDDEN_DIRS)) {
           continue;
         }
 

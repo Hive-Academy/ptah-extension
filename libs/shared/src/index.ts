@@ -48,3 +48,4 @@ export * from './lib/types/rpc/rpc-persistence.types';
 export * from './lib/types/rpc/rpc-curator-diagnostics.types';
 export * from './lib/providers';
 export * from './lib/constants/environment.constants';
+export * from './lib/constants/workspace-scan.constants';

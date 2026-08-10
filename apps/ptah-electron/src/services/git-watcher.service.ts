@@ -33,7 +33,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  WATCH_IGNORED_DIRS,
+  isExcludedWorkspacePath,
+} from '@ptah-extension/shared';
 import type {
   GitChangeKind,
   GitInfoResult,
@@ -370,12 +374,39 @@ export class GitWatcherService {
   }
 
   /**
+   * True when a workspace-root watch event names a path Ptah does not track.
+   *
+   * A one-line adapter over the shared predicate — it holds no list of its
+   * own; `WATCH_IGNORED_DIRS` in `@ptah-extension/shared` is the only place
+   * directory names are enumerated. It exists so the decision is reachable
+   * from a unit test without intercepting `fs.watch`, whose export is
+   * non-configurable and therefore not spy-able.
+   */
+  private isIgnoredWorkspaceEvent(filename: string | null): boolean {
+    return (
+      typeof filename === 'string' &&
+      isExcludedWorkspacePath(filename, WATCH_IGNORED_DIRS)
+    );
+  }
+
+  /**
    * Watch the workspace root recursively for both git status changes
    * and structural changes (file add/delete/rename).
    *
    * - All file events schedule a git status update (existing behavior).
    * - 'rename' events (file add/delete) also schedule a file tree refresh
    *   push to the renderer so the file explorer stays in sync.
+   *
+   * Events under an excluded directory are dropped before they can re-arm the
+   * debounce timer — see `WATCH_IGNORED_DIRS` in `@ptah-extension/shared`,
+   * which is the single source of truth this and the file-tree builder share.
+   *
+   * NOTE: the exclusion applies HERE ONLY. The dedicated `.git/HEAD`,
+   * `.git/index` and `.git/refs/` watchers armed via `watchFile` /
+   * `watchDirectory` must never be filtered — `.git` is excluded from this
+   * recursive watcher precisely because those dedicated watchers own it, and
+   * routing them through the same predicate would stop every commit, stage,
+   * checkout and branch switch from being detected.
    *
    * Uses recursive: true which is natively supported on Windows and macOS.
    */
@@ -385,23 +416,8 @@ export class GitWatcherService {
         dirPath,
         { recursive: true },
         (eventType, filename) => {
-          if (
-            typeof filename === 'string' &&
-            (filename.startsWith('.git/') ||
-              filename.startsWith('.git\\') ||
-              filename === '.git')
-          ) {
+          if (this.isIgnoredWorkspaceEvent(filename)) {
             return;
-          }
-          if (typeof filename === 'string') {
-            if (
-              filename.startsWith('node_modules/') ||
-              filename.startsWith('node_modules\\') ||
-              filename.startsWith('dist/') ||
-              filename.startsWith('dist\\')
-            ) {
-              return;
-            }
           }
           this.scheduleUpdate(
             GitWatcherService.WORKSPACE_DEBOUNCE_MS,

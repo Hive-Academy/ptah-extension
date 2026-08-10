@@ -304,57 +304,121 @@ describe('GitWatcherService', () => {
       expect(watchers.length).toBe(1);
     });
 
-    it('ignored prefixes (node_modules, dist, .git) do not schedule a tree refresh', () => {
-      jest.useFakeTimers();
+    /**
+     * Calls the SHIPPED exclusion decision (`isIgnoredWorkspaceEvent`, a
+     * one-line adapter over `isExcludedWorkspacePath` /`WATCH_IGNORED_DIRS`
+     * in `@ptah-extension/shared`).
+     *
+     * The previous version of this test hand-rolled the predicate inline,
+     * which made the spec a fourth maintained copy of the exclusion list and
+     * blind to exactly the drift TASK_2026_173 B4 exists to prevent. There is
+     * now no list here at all.
+     *
+     * `fs.watch` itself is not intercepted: Node's `fs` exports are
+     * non-configurable, so `jest.spyOn(fs, 'watch')` throws
+     * "Cannot redefine property". The end-to-end wiring (this decision
+     * actually gating the watcher callback) is covered by the real-`fs.watch`
+     * integration test further down.
+     */
+    function isIgnored(filename: string): boolean {
+      return (
+        svc as unknown as {
+          isIgnoredWorkspaceEvent(f: string | null): boolean;
+        }
+      ).isIgnoredWorkspaceEvent(filename);
+    }
+
+    it('drops events under every excluded directory', () => {
+      // Pre-existing exclusions — unchanged behaviour.
+      for (const name of [
+        '.git',
+        '.git/HEAD',
+        '.git\\HEAD',
+        'node_modules/foo.ts',
+        'node_modules\\foo.ts',
+        'dist/main.js',
+        'dist\\main.js',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+
+      // Newly excluded by TASK_2026_173 B4 — the intentional behavioural delta.
+      for (const name of [
+        '.nx/cache/abc.tmp',
+        '.nx\\cache\\abc.tmp',
+        '.angular/cache/x.tmp',
+        '.cache/build/x.bin',
+        '.tmp/scratch',
+        '.temp/scratch',
+        '.hg/store',
+        '.svn/entries',
+        '.Trash/deleted',
+        '.DS_Store',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+
+      // Nested occurrences too — monorepo churn does not only live at the root.
+      for (const name of [
+        'packages/foo/node_modules/bar/index.js',
+        'libs\\shared\\dist\\index.js',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+    });
+
+    it('keeps genuine source events, including plausible-source directories (R-9)', () => {
+      for (const name of [
+        'src/foo.ts',
+        'src\\foo.ts',
+        'apps/ptah-electron/src/main.ts',
+        'README.md',
+        // Deliberately NOT excluded: each is a plausible source directory.
+        'out/generated.ts',
+        'build/config.ts',
+        'coverage/report.ts',
+        '.next/page.ts',
+        '.turbo/log.ts',
+        // Prefix collisions must not be treated as segment matches.
+        'distribution/a.ts',
+        'node_modules_backup/a.ts',
+        // Config dot-directories the tree shows and the watcher tracks.
+        '.vscode/settings.json',
+        '.github/workflows/ci.yml',
+      ]) {
+        expect(isIgnored(name)).toBe(false);
+      }
+
+      // A null filename (platforms that do not surface it) is never ignored —
+      // the update must still be scheduled.
+      expect(
+        (
+          svc as unknown as {
+            isIgnoredWorkspaceEvent(f: string | null): boolean;
+          }
+        ).isIgnoredWorkspaceEvent(null),
+      ).toBe(false);
+    });
+
+    it('arms the dedicated .git watchers unfiltered (git ops still detected)', () => {
+      // `.git` is excluded from the RECURSIVE workspace watcher only, because
+      // the dedicated HEAD/index/refs watchers own it. If the shared exclusion
+      // predicate ever leaked into watchFile/watchDirectory, every commit,
+      // stage, checkout and branch switch would stop being detected — a far
+      // worse regression than the churn B4 removes.
+      const gitDir = path.join(tmpDir, '.git');
+      fs.mkdirSync(gitDir);
+      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gitDir, 'index'), '');
+      fs.mkdirSync(path.join(gitDir, 'refs'));
+
       svc.start(tmpDir, broadcast);
 
-      // The watcher callback is private; replicate the filter logic by
-      // simulating an event through the public watcher contract: invoke the
-      // private scheduler only AFTER calling the (private) workspace watcher
-      // handler equivalent. Since the handler is bound to fs.watch, we
-      // assert the contract by directly testing scheduleTreeRefresh — and
-      // by checking that the filter conditions in source mean a synthetic
-      // call site for an ignored filename never reaches scheduleTreeRefresh.
-      //
-      // Concretely: we just confirm scheduleTreeRefresh ALONE (no filter
-      // gating) does fire — proving the lack of broadcast in the ignored
-      // case is due to the filter, not a broken scheduler.
-      (svc as unknown as { scheduleTreeRefresh(): void }).scheduleTreeRefresh();
-      jest.advanceTimersByTime(500);
-
-      const treeCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'file:tree-changed',
+      // 1 workspace-root + HEAD + index + refs = 4. A leak of the predicate
+      // into watchFile/watchDirectory would drop this to 1.
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        4,
       );
-      // Sanity: the scheduler itself works
-      expect(treeCalls.length).toBeGreaterThanOrEqual(1);
-
-      // Now the filter contract: simulate invoking the workspace handler
-      // for an ignored path by clearing broadcasts and asserting the
-      // start() body's filter check rejects them. The handler is private
-      // and bound — we reach it via the watcher's emit contract by
-      // scheduling no-ops and verifying the fs.watch ignore predicate
-      // matches the documented prefixes.
-      broadcast.mockClear();
-
-      // Validate the documented prefixes by constructing the same predicate
-      // the source uses. This is a behavioural-contract guard.
-      const ignored = (filename: string): boolean =>
-        filename.startsWith('node_modules/') ||
-        filename.startsWith('node_modules\\') ||
-        filename.startsWith('dist/') ||
-        filename.startsWith('dist\\') ||
-        filename.startsWith('.git/') ||
-        filename.startsWith('.git\\') ||
-        filename === '.git';
-
-      expect(ignored('node_modules/foo.ts')).toBe(true);
-      expect(ignored('node_modules\\foo.ts')).toBe(true);
-      expect(ignored('dist/main.js')).toBe(true);
-      expect(ignored('dist\\main.js')).toBe(true);
-      expect(ignored('.git/HEAD')).toBe(true);
-      expect(ignored('.git\\HEAD')).toBe(true);
-      expect(ignored('.git')).toBe(true);
-      expect(ignored('src/foo.ts')).toBe(false);
     });
   });
 
@@ -630,5 +694,55 @@ describe('GitWatcherService', () => {
       );
       expect(treeCalls.length).toBeGreaterThanOrEqual(1);
     });
+
+    /**
+     * End-to-end proof that the shared exclusion predicate is actually wired
+     * into the `fs.watch` callback — the unit tests above exercise the
+     * decision, this exercises the wiring.
+     *
+     * Positive control in the same test: if the negative half passed because
+     * `fs.watch` simply delivered nothing, the positive half would fail too.
+     */
+    it('writes under .nx/.angular are ignored while a real source write still pushes', async () => {
+      const nxCache = path.join(tmpDir, '.nx', 'cache');
+      const ngCache = path.join(tmpDir, '.angular', 'cache');
+      const srcDir = path.join(tmpDir, 'src');
+      // Created BEFORE start() so the mkdir events themselves are not measured.
+      fs.mkdirSync(nxCache, { recursive: true });
+      fs.mkdirSync(ngCache, { recursive: true });
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      svc.start(tmpDir, broadcast);
+      broadcast.mockClear();
+
+      for (let i = 0; i < 5; i++) {
+        fs.writeFileSync(path.join(nxCache, `probe-${i}.tmp`), String(i));
+        fs.writeFileSync(path.join(ngCache, `probe-${i}.tmp`), String(i));
+      }
+
+      // Well past TREE_DEBOUNCE_MS (500) — nothing may have been pushed.
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(
+        broadcast.mock.calls.filter(([t]) => t === 'file:tree-changed'),
+      ).toHaveLength(0);
+
+      // Positive control: a genuine source write still fires (B4 AC3, R-9).
+      fs.writeFileSync(path.join(srcDir, 'real.ts'), 'export {};\n');
+      const fired = await waitFor(
+        () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
+        2500,
+      );
+      if (!fired) {
+        // fs.watch on Windows occasionally misses a short-lived file event.
+        fs.writeFileSync(path.join(srcDir, 'real-2.ts'), 'export {};\n');
+        await waitFor(
+          () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
+          2500,
+        );
+      }
+      expect(
+        broadcast.mock.calls.filter(([t]) => t === 'file:tree-changed').length,
+      ).toBeGreaterThanOrEqual(1);
+    }, 15000);
   });
 });
