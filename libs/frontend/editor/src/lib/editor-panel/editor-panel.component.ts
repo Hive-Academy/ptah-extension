@@ -7,8 +7,10 @@ import {
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
+  ElementRef,
   NgZone,
   afterNextRender,
+  viewChild,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import {
@@ -312,6 +314,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   "
                   [filePath]="codeEditorPath()"
                   [content]="codeEditorContent()"
+                  [contentIsPersisted]="sharedContentIsPersisted()"
                   [isFocused]="
                     editorService.splitActive()
                       ? editorService.focusedPane() === 'left'
@@ -385,6 +388,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   <ptah-code-editor
                     [filePath]="editorService.splitFilePath()"
                     [content]="editorService.splitFileContent()"
+                    [contentIsPersisted]="sharedContentIsPersisted()"
                     [isFocused]="editorService.focusedPane() === 'right'"
                     (contentChanged)="onSplitContentChanged($event)"
                     (fileSaved)="onSplitFileSaved($event)"
@@ -499,6 +503,60 @@ import type { FileTreeNode } from '../models/file-tree.model';
         </div>
       }
 
+      <!-- Split-pane save conflict (C2 AC3).
+           No clickable backdrop and no dismiss affordance other than the two
+           buttons: this dialog exists because a keystroke is about to be
+           destroyed, so an accidental click-out must not resolve it. Escape
+           maps to Cancel (the non-destructive choice) in _panelKeydown.
+
+           Keyboard containment is handled here rather than by a CDK focus trap
+           because the dialog has exactly two focusable elements — Tab is a
+           two-way toggle between them, which is cheaper and easier to verify
+           than a general trap, and it adds no tab stop of its own (the handler
+           sits on the labelled container and catches the buttons' bubbled
+           keydown, so the container is never itself focusable). -->
+      @if (saveConflict()) {
+        <div class="modal modal-open z-50">
+          <div
+            class="modal-box max-w-sm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="ptah-save-conflict-title"
+            aria-describedby="ptah-save-conflict-desc"
+            (keydown)="onSaveConflictKeydown($event)"
+          >
+            <h3 id="ptah-save-conflict-title" class="font-bold text-base">
+              This file was also edited in the other pane
+            </h3>
+            <p
+              id="ptah-save-conflict-desc"
+              class="py-3 text-sm text-base-content/70"
+            >
+              {{ saveConflictFileName() }} has unsaved changes made in the other
+              split pane. Saving now writes what this pane shows and discards
+              them.
+            </p>
+            <div class="modal-action">
+              <button
+                #saveConflictCancel
+                class="btn btn-sm"
+                (click)="cancelSaveConflict()"
+              >
+                Cancel
+              </button>
+              <button
+                #saveConflictOverwrite
+                class="btn btn-sm btn-warning"
+                (click)="confirmSaveConflict()"
+              >
+                Overwrite
+              </button>
+            </div>
+          </div>
+          <div class="modal-backdrop" aria-hidden="true"></div>
+        </div>
+      }
+
       <!-- Quick Open file picker (Ctrl+P / Cmd+P) -->
       @if (quickOpenVisible()) {
         <ptah-quick-open
@@ -555,8 +613,19 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private _dragBlur: (() => void) | null = null;
   private _dragKeydown: ((e: KeyboardEvent) => void) | null = null;
 
-  /** Bound keydown handler for Ctrl+P / Cmd+P Quick Open shortcut. */
-  private readonly _quickOpenKeydown = (e: KeyboardEvent): void => {
+  /**
+   * Bound document keydown handler: Ctrl+P / Cmd+P Quick Open, and Escape to
+   * cancel the split-pane save conflict.
+   *
+   * The conflict dialog is checked first and swallows Escape, so the key that
+   * dismisses a dialog cannot also reach anything behind it.
+   */
+  private readonly _panelKeydown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && this.saveConflict()) {
+      e.preventDefault();
+      this.ngZone.run(() => this.cancelSaveConflict());
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
       e.preventDefault();
       this.ngZone.run(() => {
@@ -564,6 +633,39 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       });
     }
   };
+
+  /**
+   * Pending save that would discard the other split pane's unsaved edits.
+   * Non-null exactly while the conflict dialog is open (C2 AC2/AC3).
+   */
+  protected readonly saveConflict = signal<{
+    filePath: string;
+    content: string;
+  } | null>(null);
+
+  private readonly saveConflictCancel =
+    viewChild<ElementRef<HTMLButtonElement>>('saveConflictCancel');
+  private readonly saveConflictOverwrite = viewChild<
+    ElementRef<HTMLButtonElement>
+  >('saveConflictOverwrite');
+
+  /**
+   * Element that held focus when the conflict dialog opened — in practice the
+   * Monaco host of the pane whose Ctrl+S raised it. Restored on close so the
+   * keyboard user is returned to the editor they were in rather than to the
+   * top of the document.
+   */
+  private saveConflictReturnFocus: HTMLElement | null = null;
+
+  /**
+   * Move focus to Cancel when the conflict dialog opens: it is the
+   * non-destructive choice, and without this the dialog would open with focus
+   * still inside the editor that raised it.
+   */
+  private readonly _saveConflictFocus = effect(() => {
+    if (!this.saveConflict()) return;
+    this.saveConflictCancel()?.nativeElement.focus();
+  });
 
   private readonly _workspaceBinding = effect(() => {
     const workspaceRoot = this.vscodeService.config().workspaceRoot;
@@ -577,14 +679,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     this.gitStatus.startListening();
     this.editorService.startFileTreeWatcher();
     void this.vimModeService.loadPreference();
-    document.addEventListener('keydown', this._quickOpenKeydown);
+    document.addEventListener('keydown', this._panelKeydown);
   }
 
   ngOnDestroy(): void {
     this.gitStatus.stopListening();
     this.editorService.stopFileTreeWatcher();
     this.cleanupDragListeners();
-    document.removeEventListener('keydown', this._quickOpenKeydown);
+    document.removeEventListener('keydown', this._panelKeydown);
   }
 
   protected toggleSidebar(): void {
@@ -688,13 +790,131 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * The tab record BOTH panes are looking at, or `null`.
+   *
+   * Every behaviour C2 adds in this component is gated on it: non-null only
+   * when the split is open, the two panes hold the same path, and that path has
+   * a tab. Different files in the two panes leave it null and nothing new runs
+   * (C2 AC5).
+   */
+  protected readonly sharedSplitTab = computed<EditorTab | null>(() => {
+    if (!this.editorService.splitActive()) return null;
+    const path = this.editorService.splitFilePath();
+    if (!path || path !== this.editorService.activeFilePath()) return null;
+    return (
+      this.editorService.openTabs().find((tab) => tab.filePath === path) ?? null
+    );
+  });
+
+  /**
+   * `contentIsPersisted` for both code editors.
+   *
+   * `undefined` — the legacy "no information" value — everywhere except the
+   * shared-file split, so the ordinary editor keeps its exact pre-C2 baseline
+   * behaviour. In the shared-file case the tab record's dirty flag is the
+   * authority on whether the text the panes are being handed is what is on
+   * disk, which is what lets the pane that did not issue a save clear its own
+   * "Modified" badge (C2 AC4).
+   */
+  protected readonly sharedContentIsPersisted = computed<boolean | undefined>(
+    () => {
+      const tab = this.sharedSplitTab();
+      return tab ? !tab.isDirty : undefined;
+    },
+  );
+
+  /** File name shown in the save-conflict dialog. */
+  protected readonly saveConflictFileName = computed(() => {
+    const path = this.saveConflict()?.filePath;
+    if (!path) return '';
+    const parts = path.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || path;
+  });
+
+  /**
    * Handle file save events from the split (right) pane editor.
    */
   protected onSplitFileSaved(event: {
     filePath: string;
     content: string;
   }): void {
-    void this.editorService.saveFile(event.filePath, event.content);
+    this.saveFromPane(event.filePath, event.content);
+  }
+
+  /**
+   * Persist a save request from either pane.
+   *
+   * `EditorService.saveFile` is RPC-only and marks nothing clean — that is the
+   * caller's job, and the split pane never did it, so saving from the split
+   * pane left the tab strip's dirty dot lit on a file that was clean on disk
+   * (C2 AC4). Both panes now route through here, so there is one save policy
+   * rather than two that drifted.
+   */
+  private saveFromPane(filePath: string, content: string): void {
+    if (this.editorService.hasUnabsorbedPeerEdit(filePath, content)) {
+      // Captured BEFORE the signal flips, so it records the editor the save
+      // came from rather than the Cancel button the open-effect is about to
+      // focus.
+      this.saveConflictReturnFocus =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      this.saveConflict.set({ filePath, content });
+      return;
+    }
+    void this.persistSave(filePath, content);
+  }
+
+  /**
+   * Keep Tab inside the dialog.
+   *
+   * There are exactly two focusable elements, so Tab and Shift+Tab are the same
+   * two-way toggle and no direction handling is needed. Without this, Tab walks
+   * straight out into the editor behind a visually blocking modal.
+   */
+  protected onSaveConflictKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab') return;
+    const cancel = this.saveConflictCancel()?.nativeElement;
+    const overwrite = this.saveConflictOverwrite()?.nativeElement;
+    if (!cancel || !overwrite) return;
+    event.preventDefault();
+    (document.activeElement === cancel ? overwrite : cancel).focus();
+  }
+
+  /** Close the dialog and return focus to whatever raised it. */
+  private closeSaveConflict(): void {
+    this.saveConflict.set(null);
+    const target = this.saveConflictReturnFocus;
+    this.saveConflictReturnFocus = null;
+    if (target?.isConnected) target.focus();
+  }
+
+  private async persistSave(filePath: string, content: string): Promise<void> {
+    await this.editorService.saveFile(filePath, content);
+    this.editorService.markTabClean(filePath);
+  }
+
+  /** Overwrite the other pane's unsaved edits, having said so (C2 AC2). */
+  protected confirmSaveConflict(): void {
+    const conflict = this.saveConflict();
+    if (!conflict) return;
+    this.closeSaveConflict();
+    // The tab record OWNS content, so it has to end up holding what was
+    // actually written — otherwise the text the user just chose to discard
+    // would be mirrored straight back into both panes.
+    this.editorService.updateTabContent(conflict.filePath, conflict.content);
+    void this.persistSave(conflict.filePath, conflict.content);
+  }
+
+  /**
+   * Abort the save. Nothing is written and no tab state changes: the other
+   * pane's edits survive in the tab record and this pane keeps the text the
+   * user declined to overwrite. Reconciling the two here would destroy exactly
+   * the edits Cancel was pressed to protect; they converge on the next focus
+   * change (C2 AC3).
+   */
+  protected cancelSaveConflict(): void {
+    this.closeSaveConflict();
   }
 
   protected onFileSelected(filePath: string): void {
@@ -751,9 +971,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   protected onFileSaved(event: { filePath: string; content: string }): void {
-    void this.editorService.saveFile(event.filePath, event.content).then(() => {
-      this.editorService.markTabClean(event.filePath);
-    });
+    this.saveFromPane(event.filePath, event.content);
   }
 
   protected onTabClick(filePath: string): void {

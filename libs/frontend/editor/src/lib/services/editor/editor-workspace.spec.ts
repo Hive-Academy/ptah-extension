@@ -643,3 +643,125 @@ describe('EditorWorkspaceHelper.loadFileTree', () => {
     expect(ctx.fileTree().map((n) => n.name)).toEqual(['fast.ts']);
   });
 });
+
+// ============================================================================
+// C2 dispatch §1.3 leg 4 — the workspace cache is a SECOND store of the same
+// text. The tab record is updated on every edit; the cached `activeFileContent`
+// and `splitFileContent` are snapshots taken when the file was opened or
+// switched to. Restoring the pane snapshots verbatim reinstates pre-edit text,
+// which both reverts unsaved work and re-opens the divergence C2 closes on
+// every other path.
+// ============================================================================
+
+interface CachedTab {
+  filePath: string;
+  fileName: string;
+  content: string;
+  isDirty: boolean;
+}
+
+function cachedTab(
+  filePath: string,
+  content: string,
+  isDirty = true,
+): CachedTab {
+  return {
+    filePath,
+    fileName: filePath.split('/').pop() ?? filePath,
+    content,
+    isDirty,
+  };
+}
+
+describe('EditorWorkspaceHelper.switchWorkspace — panes restore from the tab record (C2 AC1)', () => {
+  it('prefers the tab record over the stale cached activeFileContent', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.active.path = '/other';
+    ctx.workspaceMap.set('/ws', {
+      fileTree: [],
+      activeFilePath: '/ws/a.ts',
+      // Snapshot from when a.ts was opened — every edit since went to the tab.
+      activeFileContent: 'v0 as opened',
+      openTabs: [cachedTab('/ws/a.ts', 'v3 after editing')] as never,
+    });
+
+    helper.switchWorkspace('/ws');
+
+    expect(ctx.state.activeFileContent()).toBe('v3 after editing');
+  });
+
+  it('prefers the tab record over the stale cached splitFileContent', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.active.path = '/other';
+    ctx.workspaceMap.set('/ws', {
+      fileTree: [],
+      activeFilePath: '/ws/a.ts',
+      activeFileContent: 'v0',
+      openTabs: [cachedTab('/ws/a.ts', 'v3 after editing')] as never,
+      splitActive: true,
+      splitFilePath: '/ws/a.ts',
+      splitFileContent: 'v0',
+    });
+
+    helper.switchWorkspace('/ws');
+
+    // Both panes land on the owner, so the round-trip cannot reintroduce a
+    // divergence the other C2 fixes just removed.
+    expect(ctx.state.activeFileContent()).toBe('v3 after editing');
+    expect(ctx.state.splitFileContent()).toBe('v3 after editing');
+    expect(ctx.state.splitActive()).toBe(true);
+  });
+
+  it('(§1.4) falls back to the cached content for a split file with NO tab record', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.active.path = '/other';
+    ctx.workspaceMap.set('/ws', {
+      fileTree: [],
+      activeFilePath: '/ws/a.ts',
+      activeFileContent: 'A',
+      openTabs: [cachedTab('/ws/a.ts', 'A', false)] as never,
+      splitActive: true,
+      splitFilePath: '/ws/untabbed.ts',
+      splitFileContent: 'only copy of this text',
+    });
+
+    helper.switchWorkspace('/ws');
+
+    // Nothing owns it but the cache, so the cache is authoritative here.
+    expect(ctx.state.splitFileContent()).toBe('only copy of this text');
+    expect(ctx.state.splitFilePath()).toBe('/ws/untabbed.ts');
+  });
+
+  it('round-trips away and back without losing an edit made in the split pane', () => {
+    const { helper, ctx } = makeHelper();
+    // /ws is active, same file in both panes, edited via the split pane so the
+    // tab record is ahead of both cached pane snapshots.
+    ctx.workspaceMap.set('/ws', {
+      fileTree: [],
+      activeFilePath: '/ws/a.ts',
+      activeFileContent: 'v0',
+      openTabs: [] as never,
+      splitActive: true,
+      splitFilePath: '/ws/a.ts',
+      splitFileContent: 'v0',
+    });
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    ctx.state.activeFileContent.set('v0');
+    ctx.state.openTabs.set([cachedTab('/ws/a.ts', 'v1 split edit')] as never);
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/a.ts');
+    ctx.state.splitFileContent.set('v1 split edit');
+    ctx.workspaceMap.set('/away', {
+      fileTree: [],
+      activeFilePath: undefined,
+      activeFileContent: '',
+      openTabs: [] as never,
+    });
+
+    helper.switchWorkspace('/away');
+    helper.switchWorkspace('/ws');
+
+    expect(ctx.state.activeFileContent()).toBe('v1 split edit');
+    expect(ctx.state.splitFileContent()).toBe('v1 split edit');
+  });
+});

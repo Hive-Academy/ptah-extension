@@ -756,7 +756,7 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 
 ---
 
-## Batch 6: Accessibility (D1) ✅ COMPLETE — 2026-08-10
+## Batch 6: Accessibility (D1) ✅ COMPLETE — `b57d3c8d4` (2026-08-10)
 
 > Executed by a `frontend-developer` sub-agent per `batch-6-dispatch.md`, reported in
 > `batch-6-report.md`, reviewed by `code-logic-reviewer` (`batch-6-code-logic-review.md`):
@@ -852,7 +852,147 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 
 ---
 
-## Batch 7: Split-Pane Save (C2) ⏸️ PENDING
+## Batch 7: Split-Pane Save (C2) ✅ COMPLETE — 2026-08-10
+
+> Executed by a `frontend-developer` sub-agent per `batch-7-dispatch.md`, reported in
+> `batch-7-report.md`, reviewed by `code-logic-reviewer` (`batch-7-code-logic-review.md`) over two
+> rounds: **Round 1 APPROVED WITH FOLLOW-UPS, 7/10, 0 critical, 2 serious, 3 moderate**; both serious
+> findings fixed in-batch before commit; **Round 2 re-verification: APPROVED, no outstanding
+> blockers.** All six C2 acceptance criteria pass. Editor suite 222 → **269** (+47, none modified,
+> none skipped); NFR-1 cross-project floor held exactly at 1863; lint 0 errors / 14 pre-existing
+> warnings.
+>
+> ### 🔴 Task 7.2 shipped as OWNERSHIP, not bindings — and the hazard was proved, not assumed
+>
+> Task 7.2 as literally worded below is dangerous, and the executor demonstrated it rather than
+> taking the dispatch's word: a throwaway probe wiring `contentChanged` → `setInput('content', …)`
+> produced **10 `pushEditOperations` full-model replacements across 10 simulated keystrokes** —
+> cursor to the end of the buffer, undo stack collapsed, on the buffer the user is typing into.
+> Value equality does **not** absorb it once the echo can lag, and a _debounced_ mirror carries a
+> value 150 ms stale by construction, so the hazard is strictly worse there. The probe was deleted.
+>
+> **What shipped**: the tab record is the write target for both panes and is **not** the read source
+> for the focused pane. Neither `[content]` binding changed by a character —
+> `[content]="codeEditorContent()"` and `[content]="editorService.splitFileContent()"` are
+> byte-identical to `b57d3c8d4`, independently confirmed by the reviewer against the diff. The mirror
+> lives in the service, not the template, and re-reads `focusedPane()` **at flush time**, so it can
+> never target the pane that has focus.
+>
+> The `code-editor.component.ts:395-398` invariant was rewritten rather than left to outlive its
+> truth: `activeFileContent` is now written on an edit (the _other_ pane's, while this pane is
+> unfocused), so the comment now states the actual mechanism — nothing writes a pane's own edits back
+> into its own `content` input.
+>
+> ### 🛡️ The regression guard was vacuous, and that was caught and fixed in-batch
+>
+> Round 1's most valuable finding: the permanent negative test proved a property of
+> `CodeEditorComponent` in isolation, wired by hand, and never touched `editor-panel.component.ts` —
+> where the binding a future engineer would actually change lives. The reviewer reintroduced the
+> literal Task 7.2 wording at `editor-panel.component.ts:741-745` / `:386-389` and the shipped suite
+> stayed **259/259 green**. A guard that cannot fail reads as protection and is worse than none.
+>
+> **Fixed in-batch.** Two panel-level guards now sit at the real site. Under the reintroduced hazard
+> the suite fails **exactly 2 of 262** — and only those two — and returns to green on revert;
+> independently reproduced by the reviewer at 269 tests. The second guard drives the tab record to a
+> value differing from _both_ pane signals, which defeats the "value equality accidentally hides a
+> rebinding" mode the first guard alone cannot see on the right pane.
+>
+> **The invariant at `code-editor.component.ts:395-398` is now enforceable rather than incidental.**
+> That is the load-bearing outcome of this batch, more than the save semantics themselves.
+>
+> ### Beyond C2: a live primary-pane data-loss bug fixed as a side effect (Leg 4)
+>
+> The workspace cache held **three** copies of the same text. On `switchWorkspace` away and back the
+> pre-C2 code restored `activeFileContent` from the open-time snapshot, `syncFile` saw it differ from
+> the model and pushed it: **the primary pane's unsaved edits were reverted by a workspace
+> round-trip** — live on `main`, nothing to do with the split pane. Both pane signals are now derived
+> from the tab record on restore. Wider than "split-pane save" by the letter of NFR-9, disclosed
+> plainly, and accepted by the reviewer as the correct one-line fix (reconciling only the split half
+> would leave the two panes restoring from different stores).
+>
+> ### Conflict dialog — focus containment fixed in-batch, axe clean
+>
+> Round 1's second serious finding (new code, one batch after Batch 6 raised this file's a11y bar):
+> the dialog had focus-on-open and Escape but no Tab containment and no focus restore. **Fixed, not
+> deferred** — a two-way Tab/Shift+Tab toggle on the labelled container (introducing no new tab stop)
+> plus `saveConflictReturnFocus` captured _before_ the open-effect moves focus, restored on Cancel,
+> Overwrite and Escape, guarded on `isConnected`. 7 behavioural tests. `axe-core@4.12.1` over the
+> **rendered** dialog: **0 violations**, the lone `color-contrast` incomplete confirmed as generic
+> unstyled-jsdom noise by a reviewer-added baseline control with the dialog never opened.
+>
+> ### Accepted deviations and known limits — disclosed, not rounded up
+>
+> - **AC5 is PARTIAL by one deliberate deviation**: a split-pane edit now dirties a background tab in
+>   the different-files case. Gating on same-path would reopen the exact divergence C2 exists to
+>   close. Reviewer accepted it as fixing a genuine pre-existing bug, not degrading AC5. Read path is
+>   byte-identical; no prompts, no mirroring, no cursor effects.
+> - **"The conflict prompt backstops the focus-change race" is wrong and is corrected for the
+>   record.** If the race were hit, the full-model push brings the pane into _exact_ agreement with
+>   the tab record — erasing the divergence `hasUnabsorbedPeerEdit` needs, so the prompt would
+>   specifically **not** fire. What makes the race acceptable is that it is unreachable: a click
+>   task's microtasks fully drain before the browser dequeues the next native `keydown`. No code
+>   comment ever carried the inaccurate claim.
+> - **After Cancel the panes remain divergent** until the next focus change, marked only by the
+>   generic dirty dot. Auto-reconciling would destroy exactly the edits Cancel was pressed to protect.
+>   AC1's wording is disjunctive and any subsequent save re-prompts. Filed as a Batch 9 item.
+> - **Nothing was verified in a running app.** Everything on both sides is jsdom plus a faked Monaco
+>   whose `pushEditOperations` is a whole-value assignment: it proves _whether_ a push happens, not
+>   what real Monaco does to cursor, undo or IME state when one does. jsdom likewise does not
+>   implement native Tab traversal, so the trap is proved by handler behaviour, not a browser walk.
+
+> ### ⚠️ EVERY LINE NUMBER BELOW IS STALE — corrected in `batch-7-dispatch.md` §1.1
+>
+> `editor-diff-split.ts` was rewritten by Batch 2, and `editor-panel.component.ts` has now been
+> rewritten by **Batch 4 (`06b900d85`) and again by Batch 6 (`b57d3c8d4`)**. Every citation in
+> Tasks 7.1–7.4 predates all of it. Re-verified against the working tree on 2026-08-10: the four
+> drifted citations are `updateSplitContent` (`:117-123` → **`:302-304`**), `openFileInSplit`
+> (`:139-141` → **`:262-286`**), `codeEditorContent` (`:654-659` → **`:659-663`**, where `:653-657`
+> is now `codeEditorPath` — a live confusion hazard), and the per-pane model block (`:202-208` →
+> **`:202-211`**). `code-editor.component.ts:399-411` is the one citation that did not drift.
+> **The dispatch is the executor's source of truth.**
+>
+> ### 🔴 Task 7.2 as literally worded is DANGEROUS — the dispatch re-scopes it
+>
+> `code-editor.component.ts:395-398` carries a load-bearing comment: _"the incoming `content` input
+> never carries the user's own edits back … so any divergence here is an outside change we must
+> apply."_ That invariant is the only thing keeping `syncFile` from issuing a full-model
+> `pushEditOperations` over the buffer the user is typing into. It holds because the left pane reads
+> `activeFileContent()` (written on open/switch only) while edits go to the tab record.
+>
+> **Rebinding the left pane's `[content]` to the tab record inverts it** — `updateTabContent` fires
+> on every keystroke, so the user's own text echoes back into the effect. Value equality usually
+> absorbs it; under fast typing the echo lags the model, the `:399` comparison goes true, and the
+> cursor jumps to the end with the undo stack collapsed. `tasks.md`'s own justification for 7.2
+> describes why the _current_ arrangement is safe — it is not an argument that the rebinding is.
+>
+> **Task 7.2 is therefore dispatched as a statement about content OWNERSHIP (the write target), not
+> about bindings (the read source).** Converge the writes; drive only the _unfocused_ pane from the
+> tab record. A different shape is permitted only with an explicit justification against that
+> invariant and an update to the comment.
+>
+> ### The root cause has FOUR legs, not the two Task 7.1 names
+>
+> Re-verification found two more divergence paths, neither named anywhere in Batch 7:
+>
+> - **Leg 3 — the split pane's save never marks the tab clean.** `onSplitFileSaved`
+>   (`editor-panel.component.ts:693-698`) omits the `markTabClean` that the left pane's `onFileSaved`
+>   (`:753-757`) performs, and `saveFile` (`editor-file-ops.ts:110-124`) is RPC-only. **C2 AC4 fails
+>   today**, on a path with nothing to do with conflicts. Fixed in 7.1/7.2, not 7.4.
+> - **Leg 4 — the workspace cache is a second independent store of the same content.**
+>   `editor-workspace.ts:146-148` persists `splitFileContent` and `:92-95` restores it, while the tab
+>   record persists separately via `syncTabsToCache()`. A workspace switch away and back round-trips
+>   through a different store and can reintroduce divergence **after** Tasks 7.1–7.3 have run.
+>
+> Also flagged: `openFileInSplit`'s no-tab branch (`editor-diff-split.ts:274-285`) never creates a
+> tab, so "the tab record owns content for both panes" has a hole. It is vacuously safe (one editing
+> surface, nothing to diverge from) but must be reasoned and pinned, not assumed — and **not** "fixed"
+> by creating a tab, which would change observable behaviour.
+>
+> ### 🚫 `closeSplit`'s `stopPropagation` stays
+>
+> `editor-panel.component.ts:621-624` is the last live `stopPropagation()` in this file. It was out of
+> Batch 6's scope and it is out of Batch 7's. It will look like an obvious leftover ten lines from
+> where this batch works. NFR-9: it gets filed, not fixed here.
 
 **Recommended Executor**: `frontend-developer`
 **Fallback Executor**: `senior-tester`
@@ -860,53 +1000,64 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 **Rationale**: Plan §5.5 names this "the highest-uncertainty item after D2" and says to isolate it. Isolated it is.
 **Tasks**: 4 | **Dependencies**: **Batch 6 (sequential). Also hard-depends on Batch 2 — `editor-diff-split.ts` was rewritten there.** | **Satisfies**: C2
 
-### Task 7.1: `updateSplitContent` writes the tab record ⏸️ PENDING
+### Task 7.1: `updateSplitContent` writes the tab record ✅ COMPLETE — write-through lands, including when the split file is NOT the active file (see the AC5 deviation above). Legs 3 and 4 fixed here too: both save paths now route through one `saveFromPane` → `persistSave` → `markTabClean`, so there is one save policy rather than two that drifted
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\services\editor\editor-diff-split.ts` (`:117-123`, `:139-141`)
 **Requirement**: C2 AC1, AC2
 **Details**: Root cause — `openFileInSplit` copies content at open time and split edits write only `splitFileContent`, never back into `openTabs`. Fix: `updateSplitContent(content)` also calls `tabs.updateTabContent(splitFilePath, content)` when that path has an open tab. **The open tab record becomes the single owner of content for both panes.**
 
-### Task 7.2: Both panes driven from the tab record ⏸️ PENDING
+### Task 7.2: Content ownership converges on the tab record ✅ COMPLETE — **shipped as re-scoped: ownership, NOT bindings. The wording below is superseded and is retained only as the hazard it describes.** Do NOT rebind the focused pane's `[content]`; two panel-level guards now fail if you do
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts` (`:654-659`)
 **Requirement**: C2 AC4, AC5
 **Details**: Both panes' `[content]` inputs derive from the tab record. The left pane already effectively does — `activeFileContent` is set on switch/open only, and `onContentChanged` writes the tab, not the signal — so no feedback loop is introduced.
 **Validation Notes**: **AC5 — the different-files case must be EXACTLY as today.** Every branch here is gated on `splitFilePath === activeFilePath`.
 
-### Task 7.3: Unfocused-pane mirroring ⏸️ PENDING
+### Task 7.3: Unfocused-pane mirroring ✅ COMPLETE — 150 ms debounce in the service (not the template), re-reads `focusedPane()` at flush time so it can never target the focused pane; `setFocusedPane` cancels the pending mirror and reconciles both panes; `closeSplit` absorbs an unmirrored edit before tearing down. AC6 per-pane models preserved
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\code-editor\code-editor.component.ts` (mirroring hook, split-pane case only)
 **Requirement**: C2 AC1, AC6
 **Details**: When the same path is open in both panes, the **unfocused** pane receives the focused pane's content on a short debounce. `CodeEditorComponent.syncFile` already applies external content via `pushEditOperations` guarded by `applyingExternalEdit` (`:399-411`) — no new mechanism, and undo survives.
 **Validation Notes**: Mirroring **only** into the unfocused pane prevents cursor-jump while typing. **AC6: the independent per-pane Monaco models (`code-editor.component.ts:202-208`) are a deliberate design decision and must be PRESERVED — the save path is what changes, not the model strategy.**
 
-### Task 7.4: Conflict prompt at save ⏸️ PENDING
+### Task 7.4: Conflict prompt at save ✅ COMPLETE — `hasUnabsorbedPeerEdit` gates an `alertdialog` with Overwrite/Cancel/Escape, focus-trapped and focus-restoring, axe-clean. R-10 respected: reachable only under genuine unabsorbed divergence, never on an ordinary split-pane save
 
 **Files**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\services\editor\editor-diff-split.ts`, `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts`
 **Requirement**: C2 AC2, AC3, AC4
 **Details**: If the tab record carries a write from the other pane that this pane has not absorbed, prompt "This file was also edited in the other pane — Overwrite / Cancel". Dirty indicator correct in both panes after save (AC4).
 **Validation Notes**: **R-10 — a prompt on every split-pane save would be worse than today's silent behaviour.** With Tasks 7.1 and 7.3 in place this should be reachable only under a genuine race. Prefer reconciliation over prompting where content allows.
 
-**Batch 7 Acceptance Criteria**:
+**Batch 7 Acceptance Criteria** — all verified by the reviewer against the working tree, not from the report's transcript:
 
-- C2 AC1: no silent divergence — the other pane reflects the edit or is visibly marked diverged
-- C2 AC2/AC3: a save never discards the other pane's edits without informing the user; never completes silently when it would overwrite
-- C2 AC4: dirty indicator correct in both panes
-- C2 AC5: **different-files case behaves exactly as today** — no degradation of the ordinary split-pane case
-- C2 AC6: independent per-pane Monaco models preserved
-- Standing gates 1–7 pass
-
----
-
-## ✂️ NATURAL CUT LINE — HERE (R-7)
-
-**If the task runs long, stop after batch 7.** Batches 0–7 (C1 + A-group + B + D1 + D3 + C2) form a coherent, shippable unit on their own: the diff is correct, measured, accessible, and no longer loses work. Batch 8 is a feature project in its own right and is the only batch that writes to the user's git index. Cutting here costs the D2 feature and nothing else — no partial state, no half-migrated scheme.
+- ✅ C2 AC1: no silent divergence — including the workspace-cache round-trip (Leg 4), four tests
+- ✅ C2 AC2/AC3: `hasUnabsorbedPeerEdit` verified against real signal state; Cancel genuinely writes nothing — no RPC, no tab mutation
+- ✅ C2 AC4: both dirty notions — the tab record's `isDirty` and the per-pane badge — correct, and the badge fix is a baseline-only effect specifically so it cannot re-enter `syncFile` and reintroduce the §1.2 hazard
+- ⚠️ C2 AC5: **PARTIAL, by one disclosed and accepted deviation** — read path byte-identical; a different-files split edit now dirties a background tab. See the block above
+- ✅ C2 AC6: independent per-pane Monaco models untouched; only the doc comment was rewritten
+- ✅ Standing gates 1–7 pass — re-run live by the reviewer, all figures matching
 
 ---
 
-## Batch 8: D2 — Hunk Stage / Revert ⏸️ PENDING
+## ✂️ NATURAL CUT LINE — HERE (R-7) — **REACHED 2026-08-10**
 
-**Recommended Executor**: **two sequential passes, one batch, ONE commit**
+**Batches 0–7 are complete, committed and coherent as delivered.** C1 + A-group + B + D1 + D3 + C2 form a shippable unit on their own: the diff is correct, measured, accessible, and no longer loses work. Stopping here costs the D2 feature and nothing else — no partial state, no half-migrated scheme.
+
+**Everything below this line is gated.** Batch 8 is a feature project in its own right and is the only batch that writes to the user's git index; it is blocked on SEQ-2, which Batch 7 did **not** clear and cannot clear. Batch 9 is filing work and may proceed from this cut line independently of Batch 8.
+
+---
+
+## Batch 8: D2 — Hunk Stage / Revert ⛔ BLOCKED ON SEQ-2 — **NOT ASSIGNED, NOT READY**
+
+> **Status as of 2026-08-10, after Batch 7 committed**: Batch 7's sequential dependency is satisfied.
+> **SEQ-2 is not.** Batch 2's A1–A4 acceptance criteria have not been _independently verified_ —
+> implemented and committed is not the bar. Batch 7 did not touch Batch 2's correctness and does not
+> clear the gate; the executor states this in its own report §11 and the reviewer concurs
+> ("This does **not** touch SEQ-2 or Batch 8 readiness").
+>
+> **Do not dispatch this batch, and do not read the completion of Batch 7 as permission to.** The
+> independent A1–A4 verification is running as its own step; only its result can unblock this.
+
+**Recommended Executor** (on unblock): **two sequential passes, one batch, ONE commit**
 
 - **Pass 8A** → `backend-developer` (Tasks 8.1–8.4)
 - **Pass 8B** → `frontend-developer` (Tasks 8.5–8.6)
@@ -1036,7 +1187,7 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 **Recommended Executor**: `senior-tester`
 **Fallback Executor**: `devops-engineer`
 **Execution Mode**: sequential
-**Tasks**: 3 | **Dependencies**: Batch 8 (or batch 7 if the cut line was taken) | **Satisfies**: DoD items 9, 10
+**Tasks**: 3 | **Dependencies**: Batch 8 **or Batch 7 if the cut line was taken — it was, on 2026-08-10**, so this batch is reachable now and does **not** wait on SEQ-2 | **Satisfies**: DoD items 9, 10
 
 ### Task 9.1: File B6 (file-tree virtualization) as a follow-up task ⏸️ PENDING
 
@@ -1048,20 +1199,33 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 **Requirement**: DoD item 9; task-description Out-of-Scope item 8
 **Details**: Every case in `r3-triage.md` marked "follow-up finding" becomes a filed record. Same for any additional hot path profiling revealed during B-group work — **recorded as findings for a follow-up task, never absorbed into this one**.
 
-### Task 9.3: File the accumulated per-batch follow-up candidates — **FIVE items** ⏸️ PENDING
+### Task 9.3: File the accumulated per-batch follow-up candidates — **TWELVE items** ⏸️ PENDING
+
+> **Register closed at the R-7 cut line (2026-08-10).** Items 1–5 accumulated across Batches 4–6 and
+> are confirmed still recorded, unaltered. Items 6–12 were filed by Batch 7 (six by the executor, one
+> hit independently by both executor and reviewer). **Every item carries a concrete one-line fix, not
+> an open question** — verified item by item by the reviewer in Round 2. If a future batch adds to
+> this register, it inherits that bar.
 
 **Requirement**: DoD item 9 (same "file, never absorb" rule as Task 9.2)
 **Details**: These were raised by `code-logic-reviewer` during batch execution, dispositioned as
 **genuine follow-ups rather than blockers**, and deliberately **not** fixed in the batch that found
 them (NFR-9). Each becomes its own filed record. **Do not fix any of them inside TASK_2026_173.**
 
-| #   | Candidate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Raised by                                                              | Severity |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------- |
-| 1   | **Drift detection between `libs/shared/src/lib/constants/workspace-scan.constants.ts` and `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`'s hand-maintained `IGNORED_DIRS` copy.** The `.mjs` harness cannot import the TS constant without dragging itself into the build graph and forfeiting the "zero product-code change" property that makes the M3 before/after numbers comparable — so the copy is justified, but its only safeguard today is a comment banner. A text/AST-level test that fails CI when the two lists diverge turns that comment's promise into an enforced invariant. Tooling-only: drift corrupts a future measurement, never production behaviour.                                                                                                                                                                                                                                                                                                                                                              | Batch 5 review, Failure Mode 4 / Issue 2                               | MODERATE |
-| 2   | **Pre-existing B4 AC4 asymmetry, undocumented anywhere.** An explicitly-targeted ignored directory is enumerable via `editor:getFileTree` with an explicit `rootPath` (`buildFileTree` filters `root`'s _children_, never `root` itself) and openable via `handleFileOpen` (which applies no exclusion filter at all) — even though the same directory is unreachable by navigation from the workspace root. Confirmed byte-identical to `HEAD` before and after Batch 5, so genuinely pre-existing and untouched. Arguably the correct "user asked for it explicitly" behaviour, but it is written down nowhere. **File as documentation, not as a bug**, unless a decision is taken to change it.                                                                                                                                                                                                                                                                                                                                                                    | Batch 5 review, Judgment Call 3                                        | LOW      |
-| 3   | **Pointer capture on the three editor-panel resize handles**, carried over from Batch 4's review. Would make the double-`mousedown` drag re-entry structurally impossible rather than merely benign. Batch 4's reviewer ruled **no action needed** there — the post-refactor code is strictly safer than the pre-refactor behaviour, which registered two racing listener quartets — so this is a hardening improvement, not a defect fix.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Batch 4 review, Failure Mode 3                                         | LOW      |
-| 4   | **`aria-required-children` ownership violation on `role="tablist"` — INTRODUCED by Batch 6 and ACCEPTED BY USER DECISION.** De-nesting the tab close button onto a `role="presentation"` wrapper makes axe descend through the wrapper, which re-parents the close button onto the `tablist`; ARIA permits only `tab` as an owned element. **This is a regression on a rule that previously passed** — the batch trades one critical axe violation for another. The user ruled the trade favourable and instructed that the `tablist`/`tab` shape be kept: `nested-interactive` was a real operability defect, while here the close button stays reachable, focusable, labelled and operable and only its ownership is wrong. **File it; do not re-litigate it, and do not propose `role="toolbar"` + `aria-current`, `aria-owns`, or hoisting the buttons — all three were evaluated and ruled out.** The one clean resolution changes what a screen reader announces ("button, current" vs "tab, selected") and deserves its own D1 AC4 review in a task of its own. | Batch 6 report §6 + review, Integration Risk; user decision 2026-08-10 | MODERATE |
-| 5   | **Empty-state `role="list"` ownership violation — CONFIRMED DEFECT, known one-line fix.** When a source-control section has zero files, `SourceControlPanelComponent` renders a plain `<div>` ("No staged changes" / "No changes") inside the `role="list"` region (`source-control-panel.component.ts:141-144, 201-204`). **Not hypothetical**: Batch 6's report called it an inspection-only risk because its axe run used a populated fixture, but the reviewer ran `axe-core` over the exact empty-state markup and reproduced a **live critical `aria-required-children` violation on both branches, today**. It hits the common case — most working trees have nothing staged. Genuinely pre-existing and untouched by Batch 6 (confirmed: the empty-state lines fall outside every hunk in that diff), so correctly excluded there. **Fix: give the empty-state message `role="listitem"`. One line per section, no visual change.**                                                                                                                            | Batch 6 review, Failure Mode 1 / Issue 2                               | MODERATE |
+| #   | Candidate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Raised by                                                                | Severity |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------- |
+| 1   | **Drift detection between `libs/shared/src/lib/constants/workspace-scan.constants.ts` and `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`'s hand-maintained `IGNORED_DIRS` copy.** The `.mjs` harness cannot import the TS constant without dragging itself into the build graph and forfeiting the "zero product-code change" property that makes the M3 before/after numbers comparable — so the copy is justified, but its only safeguard today is a comment banner. A text/AST-level test that fails CI when the two lists diverge turns that comment's promise into an enforced invariant. Tooling-only: drift corrupts a future measurement, never production behaviour.                                                                                                                                                                                                                                                                                                                                                              | Batch 5 review, Failure Mode 4 / Issue 2                                 | MODERATE |
+| 2   | **Pre-existing B4 AC4 asymmetry, undocumented anywhere.** An explicitly-targeted ignored directory is enumerable via `editor:getFileTree` with an explicit `rootPath` (`buildFileTree` filters `root`'s _children_, never `root` itself) and openable via `handleFileOpen` (which applies no exclusion filter at all) — even though the same directory is unreachable by navigation from the workspace root. Confirmed byte-identical to `HEAD` before and after Batch 5, so genuinely pre-existing and untouched. Arguably the correct "user asked for it explicitly" behaviour, but it is written down nowhere. **File as documentation, not as a bug**, unless a decision is taken to change it.                                                                                                                                                                                                                                                                                                                                                                    | Batch 5 review, Judgment Call 3                                          | LOW      |
+| 3   | **Pointer capture on the three editor-panel resize handles**, carried over from Batch 4's review. Would make the double-`mousedown` drag re-entry structurally impossible rather than merely benign. Batch 4's reviewer ruled **no action needed** there — the post-refactor code is strictly safer than the pre-refactor behaviour, which registered two racing listener quartets — so this is a hardening improvement, not a defect fix.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Batch 4 review, Failure Mode 3                                           | LOW      |
+| 4   | **`aria-required-children` ownership violation on `role="tablist"` — INTRODUCED by Batch 6 and ACCEPTED BY USER DECISION.** De-nesting the tab close button onto a `role="presentation"` wrapper makes axe descend through the wrapper, which re-parents the close button onto the `tablist`; ARIA permits only `tab` as an owned element. **This is a regression on a rule that previously passed** — the batch trades one critical axe violation for another. The user ruled the trade favourable and instructed that the `tablist`/`tab` shape be kept: `nested-interactive` was a real operability defect, while here the close button stays reachable, focusable, labelled and operable and only its ownership is wrong. **File it; do not re-litigate it, and do not propose `role="toolbar"` + `aria-current`, `aria-owns`, or hoisting the buttons — all three were evaluated and ruled out.** The one clean resolution changes what a screen reader announces ("button, current" vs "tab, selected") and deserves its own D1 AC4 review in a task of its own. | Batch 6 report §6 + review, Integration Risk; user decision 2026-08-10   | MODERATE |
+| 5   | **Empty-state `role="list"` ownership violation — CONFIRMED DEFECT, known one-line fix.** When a source-control section has zero files, `SourceControlPanelComponent` renders a plain `<div>` ("No staged changes" / "No changes") inside the `role="list"` region (`source-control-panel.component.ts:141-144, 201-204`). **Not hypothetical**: Batch 6's report called it an inspection-only risk because its axe run used a populated fixture, but the reviewer ran `axe-core` over the exact empty-state markup and reproduced a **live critical `aria-required-children` violation on both branches, today**. It hits the common case — most working trees have nothing staged. Genuinely pre-existing and untouched by Batch 6 (confirmed: the empty-state lines fall outside every hunk in that diff), so correctly excluded there. **Fix: give the empty-state message `role="listitem"`. One line per section, no visual change.**                                                                                                                            | Batch 6 review, Failure Mode 1 / Issue 2                                 | MODERATE |
+| 6   | **Keyboard users cannot focus a split pane, and therefore cannot save from one.** `focusedPane` is updated only by `(click)` on the pane `<div>`s (`editor-panel.component.ts:203`, `:366`), and `Ctrl+S` is gated on `isFocused()`. A user who tabs into the other Monaco never changes `focusedPane`, so split-pane editing is effectively mouse-required — and the focus change is also what triggers the reconciliation that closes the divergence window. Pre-existing (Batch 6's scope, not Batch 7's) and correctly filed rather than fixed under NFR-9, but it has sharper teeth now that split-pane save is the shipped feature. **Fix: add `(focusin)="onPaneClick('left'\|'right')"` alongside the existing `(click)` on both pane containers.**                                                                                                                                                                                                                                                                                                            | Batch 7 report §9.2 + review Q2                                          | MODERATE |
+| 7   | **`closeSplit`'s `stopPropagation()`** — the last live `stopPropagation()` in `editor-panel.component.ts`, held out of both Batch 6's and Batch 7's scope by explicit instruction and confirmed untouched across both rounds (reviewer verified it sits outside every diff hunk). It reads as an obvious leftover ten lines from where Batch 7 worked, which is exactly why it needs a record rather than an opportunistic fix. **Fix: delete the `event.stopPropagation()` line and drop the `MouseEvent` parameter — the close button is already a sibling of the pane container after Batch 6's de-nesting, so nothing depends on the suppression.**                                                                                                                                                                                                                                                                                                                                                                                                                | Batch 7 report §9.1                                                      | LOW      |
+| 8   | **Pre-existing right-pane self-echo.** `updateSplitContent`'s first line still sets `splitFileContent` from the right pane's own `contentChanged` — the same self-referential shape as Task 7.2's hazard, just un-debounced and pre-existing. Confirmed by diff as byte-identical to `HEAD`; masked today by last-write-wins signal semantics. Removing it inside Batch 7 would have been a read-path change AC5 forbids. **Fix: drop that line and let the right pane's `[content]` read the shared tab record when one exists, falling back to `splitFileContent` only for the no-tab case — which requires the two new §1.2 panel guards to be re-pointed in the same change, so this is genuinely a batch of its own, not a one-liner.**                                                                                                                                                                                                                                                                                                                           | Batch 7 report §9.4 + review Failure Mode 4                              | MODERATE |
+| 9   | **No dedicated "these panes disagree" affordance.** After Cancel on the save-conflict dialog the two panes knowingly hold different content, and the only cue is the generic tab-strip dirty dot — ambiguous between "this pane has unsaved edits" and "the other pane disagrees with what you are looking at". Not data loss: Cancel writes nothing, and the predicate is unchanged by Cancel so **any subsequent save re-prompts**. AC1's wording is disjunctive ("reflects it **or** is visibly marked diverged"), so this is defensible as shipped — the reviewer and executor independently reached the same ruling — but it is defensible, not unambiguous. **Fix: add a `badge badge-warning` "Diverged" chip to the split pane's header bar, shown when `hasUnabsorbedPeerEdit(splitFilePath(), splitFileContent())` is true.**                                                                                                                                                                                                                                | Batch 7 report §10.4 + review Failure Mode 3 / Ruling 1                  | MODERATE |
+| 10  | **`axe-core` is not a declared dependency, so dialog accessibility is enforced by reviewers remembering to scan.** Both Batch 6 and Batch 7 proved their a11y claims with `axe-core@4.12.1` reached **transitively** through `@axe-core/playwright`, via temporary specs deleted immediately after. A permanent spec importing it today would break silently on a dependency bump, and declaring it means editing `package.json` — outside the `libs/frontend/editor/**` constraint both batches worked under. **Fix: add `"axe-core": "^4.12.1"` to `devDependencies` and convert the deleted probe into a permanent spec, so this is a CI gate rather than a habit.** Note the standing limit: axe has **no automated rule for focus trapping** and could not have caught Batch 7's Serious 2 — behavioural tests remain necessary alongside it.                                                                                                                                                                                                                     | Batch 7 report Round 2 §"axe" + review §C                                | MODERATE |
+| 11  | **The delete-confirm and name-input modals (`editor-panel.component.ts:443-500`) have no `role`, no `aria-modal`, no focus management, and clickable `modal-backdrop` divs.** Batch 7's new save-conflict dialog does none of that, which leaves this one file with **one accessible modal and two inaccessible ones** — an inconsistency that will read as an oversight rather than a scope boundary. Left alone deliberately: fixing them inside Batch 7 would have blurred the save-semantics diff. **Fix: apply the exact shape the conflict dialog now uses — `role="alertdialog"` + `aria-modal` + `aria-labelledby`/`aria-describedby`, the same two-way Tab toggle on the container, and `closeSaveConflict`-style capture-before-open focus restore guarded on `isConnected`.**                                                                                                                                                                                                                                                                               | Batch 7 report §9.3 + Round 2 filing 6                                   | MODERATE |
+| 12  | **Flaky perf assertion in CI — `perf M2 scaling — directory indicator lookup (B3 AC2)`.** Failed once during Batch 7 with `Expected: < 3 / Received: 23.89` and passed on three subsequent runs; the reviewer hit the identical flake independently in Round 1 while running a different experiment, which is what raises it from "one bad run" to a real CI liability. It is a wall-clock threshold measuring GC/timing noise on a shared runner, in Batch 3's work, unrelated to anything Batch 7 touched — so it is filed, not fixed. **It matters because a test that fails at random trains everyone to re-run rather than read the failure, which is precisely how a genuine B3 regression would get waved through.** **Fix: replace the absolute millisecond bound with the scaling-ratio assertion the AC actually cares about (time at N vs time at 10N stays sub-linear), so the test measures the O(1) claim rather than the runner's mood.**                                                                                                               | Batch 7 report Round 2 §"One flake worth naming" + reviewer, both rounds | MODERATE |
 
 **Validation Notes**: Also still open from Batch 5 §10.2, already covered by Task 9.2's "any
 additional findings" clause but repeated here so it is not lost: the two **glob-string** exclusion

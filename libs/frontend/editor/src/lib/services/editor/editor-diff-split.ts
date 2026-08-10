@@ -37,6 +37,11 @@ export type { OpenDiffRequest };
  * Diff tabs are revalidated from `git:status-update` rather than held as a
  * frozen snapshot: a tab opened before a commit used to keep showing the
  * pre-commit diff forever (A1).
+ *
+ * Split-pane content ownership (C2): when both panes hold the same file, the
+ * TAB RECORD owns its content. Both panes write through to it, and the pane
+ * that does not have focus is mirrored from it. `splitFileContent` and
+ * `activeFileContent` are pane-local read surfaces, not stores.
  */
 export class EditorDiffSplitHelper {
   /**
@@ -58,6 +63,19 @@ export class EditorDiffSplitHelper {
     string,
     ReturnType<typeof setTimeout>
   >();
+
+  /**
+   * Coalescing window for cross-pane content mirroring (C2).
+   *
+   * Short enough that the unfocused pane never visibly lags, long enough that a
+   * burst of keystrokes costs one full-model replacement in the other pane
+   * rather than one per character. A focus change does not wait for it — see
+   * {@link setFocusedPane}.
+   */
+  private static readonly MIRROR_DEBOUNCE_MS = 150;
+
+  /** Pending cross-pane mirror, or `null` when none is scheduled. */
+  private mirrorTimer: ReturnType<typeof setTimeout> | null = null;
 
   public constructor(
     private readonly state: EditorInternalState,
@@ -252,13 +270,23 @@ export class EditorDiffSplitHelper {
       clearTimeout(timer);
     }
     this.refreshDebounceTimers.clear();
+    this.cancelPendingMirror();
   }
 
   // -------------------------------------------------------------------------
   // Split pane
   // -------------------------------------------------------------------------
 
-  /** Open a file in the split (right) pane, reusing cached tab content when available. */
+  /**
+   * Open a file in the split (right) pane, reusing cached tab content when
+   * available.
+   *
+   * The second branch deliberately does NOT create a tab. A split pane holding
+   * a file with no tab record is the only editing surface for that file, so
+   * there is no second view for it to diverge from and C2's ownership rule has
+   * nothing to arbitrate. Creating a tab here would put a new entry in the tab
+   * strip that the user never asked for.
+   */
   public async openFileInSplit(filePath: string): Promise<void> {
     this.state.splitFilePath.set(filePath);
     this.state.splitActive.set(true);
@@ -287,20 +315,149 @@ export class EditorDiffSplitHelper {
 
   /** Close the split pane and return focus to the left pane. */
   public closeSplit(): void {
+    this.cancelPendingMirror();
+    // Absorb any split-pane edit the left pane has not seen yet BEFORE the
+    // split state is torn down: once `splitFilePath` is gone the shared-file
+    // gate can no longer route it anywhere, and the left pane would be left
+    // holding — and, on the next save, persisting — pre-edit text (C2 AC1/AC2).
+    const shared = this.sharedSplitTab();
+    if (shared) this.setLeftPaneContent(shared.filePath, shared.content);
+
     this.state.splitActive.set(false);
     this.state.splitFilePath.set(undefined);
     this.state.splitFileContent.set('');
     this.state.focusedPane.set('left');
   }
 
-  /** Set which pane has focus. */
+  /**
+   * Set which pane has focus.
+   *
+   * A focus change also reconciles BOTH panes against the tab record without
+   * waiting for the mirror debounce. The pane the user just moved into has to
+   * already show the other pane's edits before it can be typed in or saved;
+   * leaving it up to one debounce window behind is precisely the silent
+   * divergence C2 exists to remove (AC1).
+   *
+   * This is the one place C2 writes into the pane that HAS focus. It is safe
+   * where a per-keystroke mirror would not be: it fires on a focus transition,
+   * before the user can have typed into the newly focused pane, and it writes
+   * the other pane's text — never an echo of this pane's own edits.
+   */
   public setFocusedPane(pane: 'left' | 'right'): void {
     this.state.focusedPane.set(pane);
+    this.cancelPendingMirror();
+    this.reconcilePanesToTabRecord();
   }
 
-  /** Update the content of the split (right) pane. */
+  /**
+   * Update the content of the split (right) pane.
+   *
+   * The tab record — not `splitFileContent` — OWNS a file's content (C2).
+   * Writing only the pane signal is what let a split-pane edit vanish when the
+   * same file was later activated in the left pane, and let a save from the
+   * other pane overwrite it with no indication at all.
+   */
   public updateSplitContent(content: string): void {
     this.state.splitFileContent.set(content);
+
+    const path = this.state.splitFilePath();
+    if (!path) return;
+    // `openFileInSplit`'s no-tab branch leaves the split pane as the ONLY
+    // editing surface for the file; there is no second view to own content on
+    // its behalf, so that case is deliberately left exactly as it was (§1.4).
+    if (!this.state.openTabs().some((t) => t.filePath === path)) return;
+
+    this.tabs.updateTabContent(path, content);
+    this.scheduleSplitMirror(path);
+  }
+
+  /**
+   * Schedule a mirror of the tab record into whichever pane is NOT focused,
+   * after an edit to `filePath`. A no-op unless both panes hold that same file.
+   *
+   * Only the unfocused pane is ever written. The focused pane is the one being
+   * typed into, and pushing content into it would replace the buffer under the
+   * user's cursor — the flush therefore re-reads focus rather than trusting the
+   * focus that was current when the edit happened.
+   */
+  public scheduleSplitMirror(filePath: string): void {
+    if (this.sharedSplitTab()?.filePath !== filePath) return;
+    if (this.mirrorTimer) clearTimeout(this.mirrorTimer);
+    this.mirrorTimer = setTimeout(() => {
+      this.mirrorTimer = null;
+      this.mirrorToUnfocusedPane();
+    }, EditorDiffSplitHelper.MIRROR_DEBOUNCE_MS);
+  }
+
+  /**
+   * Whether the tab record carries an edit from the OTHER pane that the pane
+   * about to save has not absorbed (C2 AC2/AC3).
+   *
+   * Deliberately narrow. After the write-through above, a focused pane's own
+   * text always equals the tab record, so an ordinary split-pane save answers
+   * `false` and completes silently (R-10). It answers `true` only inside the
+   * reconciliation window — an edit in one pane followed by a save from the
+   * other before that pane has absorbed it.
+   */
+  public hasUnabsorbedPeerEdit(filePath: string, content: string): boolean {
+    const shared = this.sharedSplitTab();
+    if (!shared || shared.filePath !== filePath) return false;
+    // A clean tab record holds the persisted text, so a difference against it
+    // is this pane's own unsaved work, not the other pane's.
+    if (!shared.isDirty) return false;
+    return shared.content !== content;
+  }
+
+  /**
+   * The open tab both panes are looking at, or `null`.
+   *
+   * Every behaviour C2 adds is gated on this. It is non-null only when the
+   * split is open, both panes hold the SAME path, and that path has a tab
+   * record — so when the two panes hold different files not one line of C2
+   * behaviour runs (AC5), and the no-tab split file (§1.4) is likewise
+   * untouched.
+   */
+  private sharedSplitTab(): EditorTab | null {
+    if (!this.state.splitActive()) return null;
+    const path = this.state.splitFilePath();
+    if (!path || path !== this.state.activeFilePath()) return null;
+    return this.state.openTabs().find((t) => t.filePath === path) ?? null;
+  }
+
+  /** Push the tab record's current content into the unfocused pane only. */
+  private mirrorToUnfocusedPane(): void {
+    const shared = this.sharedSplitTab();
+    if (!shared) return;
+    if (this.state.focusedPane() === 'right') {
+      this.setLeftPaneContent(shared.filePath, shared.content);
+    } else {
+      this.setRightPaneContent(shared.content);
+    }
+  }
+
+  /** Bring both panes onto the tab record's content. */
+  private reconcilePanesToTabRecord(): void {
+    const shared = this.sharedSplitTab();
+    if (!shared) return;
+    this.setLeftPaneContent(shared.filePath, shared.content);
+    this.setRightPaneContent(shared.content);
+  }
+
+  private setLeftPaneContent(filePath: string, content: string): void {
+    if (this.state.activeFileContent() === content) return;
+    this.state.activeFileContent.set(content);
+    this.tabs.updateCachedActiveFile(filePath, content);
+  }
+
+  private setRightPaneContent(content: string): void {
+    if (this.state.splitFileContent() === content) return;
+    this.state.splitFileContent.set(content);
+  }
+
+  private cancelPendingMirror(): void {
+    if (!this.mirrorTimer) return;
+    clearTimeout(this.mirrorTimer);
+    this.mirrorTimer = null;
   }
 
   // -------------------------------------------------------------------------

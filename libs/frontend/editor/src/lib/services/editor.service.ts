@@ -329,6 +329,17 @@ export class EditorService implements MessageHandler {
   /** Update a tab's content and mark it as dirty. */
   updateTabContent(filePath: string, content: string): void {
     this.tabsHelper.updateTabContent(filePath, content);
+    // The tab record owns content for both split panes (C2). An edit landing
+    // here came from the primary pane, so the split pane may now be behind.
+    this.diffSplitHelper.scheduleSplitMirror(filePath);
+  }
+
+  /**
+   * Whether a save of `content` to `filePath` would discard an edit the OTHER
+   * split pane has made and this pane has not absorbed (C2 AC2/AC3).
+   */
+  hasUnabsorbedPeerEdit(filePath: string, content: string): boolean {
+    return this.diffSplitHelper.hasUnabsorbedPeerEdit(filePath, content);
   }
 
   /** Mark a tab as clean (not dirty) after a successful save. */

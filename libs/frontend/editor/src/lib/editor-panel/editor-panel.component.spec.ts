@@ -46,6 +46,7 @@ class StubCodeEditorComponent {
   readonly filePath = input<string | undefined>(undefined);
   readonly content = input<string>('');
   readonly isFocused = input(true);
+  readonly contentIsPersisted = input<boolean | undefined>(undefined);
   readonly contentChanged = output<string>();
   readonly fileSaved = output<{ filePath: string; content: string }>();
 }
@@ -151,15 +152,27 @@ function makeEditorServiceStub() {
     switchTab: jest.fn(),
     closeTab: jest.fn(),
     setFocusedPane: jest.fn(),
+    saveFile: jest.fn(() => Promise.resolve()),
+    markTabClean: jest.fn(),
+    updateTabContent: jest.fn(),
+    hasUnabsorbedPeerEdit: jest.fn(() => false),
   } as unknown as EditorService & {
     isLoading: ReturnType<typeof signal<boolean>>;
     activeFilePath: ReturnType<typeof signal<string | undefined>>;
     openTabs: ReturnType<typeof signal<unknown[]>>;
     terminalVisible: ReturnType<typeof signal<boolean>>;
     splitActive: ReturnType<typeof signal<boolean>>;
+    splitFilePath: ReturnType<typeof signal<string | undefined>>;
+    splitFileContent: ReturnType<typeof signal<string>>;
+    activeFileContent: ReturnType<typeof signal<string>>;
+    focusedPane: ReturnType<typeof signal<'left' | 'right'>>;
     setTerminalHeight: jest.Mock;
     switchTab: jest.Mock;
     closeTab: jest.Mock;
+    saveFile: jest.Mock;
+    markTabClean: jest.Mock;
+    updateTabContent: jest.Mock;
+    hasUnabsorbedPeerEdit: jest.Mock;
   };
 }
 
@@ -925,5 +938,618 @@ describe('EditorPanelComponent — tab strip controls are siblings, not nested (
     expect(
       dot.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2 — split-pane save.
+//
+// Two things are being pinned here. First, that a save from EITHER pane leaves
+// the dirty indicators correct: the split pane never marked the tab clean, so
+// the strip kept a dirty dot on a file that was clean on disk. Second — and
+// this is the assertion that actually protects the experience — that an
+// ORDINARY split-pane save does not prompt. A conflict dialog on every save
+// would be worse than the silent behaviour it replaces (R-10).
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — split-pane save (C2)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+
+  function tab(filePath: string, content: string, isDirty: boolean) {
+    return {
+      filePath,
+      fileName: filePath.split('/').pop(),
+      content,
+      isDirty,
+    };
+  }
+
+  /** Same file in both panes, one tab record. */
+  function shareFileInBothPanes(content = 'v0', isDirty = false): void {
+    editor.openTabs.set([tab('/ws/a.ts', content, isDirty)]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    fixture.detectChanges();
+  }
+
+  function panes() {
+    return fixture.debugElement.queryAll(By.directive(StubCodeEditorComponent));
+  }
+
+  function conflictDialog(): HTMLElement | null {
+    return fixture.nativeElement.querySelector('[role="alertdialog"]');
+  }
+
+  function dialogButton(label: string): HTMLButtonElement | undefined {
+    return [
+      ...fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button',
+      ),
+    ].find((b) => b.textContent?.trim() === label);
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('(AC4, leg 3) a save from the SPLIT pane marks the tab clean, as the primary pane already did', async () => {
+    shareFileInBothPanes();
+    const [, right] = panes();
+
+    right.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'v1',
+    });
+    await Promise.resolve();
+
+    expect(editor.saveFile).toHaveBeenCalledWith('/ws/a.ts', 'v1');
+    expect(editor.markTabClean).toHaveBeenCalledWith('/ws/a.ts');
+  });
+
+  it('(AC4) a save from the PRIMARY pane still marks the tab clean', async () => {
+    editor.activeFilePath.set('/ws/a.ts');
+    fixture.detectChanges();
+    const [left] = panes();
+
+    left.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'v1',
+    });
+    await Promise.resolve();
+
+    expect(editor.saveFile).toHaveBeenCalledWith('/ws/a.ts', 'v1');
+    expect(editor.markTabClean).toHaveBeenCalledWith('/ws/a.ts');
+  });
+
+  it('(R-10) an ORDINARY split-pane save completes silently — no dialog', async () => {
+    shareFileInBothPanes('v1', true);
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(false);
+    const [, right] = panes();
+
+    right.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'v1',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(conflictDialog()).toBeNull();
+    expect(editor.saveFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('(AC5) a save with DIFFERENT files in the two panes never prompts', async () => {
+    editor.openTabs.set([
+      tab('/ws/a.ts', 'A', true),
+      tab('/ws/b.ts', 'B', true),
+    ]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/b.ts');
+    fixture.detectChanges();
+    const [, right] = panes();
+
+    right.componentInstance.fileSaved.emit({
+      filePath: '/ws/b.ts',
+      content: 'B edited',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(conflictDialog()).toBeNull();
+    expect(editor.saveFile).toHaveBeenCalledWith('/ws/b.ts', 'B edited');
+    // Different files: no C2 gate is armed at all, so both panes keep the
+    // legacy "no information" baseline behaviour.
+    expect(
+      panes().map((p) => p.componentInstance.contentIsPersisted()),
+    ).toEqual([undefined, undefined]);
+  });
+
+  it('(AC3) a conflicting save prompts and writes NOTHING until the user chooses', async () => {
+    shareFileInBothPanes('peer edit', true);
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(true);
+    const [left] = panes();
+
+    left.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'my stale text',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const dialog = conflictDialog();
+    expect(dialog).toBeTruthy();
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(dialog?.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(editor.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('(AC3) Cancel really does abort the write', async () => {
+    shareFileInBothPanes('peer edit', true);
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(true);
+    const [left] = panes();
+
+    left.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'my stale text',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    dialogButton('Cancel')?.click();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(conflictDialog()).toBeNull();
+    expect(editor.saveFile).not.toHaveBeenCalled();
+    // The other pane's edits survive untouched in the tab record.
+    expect(editor.updateTabContent).not.toHaveBeenCalled();
+    expect(editor.markTabClean).not.toHaveBeenCalled();
+  });
+
+  it('(AC2) Overwrite writes, and leaves the tab record holding what was actually written', async () => {
+    shareFileInBothPanes('peer edit', true);
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(true);
+    const [left] = panes();
+
+    left.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'my stale text',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    dialogButton('Overwrite')?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(conflictDialog()).toBeNull();
+    // Without this the text the user chose to discard would be mirrored
+    // straight back into both panes.
+    expect(editor.updateTabContent).toHaveBeenCalledWith(
+      '/ws/a.ts',
+      'my stale text',
+    );
+    expect(editor.saveFile).toHaveBeenCalledWith('/ws/a.ts', 'my stale text');
+    expect(editor.markTabClean).toHaveBeenCalledWith('/ws/a.ts');
+  });
+
+  it('maps Escape to Cancel, the non-destructive choice', async () => {
+    shareFileInBothPanes('peer edit', true);
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(true);
+    const [left] = panes();
+
+    left.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'my stale text',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(conflictDialog()).toBeTruthy();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    expect(conflictDialog()).toBeNull();
+    expect(editor.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('moves focus to Cancel when the dialog opens', async () => {
+    shareFileInBothPanes('peer edit', true);
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(true);
+    const [left] = panes();
+
+    left.componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'my stale text',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(dialogButton('Cancel'));
+  });
+
+  it('(AC4) hands both panes the tab record dirty state, and only for a shared file', () => {
+    shareFileInBothPanes('v0', true);
+    expect(
+      panes().map((p) => p.componentInstance.contentIsPersisted()),
+    ).toEqual([false, false]);
+
+    editor.openTabs.set([tab('/ws/a.ts', 'v0', false)]);
+    fixture.detectChanges();
+    expect(
+      panes().map((p) => p.componentInstance.contentIsPersisted()),
+    ).toEqual([true, true]);
+
+    // No split at all: back to the legacy "no information" value.
+    editor.splitActive.set(false);
+    fixture.detectChanges();
+    expect(
+      panes().map((p) => p.componentInstance.contentIsPersisted()),
+    ).toEqual([undefined]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2 §1.2 — the read-path invariant, pinned at the site where a regression
+// would actually be introduced.
+//
+// `code-editor.component.spec.ts` proves that a pane which is never re-fed its
+// own edits issues no pushEditOperations. That is a claim about the component's
+// internal mechanism, and it holds only while the PANEL keeps its side of the
+// bargain. These tests pin the panel's side: neither pane's `[content]` may be
+// derived from the shared tab record while that pane has focus.
+//
+// This is the exact change `tasks.md` Task 7.2 asks for in its superseded,
+// literal wording ("Both panes' [content] inputs derive from the tab record").
+// Making it reintroduces a full-model replacement over the buffer the user is
+// typing into: cursor to the end, undo stack collapsed. Without these two
+// tests that change passes the entire suite.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — focused-pane read path (C2 §1.2 regression guard)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+
+  function tab(filePath: string, content: string, isDirty: boolean) {
+    return { filePath, fileName: filePath.split('/').pop(), content, isDirty };
+  }
+
+  function panes() {
+    return fixture.debugElement.queryAll(By.directive(StubCodeEditorComponent));
+  }
+
+  /** Content currently held by the tab record both panes share. */
+  function ownerContent(): string {
+    const tabs = editor.openTabs() as Array<{
+      filePath: string;
+      content: string;
+    }>;
+    return tabs.find((t) => t.filePath === '/ws/a.ts')?.content ?? '';
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+
+    // Same file in both panes, with a tab record that behaves like the real
+    // one: `updateTabContent` moves the owner on every keystroke.
+    editor.updateTabContent.mockImplementation(
+      (filePath: string, content: string) => {
+        editor.openTabs.update((tabs) =>
+          (tabs as Array<{ filePath: string }>).map((t) =>
+            t.filePath === filePath ? { ...t, content, isDirty: true } : t,
+          ),
+        );
+      },
+    );
+    editor.openTabs.set([tab('/ws/a.ts', 'v0', false)]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.activeFileContent.set('v0');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    editor.splitFileContent.set('v0');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('keeps the focused primary pane OFF the tab record however much is typed into it', () => {
+    editor.focusedPane.set('left');
+    fixture.detectChanges();
+    const [left] = panes();
+
+    let typed = 'v0';
+    for (const ch of 'the quick brown fox') {
+      typed += ch;
+      left.componentInstance.contentChanged.emit(typed);
+      fixture.detectChanges();
+    }
+
+    // The owner moved with every keystroke...
+    expect(ownerContent()).toBe(typed);
+    // ...and the focused pane's read surface did NOT follow it. If this
+    // binding is ever derived from the tab record, the pane is handed its own
+    // lagging text back and syncFile replaces the buffer under the cursor.
+    expect(left.componentInstance.content()).toBe('v0');
+    expect(left.componentInstance.content()).not.toBe(ownerContent());
+  });
+
+  it('binds each pane to its OWN read surface, not to the shared tab record, while it holds focus', () => {
+    // Drive the owner away from both pane signals. Value equality normally
+    // hides which of the two a binding reads; this state separates them, so a
+    // rebinding of either pane changes an observable value.
+    editor.openTabs.set([tab('/ws/a.ts', 'OWNER v1', true)]);
+
+    editor.focusedPane.set('left');
+    fixture.detectChanges();
+    expect(panes()[0].componentInstance.content()).toBe('v0');
+    expect(panes()[0].componentInstance.content()).not.toBe(ownerContent());
+
+    editor.focusedPane.set('right');
+    fixture.detectChanges();
+    expect(panes()[1].componentInstance.content()).toBe('v0');
+    expect(panes()[1].componentInstance.content()).not.toBe(ownerContent());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2 — conflict dialog keyboard containment (review Serious 2).
+//
+// The dialog is visually blocking but was not focus-blocking: Tab walked
+// straight out of it into the editor behind, and closing it dropped focus to
+// the top of the document. Reachable in ordinary keyboard use, in code this
+// batch introduced, one batch after this file's accessibility bar was raised.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — save-conflict dialog focus management (C2)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+  /** Stands in for the Monaco host whose Ctrl+S raised the dialog. */
+  let raiser: HTMLButtonElement;
+
+  function panes() {
+    return fixture.debugElement.queryAll(By.directive(StubCodeEditorComponent));
+  }
+
+  function dialogButton(label: string): HTMLButtonElement | undefined {
+    return [
+      ...fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button',
+      ),
+    ].find((b) => b.textContent?.trim() === label);
+  }
+
+  function dialogBox(): HTMLElement | null {
+    return fixture.nativeElement.querySelector('[role="alertdialog"]');
+  }
+
+  async function openConflict(): Promise<void> {
+    editor.openTabs.set([
+      {
+        filePath: '/ws/a.ts',
+        fileName: 'a.ts',
+        content: 'peer',
+        isDirty: true,
+      },
+    ]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    fixture.detectChanges();
+    editor.hasUnabsorbedPeerEdit.mockReturnValue(true);
+
+    // Focus starts in the editor that is about to save, as it would after a
+    // Ctrl+S landing on the Monaco host.
+    raiser.focus();
+    expect(document.activeElement).toBe(raiser);
+
+    panes()[0].componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'mine',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+
+    raiser = document.createElement('button');
+    raiser.textContent = 'monaco-host';
+    document.body.appendChild(raiser);
+  });
+
+  afterEach(() => {
+    raiser.remove();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('cycles Tab between the two buttons instead of letting focus escape', async () => {
+    await openConflict();
+    const cancel = dialogButton('Cancel');
+    const overwrite = dialogButton('Overwrite');
+    expect(document.activeElement).toBe(cancel);
+
+    const tab = (): boolean =>
+      dialogBox()?.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Tab',
+          bubbles: true,
+          cancelable: true,
+        }),
+      ) ?? true;
+
+    // Cancel -> Overwrite -> Cancel, and the default action is suppressed each
+    // time so the browser never walks focus into the editor behind the modal.
+    expect(tab()).toBe(false);
+    expect(document.activeElement).toBe(overwrite);
+    expect(tab()).toBe(false);
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it('contains Shift+Tab as well — two focusable elements make it the same toggle', async () => {
+    await openConflict();
+    const overwrite = dialogButton('Overwrite');
+
+    dialogBox()?.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(document.activeElement).toBe(overwrite);
+  });
+
+  it('leaves keys other than Tab alone', async () => {
+    await openConflict();
+    const cancel = dialogButton('Cancel');
+
+    const notPrevented = dialogBox()?.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(notPrevented).toBe(true);
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it('restores focus to the editor that raised it on Cancel', async () => {
+    await openConflict();
+    dialogButton('Cancel')?.click();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(raiser);
+  });
+
+  it('restores focus to the editor that raised it on Overwrite', async () => {
+    await openConflict();
+    dialogButton('Overwrite')?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(raiser);
+    expect(editor.saveFile).toHaveBeenCalledWith('/ws/a.ts', 'mine');
+  });
+
+  it('restores focus on Escape, and still cancels', async () => {
+    await openConflict();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    expect(dialogBox()).toBeNull();
+    expect(document.activeElement).toBe(raiser);
+    expect(editor.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when the element that raised the dialog has been removed', async () => {
+    await openConflict();
+    raiser.remove();
+
+    expect(() => dialogButton('Cancel')?.click()).not.toThrow();
+    fixture.detectChanges();
+    expect(dialogBox()).toBeNull();
   });
 });

@@ -86,12 +86,33 @@ export class EditorWorkspaceHelper {
     if (cachedState) {
       this.state.fileTree.set(cachedState.fileTree);
       this.state.activeFilePath.set(cachedState.activeFilePath);
-      this.state.activeFileContent.set(cachedState.activeFileContent);
       this.state.openTabs.set(cachedState.openTabs);
 
+      // The cache holds THREE copies of the same text — the tab record, the
+      // cached `activeFileContent` and the cached `splitFileContent` — and only
+      // the tab record is updated on every edit. Restoring the pane copies
+      // verbatim therefore reinstates whatever they held when the file was last
+      // opened or switched to, silently reverting every edit made since and
+      // re-opening the divergence C2 closes. The tab record is the owner, so
+      // the panes are derived from it on restore and the cached pane copies are
+      // used only for a path with no tab (C2 AC1, dispatch §1.3 leg 4).
+      const tabs = cachedState.openTabs;
+      const activeTab = tabs.find(
+        (t) => t.filePath === cachedState.activeFilePath,
+      );
+      this.state.activeFileContent.set(
+        activeTab ? activeTab.content : cachedState.activeFileContent,
+      );
+
+      const splitPath = cachedState.splitFilePath;
+      const splitTab = splitPath
+        ? tabs.find((t) => t.filePath === splitPath)
+        : undefined;
       this.state.splitActive.set(cachedState.splitActive ?? false);
-      this.state.splitFilePath.set(cachedState.splitFilePath);
-      this.state.splitFileContent.set(cachedState.splitFileContent ?? '');
+      this.state.splitFilePath.set(splitPath);
+      this.state.splitFileContent.set(
+        splitTab ? splitTab.content : (cachedState.splitFileContent ?? ''),
+      );
       if (!cachedState.splitActive) {
         this.state.focusedPane.set('left');
       }
