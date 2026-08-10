@@ -1,7 +1,7 @@
 # Development Tasks — TASK_2026_173
 
 **Title**: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
-**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 9/10 complete (0–8). **Batch 8 COMMITTED 2026-08-10 as `3d6145863`** with one named exit criterion **explicitly unmet** — `git:applyHunks` has never been exercised end-to-end in Electron. That gap is **not** waived: it is carried into Batch 9 as a **required follow-up before D2 is called done**. Batch 9 (follow-up filing) is now the only batch outstanding.
+**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 9/10 complete (0–8), Batch 9 **IMPLEMENTED, awaiting team-leader verification** (2026-08-10). **Batch 8 COMMITTED 2026-08-10 as `3d6145863`** with one named exit criterion **explicitly unmet** — `git:applyHunks` has never been exercised end-to-end in Electron. That gap is **not** waived: it was filed as Batch 9 register item 12 / `TASK_2026_218`, status `HIGH — REQUIRED BEFORE D2 IS DONE`. Batch 9 filed 21 new `.ptah/specs/` records (`TASK_2026_203`–`TASK_2026_223`); see `batch-9-report.md` for the full ID map. No product code under `libs/` or `apps/` was modified.
 **Source plan**: `implementation-plan.md` §9, adopted with **two corrections** (see Plan Validation Summary).
 **Binding overrides**: `amendments.md` supersedes `task-description.md` wherever they conflict. A-1..A-5, the A-group merge, and N1/N2/N3 are settled — do not re-litigate.
 **CLI agent delegation**: **DISABLED** (user decision, Checkpoint 0.1). Every executor below is a sub-agent. Do not spawn CLI agents for any batch.
@@ -1342,17 +1342,19 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 > and `202` all appeared, and `TASK_2026_199` is the user's) — **re-scan immediately before you
 > create each record**, do not trust this line.
 
-### Task 9.1: File B6 (file-tree virtualization) as a follow-up task 🔄 IN PROGRESS
+### Task 9.1: File B6 (file-tree virtualization) as a follow-up task 🔄 IMPLEMENTED
 
 **Requirement**: DoD item 10
 **Details**: Create the follow-up task record with **the M2 measurement attached as justification**. B6 was explicitly ruled out of scope: expanding a large directory renders every node with no windowing, but virtualizing the tree is a self-contained project with its own keyboard-navigation, screen-reader-tree, scroll-restoration and drag-and-drop surface. B3 removed the sharper edge of the same problem; **if B3's M2 figure shows the tree is still slow at scale, that measurement is the justification.**
+**Filed as**: `TASK_2026_203`, with the verbatim M2 before/after figures from `measurements.md` quoted in `context.md`. Honest read: at the tested workload (300 changed files / 100 tree-node fixtures) the tree is not measurably slow post-B3, so filed as a LOW-priority watch item rather than inflated.
 
-### Task 9.2: File the R-3 residue and any B-group findings 🔄 IN PROGRESS
+### Task 9.2: File the R-3 residue and any B-group findings 🔄 IMPLEMENTED
 
 **Requirement**: DoD item 9; task-description Out-of-Scope item 8
 **Details**: Every case in `r3-triage.md` marked "follow-up finding" becomes a filed record. Same for any additional hot path profiling revealed during B-group work — **recorded as findings for a follow-up task, never absorbed into this one**.
+**Filed as**: `TASK_2026_204` (directory rows → generic `unknown` error), `TASK_2026_205` (submodule paths → generic `unknown` error), and `TASK_2026_206` (the `editor-rpc.handlers.ts:487`/`:736` glob-string exclusion drift, carried forward per this task's own Validation Notes below). Nothing re-suppressed.
 
-### Task 9.3: File the accumulated per-batch follow-up candidates — **SEVENTEEN items** 🔄 IN PROGRESS
+### Task 9.3: File the accumulated per-batch follow-up candidates — **SEVENTEEN items** 🔄 IMPLEMENTED
 
 > ### 🔓 REGISTER REOPENED BY BATCH 8 — eleven items became SEVENTEEN (2026-08-10)
 >
@@ -1418,7 +1420,41 @@ additional findings" clause but repeated here so it is not lost: the two **glob-
 lists at `editor-rpc.handlers.ts:487` and `:736` (serving `editor:searchInFiles` and
 `editor:listAllFiles`) carry only 5 of `TREE_HIDDEN_DIRS`' 12 names and are **already drifted**.
 B4 AC2's "single source of truth" is true of the _predicate mechanism_, which is what Option B
-scoped — it is not true of every exclusion decision in that file.
+scoped — it is not true of every exclusion decision in that file. **Filed as `TASK_2026_206`**
+(count corrected there to the current 11-member `TREE_HIDDEN_DIRS`, of which 5 are covered and 6
+are missing — reported as observed rather than repeating the stale "12" figure).
+
+> ### ID MAP — Batch 9 filing, 2026-08-10 (all `status: backlog`, no product code touched)
+>
+> | Item                                                   | Filed as        |
+> | ------------------------------------------------------ | --------------- |
+> | B6 (Task 9.1)                                          | `TASK_2026_203` |
+> | R-3 finding 1 — directory rows → `unknown`             | `TASK_2026_204` |
+> | R-3 finding 2 — submodule → `unknown`                  | `TASK_2026_205` |
+> | Glob-string exclusion drift (`:487`/`:736`)            | `TASK_2026_206` |
+> | Register item 1                                        | `TASK_2026_207` |
+> | Register item 2                                        | `TASK_2026_208` |
+> | Register item 3                                        | `TASK_2026_209` |
+> | Register item 4                                        | `TASK_2026_210` |
+> | Register item 5                                        | `TASK_2026_211` |
+> | Register item 6                                        | `TASK_2026_212` |
+> | Register item 7                                        | `TASK_2026_213` |
+> | Register item 8                                        | `TASK_2026_214` |
+> | Register item 9                                        | `TASK_2026_215` |
+> | Register item 10                                       | `TASK_2026_216` |
+> | Register item 11                                       | `TASK_2026_217` |
+> | Register item 12 — `HIGH — REQUIRED BEFORE D2 IS DONE` | `TASK_2026_218` |
+> | Register item 13                                       | `TASK_2026_219` |
+> | Register item 14                                       | `TASK_2026_220` |
+> | Register item 15                                       | `TASK_2026_221` |
+> | Register item 16                                       | `TASK_2026_222` |
+> | Register item 17                                       | `TASK_2026_223` |
+>
+> The `--check` retain/remove question (8A raised, **8C ruled RETAIN in `batch-8c-verification.md`
+> §4**) is **CLOSED — not re-filed**, per that ruling and per this batch's dispatch §4.3. It already
+> has a loud home in this file's Task 9.3 intro block above; no louder home was judged necessary.
+> The pre-existing forbidden-non-null-assertion lint warning in `getRemotes` was likewise considered
+> and correctly not filed (pre-existing noise, no behaviour attached).
 
 **Batch 9 Acceptance Criteria**:
 
