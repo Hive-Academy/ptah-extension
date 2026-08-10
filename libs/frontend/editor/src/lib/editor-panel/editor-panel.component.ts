@@ -524,25 +524,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   readonly TerminalIcon = TerminalSquare;
   readonly AlertTriangleIcon = AlertTriangle;
 
-  /** Bound mouse event handlers for terminal resize drag (stored for cleanup). */
-  private _resizeMouseMove: ((e: MouseEvent) => void) | null = null;
-  private _resizeMouseUp: (() => void) | null = null;
-  private _resizeBlurHandler: (() => void) | null = null;
-  private _resizeKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
-
-  /** Bound mouse event handlers for sidebar resize drag (stored for cleanup). */
-  private _sidebarResizeMouseMove: ((e: MouseEvent) => void) | null = null;
-  private _sidebarResizeMouseUp: (() => void) | null = null;
-  private _sidebarResizeBlurHandler: (() => void) | null = null;
-  private _sidebarResizeKeydownHandler: ((e: KeyboardEvent) => void) | null =
-    null;
-
-  /** Bound mouse event handlers for split divider drag (stored for cleanup). */
-  private _splitResizeMouseMove: ((e: MouseEvent) => void) | null = null;
-  private _splitResizeMouseUp: (() => void) | null = null;
-  private _splitResizeBlurHandler: (() => void) | null = null;
-  private _splitResizeKeydownHandler: ((e: KeyboardEvent) => void) | null =
-    null;
+  /**
+   * Listeners registered by the active resize drag, stored for symmetric
+   * removal. One quartet serves all three drag surfaces: they all start from a
+   * `mousedown` and there is a single pointer, so at most one can be active at
+   * a time — the same reasoning that lets {@link _dragFrame} be a single
+   * handle. `null` means no drag is in progress.
+   */
+  private _dragMouseMove: ((e: MouseEvent) => void) | null = null;
+  private _dragMouseUp: (() => void) | null = null;
+  private _dragBlur: (() => void) | null = null;
+  private _dragKeydown: ((e: KeyboardEvent) => void) | null = null;
 
   /** Bound keydown handler for Ctrl+P / Cmd+P Quick Open shortcut. */
   private readonly _quickOpenKeydown = (e: KeyboardEvent): void => {
@@ -572,9 +564,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.gitStatus.stopListening();
     this.editorService.stopFileTreeWatcher();
-    this.cleanupResizeListeners();
-    this.cleanupSidebarResizeListeners();
-    this.cleanupSplitResizeListeners();
+    this.cleanupDragListeners();
     document.removeEventListener('keydown', this._quickOpenKeydown);
   }
 
@@ -917,87 +907,20 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startY = event.clientY;
     const startHeight = this.editorService.terminalHeight();
-    const originalHeight = startHeight;
-    this.ngZone.runOutsideAngular(() => {
-      // Coalesce to at most one zone re-entry (and therefore one change-detection
-      // pass + one layout write) per animation frame. `mousemove` only records
-      // the latest position and arms a frame; the frame callback does the work.
-      let latestEvent: MouseEvent | null = null;
 
-      const applyLatest = (): void => {
-        this._dragFrame = null;
-        const e = latestEvent;
-        if (!e) return;
-        latestEvent = null;
-
+    this.startDragTracking<number>({
+      original: startHeight,
+      compute: (e) => {
         const deltaY = startY - e.clientY;
         const newHeight = startHeight + deltaY;
         const hostElement = (event.target as HTMLElement).closest(
           '[role="main"]',
         );
         const maxHeight = hostElement ? hostElement.clientHeight * 0.6 : 600;
-        const clampedHeight = Math.max(100, Math.min(newHeight, maxHeight));
-        this.ngZone.run(() => {
-          this.editorService.setTerminalHeight(clampedHeight);
-        });
-      };
-
-      const endDrag = (restore = false): void => {
-        this.cancelDragFrame();
-        if (restore) {
-          this.ngZone.run(() => {
-            this.editorService.setTerminalHeight(originalHeight);
-          });
-        } else {
-          applyLatest();
-        }
-        this.cleanupResizeListeners();
-      };
-
-      this._resizeMouseMove = (e: MouseEvent) => {
-        latestEvent = e;
-        if (this._dragFrame === null) {
-          this._dragFrame = requestAnimationFrame(applyLatest);
-        }
-      };
-
-      this._resizeMouseUp = () => endDrag(false);
-      this._resizeBlurHandler = () => endDrag(true);
-      this._resizeKeydownHandler = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          endDrag(true);
-        }
-      };
-
-      document.addEventListener('mousemove', this._resizeMouseMove);
-      document.addEventListener('mouseup', this._resizeMouseUp);
-      window.addEventListener('blur', this._resizeBlurHandler);
-      document.addEventListener('keydown', this._resizeKeydownHandler);
+        return Math.max(100, Math.min(newHeight, maxHeight));
+      },
+      commit: (height) => this.editorService.setTerminalHeight(height),
     });
-  }
-
-  /**
-   * Remove resize drag event listeners from the document.
-   */
-  private cleanupResizeListeners(): void {
-    this.cancelDragFrame();
-    if (this._resizeMouseMove) {
-      document.removeEventListener('mousemove', this._resizeMouseMove);
-      this._resizeMouseMove = null;
-    }
-    if (this._resizeMouseUp) {
-      document.removeEventListener('mouseup', this._resizeMouseUp);
-      this._resizeMouseUp = null;
-    }
-    if (this._resizeBlurHandler) {
-      window.removeEventListener('blur', this._resizeBlurHandler);
-      this._resizeBlurHandler = null;
-    }
-    if (this._resizeKeydownHandler) {
-      document.removeEventListener('keydown', this._resizeKeydownHandler);
-      this._resizeKeydownHandler = null;
-    }
   }
 
   /**
@@ -1010,85 +933,16 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startX = event.clientX;
     const startWidth = this.sidebarWidth();
-    const originalWidth = startWidth;
 
-    this.ngZone.runOutsideAngular(() => {
-      // Coalesce to at most one zone re-entry (and therefore one change-detection
-      // pass + one layout write) per animation frame. `mousemove` only records
-      // the latest position and arms a frame; the frame callback does the work.
-      let latestEvent: MouseEvent | null = null;
-
-      const applyLatest = (): void => {
-        this._dragFrame = null;
-        const e = latestEvent;
-        if (!e) return;
-        latestEvent = null;
-
+    this.startDragTracking<number>({
+      original: startWidth,
+      compute: (e) => {
         const deltaX = e.clientX - startX;
         const newWidth = startWidth + deltaX;
-        const clampedWidth = Math.max(160, Math.min(480, newWidth));
-
-        this.ngZone.run(() => {
-          this.sidebarWidth.set(clampedWidth);
-        });
-      };
-
-      const endDrag = (restore = false): void => {
-        this.cancelDragFrame();
-        if (restore) {
-          this.ngZone.run(() => {
-            this.sidebarWidth.set(originalWidth);
-          });
-        } else {
-          applyLatest();
-        }
-        this.cleanupSidebarResizeListeners();
-      };
-
-      this._sidebarResizeMouseMove = (e: MouseEvent) => {
-        latestEvent = e;
-        if (this._dragFrame === null) {
-          this._dragFrame = requestAnimationFrame(applyLatest);
-        }
-      };
-
-      this._sidebarResizeMouseUp = () => endDrag(false);
-      this._sidebarResizeBlurHandler = () => endDrag(true);
-      this._sidebarResizeKeydownHandler = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          endDrag(true);
-        }
-      };
-
-      document.addEventListener('mousemove', this._sidebarResizeMouseMove);
-      document.addEventListener('mouseup', this._sidebarResizeMouseUp);
-      window.addEventListener('blur', this._sidebarResizeBlurHandler);
-      document.addEventListener('keydown', this._sidebarResizeKeydownHandler);
+        return Math.max(160, Math.min(480, newWidth));
+      },
+      commit: (width) => this.sidebarWidth.set(width),
     });
-  }
-
-  private cleanupSidebarResizeListeners(): void {
-    this.cancelDragFrame();
-    if (this._sidebarResizeMouseMove) {
-      document.removeEventListener('mousemove', this._sidebarResizeMouseMove);
-      this._sidebarResizeMouseMove = null;
-    }
-    if (this._sidebarResizeMouseUp) {
-      document.removeEventListener('mouseup', this._sidebarResizeMouseUp);
-      this._sidebarResizeMouseUp = null;
-    }
-    if (this._sidebarResizeBlurHandler) {
-      window.removeEventListener('blur', this._sidebarResizeBlurHandler);
-      this._sidebarResizeBlurHandler = null;
-    }
-    if (this._sidebarResizeKeydownHandler) {
-      document.removeEventListener(
-        'keydown',
-        this._sidebarResizeKeydownHandler,
-      );
-      this._sidebarResizeKeydownHandler = null;
-    }
   }
 
   /**
@@ -1101,15 +955,61 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startX = event.clientX;
     const startPercent = this.splitLeftPercent();
-    const originalPercent = startPercent;
     const container = (event.target as HTMLElement).parentElement;
     if (!container) return;
     const containerWidth = container.clientWidth;
 
+    this.startDragTracking<number>({
+      original: startPercent,
+      compute: (e) => {
+        const deltaX = e.clientX - startX;
+        const deltaPercent = (deltaX / containerWidth) * 100;
+        const newPercent = startPercent + deltaPercent;
+        return Math.max(20, Math.min(80, newPercent));
+      },
+      commit: (percent) => this.splitLeftPercent.set(percent),
+    });
+  }
+
+  /**
+   * The single drag loop behind all three resize surfaces (B5 AC4).
+   *
+   * Each surface supplies only what actually differs between them — the value
+   * to restore on interruption, the pointer→value arithmetic (including its
+   * own clamp), and the setter — and inherits one implementation of the parts
+   * that must not diverge:
+   *
+   * - **Coalescing (AC1).** `mousemove` runs outside the Angular zone and only
+   *   records the latest position + arms a single `requestAnimationFrame`, so
+   *   at most one zone re-entry (one change-detection pass + one layout write)
+   *   lands per frame no matter how many pointer events arrive.
+   * - **No lost final update (AC2).** `mouseup` cancels the armed frame AND
+   *   applies the recorded position synchronously, so the released position is
+   *   always what commits.
+   * - **Interruption (AC3, TASK_2026_176).** `blur` and `Escape` restore
+   *   `original` and end the drag; every exit path cancels the pending frame
+   *   and removes all four listeners, so nothing can fire after the drag ends
+   *   or after `ngOnDestroy`.
+   *
+   * `compute` deliberately runs OUTSIDE the zone — only `commit` is re-entered,
+   * which keeps the per-frame zone work to the signal write alone.
+   *
+   * @typeParam T Surface's value type (px height, px width, or percentage).
+   */
+  private startDragTracking<T>(surface: {
+    /** Pre-drag value, re-committed when the drag is interrupted. */
+    readonly original: T;
+    /** Pointer position → value to commit. Pure; runs outside the zone. */
+    compute: (event: MouseEvent) => T;
+    /** Applies a computed value. Runs inside the Angular zone. */
+    commit: (value: T) => void;
+  }): void {
+    // A previous drag always tears itself down on mouseup/blur/Escape; this is
+    // belt-and-braces so the single listener quartet can never be orphaned by
+    // an unexpected second mousedown.
+    this.cleanupDragListeners();
+
     this.ngZone.runOutsideAngular(() => {
-      // Coalesce to at most one zone re-entry (and therefore one change-detection
-      // pass + one layout write) per animation frame. `mousemove` only records
-      // the latest position and arms a frame; the frame callback does the work.
       let latestEvent: MouseEvent | null = null;
 
       const applyLatest = (): void => {
@@ -1118,71 +1018,69 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         if (!e) return;
         latestEvent = null;
 
-        const deltaX = e.clientX - startX;
-        const deltaPercent = (deltaX / containerWidth) * 100;
-        const newPercent = startPercent + deltaPercent;
-        const clampedPercent = Math.max(20, Math.min(80, newPercent));
-
+        const value = surface.compute(e);
         this.ngZone.run(() => {
-          this.splitLeftPercent.set(clampedPercent);
+          surface.commit(value);
         });
       };
 
-      const endDrag = (restore = false): void => {
+      const endDrag = (restore: boolean): void => {
         this.cancelDragFrame();
         if (restore) {
           this.ngZone.run(() => {
-            this.splitLeftPercent.set(originalPercent);
+            surface.commit(surface.original);
           });
         } else {
           applyLatest();
         }
-        this.cleanupSplitResizeListeners();
+        this.cleanupDragListeners();
       };
 
-      this._splitResizeMouseMove = (e: MouseEvent) => {
+      this._dragMouseMove = (e: MouseEvent) => {
         latestEvent = e;
         if (this._dragFrame === null) {
           this._dragFrame = requestAnimationFrame(applyLatest);
         }
       };
 
-      this._splitResizeMouseUp = () => endDrag(false);
-      this._splitResizeBlurHandler = () => endDrag(true);
-      this._splitResizeKeydownHandler = (e: KeyboardEvent) => {
+      this._dragMouseUp = () => endDrag(false);
+      this._dragBlur = () => endDrag(true);
+      this._dragKeydown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
           e.preventDefault();
           endDrag(true);
         }
       };
 
-      document.addEventListener('mousemove', this._splitResizeMouseMove);
-      document.addEventListener('mouseup', this._splitResizeMouseUp);
-      window.addEventListener('blur', this._splitResizeBlurHandler);
-      document.addEventListener('keydown', this._splitResizeKeydownHandler);
+      document.addEventListener('mousemove', this._dragMouseMove);
+      document.addEventListener('mouseup', this._dragMouseUp);
+      window.addEventListener('blur', this._dragBlur);
+      document.addEventListener('keydown', this._dragKeydown);
     });
   }
 
   /**
-   * Remove split divider resize drag event listeners from the document.
+   * Cancel any armed frame and remove every listener registered by
+   * {@link startDragTracking}. Idempotent — safe to call when no drag is in
+   * progress, which is what makes the `ngOnDestroy` teardown unconditional.
    */
-  private cleanupSplitResizeListeners(): void {
+  private cleanupDragListeners(): void {
     this.cancelDragFrame();
-    if (this._splitResizeMouseMove) {
-      document.removeEventListener('mousemove', this._splitResizeMouseMove);
-      this._splitResizeMouseMove = null;
+    if (this._dragMouseMove) {
+      document.removeEventListener('mousemove', this._dragMouseMove);
+      this._dragMouseMove = null;
     }
-    if (this._splitResizeMouseUp) {
-      document.removeEventListener('mouseup', this._splitResizeMouseUp);
-      this._splitResizeMouseUp = null;
+    if (this._dragMouseUp) {
+      document.removeEventListener('mouseup', this._dragMouseUp);
+      this._dragMouseUp = null;
     }
-    if (this._splitResizeBlurHandler) {
-      window.removeEventListener('blur', this._splitResizeBlurHandler);
-      this._splitResizeBlurHandler = null;
+    if (this._dragBlur) {
+      window.removeEventListener('blur', this._dragBlur);
+      this._dragBlur = null;
     }
-    if (this._splitResizeKeydownHandler) {
-      document.removeEventListener('keydown', this._splitResizeKeydownHandler);
-      this._splitResizeKeydownHandler = null;
+    if (this._dragKeydown) {
+      document.removeEventListener('keydown', this._dragKeydown);
+      this._dragKeydown = null;
     }
   }
 

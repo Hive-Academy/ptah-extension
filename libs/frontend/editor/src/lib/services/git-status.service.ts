@@ -152,6 +152,47 @@ export class GitStatusService implements MessageHandler {
     return map;
   });
 
+  /**
+   * Every directory (relative to the workspace root) that transitively
+   * contains a changed entry, as a `Set` for O(1) membership tests.
+   *
+   * `FileTreeNodeComponent.hasChangedChildren` used to answer that question by
+   * scanning every key of {@link fileStatusMap} per directory node, which made
+   * a `git:status-update` cost O(changed files × visible directory nodes).
+   * Building the ancestor set once per status update is O(total path segments)
+   * and turns every node's evaluation into a single `Set.has` (B3 AC1, AC2).
+   *
+   * Contract:
+   * - Paths are stored **without** a trailing slash and always with `/`
+   *   separators, so a lookup must normalize the same way (B3 AC5). Windows is
+   *   the primary development platform, so `\`-separated payloads must land in
+   *   the same buckets as `/`-separated ones.
+   * - An entry that is itself a directory (an untracked directory, which git
+   *   reports as a single entry instead of listing its files) is added in its
+   *   own right, not only as an ancestor — it does transitively contain
+   *   changed files (B3 AC3).
+   * - Derived from `_files()`, which is already the ACTIVE workspace's slice,
+   *   so other workspaces cannot leak in (B3 AC4) and a reverted change clears
+   *   the parent entries on the next update (B3 AC6). Never cache this in a
+   *   mutable field; `_files` carries `equal: filesEqual`, so the `computed`
+   *   already recomputes only on a genuine change.
+   */
+  readonly changedDirPrefixes = computed<ReadonlySet<string>>(() => {
+    const prefixes = new Set<string>();
+    for (const file of this._files()) {
+      let path = file.path.replace(/\\/g, '/');
+      while (path.endsWith('/')) path = path.slice(0, -1);
+      if (!path) continue;
+
+      if (file.isDirectory) prefixes.add(path);
+
+      for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) {
+        if (i > 0) prefixes.add(path.slice(0, i));
+      }
+    }
+    return prefixes;
+  });
+
   /** The currently active workspace path (for path normalization in components). */
   readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
 

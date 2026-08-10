@@ -280,6 +280,18 @@ export class FileTreeNodeComponent {
    * Whether this directory contains any files with git changes.
    * Used to show a small dot indicator on directories that have modified children.
    * Only applies to directory nodes.
+   *
+   * The answer is a single `Set.has` against
+   * {@link GitStatusService.changedDirPrefixes}, so it is constant-time with
+   * respect to the number of changed files (B3 AC2) — this used to scan every
+   * key of `fileStatusMap` once per directory node, making a status update
+   * cost O(changed files × directory nodes).
+   *
+   * Note the boundary: the old scan compared `relativeDirPath + '/'` as a
+   * PREFIX of file keys; the set stores directory paths WITHOUT a trailing
+   * slash, so the lookup uses the bare `relativeDirPath`. The normalization
+   * below (workspace-root strip + `\`→`/`) is what makes mixed-separator
+   * inputs line up with the set's normalized entries (B3 AC5).
    */
   readonly hasChangedChildren = computed((): boolean => {
     if (this.node().type !== 'directory') return false;
@@ -296,11 +308,7 @@ export class FileTreeNodeComponent {
       : '';
     if (!relativeDirPath) return false;
 
-    const dirPrefix = relativeDirPath + '/';
-    for (const key of this.gitStatus.fileStatusMap().keys()) {
-      if (key.startsWith(dirPrefix)) return true;
-    }
-    return false;
+    return this.gitStatus.changedDirPrefixes().has(relativeDirPath);
   });
   readonly FolderIcon = Folder;
   private readonly FileIcon = File;

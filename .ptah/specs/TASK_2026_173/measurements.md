@@ -171,6 +171,82 @@ cannot. **The Jest figure above is the one reported as M2.**
 - **Method**: drives the real Electron renderer with a 100-node mocked file tree, pushes a 300-entry `git:status-update` via the existing e2e IPC bridge, and measures Node-side wall-clock time (`Date.now()`) from the push to `page.waitForFunction` observing the expected git-status badge titles (`Modified`/`Added`) on all 100 nodes.
 - **Interpretation**: this number is expected to be, and is, larger than the Jest figure — it additionally includes main-process -> renderer IPC, Electron's real compositor/paint scheduling, and Playwright's polling granularity (the high 665ms outlier is consistent with GC or window-focus scheduling noise, not the underlying handling cost). It confirms the Jest figure is not a jsdom artifact — the DOM does converge quickly (double-digit-to-low-hundreds ms wall clock including IPC) — without being used as the reported number, per the deviation above.
 
+### AFTER — B3 `changedDirPrefixes`, captured 2026-08-10 (Batch 4, Tasks 4.1 + 4.2)
+
+Same harness, same workload (300 entries x 100 fixtures, 10 iterations), same
+machine, unchanged measurement path. Only `git-status.service.ts` (new
+`changedDirPrefixes` computed) and `file-tree-node.component.ts`
+(`hasChangedChildren` → one `Set.has`) changed.
+
+| Execution          | median (ms) | max (ms) | samples (ms)                                                    |
+| ------------------ | ----------- | -------- | --------------------------------------------------------------- |
+| **Baseline**       | **3.034**   | 5.161    | `[5.161,4.39,3.946,3.054,3.014,3.7,3.014,2.39,2.211,2.245]`     |
+| After, execution 1 | 2.605       | 5.265    | `[5.265,3.482,3.165,2.583,2.736,2.627,2.369,2.059,2.003,2.188]` |
+| After, execution 2 | 3.512       | 7.236    | `[7.236,4.138,3.593,3.43,3.661,3.744,2.431,2.157,2.173,2.5]`    |
+| After, execution 3 | 3.658       | 7.725    | `[7.725,5.481,4.328,3.984,3.332,4.839,2.858,2.928,3.273,2.896]` |
+
+#### SHORTFALL AGAINST THE M2 TARGET — stated explicitly, per B0 AC4
+
+The M2 target is **median ≥80% below baseline**, i.e. ≤ **0.607ms**. The
+observed medians are **2.605 / 3.512 / 3.658 ms** — between **14% below** and
+**21% above** baseline. **The target is MISSED by a wide margin, and the three
+executions straddle the baseline, so the honest reading is that this harness
+shows NO measurable change at all.** It is not rounded up into a pass.
+
+Why, and why the fix is still correct:
+
+- **The harness total is dominated by Angular change detection over 100
+  `FileTreeNodeComponent` fixtures**, not by the directory-indicator scan. At
+  300 changed files x 10 directory nodes the removed scan is ~3,000 `startsWith`
+  calls — a fraction of a millisecond inside a ~3ms budget. An asymptotic fix
+  cannot move a median whose cost lives somewhere else.
+- **The 80% target was therefore set against the wrong cost model.** B3's actual
+  claim (`task-description.md:178-185`) is AC2 — evaluation _effectively
+  constant-time with respect to the number of changed files_ — and the
+  no-multiplicative-growth requirement in `implementation-plan.md` §7. A single
+  median at one workload size is not evidence either way for that claim, which
+  is why the scaling probe below exists.
+- **Run-to-run noise on this machine is larger than the effect being measured**
+  (a concurrent build/lint session for TASK_2026_177 was live on this branch
+  throughout). Execution 1 vs 3 differ by 40% on identical code.
+
+#### Scaling evidence — the claim the median cannot carry
+
+- **Harness**: `libs/frontend/editor/src/lib/file-tree/perf-m2-indicator-scaling.spec.ts` (new, Task 4.5).
+- **Run**: `npx nx test @ptah-extension/editor --testPathPatterns=perf-m2-indicator-scaling`.
+- **Method**: against one real `GitStatusService`, 100 directory nodes (50 that
+  contain changes, 50 untouched) are evaluated 50 times each by two strategies —
+  SHIPPED (`changedDirPrefixes().has(dir)`) and REFERENCE (the pre-B3 scan,
+  re-implemented in the spec because it no longer exists in source). Both are
+  timed at 300 and 3000 changed files with the directory count held constant,
+  after warm-up passes (without warm-up the first measurement runs interpreted
+  and the second JIT-optimized, which alone moved the reference figure ~6x).
+  The directory mix is load-bearing: the old scan short-circuits on its first
+  hit, so its worst case — and the common case in a real tree — is a directory
+  with **no** changes, which costs a full walk of every changed-file key.
+
+| Files               | SHIPPED (100 dirs x 50 passes) | REFERENCE (same work, pre-B3 scan) | set build (once per update)         |
+| ------------------- | ------------------------------ | ---------------------------------- | ----------------------------------- |
+| 300                 | 0.891ms / 0.925ms              | 36.8ms / 86.0ms                    | 2.210ms / 1.099ms                   |
+| 3000                | 0.730ms / 0.608ms              | 141.8ms / 183.8ms                  | 7.037ms / 10.801ms                  |
+| growth on 10x files | **0.82x / 0.66x**              | 3.86x / 2.14x                      | ~3.2x / ~9.8x (linear, as designed) |
+
+- **AC2 holds.** The shipped lookup does not grow when changed files grow 10x
+  (0.82x and 0.66x across two executions — i.e. flat, within noise). The
+  (directories x changed files) term is gone. The spec asserts this with a
+  generous <3x bound so it fails a reintroduced scan without flaking.
+- **Absolute separation at the larger workload is ~194x** (0.73ms vs 141.8ms for
+  the identical 5,000 directory evaluations).
+- **Honest caveat on the REFERENCE column**: it grows 2.1–3.9x for 10x files,
+  not 10x. Fixed per-directory overhead (a fresh `Map.keys()` iterator per
+  directory) dominates at 300 files and damps the ratio. The load-bearing
+  observation is that SHIPPED is flat while REFERENCE is not, and the absolute
+  gap; a clean 10x on the reference is not claimed.
+- The set build is O(total path segments) once per status update and does grow
+  with the file count, as intended. At 3000 changed files it is ~7–11ms of
+  one-time work that replaces per-node scanning; the previous design paid its
+  equivalent cost once per directory node instead of once per update.
+
 ---
 
 ## M3 — `git status` invocations from cache churn
@@ -280,15 +356,63 @@ here. What did move, and is the signal B5 predicts:
   how much of the window is spent pre-saturation. Both executions are
   reported rather than the flattering one.
 
+### AFTER (2) — post-`startDragTracking` extraction, captured 2026-08-10 (Task 4.3)
+
+Task 4.3 folded the three copy-pasted drag loops into one private
+`startDragTracking<T>({ original, compute, commit })` and collapsed the three
+listener-field quartets and three cleanup methods into one. **This is a pure
+de-duplication of already-shipping behavior (B5 AC4); no behavior was intended
+to change.** The rows below exist to prove it did not drift, and are recorded
+ALONGSIDE the 2026-08-03 figures above, not in place of them.
+
+| Run                            | style-mutations median | style-mutations max | frames median | frames max |
+| ------------------------------ | ---------------------- | ------------------- | ------------- | ---------- |
+| **Baseline**                   | 121                    | **223**             | 121           | 122        |
+| After (rAF), 2026-08-03 exec 1 | 63                     | 76                  | 123           | 123        |
+| After (rAF), 2026-08-03 exec 2 | 101                    | 118                 | 121           | 122        |
+| **Post-extraction exec 1**     | 120                    | 121                 | 121           | 121        |
+| **Post-extraction exec 2**     | 120                    | 121                 | 121           | 121        |
+
+Post-extraction exec 1 samples: mutations `[96,119,120,121,120]`, frames `[100,121,120,121,121]`.
+Post-extraction exec 2 samples: mutations `[97,119,121,120,121]`, frames `[101,121,121,120,121]`.
+
+**Verdict: no drift on the criterion that this harness can actually support.**
+Per the FINDING above, that criterion is the ratio, not the absolute count:
+
+- **No run exceeded its own frame count, in either execution** — worst observed
+  is 121 mutations against 121 frames (1.00x), and every other pairing is at or
+  below frame rate. The baseline's signature pathology (223 vs 122 = 1.83x, and
+  218 vs 120 = 1.82x, on 2 of 5 runs) remains absent. B5 AC1 holds.
+- **Max collapsed from 223 to 121** and the spread (max − median) is 1, versus
+  102 at baseline.
+
+**Flagged honestly: the absolute median is higher than the 2026-08-03
+after-figures (120 vs 63 and 101), and equal to the baseline median of 121.**
+This is not presented as an improvement and was not tuned away. The reading,
+consistent with the variance already documented above: under coalescing the
+mutation count is _capped_ at one per frame, so 120–121 mutations across ~121
+frames is the ceiling of correct behavior — it means the drag produced a fresh
+distinct width on essentially every frame, i.e. these two runs spent almost none
+of the 2s window saturated against the 480px clamp (a saturated write is a
+no-op and emits no mutation, which is what produced the lower 63/101 medians in
+August). The two post-extraction executions are unusually consistent with each
+other (120/121 both times), which supports a saturation-timing explanation
+rather than a change in update frequency. What would indicate real drift — a run
+writing more often than once per frame — does not occur.
+
 The correctness of the fix does not rest on these numbers. `ngZone.run()` once
 per native `mousemove` inside a `runOutsideAngular` block is a defect on code
 reading alone — the `runOutsideAngular` was doing no work. Unit coverage in
 `editor-panel.component.spec.ts` ("resize drags coalesce to one update per
-frame (B5)", 6 tests) asserts the invariant directly and framework-version-
+frame (B5)", now 10 tests after TASK_2026_176 folded the blur/Escape
+interruption specs in) asserts the invariant directly and framework-version-
 proof: N pointer events arm exactly one frame, only the latest position is
 applied, mouseup cancels the pending frame yet still applies the release
 position, the 160/480 clamp is unchanged, destroy cancels a pending frame, and
-all three surfaces (sidebar, terminal, split divider) behave identically.
+all three surfaces (sidebar, terminal, split divider) behave identically. **All
+of them passed unmodified across the Task 4.3 extraction** — the spec file was
+not touched, which is the strongest available evidence that the refactor is
+behavior-preserving.
 
 ---
 
@@ -300,5 +424,6 @@ all three surfaces (sidebar, terminal, split divider) behave identically.
 | B1 AC1/AC3/AC4 view state     | `apps/ptah-electron-e2e/src/specs/editor/diff-view-state.spec.ts`               | `npx nx e2e ptah-electron-e2e --skip-nx-cache -- editor/diff-view-state.spec.ts`                                                                      |
 | M2 (reported)                 | `libs/frontend/editor/src/lib/file-tree/perf-m2-status-update.spec.ts`          | `npx nx test @ptah-extension/editor --testPathPatterns=perf-m2-status-update`                                                                         |
 | M2 (spot-check)               | `apps/ptah-electron-e2e/src/specs/editor/perf-m2-electron-spotcheck.spec.ts`    | `npx nx e2e ptah-electron-e2e -- editor/perf-m2-electron-spotcheck.spec.ts`                                                                           |
+| M2 (scaling / B3 AC2)         | `libs/frontend/editor/src/lib/file-tree/perf-m2-indicator-scaling.spec.ts`      | `npx nx test @ptah-extension/editor --testPathPatterns=perf-m2-indicator-scaling`                                                                     |
 | M3                            | `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.{md,script.mjs}` | see procedure doc                                                                                                                                     |
 | M4                            | `apps/ptah-electron-e2e/src/specs/editor/perf-m4-drag-cd.spec.ts`               | `npx nx e2e ptah-electron-e2e -- editor/perf-m4-drag-cd.spec.ts`                                                                                      |

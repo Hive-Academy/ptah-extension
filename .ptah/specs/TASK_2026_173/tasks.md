@@ -1,7 +1,7 @@
 # Development Tasks — TASK_2026_173
 
 **Title**: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
-**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 4/10 complete (0–3), batch 4 partial — refreshed 2026-08-10
+**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 5/10 complete (0–4), batch 5 dispatched — refreshed 2026-08-10
 **Source plan**: `implementation-plan.md` §9, adopted with **two corrections** (see Plan Validation Summary).
 **Binding overrides**: `amendments.md` supersedes `task-description.md` wherever they conflict. A-1..A-5, the A-group merge, and N1/N2/N3 are settled — do not re-litigate.
 **CLI agent delegation**: **DISABLED** (user decision, Checkpoint 0.1). Every executor below is a sub-agent. Do not spawn CLI agents for any batch.
@@ -511,8 +511,30 @@ effect(() => { for (const key of cache.keys()) if (!liveDiffKeys().has(key)) dis
 
 ---
 
-## Batch 4: Tree & Drag Performance (B3 + B5) ⚠️ PARTIAL — B5 landed `16da79d2f` (2026-08-03, out of order); B3 outstanding
+## Batch 4: Tree & Drag Performance (B3 + B5) ✅ COMPLETE — 2026-08-10
 
+> B5 _behavior_ landed early and out of order in `16da79d2f` (2026-08-03). Tasks 4.1, 4.2, 4.3 and
+> 4.5 were executed by a `frontend-developer` sub-agent per `batch-4-dispatch.md` and reviewed by
+> `code-logic-reviewer` (`batch-4-code-logic-review.md`): **APPROVED, 8/10, 0 critical, 0 serious,
+> 2 moderate**. The reviewer re-ran the suites live and diffed the working tree rather than
+> trusting the report.
+>
+> **The M2 median target is MISSED by ~4–6x and the batch still passes**, because B0 AC4 requires
+> "target met **or** the shortfall explicitly flagged" and it is flagged with a sound diagnosis:
+> the harness median is dominated by Angular change detection across 100 fixtures, so an
+> asymptotic fix cannot move it. B3's real property — no multiplicative growth — is carried by
+> independent scaling evidence the reviewer audited and found unmassaged (shipped cost flat at
+> 0.66–0.82x for 10x files, versus 2.14–3.86x for the pre-B3 reference scan).
+>
+> Two moderate findings were dispositioned and closed, not deferred: the §7 untracked-directory
+> `isDirectory` branch **stays** (an untracked directory does transitively contain a changed file;
+> git just declines to enumerate it, so dropping the branch would violate AC3's literal text — the
+> cosmetic redundancy with the `U` badge is a UX nuance, not a logic defect), and Failure Mode 3
+> (double-`mousedown` drag re-entry) needs **no action**, the new code being strictly safer than
+> the pre-refactor behavior, which registered two racing listener quartets. Pointer capture is the
+> real fix and belongs to a future task.
+
+> **[SUPERSEDED 2026-08-10 — every item below is now closed; retained for provenance.]**
 > **Residue re-verified against the tree, 2026-08-10** (audit, not agent-report). What "B5 landed"
 > does and does not mean:
 >
@@ -547,7 +569,7 @@ effect(() => { for (const key of cache.keys()) if (!liveDiffKeys().has(key)) dis
 
 **Satisfies**: B3, B5
 
-### Task 4.1: `changedDirPrefixes` computed in `GitStatusService` ⏸️ PENDING
+### Task 4.1: `changedDirPrefixes` computed in `GitStatusService` ✅ COMPLETE — 2026-08-10; reviewer APPROVED. The `isDirectory` branch STAYS (reviewer's explicit call, AC3 literal text)
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\services\git-status.service.ts` (beside `fileStatusMap`, `:141-152`)
 **Requirement**: B3 AC3, AC4, AC5, AC6
@@ -567,14 +589,14 @@ readonly changedDirPrefixes = computed<ReadonlySet<string>>(() => {
 
 **Validation Notes**: Build cost is O(total path segments) once per status update; `_files` already carries a custom `equal: filesEqual` (`:96`) so the computed only recomputes on genuine change. AC4 (multi-root) holds because `_files()` is already the active workspace's slice. **AC5 (mixed separators) — normalize on insert, reuse the node's existing normalization on lookup. Windows is the primary development platform for this project.**
 
-### Task 4.2: `hasChangedChildren` → O(1) lookup ⏸️ PENDING
+### Task 4.2: `hasChangedChildren` → O(1) lookup ✅ COMPLETE — 2026-08-10; reviewer APPROVED. Trailing-slash boundary and `src/app` vs `src/app-legacy` both spec-pinned
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\file-tree\file-tree-node.component.ts` (`:284-304`)
 **Requirement**: B3 AC1, AC2, AC3, AC5, AC6
 **Details**: Drop the per-node linear scan of `fileStatusMap` for `changedDirPrefixes().has(relativeDirPath)`.
 **Validation Notes**: AC2 requires evaluation to be **effectively constant-time with respect to the number of changed files**. AC3 requires correctness in _both_ directions: every directory transitively containing a changed file is marked, and no directory without one is marked.
 
-### Task 4.3: Extract `startDragTracking` ⏸️ PENDING — behavior already shipped, extraction is what remains
+### Task 4.3: Extract `startDragTracking` ✅ COMPLETE — 2026-08-10; reviewer APPROVED. Three drag paths → one helper; all 10 existing drag specs pass with the spec file UNMODIFIED. B5 AC4 now closed by construction
 
 > **Re-verified 2026-08-10.** `16da79d2f` applied this task's rAF pattern **inline to all three
 > drag paths** rather than extracting the helper. So AC1, AC2 and AC5 are already satisfied in
@@ -598,13 +620,13 @@ startDragTracking({ onMove(e), onCommit(), onCancel() })
 
 **Validation Notes**: **AC2 is the subtle one** — the mouseup path must cancel the pending frame _and_ apply the final value synchronously, so coalescing never loses the last update and the released size exactly matches the release position. **AC5: clamping arithmetic copied verbatim per surface; layout must be bit-identical. This is a performance fix with no intended UX change.**
 
-### Task 4.4: ~~Drag interruption teardown~~ ⏸️ PENDING → folded into TASK_2026_176
+### Task 4.4: ~~Drag interruption teardown~~ ✅ CLOSED — folded into TASK_2026_176 (`e82dc9802`); DO NOT re-implement
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts`
 **Requirement**: B5 AC3, AC4
 **Details**: **Deleted from this batch; implemented in TASK_2026_176 so the work is not done twice.** The editor panel now tears down its three drag handlers on `window` blur and on `Escape`, restoring the pre-drag size and cancelling any armed frame.
 
-### Task 4.5: M2 + M4 after-measurements ⏸️ PENDING
+### Task 4.5: M2 + M4 after-measurements ✅ COMPLETE — 2026-08-10; reviewer APPROVED. M2 target **MISSED by ~4–6x — flagged, not rounded up** (B0 AC4), with scaling evidence carrying B3's real claim; M4 re-run shows no drift
 
 **File**: `D:\projects\ptah-extension\.ptah\specs\TASK_2026_173\measurements.md`
 **Requirement**: B0 AC1–AC4
@@ -629,7 +651,7 @@ startDragTracking({ onMove(e), onCommit(), onCancel() })
 **Rationale**: Entirely backend/Electron — `libs/shared` constants, the Electron watcher, and the Electron tree builder. No Angular surface.
 **Tasks**: 4 | **Dependencies**: **Batch 4 (sequential) + Task 5.0 decision gate** | **Satisfies**: B4
 
-### Task 5.0: 🚧 DECISION GATE — resolve Open Question #1 ⏸️ PENDING
+### Task 5.0: 🚧 DECISION GATE — resolve Open Question #1 ✅ RESOLVED 2026-08-10
 
 **Requirement**: B4 AC2, AC4 (risk **V-1**)
 **Details**: **The orchestrator MUST confirm this with the user before spawning batch 5.** `amendments.md` settles A-1..A-5 and N1–N3 but is silent on plan Open Question #1.
@@ -640,6 +662,24 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 - **Option B (DEFAULT, recommended by the plan and adopted here)** — two named sets behind **one shared predicate**: `TREE_HIDDEN_DIRS` ⊆ `WATCH_IGNORED_DIRS`. Honours AC2's "single source of truth" for the _mechanism_, keeps tree visibility unchanged, and honours R-9 (over-broad exclusion is worse than the churn it fixes).
 
 **Proceed with Option B unless the user says otherwise.** Record the decision in this file before Task 5.1 starts.
+
+> ### ✅ USER DECISION 2026-08-10 — **OPTION B**
+>
+> Confirmed with the user at the batch 4→5 boundary, as V-1 and this gate require. **Two named
+> sets behind one shared predicate**: `TREE_HIDDEN_DIRS` ⊆ `WATCH_IGNORED_DIRS`.
+>
+> **The file tree keeps showing `node_modules` and `dist`.** Any executor that makes them
+> disappear has implemented Option A and is not done — that is a user-visible scope change
+> this task explicitly declined.
+>
+> AC2's "single source of truth" is satisfied by the **mechanism** (one predicate, one module),
+> not by the two sets being identical. Task 5.2's "a second hand-maintained list SHALL be
+> treated as not-done" still binds in full: `HIDDEN_SKIP` is deleted, and both consumers call
+> the shared predicate. R-9 stands — an over-broad exclusion set is a correctness defect and is
+> worse than the churn it fixes, so the only addition beyond the union of the two current lists
+> is `.angular`.
+>
+> **Task 5.1 is unblocked.**
 
 ### Task 5.1: Shared exclusion constants ⏸️ PENDING
 

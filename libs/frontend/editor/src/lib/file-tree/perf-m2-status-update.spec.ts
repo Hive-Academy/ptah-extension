@@ -56,10 +56,13 @@ const ITERATIONS = 10;
 
 /**
  * Generous upper bound so this regression guard fires only on a genuine
- * multiplicative blowup, not machine noise. This measures the BEFORE cost —
- * Batch 4 (B3) replaces the O(files × tree nodes) linear scan this workload
- * is deliberately sized to expose with an O(1) `changedDirPrefixes` lookup
- * and records an after-figure here in the same measurements.md row.
+ * multiplicative blowup, not machine noise. Batch 4 (B3) has since replaced
+ * the O(files × tree nodes) linear scan this workload is deliberately sized to
+ * expose with an O(1) `changedDirPrefixes` lookup, so what this harness now
+ * measures is the AFTER cost; both figures live in the same measurements.md
+ * row. The bounds below are deliberately NOT tightened to the after-figure —
+ * they exist to catch a reintroduced multiplicative scan, not to gate on
+ * machine speed.
  */
 const MAX_ACCEPTABLE_MEDIAN_MS = 500;
 const MAX_ACCEPTABLE_MAX_MS = 1000;
