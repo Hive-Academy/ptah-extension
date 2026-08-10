@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_173
-status: in_progress
+status: in_review
 type: FEATURE
 title: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
 description: >-

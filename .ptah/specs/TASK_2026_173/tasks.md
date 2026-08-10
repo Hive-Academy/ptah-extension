@@ -1,7 +1,7 @@
 # Development Tasks — TASK_2026_173
 
 **Title**: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
-**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 9/10 complete (0–8), Batch 9 **IMPLEMENTED, awaiting team-leader verification** (2026-08-10). **Batch 8 COMMITTED 2026-08-10 as `3d6145863`** with one named exit criterion **explicitly unmet** — `git:applyHunks` has never been exercised end-to-end in Electron. That gap is **not** waived: it was filed as Batch 9 register item 12 / `TASK_2026_218`, status `HIGH — REQUIRED BEFORE D2 IS DONE`. Batch 9 filed 21 new `.ptah/specs/` records (`TASK_2026_203`–`TASK_2026_223`); see `batch-9-report.md` for the full ID map. No product code under `libs/` or `apps/` was modified.
+**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: **10/10 batches COMPLETE and COMMITTED. MODE 3 close-out done 2026-08-11 — see `final-verification.md`. Carrier set to `in_review`, NOT `done`.** Batch 9 committed as `929166c55` (21 records `TASK_2026_203`–`TASK_2026_223`, zero product code; ID map in `batch-9-report.md`). **8 of 10 DoD items met. Two are UNMET and filed, not waived:** (1) `git:applyHunks` has never been exercised end-to-end in Electron — Batch 8's own named exit criterion, filed as `TASK_2026_218`, `HIGH — REQUIRED BEFORE D2 IS DONE`; (2) the NFR-1 cross-project test floor cannot be established while `ptah-electron` and `rpc-handlers` carry other sessions' uncommitted work. `@ptah-extension/editor` **337/337** and `@ptah-extension/vscode-core` **342/342** were re-run green at MODE 3 against committed content. **Do not mark this task `done` until `TASK_2026_218` is discharged.**
 **Source plan**: `implementation-plan.md` §9, adopted with **two corrections** (see Plan Validation Summary).
 **Binding overrides**: `amendments.md` supersedes `task-description.md` wherever they conflict. A-1..A-5, the A-group merge, and N1/N2/N3 are settled — do not re-litigate.
 **CLI agent delegation**: **DISABLED** (user decision, Checkpoint 0.1). Every executor below is a sub-agent. Do not spawn CLI agents for any batch.
@@ -1316,12 +1316,13 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 
 ---
 
-## Batch 9: Follow-Up Filing 🔄 IN PROGRESS — **DISPATCHED 2026-08-10 via `batch-9-dispatch.md`**
+## Batch 9: Follow-Up Filing ✅ COMPLETE — **COMMITTED 2026-08-11 as `929166c55`**
 
 **Recommended Executor**: `senior-tester`
 **Fallback Executor**: `devops-engineer`
 **Execution Mode**: sequential
-**Tasks**: 3 | **Dependencies**: Batch 8 ✅ `3d6145863` | **Satisfies**: DoD items 9, 10
+**Tasks**: 3 ✅ | **Dependencies**: Batch 8 ✅ `3d6145863` | **Satisfies**: DoD items 9, 10
+**Commit**: `929166c55` — 44 files, all staged by explicit path; 21 records `TASK_2026_203`–`TASK_2026_223`, zero product code touched. All 21 carriers re-verified as parseable with `>-` block scalars intact **after** the commit hook's `nx format:write` rewrote them.
 
 > ### 📌 DISPATCH: `batch-9-dispatch.md` is the executor's source of truth
 >
@@ -1342,19 +1343,19 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 > and `202` all appeared, and `TASK_2026_199` is the user's) — **re-scan immediately before you
 > create each record**, do not trust this line.
 
-### Task 9.1: File B6 (file-tree virtualization) as a follow-up task 🔄 IMPLEMENTED
+### Task 9.1: File B6 (file-tree virtualization) as a follow-up task ✅ COMPLETE — `TASK_2026_203`, M2 attached verbatim including the miss
 
 **Requirement**: DoD item 10
 **Details**: Create the follow-up task record with **the M2 measurement attached as justification**. B6 was explicitly ruled out of scope: expanding a large directory renders every node with no windowing, but virtualizing the tree is a self-contained project with its own keyboard-navigation, screen-reader-tree, scroll-restoration and drag-and-drop surface. B3 removed the sharper edge of the same problem; **if B3's M2 figure shows the tree is still slow at scale, that measurement is the justification.**
 **Filed as**: `TASK_2026_203`, with the verbatim M2 before/after figures from `measurements.md` quoted in `context.md`. Honest read: at the tested workload (300 changed files / 100 tree-node fixtures) the tree is not measurably slow post-B3, so filed as a LOW-priority watch item rather than inflated.
 
-### Task 9.2: File the R-3 residue and any B-group findings 🔄 IMPLEMENTED
+### Task 9.2: File the R-3 residue and any B-group findings ✅ COMPLETE — `TASK_2026_204`, `205`, `206`
 
 **Requirement**: DoD item 9; task-description Out-of-Scope item 8
 **Details**: Every case in `r3-triage.md` marked "follow-up finding" becomes a filed record. Same for any additional hot path profiling revealed during B-group work — **recorded as findings for a follow-up task, never absorbed into this one**.
 **Filed as**: `TASK_2026_204` (directory rows → generic `unknown` error), `TASK_2026_205` (submodule paths → generic `unknown` error), and `TASK_2026_206` (the `editor-rpc.handlers.ts:487`/`:736` glob-string exclusion drift, carried forward per this task's own Validation Notes below). Nothing re-suppressed.
 
-### Task 9.3: File the accumulated per-batch follow-up candidates — **SEVENTEEN items** 🔄 IMPLEMENTED
+### Task 9.3: File the accumulated per-batch follow-up candidates — **SEVENTEEN items** ✅ COMPLETE — `TASK_2026_207`–`TASK_2026_223`, one-to-one, none dropped; item 12 is `TASK_2026_218`
 
 > ### 🔓 REGISTER REOPENED BY BATCH 8 — eleven items became SEVENTEEN (2026-08-10)
 >
@@ -1469,6 +1470,23 @@ are missing — reported as observed rather than repeating the stale "12" figure
 ---
 
 ## Final Definition of Done (verify at MODE 3)
+
+> ### ✅ MODE 3 VERIFIED 2026-08-11 — full evidence in `final-verification.md`
+>
+> **8 of 10 met. Items 1 and 5 UNMET.** Carrier set to **`in_review`**, deliberately not `done`.
+>
+> | #   | Verdict                         | Evidence                                                                                                                                                                                                                                                                                                                          |
+> | --- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | 1   | ❌ **NOT MET** — D2             | `git:applyHunks` never run end-to-end in Electron → `TASK_2026_218`                                                                                                                                                                                                                                                               |
+> | 2   | ✅ MET                          | M1–M4 before/after with method, workload, n, median, max. **M2 missed its target ~4–6x and is recorded as a miss**, which is what the "or the shortfall explicitly flagged" clause requires. AC2 is carried by the scaling probe (0.82x/0.66x growth on 10x files vs 3.86x/2.14x reference) since a single median cannot test it. |
+> | 3   | ✅ MET                          | `git log -L` on `diffTabKey` and on the sole construction site (`editor-diff-split.ts:114`): both changed **once**, in `61628f623` (Batch 2). Batches 4/6/7 never touched `editor-tab.types.ts`; Batch 8's touch is purely additive (`hunks`, `HunkApplyRequest`) — the V-4 case, not a scheme change.                            |
+> | 4   | ✅ MET                          | `git merge-base --is-ancestor c6d2758da 3d6145863` → true. SEQ-2 **failed its first pass** and was closed on evidence.                                                                                                                                                                                                            |
+> | 5   | ❌ **NOT ESTABLISHABLE**        | `ptah-electron` red and `rpc-handlers` dirty from other sessions. **Not this task's doing** — intersection of this task's 13 commits with the dirty file set is empty. Attributable re-runs: editor **337/337**, vscode-core **342/342**.                                                                                         |
+> | 6   | ✅ MET (registration)           | `rpc.types.ts:1306-1307`; `'git:'` already in `ALLOWED_METHOD_PREFIXES`. End-to-end exercise of `applyHunks` is item 1's gap, not double-counted.                                                                                                                                                                                 |
+> | 7   | ✅ MET                          | Electron main bundle + `validate-deps` green over 26 projects in the `929166c55` hook. **A-1 held** — `applyHunks` in `GitInfoService` + `GitRpcHandlers`, not `git-watcher.service.ts`.                                                                                                                                          |
+> | 8   | ✅ MET for this task's projects | Workspace-wide typecheck not assertable while other sessions hold uncommitted changes; not claimed.                                                                                                                                                                                                                               |
+> | 9   | ✅ MET                          | 15 rows against real git 2.54.0.windows.1, none not-exercised, **none re-suppressed**; follow-ups → `204`, `205`.                                                                                                                                                                                                                 |
+> | 10  | ✅ MET                          | `TASK_2026_203`, M2 quoted verbatim including the miss.                                                                                                                                                                                                                                                                           |
 
 > ### ⚠️ DoD ITEM 1 IS NOT YET SATISFIABLE — `git:applyHunks` was never run in Electron
 >
