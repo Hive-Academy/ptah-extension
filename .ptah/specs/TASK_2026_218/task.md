@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   HIGH -- REQUIRED BEFORE D2 IS DONE: git:applyHunks has NEVER been
