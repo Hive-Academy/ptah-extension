@@ -8,11 +8,11 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import { TaskMetadataPatchSchema } from '@ptah-extension/shared/schemas';
 import {
   BULK_CHUNK_SIZE,
   EMPTY_TASK_FILTER,
   TASK_STATUSES,
-  TaskMetadataPatchSchema,
   type TaskMetadataPatch,
   type TaskSpecSummary,
   type TaskStatus,

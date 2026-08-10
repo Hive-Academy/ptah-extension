@@ -13,8 +13,6 @@ import {
   EMPTY_TASK_FILTER,
   MAX_TASK_FILTER_TEXT_LENGTH,
   MAX_TASK_FILTER_VALUES,
-  TaskFilterSpecSchema,
-  TaskSortSpecSchema,
   filterTasks,
   isTaskFilterActive,
   mergeStatusTypeFacets,
@@ -22,6 +20,10 @@ import {
   type TaskFilterSpec,
   type TaskSortSpec,
 } from './task-filter';
+import {
+  TaskFilterSpecSchema,
+  TaskSortSpecSchema,
+} from './task-filter.schemas';
 import type { TaskSpecSummary } from './task-spec.types';
 
 /** `TASK_2026_007` from `7`. Keeps every fixture id inside the contract (BR-7). */

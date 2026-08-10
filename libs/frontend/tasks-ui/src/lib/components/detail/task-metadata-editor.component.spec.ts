@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
+import { TaskMetadataPatchSchema } from '@ptah-extension/shared/schemas';
 import {
-  TaskMetadataPatchSchema,
   type TaskMetadataPatch,
   type TaskSpecSummary,
 } from '@ptah-extension/shared';

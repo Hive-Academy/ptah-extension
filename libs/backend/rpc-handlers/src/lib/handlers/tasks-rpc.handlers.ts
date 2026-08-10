@@ -46,9 +46,9 @@ import {
 } from '@ptah-extension/task-specs';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { TasksSettings } from '@ptah-extension/settings-core';
+import { SavedTaskViewSchema } from '@ptah-extension/shared/schemas';
 import {
   MAX_SAVED_TASK_VIEWS,
-  SavedTaskViewSchema,
   TASK_STATUSES,
   type RpcMethodName,
   type SavedTaskView,

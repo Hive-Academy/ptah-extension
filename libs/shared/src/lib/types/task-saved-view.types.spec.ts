@@ -13,8 +13,8 @@ import {
   MAX_SAVED_TASK_VIEWS,
   MAX_SAVED_VIEW_ID_LENGTH,
   MAX_SAVED_VIEW_NAME_LENGTH,
-  SavedTaskViewSchema,
 } from '../../index';
+import { SavedTaskViewSchema } from '../../schemas';
 import type { SavedTaskView } from '../../index';
 
 function makeView(overrides: Partial<SavedTaskView> = {}): SavedTaskView {

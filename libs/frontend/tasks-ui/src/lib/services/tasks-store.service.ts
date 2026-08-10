@@ -18,7 +18,6 @@ import {
   EMPTY_TASK_FILTER,
   TASK_ESTIMATES,
   TASK_STATUSES,
-  TaskMetadataPatchSchema,
   buildTaskGraph,
   filterTasks,
   isTaskFilterActive,
@@ -1038,12 +1037,33 @@ export class TasksStore implements MessageHandler {
    *
    * No optimistic state (R5.7): the board moves only on the authoritative
    * re-fetch that follows a successful write.
+   *
+   * ## Why the schema is imported dynamically
+   *
+   * `TasksStore` is registered in `MESSAGE_HANDLERS` at webview bootstrap, so
+   * it is eager. A static import of the schema would therefore pull the whole
+   * Zod runtime (304 kB) into the initial bundle for a check that only ever
+   * runs when a user edits task metadata on the (lazily loaded) board.
+   * Deferring the import moves those bytes into the board's own chunk
+   * (TASK_2026_187 Unit 10). The deferral goes through the local
+   * `./metadata-patch-schema.lazy` module — see that file for why it is not a
+   * direct `import('@ptah-extension/shared/schemas')`.
+   *
+   * This is safe precisely because it is **not** a streaming path: the method
+   * is already `async`, every caller already awaits it, writes are serialized
+   * per task by {@link enqueueWrite}, and by the time a user can reach this
+   * code the board chunk — which imports the same module statically — has
+   * already been fetched. Nothing is queued, reordered or dropped. The chat
+   * streaming handlers, where those properties would NOT hold, use
+   * hand-written parsers instead.
    */
   public async applyMetadata(
     taskId: string,
     patch: TaskMetadataPatch,
     options: ApplyMetadataOptions = {},
   ): Promise<TasksUpdateMetadataResult> {
+    const { TaskMetadataPatchSchema } =
+      await import('./metadata-patch-schema.lazy');
     const parsed = TaskMetadataPatchSchema.safeParse(patch);
     if (!parsed.success) {
       // Verbatim, first issue first. The schema owns the wording.

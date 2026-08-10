@@ -13,14 +13,16 @@ import {
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
-  LabelSchema,
   MAX_LABELS_PER_TASK,
   MAX_SAVED_VIEW_ID_LENGTH,
+} from '@ptah-extension/shared';
+import {
+  LabelSchema,
   SavedTaskViewSchema,
   TaskFilterSpecSchema,
   TaskIdRefSchema,
   TaskMetadataPatchSchema,
-} from '@ptah-extension/shared';
+} from '@ptah-extension/shared/schemas';
 
 const workspaceRoot = z.string().min(1).optional();
 const statusEnum = z.enum(TASK_STATUSES);

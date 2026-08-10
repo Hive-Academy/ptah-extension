@@ -10,7 +10,7 @@
 import {
   HarnessConfigUpdatesSchema,
   normalizeHarnessSkillSelection,
-} from './rpc-harness.types';
+} from './rpc-harness.schemas';
 
 describe('normalizeHarnessSkillSelection', () => {
   it('passes a legacy string[] through unchanged with no refs', () => {

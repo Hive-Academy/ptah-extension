@@ -31,6 +31,7 @@
         "../../libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/shared": ["../../libs/shared/src/index.ts"],
+      "@ptah-extension/shared/schemas": ["../../libs/shared/src/schemas.ts"],
       "@ptah-extension/vscode-core": [
         "../../libs/backend/vscode-core/src/index.ts"
       ],

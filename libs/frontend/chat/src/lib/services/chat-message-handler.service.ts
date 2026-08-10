@@ -20,17 +20,17 @@
 import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import {
-  AskUserQuestionRequestSchema,
   FlatStreamEventUnion,
   GatewaySessionAttachedPayload,
   GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
-  PermissionRequestSchema,
-  SdkCompactionCompletePayloadSchema,
-  SdkSubagentEndedPayloadSchema,
-  SdkTurnEndedPayloadSchema,
-  SdkTurnFailedPayloadSchema,
   SessionId,
+  parseAskUserQuestionRequest,
+  parsePermissionRequest,
+  parseSdkCompactionCompletePayload,
+  parseSdkSubagentEndedPayload,
+  parseSdkTurnEndedPayload,
+  parseSdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -68,6 +68,27 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly streamRouter = inject(StreamRouter);
 
   private static readonly METADATA_DEBOUNCE_MS = 250;
+
+  /**
+   * Diagnostic label for a payload this handler refused.
+   *
+   * The wire payloads used to be validated with Zod, and the reject branch
+   * logged `parsed.error`. TASK_2026_187 Unit 10 replaced those schemas with
+   * hand-written parsers to keep the 304 kB Zod runtime out of the initial
+   * bundle, so there is no error object to log any more.
+   *
+   * This reports the payload's *shape* — its type and top-level key names —
+   * which is what actually identifies a contract mismatch, without echoing
+   * prompt text, tool input or session content into the console. That is a
+   * narrowing of what was logged before, not a widening.
+   */
+  private static describePayload(payload: unknown): string {
+    if (payload === null) return 'null';
+    if (Array.isArray(payload)) return `array(${payload.length})`;
+    if (typeof payload !== 'object') return typeof payload;
+    const name = (payload as object).constructor?.name ?? 'object';
+    return `${name}{${Object.keys(payload as object).join(',')}}`;
+  }
 
   private _metadataChangedTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -260,21 +281,21 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkSubagentEndedPayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkSubagentEndedPayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkSubagentEndedPayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    if (parsed.data.backgroundTasks.length === 0) {
+    if (parsed.backgroundTasks.length === 0) {
       this.liveness.markIdle(
-        parsed.data.sessionId,
-        this.workspaceFor(parsed.data.sessionId),
+        parsed.sessionId,
+        this.workspaceFor(parsed.sessionId),
       );
     }
-    this.chatStore.handleSubagentEndedNotification(parsed.data);
+    this.chatStore.handleSubagentEndedNotification(parsed);
   }
 
   private handleSessionTurnEnded(payload: unknown): void {
@@ -284,21 +305,21 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkTurnEndedPayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkTurnEndedPayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkTurnEndedPayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    const ws = this.workspaceFor(parsed.data.sessionId);
-    if (parsed.data.backgroundTasks.length > 0) {
-      this.liveness.markAwaitingBackground(parsed.data.sessionId, ws);
+    const ws = this.workspaceFor(parsed.sessionId);
+    if (parsed.backgroundTasks.length > 0) {
+      this.liveness.markAwaitingBackground(parsed.sessionId, ws);
     } else {
-      this.liveness.markIdle(parsed.data.sessionId, ws);
+      this.liveness.markIdle(parsed.sessionId, ws);
     }
-    this.chatStore.handleTurnEndedNotification(parsed.data);
+    this.chatStore.handleTurnEndedNotification(parsed);
   }
 
   private handleSessionTurnFailed(payload: unknown): void {
@@ -308,19 +329,19 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkTurnFailedPayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkTurnFailedPayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkTurnFailedPayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
     this.liveness.markFailed(
-      parsed.data.sessionId,
-      this.workspaceFor(parsed.data.sessionId),
+      parsed.sessionId,
+      this.workspaceFor(parsed.sessionId),
     );
-    this.chatStore.handleTurnFailedNotification(parsed.data);
+    this.chatStore.handleTurnFailedNotification(parsed);
   }
 
   private handleSessionCompactionComplete(payload: unknown): void {
@@ -330,15 +351,15 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkCompactionCompletePayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkCompactionCompletePayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkCompactionCompletePayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    this.chatStore.handleCompactionCompleteNotification(parsed.data);
+    this.chatStore.handleCompactionCompleteNotification(parsed);
   }
 
   /**
@@ -451,15 +472,15 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = PermissionRequestSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parsePermissionRequest(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid PermissionRequest payload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    const prompt = parsed.data as Parameters<
+    const prompt = parsed as Parameters<
       typeof this.chatStore.handlePermissionRequest
     >[0];
     this.chatStore.handlePermissionRequest(prompt);
@@ -525,16 +546,15 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = AskUserQuestionRequestSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseAskUserQuestionRequest(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid AskUserQuestionRequest payload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    const question =
-      parsed.data as import('@ptah-extension/shared').AskUserQuestionRequest;
+    const question = parsed;
     this.chatStore.handleQuestionRequest(question);
     this.streamRouter.routeQuestionPrompt(question);
   }

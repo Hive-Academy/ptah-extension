@@ -7,9 +7,9 @@ import {
   signal,
 } from '@angular/core';
 import { LucideAngularModule, X } from 'lucide-angular';
+import { TaskMetadataPatchSchema } from '@ptah-extension/shared/schemas';
 import {
   TASK_ESTIMATES,
-  TaskMetadataPatchSchema,
   labelKey,
   type TaskEstimate,
   type TaskMetadataPatch,

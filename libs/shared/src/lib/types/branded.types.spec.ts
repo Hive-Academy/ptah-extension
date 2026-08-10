@@ -18,11 +18,13 @@ import {
   RunId,
   HarnessStreamId,
   WizardPhaseId,
+} from './branded.types';
+import {
   SessionIdSchema,
   MessageIdSchema,
   CorrelationIdSchema,
   BrandedTypeValidator,
-} from './branded.types';
+} from './branded.schemas';
 
 // Fixed fixtures so tests are deterministic
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';

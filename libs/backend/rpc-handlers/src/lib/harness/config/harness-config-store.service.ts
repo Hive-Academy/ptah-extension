@@ -16,7 +16,7 @@ import * as fs from 'fs/promises';
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { HarnessConfig, HarnessPreset } from '@ptah-extension/shared';
-import { normalizeHarnessSkillSelection } from '@ptah-extension/shared';
+import { normalizeHarnessSkillSelection } from '@ptah-extension/shared/schemas';
 import { HARNESS_TOKENS } from '../tokens';
 import { HarnessPromptBuilderService } from './harness-prompt-builder.service';
 import { BUILTIN_HARNESS_PRESETS } from './builtin-presets';

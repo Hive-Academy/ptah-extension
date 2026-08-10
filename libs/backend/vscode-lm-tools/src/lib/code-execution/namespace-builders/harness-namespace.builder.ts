@@ -15,9 +15,9 @@ import { existsSync } from 'fs';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import * as os from 'os';
 import { z } from 'zod';
+import { HarnessConfigUpdatesSchema } from '@ptah-extension/shared/schemas';
 import {
   HARNESS_DEFAULT_MCP_TARGETS,
-  HarnessConfigUpdatesSchema,
   MESSAGE_TYPES,
   type HarnessConfig,
   type McpInstallResult,

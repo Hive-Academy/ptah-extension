@@ -32,14 +32,16 @@
 
 import { z } from 'zod';
 import {
-  CONTEXT_FILE,
   LabelSchema,
+  TASK_METADATA_PATCH_SHAPE,
+  TaskIdRefSchema,
+} from '@ptah-extension/shared/schemas';
+import {
+  CONTEXT_FILE,
   MAX_LABELS_PER_TASK,
   TASK_ESTIMATES,
-  TASK_METADATA_PATCH_SHAPE,
   TASK_STATUSES,
   TASK_TYPES,
-  TaskIdRefSchema,
   buildTaskGraph,
   type ExcludedTaskFolder,
   type TaskChildRollup,

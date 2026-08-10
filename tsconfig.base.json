@@ -132,6 +132,9 @@
       "@ptah-extension/skill-synthesis": [
         "./libs/backend/skill-synthesis/src/index.ts"
       ],
+      "@ptah-extension/output-styles": [
+        "./libs/backend/output-styles/src/index.ts"
+      ],
       "@ptah-extension/task-specs": ["./libs/backend/task-specs/src/index.ts"],
       "@ptah-extension/thoth-runtime": [
         "./libs/backend/thoth-runtime/src/index.ts"
@@ -157,6 +160,7 @@
       ],
       "@ptah-extension/shared": ["./libs/shared/src/index.ts"],
       "@ptah-extension/shared/testing": ["./libs/shared/src/testing/index.ts"],
+      "@ptah-extension/shared/schemas": ["./libs/shared/src/schemas.ts"],
       "@ptah-extension/ui": ["./libs/frontend/ui/src/index.ts"],
       "@ptah-extension/workspace-indexing": [
         "./libs/frontend/workspace-indexing/src/index.ts"
