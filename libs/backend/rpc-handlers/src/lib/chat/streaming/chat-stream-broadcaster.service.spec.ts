@@ -167,6 +167,90 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
   });
 });
 
+describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () => {
+  // Regression: cleanup used to be gated on `streamExitedNormally`, so a stream
+  // that threw MID-FLIGHT (provider drop, transport close) left the registry
+  // record alive with no consumer attached. `isSessionActive` — which only
+  // proves registry presence — then reported that corpse as active, so the next
+  // `chat:continue` skipped auto-resume and queued the user's message against a
+  // dead query: the turn hung forever with no events, no error, and no watchdog.
+  //
+  // These cases yield one event before failing, so `eventCount > 0` and the
+  // `isCorruptedResume` branch (eventCount === 0) cannot be what ends the
+  // session — the assertion is non-vacuously about the finally block.
+  it('ends the session after a mid-stream ERROR, not just a clean exit', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('stream exploded');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sdkAdapter.endSession).toHaveBeenCalledTimes(1);
+    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('ends the session after a USER ABORT', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('Request aborted by user');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('still ends the session after a clean stream exit', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_complete');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('does not end a session that is no longer registered', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.isSessionActive.mockReturnValue(false);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('stream exploded');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sdkAdapter.endSession).not.toHaveBeenCalled();
+  });
+
+  it('swallows an endSession failure so the fire-and-forget loop cannot reject', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.isSessionActive.mockReturnValue(true);
+    h.sdkAdapter.endSession.mockImplementation(() =>
+      Promise.reject(new Error('teardown blew up')),
+    );
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_complete');
+    }
+
+    await expect(
+      h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe('ChatStreamBroadcaster.streamEventsToWebview — surfaceMode', () => {
   function broadcastsFor(
     h: Harness,

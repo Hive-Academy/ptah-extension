@@ -702,7 +702,7 @@ export class ChatSessionService {
       let activationError: string | undefined;
       let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        if (!this.sdkAdapter.isSessionActive(sessionId)) {
+        if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
@@ -891,7 +891,7 @@ export class ChatSessionService {
     | { resumed: true }
     | { resumed: false; error: string }
   > {
-    if (this.sdkAdapter.isSessionActive(sessionId)) {
+    if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { alreadyActive: true };
     }
 
@@ -914,9 +914,30 @@ export class ChatSessionService {
       };
     }
     // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
-    // `{ justResumed: false }` it meant "already active", which we already
-    // short-circuited above via `isSessionActive`. Coerce to `true`.
+    // `{ justResumed: false }` it meant "already live", which we already
+    // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
     return { resumed: true };
+  }
+
+  /**
+   * True when the session is both registered AND has a broadcast loop attached
+   * to it — the real "can this session receive a message right now" test.
+   *
+   * `isSessionActive` alone only proves a registry record exists. A record
+   * whose `streamEventsToWebview` loop has exited still answers true, and
+   * `sendMessageToSession` against it resolves happily onto a queue with no
+   * consumer: the turn hangs forever with no events and no error. The stream is
+   * keyed by tabId for a session started via `chat:start` and by the real
+   * session UUID once resumed, so both keys count as live.
+   */
+  private hasLiveSessionStream(sessionId: SessionId, tabId: string): boolean {
+    if (!this.sdkAdapter.isSessionActive(sessionId)) {
+      return false;
+    }
+    return (
+      this.streamBroadcaster.isStreaming(sessionId as string) ||
+      this.streamBroadcaster.isStreaming(tabId)
+    );
   }
 
   /**
@@ -933,8 +954,29 @@ export class ChatSessionService {
     prompt: string,
     params: AutoResumePreflight,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
-    if (this.sdkAdapter.isSessionActive(sessionId)) {
+    if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { justResumed: false };
+    }
+    // Registered but with no attached stream: the record is a corpse whose
+    // consumer already exited. Continuing into it would silently queue the
+    // message against a dead query, so tear it down first and fall through to
+    // a real resume — otherwise `executeQuery` would re-register over the
+    // stale record and leave its abort controller dangling.
+    if (this.sdkAdapter.isSessionActive(sessionId)) {
+      this.logger.warn(
+        '[RPC] Session is registered but has no attached stream — ending the dead record before resume',
+        { sessionId, tabId },
+      );
+      try {
+        await this.sdkAdapter.endSession(sessionId);
+      } catch (cleanupError) {
+        this.logger.warn(
+          '[RPC] Failed to end dead session record before resume',
+          cleanupError instanceof Error
+            ? cleanupError
+            : new Error(String(cleanupError)),
+        );
+      }
     }
 
     this.logger.info(
