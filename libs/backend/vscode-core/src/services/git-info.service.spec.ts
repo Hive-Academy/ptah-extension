@@ -702,6 +702,7 @@ describe('GitInfoService.diffFile()', () => {
     const { calls } = queueSpawn([
       { exitCode: 1 }, // rev-parse --verify --quiet HEAD => unborn
       { stdout: 'first\n', exitCode: 0 }, // show :path
+      { stdout: '', exitCode: 0 }, // diff --cached (patch, TASK_2026_173 D2)
     ]);
 
     const result = await service.diffFile(
@@ -713,7 +714,10 @@ describe('GitInfoService.diffFile()', () => {
     expect(result.original).toEqual({ outcome: 'absent' });
     expect(result.originalRef).toEqual({ kind: 'absent' });
     expect(result.modifiedRef).toEqual({ kind: 'index' });
-    expect(calls).toHaveLength(2);
+    // rev-parse + show + the patch read. The count is asserted so an extra
+    // spawn cannot creep onto the read path unnoticed; the substantive claim
+    // is the next line — an unborn HEAD is never dereferenced.
+    expect(calls).toHaveLength(3);
     expect(calls.some((argv) => argv.includes('HEAD:src/a.ts'))).toBe(false);
   });
 

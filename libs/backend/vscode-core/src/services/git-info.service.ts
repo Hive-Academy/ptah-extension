@@ -43,12 +43,53 @@ import {
   type GitDiffComparison,
   type GitDiffFileResult,
   type DiffSideRef,
+  type GitHunkRef,
+  type GitApplyHunksOperation,
+  type GitApplyHunksFailure,
+  type GitApplyHunksResult,
 } from '@ptah-extension/shared';
 
 /**
  * git's own binary heuristic: a NUL byte anywhere in the first 8000 bytes.
  */
 const BINARY_SNIFF_BYTES = 8000;
+
+/**
+ * A unified-diff hunk header: `@@ -a[,b] +c[,d] @@[ section]`.
+ *
+ * Anchored at the start of a line. Every *body* line of a hunk is prefixed by
+ * ' ', '+', '-' or '\', so a literal `@@` inside file content can never be
+ * mistaken for a header.
+ */
+const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+/** git's marker for a diff it declined to render as text. */
+const BINARY_PATCH_MARKER = /^Binary files .* differ$/m;
+
+/**
+ * `git apply --verbose` announces a hunk that matched away from its recorded
+ * line number. Only emitted under `--verbose`; plain `git apply` is silent
+ * about offsets, which is why the write path always passes it.
+ */
+const APPLY_OFFSET_RE = /\(offset (-?\d+) lines?\)/g;
+
+/** `git diff` flags shared by the read path and the write path. */
+const DIFF_FLAGS = ['-U3', '--no-color', '--no-ext-diff'] as const;
+
+/**
+ * Which operations are defined for each comparison.
+ *
+ * `worktree` compares index -> working tree: its changes can be promoted into
+ * the index (stage) or thrown away (revert). `staged` compares HEAD -> index:
+ * its only partial move is back out of the index (unstage). Discarding a
+ * staged change outright is a two-step the user performs explicitly.
+ */
+const VALID_OPERATIONS: Readonly<
+  Record<GitDiffComparison, readonly GitApplyHunksOperation[]>
+> = {
+  worktree: ['stage', 'revert'],
+  staged: ['unstage'],
+};
 
 /**
  * The slice of `IFileSystemProvider` the worktree side of a diff needs.
@@ -62,6 +103,16 @@ export interface WorktreeFileReader {
   exists(filePath: string): Promise<boolean>;
 }
 
+/**
+ * The read *and write* slice of `IFileSystemProvider` the hunk-apply path
+ * needs. Extends {@link WorktreeFileReader} with the one write used to restore
+ * a worktree file after a failed reverse apply (AC7); nothing else on this
+ * service ever writes through it.
+ */
+export interface WorktreeFileAccess extends WorktreeFileReader {
+  writeFileBytes(filePath: string, content: Uint8Array): Promise<void>;
+}
+
 /** Request shape for {@link GitInfoService.diffFile}. */
 export interface DiffFileRequest {
   /** Workspace-relative path, modified side. */
@@ -69,6 +120,15 @@ export interface DiffFileRequest {
   comparison: GitDiffComparison;
   /** Pre-rename source path for staged renames; falls back to `path`. */
   originalPath?: string;
+}
+
+/** Request shape for {@link GitInfoService.applyHunks}. */
+export interface ApplyHunksRequest extends DiffFileRequest {
+  operation: GitApplyHunksOperation;
+  /** Ordinals into the hunk array of the snapshot named by `snapshotToken`. */
+  hunkIndices: number[];
+  /** The token `diffFile` issued for the diff the user acted on. */
+  snapshotToken: string;
 }
 
 export class GitInfoService {
@@ -628,6 +688,15 @@ export class GitInfoService {
             : { kind: 'worktree' };
       }
 
+      // Read after both sides, so the token below covers the patch bytes that
+      // were current at the *end* of this read rather than the start of it.
+      const patch = await this.readPatch(
+        workspacePath,
+        comparison,
+        modifiedPath,
+        originalPath,
+      );
+
       return {
         path: modifiedPath,
         originalPath,
@@ -636,6 +705,8 @@ export class GitInfoService {
         modified,
         originalRef,
         modifiedRef,
+        patch,
+        hunks: this.parseHunkRefs(patch),
         snapshotToken: this.computeSnapshotToken({
           comparison,
           path: modifiedPath,
@@ -644,6 +715,7 @@ export class GitInfoService {
           modifiedRef,
           original,
           modified,
+          patch,
         }),
       };
     } catch (error: unknown) {
@@ -670,6 +742,8 @@ export class GitInfoService {
         modified: failure,
         originalRef: absent,
         modifiedRef: absent,
+        patch: null,
+        hunks: [],
         snapshotToken: this.computeSnapshotToken({
           comparison,
           path: modifiedPath,
@@ -678,9 +752,594 @@ export class GitInfoService {
           modifiedRef: absent,
           original: failure,
           modified: failure,
+          patch: null,
         }),
       };
     }
+  }
+
+  /**
+   * git's own unified diff for one comparison of one path, verbatim.
+   *
+   * Returns `null` when git produced nothing — an untracked file (which
+   * `git diff` does not report at all), an unchanged path, or a failed
+   * invocation. `null` is what makes "there are no hunks to select" a first
+   * class outcome instead of an empty-string special case.
+   *
+   * **A staged rename must be asked for by BOTH paths.** With only the
+   * post-rename pathspec, git loses the rename pairing and emits a
+   * `new file mode` block whose every line is an addition — the exact
+   * "fabricated whole-file addition" hazard A3 exists to prevent, except
+   * arriving through the patch rather than through a failed read. Verified
+   * against git 2.54.0.
+   */
+  private async readPatch(
+    workspacePath: string,
+    comparison: GitDiffComparison,
+    modifiedPath: string,
+    originalPath: string,
+  ): Promise<string | null> {
+    const pathspec =
+      originalPath === modifiedPath
+        ? [modifiedPath]
+        : [originalPath, modifiedPath];
+
+    const args = [
+      'diff',
+      ...(comparison === 'staged' ? ['--cached'] : []),
+      ...DIFF_FLAGS,
+      '--',
+      ...pathspec,
+    ];
+
+    const { stdout, stderr, exitCode } = await this.execGit(
+      args,
+      workspacePath,
+    );
+
+    if (exitCode !== 0) {
+      this.logger.error('[GitInfoService] readPatch failed', {
+        workspacePath,
+        comparison,
+        modifiedPath,
+        originalPath,
+        exitCode,
+        stderr,
+      } as unknown as Error);
+      return null;
+    }
+
+    return stdout.length > 0 ? stdout : null;
+  }
+
+  /**
+   * Split a patch into its file-header block and its hunk blocks, preserving
+   * every byte.
+   *
+   * Segments retain their `\n` terminator, so concatenating any subset of them
+   * yields a well-formed patch. Splitting on `\n` and re-joining does NOT:
+   * the terminator of every block except the last is silently dropped, and
+   * `git apply` answers `corrupt patch at <stdin>:N`. That failure was
+   * reproduced against real git before this helper was written.
+   *
+   * A trailing `\n` is added when absent so the invariant holds unconditionally.
+   * This never changes meaning: "the file has no final newline" is carried by
+   * the `\ No newline at end of file` marker line, not by the patch stream's
+   * own termination.
+   */
+  private splitPatch(patch: string): { header: string; hunks: string[] } {
+    const normalized = patch.endsWith('\n') ? patch : `${patch}\n`;
+    const segments = normalized.match(/[^\n]*\n/g) ?? [];
+
+    const header: string[] = [];
+    const hunks: string[][] = [];
+    let current: string[] | null = null;
+
+    for (const segment of segments) {
+      if (HUNK_HEADER_RE.test(segment)) {
+        current = [segment];
+        hunks.push(current);
+      } else if (current) {
+        // Body lines, and any `\ No newline at end of file` marker, belong to
+        // the hunk they follow.
+        current.push(segment);
+      } else {
+        header.push(segment);
+      }
+    }
+
+    return {
+      header: header.join(''),
+      hunks: hunks.map((lines) => lines.join('')),
+    };
+  }
+
+  /** Parse the `@@` headers of a patch. Positions only — never the bodies. */
+  private parseHunkRefs(patch: string | null): GitHunkRef[] {
+    if (patch === null) return [];
+
+    return this.splitPatch(patch).hunks.map((block, index) => {
+      const headerLine = block.slice(0, block.indexOf('\n'));
+      const match = HUNK_HEADER_RE.exec(headerLine);
+      // Unreachable: splitPatch only opens a block on a line this matches.
+      /* istanbul ignore next */
+      if (!match) {
+        throw new Error(`Unparseable hunk header: ${headerLine}`);
+      }
+      return {
+        index,
+        originalStart: Number(match[1]),
+        // git omits `,b` when the side spans exactly one line.
+        originalLines: match[2] === undefined ? 1 : Number(match[2]),
+        modifiedStart: Number(match[3]),
+        modifiedLines: match[4] === undefined ? 1 : Number(match[4]),
+        header: headerLine,
+      };
+    });
+  }
+
+  /**
+   * Apply a selection of hunks from the diff the user is looking at.
+   *
+   * **git generates the patch and git consumes the patch.** Nothing here
+   * composes diff text: the selected `@@` blocks are copied byte for byte out
+   * of `git diff`'s own output, hunk headers included. Later hunks therefore
+   * carry `+`-side start lines that are stale relative to a partially applied
+   * file; that is correct and deliberate — `git apply` resolves them by
+   * context, exactly as `git add -p` does. `--recount` and `--unidiff-zero`
+   * are consequently NOT passed, and there is no line-ending code of our own:
+   * `git diff` emits in index (LF) space and `git apply` converts back on the
+   * way out, which is what makes this safe under `core.autocrlf`.
+   *
+   * | comparison | operation | apply invocation          |
+   * | ---------- | --------- | ------------------------- |
+   * | `worktree` | `stage`   | `git apply --cached -`    |
+   * | `worktree` | `revert`  | `git apply -R -`          |
+   * | `staged`   | `unstage` | `git apply --cached -R -` |
+   *
+   * Every refusal below happens before anything is written, and the two
+   * post-write failure paths restore the pre-operation state (AC7).
+   */
+  async applyHunks(
+    workspacePath: string,
+    request: ApplyHunksRequest,
+    fileSystem: WorktreeFileAccess,
+  ): Promise<GitApplyHunksResult> {
+    const modifiedPath = request.path;
+    const originalPath = request.originalPath ?? request.path;
+    const { comparison, operation } = request;
+
+    try {
+      // [NFR-8] Both paths, not just the modified one — a staged rename is
+      // read and applied under its pre-rename path as well.
+      this.validatePathSegment(modifiedPath);
+      this.validatePathSegment(originalPath);
+
+      // [AC12] The matrix is enforced here, not only in the Zod schema: the
+      // schema can prove `operation` is one of three strings, but only this
+      // check knows that `unstage` is meaningless against a worktree diff.
+      if (!VALID_OPERATIONS[comparison].includes(operation)) {
+        return this.applyFailure(
+          'INVALID_OPERATION',
+          `"${operation}" is not available for ${comparison} changes.`,
+        );
+      }
+
+      if (!(await this.isGitRepo(workspacePath))) {
+        return this.applyFailure(
+          'NOT_A_REPO',
+          'This folder is not a git repository.',
+        );
+      }
+
+      // [AC6] The one guard this whole batch turns on.
+      //
+      // The snapshot is re-derived by calling `diffFile` — the very method
+      // that issued the client's token — so there is no second hashing
+      // implementation that could drift from the first and quietly certify a
+      // stale diff. The client's token is compared, never trusted, and never
+      // cached: two calls to `diffFile` a millisecond apart re-read git both
+      // times.
+      const before = await this.diffFile(
+        workspacePath,
+        {
+          path: modifiedPath,
+          comparison,
+          originalPath: request.originalPath,
+        },
+        fileSystem,
+      );
+
+      if (before.snapshotToken !== request.snapshotToken) {
+        this.logger.warn(
+          '[GitInfoService] applyHunks refused a stale snapshot',
+          {
+            workspaceRoot: workspacePath,
+            path: modifiedPath,
+            comparison,
+            operation,
+            clientToken: request.snapshotToken,
+            currentToken: before.snapshotToken,
+          },
+        );
+        return this.applyFailure(
+          'STALE_SNAPSHOT',
+          'This file changed since the diff was opened. Nothing was changed — reload the diff and try again.',
+        );
+      }
+
+      if (before.patch === null || before.hunks.length === 0) {
+        // [AC10] Binary is the expected reason for a hunkless diff, but not
+        // the only one: an untracked file produces no `git diff` output at
+        // all, and calling that "binary" would be a user-visible lie.
+        const isBinary =
+          before.original.outcome === 'binary' ||
+          before.modified.outcome === 'binary' ||
+          (before.patch !== null && BINARY_PATCH_MARKER.test(before.patch));
+
+        return isBinary
+          ? this.applyFailure(
+              'BINARY_UNSUPPORTED',
+              'Binary files have no hunks to stage or revert.',
+            )
+          : this.applyFailure(
+              'APPLY_FAILED',
+              'git reports no applicable changes for this file.',
+            );
+      }
+
+      const selection = this.normalizeHunkSelection(
+        request.hunkIndices,
+        before.hunks.length,
+      );
+      if (selection === null) {
+        return this.applyFailure(
+          'APPLY_FAILED',
+          'The selected hunks are not part of this diff.',
+        );
+      }
+
+      const { header, hunks } = this.splitPatch(before.patch);
+
+      // A pathspec naming one file (or a rename's two names) yields exactly
+      // one `diff --git` block. Anything else means the patch is not the shape
+      // the reassembly assumes, so refuse rather than guess which block the
+      // ordinals index into.
+      const fileBlocks = header.match(/^diff --git /gm)?.length ?? 0;
+      if (fileBlocks !== 1) {
+        this.logger.error(
+          '[GitInfoService] applyHunks got an unexpected patch shape',
+          {
+            workspaceRoot: workspacePath,
+            path: modifiedPath,
+            originalPath,
+            comparison,
+            fileBlocks,
+          },
+        );
+        return this.applyFailure(
+          'UNKNOWN',
+          'This diff cannot be applied hunk by hunk.',
+        );
+      }
+
+      // Ascending order is required by `git apply`, and `normalizeHunkSelection`
+      // guarantees it.
+      const patch = header + selection.map((index) => hunks[index]).join('');
+      const applyArgs = this.applyArgsFor(operation);
+      const worktreeFile = path.join(workspacePath, modifiedPath);
+
+      // [AC7] Establish the restore point BEFORE the dry run, so there is no
+      // ordering in which a write can happen without one.
+      let indexRestoreTree: string | null = null;
+      let worktreeRestoreBytes: Uint8Array | null = null;
+
+      if (operation === 'revert') {
+        if (!(await fileSystem.exists(worktreeFile))) {
+          return this.applyFailure(
+            'APPLY_FAILED',
+            'This file is no longer in the working tree.',
+          );
+        }
+        worktreeRestoreBytes = await fileSystem.readFileBytes(worktreeFile);
+      } else {
+        indexRestoreTree = await this.writeIndexTree(workspacePath);
+        if (indexRestoreTree === null) {
+          return this.applyFailure(
+            'APPLY_FAILED',
+            'Could not create a restore point for the index. Nothing was changed.',
+          );
+        }
+      }
+
+      // [AC7] Dry run first. `--verbose` is not cosmetic: it is the only mode
+      // in which git reports the line offset a hunk matched at, and that
+      // report is the next guard.
+      const check = await this.execGit(
+        [...applyArgs, '--check', '--verbose', '-'],
+        workspacePath,
+        { stdin: patch },
+      );
+
+      if (check.exitCode !== 0) {
+        this.logger.error(
+          '[GitInfoService] applyHunks --check refused the patch',
+          {
+            workspaceRoot: workspacePath,
+            path: modifiedPath,
+            comparison,
+            operation,
+            exitCode: check.exitCode,
+            stderr: check.stderr,
+          },
+        );
+        return this.applyFailure(
+          'APPLY_FAILED',
+          'git could not apply the selected changes. Nothing was changed.',
+        );
+      }
+
+      // The catastrophic case this batch exists to prevent is not a patch that
+      // FAILS to apply — it is one that applies cleanly at a shifted offset,
+      // moving lines the user never looked at. `--check` alone returns 0 for
+      // exactly that case (reproduced against git 2.54.0). With the snapshot
+      // token verified above, a non-zero offset is impossible; if one appears
+      // anyway, an invariant has broken and the only safe move is to refuse
+      // while nothing has been written yet.
+      const checkOffsets = this.parseApplyOffsets(check.stderr);
+      if (checkOffsets.some((offset) => offset !== 0)) {
+        this.logger.error(
+          '[GitInfoService] applyHunks refused an offset match',
+          {
+            workspaceRoot: workspacePath,
+            path: modifiedPath,
+            comparison,
+            operation,
+            offsets: checkOffsets,
+            stderr: check.stderr,
+          },
+        );
+        return this.applyFailure(
+          'APPLY_FAILED',
+          'The selected changes no longer line up with this file. Nothing was changed.',
+        );
+      }
+
+      const applied = await this.execGit(
+        [...applyArgs, '--verbose', '-'],
+        workspacePath,
+        { stdin: patch },
+      );
+
+      if (applied.exitCode !== 0) {
+        const restored = await this.restoreAfterFailedApply(
+          workspacePath,
+          worktreeFile,
+          indexRestoreTree,
+          worktreeRestoreBytes,
+          fileSystem,
+        );
+        this.logger.error(
+          '[GitInfoService] applyHunks failed after --check passed',
+          {
+            workspaceRoot: workspacePath,
+            path: modifiedPath,
+            comparison,
+            operation,
+            exitCode: applied.exitCode,
+            stderr: applied.stderr,
+            restored,
+          },
+        );
+        return this.applyFailure(
+          'APPLY_FAILED',
+          restored
+            ? 'git could not apply the selected changes. The file was restored to its previous state.'
+            : 'git could not apply the selected changes, and restoring the previous state also failed. Check the repository before continuing.',
+        );
+      }
+
+      // The dry run inspected the pre-image a moment ago; this re-checks the
+      // one it was actually written against. An offset appearing only here
+      // means the repository moved between the two invocations, so the write
+      // landed somewhere the user never saw — undo it.
+      const appliedOffsets = this.parseApplyOffsets(applied.stderr);
+      if (appliedOffsets.some((offset) => offset !== 0)) {
+        const restored = await this.restoreAfterFailedApply(
+          workspacePath,
+          worktreeFile,
+          indexRestoreTree,
+          worktreeRestoreBytes,
+          fileSystem,
+        );
+        this.logger.error(
+          '[GitInfoService] applyHunks rolled back an offset apply',
+          {
+            workspaceRoot: workspacePath,
+            path: modifiedPath,
+            comparison,
+            operation,
+            offsets: appliedOffsets,
+            stderr: applied.stderr,
+            restored,
+          },
+        );
+        return this.applyFailure(
+          'APPLY_FAILED',
+          restored
+            ? 'The selected changes no longer line up with this file. The previous state was restored.'
+            : 'The selected changes no longer line up with this file, and restoring the previous state also failed. Check the repository before continuing.',
+        );
+      }
+
+      const after = await this.diffFile(
+        workspacePath,
+        {
+          path: modifiedPath,
+          comparison,
+          originalPath: request.originalPath,
+        },
+        fileSystem,
+      );
+
+      // [R-1] Enough to reconstruct exactly what was applied, to which
+      // snapshot, and what git said about it.
+      this.logger.info('[GitInfoService] applyHunks applied', {
+        workspaceRoot: workspacePath,
+        path: modifiedPath,
+        originalPath,
+        comparison,
+        operation,
+        hunkIndices: selection,
+        hunkCount: before.hunks.length,
+        snapshotToken: request.snapshotToken,
+        nextSnapshotToken: after.snapshotToken,
+        patchSha256: createHash('sha256').update(patch, 'utf8').digest('hex'),
+        patchByteLength: Buffer.byteLength(patch, 'utf8'),
+        exitCode: applied.exitCode,
+        offsets: appliedOffsets,
+        stderr: applied.stderr,
+      });
+
+      return { success: true, snapshotToken: after.snapshotToken };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] applyHunks threw', {
+        workspaceRoot: workspacePath,
+        path: modifiedPath,
+        originalPath,
+        comparison,
+        operation,
+        error: message,
+      });
+      return this.applyFailure(
+        'UNKNOWN',
+        'The selected changes could not be applied.',
+      );
+    }
+  }
+
+  /** A refusal. Never carries a snapshot token — see {@link GitApplyHunksResult}. */
+  private applyFailure(
+    code: GitApplyHunksFailure,
+    message: string,
+  ): GitApplyHunksResult {
+    return { success: false, code, message };
+  }
+
+  /** The `git apply` invocation for one cell of the operation matrix. */
+  private applyArgsFor(operation: GitApplyHunksOperation): string[] {
+    switch (operation) {
+      case 'stage':
+        return ['apply', '--cached'];
+      case 'unstage':
+        return ['apply', '--cached', '-R'];
+      case 'revert':
+        return ['apply', '-R'];
+    }
+  }
+
+  /**
+   * De-duplicate and order a hunk selection, or reject it.
+   *
+   * Ascending order is a hard requirement of `git apply`, not a tidiness
+   * preference. An out-of-range ordinal cannot occur once the snapshot token
+   * has matched — the patch is provably the same one the client indexed — so
+   * it is treated as an incoherent request and refused.
+   */
+  private normalizeHunkSelection(
+    indices: number[],
+    total: number,
+  ): number[] | null {
+    if (indices.length === 0) return null;
+    const unique = [...new Set(indices)];
+    if (
+      unique.some(
+        (index) => !Number.isInteger(index) || index < 0 || index >= total,
+      )
+    ) {
+      return null;
+    }
+    return unique.sort((a, b) => a - b);
+  }
+
+  /**
+   * Capture the current index as a tree object, for use as a rollback target.
+   *
+   * `git write-tree` writes tree objects only — it never moves a ref, never
+   * touches the working tree, and fails outright on an unmerged index, which
+   * is the case where a rollback could not be honoured anyway.
+   */
+  private async writeIndexTree(workspacePath: string): Promise<string | null> {
+    const { stdout, stderr, exitCode } = await this.execGit(
+      ['write-tree'],
+      workspacePath,
+    );
+
+    if (exitCode !== 0) {
+      this.logger.error('[GitInfoService] write-tree failed', {
+        workspacePath,
+        exitCode,
+        stderr,
+      });
+      return null;
+    }
+
+    const tree = stdout.trim();
+    return /^[0-9a-f]{40,64}$/.test(tree) ? tree : null;
+  }
+
+  /** Restore the pre-operation state after a write that failed mid-flight. */
+  private async restoreAfterFailedApply(
+    workspacePath: string,
+    worktreeFile: string,
+    indexRestoreTree: string | null,
+    worktreeRestoreBytes: Uint8Array | null,
+    fileSystem: WorktreeFileAccess,
+  ): Promise<boolean> {
+    try {
+      if (indexRestoreTree !== null) {
+        const { exitCode, stderr } = await this.execGit(
+          ['read-tree', indexRestoreTree],
+          workspacePath,
+        );
+        if (exitCode !== 0) {
+          this.logger.error('[GitInfoService] index rollback failed', {
+            workspacePath,
+            tree: indexRestoreTree,
+            exitCode,
+            stderr,
+          });
+          return false;
+        }
+        return true;
+      }
+
+      if (worktreeRestoreBytes !== null) {
+        await fileSystem.writeFileBytes(worktreeFile, worktreeRestoreBytes);
+        return true;
+      }
+
+      return false;
+    } catch (error: unknown) {
+      this.logger.error('[GitInfoService] rollback threw', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Every line offset `git apply --verbose` reported, in order.
+   *
+   * Plain `git apply` says nothing about offsets, so a forensic log that never
+   * passes `--verbose` records an empty list forever and proves nothing.
+   */
+  private parseApplyOffsets(stderr: string): number[] {
+    return [...stderr.matchAll(APPLY_OFFSET_RE)].map((match) =>
+      Number(match[1]),
+    );
   }
 
   /**
@@ -782,11 +1441,23 @@ export class GitInfoService {
   }
 
   /**
-   * sha256 over the exact content of both sides plus their ref identity.
+   * sha256 over the exact content of both sides, their ref identity, and the
+   * patch bytes derived from them.
    *
    * Every component is length-prefixed so no combination of paths or content
    * can be rearranged into the same digest. Opaque to the client; it exists so
    * a later write can prove it applies to the snapshot the user was shown.
+   *
+   * **There is exactly one implementation and it has exactly two call sites,
+   * both inside {@link diffFile}.** `applyHunks` establishes its "is this
+   * still the snapshot the user saw?" answer by calling `diffFile` itself, not
+   * by recomputing the digest alongside it — so the two can never drift, which
+   * is the failure that would silently defeat AC6.
+   *
+   * The patch field is what closes the residual window between reading the two
+   * sides and asking git for the diff: without it a token could certify blobs
+   * from time T while the patch was generated at T+delta, and a write landing
+   * in that gap would be applied from bytes the user never saw.
    */
   private computeSnapshotToken(input: {
     comparison: GitDiffComparison;
@@ -796,6 +1467,7 @@ export class GitInfoService {
     modifiedRef: DiffSideRef;
     original: GitBlobRead;
     modified: GitBlobRead;
+    patch: string | null;
   }): string {
     const hash = createHash('sha256');
     const field = (value: string): void => {
@@ -810,6 +1482,7 @@ export class GitInfoService {
     field(this.describeRef(input.modifiedRef));
     field(this.describeBlob(input.original));
     field(this.describeBlob(input.modified));
+    field(input.patch === null ? 'patch:absent' : `patch:${input.patch}`);
 
     return hash.digest('hex');
   }

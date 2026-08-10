@@ -25,12 +25,18 @@
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
 import type { ComponentRef } from '@angular/core';
-import { DiffViewComponent } from './diff-view.component';
+import {
+  DiffViewComponent,
+  hunkAtLine,
+  hunkLineRange,
+} from './diff-view.component';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 import type {
   DiffSideRef,
   DiffTabState,
   EditorTab,
+  GitHunkRef,
+  HunkApplyFn,
 } from '../services/editor/editor-tab.types';
 import { diffTabKey } from '../services/editor/editor-tab.types';
 
@@ -49,6 +55,7 @@ function makeDiffTab(overrides: Partial<DiffTabState> = {}): EditorTab {
     originalRef: { kind: 'index' } as DiffSideRef,
     modifiedRef: { kind: 'worktree' } as DiffSideRef,
     snapshotToken: 'token',
+    hunks: [],
     isBinary: false,
     status: 'fresh',
     requestId: 1,
@@ -413,6 +420,10 @@ class FakeModel {
   getLanguageId(): string {
     return this.language;
   }
+  /** Monaco reports at least one line even for an empty document. */
+  getLineCount(): number {
+    return Math.max(1, this.value.split('\n').length);
+  }
   getFullModelRange(): unknown {
     return {
       startLineNumber: 1,
@@ -435,6 +446,53 @@ class FakeModel {
   }
 }
 
+/**
+ * Decoration ranges as Monaco would receive them, so a test can assert WHERE a
+ * marker was placed rather than merely that one was requested.
+ */
+interface FakeDecoration {
+  range: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  };
+  options: {
+    isWholeLine?: boolean;
+    glyphMarginClassName?: string;
+    linesDecorationsClassName?: string | null;
+    glyphMarginHoverMessage?: { value: string };
+  };
+}
+
+interface FakeDecorationsCollection {
+  current: FakeDecoration[];
+  setCalls: number;
+  clears: number;
+  set(next: FakeDecoration[]): string[];
+  clear(): void;
+}
+
+/** The modified-side code editor a diff editor exposes (D2 lives on this one). */
+interface FakeCodeEditor {
+  collections: FakeDecorationsCollection[];
+  revealed: number[];
+  mouseListeners: ((event: FakeMouseEvent) => void)[];
+  getModel(): FakeModel | null;
+  createDecorationsCollection(
+    decorations: FakeDecoration[],
+  ): FakeDecorationsCollection;
+  revealLineInCenterIfOutsideViewport(line: number): void;
+  onMouseDown(listener: (event: FakeMouseEvent) => void): { dispose(): void };
+}
+
+interface FakeMouseEvent {
+  target: { type: number; position: { lineNumber: number } | null };
+}
+
+/** Mirrors monaco.editor.MouseTargetType — only the member the product reads. */
+const GUTTER_GLYPH_MARGIN = 2;
+
 function makeFakeMonaco() {
   const models = new Map<string, FakeModel>();
   const created: FakeModel[] = [];
@@ -447,7 +505,9 @@ function makeFakeMonaco() {
     setModelCalls: number;
     savedStates: number;
     restored: unknown[];
+    modifiedEditor: FakeCodeEditor;
     setModel(model: { original: FakeModel; modified: FakeModel } | null): void;
+    getModifiedEditor(): FakeCodeEditor;
     saveViewState(): { id: number } | null;
     restoreViewState(state: unknown): void;
     updateOptions(options: Record<string, unknown>): void;
@@ -460,6 +520,14 @@ function makeFakeMonaco() {
   const api = {
     Uri: {
       parse: (raw: string) => ({ toString: () => raw }),
+    },
+    Range: class {
+      constructor(
+        public startLineNumber: number,
+        public startColumn: number,
+        public endLineNumber: number,
+        public endColumn: number,
+      ) {}
     },
     editor: {
       createModel: (
@@ -478,14 +546,61 @@ function makeFakeMonaco() {
         model.language = language;
       },
       setTheme: jest.fn(),
-      createDiffEditor: () => {
+      MouseTargetType: { GUTTER_GLYPH_MARGIN },
+      createDiffEditor: (
+        _container: unknown,
+        createOptions: Record<string, unknown> = {},
+      ) => {
         const editor: FakeDiffEditor = {
           model: null,
-          options: {},
+          // Seeded from the CREATION options, not left empty: readOnly,
+          // renderMarginRevertIcon and glyphMargin are only ever set here, and
+          // a fake that dropped them would make their guards untestable.
+          options: { ...createOptions },
           layouts: 0,
           setModelCalls: 0,
           savedStates: 0,
           restored: [],
+          modifiedEditor: {
+            collections: [],
+            revealed: [],
+            mouseListeners: [],
+            getModel: () => editor.model?.modified ?? null,
+            createDecorationsCollection(decorations: FakeDecoration[]) {
+              const collection: FakeDecorationsCollection = {
+                current: decorations,
+                setCalls: 0,
+                clears: 0,
+                set(next) {
+                  this.current = next;
+                  this.setCalls++;
+                  return next.map((_, i) => `d${i}`);
+                },
+                clear() {
+                  this.current = [];
+                  this.clears++;
+                },
+              };
+              this.collections.push(collection);
+              return collection;
+            },
+            revealLineInCenterIfOutsideViewport(line: number) {
+              this.revealed.push(line);
+            },
+            onMouseDown(listener) {
+              this.mouseListeners.push(listener);
+              return {
+                dispose: () => {
+                  this.mouseListeners = this.mouseListeners.filter(
+                    (l) => l !== listener,
+                  );
+                },
+              };
+            },
+          },
+          getModifiedEditor() {
+            return this.modifiedEditor;
+          },
           setModel(model) {
             this.model = model;
             this.setModelCalls++;
@@ -528,6 +643,7 @@ function patchDiff(tab: EditorTab, patch: Partial<DiffTabState>): EditorTab {
 
 async function createLiveFixture(
   tab: EditorTab | null = makeDiffTab(),
+  applyHunks: HunkApplyFn | null = null,
 ): Promise<{
   fixture: ComponentFixture<DiffViewComponent>;
   componentRef: ComponentRef<DiffViewComponent>;
@@ -553,6 +669,7 @@ async function createLiveFixture(
   const componentRef = fixture.componentRef;
   componentRef.setInput('diffTab', tab);
   componentRef.setInput('openDiffKeys', tab ? [tab.filePath] : []);
+  componentRef.setInput('applyHunks', applyHunks);
   fixture.detectChanges();
   // afterNextRender ran; let the loader promise resolve and the editor build.
   await fixture.whenStable();
@@ -763,5 +880,736 @@ describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
     fixture.detectChanges();
 
     expect(editor.restored.length).toBe(before + 1);
+  });
+});
+
+// ===========================================================================
+// D2 — hunk affordances (tasks 8.5, 8.6)
+//
+// These run against the LIVE fixture and the real fake-Monaco harness, so the
+// decoration ranges asserted below are the ones the product actually hands to
+// Monaco — not ones recomputed by the test.
+// ===========================================================================
+
+/** git's `@@` positions for a three-hunk file, as the backend emits them. */
+function hunkRef(
+  index: number,
+  modifiedStart: number,
+  modifiedLines = 3,
+): GitHunkRef {
+  return {
+    index,
+    originalStart: modifiedStart,
+    originalLines: modifiedLines,
+    modifiedStart,
+    modifiedLines,
+    header: `@@ -${modifiedStart},${modifiedLines} +${modifiedStart},${modifiedLines} @@`,
+  };
+}
+
+const THREE_HUNKS = [hunkRef(0, 2), hunkRef(1, 8), hunkRef(2, 14)];
+
+/** A 20-line modified side, so every hunk above sits inside the model. */
+const TWENTY_LINES = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join(
+  '\n',
+);
+
+function hunkTab(overrides: Partial<DiffTabState> = {}): EditorTab {
+  return makeDiffTab({
+    original: TWENTY_LINES,
+    modified: TWENTY_LINES,
+    hunks: THREE_HUNKS,
+    snapshotToken: 'tok-1',
+    ...overrides,
+  });
+}
+
+function query(
+  fixture: ComponentFixture<DiffViewComponent>,
+  testId: string,
+): HTMLElement | null {
+  return fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
+}
+
+function click(
+  fixture: ComponentFixture<DiffViewComponent>,
+  testId: string,
+): void {
+  (query(fixture, testId) as HTMLButtonElement | null)?.click();
+  fixture.detectChanges();
+}
+
+describe('DiffViewComponent — hunk affordances (D2)', () => {
+  const originalResizeObserver = globalThis.ResizeObserver;
+
+  beforeAll(() => {
+    globalThis.ResizeObserver = class {
+      observe(): void {
+        /* no-op */
+      }
+      unobserve(): void {
+        /* no-op */
+      }
+      disconnect(): void {
+        /* no-op */
+      }
+    } as unknown as typeof ResizeObserver;
+  });
+
+  afterAll(() => {
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  // -------------------------------------------------------------------------
+  // AC10 / AC11 — when the actions must NOT be there
+  // -------------------------------------------------------------------------
+
+  describe('actions are ABSENT, not present-and-broken', () => {
+    it('(AC10) a binary file offers no hunk actions at all', async () => {
+      const { fixture } = await createLiveFixture(
+        hunkTab({ isBinary: true }),
+        jest.fn(),
+      );
+
+      expect(query(fixture, 'hunk-toolbar')).toBeNull();
+    });
+
+    it('a failed read offers none, however many hunks came with it', async () => {
+      // A side that could not be read describes nothing — the same reasoning
+      // that suppresses new/deleted chrome rather than inventing it.
+      const { fixture } = await createLiveFixture(
+        hunkTab({ status: 'error', errorMessage: 'Git could not read this.' }),
+        jest.fn(),
+      );
+
+      expect(query(fixture, 'hunk-toolbar')).toBeNull();
+    });
+
+    it('a response that never reached a repository read offers none', async () => {
+      const { fixture } = await createLiveFixture(
+        hunkTab({ snapshotToken: '' }),
+        jest.fn(),
+      );
+
+      expect(query(fixture, 'hunk-toolbar')).toBeNull();
+    });
+
+    it('a diff with no hunks offers none', async () => {
+      const { fixture } = await createLiveFixture(
+        hunkTab({ hunks: [] }),
+        jest.fn(),
+      );
+
+      expect(query(fixture, 'hunk-toolbar')).toBeNull();
+    });
+
+    it('a surface with no git behind it offers none — the Skills preview case', async () => {
+      // applyHunks left null: the enhancement preview reuses this Monaco
+      // surface for two in-memory bodies and must not offer to stage them.
+      const { fixture } = await createLiveFixture(hunkTab(), null);
+
+      expect(query(fixture, 'hunk-toolbar')).toBeNull();
+    });
+
+    it('(AC11) the modified pane is never writable, and Monaco keeps its own revert arrow off', async () => {
+      const { monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      // Permanent (plan §4.3). Monaco's revert arrow edits the modified BUFFER,
+      // which is the wrong mechanism for a git-backed diff; hunk actions are
+      // decorations precisely so no accidental edit is possible.
+      expect(monaco.diffEditors[0].options).toMatchObject({
+        readOnly: true,
+        renderMarginRevertIcon: false,
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC1 / D3 AC6 — decorations placed by git's segmentation
+  // -------------------------------------------------------------------------
+
+  describe('glyph-margin decorations', () => {
+    it('enables the glyph margin, which monaco-editor defaults to OFF', async () => {
+      const { monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      // vscode defaults this to true, monaco-editor to false. Without it the
+      // markers have nowhere to render — silently, with no error.
+      expect(monaco.diffEditors[0].options.glyphMargin).toBe(true);
+    });
+
+    it('places one marker per hunk, at git\u2019s MODIFIED-side line range', async () => {
+      const { monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      const collection = monaco.diffEditors[0].modifiedEditor.collections[0];
+      expect(collection.current).toHaveLength(3);
+      expect(
+        collection.current.map((d) => [
+          d.range.startLineNumber,
+          d.range.endLineNumber,
+        ]),
+      ).toEqual([
+        [2, 4],
+        [8, 10],
+        [14, 16],
+      ]);
+      expect(
+        collection.current.every((d) =>
+          d.options.glyphMarginClassName?.includes('ptah-hunk-glyph'),
+        ),
+      ).toBe(true);
+    });
+
+    it('marks only the selected hunk as selected', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+
+      const collection = monaco.diffEditors[0].modifiedEditor.collections[0];
+      const selected = collection.current.filter((d) =>
+        d.options.glyphMarginClassName?.includes('ptah-hunk-glyph-selected'),
+      );
+      expect(selected).toHaveLength(1);
+      expect(selected[0].range.startLineNumber).toBe(2);
+    });
+
+    it('clamps a hunk that removes from the very top of the file', async () => {
+      // Real git output for a deletion at line 1 is `@@ -1,3 +0,0 @@`: line 0
+      // does not exist in Monaco, and `0 + 0 - 1` would end before it starts.
+      const { monaco } = await createLiveFixture(
+        hunkTab({
+          hunks: [
+            {
+              index: 0,
+              originalStart: 1,
+              originalLines: 3,
+              modifiedStart: 0,
+              modifiedLines: 0,
+              header: '@@ -1,3 +0,0 @@',
+            },
+          ],
+        }),
+        jest.fn(),
+      );
+
+      const collection = monaco.diffEditors[0].modifiedEditor.collections[0];
+      expect(collection.current[0].range.startLineNumber).toBe(1);
+      expect(collection.current[0].range.endLineNumber).toBe(1);
+    });
+
+    it('clamps a hunk that runs past the end of the model', async () => {
+      const { monaco } = await createLiveFixture(
+        hunkTab({ hunks: [hunkRef(0, 19, 40)] }),
+        jest.fn(),
+      );
+
+      const collection = monaco.diffEditors[0].modifiedEditor.collections[0];
+      expect(collection.current[0].range.endLineNumber).toBe(20);
+    });
+  });
+
+  describe('hunkLineRange / hunkAtLine (the mapping the affordances stand on)', () => {
+    it('maps a normal hunk to its modified-side range', () => {
+      expect(hunkLineRange(hunkRef(0, 8, 3), 100)).toEqual({
+        startLine: 8,
+        endLine: 10,
+      });
+    });
+
+    it('never produces line 0, and never ends before it starts', () => {
+      const deletion = {
+        index: 0,
+        originalStart: 1,
+        originalLines: 4,
+        modifiedStart: 0,
+        modifiedLines: 0,
+        header: '@@ -1,4 +0,0 @@',
+      };
+      expect(hunkLineRange(deletion, 50)).toEqual({ startLine: 1, endLine: 1 });
+    });
+
+    it('answers null for a context line — a missed click selects nothing', () => {
+      expect(hunkAtLine(THREE_HUNKS, 6, 20)).toBeNull();
+      expect(hunkAtLine(THREE_HUNKS, 9, 20)?.index).toBe(1);
+    });
+  });
+
+  describe('the glyph margin selects, and only on a hunk', () => {
+    it('selects the hunk under a glyph-margin click', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+      const modified = monaco.diffEditors[0].modifiedEditor;
+
+      modified.mouseListeners[0]({
+        target: { type: GUTTER_GLYPH_MARGIN, position: { lineNumber: 9 } },
+      });
+      fixture.detectChanges();
+
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        'Hunk 2 of 3',
+      );
+    });
+
+    it('ignores a click on a line belonging to no hunk', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+      const modified = monaco.diffEditors[0].modifiedEditor;
+
+      modified.mouseListeners[0]({
+        target: { type: GUTTER_GLYPH_MARGIN, position: { lineNumber: 6 } },
+      });
+      fixture.detectChanges();
+
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        '3 hunks',
+      );
+    });
+
+    it('ignores a click that is not on the glyph margin', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+      const modified = monaco.diffEditors[0].modifiedEditor;
+
+      modified.mouseListeners[0]({
+        // CONTENT_TEXT — clicking the code itself must not arm an operation.
+        target: { type: 6, position: { lineNumber: 9 } },
+      });
+      fixture.detectChanges();
+
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        '3 hunks',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC14 — keyboard reachability
+  // -------------------------------------------------------------------------
+
+  describe('AC14 — the keyboard path', () => {
+    it('exposes the actions as a labelled toolbar', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      const toolbar = query(fixture, 'hunk-toolbar');
+      expect(toolbar?.getAttribute('role')).toBe('toolbar');
+      expect(toolbar?.getAttribute('aria-orientation')).toBe('horizontal');
+      expect(toolbar?.getAttribute('aria-label')).toContain('Hunk actions');
+    });
+
+    it('starts with NOTHING selected, so landing on the toolbar cannot write', async () => {
+      const apply = jest.fn();
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        '3 hunks',
+      );
+      expect(query(fixture, 'hunk-stage')?.getAttribute('aria-disabled')).toBe(
+        'true',
+      );
+
+      click(fixture, 'hunk-stage');
+      expect(apply).not.toHaveBeenCalled();
+    });
+
+    it('walks the hunks with Next and Previous, wrapping at both ends', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+      const label = () => query(fixture, 'hunk-position')?.textContent?.trim();
+
+      click(fixture, 'hunk-next');
+      expect(label()).toBe('Hunk 1 of 3');
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-next');
+      expect(label()).toBe('Hunk 3 of 3');
+      click(fixture, 'hunk-next');
+      expect(label()).toBe('Hunk 1 of 3');
+      click(fixture, 'hunk-prev');
+      expect(label()).toBe('Hunk 3 of 3');
+    });
+
+    it('scrolls the selected hunk into view — reachable is not enough if unseen', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-next');
+
+      expect(monaco.diffEditors[0].modifiedEditor.revealed).toEqual([2, 8]);
+    });
+
+    it('keeps exactly ONE tab stop for the whole group (roving tabindex)', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      const buttons = Array.from(
+        fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+          '[data-hunk-action]',
+        ),
+      );
+      expect(buttons).toHaveLength(4); // prev, next, stage, revert
+      expect(
+        buttons.filter((b) => b.getAttribute('tabindex') === '0'),
+      ).toHaveLength(1);
+    });
+
+    it('moves focus along the toolbar with the arrow keys', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+      const toolbar = query(fixture, 'hunk-toolbar');
+      const stage = query(fixture, 'hunk-stage');
+
+      toolbar?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+      fixture.detectChanges();
+      toolbar?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+      fixture.detectChanges();
+
+      expect(document.activeElement).toBe(stage);
+      expect(stage?.getAttribute('tabindex')).toBe('0');
+    });
+
+    it('keeps unavailable actions FOCUSABLE via aria-disabled, not disabled', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      const stage = query(fixture, 'hunk-stage') as HTMLButtonElement;
+      // A `disabled` button leaves the focus order, which would put holes in
+      // the roving tabindex and make arrow navigation skip silently.
+      expect(stage.disabled).toBe(false);
+      expect(stage.getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('names the hunk each action would act on', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      expect(
+        query(fixture, 'hunk-stage')?.getAttribute('aria-label'),
+      ).toContain('no hunk selected yet');
+      click(fixture, 'hunk-next');
+      expect(query(fixture, 'hunk-stage')?.getAttribute('aria-label')).toBe(
+        'Stage hunk 1 of 3',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC12 (presentation) — which operations a comparison defines
+  // -------------------------------------------------------------------------
+
+  describe('the operations offered follow the comparison', () => {
+    it('a working-tree diff offers Stage and Discard', async () => {
+      const { fixture } = await createLiveFixture(
+        hunkTab({ comparison: 'worktree' }),
+        jest.fn(),
+      );
+
+      expect(query(fixture, 'hunk-stage')).not.toBeNull();
+      expect(query(fixture, 'hunk-revert')).not.toBeNull();
+      expect(query(fixture, 'hunk-unstage')).toBeNull();
+    });
+
+    it('a staged diff offers Unstage only', async () => {
+      const { fixture } = await createLiveFixture(
+        hunkTab({ comparison: 'staged' }),
+        jest.fn(),
+      );
+
+      expect(query(fixture, 'hunk-unstage')).not.toBeNull();
+      expect(query(fixture, 'hunk-stage')).toBeNull();
+      expect(query(fixture, 'hunk-revert')).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC2 / AC3 — a plain stage / unstage
+  // -------------------------------------------------------------------------
+
+  describe('stage and unstage go straight through', () => {
+    it('sends the selected ordinal with the token it was selected against', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(apply).toHaveBeenCalledWith({
+        key: diffTabKey('worktree', 'src/index.ts'),
+        operation: 'stage',
+        hunkIndices: [1],
+        snapshotToken: 'tok-1',
+      });
+    });
+
+    it('does NOT confirm a stage — it is undone by one press of Unstage', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+
+      expect(query(fixture, 'hunk-revert-dialog')).toBeNull();
+      expect(apply).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears the selection after a successful apply, closing the re-submit window', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // The refresh that follows will invalidate the token anyway, but it is
+      // asynchronous; this closes the gap deterministically.
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        '3 hunks',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC5 — revert is never a single unconfirmed click
+  // -------------------------------------------------------------------------
+
+  describe('AC5 — discarding a hunk is confirmed', () => {
+    it('writes NOTHING on the first click, and opens an alert dialog instead', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+
+      expect(apply).not.toHaveBeenCalled();
+      const dialog = query(fixture, 'hunk-revert-dialog');
+      expect(dialog?.getAttribute('role')).toBe('alertdialog');
+      expect(dialog?.getAttribute('aria-modal')).toBe('true');
+      expect(dialog?.getAttribute('aria-labelledby')).toBeTruthy();
+      expect(dialog?.getAttribute('aria-describedby')).toBeTruthy();
+    });
+
+    it('says which hunk, in which file, and that it cannot be undone', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+
+      const text = query(fixture, 'hunk-revert-dialog')?.textContent ?? '';
+      expect(text).toContain('Hunk 1 of 3');
+      expect(text).toContain('src/index.ts');
+      expect(text).toContain('cannot be undone');
+    });
+
+    it('Cancel writes nothing and closes', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+      click(fixture, 'hunk-revert-cancel');
+
+      expect(apply).not.toHaveBeenCalled();
+      expect(query(fixture, 'hunk-revert-dialog')).toBeNull();
+    });
+
+    it('Escape maps to Cancel, the non-destructive choice', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+      query(fixture, 'hunk-revert-dialog')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      fixture.detectChanges();
+
+      expect(apply).not.toHaveBeenCalled();
+      expect(query(fixture, 'hunk-revert-dialog')).toBeNull();
+    });
+
+    it('Confirm applies exactly one revert', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+      click(fixture, 'hunk-revert-confirm');
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(apply).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'revert', hunkIndices: [0] }),
+      );
+      expect(query(fixture, 'hunk-revert-dialog')).toBeNull();
+    });
+
+    it('opens with focus on Cancel and keeps Tab inside the dialog', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+
+      const cancel = query(fixture, 'hunk-revert-cancel');
+      const confirm = query(fixture, 'hunk-revert-confirm');
+      expect(document.activeElement).toBe(cancel);
+
+      query(fixture, 'hunk-revert-dialog')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }),
+      );
+      expect(document.activeElement).toBe(confirm);
+
+      query(fixture, 'hunk-revert-dialog')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }),
+      );
+      expect(document.activeElement).toBe(cancel);
+    });
+
+    it('restores focus to the control that raised it', async () => {
+      const { fixture } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+      const revert = query(fixture, 'hunk-revert') as HTMLButtonElement;
+      revert.focus();
+      revert.click();
+      fixture.detectChanges();
+
+      click(fixture, 'hunk-revert-cancel');
+      expect(document.activeElement).toBe(revert);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC6 (client half) — a selection is bound to the snapshot it was made on
+  // -------------------------------------------------------------------------
+
+  describe('AC6 — a selection never outlives the diff it was made on', () => {
+    it('drops the selection when a revalidation renumbers the hunks', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture, setTab } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-next');
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        'Hunk 2 of 3',
+      );
+
+      // A `git:status-update` lands: same tab, new content, NEW token, and the
+      // hunk that was ordinal 1 is now something else entirely.
+      setTab(
+        hunkTab({
+          snapshotToken: 'tok-2',
+          hunks: [hunkRef(0, 2), hunkRef(1, 8)],
+        }),
+      );
+
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        '2 hunks',
+      );
+      click(fixture, 'hunk-stage');
+      expect(apply).not.toHaveBeenCalled();
+    });
+
+    it('drops the selection when the tab is switched', async () => {
+      const { fixture, setTab } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+      setTab(hunkTab({ path: 'src/other.ts', snapshotToken: 'tok-other' }));
+
+      expect(query(fixture, 'hunk-position')?.textContent?.trim()).toBe(
+        '3 hunks',
+      );
+    });
+
+    it('carries the ORIGINAL token through the confirmation dialog', async () => {
+      // The dialog is exactly the window in which a revalidation can land.
+      // Re-reading the token at confirm time would hand the backend a fresh
+      // token with a stale ordinal — which its own AC6 check cannot catch.
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture, setTab } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-revert');
+
+      setTab(
+        hunkTab({
+          snapshotToken: 'tok-2',
+          hunks: [hunkRef(0, 30), hunkRef(1, 40), hunkRef(2, 50)],
+        }),
+      );
+      click(fixture, 'hunk-revert-confirm');
+
+      expect(apply).toHaveBeenCalledWith(
+        expect.objectContaining({ snapshotToken: 'tok-1', hunkIndices: [0] }),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC7 — say what failed and why
+  // -------------------------------------------------------------------------
+
+  describe('AC7 — a failed apply is surfaced, not swallowed', () => {
+    it("shows the backend's own sanitized sentence in an alert region", async () => {
+      const apply = jest.fn().mockResolvedValue({
+        success: false,
+        code: 'STALE_SNAPSHOT',
+        message: 'The file changed since this diff was read.',
+      });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const alert = query(fixture, 'hunk-apply-error');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(alert?.textContent).toContain(
+        'The file changed since this diff was read.',
+      );
+    });
+
+    it('falls back to copy that still promises nothing was written', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: false });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(query(fixture, 'hunk-apply-error')?.textContent).toContain(
+        'Nothing was written',
+      );
+    });
+
+    it('reports a thrown apply without leaking its message', async () => {
+      const apply = jest
+        .fn()
+        .mockRejectedValue(new Error('D:\\secret\\path exploded'));
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const text = query(fixture, 'hunk-apply-error')?.textContent ?? '';
+      expect(text).toContain('Nothing was written');
+      expect(text).not.toContain('secret');
+    });
+
+    it('clears the error when the user selects another hunk', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: false });
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(query(fixture, 'hunk-apply-error')).not.toBeNull();
+
+      click(fixture, 'hunk-next');
+      expect(query(fixture, 'hunk-apply-error')).toBeNull();
+    });
   });
 });

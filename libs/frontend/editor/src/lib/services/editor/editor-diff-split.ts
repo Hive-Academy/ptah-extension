@@ -1,5 +1,7 @@
 import { rpcCall } from '@ptah-extension/core';
 import type {
+  GitApplyHunksParams,
+  GitApplyHunksResult,
   GitDiffFileParams,
   GitDiffFileResult,
 } from '@ptah-extension/shared';
@@ -10,6 +12,7 @@ import type {
   DiffComparison,
   DiffTabState,
   EditorTab,
+  HunkApplyRequest,
   OpenDiffRequest,
 } from './editor-tab.types';
 import {
@@ -27,6 +30,19 @@ import {
 } from './git-read-error-messages';
 
 export type { OpenDiffRequest };
+
+/**
+ * Copy for the one apply refusal this helper decides for itself (D2 AC6).
+ *
+ * Deliberately phrased as an instruction rather than an apology: the user's
+ * selection is gone and re-selecting is the only way forward.
+ */
+const SELECTION_SUPERSEDED_MESSAGE =
+  'This diff changed while the hunk was selected. Nothing was applied — re-select the hunk and try again.';
+
+/** Copy for an apply whose RPC never reached the backend at all. */
+const APPLY_TRANSPORT_MESSAGE =
+  'Could not reach git to apply this hunk. Nothing was applied.';
 
 /**
  * EditorDiffSplitHelper — diff view + side-by-side split pane.
@@ -262,6 +278,93 @@ export class EditorDiffSplitHelper {
     }
 
     this.applyFreshDiff(key, next);
+  }
+
+  // -------------------------------------------------------------------------
+  // Hunk stage / unstage / revert (D2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Apply the selected hunks of one diff tab to the index or the working tree.
+   *
+   * THE CLIENT-SIDE HALF OF AC6. The backend refuses a write whose snapshot
+   * token no longer describes the repository — but that check cannot see the
+   * failure mode that lives here. A revalidation landing between the user's
+   * click and this call re-points the tab record at a NEW diff with a NEW,
+   * perfectly fresh token and a renumbered `hunks` array. Forwarding the
+   * ordinal with that fresh token would sail through the server's check and
+   * apply a hunk the user never looked at. So the token the selection was made
+   * against travels with the request and is compared here, and a mismatch is
+   * refused WITHOUT an RPC — the write path is never entered at all.
+   *
+   * The result's `snapshotToken` is deliberately ignored. Writing it into the
+   * tab record would leave a token certifying bytes the record does not hold,
+   * which is exactly the pairing defect the backend fixed inside its own digest
+   * (batch-8a-report.md D-1). The token and the content it certifies only ever
+   * arrive together, from {@link refreshDiffTab}.
+   */
+  public async applyHunks(
+    request: HunkApplyRequest,
+  ): Promise<GitApplyHunksResult> {
+    const tab = this.state.openTabs().find((t) => t.filePath === request.key);
+    const diff = tab?.diff;
+    if (!diff) {
+      return {
+        success: false,
+        code: 'STALE_SNAPSHOT',
+        message: SELECTION_SUPERSEDED_MESSAGE,
+      };
+    }
+
+    if (
+      diff.snapshotToken === '' ||
+      diff.snapshotToken !== request.snapshotToken
+    ) {
+      // Re-read so the user is looking at the diff their next selection will
+      // act on, rather than at the one that just went out from under them.
+      void this.refreshDiffTab(request.key);
+      return {
+        success: false,
+        code: 'STALE_SNAPSHOT',
+        message: SELECTION_SUPERSEDED_MESSAGE,
+      };
+    }
+
+    const workspaceRoot = this.state.getActiveWorkspacePath();
+    const call = await rpcCall<GitApplyHunksResult>(
+      this.state.vscodeService,
+      'git:applyHunks',
+      {
+        path: diff.path,
+        comparison: diff.comparison,
+        operation: request.operation,
+        hunkIndices: request.hunkIndices,
+        snapshotToken: request.snapshotToken,
+        // Mirrors `requestDiff`: the pre-rename path is sent only when it
+        // differs, so the backend asks git for BOTH pathspecs exactly when a
+        // staged rename needs it (batch-8a-report.md §3, 8.1).
+        ...(diff.originalPath !== diff.path
+          ? { originalPath: diff.originalPath }
+          : {}),
+        ...(workspaceRoot ? { workspaceRoot } : {}),
+      } satisfies GitApplyHunksParams,
+    );
+
+    // AC8: refresh on the RPC RESPONSE in every host, success or failure. Only
+    // Electron has a `.git/index` watcher to push `git:status-update`; VS Code
+    // and the CLI have none, and a refused apply moves no watched file in any
+    // host. `refreshDiffTab` already bails on an in-flight key, so the watcher
+    // push that does arrive in Electron coalesces with this one.
+    void this.refreshDiffTab(request.key);
+
+    if (!call.success || !call.data) {
+      return {
+        success: false,
+        code: 'UNKNOWN',
+        message: APPLY_TRANSPORT_MESSAGE,
+      };
+    }
+    return call.data;
   }
 
   /** Clear every pending revalidation timer (teardown; mirrors C1 AC3). */
@@ -512,6 +615,11 @@ export class EditorDiffSplitHelper {
       originalRef: result.originalRef,
       modifiedRef: result.modifiedRef,
       snapshotToken: result.snapshotToken,
+      // Ordinals only, and only when this response describes a real read. An
+      // unvalidated or failed answer's hunks describe nothing, so they are
+      // dropped rather than offered as things to act on — the same reasoning
+      // that makes the view suppress new/deleted chrome on an error.
+      hunks: failure || !validated ? [] : result.hunks,
       isBinary,
       status: failure || !validated ? 'error' : 'fresh',
       errorMessage: failure
@@ -548,6 +656,7 @@ export class EditorDiffSplitHelper {
       originalRef: { kind: 'absent' },
       modifiedRef: { kind: 'absent' },
       snapshotToken: '',
+      hunks: [],
       isBinary: false,
       status: 'error',
       errorMessage: GIT_READ_TRANSPORT_MESSAGE,

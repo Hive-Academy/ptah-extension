@@ -75,6 +75,7 @@ type MockGitInfo = jest.Mocked<
     | 'getLastCommit'
     | 'push'
     | 'diffFile'
+    | 'applyHunks'
   >
 >;
 
@@ -112,8 +113,13 @@ function createMockGitInfo(): MockGitInfo {
       modified: { outcome: 'content', content: 'new' },
       originalRef: { kind: 'index' },
       modifiedRef: { kind: 'worktree' },
+      patch: null,
+      hunks: [],
       snapshotToken: 'token',
     }),
+    applyHunks: jest
+      .fn()
+      .mockResolvedValue({ success: true, snapshotToken: 'token-2' }),
   };
 }
 
@@ -192,8 +198,8 @@ function getHandler(
 // ===========================================================================
 
 describe('GitRpcHandlers.METHODS coverage invariant', () => {
-  it('contains exactly 17 entries (9 original + 6 from TASK_2026_111 + git:push + git:diffFile)', () => {
-    expect(GitRpcHandlers.METHODS).toHaveLength(17);
+  it('contains exactly 18 entries (9 original + 6 from TASK_2026_111 + git:push + git:diffFile + git:applyHunks)', () => {
+    expect(GitRpcHandlers.METHODS).toHaveLength(18);
   });
 
   it('contains git:push', () => {
@@ -202,6 +208,10 @@ describe('GitRpcHandlers.METHODS coverage invariant', () => {
 
   it('contains git:diffFile', () => {
     expect(GitRpcHandlers.METHODS).toContain('git:diffFile');
+  });
+
+  it('contains git:applyHunks', () => {
+    expect(GitRpcHandlers.METHODS).toContain('git:applyHunks');
   });
 
   it('contains all 6 new method names from TASK_2026_111', () => {
@@ -727,6 +737,145 @@ describe('git:diffFile handler', () => {
 
     expect(result.original.outcome).toBe('error');
     expect(result.original.message).not.toContain('..');
+    expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// git:applyHunks (TASK_2026_173 D2)
+//
+// The service owns every safety decision; these cover the RPC boundary only:
+// Zod-before-git, the registered-folder guard, and sanitized failures.
+// ===========================================================================
+
+describe('git:applyHunks handler', () => {
+  const validParams = {
+    workspaceRoot: '/workspace',
+    path: 'src/a.ts',
+    comparison: 'worktree' as const,
+    operation: 'stage' as const,
+    hunkIndices: [0, 2],
+    snapshotToken: 'token',
+  };
+
+  it('delegates to gitInfo.applyHunks with the file system provider', async () => {
+    const { handlers, rpc, gitInfo, fileSystem } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = await handler(validParams);
+
+    expect(gitInfo.applyHunks).toHaveBeenCalledWith(
+      '/workspace',
+      {
+        path: 'src/a.ts',
+        originalPath: undefined,
+        comparison: 'worktree',
+        operation: 'stage',
+        hunkIndices: [0, 2],
+        snapshotToken: 'token',
+      },
+      fileSystem,
+    );
+    expect(result).toEqual({ success: true, snapshotToken: 'token-2' });
+  });
+
+  it('forwards originalPath so a staged rename applies against its source', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    await handler({
+      ...validParams,
+      comparison: 'staged',
+      operation: 'unstage',
+      originalPath: 'src/old-name.ts',
+    });
+
+    expect(gitInfo.applyHunks).toHaveBeenCalledWith(
+      '/workspace',
+      expect.objectContaining({ originalPath: 'src/old-name.ts' }),
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    ['an unknown operation', { ...validParams, operation: 'obliterate' }],
+    [
+      'an unknown comparison',
+      { ...validParams, comparison: 'head-to-worktree' },
+    ],
+    ['an empty hunk selection', { ...validParams, hunkIndices: [] }],
+    ['a negative hunk ordinal', { ...validParams, hunkIndices: [-1] }],
+    ['a fractional hunk ordinal', { ...validParams, hunkIndices: [1.5] }],
+    ['an empty snapshot token', { ...validParams, snapshotToken: '' }],
+    ['a missing snapshot token', { ...validParams, snapshotToken: undefined }],
+    ['an empty path', { ...validParams, path: '' }],
+  ])('rejects %s without invoking git', async (_label, params) => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = (await handler(params)) as {
+      success: boolean;
+      code: string;
+    };
+
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('UNKNOWN');
+  });
+
+  it('refuses an unregistered workspace folder without invoking git', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = (await handler({
+      ...validParams,
+      workspaceRoot: '/somewhere/else',
+    })) as { success: boolean; code: string };
+
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
+    expect(result.code).toBe('NOT_A_REPO');
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('returns NOT_A_REPO when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    const result = (await handler(validParams)) as { code: string };
+
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
+    expect(result.code).toBe('NOT_A_REPO');
+  });
+
+  it('maps a thrown rejection to a sanitized failure, not a transport fault', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    gitInfo.applyHunks.mockRejectedValueOnce(
+      new Error(
+        `Path traversal detected: "../etc/passwd" contains '..' segments`,
+      ),
+    );
+
+    const result = (await handler(validParams)) as {
+      success: boolean;
+      code: string;
+      message: string;
+      snapshotToken?: string;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('UNKNOWN');
+    expect(result.message).not.toContain('..');
+    expect(result.message).not.toContain('passwd');
+    // A failure must never look like a fresh snapshot to the caller.
+    expect(result.snapshotToken).toBeUndefined();
     expect(logger.error).toHaveBeenCalled();
   });
 });

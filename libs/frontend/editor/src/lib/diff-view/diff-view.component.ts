@@ -7,29 +7,122 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   viewChild,
+  viewChildren,
   effect,
   OnDestroy,
   NgZone,
   inject,
+  untracked,
   afterNextRender,
   ChangeDetectorRef,
 } from '@angular/core';
+import type { LucideIconData } from 'lucide-angular';
 import {
   LucideAngularModule,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   RefreshCw,
   Columns2,
+  Minus,
+  Plus,
   Rows2,
+  Undo2,
+  X,
 } from 'lucide-angular';
 import type * as monaco from 'monaco-editor';
 import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
-import type { EditorTab } from '../services/editor/editor-tab.types';
+import type {
+  EditorTab,
+  GitApplyHunksOperation,
+  GitHunkRef,
+  HunkApplyFn,
+} from '../services/editor/editor-tab.types';
 import { diffComparisonLabel } from '../services/editor/editor-tab.types';
 
 type MonacoApi = typeof monaco;
 
 type LoadState = 'loading' | 'ready' | 'error';
+
+/**
+ * Identifiers for the buttons of the hunk toolbar, in visual order.
+ *
+ * The set is comparison-dependent (`stage`/`revert` for a working-tree diff,
+ * `unstage` for a staged one) and drives BOTH the rendered buttons and the
+ * roving tabindex, so the two can never disagree about what exists.
+ */
+type HunkToolbarAction = 'prev' | 'next' | GitApplyHunksOperation;
+
+/**
+ * A hunk selection, bound to the exact diff snapshot it was made against.
+ *
+ * The token is what makes this safe to act on later. A hunk ordinal is
+ * meaningless on its own: a revalidation landing between selection and click
+ * renumbers `hunks` and issues a NEW token, and forwarding the old ordinal with
+ * that new token would pass the backend's staleness check (which only asks
+ * whether the repository moved since the token it was handed was issued) and
+ * apply a hunk the user never saw. Every read of the selection re-checks the
+ * token, so a superseded selection resolves to "nothing selected" rather than
+ * to the wrong hunk.
+ */
+interface HunkSelection {
+  /** Diff tab key the selection belongs to. */
+  key: string;
+  /** `GitHunkRef.index` — the ordinal the backend's apply RPC selects by. */
+  index: number;
+  /** `snapshotToken` of the diff that was on screen when this was chosen. */
+  snapshotToken: string;
+}
+
+/**
+ * Monaco line range for one hunk's MODIFIED side, clamped into the model.
+ *
+ * Positions come from git's `@@ -a,b +c,d @@`, never from Monaco's own change
+ * regions: the two segment a file differently and git's segmentation is the one
+ * the apply is expressed in, so an affordance placed by Monaco's boundaries
+ * could sit on a hunk other than the one it stages.
+ *
+ * Two clamps, both reachable with real git output:
+ *
+ * - `c` is **0** for a hunk that removes from the very top of a file
+ *   (`@@ -1,3 +0,0 @@`). Monaco lines are 1-based and line 0 does not exist.
+ * - `d` is **0** for any pure-deletion hunk, which would make `c + d - 1` end
+ *   BEFORE it starts. Such a hunk occupies no modified-side lines, so it is
+ *   anchored to the single line it sits at.
+ */
+export function hunkLineRange(
+  hunk: GitHunkRef,
+  modelLineCount: number,
+): { startLine: number; endLine: number } {
+  const lastLine = Math.max(1, modelLineCount);
+  const startLine = Math.min(lastLine, Math.max(1, hunk.modifiedStart));
+  const rawEnd =
+    hunk.modifiedLines > 0 ? startLine + hunk.modifiedLines - 1 : startLine;
+  return {
+    startLine,
+    endLine: Math.min(lastLine, Math.max(startLine, rawEnd)),
+  };
+}
+
+/**
+ * The hunk covering a modified-side line, or `null` when the line is context.
+ *
+ * Backs the glyph-margin click. Clicking a line that belongs to no hunk must
+ * change nothing — silently selecting the nearest hunk instead would let a
+ * misplaced click stage something the user did not point at.
+ */
+export function hunkAtLine(
+  hunks: readonly GitHunkRef[],
+  line: number,
+  modelLineCount: number,
+): GitHunkRef | null {
+  for (const hunk of hunks) {
+    const { startLine, endLine } = hunkLineRange(hunk, modelLineCount);
+    if (line >= startLine && line <= endLine) return hunk;
+  }
+  return null;
+}
 
 /** Both text models backing one diff tab, cached and reused across switches. */
 interface DiffModelPair {
@@ -44,6 +137,16 @@ interface DiffModelPair {
  * all three hosts — D3 deliberately adds no new RPC method.
  */
 const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
+
+/**
+ * Fallback copy for an apply that failed without usable backend copy.
+ *
+ * States that nothing was written, because that is the property the user needs
+ * and the one the backend guarantees: every refusal path leaves the repository
+ * in its exact pre-operation state (D2 AC7).
+ */
+const APPLY_FAILED_MESSAGE =
+  'The hunk could not be applied. Nothing was written.';
 
 /**
  * DiffViewComponent - Direct Monaco diff editor for side-by-side file comparison.
@@ -136,6 +239,96 @@ const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
           }
 
           <!--
+            D2 AC14 — the KEYBOARD path to every hunk action.
+
+            A roving-tabindex toolbar (the WAI-ARIA "toolbar" pattern): one tab
+            stop for the whole group, arrow keys between its buttons. This is
+            the reason the glyph margin is an accelerator rather than the
+            mechanism — a keyboard user never has to reach a gutter, and
+            revealHunk scrolls the selected hunk into view so "activatable by
+            keyboard" does not mean "activatable while unable to see what is
+            selected".
+
+            Unavailable actions carry aria-disabled, NOT disabled: a disabled
+            button is removed from the focus order, which would put holes in a
+            roving tabindex and make arrow navigation skip silently.
+          -->
+          @if (hunkActionsAvailable()) {
+            <div
+              class="flex items-center gap-0.5 flex-shrink-0"
+              role="toolbar"
+              aria-orientation="horizontal"
+              [attr.aria-label]="hunkToolbarLabel()"
+              data-testid="hunk-toolbar"
+              (keydown)="onHunkToolbarKeydown($event)"
+            >
+              <button
+                #hunkToolbarButton
+                type="button"
+                class="btn btn-ghost btn-xs px-1"
+                data-hunk-action="prev"
+                data-testid="hunk-prev"
+                aria-label="Previous hunk"
+                [attr.tabindex]="hunkTabIndex('prev')"
+                (click)="stepHunk(-1)"
+              >
+                <lucide-angular
+                  [img]="ChevronLeftIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+              </button>
+
+              <span
+                class="px-1 opacity-70 whitespace-nowrap"
+                data-testid="hunk-position"
+                >{{ hunkPositionLabel() }}</span
+              >
+
+              <button
+                #hunkToolbarButton
+                type="button"
+                class="btn btn-ghost btn-xs px-1"
+                data-hunk-action="next"
+                data-testid="hunk-next"
+                aria-label="Next hunk"
+                [attr.tabindex]="hunkTabIndex('next')"
+                (click)="stepHunk(1)"
+              >
+                <lucide-angular
+                  [img]="ChevronRightIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+              </button>
+
+              @for (action of hunkOperations(); track action) {
+                <button
+                  #hunkToolbarButton
+                  type="button"
+                  class="btn btn-ghost btn-xs px-1.5 gap-1"
+                  [class.text-warning]="action === 'revert'"
+                  [attr.data-hunk-action]="action"
+                  [attr.data-testid]="'hunk-' + action"
+                  [attr.tabindex]="hunkTabIndex(action)"
+                  [attr.aria-disabled]="!canApply()"
+                  [attr.aria-label]="hunkActionLabel(action)"
+                  [attr.title]="hunkActionLabel(action)"
+                  [class.opacity-40]="!canApply()"
+                  (click)="onHunkAction(action)"
+                >
+                  <lucide-angular
+                    [img]="hunkActionIcon(action)"
+                    class="w-3 h-3"
+                    aria-hidden="true"
+                  />
+                  {{ hunkActionText(action) }}
+                </button>
+              }
+            </div>
+          }
+
+          <!--
             D3: layout toggle. aria-pressed describes the INLINE state, so the
             control reads as "inline diff view: off/on" rather than as an
             unlabelled two-state icon.
@@ -170,6 +363,37 @@ const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
             (click)="retryRequested.emit(tabKey())"
           >
             <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+          </button>
+        </div>
+      }
+
+      <!--
+        D2 AC7 — a refused or failed apply says WHAT failed and WHY, and stays
+        until dismissed or superseded. The copy is the backend's own sanitized
+        sentence: it never carries stderr or an absolute path (NFR-8), and the
+        frontend does not paraphrase it, because "what failed" is knowledge only
+        the backend has.
+      -->
+      @if (applyError(); as message) {
+        <div
+          class="flex items-start gap-2 px-2 py-1 text-xs bg-error/10 text-error border-b border-error/20 flex-shrink-0"
+          role="alert"
+          data-testid="hunk-apply-error"
+        >
+          <lucide-angular
+            [img]="AlertTriangleIcon"
+            class="w-3 h-3 mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          />
+          <span class="flex-1">{{ message }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs px-1 flex-shrink-0"
+            data-testid="hunk-apply-error-dismiss"
+            aria-label="Dismiss hunk error"
+            (click)="applyError.set(null)"
+          >
+            <lucide-angular [img]="XIcon" class="w-3 h-3" aria-hidden="true" />
           </button>
         </div>
       }
@@ -238,6 +462,72 @@ const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
           </div>
         }
       </div>
+
+      <!--
+        D2 AC5 — revert is NEVER a single unconfirmed click.
+
+        Stage and unstage are each other's inverse and cost nothing to undo.
+        Revert discards working-tree lines, which is the one thing in this
+        component that may exist nowhere else — not in a commit, not in the
+        index, not on a remote. There is no undo for it, so it gets a stop.
+
+        Modelled on the split-pane save-conflict dialog: role alertdialog,
+        aria-modal, labelled AND described, focus moved to the non-destructive
+        choice on open, focus restored on close, Escape maps to Cancel, and Tab
+        toggles between exactly two focusable elements rather than walking out
+        into the editor behind a visually blocking modal. No clickable backdrop:
+        this dialog exists because content is about to be destroyed, so an
+        accidental click-out must not resolve it.
+
+        The pending selection carries its OWN snapshot token. The dialog is
+        precisely the window in which a revalidation can land, and when one does
+        the coordinator refuses the request without an RPC rather than reverting
+        a renumbered hunk.
+      -->
+      @if (pendingRevert()) {
+        <div class="modal modal-open z-50">
+          <div
+            class="modal-box max-w-sm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="ptah-hunk-revert-title"
+            aria-describedby="ptah-hunk-revert-desc"
+            data-testid="hunk-revert-dialog"
+            (keydown)="onRevertDialogKeydown($event)"
+          >
+            <h3 id="ptah-hunk-revert-title" class="font-bold text-base">
+              Discard this hunk?
+            </h3>
+            <p
+              id="ptah-hunk-revert-desc"
+              class="py-3 text-sm text-base-content/70"
+            >
+              {{ revertDialogDescription() }}
+            </p>
+            <div class="modal-action">
+              <button
+                #revertCancel
+                type="button"
+                class="btn btn-sm"
+                data-testid="hunk-revert-cancel"
+                (click)="cancelRevert()"
+              >
+                Cancel
+              </button>
+              <button
+                #revertConfirm
+                type="button"
+                class="btn btn-sm btn-warning"
+                data-testid="hunk-revert-confirm"
+                (click)="confirmRevert()"
+              >
+                Discard hunk
+              </button>
+            </div>
+          </div>
+          <div class="modal-backdrop" aria-hidden="true"></div>
+        </div>
+      }
     </div>
   `,
   styles: `
@@ -245,6 +535,44 @@ const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
       display: block;
       height: 100%;
       width: 100%;
+    }
+
+    /*
+     * D2 AC1 / D3 AC6 — the per-hunk glyph marker.
+     *
+     * ng-deep is required, not stylistic: Monaco builds the glyph margin
+     * imperatively, so those elements never receive this component's scoping
+     * attribute and an encapsulated rule would not reach them. It is scoped
+     * under :host so the escape is bounded to this component's subtree.
+     *
+     * Purely a decoration on the MODIFIED side, which is why it needs no
+     * counterpart in the inline layout: Monaco renders one modified-side glyph
+     * margin in both layouts, so the markers appear in each without a second
+     * code path.
+     */
+    :host ::ng-deep .ptah-hunk-glyph {
+      cursor: pointer;
+      background-color: color-mix(
+        in srgb,
+        var(--fallback-p, currentColor) 55%,
+        transparent
+      );
+      width: 3px !important;
+      margin-left: 4px;
+    }
+
+    :host ::ng-deep .ptah-hunk-glyph-selected {
+      background-color: var(--fallback-p, currentColor);
+      width: 5px !important;
+      margin-left: 3px;
+    }
+
+    :host ::ng-deep .ptah-hunk-line-selected {
+      background-color: color-mix(
+        in srgb,
+        var(--fallback-p, currentColor) 12%,
+        transparent
+      );
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -285,6 +613,18 @@ export class DiffViewComponent implements OnDestroy {
    */
   readonly showHeader = input<boolean>(true);
 
+  /**
+   * How to stage / unstage / revert hunks (D2). Supplied as a FUNCTION rather
+   * than injected, so this component keeps no dependency on the editor
+   * coordinator and stays testable without it.
+   *
+   * `null` — the default — means the surface has no git behind it, and every
+   * hunk affordance is then ABSENT rather than present and inert. That is what
+   * keeps the Skills library's enhancement preview, which reuses this Monaco
+   * surface for two in-memory bodies, from offering to stage them.
+   */
+  readonly applyHunks = input<HunkApplyFn | null>(null);
+
   /** Emits the diff tab key when the user asks for a re-read. */
   readonly retryRequested = output<string>();
 
@@ -292,9 +632,19 @@ export class DiffViewComponent implements OnDestroy {
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly Columns2Icon = Columns2;
   protected readonly Rows2Icon = Rows2;
+  protected readonly ChevronLeftIcon = ChevronLeft;
+  protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly XIcon = X;
 
   private readonly editorContainer =
     viewChild.required<ElementRef<HTMLElement>>('editorContainer');
+
+  private readonly hunkToolbarButtons =
+    viewChildren<ElementRef<HTMLButtonElement>>('hunkToolbarButton');
+  private readonly revertCancel =
+    viewChild<ElementRef<HTMLButtonElement>>('revertCancel');
+  private readonly revertConfirm =
+    viewChild<ElementRef<HTMLButtonElement>>('revertConfirm');
 
   private monacoApi: MonacoApi | null = null;
   private editor: monaco.editor.IStandaloneDiffEditor | null = null;
@@ -307,6 +657,11 @@ export class DiffViewComponent implements OnDestroy {
   >();
   /** Key of the pair currently attached to the editor, or null when detached. */
   private currentKey: string | null = null;
+  /** Glyph-margin + line markers for the current tab's hunks (D2 AC1). */
+  private hunkDecorations: monaco.editor.IEditorDecorationsCollection | null =
+    null;
+  /** Glyph-margin mouse binding, disposed with the component. */
+  private glyphClickBinding: monaco.IDisposable | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private destroyed = false;
@@ -324,6 +679,31 @@ export class DiffViewComponent implements OnDestroy {
 
   /** D3: side-by-side (true) vs inline (false). Persisted per user. */
   protected readonly renderSideBySide = signal(true);
+
+  /** True once the Monaco diff editor exists; gates decoration rendering. */
+  private readonly editorReady = signal(false);
+
+  /** The user's current hunk selection, bound to the snapshot it was made on. */
+  private readonly selection = signal<HunkSelection | null>(null);
+
+  /** A revert awaiting confirmation (D2 AC5). Non-null exactly while open. */
+  protected readonly pendingRevert = signal<HunkSelection | null>(null);
+
+  /** True while an apply RPC is in flight; suppresses a second write. */
+  protected readonly applyInFlight = signal(false);
+
+  /** Sanitized backend copy for the last refused or failed apply (D2 AC7). */
+  protected readonly applyError = signal<string | null>(null);
+
+  /** Which toolbar button owns the group's single tab stop (WAI-ARIA toolbar). */
+  private readonly toolbarFocus = signal<HunkToolbarAction>('prev');
+
+  /**
+   * Element focused when the revert dialog opened — in practice the toolbar
+   * button that raised it. Restored on close so a keyboard user lands back on
+   * the control they pressed rather than at the top of the document.
+   */
+  private revertReturnFocus: HTMLElement | null = null;
 
   /** The diff descriptor, or null when the input carries a non-diff tab. */
   protected readonly diff = computed(() => this.diffTab()?.diff ?? null);
@@ -429,6 +809,129 @@ export class DiffViewComponent implements OnDestroy {
       .join(', ');
   });
 
+  // -------------------------------------------------------------------------
+  // D2 — hunk selection and affordances
+  // -------------------------------------------------------------------------
+
+  /** git's own `@@` positions for this diff. Ordinals only, never hunk bodies. */
+  protected readonly hunks = computed<readonly GitHunkRef[]>(
+    () => this.diff()?.hunks ?? [],
+  );
+
+  /**
+   * Whether hunk actions exist at all for the diff on screen.
+   *
+   * Five independent conditions, each of which alone makes acting impossible or
+   * unsafe. None is a restatement of another:
+   *
+   * - no apply function        — this surface has no git behind it at all
+   * - binary                   — there are no textual hunks to select (AC10)
+   * - status `error`           — a side could not be read, so the hunks and the
+   *                              content on screen describe nothing; this is the
+   *                              same reasoning that suppresses new/deleted
+   *                              chrome on an error rather than inventing it
+   * - empty snapshot token     — the backend answered without ever reaching a
+   *                              real repository read, so there is no snapshot
+   *                              for a write to be checked against
+   * - no hunks                 — nothing to act on
+   *
+   * When this is false the toolbar is ABSENT, not disabled: D2 AC10 asks for
+   * actions that are not there, not for actions that are there and fail.
+   */
+  protected readonly hunkActionsAvailable = computed(() => {
+    if (!this.applyHunks()) return false;
+    const d = this.diff();
+    if (!d) return false;
+    if (d.isBinary) return false;
+    if (d.status === 'error') return false;
+    if (d.snapshotToken === '') return false;
+    return d.hunks.length > 0;
+  });
+
+  /**
+   * The operations this comparison defines, in visual order.
+   *
+   * A presentation choice, not a guard — the authoritative matrix is enforced
+   * on the backend, independently of the schema and before git is touched
+   * (D2 AC12). Rendering the other cells would only produce a round trip that
+   * comes back `INVALID_OPERATION`.
+   */
+  protected readonly hunkOperations = computed<GitApplyHunksOperation[]>(() =>
+    this.diff()?.comparison === 'staged' ? ['unstage'] : ['stage', 'revert'],
+  );
+
+  /**
+   * The selected hunk, or `null` when the selection no longer describes the
+   * diff on screen.
+   *
+   * The token comparison is the client-side half of AC6 and the reason the
+   * selection is stored rather than derived. It resolves to `null` — never to a
+   * different hunk — when the tab was switched, or when a revalidation landed
+   * and renumbered `hunks` while the ordinal sat in a signal.
+   */
+  protected readonly selectedHunk = computed<GitHunkRef | null>(() => {
+    const sel = this.selection();
+    const d = this.diff();
+    if (!sel || !d) return null;
+    if (sel.key !== this.tabKey()) return null;
+    if (sel.snapshotToken === '' || sel.snapshotToken !== d.snapshotToken) {
+      return null;
+    }
+    return d.hunks.find((h) => h.index === sel.index) ?? null;
+  });
+
+  /** 1-based position of the selected hunk in `hunks`, or 0 when none. */
+  protected readonly hunkPosition = computed(() => {
+    const selected = this.selectedHunk();
+    if (!selected) return 0;
+    return this.hunks().findIndex((h) => h.index === selected.index) + 1;
+  });
+
+  protected readonly hunkPositionLabel = computed(() => {
+    const total = this.hunks().length;
+    const position = this.hunkPosition();
+    return position === 0
+      ? `${total} ${total === 1 ? 'hunk' : 'hunks'}`
+      : `Hunk ${position} of ${total}`;
+  });
+
+  protected readonly hunkToolbarLabel = computed(
+    () => `Hunk actions — ${this.hunkPositionLabel()}`,
+  );
+
+  /**
+   * Whether an action button would do anything if pressed.
+   *
+   * Nothing is selected until the user selects it: the toolbar deliberately
+   * does NOT preselect hunk 1. Landing on the toolbar and pressing Enter would
+   * otherwise write to the index or the working tree without the user having
+   * chosen, or seen, which hunk.
+   */
+  protected readonly canApply = computed(
+    () =>
+      this.selectedHunk() !== null &&
+      !this.applyInFlight() &&
+      this.diff()?.status !== 'refreshing',
+  );
+
+  /** Every toolbar button, in DOM order — the roving tabindex's ring. */
+  private readonly toolbarActions = computed<HunkToolbarAction[]>(() => [
+    'prev',
+    'next',
+    ...this.hunkOperations(),
+  ]);
+
+  protected readonly revertDialogDescription = computed(() => {
+    const pending = this.pendingRevert();
+    const total = this.hunks().length;
+    const position =
+      pending === null
+        ? 0
+        : this.hunks().findIndex((h) => h.index === pending.index) + 1;
+    const which = position === 0 ? 'This hunk' : `Hunk ${position} of ${total}`;
+    return `${which} will be removed from ${this.diff()?.path ?? 'this file'} in the working tree. These lines are not staged and not committed, so this cannot be undone.`;
+  });
+
   constructor() {
     void this.loadLayoutPreference();
 
@@ -443,6 +946,7 @@ export class DiffViewComponent implements OnDestroy {
           this.syncDiff(this.diffTab());
           this.evictClosedPairs(this.openDiffKeys());
           this.loadState.set('ready');
+          this.editorReady.set(true);
           this.cdr.markForCheck();
         })
         .catch((err: unknown) => {
@@ -472,10 +976,41 @@ export class DiffViewComponent implements OnDestroy {
       const sideBySide = this.renderSideBySide();
       this.applyRenderSideBySide(sideBySide);
     });
+
+    // Declared AFTER the diff effect so the models for the tab being rendered
+    // are already attached — decorations belong to the attached model, and a
+    // rebuild against the outgoing one would be discarded on the swap.
+    effect(() => {
+      this.editorReady();
+      this.hunks();
+      this.selectedHunk();
+      this.renderHunkDecorations();
+    });
+
+    // A stale apply error outliving the diff it described would read as a
+    // complaint about the diff now on screen.
+    effect(() => {
+      this.tabKey();
+      untracked(() => {
+        this.applyError.set(null);
+        this.pendingRevert.set(null);
+      });
+    });
+
+    // Move focus to the non-destructive choice when the revert dialog opens;
+    // without this it opens with focus still on the toolbar behind it.
+    effect(() => {
+      if (!this.pendingRevert()) return;
+      this.revertCancel()?.nativeElement.focus();
+    });
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.glyphClickBinding?.dispose();
+    this.glyphClickBinding = null;
+    this.hunkDecorations?.clear();
+    this.hunkDecorations = null;
     this.resizeObserver?.disconnect();
     this.themeObserver?.disconnect();
     this.currentKey = null;
@@ -509,6 +1044,10 @@ export class DiffViewComponent implements OnDestroy {
         renderIndicators: true,
         renderMarginRevertIcon: false,
         ignoreTrimWhitespace: false,
+        // MUST be set explicitly: monaco-editor defaults `glyphMargin` to
+        // FALSE (it is vscode that defaults it to true), and with it off the
+        // per-hunk markers have nowhere to render — silently, with no error.
+        glyphMargin: true,
         minimap: { enabled: false },
         scrollbar: {
           verticalScrollbarSize: 8,
@@ -516,6 +1055,7 @@ export class DiffViewComponent implements OnDestroy {
         },
       });
       this.editor = editor;
+      this.bindGlyphMargin(monacoApi, editor);
 
       this.resizeObserver = new ResizeObserver(() => {
         this.editor?.layout();
@@ -759,6 +1299,340 @@ export class DiffViewComponent implements OnDestroy {
     } catch {
       void 0;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // D2 — hunk stage / unstage / revert
+  // -------------------------------------------------------------------------
+
+  /**
+   * Make the glyph margin a selection accelerator.
+   *
+   * A click that lands on a line belonging to no hunk changes NOTHING. Snapping
+   * to the nearest hunk would let a slightly-missed click arm an operation on
+   * something the user did not point at, and the next press would write it.
+   */
+  private bindGlyphMargin(
+    api: MonacoApi,
+    editor: monaco.editor.IStandaloneDiffEditor,
+  ): void {
+    const modified = editor.getModifiedEditor();
+    this.glyphClickBinding = modified.onMouseDown((event) => {
+      if (
+        event.target.type !== api.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
+      ) {
+        return;
+      }
+      const line = event.target.position?.lineNumber;
+      if (line === undefined) return;
+      const model = modified.getModel();
+      if (!model) return;
+      const hunk = hunkAtLine(this.hunks(), line, model.getLineCount());
+      if (!hunk || !this.hunkActionsAvailable()) return;
+      this.ngZone.run(() => this.selectHunk(hunk.index));
+    });
+  }
+
+  /**
+   * Paint one marker per hunk on the modified side.
+   *
+   * Decorations only — NO view zones and NO model edits. A view zone would
+   * shift the line numbers the user reads against git's `@@` positions, and an
+   * edit would put text in a buffer that is not the file, on a surface whose
+   * `readOnly: true` exists precisely so that cannot happen.
+   */
+  private renderHunkDecorations(): void {
+    const api = this.monacoApi;
+    const editor = this.editor;
+    if (!api || !editor) return;
+
+    const modified = editor.getModifiedEditor();
+    const model = modified.getModel();
+    const hunks = this.hunkActionsAvailable() ? this.hunks() : [];
+    if (!model || hunks.length === 0) {
+      this.hunkDecorations?.clear();
+      return;
+    }
+
+    const selectedIndex = this.selectedHunk()?.index ?? null;
+    const lineCount = model.getLineCount();
+    const decorations: monaco.editor.IModelDeltaDecoration[] = hunks.map(
+      (hunk, position) => {
+        const { startLine, endLine } = hunkLineRange(hunk, lineCount);
+        const isSelected = hunk.index === selectedIndex;
+        return {
+          range: new api.Range(startLine, 1, endLine, 1),
+          options: {
+            isWholeLine: true,
+            glyphMarginClassName: isSelected
+              ? 'ptah-hunk-glyph ptah-hunk-glyph-selected'
+              : 'ptah-hunk-glyph',
+            glyphMarginHoverMessage: {
+              value: `Hunk ${position + 1} of ${hunks.length} — click to select`,
+            },
+            linesDecorationsClassName: isSelected
+              ? 'ptah-hunk-line-selected'
+              : null,
+          },
+        };
+      },
+    );
+
+    this.ngZone.runOutsideAngular(() => {
+      if (this.hunkDecorations) {
+        this.hunkDecorations.set(decorations);
+      } else {
+        this.hunkDecorations =
+          modified.createDecorationsCollection(decorations);
+      }
+    });
+  }
+
+  /** Scroll a newly selected hunk into view (AC14 — see it before acting). */
+  private revealHunk(index: number): void {
+    const editor = this.editor;
+    if (!editor) return;
+    const hunk = this.hunks().find((h) => h.index === index);
+    if (!hunk) return;
+    const modified = editor.getModifiedEditor();
+    const model = modified.getModel();
+    if (!model) return;
+    const { startLine } = hunkLineRange(hunk, model.getLineCount());
+    this.ngZone.runOutsideAngular(() => {
+      modified.revealLineInCenterIfOutsideViewport(startLine);
+    });
+  }
+
+  /**
+   * Select a hunk, stamping the snapshot it was selected against onto it.
+   *
+   * Refuses to record a selection when the diff carries no token: such a
+   * response never reached a real repository read, so there is nothing for a
+   * later write to be checked against.
+   */
+  private selectHunk(index: number): void {
+    const d = this.diff();
+    if (!d || d.snapshotToken === '') return;
+    this.selection.set({
+      key: this.tabKey(),
+      index,
+      snapshotToken: d.snapshotToken,
+    });
+    this.applyError.set(null);
+    this.revealHunk(index);
+    this.cdr.markForCheck();
+  }
+
+  /**
+   * Move the selection by `delta` hunks, wrapping at both ends.
+   *
+   * With nothing selected the first press lands on the first (or last) hunk
+   * rather than stepping from an imaginary position zero.
+   */
+  protected stepHunk(delta: number): void {
+    const hunks = this.hunks();
+    if (hunks.length === 0) return;
+    const current = this.hunkPosition();
+    const nextPosition =
+      current === 0
+        ? delta > 0
+          ? 1
+          : hunks.length
+        : ((current - 1 + delta + hunks.length) % hunks.length) + 1;
+    this.selectHunk(hunks[nextPosition - 1].index);
+  }
+
+  /**
+   * Run a toolbar action.
+   *
+   * `revert` diverts to the confirmation dialog and writes nothing (AC5).
+   * `stage` and `unstage` go straight through: each is the other's inverse, so
+   * a mistaken press costs one more press to undo.
+   */
+  protected onHunkAction(action: GitApplyHunksOperation): void {
+    if (!this.canApply()) return;
+    const selection = this.selection();
+    if (!selection || !this.selectedHunk()) return;
+
+    if (action === 'revert') {
+      this.revertReturnFocus =
+        typeof document !== 'undefined' &&
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      this.pendingRevert.set(selection);
+      return;
+    }
+    void this.runApply(action, selection);
+  }
+
+  /** Discard the hunk the dialog was opened for — never the one selected now. */
+  protected confirmRevert(): void {
+    const pending = this.pendingRevert();
+    this.closeRevertDialog();
+    if (!pending) return;
+    void this.runApply('revert', pending);
+  }
+
+  protected cancelRevert(): void {
+    this.closeRevertDialog();
+  }
+
+  private closeRevertDialog(): void {
+    this.pendingRevert.set(null);
+    const target = this.revertReturnFocus;
+    this.revertReturnFocus = null;
+    if (target?.isConnected) target.focus();
+  }
+
+  /**
+   * Keep the revert dialog's keyboard contract: Escape cancels, Tab stays in.
+   *
+   * There are exactly two focusable elements, so Tab and Shift+Tab are the same
+   * two-way toggle. Escape is stopped here rather than handled on `document`
+   * because focus is inside the dialog whenever it is open, and a key that
+   * dismisses a dialog must not also reach anything behind it.
+   */
+  protected onRevertDialogKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelRevert();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const cancel = this.revertCancel()?.nativeElement;
+    const confirm = this.revertConfirm()?.nativeElement;
+    if (!cancel || !confirm) return;
+    event.preventDefault();
+    (document.activeElement === cancel ? confirm : cancel).focus();
+  }
+
+  /**
+   * Perform one apply and surface its outcome.
+   *
+   * The selection — token included — is passed through UNCHANGED from wherever
+   * it was captured. For a revert that is the moment the dialog opened, not the
+   * moment it was confirmed, so a revalidation arriving while the dialog was up
+   * is refused by the coordinator instead of silently re-aiming at a renumbered
+   * hunk.
+   *
+   * A thrown error is reported with our own generic sentence rather than its
+   * message: an exception here is a frontend defect, and its text is not copy
+   * that has been through the backend's sanitizer (NFR-8).
+   */
+  private async runApply(
+    operation: GitApplyHunksOperation,
+    selection: HunkSelection,
+  ): Promise<void> {
+    const apply = this.applyHunks();
+    if (!apply) return;
+
+    this.applyInFlight.set(true);
+    this.applyError.set(null);
+    this.cdr.markForCheck();
+    try {
+      const result = await apply({
+        key: selection.key,
+        operation,
+        hunkIndices: [selection.index],
+        snapshotToken: selection.snapshotToken,
+      });
+      if (result.success) {
+        // The snapshot this selection named has just been consumed. The
+        // post-apply refresh will invalidate it anyway by issuing a new token,
+        // but that refresh is asynchronous: clearing here closes the window in
+        // which a second press could re-submit the same ordinal. The backend's
+        // AC6 check is the backstop, not the mechanism.
+        this.selection.set(null);
+      } else {
+        this.applyError.set(result.message ?? APPLY_FAILED_MESSAGE);
+      }
+    } catch {
+      this.applyError.set(APPLY_FAILED_MESSAGE);
+    } finally {
+      this.applyInFlight.set(false);
+      this.cdr.markForCheck();
+    }
+  }
+
+  // --- toolbar roving tabindex (AC14) --------------------------------------
+
+  protected hunkTabIndex(action: HunkToolbarAction): number {
+    return action === this.activeToolbarAction() ? 0 : -1;
+  }
+
+  /**
+   * Move focus within the toolbar with the arrow keys, wrapping at both ends.
+   *
+   * Tab is deliberately untouched: it leaves the toolbar, which is the whole
+   * point of a roving tabindex — the group is one stop in the page's tab order.
+   */
+  protected onHunkToolbarKeydown(event: KeyboardEvent): void {
+    const delta =
+      event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (delta === 0) return;
+    const actions = this.toolbarActions();
+    if (actions.length === 0) return;
+    event.preventDefault();
+    const from = actions.indexOf(this.focusedToolbarAction() ?? actions[0]);
+    const next =
+      actions[(Math.max(0, from) + delta + actions.length) % actions.length];
+    this.toolbarFocus.set(next);
+    this.focusToolbarButton(next);
+  }
+
+  /** Which button currently owns the group's single tab stop. */
+  private activeToolbarAction(): HunkToolbarAction {
+    const actions = this.toolbarActions();
+    const remembered = this.toolbarFocus();
+    return actions.includes(remembered) ? remembered : actions[0];
+  }
+
+  /**
+   * The toolbar button that actually has DOM focus, if any.
+   *
+   * Read from the DOM rather than from `toolbarFocus` so that arrowing away
+   * from a button the user reached by clicking it starts from where they are.
+   */
+  private focusedToolbarAction(): HunkToolbarAction | null {
+    if (typeof document === 'undefined') return null;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return null;
+    const id = active.dataset['hunkAction'];
+    return this.toolbarActions().find((a) => a === id) ?? null;
+  }
+
+  private focusToolbarButton(action: HunkToolbarAction): void {
+    this.hunkToolbarButtons()
+      .find((ref) => ref.nativeElement.dataset['hunkAction'] === action)
+      ?.nativeElement.focus();
+  }
+
+  protected hunkActionIcon(action: GitApplyHunksOperation): LucideIconData {
+    if (action === 'revert') return Undo2;
+    return action === 'unstage' ? Minus : Plus;
+  }
+
+  protected hunkActionText(action: GitApplyHunksOperation): string {
+    if (action === 'stage') return 'Stage';
+    return action === 'unstage' ? 'Unstage' : 'Discard';
+  }
+
+  /**
+   * Accessible name for an action button.
+   *
+   * Names the hunk it would act on, because "Stage" alone tells a screen-reader
+   * user nothing about which of seven hunks is armed — and says so explicitly
+   * when nothing is selected yet, since the button is `aria-disabled` rather
+   * than removed from the focus order.
+   */
+  protected hunkActionLabel(action: GitApplyHunksOperation): string {
+    const position = this.hunkPosition();
+    const verb = this.hunkActionText(action);
+    return position === 0
+      ? `${verb} hunk — no hunk selected yet`
+      : `${verb} hunk ${position} of ${this.hunks().length}`;
   }
 
   /**

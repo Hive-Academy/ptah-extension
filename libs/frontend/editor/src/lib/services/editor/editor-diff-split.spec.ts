@@ -40,8 +40,10 @@ import type { EditorTab, OpenDiffRequest } from './editor-tab.types';
 import { diffTabKey } from './editor-tab.types';
 import type {
   DiffSideRef,
+  GitApplyHunksResult,
   GitBlobRead,
   GitDiffFileResult,
+  GitHunkRef,
   GitReadErrorCode,
 } from '@ptah-extension/shared';
 import { GIT_READ_TRANSPORT_MESSAGE } from './git-read-error-messages';
@@ -85,7 +87,30 @@ function makeResult(
     originalRef: INDEX_REF,
     modifiedRef: WORKTREE_REF,
     snapshotToken: 'tok-1',
+    // Batch 8A §7.6: this helper claimed to return a GitDiffFileResult while
+    // omitting `patch` and `hunks`, and nothing caught it — `tsconfig.lib.json`
+    // excludes `**/*.spec.ts` from typecheck and `tsconfig.spec.json` sets
+    // `isolatedModules: true`, so ts-jest transpiles specs without checking
+    // them. Every hunk assertion below would have received `undefined`.
+    patch: null,
+    hunks: [],
     ...overrides,
+  };
+}
+
+/** A `@@` header ref, positions only — exactly what the backend now returns. */
+function hunk(
+  index: number,
+  modifiedStart: number,
+  modifiedLines = 1,
+): GitHunkRef {
+  return {
+    index,
+    originalStart: modifiedStart,
+    originalLines: modifiedLines,
+    modifiedStart,
+    modifiedLines,
+    header: `@@ -${modifiedStart},${modifiedLines} +${modifiedStart},${modifiedLines} @@`,
   };
 }
 
@@ -918,5 +943,320 @@ describe('EditorDiffSplitHelper.hasUnabsorbedPeerEdit (C2 AC2/AC3)', () => {
     helper.setFocusedPane('left');
 
     expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'v1')).toBe(false);
+  });
+});
+
+// ============================================================================
+// D2 — hunk stage / unstage / revert (Batch 8, task 8.6)
+//
+// The property under test throughout is the CLIENT-SIDE half of AC6. The
+// backend refuses a write whose token no longer describes the repository, but
+// it cannot see this failure mode: a revalidation landing between the user's
+// click and the RPC re-points the tab record at a NEW diff with a NEW,
+// perfectly fresh token and a renumbered `hunks` array. Forwarding the old
+// ordinal with that fresh token would sail through the server's check and
+// apply a hunk the user never looked at.
+//
+// Every refusal below asserts that NO apply RPC was made. "The write path was
+// not entered" is the claim; a test that only checked the returned code would
+// pass just as happily while git ran.
+// ============================================================================
+
+/** The one call site that matters — every git:applyHunks invocation. */
+function applyCalls(): unknown[][] {
+  return mockRpcCall.mock.calls.filter((c) => c[1] === 'git:applyHunks');
+}
+
+function diffCalls(): unknown[][] {
+  return mockRpcCall.mock.calls.filter((c) => c[1] === 'git:diffFile');
+}
+
+function applyOk(snapshotToken = 'tok-after'): {
+  success: true;
+  data: GitApplyHunksResult;
+} {
+  return { success: true, data: { success: true, snapshotToken } };
+}
+
+function applyRefused(
+  code: GitApplyHunksResult['code'] = 'APPLY_FAILED',
+  message = 'git refused the patch. Nothing was written.',
+): { success: true; data: GitApplyHunksResult } {
+  return { success: true, data: { success: false, code, message } };
+}
+
+/**
+ * Open a worktree diff carrying three hunks and return its tab key.
+ *
+ * The call log is cleared afterwards, so a later "no apply happened" assertion
+ * is about the test and not about the fixture.
+ */
+async function openHunkedDiff(
+  helper: EditorDiffSplitHelper,
+  overrides: Partial<GitDiffFileResult> = {},
+): Promise<string> {
+  mockRpcCall.mockResolvedValue(
+    ok(
+      makeResult({
+        path: 'a.ts',
+        patch: 'diff --git a/a.ts b/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b\n',
+        hunks: [hunk(0, 5), hunk(1, 25), hunk(2, 45)],
+        ...overrides,
+      }),
+    ),
+  );
+  await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+  mockRpcCall.mockClear();
+  return diffTabKey('worktree', 'a.ts');
+}
+
+describe('EditorDiffSplitHelper — hunk ordinals reach the tab record', () => {
+  it('carries git hunk positions onto the diff tab, untouched', async () => {
+    const { helper, ctx } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    const diff = ctx.openTabs().find((t) => t.filePath === key)?.diff;
+    expect(diff?.hunks.map((h) => h.index)).toEqual([0, 1, 2]);
+    expect(diff?.hunks.map((h) => h.modifiedStart)).toEqual([5, 25, 45]);
+  });
+
+  it('does NOT mirror the patch text onto the tab record', async () => {
+    const { helper, ctx } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    // Holding patch bytes across a state change is the staleness hazard the
+    // always-regenerate backend design removes (batch-8a-report.md §7.2).
+    const diff = ctx.openTabs().find((t) => t.filePath === key)?.diff;
+    expect(diff).not.toHaveProperty('patch');
+    expect(JSON.stringify(diff)).not.toContain('diff --git');
+  });
+
+  it('drops hunks from a response that never reached a real read', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ snapshotToken: '', hunks: [hunk(0, 5)] })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    const diff = ctx
+      .openTabs()
+      .find((t) => t.filePath === diffTabKey('worktree', 'a.ts'))?.diff;
+    expect(diff?.status).toBe('error');
+    expect(diff?.hunks).toEqual([]);
+  });
+
+  it('drops hunks when a side could not be read', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ original: errorBlob('timeout'), hunks: [hunk(0, 5)] })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    const diff = ctx
+      .openTabs()
+      .find((t) => t.filePath === diffTabKey('worktree', 'a.ts'))?.diff;
+    expect(diff?.status).toBe('error');
+    expect(diff?.hunks).toEqual([]);
+  });
+});
+
+describe('EditorDiffSplitHelper.applyHunks — AC6, the client-side half', () => {
+  it('refuses a selection made against a SUPERSEDED snapshot, without calling git', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [1],
+      // What the user selected against, before a revalidation moved the tab on.
+      snapshotToken: 'tok-the-user-saw',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(result.snapshotToken).toBeUndefined();
+    // THE assertion: the write path was never entered.
+    expect(applyCalls()).toHaveLength(0);
+  });
+
+  it('re-reads the diff after refusing, so the next selection is made on the truth', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [1],
+      snapshotToken: 'stale',
+    });
+
+    expect(diffCalls()).toHaveLength(1);
+  });
+
+  it('refuses when the tab carries no token at all, without calling git', async () => {
+    const { helper } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ snapshotToken: '', hunks: [hunk(0, 5)] })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+    mockRpcCall.mockClear();
+
+    const result = await helper.applyHunks({
+      key: diffTabKey('worktree', 'a.ts'),
+      operation: 'stage',
+      hunkIndices: [0],
+      // A caller echoing the empty token back must not be read as a match.
+      snapshotToken: '',
+    });
+
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(applyCalls()).toHaveLength(0);
+  });
+
+  it('refuses for a tab that is not open, without calling git', async () => {
+    const { helper } = makeHelper();
+    await openHunkedDiff(helper);
+
+    const result = await helper.applyHunks({
+      key: diffTabKey('worktree', 'gone.ts'),
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(applyCalls()).toHaveLength(0);
+  });
+});
+
+describe('EditorDiffSplitHelper.applyHunks — the wire', () => {
+  it('sends the ordinal, the operation and the token the user acted on', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(applyOk());
+
+    await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [1],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(applyCalls()).toHaveLength(1);
+    expect(applyCalls()[0][2]).toEqual({
+      path: 'a.ts',
+      comparison: 'worktree',
+      operation: 'stage',
+      hunkIndices: [1],
+      snapshotToken: 'tok-1',
+      workspaceRoot: '/ws',
+    });
+  });
+
+  it('sends originalPath only for a staged rename', async () => {
+    const { helper } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(
+        makeResult({
+          path: 'new.ts',
+          originalPath: 'old.ts',
+          comparison: 'staged',
+          hunks: [hunk(0, 3)],
+        }),
+      ),
+    );
+    await helper.openDiff({
+      path: 'new.ts',
+      comparison: 'staged',
+      origPath: 'old.ts',
+    });
+    mockRpcCall.mockClear();
+    mockRpcCall.mockResolvedValue(applyOk());
+
+    await helper.applyHunks({
+      key: diffTabKey('staged', 'new.ts'),
+      operation: 'unstage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(applyCalls()[0][2]).toMatchObject({
+      path: 'new.ts',
+      originalPath: 'old.ts',
+      operation: 'unstage',
+      comparison: 'staged',
+    });
+  });
+
+  it('(AC8) re-reads the diff after a SUCCESSFUL apply, in every host', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(applyOk());
+
+    await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    // Only Electron watches `.git/index`; VS Code and the CLI have no watcher,
+    // so the refresh must hang off the RPC response rather than off a push.
+    expect(diffCalls()).toHaveLength(1);
+  });
+
+  it('(AC8) re-reads the diff after a FAILED apply too', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(applyRefused());
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result.success).toBe(false);
+    expect(diffCalls()).toHaveLength(1);
+  });
+
+  it('passes the backend refusal through verbatim — the frontend never paraphrases it', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(
+      applyRefused(
+        'STALE_SNAPSHOT',
+        'The file changed since this diff was read.',
+      ),
+    );
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(result.message).toBe('The file changed since this diff was read.');
+  });
+
+  it('maps a transport failure to UNKNOWN, with no snapshot token to retry with', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(fail());
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'revert',
+      hunkIndices: [2],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result).toMatchObject({ success: false, code: 'UNKNOWN' });
+    expect(result.snapshotToken).toBeUndefined();
+    expect(result.message).toContain('Nothing was applied');
   });
 });

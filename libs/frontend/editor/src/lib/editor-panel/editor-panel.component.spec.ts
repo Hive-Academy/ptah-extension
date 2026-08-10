@@ -65,6 +65,8 @@ class StubCodeEditorComponent {
 class StubDiffViewComponent {
   readonly diffTab = input<unknown>(null);
   readonly openDiffKeys = input<readonly string[]>([]);
+  /** D2 — the hunk apply seam the panel binds; exercised in its own spec. */
+  readonly applyHunks = input<unknown>(null);
   readonly retryRequested = output<string>();
 }
 

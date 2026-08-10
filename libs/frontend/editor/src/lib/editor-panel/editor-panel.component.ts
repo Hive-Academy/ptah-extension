@@ -28,6 +28,8 @@ import { DiffViewComponent } from '../diff-view/diff-view.component';
 import { EditorService } from '../services/editor.service';
 import type {
   EditorTab,
+  GitApplyHunksResult,
+  HunkApplyRequest,
   OpenDiffRequest,
 } from '../services/editor/editor-tab.types';
 import { GitStatusService } from '../services/git-status.service';
@@ -305,6 +307,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   [class.invisible]="!editorService.activeDiffTab()"
                   [diffTab]="editorService.activeDiffTab()"
                   [openDiffKeys]="openDiffKeys()"
+                  [applyHunks]="applyHunks"
                   (retryRequested)="onDiffRetry($event)"
                 />
                 <ptah-code-editor
@@ -963,6 +966,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /** Re-read a diff tab from git after a failed or stale read (A1 AC7). */
+  /**
+   * The diff view's hunk stage / unstage / revert seam (D2).
+   *
+   * A bound field rather than a method reference in the template: the input is
+   * a function VALUE, and `[applyHunks]="applyHunks.bind(this)"` would hand the
+   * view a new identity on every change-detection pass, retriggering its
+   * effects for no reason. Arrow-bound once, stable forever.
+   */
+  protected readonly applyHunks = (
+    request: HunkApplyRequest,
+  ): Promise<GitApplyHunksResult> => this.editorService.applyHunks(request);
+
   protected onDiffRetry(diffKey: string): void {
     if (!diffKey) return;
     void this.editorService.refreshDiffTab(diffKey);

@@ -13,7 +13,11 @@ import type {
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
-import type { EditorTab } from './editor/editor-tab.types';
+import type {
+  EditorTab,
+  GitApplyHunksResult,
+  HunkApplyRequest,
+} from './editor/editor-tab.types';
 import {
   EditorInternalState,
   EditorWorkspaceState,
@@ -259,6 +263,18 @@ export class EditorService implements MessageHandler {
   /** Force a revalidation of one diff tab — backs the diff view's Retry action. */
   async refreshDiffTab(diffKey: string): Promise<void> {
     return this.diffSplitHelper.refreshDiffTab(diffKey);
+  }
+
+  /**
+   * Stage / unstage / revert the selected hunks of a diff tab (D2).
+   *
+   * Bound into the diff view as a plain function input, so that component keeps
+   * no dependency on this coordinator. Refuses without an RPC when the tab
+   * record has moved on since the selection was made — see
+   * `EditorDiffSplitHelper.applyHunks`.
+   */
+  async applyHunks(request: HunkApplyRequest): Promise<GitApplyHunksResult> {
+    return this.diffSplitHelper.applyHunks(request);
   }
 
   /** Save the active file content. */

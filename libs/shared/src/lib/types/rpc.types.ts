@@ -262,6 +262,8 @@ import type {
   GitShowFileResult,
   GitDiffFileParams,
   GitDiffFileResult,
+  GitApplyHunksParams,
+  GitApplyHunksResult,
   GitPushParams,
   GitPushResult,
   GitBranchesParams,
@@ -1302,6 +1304,10 @@ export interface RpcMethodRegistry {
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
   'git:diffFile': { params: GitDiffFileParams; result: GitDiffFileResult };
+  'git:applyHunks': {
+    params: GitApplyHunksParams;
+    result: GitApplyHunksResult;
+  };
   'git:push': { params: GitPushParams; result: GitPushResult };
   'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
   'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
@@ -2872,6 +2878,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:commit': true,
   'git:showFile': true,
   'git:diffFile': true,
+  'git:applyHunks': true,
   'git:push': true,
   'git:branches': true,
   'git:checkout': true,

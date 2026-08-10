@@ -1,7 +1,10 @@
 import type {
   DiffSideRef,
+  GitApplyHunksOperation,
+  GitApplyHunksResult,
   GitDiffComparison,
   GitDiffFileResult,
+  GitHunkRef,
 } from '@ptah-extension/shared';
 
 /**
@@ -67,6 +70,25 @@ export interface DiffTabState {
    * rejected path) — such a response is never `fresh`.
    */
   snapshotToken: string;
+  /**
+   * git's own `@@` headers for this diff — POSITIONS ONLY, never hunk bodies.
+   *
+   * The client selects a hunk by {@link GitHunkRef.index} and sends that ordinal
+   * back; the backend re-derives the patch from git and reassembles the selected
+   * blocks verbatim. No diff text is ever constructed, held or replayed here.
+   *
+   * `GitDiffFileResult.patch` is DELIBERATELY not mirrored onto this record.
+   * Holding patch bytes across a state change is precisely the staleness hazard
+   * the always-regenerate backend design removes (batch-8a-report.md §7.2): a
+   * cached patch is the one thing that could make the server's offset guards
+   * reachable again. The ordinals are safe to hold because they are meaningless
+   * without {@link snapshotToken}, and every consumer is required to pair them.
+   *
+   * Empty for a binary file, an untracked file, and any failed read — which is
+   * what makes "hunk actions absent, not present-and-broken" (D2 AC10) fall out
+   * of the data rather than out of a special case.
+   */
+  hunks: GitHunkRef[];
   /** True when either side is binary — suppresses textual diff rendering. */
   isBinary: boolean;
   status: DiffTabStatus;
@@ -167,4 +189,43 @@ export interface OpenDiffRequest {
 }
 
 /** Re-export so consumers of a diff tab need only one import site. */
-export type { GitDiffFileResult };
+export type {
+  GitApplyHunksOperation,
+  GitApplyHunksResult,
+  GitDiffFileResult,
+  GitHunkRef,
+};
+
+/**
+ * A hunk operation the diff view asks the editor coordinator to perform.
+ *
+ * `snapshotToken` is carried EXPLICITLY rather than re-read from the tab record
+ * at the point of application. It is the token the user's selection was made
+ * against, and the coordinator refuses the request when the tab record has
+ * moved on — see `EditorDiffSplitHelper.applyHunks`. Without it, a
+ * revalidation landing between the click and the RPC would re-point the same
+ * ordinal at a different diff, and the backend could not tell: its own AC6
+ * check only asks whether the repository moved since the token it was handed
+ * was issued, and that token would be a perfectly fresh one.
+ */
+export interface HunkApplyRequest {
+  /** The diff tab key the selection belongs to. */
+  key: string;
+  operation: GitApplyHunksOperation;
+  /** Ordinals into the `hunks` array of the snapshot named by `snapshotToken`. */
+  hunkIndices: number[];
+  /** The token of the diff the user was looking at when they selected. */
+  snapshotToken: string;
+}
+
+/**
+ * How the diff view performs a hunk operation.
+ *
+ * Supplied to {@link DiffViewComponent} as an input rather than injected, so
+ * the view keeps no dependency on the editor coordinator and a consumer that
+ * reuses the Monaco diff surface for two in-memory bodies (the Skills library's
+ * enhancement preview) gets no git actions at all simply by not supplying one.
+ */
+export type HunkApplyFn = (
+  request: HunkApplyRequest,
+) => Promise<GitApplyHunksResult>;

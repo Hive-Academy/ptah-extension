@@ -12,6 +12,7 @@
  * - git:commit           - Create a commit with the provided message
  * - git:showFile         - Show file content from HEAD revision
  * - git:diffFile         - Resolve both sides of a staged/worktree file diff
+ * - git:applyHunks       - Stage/unstage/revert selected hunks of one file
  * - git:push             - Push the current branch to its upstream remote
  * - git:branches         - List local/remote branches with ahead/behind counts
  * - git:checkout         - Checkout a branch (with dirty-tree guard)
@@ -40,7 +41,10 @@ import type {
   IWorkspaceProvider,
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
-import { parseGitDiffFileParams } from './git-rpc.schema';
+import {
+  parseGitApplyHunksParams,
+  parseGitDiffFileParams,
+} from './git-rpc.schema';
 import type {
   GitInfoParams,
   GitInfoResult,
@@ -61,6 +65,8 @@ import type {
   GitShowFileResult,
   GitDiffFileParams,
   GitDiffFileResult,
+  GitApplyHunksParams,
+  GitApplyHunksResult,
   GitDiffComparison,
   GitBlobRead,
   GitReadErrorCode,
@@ -99,6 +105,7 @@ export class GitRpcHandlers {
     'git:commit',
     'git:showFile',
     'git:diffFile',
+    'git:applyHunks',
     'git:push',
     'git:branches',
     'git:checkout',
@@ -132,6 +139,7 @@ export class GitRpcHandlers {
     this.registerGitCommit();
     this.registerGitShowFile();
     this.registerGitDiffFile();
+    this.registerGitApplyHunks();
     this.registerGitPush();
     this.registerGitBranches();
     this.registerGitCheckout();
@@ -570,8 +578,77 @@ export class GitRpcHandlers {
       modified: failure,
       originalRef: absent,
       modifiedRef: absent,
+      patch: null,
+      hunks: [],
       snapshotToken: '',
     };
+  }
+
+  /**
+   * git:applyHunks - Stage, unstage or revert selected hunks of one file.
+   *
+   * The only `git:*` method that writes to the index or the working tree.
+   * Everything that decides whether the write is safe — the operation matrix,
+   * the snapshot-staleness refusal, the dry run, the rollback — lives in
+   * `GitInfoService.applyHunks` rather than here, so a host that reaches the
+   * service directly cannot route around it. This method's job is the RPC
+   * boundary: validate the payload before git is touched, resolve the folder
+   * against the registered set, and keep raw failure detail out of the reply.
+   */
+  private registerGitApplyHunks(): void {
+    this.rpcHandler.registerMethod<GitApplyHunksParams, GitApplyHunksResult>(
+      'git:applyHunks',
+      async (rawParams) => {
+        // [NFR-3] Shape is proven before any subprocess is spawned.
+        const params = parseGitApplyHunksParams(rawParams);
+        if (!params) {
+          this.logger.warn(
+            '[GitRpc] git:applyHunks called with invalid params',
+          );
+          return {
+            success: false,
+            code: 'UNKNOWN',
+            message: 'Invalid request.',
+          };
+        }
+
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:applyHunks');
+        if (!wsRoot) {
+          return {
+            success: false,
+            code: 'NOT_A_REPO',
+            message: 'No workspace folder open.',
+          };
+        }
+
+        try {
+          return await this.gitInfo.applyHunks(
+            wsRoot,
+            {
+              path: params.path,
+              originalPath: params.originalPath,
+              comparison: params.comparison,
+              operation: params.operation,
+              hunkIndices: params.hunkIndices,
+              snapshotToken: params.snapshotToken,
+            },
+            this.fileSystem,
+          );
+        } catch (error: unknown) {
+          // `applyHunks` maps its own failures; reaching here means something
+          // escaped it entirely. Keep the detail in the log (NFR-8).
+          this.logger.error(
+            '[GitRpc] git:applyHunks rejected the request',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return {
+            success: false,
+            code: 'UNKNOWN',
+            message: 'The selected changes could not be applied.',
+          };
+        }
+      },
+    );
   }
 
   /**

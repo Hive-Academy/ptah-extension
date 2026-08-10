@@ -278,6 +278,29 @@ export interface GitDiffFileParams extends GitWorkspaceScopedParams {
   originalPath?: string;
 }
 
+/**
+ * One `@@` hunk header from git's own unified diff, parsed but never rebuilt.
+ *
+ * Carries positions only — the hunk *body* is deliberately absent. The client
+ * selects hunks by `index`; the backend re-derives the patch text from git and
+ * reassembles the selected blocks verbatim. Diff text is never constructed on
+ * the client, so there is nothing for it to get subtly wrong.
+ */
+export interface GitHunkRef {
+  /** Ordinal within the file's patch, 0-based. The apply RPC's selector. */
+  index: number;
+  /** First line of the hunk on the original side (1-based, git's `-a`). */
+  originalStart: number;
+  /** Line count on the original side (git's `,b`; 1 when omitted). */
+  originalLines: number;
+  /** First line of the hunk on the modified side (1-based, git's `+c`). */
+  modifiedStart: number;
+  /** Line count on the modified side (git's `,d`; 1 when omitted). */
+  modifiedLines: number;
+  /** The verbatim `@@ ... @@ [section]` line, without its terminator. */
+  header: string;
+}
+
 /** Result from git:diffFile RPC method */
 export interface GitDiffFileResult {
   path: string;
@@ -288,11 +311,85 @@ export interface GitDiffFileResult {
   originalRef: DiffSideRef;
   modifiedRef: DiffSideRef;
   /**
+   * git's own unified diff for this comparison, verbatim, or `null` when git
+   * produced none (untracked file, unreadable side, binary content).
+   *
+   * Present so the hunk affordances and the apply path share one source of
+   * truth: the bytes here are the bytes the backend reassembles from.
+   */
+  patch: string | null;
+  /** Parsed `@@` headers of {@link patch}. Empty when there is no patch. */
+  hunks: GitHunkRef[];
+  /**
    * Digest over the exact bytes of both sides plus their ref identity.
    * Opaque to the client; used to prove a later write applies to the same
    * snapshot the user was shown.
    */
   snapshotToken: string;
+}
+
+// ---------------------------------------------------------------------------
+// git:applyHunks — partial stage / unstage / revert (TASK_2026_173, D2)
+// ---------------------------------------------------------------------------
+
+/**
+ * What to do with the selected hunks.
+ *
+ * One method with an `operation` discriminant rather than three methods: one
+ * Zod schema, one staleness path, one audit-log site. The valid set is a
+ * function of {@link GitDiffComparison} and is enforced on the backend, not
+ * merely typed here — see `GitInfoService.applyHunks`.
+ */
+export type GitApplyHunksOperation = 'stage' | 'unstage' | 'revert';
+
+/** Parameters for git:applyHunks RPC method */
+export interface GitApplyHunksParams extends GitWorkspaceScopedParams {
+  /** Workspace-relative path, modified side. */
+  path: string;
+  /** Pre-rename source path for staged renames; backend falls back to `path`. */
+  originalPath?: string;
+  comparison: GitDiffComparison;
+  operation: GitApplyHunksOperation;
+  /** Ordinals into the `hunks` array of the snapshot named by `snapshotToken`. */
+  hunkIndices: number[];
+  /** The token issued by `git:diffFile` for the diff the user acted on. */
+  snapshotToken: string;
+}
+
+/**
+ * Why an apply was refused or failed. A closed set of machine-readable codes:
+ * raw git stderr never crosses the RPC boundary (NFR-8).
+ *
+ * - `STALE_SNAPSHOT` — the repository moved since the diff was read. Nothing
+ *   was written; the client must re-read the diff and ask again.
+ * - `APPLY_FAILED`   — git refused the patch, or would have placed it somewhere
+ *   other than where the user saw it. The repository is unchanged.
+ * - `BINARY_UNSUPPORTED` — no textual hunks exist to select from.
+ * - `INVALID_OPERATION` — the operation is not defined for the comparison.
+ * - `NOT_A_REPO` — no registered workspace folder, or not a git work tree.
+ * - `UNKNOWN` — anything else; details are in the backend log only.
+ */
+export type GitApplyHunksFailure =
+  | 'STALE_SNAPSHOT'
+  | 'APPLY_FAILED'
+  | 'BINARY_UNSUPPORTED'
+  | 'INVALID_OPERATION'
+  | 'NOT_A_REPO'
+  | 'UNKNOWN';
+
+/** Result from git:applyHunks RPC method */
+export interface GitApplyHunksResult {
+  success: boolean;
+  /** Present exactly when `success` is false. */
+  code?: GitApplyHunksFailure;
+  /** Sanitized, user-facing. Never stderr, never an absolute path. */
+  message?: string;
+  /**
+   * The snapshot token of the diff **after** a successful apply, so the client
+   * can act again without a round trip. Absent on every failure — a caller
+   * must never be able to mistake a refusal for a fresh snapshot.
+   */
+  snapshotToken?: string;
 }
 
 /** Parameters for git:push RPC method */
