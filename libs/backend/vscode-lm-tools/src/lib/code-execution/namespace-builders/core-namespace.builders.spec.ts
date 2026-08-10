@@ -15,7 +15,10 @@ import type {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
-import type { IDiagnosticsProvider } from '@ptah-extension/platform-core';
+import type {
+  IDiagnosticsProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   buildWorkspaceNamespace,
   buildSearchNamespace,
@@ -56,14 +59,34 @@ function createContextOrchestrationMock(): ContextOrchestrationMock {
   };
 }
 
+/**
+ * Stand-in for the session-aware provider `PtahAPIBuilder.build()` injects.
+ * `getWorkspaceRoot` is a plain jest.fn so a test can change its answer between
+ * calls — that is exactly what the real proxy does across MCP sessions.
+ */
+function createWorkspaceProviderMock(
+  root: string | undefined = undefined,
+): jest.Mocked<IWorkspaceProvider> {
+  return {
+    getWorkspaceFolders: jest.fn().mockReturnValue(root ? [root] : []),
+    getWorkspaceRoot: jest.fn().mockReturnValue(root),
+    getConfiguration: jest.fn(),
+    setConfiguration: jest.fn(),
+    onDidChangeConfiguration: jest.fn(),
+    onDidChangeWorkspaceFolders: jest.fn(),
+  } as unknown as jest.Mocked<IWorkspaceProvider>;
+}
+
 function createDeps(
   workspaceAnalyzer: WorkspaceAnalyzerMock,
   contextOrchestration: ContextOrchestrationMock,
+  workspaceProvider: IWorkspaceProvider = createWorkspaceProviderMock(),
 ): CoreNamespaceDependencies {
   return {
     workspaceAnalyzer: workspaceAnalyzer as unknown as WorkspaceAnalyzerService,
     contextOrchestration:
       contextOrchestration as unknown as ContextOrchestrationService,
+    workspaceProvider,
   };
 }
 
@@ -149,6 +172,83 @@ describe('buildWorkspaceNamespace', () => {
     expect(await ns.getProjectType()).toBe('angular');
   });
 
+  // -------------------------------------------------------------------------
+  // TASK_2026_200 — session-aware root threading (criteria 1, 2, 3)
+  // -------------------------------------------------------------------------
+
+  it('analyze() passes the session-aware root into all three analyzer calls', async () => {
+    const analyzer = createWorkspaceAnalyzerMock();
+    analyzer.getCurrentWorkspaceInfo.mockResolvedValue(undefined);
+    analyzer.analyzeWorkspaceStructure.mockResolvedValue(null as never);
+    analyzer.getProjectInfo.mockResolvedValue(undefined);
+
+    const ns = buildWorkspaceNamespace(
+      createDeps(
+        analyzer,
+        createContextOrchestrationMock(),
+        createWorkspaceProviderMock('D:\\projects\\session-root'),
+      ),
+    );
+
+    await ns.analyze();
+
+    expect(analyzer.getCurrentWorkspaceInfo).toHaveBeenCalledWith(
+      'D:\\projects\\session-root',
+    );
+    expect(analyzer.analyzeWorkspaceStructure).toHaveBeenCalledWith(
+      'D:\\projects\\session-root',
+    );
+    expect(analyzer.getProjectInfo).toHaveBeenCalledWith(
+      'D:\\projects\\session-root',
+    );
+  });
+
+  it('resolves the root per call, not once at build time', async () => {
+    const analyzer = createWorkspaceAnalyzerMock();
+    analyzer.getCurrentWorkspaceInfo.mockResolvedValue(undefined);
+
+    // The real proxy is session-aware: two MCP sessions calling the SAME
+    // namespace object get different roots. Hoisting the lookup to build time
+    // would pin every later call to session A's root.
+    const provider = createWorkspaceProviderMock();
+    (provider.getWorkspaceRoot as jest.Mock)
+      .mockReturnValueOnce('D:\\projects\\session-a')
+      .mockReturnValueOnce('D:\\projects\\session-b');
+
+    const ns = buildWorkspaceNamespace(
+      createDeps(analyzer, createContextOrchestrationMock(), provider),
+    );
+
+    await ns.getInfo();
+    await ns.getInfo();
+
+    expect(analyzer.getCurrentWorkspaceInfo.mock.calls).toEqual([
+      ['D:\\projects\\session-a'],
+      ['D:\\projects\\session-b'],
+    ]);
+  });
+
+  it('passes undefined through when no root resolves (process-global fallback)', async () => {
+    const analyzer = createWorkspaceAnalyzerMock();
+    analyzer.getCurrentWorkspaceInfo.mockResolvedValue(undefined);
+
+    const ns = buildWorkspaceNamespace(
+      createDeps(analyzer, createContextOrchestrationMock()),
+    );
+
+    await ns.getProjectType();
+    await ns.getFrameworks();
+
+    expect(analyzer.getCurrentWorkspaceInfo).toHaveBeenNthCalledWith(
+      1,
+      undefined,
+    );
+    expect(analyzer.getCurrentWorkspaceInfo).toHaveBeenNthCalledWith(
+      2,
+      undefined,
+    );
+  });
+
   it('getFrameworks() returns a fresh array copy and empty array when missing', async () => {
     const analyzer = createWorkspaceAnalyzerMock();
     const frameworks = ['react', 'next'];
@@ -220,6 +320,61 @@ describe('buildSearchNamespace', () => {
 
     await ns.findFiles('anything');
     expect(orchestration.searchFiles.mock.calls[0][0].maxResults).toBe(20);
+  });
+
+  // TASK_2026_200 criterion 4: `ptah_search_files` reaches `searchFiles`, so the
+  // calling session's root must ride along on that request.
+  it('findFiles() forwards the session-aware root on the searchFiles request', async () => {
+    const orchestration = createContextOrchestrationMock();
+    orchestration.searchFiles.mockResolvedValue({ results: [] } as never);
+
+    const ns = buildSearchNamespace(
+      createDeps(
+        createWorkspaceAnalyzerMock(),
+        orchestration,
+        createWorkspaceProviderMock('D:\\projects\\session-root'),
+      ),
+    );
+
+    await ns.findFiles('pattern');
+
+    expect(orchestration.searchFiles.mock.calls[0][0].workspaceRoot).toBe(
+      'D:\\projects\\session-root',
+    );
+  });
+
+  it('getRelevantFiles() forwards the session-aware root', async () => {
+    const orchestration = createContextOrchestrationMock();
+    orchestration.getFileSuggestions.mockResolvedValue({ files: [] } as never);
+
+    const ns = buildSearchNamespace(
+      createDeps(
+        createWorkspaceAnalyzerMock(),
+        orchestration,
+        createWorkspaceProviderMock('D:\\projects\\session-root'),
+      ),
+    );
+
+    await ns.getRelevantFiles('query');
+
+    expect(
+      orchestration.getFileSuggestions.mock.calls[0][0].workspaceRoot,
+    ).toBe('D:\\projects\\session-root');
+  });
+
+  it('omits the root as undefined when no workspace resolves', async () => {
+    const orchestration = createContextOrchestrationMock();
+    orchestration.searchFiles.mockResolvedValue({ results: [] } as never);
+
+    const ns = buildSearchNamespace(
+      createDeps(createWorkspaceAnalyzerMock(), orchestration),
+    );
+
+    await ns.findFiles('pattern');
+
+    expect(
+      orchestration.searchFiles.mock.calls[0][0].workspaceRoot,
+    ).toBeUndefined();
   });
 
   it('findFiles() returns [] when orchestration throws', async () => {

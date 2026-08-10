@@ -114,14 +114,21 @@ interface IWorkspaceIntelligence {
     fileStatistics: Record<string, number>;
     totalFiles: number;
   }>;
-  getCurrentWorkspaceInfo():
+  /**
+   * Async since TASK_2026_200 task 3.2 — `WorkspaceAnalyzerService` now
+   * computes per-root on a cache miss instead of returning one eagerly-built
+   * snapshot field, so this MUST be awaited. Reading `.frameworks` off the
+   * unawaited Promise silently yields `undefined`.
+   */
+  getCurrentWorkspaceInfo(root?: string): Promise<
     | {
         name: string;
         path: string;
         projectType: string;
         frameworks?: readonly string[];
       }
-    | undefined;
+    | undefined
+  >;
 }
 
 /**
@@ -342,7 +349,8 @@ export class EnhancedPromptsService {
         let analysis: WorkspaceAnalysisResult;
         try {
           const projectInfo = await this.workspaceIntelligence.getProjectInfo();
-          const wsInfo = this.workspaceIntelligence.getCurrentWorkspaceInfo();
+          const wsInfo =
+            await this.workspaceIntelligence.getCurrentWorkspaceInfo();
           const languageMap: Record<string, string> = {
             '.ts': 'TypeScript',
             '.tsx': 'TypeScript',

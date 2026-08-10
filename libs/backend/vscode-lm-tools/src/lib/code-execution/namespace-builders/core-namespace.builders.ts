@@ -11,7 +11,10 @@ import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
-import type { IDiagnosticsProvider } from '@ptah-extension/platform-core';
+import type {
+  IDiagnosticsProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { CorrelationId } from '@ptah-extension/shared';
 import {
   WorkspaceNamespace,
@@ -26,6 +29,32 @@ import {
 export interface CoreNamespaceDependencies {
   workspaceAnalyzer: WorkspaceAnalyzerService;
   contextOrchestration: ContextOrchestrationService;
+  /**
+   * Session-aware workspace provider supplied by `PtahAPIBuilder.build()`.
+   * `getWorkspaceRoot()` resolves the CALLING session's root, so it MUST be
+   * consulted once per tool invocation — see `resolveRootPerCall` below.
+   */
+  workspaceProvider: IWorkspaceProvider;
+}
+
+/**
+ * Resolve the calling session's workspace root.
+ *
+ * TASK_2026_200 — this MUST be evaluated inside each tool method, never hoisted
+ * to build time. `PtahAPIBuilder` builds the namespace object once per process
+ * but the provider is session-aware: its answer changes per MCP caller. Caching
+ * the value at build time would pin every subsequent call to whichever session
+ * happened to be active during `build()`, which is the exact silent-wrong-root
+ * defect this task exists to remove (context.md §2).
+ *
+ * `undefined` is passed straight through: the downstream services treat an
+ * absent root as "use the process-global active folder", which is the pre-fix
+ * behaviour and the documented fallback.
+ */
+function resolveRootPerCall(
+  workspaceProvider: IWorkspaceProvider,
+): string | undefined {
+  return workspaceProvider.getWorkspaceRoot();
 }
 
 /**
@@ -35,24 +64,32 @@ export interface CoreNamespaceDependencies {
 export function buildWorkspaceNamespace(
   deps: CoreNamespaceDependencies,
 ): WorkspaceNamespace {
-  const { workspaceAnalyzer } = deps;
+  const { workspaceAnalyzer, workspaceProvider } = deps;
 
   return {
     analyze: async () => {
+      const root = resolveRootPerCall(workspaceProvider);
       const [info, structure, projectInfo] = await Promise.all([
-        workspaceAnalyzer.getCurrentWorkspaceInfo(),
-        workspaceAnalyzer.analyzeWorkspaceStructure(),
-        workspaceAnalyzer.getProjectInfo().catch(() => undefined),
+        workspaceAnalyzer.getCurrentWorkspaceInfo(root),
+        workspaceAnalyzer.analyzeWorkspaceStructure(root),
+        workspaceAnalyzer.getProjectInfo(root).catch(() => undefined),
       ]);
       return { info, structure, projectInfo };
     },
-    getInfo: async () => workspaceAnalyzer.getCurrentWorkspaceInfo(),
+    getInfo: async () =>
+      workspaceAnalyzer.getCurrentWorkspaceInfo(
+        resolveRootPerCall(workspaceProvider),
+      ),
     getProjectType: async () => {
-      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo();
+      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo(
+        resolveRootPerCall(workspaceProvider),
+      );
       return info?.projectType || 'unknown';
     },
     getFrameworks: async () => {
-      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo();
+      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo(
+        resolveRootPerCall(workspaceProvider),
+      );
       return info?.frameworks ? [...info.frameworks] : [];
     },
   };
@@ -65,9 +102,14 @@ export function buildWorkspaceNamespace(
 export function buildSearchNamespace(
   deps: CoreNamespaceDependencies,
 ): SearchNamespace {
-  const { contextOrchestration } = deps;
+  const { contextOrchestration, workspaceProvider } = deps;
 
   return {
+    // `ptah_search_files` reaches `searchFiles` (NOT `getAllFiles`), which is
+    // why task 2.3 extended `SearchFilesRequest` with `workspaceRoot`. Passing
+    // it makes the shared file index rebuild for the calling session's root, or
+    // fail loudly on a lost race — it can never answer with another root's
+    // files (plan risk R5; concurrency limits per context.md §7.2).
     findFiles: async (pattern: string, limit = 20) => {
       try {
         const result = await contextOrchestration.searchFiles({
@@ -75,6 +117,7 @@ export function buildSearchNamespace(
           query: pattern,
           includeImages: false,
           maxResults: limit,
+          workspaceRoot: resolveRootPerCall(workspaceProvider),
         });
         return (result.results || [])
           .filter((r) => r != null)
@@ -89,6 +132,7 @@ export function buildSearchNamespace(
           requestId: `mcp-relevant-${Date.now()}` as CorrelationId,
           query,
           limit: maxFiles,
+          workspaceRoot: resolveRootPerCall(workspaceProvider),
         });
         return (result.files || [])
           .filter((s: { relativePath?: string }) => s != null)

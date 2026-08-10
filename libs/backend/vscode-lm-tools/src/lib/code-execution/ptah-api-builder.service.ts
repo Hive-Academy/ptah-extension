@@ -414,19 +414,34 @@ export class PtahAPIBuilder {
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
-    const coreDeps = {
-      workspaceAnalyzer: this.workspaceAnalyzer,
-      contextOrchestration: this.contextOrchestration,
-    };
-
+    // ORDERING CONTRACT (TASK_2026_200, task 3.1) — the session-aware provider
+    // MUST be constructed BEFORE any dependency bag, and every bag MUST carry
+    // it. It previously sat below `coreDeps`, so `coreDeps` was built without a
+    // provider at all and the `workspace` + `search` namespaces silently
+    // answered for the process-global active folder instead of the calling
+    // session's root (context.md §2). Do not move this construction back down,
+    // and do not add a bag above it.
+    //
     // Session-aware provider: `getWorkspaceRoot()` prefers the calling session's
     // workspace over the process-global active folder. Path-resolving agent
     // namespaces use this so a relative path resolves against the right
     // workspace when multiple workspaces are open in Electron.
+    //
+    // NOTE: deliberately NOT registered globally against
+    // `PLATFORM_TOKENS.WORKSPACE_PROVIDER` — the same singletons serve non-MCP
+    // callers (webview RPC, watchers, indexer warm-up) that have no caller
+    // session id to resolve against (context.md §4 "Alternative considered",
+    // research-report.md §6 — both reject global registration).
     const sessionAwareWorkspaceProvider = buildSessionAwareWorkspaceProvider(
       this.workspaceProvider,
       () => this.resolveSessionWorkspaceRoot(),
     );
+
+    const coreDeps = {
+      workspaceAnalyzer: this.workspaceAnalyzer,
+      contextOrchestration: this.contextOrchestration,
+      workspaceProvider: sessionAwareWorkspaceProvider,
+    };
 
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
