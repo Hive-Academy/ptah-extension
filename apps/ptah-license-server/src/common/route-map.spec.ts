@@ -255,6 +255,16 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * below. That block therefore reads 29 rather than 27; the P3 heading comment
  * records the split. NO new controller, so the controller census and all three
  * prefix ledgers are untouched.
+ * **138** since TASK_2026_201 deleted `POST v1/admin/waitlist/invite` (139 - 1),
+ * the paid founding-invite wave — removed outright, not repointed
+ * (context.md C2). This one DOES move the controller census: the route was the
+ * only one on `AdminWaitlistController`, and a zero-route controller fails the
+ * barren-controller assertion below, so the class, its `AdminModule`
+ * registration and its `controller-registry.ts` entry were deleted with it.
+ * The replacement `POST v1/admin/waitlist/approve` is not registered yet — it
+ * arrives with the approve endpoint in a later batch of the same task, which
+ * takes this back to 139 and restores an `admin/AdminWaitlistController`-shaped
+ * census entry.
  *
  * ⚠️ THE PROSE TOTAL IS RE-DERIVED IN EVERY BATCH THAT MOVES IT, and the note
  * above about it having read 68 against an actual 64 is why: this number is the
@@ -544,7 +554,15 @@ const EXPECTED_ROUTES: readonly string[] = [
   // byte-identical on the wire and produced no diff at all.
   'POST v1/admin/sessions/:eventId/invitations',
   'POST v1/admin/users/bulk-email',
-  'POST v1/admin/waitlist/invite',
+  // 🔴 `POST v1/admin/waitlist/invite` USED TO SIT HERE, between
+  // `users/bulk-email` and `auth/login/email`. TASK_2026_201 deleted it with
+  // the whole `AdminWaitlistController` — the paid founding-invite wave is
+  // removed outright, not repointed (context.md C2). Its replacement,
+  // `POST v1/admin/waitlist/approve`, is NOT registered yet: it lands with the
+  // approve endpoint in a later batch of the same task and will take this slot
+  // back. Recorded rather than silently dropped, because a bare deletion in
+  // this ledger is indistinguishable from a route that went missing by
+  // accident — which is the one thing this file exists to make impossible.
   'POST v1/auth/login/email',
   'POST v1/auth/logout',
   'POST v1/auth/magic-link',

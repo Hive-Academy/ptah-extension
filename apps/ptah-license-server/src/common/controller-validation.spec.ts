@@ -299,8 +299,42 @@ const EXCLUDED: ReadonlyArray<{
  * handler binds its own, in both directions, because this file can only see
  * that SOME `ValidationPipe` with SOME `expectedType` is bound.
  * `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 80 -> 79, TASK_2026_201 (founding cohort: the invite path is deleted) ──
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 79`.
+ *
+ * **−1, AND IT IS A DELETION RATHER THAN AN ADDITION — THE FIRST ONE THIS
+ * LEDGER HAS RECORDED SINCE TASK_2026_177 P1b.** One route is removed, with the
+ * whole controller that carried it:
+ *
+ *   admin/AdminWaitlistController.inviteWaitlist
+ *       `@Body(dtoPipe(InviteWaitlistDto))`                                 −1
+ *                                                                          ---
+ *                                              74 − 1 = 73 whole-object
+ *                                                       73 + 6 = 79 total
+ *
+ * `POST v1/admin/waitlist/invite` sent the PAID founding-discount invite wave.
+ * TASK_2026_201 replaces the whole flow with a FREE grant, and context.md C2
+ * settles that the endpoint is DELETED rather than repointed — so the route,
+ * `InviteWaitlistDto`, `WaitlistService.inviteBatch` and the controller class
+ * all go together. `ALL_CONTROLLERS` and the census DO move here (unlike the
+ * two entries above): `route-map.spec.ts` refuses to keep a controller that
+ * contributes zero routes, so the class could not be left behind as an empty
+ * shell awaiting its replacement.
+ *
+ * ⚠️ THIS NUMBER GOES BACK TO 80 IN THE SAME TASK, AND THAT IS THE INTENDED
+ * END STATE — do not read 79 as the new floor and do not "restore" it by hand.
+ * `POST v1/admin/waitlist/approve` binds `@Body(dtoPipe(ApproveWaitlistDto))`
+ * for +1 when the approve endpoint lands. The ids travel in a `@Body()` there
+ * for the same reason they do on the bulk mark-read route above: a
+ * `@Query('ids')` would make the total read 80 against a named count of 7 and
+ * the arithmetic would not close.
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6. The deleted handler bound
+ * one whole-object `@Body` and no named primitive, so the carve-out is
+ * untouched. `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 80;
+const MIN_TOTAL_PAYLOAD_PARAMS = 79;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

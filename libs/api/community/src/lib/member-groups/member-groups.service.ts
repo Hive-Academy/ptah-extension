@@ -2,6 +2,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -102,6 +103,13 @@ export interface GroupMembersPage {
   pageSize: number;
 }
 
+/** The minimal cohort identity {@link MemberGroupsService.requireGroupByKey} resolves. */
+export interface RequiredMemberGroup {
+  id: string;
+  key: string;
+  name: string;
+}
+
 /**
  * MemberGroupsService — owns member-cohort (group) CRUD + user assignment.
  *
@@ -152,6 +160,56 @@ export class MemberGroupsService {
       select: { id: true, key: true, name: true },
     });
     return group ?? null;
+  }
+
+  /**
+   * Resolve a cohort BY ITS STABLE KEY, or fail the whole request.
+   *
+   * Used by grant paths that must land members in one NAMED cohort — currently
+   * approve-to-cohort, which resolves `'founding'` once per request before it
+   * touches a single waitlist row (TASK_2026_201 R1.5).
+   *
+   * ⚠️ THERE IS DELIBERATELY NO `isDefault` FALLBACK, AND ONE MUST NEVER BE
+   * ADDED. `isDefault` is an operational convenience that moves: the Paddle
+   * fan-out uses it precisely because "whichever cohort is current" is the right
+   * answer there ({@link assignDefaultGroup}). A named grant is the opposite
+   * case. The day a second cohort is flagged default, a fallback here would
+   * silently retarget every founding approval into that cohort — no error, no
+   * log, wrong members in the wrong group. Failing loudly on a missing key is
+   * the only safe behaviour, and it is why this method exists as a sibling to
+   * {@link getDefaultGroup} rather than as an option on it.
+   *
+   * Fails CLOSED and fails EARLY: because the caller resolves the cohort before
+   * its row loop, a mis-provisioned deployment issues no licence for ANY row
+   * rather than issuing licences with no cohort assignment — the half-state R2
+   * forbids.
+   *
+   * The thrown 500 carries a stable `code` and a fixed sentence. No Prisma text
+   * and no key-existence detail reaches the client; the diagnosable cause goes
+   * to the server log only.
+   *
+   * @throws InternalServerErrorException `COHORT_NOT_CONFIGURED` when no group
+   *   has this key.
+   */
+  async requireGroupByKey(key: string): Promise<RequiredMemberGroup> {
+    const group = await this.prisma.memberGroup.findUnique({
+      where: { key },
+      select: { id: true, key: true, name: true },
+    });
+
+    if (!group) {
+      this.logger.error(
+        `Member group '${key}' is not configured — refusing to fall back to the ` +
+          `default cohort. Create the group with this exact key, then retry.`,
+      );
+      throw new InternalServerErrorException({
+        code: 'COHORT_NOT_CONFIGURED',
+        message:
+          'The member cohort for this action is not configured. Please contact support.',
+      });
+    }
+
+    return group;
   }
 
   /**
@@ -331,6 +389,66 @@ export class MemberGroupsService {
     this.logger.log(
       `Ensured default group '${def.key}' assignment for user ${userId}`,
     );
+  }
+
+  /**
+   * Idempotently assign a user to a group ON THE CALLER'S TRANSACTION, and
+   * report whether THIS call created the assignment (TASK_2026_201 R5.3).
+   *
+   * `created: false` means "already in the cohort" — an expected, benign
+   * outcome that the caller records as `cohortAlreadyAssigned` in its audit
+   * metadata and NEVER treats as an error. The grant still succeeds.
+   *
+   * ⚠️ UPSERT, NOT `create` + `catch (P2002)` — AND THE DIFFERENCE IS NOT
+   * STYLISTIC. {@link assignMany} at the bottom of this file legitimately
+   * catches P2002 and counts it as skipped, because it runs OUTSIDE any
+   * transaction. Copying that shape in here would be a live defect: on
+   * PostgreSQL a statement error inside an open transaction puts the session
+   * into the aborted state (25P02), so the caught P2002 would poison the very
+   * transaction the catch was written to keep alive — the code would appear to
+   * tolerate the race while actually failing the whole grant on it.
+   *
+   * Prisma compiles a simple, non-nested upsert on a unique constraint down to
+   * `INSERT … ON CONFLICT DO UPDATE`, so a concurrent assigner raises nothing at
+   * all. If it ever degrades to find-then-create, the caller's
+   * whole-transaction retry absorbs the resulting P2002 and the outcome is
+   * unchanged either way.
+   *
+   * The `findUnique` runs first purely to report `created` — the upsert alone
+   * cannot distinguish an insert from a no-op update. A racer landing between
+   * the two makes `created` optimistic (`true` for a row it did not insert),
+   * which is an audit-metadata nuance only: the assignment exists either way,
+   * `update: {}` means the existing row keeps its original `assignedAt`, and no
+   * decision anywhere branches on `created`.
+   *
+   * Does NOT audit. The caller's own `waitlist.approve` row carries `groupKey`,
+   * so a second `group.assign` row would double-count one action — and this
+   * method has no `actorEmail` to attribute it to.
+   *
+   * @param tx - the caller's interactive-transaction client.
+   */
+  async assignInTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      groupId: string;
+      source: MemberGroupAssignmentSource;
+    },
+  ): Promise<{ created: boolean }> {
+    const { userId, groupId, source } = params;
+
+    const existing = await tx.memberGroupAssignment.findUnique({
+      where: { userId_groupId: { userId, groupId } },
+      select: { id: true },
+    });
+
+    await tx.memberGroupAssignment.upsert({
+      where: { userId_groupId: { userId, groupId } },
+      create: { userId, groupId, source },
+      update: {},
+    });
+
+    return { created: existing === null };
   }
 
   /**

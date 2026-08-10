@@ -3,7 +3,6 @@ export * from './lib/admin-models.config';
 export * from './lib/admin-records.controller';
 export * from './lib/admin-stats.controller';
 export * from './lib/admin-users.controller';
-export * from './lib/admin-waitlist.controller';
 export * from './lib/admin.dto';
 export * from './lib/admin.module';
 export * from './lib/admin.service';
