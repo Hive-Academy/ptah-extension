@@ -309,4 +309,89 @@ describe('WorkspaceAnalyzerService — root-keyed workspace info', () => {
       harness.workspaceService.analyzeWorkspaceStructure,
     ).toHaveBeenCalledWith(ROOT_B);
   });
+
+  // ---------------------------------------------------------------------
+  // Batch 5, task 5.2 — the fence-vs-counter regression gap flagged in the
+  // Batch 3 verification record.
+  //
+  // `invalidateRoot` replaced a per-key epoch COUNTER with a per-computation
+  // cancellation FENCE object specifically because a counter is resettable: a
+  // second invalidate that finds nothing pending (the first invalidate already
+  // deleted the in-flight entry) can end up pruning the counter's own tracking
+  // entry back to its default, so a long-parked computation that captured the
+  // ORIGINAL start value compares equal again and publishes stale data. The
+  // committed suite above only ever invalidates a root ONCE ("does not let an
+  // analysis invalidated mid-flight repopulate the cache"), which a resettable
+  // counter would also have survived (epoch 0 vs 1). Nothing in the suite
+  // distinguished the fence from the counter it replaced.
+  //
+  // This test invalidates the SAME root twice — with a folder event in between
+  // that does NOT invalidate it (B is re-added, then removed again) — while B's
+  // analysis is still parked on a gate, then asserts the parked computation was
+  // never published. Verified (surgical reversion, see task report) to fail
+  // against a counter-based reimplementation where the second invalidate finds
+  // no pending entry and resets the tracked epoch to its start value.
+  // ---------------------------------------------------------------------
+  it('does not let a computation survive TWO invalidations of its root (fence-vs-counter regression guard, criterion 7)', async () => {
+    const harness = createHarness({
+      activeRoot: ROOT_A,
+      folders: [ROOT_A, ROOT_B],
+    });
+    await flush();
+
+    let releaseB: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    harness.workspaceService.getProjectInfo.mockImplementation(
+      async (root?: string) => {
+        if (root === ROOT_B) {
+          await gate;
+        }
+        return root ? projectInfoFor(root) : null;
+      },
+    );
+
+    // B's analysis starts and parks on the gate. This call is independent of
+    // the active root (A), so it is not auto-refreshed by the folder-change
+    // handler's "refresh the active root" branch — only the removal-diff
+    // branch can invalidate it, which is exactly the path being exercised.
+    const parked = harness.service.getCurrentWorkspaceInfo(ROOT_B);
+    await flush();
+
+    // Invalidate #1: B drops out of the folder list while its analysis is
+    // still parked.
+    harness.provider.getWorkspaceFolders.mockReturnValue([ROOT_A]);
+    harness.fireFolderChange();
+    await flush();
+
+    // No-op from B's perspective: B reappears in the folder list. Nothing is
+    // invalidated on a pure addition — this only re-arms B for the NEXT
+    // removal-diff so a second invalidate can fire below.
+    harness.provider.getWorkspaceFolders.mockReturnValue([ROOT_A, ROOT_B]);
+    harness.fireFolderChange();
+    await flush();
+
+    // Invalidate #2: B drops out again. This is the exact interleaving a
+    // resettable counter is vulnerable to — the in-flight entry invalidate #1
+    // already deleted has nothing left for invalidate #2 to bump, which is
+    // precisely the condition under which a counter keyed separately from the
+    // (already-gone) pending entry could be pruned back to its start value.
+    harness.provider.getWorkspaceFolders.mockReturnValue([ROOT_A]);
+    harness.fireFolderChange();
+    await flush();
+
+    releaseB?.();
+    await parked;
+    await flush();
+
+    // The twice-invalidated computation must not have published under B: a
+    // fresh request for B has to re-analyze, not read a resurrected cache
+    // entry.
+    harness.workspaceService.getProjectInfo.mockClear();
+    await harness.service.getCurrentWorkspaceInfo(ROOT_B);
+    expect(harness.workspaceService.getProjectInfo).toHaveBeenCalledWith(
+      ROOT_B,
+    );
+  });
 });
