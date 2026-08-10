@@ -44,9 +44,9 @@ import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
 import {
-  getAnthropicProvider,
-  ANTHROPIC_PROVIDERS,
-} from '@ptah-extension/shared';
+  buildModelIdentityPrompt,
+  getActiveProviderId,
+} from './sdk-query-options-builder';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import {
   Options as SdkQueryOptions,
@@ -248,7 +248,19 @@ export class SdkQueryRunner {
       input.auth?.env.ANTHROPIC_BASE_URL ??
       authEnv.ANTHROPIC_BASE_URL;
 
-    const systemPrompt = this.buildOneShotSystemPrompt(input, authEnv);
+    // Resolved against the SAME authEnv the SDK will run with (the one-shot
+    // override when present), so `options.model`, `options.env` and the
+    // identity clarification all name one model.
+    const resolvedModel = this.modelService.resolveModelId(
+      input.model,
+      input.auth?.env,
+    );
+
+    const systemPrompt = this.buildOneShotSystemPrompt(
+      input,
+      authEnv,
+      resolvedModel,
+    );
 
     const mcpServers = this.buildOneShotMcpServers(
       input.mcpServerRunning,
@@ -261,8 +273,6 @@ export class SdkQueryRunner {
     this.logger.debug(
       `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`,
     );
-
-    const resolvedModel = this.modelService.resolveModelId(input.model);
 
     const options: SdkQueryOptions = {
       abortController,
@@ -319,6 +329,7 @@ export class SdkQueryRunner {
   private buildOneShotSystemPrompt(
     input: OneShotRunInput,
     authEnv: AuthEnv = this.authEnv,
+    resolvedModel?: string,
   ): {
     type: 'preset';
     preset: 'claude_code';
@@ -326,7 +337,10 @@ export class SdkQueryRunner {
   } {
     const appendParts: string[] = [];
 
-    const identityPrompt = this.buildOneShotIdentityPrompt(authEnv);
+    const identityPrompt = buildModelIdentityPrompt(
+      getActiveProviderId(authEnv),
+      resolvedModel,
+    );
     if (identityPrompt) {
       appendParts.push(identityPrompt);
       this.logger.debug(
@@ -348,47 +362,6 @@ export class SdkQueryRunner {
       preset: 'claude_code',
       append: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
     };
-  }
-
-  private buildOneShotIdentityPrompt(
-    authEnv: AuthEnv = this.authEnv,
-  ): string | undefined {
-    const baseUrl = authEnv.ANTHROPIC_BASE_URL;
-    if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
-      return undefined;
-    }
-
-    for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
-      const provider = getAnthropicProvider(id);
-      if (!provider || !provider.baseUrl) continue;
-      try {
-        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-          const actualModel =
-            authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-            authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-            authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-
-          if (!actualModel) {
-            return undefined;
-          }
-
-          return `# Model Identity Clarification
-
-IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
-
-When asked about your identity, model, or capabilities:
-- State that you are ${actualModel} from ${provider.name}
-- Do NOT claim to be Claude, Claude Opus, Claude Sonnet, or any Anthropic model
-- You may mention you are running through an Anthropic-compatible API interface
-
-This clarification takes precedence over any other identity instructions in the system prompt.`;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    return undefined;
   }
 
   private buildOneShotMcpServers(

@@ -19,10 +19,11 @@ import {
   WebviewNavigationService,
   EffortStateService,
 } from '@ptah-extension/core';
-import type { ProviderModelInfo, EffortLevel } from '@ptah-extension/shared';
+import type { EffortLevel } from '@ptah-extension/shared';
 import {
   TribunalDiscoveryService,
   type DiscoveredVendor,
+  type TribunalModelOption,
 } from '../services/tribunal-discovery.service';
 import {
   laneBaseKey,
@@ -323,7 +324,7 @@ export class StepPanelPreviewComponent {
   private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
   private readonly _loading = signal(false);
   private readonly _modelsByBase = signal<
-    ReadonlyMap<string, readonly ProviderModelInfo[]>
+    ReadonlyMap<string, readonly TribunalModelOption[]>
   >(new Map());
 
   protected readonly vendors = this._vendors.asReadonly();
@@ -376,7 +377,7 @@ export class StepPanelPreviewComponent {
 
   protected modelOptionsForLane(
     lane: VendorLane,
-  ): readonly ProviderModelInfo[] {
+  ): readonly TribunalModelOption[] {
     return this._modelsByBase().get(laneBaseKey(lane)) ?? [];
   }
 

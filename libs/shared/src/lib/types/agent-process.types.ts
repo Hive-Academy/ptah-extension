@@ -46,14 +46,31 @@ export type AgentStatus =
   | 'timeout'
   | 'stopped';
 
-export type CliType =
-  | 'codex'
-  | 'copilot'
-  | 'cursor'
-  | 'antigravity'
-  | 'opencode'
-  | 'pi'
-  | 'ptah-cli';
+/**
+ * Every CLI backed by a first-party adapter that spawns a real binary.
+ *
+ * SINGLE SOURCE OF TRUTH. `CliType` is derived from it, and so is every
+ * surface that has to enumerate spawnable CLIs — the MCP `ptah_agent_spawn`
+ * schema (`tool-description.builder.ts`), the stdio dispatcher's zod enum
+ * (`agent-tool.dispatcher.ts`), and default-CLI selection
+ * (`AgentProcessManager.getPreferredCli`). Adding a seventh adapter means
+ * adding one literal HERE; the other surfaces follow automatically.
+ *
+ * `ptah-cli` is deliberately NOT a member: those agents are user-configured
+ * Anthropic-compatible providers selected by `ptahCliId`, not a binary name.
+ */
+export const SYSTEM_CLI_TYPES = [
+  'codex',
+  'copilot',
+  'cursor',
+  'antigravity',
+  'opencode',
+  'pi',
+] as const;
+
+export type SystemCliType = (typeof SYSTEM_CLI_TYPES)[number];
+
+export type CliType = SystemCliType | 'ptah-cli';
 
 export interface AgentProcessInfo {
   readonly agentId: AgentId;
@@ -165,6 +182,16 @@ export interface CliDetectionResult {
   readonly providerId?: string;
   /** User's preferred rank (1 = highest). 0 or absent means unranked. Set by ptah_agent_list. */
   readonly preferredRank?: number;
+  /**
+   * True when the user put this CLI in `agentOrchestration.disabledClis`.
+   *
+   * A disabled CLI is a HARD disable: it is skipped by default selection AND
+   * an explicit `ptah_agent_spawn { cli }` for it is rejected. It is still
+   * reported by `ptah_agent_list` (rather than omitted) so the restriction is
+   * discoverable before a spawn fails. Never set for `ptah-cli` agents — those
+   * are switched off with their own `enabled: false` registry field.
+   */
+  readonly disabled?: boolean;
 }
 
 /**

@@ -15,7 +15,6 @@ import 'reflect-metadata';
 
 import { assembleSystemPrompt } from './sdk-query-options-builder';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
-import type { AuthEnv } from '@ptah-extension/shared';
 
 /** Unique enough that it cannot collide with the core prompt or the preset. */
 const SENTINEL = '<<STYLE_SENTINEL>>';
@@ -29,7 +28,7 @@ const USER_PROMPT = 'Always reply in British English.';
  */
 const BASE_INPUT = {
   providerId: null,
-  authEnv: {} as AuthEnv,
+  resolvedModel: undefined,
   mcpServerRunning: false,
 } as const;
 

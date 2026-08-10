@@ -11,6 +11,7 @@ import {
   CONTEXT_FILE,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
+  SYSTEM_CLI_TYPES,
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
@@ -490,7 +491,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
+      'Supports CLI agents (Codex, Copilot, Cursor, Antigravity, opencode, Pi) ' +
+      'and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
@@ -510,9 +512,12 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['codex', 'copilot', 'cursor'],
+          enum: [...SYSTEM_CLI_TYPES],
           description:
-            'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
+            'Which CLI agent to use: codex (OpenAI Codex), copilot (GitHub Copilot), ' +
+            'cursor (Cursor Agent), antigravity (Google `agy`), opencode, or pi. ' +
+            'Only CLIs actually installed on this machine will spawn — check ' +
+            'ptah_agent_list first; naming an uninstalled CLI fails at spawn time. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
             'Not needed when using ptahCliId.',
         },

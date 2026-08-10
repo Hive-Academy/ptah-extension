@@ -67,7 +67,11 @@ import {
   ANTHROPIC_PROVIDERS,
   getModelContextWindow,
 } from '@ptah-extension/shared';
-import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
+import {
+  SdkModelService,
+  TIER_ENV_VAR_MAP,
+  buildTierEnvDefaults,
+} from './sdk-model-service';
 import { experimentalBetaEnv } from './build-safe-env';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
@@ -79,6 +83,17 @@ import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
+ * Placeholders `ModelResolver.resolve()` can hand back when a tier has no
+ * concrete mapping: the bare tier names and the literal `'default'`. They name
+ * a slot, not a model, so the identity block must be omitted rather than
+ * announce "You are running as sonnet".
+ */
+const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
+  'default',
+  ...Object.keys(TIER_ENV_VAR_MAP),
+]);
+
+/**
  * Build model identity clarification prompt for third-party providers
  *
  * When using Anthropic-compatible providers (Moonshot, Z.AI, etc.), the Claude SDK's
@@ -88,12 +103,24 @@ import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
  * This function generates a clarification prompt that overrides the identity
  * when a third-party provider is active.
  *
+ * `resolvedModel` MUST be the same value handed to `Options.model` — i.e. the
+ * output of `SdkModelService.resolveModelId()` for THIS session. It used to be
+ * derived here as `OPUS || SONNET || HAIKU`, which picks the first tier that
+ * happens to be defined rather than the tier the session runs on: a
+ * `modelTier: 'sonnet'` spawn on a provider whose opus and sonnet mappings
+ * differ was ordered to identify as the opus model. Because the block ends with
+ * "takes precedence over any other identity instructions", the agent then
+ * authoritatively reported a model it was not running.
+ *
  * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
- * @returns Identity clarification prompt, or undefined if using Anthropic directly
+ * @param resolvedModel - The concrete model id this session runs on
+ * @returns Identity clarification prompt, or undefined when the provider is
+ *   Anthropic itself or the model cannot be resolved to a concrete id (a
+ *   missing clarification beats a confidently wrong one)
  */
 export function buildModelIdentityPrompt(
   providerId: string | null,
-  authEnv: AuthEnv,
+  resolvedModel: string | undefined,
 ): string | undefined {
   if (!providerId) {
     return undefined;
@@ -103,12 +130,9 @@ export function buildModelIdentityPrompt(
   if (!provider) {
     return undefined;
   }
-  const actualModel =
-    authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-    authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-    authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
-  if (!actualModel) {
+  const actualModel = resolvedModel?.trim();
+  if (!actualModel || UNRESOLVED_MODEL_IDS.has(actualModel.toLowerCase())) {
     return undefined;
   }
   return `# Model Identity Clarification
@@ -161,8 +185,12 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
 export interface AssembleSystemPromptInput {
   /** Active provider ID (from getActiveProviderId) - for model identity clarification */
   providerId: string | null;
-  /** AuthEnv for the session - used by buildModelIdentityPrompt */
-  authEnv: AuthEnv;
+  /**
+   * The concrete model id this session runs on — the SAME value assigned to
+   * `Options.model`. Feeds `buildModelIdentityPrompt`; when it cannot be
+   * resolved the identity block is omitted rather than guessed.
+   */
+  resolvedModel: string | undefined;
   /** User's custom system prompt (from sessionConfig or UI) */
   userSystemPrompt?: string;
   /**
@@ -220,13 +248,13 @@ export function assembleSystemPrompt(
 ): SystemPromptAssemblyResult {
   const {
     providerId,
-    authEnv,
+    resolvedModel,
     userSystemPrompt,
     enhancedPromptsContent,
     outputStyleBody,
   } = input;
   const appendParts: string[] = [];
-  const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
+  const identityPrompt = buildModelIdentityPrompt(providerId, resolvedModel);
   if (identityPrompt) {
     appendParts.push(identityPrompt);
   }
@@ -613,6 +641,7 @@ export class SdkQueryOptionsBuilder {
       initialUserQuery,
       cwd,
       effectiveAuthEnv,
+      model,
     );
     const routingId = sessionConfig?.tabId ?? sessionId;
     const routingSessionId = routingId ? SessionId.safeParse(routingId) : null;
@@ -988,6 +1017,8 @@ export class SdkQueryOptionsBuilder {
    * @param mcpServerRunning - Whether MCP server is running
    * @param initialUserQuery - First user message text for memory recall
    * @param cwd - Workspace root for workspace-scoped memory recall
+   * @param resolvedModel - The concrete model id assigned to `Options.model`,
+   *   so the identity clarification names the model the session actually runs on
    * @returns System prompt configuration for SDK (always preset+append)
    */
   private async buildSystemPrompt(
@@ -997,6 +1028,7 @@ export class SdkQueryOptionsBuilder {
     initialUserQuery?: string,
     cwd?: string,
     authEnvOverride?: AuthEnv,
+    resolvedModel?: string,
   ): Promise<SdkQueryOptions['systemPrompt']> {
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
     const activeProviderId = getActiveProviderId(effectiveAuthEnv);
@@ -1009,7 +1041,7 @@ export class SdkQueryOptionsBuilder {
 
     const result = assembleSystemPrompt({
       providerId: activeProviderId,
-      authEnv: effectiveAuthEnv,
+      resolvedModel,
       userSystemPrompt: sessionConfig?.systemPrompt,
       mcpServerRunning,
       enhancedPromptsContent,

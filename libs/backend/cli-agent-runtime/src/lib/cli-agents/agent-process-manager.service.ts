@@ -32,6 +32,7 @@ import {
   SpawnAgentResult,
   AgentOutput,
   CliType,
+  SYSTEM_CLI_TYPES,
 } from '@ptah-extension/shared';
 import type {
   CliOutputSegment,
@@ -145,6 +146,23 @@ export class AgentProcessManager {
     }
   }
 
+  /** Clamp a UI effort value onto the `low|medium|high` scale `agy` accepts. */
+  private static mapEffortToAgy(effort: string): string | undefined {
+    switch (effort) {
+      case 'minimal':
+      case 'low':
+        return 'low';
+      case 'medium':
+        return 'medium';
+      case 'high':
+      case 'xhigh':
+      case 'max':
+        return 'high';
+      default:
+        return undefined;
+    }
+  }
+
   /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
   private resolveReasoningEffort(cli: CliType): string | undefined {
     // Pi maps reasoning effort to `--thinking` and supports the full scale
@@ -158,6 +176,14 @@ export class AgentProcessManager {
           '',
         ) ?? '';
       return piEffort || undefined;
+    }
+    // `agy --effort` takes low|medium|high only, and has no per-CLI config key
+    // (the Antigravity settings pane is model-only), so the in-chat selection
+    // is the sole driver and is clamped onto that three-value scale.
+    if (cli === 'antigravity') {
+      return AgentProcessManager.mapEffortToAgy(
+        this.reasoningSettings.effort.get(),
+      );
     }
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
@@ -1197,7 +1223,7 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>(['codex', 'copilot', 'cursor']);
+    const systemCliTypes = new Set<string>(SYSTEM_CLI_TYPES);
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',

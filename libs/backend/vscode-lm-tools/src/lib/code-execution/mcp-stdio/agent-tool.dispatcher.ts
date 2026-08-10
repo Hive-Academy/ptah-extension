@@ -26,7 +26,7 @@
 
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { CliType } from '@ptah-extension/shared';
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type {
   MCPRequest,
   MCPResponse,
@@ -46,7 +46,7 @@ const MAX_TASK_LENGTH = 100 * 1024;
 const AgentSpawnSchema = z
   .object({
     task: z.string().min(1).max(MAX_TASK_LENGTH),
-    cli: z.enum(['codex', 'copilot', 'cursor']).optional(),
+    cli: z.enum(SYSTEM_CLI_TYPES).optional(),
     ptahCliId: z.string().min(1).optional(),
     workingDirectory: z.string().optional(),
     timeout: z.number().int().positive().max(3_600_000).optional(),
@@ -222,7 +222,7 @@ export class AgentToolDispatcher {
     try {
       const result = await this.ptahAPI.agent.spawn({
         task: p.task,
-        cli: p.cli as CliType | undefined,
+        cli: p.cli,
         ptahCliId: p.ptahCliId,
         workingDirectory: p.workingDirectory,
         timeout: p.timeout,

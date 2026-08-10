@@ -105,8 +105,24 @@ function makeRunner(
     createHooks: jest.fn().mockReturnValue({}),
   } as unknown as CompactionHookHandler;
   const authEnv: AuthEnv = opts.authEnv ?? ({} as AuthEnv);
+  // Mirrors the one branch of ModelResolver.resolve() these specs exercise: a
+  // `claude-<tier>-*` id is remapped to the tier's env override when the
+  // effective env defines one. Identity otherwise. The tier remap matters
+  // because the identity clarification now names the RESOLVED model, so a
+  // pass-through stub would hide whether the override env reached resolution.
+  const resolveModelId = (m: string, envOverride?: AuthEnv): string => {
+    const env = envOverride ?? authEnv;
+    const tierVar = m.startsWith('claude-sonnet-')
+      ? env.ANTHROPIC_DEFAULT_SONNET_MODEL
+      : m.startsWith('claude-opus-')
+        ? env.ANTHROPIC_DEFAULT_OPUS_MODEL
+        : m.startsWith('claude-haiku-')
+          ? env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+          : undefined;
+    return tierVar && tierVar !== m ? tierVar : m;
+  };
   const modelService = {
-    resolveModelId: jest.fn((m: string) => m),
+    resolveModelId: jest.fn(resolveModelId),
   } as unknown as SdkModelService;
 
   const defaultImpl = () => createFakeQuery('fresh');

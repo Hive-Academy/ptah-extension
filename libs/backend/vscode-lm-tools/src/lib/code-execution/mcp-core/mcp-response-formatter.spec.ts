@@ -178,6 +178,19 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/not installed/);
   });
 
+  it('formatAgentList marks a disabled-but-installed agent as disabled', () => {
+    const agents = [
+      { cli: 'codex', installed: true, supportsSteer: true, disabled: true },
+      { cli: 'cursor', installed: false, supportsSteer: false, disabled: true },
+    ] as unknown as CliDetectionResult[];
+
+    const out = formatAgentList(agents);
+    expect(out).toMatch(/disabled \(installed\)/);
+    // A disabled CLI that is not installed reads plainly as `disabled`.
+    expect(out).toMatch(/\bdisabled\b/);
+    expect(out).not.toMatch(/not installed/);
+  });
+
   it('formatAgentList renders helpful empty-state message for zero agents', () => {
     const out = formatAgentList([]);
     expect(out).toMatch(/No agents found/);

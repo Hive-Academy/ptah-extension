@@ -353,4 +353,4 @@ Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_
 
 ### Multi-Agent Delegation (CLI Agents)
 
-Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, ptah-cli. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;
+Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, cursor, antigravity, opencode, pi, ptah-cli — call \`ptah_agent_list\` to see which are actually installed. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;
