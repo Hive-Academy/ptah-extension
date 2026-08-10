@@ -32,7 +32,12 @@
         ],
         "styles": [
           "apps/ptah-extension-webview/src/styles.css",
-          "node_modules/prismjs/themes/prism-tomorrow.css"
+          "node_modules/prismjs/themes/prism-tomorrow.css",
+          {
+            "input": "node_modules/daisyui/dist/themes.css",
+            "bundleName": "theme-extra",
+            "inject": false
+          }
         ],
         "scripts": [
           "node_modules/prismjs/prism.js",

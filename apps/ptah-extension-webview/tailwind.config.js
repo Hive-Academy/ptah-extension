@@ -154,39 +154,22 @@ module.exports = {
           '--tab-radius': '0.5rem',
         },
       },
-      // DaisyUI v4 prebuilt themes
-      'light',
-      'dark',
-      'cupcake',
-      'bumblebee',
-      'emerald',
-      'corporate',
-      'synthwave',
-      'retro',
-      'cyberpunk',
-      'valentine',
-      'halloween',
-      'garden',
-      'forest',
-      'aqua',
-      'lofi',
-      'pastel',
-      'fantasy',
-      'wireframe',
-      'black',
-      'luxury',
-      'dracula',
-      'cmyk',
-      'autumn',
-      'business',
-      'acid',
-      'lemonade',
-      'night',
-      'coffee',
-      'winter',
-      'dim',
-      'nord',
-      'sunset',
+      // The 32 daisyUI v4 prebuilt themes are DELIBERATELY ABSENT here.
+      //
+      // They are NOT deleted — `DAISYUI_THEMES` in
+      // libs/frontend/core/src/lib/services/theme.service.ts still exposes all
+      // 34 themes in the picker and they all still work. They are compiled
+      // into a SEPARATE, non-injected stylesheet (`theme-extra.css`, emitted
+      // from `node_modules/daisyui/dist/themes.css` — the same 32 themes, from
+      // the same daisyUI package) which is fetched only by users whose
+      // persisted theme is one of those 32. See:
+      //   - apps/ptah-extension-webview/project.json  (`styles` -> inject:false)
+      //   - apps/ptah-extension-webview/src/index.html (pre-paint loader)
+      //   - ThemeService.setTheme (runtime loader)
+      //
+      // Adding a prebuilt theme name back here re-inflates the initial bundle
+      // by ~800 B of raw CSS per theme and duplicates it against the deferred
+      // sheet. Don't.
     ],
     darkTheme: 'anubis',
     base: true,
