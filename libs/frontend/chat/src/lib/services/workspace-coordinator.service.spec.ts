@@ -19,11 +19,14 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import {
+  AgentDiscoveryFacade,
   AuthStateService,
+  CommandDiscoveryFacade,
   EffortStateService,
   ModelStateService,
 } from '@ptah-extension/core';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { FilePickerService } from './file-picker.service';
 import type { TabState } from '@ptah-extension/chat-types';
 
 type AuthStateSlice = Pick<AuthStateService, 'refreshAuthStatus'>;
@@ -39,6 +42,9 @@ type SessionLoaderSlice = Pick<
   'switchWorkspace' | 'removeWorkspaceCache'
 >;
 type ConfirmSlice = Pick<ConfirmationDialogService, 'confirm'>;
+type FilePickerSlice = Pick<FilePickerService, 'switchWorkspace'>;
+type AgentDiscoverySlice = Pick<AgentDiscoveryFacade, 'clearCache'>;
+type CommandDiscoverySlice = Pick<CommandDiscoveryFacade, 'clearCache'>;
 
 /**
  * Flush pending microtasks. The auth/model/effort re-resolution is fired
@@ -71,6 +77,11 @@ describe('WorkspaceCoordinatorService', () => {
   let tabManager: jest.Mocked<TabManagerSlice>;
   let sessionLoader: jest.Mocked<SessionLoaderSlice>;
   let confirmDialog: jest.Mocked<ConfirmSlice>;
+  let filePicker: jest.Mocked<FilePickerSlice>;
+  let agentDiscovery: jest.Mocked<AgentDiscoverySlice>;
+  let commandDiscovery: jest.Mocked<CommandDiscoverySlice>;
+  /** Records the order of the synchronous switch fan-out. */
+  let fanOutOrder: string[];
   let authState: jest.Mocked<AuthStateSlice>;
   let modelState: jest.Mocked<ModelStateSlice>;
   let effortState: jest.Mocked<EffortStateSlice>;
@@ -78,16 +89,40 @@ describe('WorkspaceCoordinatorService', () => {
   let consoleError: jest.SpyInstance;
 
   beforeEach(() => {
+    fanOutOrder = [];
+
     tabManager = {
-      switchWorkspace: jest.fn(),
+      switchWorkspace: jest.fn(() => {
+        fanOutOrder.push('tabManager');
+      }),
       removeWorkspaceState: jest.fn(),
       getWorkspaceTabs: jest.fn(() => []),
     } as unknown as jest.Mocked<TabManagerSlice>;
 
     sessionLoader = {
-      switchWorkspace: jest.fn(),
+      switchWorkspace: jest.fn(() => {
+        fanOutOrder.push('sessionLoader');
+      }),
       removeWorkspaceCache: jest.fn(),
-    } as jest.Mocked<SessionLoaderSlice>;
+    } as unknown as jest.Mocked<SessionLoaderSlice>;
+
+    filePicker = {
+      switchWorkspace: jest.fn(() => {
+        fanOutOrder.push('filePicker');
+      }),
+    } as unknown as jest.Mocked<FilePickerSlice>;
+
+    agentDiscovery = {
+      clearCache: jest.fn(() => {
+        fanOutOrder.push('agentDiscovery');
+      }),
+    } as unknown as jest.Mocked<AgentDiscoverySlice>;
+
+    commandDiscovery = {
+      clearCache: jest.fn(() => {
+        fanOutOrder.push('commandDiscovery');
+      }),
+    } as unknown as jest.Mocked<CommandDiscoverySlice>;
 
     confirmDialog = {
       confirm: jest.fn(),
@@ -112,6 +147,9 @@ describe('WorkspaceCoordinatorService', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionLoaderService, useValue: sessionLoader },
         { provide: ConfirmationDialogService, useValue: confirmDialog },
+        { provide: FilePickerService, useValue: filePicker },
+        { provide: AgentDiscoveryFacade, useValue: agentDiscovery },
+        { provide: CommandDiscoveryFacade, useValue: commandDiscovery },
         { provide: AuthStateService, useValue: authState },
         { provide: ModelStateService, useValue: modelState },
         { provide: EffortStateService, useValue: effortState },
@@ -131,6 +169,65 @@ describe('WorkspaceCoordinatorService', () => {
       await service.switchWorkspace('D:/repo/foo');
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
       expect(sessionLoader.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
+    });
+
+    it('invalidates the @ file picker cache (TASK_2026_200, criterion 11)', async () => {
+      await service.switchWorkspace('D:/repo/foo');
+      expect(filePicker.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
+      expect(filePicker.switchWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates the / picker agent and command caches', async () => {
+      await service.switchWorkspace('D:/repo/foo');
+      expect(agentDiscovery.clearCache).toHaveBeenCalledTimes(1);
+      expect(commandDiscovery.clearCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates every picker cache in the same synchronous fan-out', () => {
+      // Deliberately NOT awaited: the pickers must be clean the instant the
+      // switch is dispatched, not after the dynamic editor import settles.
+      // Anything less leaves a window in which the @ or / dropdown can still be
+      // opened against the previous workspace's cached list.
+      void service.switchWorkspace('D:/repo/foo');
+      expect(fanOutOrder).toEqual([
+        'tabManager',
+        'sessionLoader',
+        'filePicker',
+        'agentDiscovery',
+        'commandDiscovery',
+      ]);
+    });
+
+    it('invalidates the pickers even when the editor chunk is unavailable', async () => {
+      await service.switchWorkspace('D:/repo/foo');
+      expect(filePicker.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
+      expect(agentDiscovery.clearCache).toHaveBeenCalled();
+      expect(commandDiscovery.clearCache).toHaveBeenCalled();
+    });
+
+    it('leaves the picker holding the newest switch on rapid A→B→A', async () => {
+      await service.switchWorkspace('D:/repo/A');
+      await service.switchWorkspace('D:/repo/B');
+      await service.switchWorkspace('D:/repo/A');
+
+      // Each switch is a synchronous reset with no await between the
+      // switchGeneration bump and the call, so a superseded switch cannot
+      // interleave its reset after a newer one's.
+      expect(filePicker.switchWorkspace).toHaveBeenCalledTimes(3);
+      expect(filePicker.switchWorkspace).toHaveBeenNthCalledWith(
+        1,
+        'D:/repo/A',
+      );
+      expect(filePicker.switchWorkspace).toHaveBeenNthCalledWith(
+        2,
+        'D:/repo/B',
+      );
+      expect(filePicker.switchWorkspace).toHaveBeenNthCalledWith(
+        3,
+        'D:/repo/A',
+      );
+      expect(agentDiscovery.clearCache).toHaveBeenCalledTimes(3);
+      expect(commandDiscovery.clearCache).toHaveBeenCalledTimes(3);
     });
 
     it('re-resolves auth/model/effort after the fan-out (non-blocking)', async () => {

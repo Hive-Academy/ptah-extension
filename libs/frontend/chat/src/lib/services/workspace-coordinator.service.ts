@@ -1,6 +1,8 @@
 import { Injectable, inject, Injector } from '@angular/core';
 import {
+  AgentDiscoveryFacade,
   AuthStateService,
+  CommandDiscoveryFacade,
   EffortStateService,
   ModelStateService,
   type IWorkspaceCoordinator,
@@ -12,6 +14,7 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { FilePickerService } from './file-picker.service';
 
 /**
  * Common interface for editor services that support workspace partitioning.
@@ -24,13 +27,17 @@ interface WorkspaceAwareService {
 
 /**
  * Orchestrates workspace operations across TabManagerService (chat),
- * EditorService (editor), GitStatusService (git state),
- * TerminalService (terminal state), SessionLoaderService (session cache),
- * and ConfirmationDialogService.
+ * SessionLoaderService (session cache), FilePickerService (`@` picker file
+ * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
+ * command caches), EditorService (editor), GitStatusService /
+ * GitBranchesService (git state), TerminalService (terminal state), and
+ * ConfirmationDialogService.
  *
- * Editor services (EditorService, GitStatusService, TerminalService) are
- * resolved dynamically via Injector to avoid static imports of the
- * lazy-loaded editor library.
+ * Editor services (EditorService, GitStatusService, GitBranchesService,
+ * TerminalService) are resolved dynamically via Injector to avoid static
+ * imports of the lazy-loaded editor library. Everything else —
+ * TabManagerService, SessionLoaderService, FilePickerService and the two
+ * discovery facades — is injected directly and reset synchronously.
  *
  * @see IWorkspaceCoordinator for the contract and dependency inversion rationale.
  */
@@ -39,6 +46,9 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly tabManager = inject(TabManagerService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly filePicker = inject(FilePickerService);
+  private readonly agentDiscovery = inject(AgentDiscoveryFacade);
+  private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly injector = inject(Injector);
   private readonly authState = inject(AuthStateService);
   private readonly modelState = inject(ModelStateService);
@@ -91,8 +101,29 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
 
   async switchWorkspace(newPath: string): Promise<void> {
     const generation = ++this.switchGeneration;
+    // Synchronous fan-out. Every call below runs in the same synchronous block
+    // as the `switchGeneration` bump above — there is no `await` between them —
+    // so a superseded switch cannot interleave its reset between a newer
+    // switch's bump and its resets. Rapid A→B→A therefore ends with A's state,
+    // in order.
+    //
+    // The three picker caches MUST be reset here, before the awaited
+    // editor-service resolution below: any window in which they still hold the
+    // old root's data is a window in which a picker lies (TASK_2026_200,
+    // criterion 11). All three own their invalidation rather than having their
+    // signals cleared from here, because each must also discard the RPC
+    // responses already in flight for the previous workspace — a clear alone
+    // would be undone by the next response to land.
+    //
+    // `@` picker: file list, 5-minute TTL.
+    // `/` picker: agents + commands. `clearCache()` is these facades' full
+    // invalidation entry point (it bumps their generation and resets
+    // `_isLoading`), so there is no separate switch method to call.
     this.tabManager.switchWorkspace(newPath);
     this.sessionLoader.switchWorkspace(newPath);
+    this.filePicker.switchWorkspace(newPath);
+    this.agentDiscovery.clearCache();
+    this.commandDiscovery.clearCache();
 
     try {
       const services = await this.resolveEditorServices();
