@@ -1042,7 +1042,7 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 - ✅ C2 AC6: independent per-pane Monaco models untouched; only the doc comment was rewritten
 - ✅ Standing gates 1–7 pass — re-run live by the reviewer, all figures matching
 
-### Post-batch fix — `(focusin)` keyboard pane focus ✅ COMPLETE — `SHA_PENDING` (2026-08-10)
+### Post-batch fix — `(focusin)` keyboard pane focus ✅ COMPLETE — `6dc68c03b` (2026-08-10)
 
 > **Pulled out of the Batch 9 register (was item 6) and fixed rather than filed**, because filing it
 > left a C2 claim untrue. `setFocusedPane` is not only the `Ctrl+S` gate — it also cancels the pending
