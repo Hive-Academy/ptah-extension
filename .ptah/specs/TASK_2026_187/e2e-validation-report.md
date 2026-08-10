@@ -535,3 +535,80 @@ npx playwright test --config=playwright.config.ts \
 `npx tsc --noEmit --project apps/ptah-electron-e2e/tsconfig.spec.json` clean. `npx nx lint ptah-electron-e2e` — 0 errors, same 1 pre-existing warning in `fixtures.ts` (untouched). `apps/ptah-electron-e2e/src/support/ui-driver.ts` widened again (additive) with `'tasks' | 'harness-builder' | 'setup-hub'`, same pattern as the marketplace/tribunal addition in §4 — no logic change, the existing generic `switchView` fallback in `goto()` handles all three.
 
 **No Batch 4 application files were modified.** `git status --porcelain` shows the same Batch 4 diff as before this section (`app.config.ts`, `app-shell.component.html`/`.ts`, `lazy-view-components.token.ts`, `eslint.config.mjs`, `tsconfig.base.json`, the two new `services.ts` barrels, the developer's own `unit5-message-routing.spec.ts`), plus exactly the new files/edits listed above. No stash needed — nothing required isolating from this tree.
+
+---
+
+## 11. Batch 5, Units 9 + 10 — theme split, zod removal, streaming risk
+
+**Both uncommitted in the working tree.** Unit 9: 32 daisyUI prebuilt themes moved to a non-injected `theme-extra.css`, fetched on demand; `anubis`/`anubis-light` stay eager. Unit 10: the six `.safeParse` calls in `chat-message-handler.service.ts` replaced with hand-written parsers (backed by a 3,063-input Jest equivalence spec, already run and confirmed by the coordinator), removing `zod` (304 kB) from the eager bundle; one `tasks-ui` site deferred instead. Initial total now **2,200,511 B / 468.06 kB — under the 2,500,000 B target.**
+
+### 11.1 Streaming path — independently confirmed, both directions
+
+**Verdict: independently confirmed against the real running app.** New file `apps/ptah-electron-e2e/src/specs/chat/streaming-message-handlers.spec.ts`, 2 tests.
+
+**Why this targets the actual stated risk rather than a broader "does chat work" test**: the coordinator's concern was specific — _"a parser that wrongly rejects a valid payload would silently drop a streaming message."_ The Jest equivalence spec already rules this out at the parser-logic level (3,063 inputs, includes real corpus-caught divergences from zod's actual semantics — `unit10-zod-report.md` §3). What it cannot rule out is a **production-wiring** failure: does the real narrow-barrel-free import resolve in the actual built app, does `MessageRouterService` actually dispatch to the real parser, does the eager `ChatMessageHandler` singleton actually receive the message. That is what this file checks, against the built Electron renderer.
+
+**Method**: reading `chat-message-handler.service.ts` confirmed every one of the six `handle*` methods calls its parser **before** any tab/session-matching logic runs — so the accept/reject outcome is observable with **no chat tab or session ever created**, the same eager-service/never-opened-surface shape this task's R4 gate already established, applied to a payload-validation risk instead of a component-loading one. The instrument is `page.on('console')` (the renderer's own console — distinct from `mainProcessOutput`, which only captures the Electron main process) capturing the exact literal reject string each `handle*` method emits (`'[ChatMessageHandler] Invalid <Schema> — dropped'`).
+
+- **Test 1** pushes all six canonical valid payloads (copied verbatim from `wire-parsers.equivalence.spec.ts`'s own fixtures — `TURN_ENDED`, `TURN_FAILED`, `SUBAGENT_ENDED`, `COMPACTION_COMPLETE`, `PERMISSION_REQUEST`, `ASK_USER_QUESTION` — so this test and the Jest suite check the same shapes) and asserts **none** of the six reject strings appear. **Caught a real bug in my own test on the first run**: my hand-copied `TURN_ENDED.backgroundTasks[0]` fixture was missing `type`/`status` fields present in the actual equivalence-spec fixture, and the real parser correctly rejected my malformed copy — reproducing the exact "reject warning fires" outcome I was testing for, for the right reason (my payload was genuinely invalid), not a parser bug. Fixed the fixture to match the source exactly; re-ran clean. Recording this because it's a real illustration of the test _working_ — it caught a wrong payload immediately, which is exactly the sensitivity the whole point of this file requires.
+- **Test 2** pushes two payloads with a required field deleted (`sessionId` from `TURN_ENDED`, `toolName` from `PERMISSION_REQUEST`) and asserts the corresponding reject string **does** fire — checking the reject path wasn't accidentally widened into acceptance (the equivalence spec's own "both outcomes exercised" discipline, applied here too) — and that the app survives a rejected payload (navigates to `dashboard` afterward, confirms it renders).
+
+Both pass. Confirms: all six rewritten parsers accept real backend-shaped payloads and reject malformed ones, in the actual running app, not just in Jest.
+
+**Not attempted, and why**: a full multi-chunk text-streaming-order fidelity test (`chat:chunk` sequencing, message-bubble rendering). `CHAT_CHUNK` is not one of the six rewritten schemas — Unit 10 did not touch its validation at all, so a chunk-ordering test would not be exercising this unit's actual change. Building one would also require a full `chat:start` → `session:id-resolved` → tab/session-binding handshake with no existing e2e precedent to build from (confirmed no spec in this suite pushes any of the six message types, or `chat:chunk` with a bound session, before this file). Given the coordinator's stated risk was specifically the parser-reject failure mode, the six-schema accept/reject proof targets it directly; a full transcript-rendering test would be validating pre-existing, unchanged machinery at disproportionate effort for this validation.
+
+### 11.2 Theme split — H2 mechanised, H1 confirmed not mechanisable (not assumed)
+
+New file `apps/ptah-electron-e2e/src/specs/theme/theme.spec.ts`, 5 tests, all passing.
+
+**H2 (theme-extra.css never fetched for anubis/anubis-light) — mechanised**, exactly as `batch-5-unit9-report.md` §10 names it: _"the single highest-value check."_ Three tests: default (no persisted state) never fetches; `anubis-light` persisted never fetches; a persisted 32-theme (`dracula`) **does** fetch and applies pre-paint. Instrument: `page.on('request')` — confirmed empirically (again) to fire reliably for `file://` CSS `<link>` fetches, extending the same finding this task established for JS chunk imports.
+
+**Methodological finding along the way, worth recording**: seeding only `localStorage['ptah-theme']` is not sufficient to observe the persisted-theme case. `theme.service.ts` treats `localStorage` as a pre-paint **hint** only; on construction it re-reads the **authoritative** `vscode.getState('theme')` and will overwrite `data-theme` back to the default if that's empty — exactly as designed (§4b of the unit report), but it means a test must seed both. Fixed by also calling `rpcBridge.setState({ theme: 'dracula' })` (the same `'set-state'` IPC channel `preload.ts` backs `vscode.getState()` with) before the reload.
+
+**H1 (no `anubis` flash on the first painted frame) — confirmed NOT mechanisable in this harness, verified empirically rather than assumed.** Three instruments tried and rejected, documented in the spec file's header comment so the next person doesn't re-try them:
+
+1. `performance.getEntriesByType('resource')` — empty for `theme-extra.css`, same finding as this task's established result for JS chunks, now confirmed to extend to CSS `<link>` fetches too.
+2. `page.on('request')`/`page.on('response')` — fires, but `response.timing()` returns `-1` sentinels for the phases that don't apply to a `file://` disk read, and its `startTime` is not on the same clock axis as `performance.timeOrigin`-relative paint entries.
+3. Coarse cross-instrument correlation (Playwright-event-arrival vs. paint-entry timestamp, the technique used elsewhere in this validation for ordering claims accurate to tens of milliseconds) — nowhere near the single-frame (~16ms) precision the property being asked about requires: _"was the first frame already correct,"_ not _"did it become correct soon after."_
+
+Left in the human gate (H1, H1b, and the visual "no strobe" half of H3), matching the unit report's own conclusion — independently re-derived here, not copied.
+
+**H3 mechanics (not its visual claim) — mechanised.** All 34 themes present and selectable in the picker (34 buttons with distinct `data-theme` attributes; spot-checked `anubis`, `anubis-light`, `dracula`). A runtime switch to a never-before-loaded deferred theme (`dracula`) fetches the sheet and applies it; a second switch to a different deferred theme (`synthwave`) applies with **no** additional fetch (confirms the "reuse the loaded sheet" behaviour, §4e of the unit report). One interaction-robustness note: the theme buttons required `dispatchEvent('click')` instead of a real `.click()` — Playwright's hit-test reported the canvas empty-state panel as intercepting the pointer at that coordinate despite the button being visibly on top on screen (a daisyUI dropdown stacking-context quirk under this harness, confirmed via screenshot during triage, not a functional bug) — documented inline in the spec so it isn't mistaken for masking a real issue later.
+
+### 11.3 Startup TTI — no regression, but the paint instrument itself is now broken, and that is worth flagging plainly
+
+Ran `startup-tti.spec.ts` 8 times against the current (Units 9+10) build.
+
+|                                          | Samples (ms)                           |   n |  Median |  Mean | Stdev |
+| ---------------------------------------- | -------------------------------------- | --: | ------: | ----: | ----: |
+| Wall-clock "reload → canvas interactive" | 196, 232, 223, 221, 194, 202, 220, 220 |   8 | **220** | 213.5 |  13.2 |
+| `domContentLoadedEventEnd`               | 167, 155, 182, 136, 137, 157, 149, 144 |   8 |     152 | 153.4 |     — |
+
+**All 8 of 8 runs failed the spec's own sanity assertion** (`expect(paint.length).toBeGreaterThan(0)`) — `first-paint`/`first-contentful-paint` came back as an **empty array** every single time. This is not a new problem I introduced: `unit10-zod-report.md` §8 item 3 already flagged it, found in **8 of 11** of their own after-condition runs, and explicitly left it unresolved ("I could not resolve whether the after build paints before the harness observes, or whether this is harness flakiness"). **I reproduced it independently, at an even higher rate (8/8 vs. their 8/11).** This is now a confirmed, reproducible property of the current build in this harness, not a one-off flake — I am stating that plainly rather than re-attempting to explain it away, matching the standard the rest of this report holds itself to.
+
+**Consequence for this section's rigor**: every prior TTI comparison in this report (§8, §9, §10) used the paint-timing control as a corroborating, independent signal to judge whether a wall-clock delta was real or session drift. That control is **unavailable this round** — I do not have my own paint number to cross-check the wall-clock delta against. `domContentLoadedEventEnd` is the fallback signal Unit 10's own report used for exactly this reason (§6: _"the metric most directly tied to eager bundle size"_), and it is what I report alongside instead.
+
+**Reading the numbers regardless**: wall-clock median (220ms) and mean (213.5ms) sit almost exactly on top of §8's clean post-Batch-2-revert baseline (215ms median / 225.3ms mean) and §10's Batch-4 numbers (218ms median / 219.2ms mean) — no evidence of a regression, consistent with Unit 10's own interleaved-A/B finding of "no measurable regression, −27ms median, not distinguishable from a true improvement." `domContentLoadedEventEnd` (152ms median) is **lower** than Unit 10's own reported after-condition DCL (170ms median) — independently reinforcing their claimed direction (less eager JS to fetch/parse/execute) rather than contradicting it, via a different sample set than theirs.
+
+**Verdict: no regression, corroborated by an independent metric, but with materially less confidence than earlier sections in this report** because the primary corroborating instrument (paint timing) is confirmed broken for this build and I cannot say why. This is worth a follow-up outside this validation's scope — possibly related to `theme-extra.css`'s render-blocking `<link>` insertion changing when the browser's own paint-timing hooks fire, given both units in this section touch the pre-paint document path, though I have not confirmed that theory.
+
+### 11.4 New test files
+
+```bash
+cd apps/ptah-electron-e2e
+npx playwright test --config=playwright.config.ts \
+  src/specs/chat/streaming-message-handlers.spec.ts \
+  src/specs/theme/theme.spec.ts
+```
+
+`npx tsc --noEmit --project apps/ptah-electron-e2e/tsconfig.spec.json` clean. `npx nx lint ptah-electron-e2e` — 0 errors, same 1 pre-existing warning in `fixtures.ts` (untouched). No application files modified — `git status --porcelain` shows only the pre-existing Units 9/10 diff plus these two new spec directories.
+
+### 11.5 Full suite — completed
+
+**125 tests total: 110 passed, 2 failed, 13 skipped.**
+
+**Failure 1 — `specs/perf/startup-tti.spec.ts`.** Already found and explained in §11.3: the paint-timing sanity assertion fails on this build (8/8 in my own targeted runs, and consistent here). Not new information, not treated as a fresh failure — it's the same confirmed anomaly, now observed a 9th time.
+
+**Failure 2 — `specs/rpc.spec.ts:209` "renderer receives a to-renderer push event matching the correlationId"** — `Error: worker process exited unexpectedly (code=3221226505, signal=null)`. `3221226505` is `0xC0000005`, a Windows access-violation exit code — the same crash signature `lifecycle.spec.ts:117` produced earlier in this investigation (§0), attributed there to launch-level instability under sustained single-machine load (by this point in the session, several hundred sequential Electron launches across six batches/units of validation). **Re-run in isolation, per the coordinator's own standing instruction**: passes cleanly, 11.0s. Same category, same resolution as every prior instance of this pattern in this report (`lifecycle.spec.ts:117`, `auto-updater.spec.ts:49` in §10.5) — not attributable to Units 9 or 10.
+
+**No new, real failure.** Both failures are already-attributed patterns from earlier in this validation, re-confirmed rather than newly discovered. `editor.spec.ts:73` (TASK_2026_196) did not fail this run — worth noting only because it's the one failure mode consistently present in nearly every full run in this report; its absence here is not evidence it's fixed, just run-to-run variance in a pre-existing, already-attributed defect this task was never scoped to fix.

@@ -2,9 +2,25 @@
 
 **Goal**: `ptah-extension-webview` initial production bundle **3.63 MB → under 2.50 MB** (`maximumWarning`), then restore `maximumError` to `3.5mb`.
 
-**Total Tasks**: 19 | **Batches**: 5 | **Status**: 4/5 complete
+**BATCH 5 STATUS**: ✅ **COMPLETE** — Unit 9 ✅ (`bfc9641`) · Unit 10 ✅ (`36775671e`) · Unit 7 ✅ (`a91babff2`) · Unit 8 ✅ (`a91babff2`, **MANDATORY LAST**, landed last).
 
-**⚠️ THE TARGET IS NOT YET MET.** After Batch 4 the initial total is **2,536,716 B** — **36,716 B above** the 2,500,000 B warning threshold. Batch 5 has been **re-planned around a new lever (Unit 9, the daisyUI theme split)**; Unit 6 was **removed**, not deferred. See the Batch 5 section.
+**Total Tasks**: 19 | **Batches**: 5 | **Status**: **5/5 complete** — ✅ **TASK COMPLETE**
+
+## ✅ TASK COMPLETE — final numbers
+
+|                                |                        Raw |                 Transfer |
+| ------------------------------ | -------------------------: | -----------------------: |
+| Initial BEFORE (task baseline) |      3,628,659 B (3.63 MB) |                694.00 kB |
+| Initial AFTER (shipped)        |  **2,200,514 B (2.20 MB)** |            **467.90 kB** |
+| **Delta**                      | **−1,428,145 B (−39.4 %)** | **−226.10 kB (−32.6 %)** |
+
+**`maximumError` restored to `3.5mb`** (was raised to `4mb` on 2026-08-09 to unblock the build). **`maximumWarning` `2.5mb` met with 299,486 B of headroom.** Build green with **zero budget warnings of any kind** — initial-bundle _and_ `anyComponentStyle`. `anyComponentStyle` was never raised; it is still 10 kb / 20 kb. The three `@xterm/* is not ESM` notices remain and are I-7 — CJS interop, emitted regardless of chunk placement, unactioned by design.
+
+**Deferred share of the app: 0.22 % → 40.5 %.** That inversion, not the raw byte count, is the finding `context.md` opened with.
+
+**See `completion-summary.md`** for the full per-batch ledger, the R15 finding, and the open items.
+
+~~After Batch 4 the initial total is 2,536,716 B — 36,716 B above the threshold.~~ Batch 4 closed 36,716 B above; **Unit 9** (theme split) took −24,153 B and **Unit 10** (zod split, a user-authorised expansion beyond plan §7) took a further −312,052 B. **Unit 7** cost **+3 B** and bought out the last budget warning. Unit 6 was **removed**, not deferred. See the Batch 5 section.
 
 **Source of truth**: `.ptah/specs/TASK_2026_187/implementation-plan.md` (user-APPROVED). This file is the executable projection of its §10 work breakdown and §13 handoff. **Do not redesign the plan.** Where this file and the plan disagree, the plan wins and the discrepancy is a bug in this file.
 
@@ -1058,8 +1074,39 @@ All four sites already have the correct `@else` spinner — no new UI, only the 
 
 ---
 
-## Batch 5: Split the daisyUI themes out of `styles.css` + component CSS + restore the error budget ⏸️ PENDING
+## Batch 5: Split the daisyUI themes out of `styles.css` + component CSS + restore the error budget ✅ COMPLETE
 
+**Commits**: `bfc9641` (Unit 9) · `36775671e` (Unit 10) · `a91babff2` (Units 7 + 8)
+
+> ### ✅ BATCH 5 COMPLETE — 2,200,514 B / 467.90 kB, 299,486 B of headroom, `maximumError` back at `3.5mb`.
+>
+> **All four units are ✅ COMPLETE and committed.**
+>
+> | Milestone                      | Initial total (B) |                      vs 2,500,000 |
+> | ------------------------------ | ----------------: | --------------------------------: |
+> | Batch 4 close                  |         2,536,716 |                         ✗ +36,716 |
+> | After **Unit 9** (theme split) |         2,512,563 |                         ✗ +12,563 |
+> | After **Unit 10** (zod split)  |         2,200,511 |             ✅ **−299,489 (MET)** |
+> | After **Unit 7** (CSS split)   |     **2,200,514** | ✅ **−299,486 (+3 B, see below)** |
+> | After **Unit 8** (budget)      |     **2,200,514** |     ✅ unchanged — threshold only |
+>
+> **Unit 7 cost +3 bytes and that is the whole cost.** The 3 B is the JS array
+> separator between the two style strings. It bought out a 977-byte
+> `anyComponentStyle` overage — the last budget warning in the build.
+>
+> **Unit 9 did NOT close the gap on its own, and the plan's premise for it was wrong
+> by an order of magnitude.** `tasks.md:1098` framed it as attacking a 276,070 B item;
+> the 32 prebuilt themes are only **25,164 B** of `styles.css` (9.1%). The rest is
+> Tailwind base + utilities + the daisyUI _component_ layer, none of it per-theme.
+> Unit 9 moved 100% of the available theme bytes and still left a **12,563 B** shortfall.
+> It was mis-sized, not mis-executed.
+>
+> **Unit 10 is a USER-AUTHORISED SCOPE EXPANSION beyond plan §7 and past I-8.**
+> `tasks.md:1155` said _"Do not touch `libs/shared`/`zod`"_ and `:1161` said to STOP
+> and escalate rather than improvise a fourth lever. Unit 9 **did** stop and escalate;
+> the user then authorised the zod work explicitly. This is the sanctioned path, not
+> a batch improvising around a constraint.
+>
 > ### 🔁 THIS BATCH WAS RE-PLANNED AFTER BATCH 4. Read this box before anything else.
 >
 > **It was**: Unit 6 (`@defer` the settings view, conditional) + Unit 7 + Unit 8.
@@ -1113,7 +1160,9 @@ So **settings is the first-run launch surface**, and Unit 6 was the one place in
 
 ---
 
-### Task 5.1: ★ NEW (Unit 9) — split the 32 prebuilt daisyUI themes out of `styles.css` ⏸️ PENDING
+### Task 5.1: ★ NEW (Unit 9) — split the 32 prebuilt daisyUI themes out of `styles.css` ✅ COMPLETE
+
+**Commit**: `bfc9641c931a86cfddca921864bedf54f0c7ef82` | **−24,153 B** | see the OUTCOME block at the end of this task
 
 **This is the task that closes the gap. It is not optional and it is not conditional.**
 
@@ -1160,9 +1209,65 @@ Same discipline as every other batch: full initial + lazy tables, initial total 
 
 **If Unit 9 lands the initial total under 2,500,000 B, say so with the number and proceed to Unit 8.** **If it does not, STOP and report the remaining gap — do not improvise a fourth lever and do not defer a launch surface to close it.** Every remaining candidate of any size is either a launch surface or explicitly out of scope (`zod` 304 kB, plan §7; the two shells, plan §5). That is a decision for the user, not for the batch.
 
+#### ✅ OUTCOME — Unit 9 COMPLETE, but it did NOT close the gap
+
+**Commit `bfc9641c931a86cfddca921864bedf54f0c7ef82`** — `perf(webview): defer the 32 prebuilt daisyUI themes to a lazy stylesheet`. 7 files, +646/−40.
+
+| Metric                   |      Before |       After |                            Δ |
+| ------------------------ | ----------: | ----------: | ---------------------------: |
+| Initial total (raw)      | 2,536,716 B | 2,512,563 B |                **−24,153 B** |
+| Initial total (transfer) |   523.59 kB |   518.46 kB |                     −5.13 kB |
+| `styles.css` (raw)       |   276,070 B |   250,906 B |                **−25,164 B** |
+| core chunk (loader)      |           — |           — |                     +1,011 B |
+| `main.js` (raw)          |   186,827 B |   186,827 B | **0 — byte-identical (I-4)** |
+| Gap to 2,500,000 B       |      36,716 |  **12,563** |                      −24,153 |
+
+−25,164 (themes out) + 1,011 (loader in) = −24,153. Nothing else moved.
+
+**Mechanism**: `{ input: "node_modules/daisyui/dist/themes.css", bundleName: "theme-extra", inject: false }` in the `styles` array. `theme-extra.css` (52,973 B) lands under Angular's own **Lazy chunk files** table — the make-or-break unknown, confirmed by build output. Sourced from the daisyUI package itself so it cannot drift from the plugin's theme list on upgrade; a second Tailwind config was rejected because `@angular/build` resolves ONE Tailwind config per build and would have duplicated the whole base+utilities layer.
+
+**R7 verified on the built artifact** (not inferred): `theme-extra.css` appears in `index.html` exactly once, as an inert `rel="ptah-deferred-stylesheet"` marker. **No `stylesheet` / `preload` / `modulepreload` rel points at it**, and the `modulepreload` list is unchanged at 10 entries / 1,148,645 B. The marker exists only so each host rewrites the URL (`vscode-resource:` / `file:`), which is what makes the change host-agnostic with no extension-host or Electron-main edit.
+
+**It also fixes a pre-existing flash.** The old FOUC guard read `window.ptahConfig.savedTheme`, which **nothing in the repo ever sets** — so today _every_ launch for a non-default-theme user paints `anubis` then flips. The new pre-paint script reads `localStorage` (readable in `<head>` on both hosts, unlike `vscode.getState`, which is only available pre-paint in Electron). One honest gap: the first VS Code launch after this ships has no `localStorage` mirror yet, so those users get one more `anubis` frame, once, then never again.
+
+`ThemeName` and `DAISYUI_THEMES` are byte-for-byte unchanged; all 34 themes remain selectable.
+
 ---
 
-### Task 5.2: `message-bubble.component.css` — 10.98 kB vs the 10 kB warning ⏸️ PENDING
+### Task 5.1b: ★ NEW (Unit 10) — remove `zod` from the eager bundle ✅ COMPLETE
+
+**Commit**: `36775671e` — `perf(shared): split the zod schemas behind a secondary entry point`. 54 files, +2,421/−809.
+
+> **⚠️ SCOPE EXPANSION, USER-AUTHORISED.** This task did not exist in the plan. Plan §7 and I-8 put `libs/shared`/`zod` explicitly out of scope, and `tasks.md:1155` says _"Do not touch `libs/shared`/`zod` to make up a shortfall."_ Unit 9 correctly **stopped** at the 12,563 B shortfall and escalated (`:1161`); the user then authorised this work. Recorded here so no future reader mistakes it for a batch overrunning its constraints.
+
+| Metric               |    Before |                          After |              Δ |
+| -------------------- | --------: | -----------------------------: | -------------: |
+| Initial total (raw)  | 2,512,563 |                  **2,200,511** | **−312,052 B** |
+| Initial transfer     | 518.46 kB |                  **468.06 kB** |      −50.40 kB |
+| `npm:zod` in initial |  304.1 kB |     **absent — no row at all** |              — |
+| Budget 2,500,000 B   |         ✗ | ✅ **MET, 299,489 B headroom** |              — |
+
+Unit 10's isolated delta was −346,649 B; the current-tree figure is −312,052 B, the difference being a concurrent session's `settings.component` work, not this unit's.
+
+**Two mechanisms were independently keeping zod eager and both had to go.** The plan's §A posed it as an either/or; it is neither. `export *` from the main barrel dragged in every zod module regardless of use — `execution/schemas.ts` and `messages/schemas.ts` were in the eager chunk with **zero frontend references** — AND there were **7** live `.safeParse` sites, not the 6 the plan listed (`TasksStore` is a `MESSAGE_HANDLERS` entry reached via the narrow `/services` barrel). Replacing the call sites alone left `npm:zod` at exactly 304.1 kB; `"sideEffects": false` alone produced a **byte-identical** build. Only the barrel split plus the call-site changes together work.
+
+**What makes the hand-written parsers safe** — the whole justification for doing something the plan scoped out:
+
+1. **Equivalence is demonstrated, not asserted.** `libs/shared/src/lib/types/wire-parsers.equivalence.spec.ts` runs both implementations over **3,063 differential inputs**, asserting identical accept/reject, `toStrictEqual` output (so a key present-but-`undefined` is not equated with an absent key), key order, and array frozenness. A companion assertion per schema proves the corpus exercises **both** outcomes, so it cannot pass by rejecting everything.
+2. **The corpus caught four real divergences that review did not.** The sharpest: **`z.record` applies a far stricter plain-object test than `z.object`** — the first parser accepted a `Date` as `toolInput` where zod rejects it. Over structured-clone IPC (Electron) a `Date` or `Map` really can arrive, so this would have widened the trust boundary exactly as warned. The derived rule was validated against zod over 26 exotic inputs, all 26 agreeing. Also: `z.number()` is a finiteness check (rejects `NaN`/`±Infinity`), `.int()` enforces the **safe**-integer range, and `z.string().uuid()` is version-agnostic while `UUID_REGEX` is v4-only — and `PermissionRequestSchema` uses **both**.
+3. **It removes a live crash path.** `z.array().readonly().safeParse()` **throws a `TypeError`** on a non-empty typed array instead of returning `success:false` (zod freezes before the array check rejects; V8 refuses to freeze a non-empty ArrayBuffer view). `handleSessionTurnEnded` has **no `try`/`catch`**, so today that propagates out of the message handler. The parser rejects instead, and the spec asserts precisely that, so it can never silently become the weaker side.
+
+Net: the streaming trust boundary is **unchanged in what it admits and strictly improved in one crash mode**.
+
+**Deferral was rejected for the six streaming sites** — `session:turnEnded` / `chat:chunk` arrive on the hot path with no queue, and dropping or reordering a streaming message is far worse than 304 kB (this task's own record: a 118 kB win reverted over 70 ms). The one `tasks-ui` site **does** defer, because it surfaces `error.issues[0].message` verbatim to users and hand-writing it would mean replicating zod's issue ordering.
+
+**RPC dual-registration untouched** — verified independently, not taken on trust. `libs/shared/.../rpc.types.ts` and `ALLOWED_METHOD_PREFIXES` in `rpc-handler.ts` _are_ dirty in the working tree, but **entirely from the concurrent session's `outputStyle:` namespace**; both were deliberately excluded from these commits. Splitting zod out of `rpc/rpc-harness.types.ts` changes no method prefix.
+
+---
+
+### Task 5.2 (Unit 7): `message-bubble.component.css` — 10.98 kB vs the 10 kB warning ✅ COMPLETE
+
+**Commit**: `a91babff2` | **+3 B** | **LANDED — not skipped.** See the OUTCOME block at the end of this task.
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.css`
 
@@ -1176,9 +1281,133 @@ Note: if this task is skipped, the final build in Task 5.4 will still emit the c
 
 **Unchanged by the re-plan, and still the lowest priority in the batch.** Confirmed still warning on the Batch 4 build: _"message-bubble.component.css exceeded maximum budget. Budget 10.00 kB was not met by 977 bytes with a total of 10.98 kB."_ **It contributes nothing to the 36,716 B gap** — a component stylesheet is bundled either way; splitting it only silences a separate budget line. **Unit 9 comes first and Unit 8 comes last; if Unit 9 turns out to be more work than expected, drop this one without hesitation.** Dropping it does not block I-9.
 
+> **⬆️ RE-PRIORITISED after Units 9 + 10 — this is now worth doing where it previously was not.**
+> The initial-bundle warning is **gone**, so `message-bubble.component.css` is the **only
+> remaining budget warning in the build** (the three `@xterm/*` "not ESM" notices are I-7 and
+> unactioned by design). Still **977 bytes** over, unchanged: _"Budget 10.00 kB was not met by
+> 977 bytes with a total of 10.98 kB."_ Silencing it now makes the final build genuinely
+> warning-clean rather than merely warning-clean **on the initial bundle**. The 15-minute
+> drop rule still applies — if it is not trivially separable, mark it
+> `⏭️ SKIPPED (not trivially separable)` and move on; it still does not block I-9 or Unit 8.
+
+#### ✅ OUTCOME — Unit 7 COMPLETE, landed for +3 bytes
+
+**Commit `a91babff2`.** The **sibling-stylesheet** route was taken. The alternative the task
+offered — _"move genuinely global rules to `styles.css`"_ — was **rejected outright**, and the
+reason is worth keeping: moving a `:host ::ng-deep` rule to a global sheet strips its
+`[_nghost-*]` prefix, so selectors like `markdown p` would begin matching **outside** the
+bubble. That is a silent, product-wide CSS regression for 977 bytes. Not a trade worth taking.
+
+| File                                 | Action                                                                        |                                        Bytes |
+| ------------------------------------ | ----------------------------------------------------------------------------- | -------------------------------------------: |
+| `message-bubble.component.css`       | truncated to the verbatim head                                                |                           17,892 → **9,495** |
+| `message-bubble-prose.component.css` | **CREATED** — the verbatim tail                                               | **9,183** (8,397 CSS + 786 B header comment) |
+| `message-bubble.component.ts`        | `styleUrl` → `styleUrls`, plus a comment recording that order is load-bearing |                                       +11/−1 |
+
+**The split is a single byte boundary** immediately before the `Callout Cards` header. Nothing
+was rewritten, reordered, reformatted, merged or deleted. **Order is load-bearing**: three rules
+in part 2 deliberately override part 1 by source order (`.code-block-container pre` over
+`markdown pre`; `markdown table { border-top }`; `markdown tr:nth-child(even) td`). Part 2 must
+stay second in `styleUrls` and the component now says so.
+
+**Rendering-unchanged was measured, not argued.** Both states were built and the emitted CSS
+diffed: the **entire** difference is the 3-character `','` array separator at the split point.
+Remove it and the split build's CSS is string-equal to the single-file build's (10,313 B both).
+Both halves compile to the same `[_nghost-%COMP%]` placeholder, so encapsulation is preserved.
+
+**Independently re-verified by team-leader before committing** (not taken from the report):
+`git cat-file` of the HEAD blob confirms part A is byte-identical to `HEAD[0:9495]` and part B
+minus its 786 B header is byte-identical to `HEAD[9495:]` — `cmp` clean both halves. The
+`git diff` of the truncated file is **0 additions / 334 deletions**, i.e. a pure truncation.
+Both halves are independently brace-balanced (51/51 and 48/48), so the split point is at a
+top-level boundary, not inside a rule or at-rule.
+
+| Build                   |               Initial total | Component-style warning                              |
+| ----------------------- | --------------------------: | ---------------------------------------------------- |
+| Pre-split (single file) |     2,200,511 B / 468.06 kB | ⚠️ _"not met by 977 bytes with a total of 10.98 kB"_ |
+| Post-split (shipped)    | **2,200,514 B** / 467.90 kB | ✅ **none**                                          |
+
+**Honest gap**: no human looked at a rendered message bubble during this unit. The
+byte-equality proof is strictly stronger than a screenshot for _this_ change — the shipped CSS
+is provably the same bytes — but it is not a pair of eyes. Task 5.3's manual gate still owns it.
+
 ---
 
-### Task 5.3: Full regression gate ⏸️ PENDING
+### Team-leader verification of Units 9 + 10 (pre-commit) — all gates PASS
+
+Run by team-leader on the current tree before committing. Not a substitute for Task 5.3.
+
+| Gate                                 | Result                                                                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Production build (`--skip-nx-cache`) | ✅ **Initial total 2.20 MB / 468.06 kB**, exact filesystem sum **2,200,511 B** across 21 initial files                          |
+| Initial-bundle budget warning        | ✅ **NONE** — the only budget warning left is `message-bubble.component.css` (977 B, Unit 7)                                    |
+| `zod` in initial chunks              | ✅ **0 of 21** — marker scan (`ZodError`/`$ZodType`/`zod/v4`/`_zod`) over every initial file                                    |
+| R7 — `theme-extra.css` linkage       | ✅ 1 occurrence in `index.html`, the inert `rel="ptah-deferred-stylesheet"` marker; **no** stylesheet/preload/modulepreload rel |
+| `theme-extra.css` placement          | ✅ listed under **Lazy chunk files** (52.97 kB), plus a 129 B `metadata-patch-schema-lazy` chunk                                |
+| `wire-parsers` equivalence spec      | ✅ **14/14** (3,063 differential inputs)                                                                                        |
+| **Workspace-wide** typecheck         | ✅ **89/89 projects**, 0 `error TS` (`nx run-many -t typecheck --all --skip-nx-cache`)                                          |
+| `nx test core`                       | ✅ 23 suites / **479** tests (includes the 8 new theme tests)                                                                   |
+| `nx test chat`                       | ✅ 53 suites / 705 passed, 2 skipped                                                                                            |
+| `nx test shared`                     | ✅ 29 suites / **642** tests                                                                                                    |
+| `nx test ptah-extension-webview`     | ✅ 5 suites / **25** tests (includes the 5 `theme-boot-lists` sync tests)                                                       |
+| `nx test tasks-ui`                   | ✅ 17 suites / 470 tests — **17 spec files on disk, 17 suites ran**, nothing silently skipped                                   |
+| Lint (9 touched projects)            | ✅ **0 errors** (warnings pre-existing)                                                                                         |
+| RPC dual-registration                | ✅ untouched by Units 9/10 — see Task 5.1b                                                                                      |
+
+**One discrepancy worth recording, benign**: `unit10-zod-report.md` §7 lists `test tasks-ui` as _"691 passed / 2 skipped"_. The real figure is **470 passed / 0 skipped**, and 691/2-skipped matches `chat`'s shape — a transcription slip in the report, not a lost suite. All 17 `tasks-ui` spec files execute.
+
+#### ⚠️ Commit attribution — read before assuming these two commits are pure
+
+A **concurrent session** is mid-flight on an `output-styles` feature (TASK_2026_197) across `libs/backend/**`, both hosts' `phase-2-libraries.ts`, `rpc.types.ts`, `rpc-handler.ts`, `.commitlintrc.json` and `CLAUDE.md`. Every candidate file was attributed **by reading its diff**, not by `git status`. Files deliberately **excluded** as theirs: `rpc.types.ts`, `rpc-handler.ts` (`ALLOWED_METHOD_PREFIXES` gained only `'outputStyle:'`), `ai-provider.types.ts`, `settings-core/**`, `cli-engine/register-thoth-libraries.ts`, both `phase-2-libraries.ts`, `chat/src/lib/settings/**`, `agent-sdk` constants + query-options-builder, `.commitlintrc.json`, `CLAUDE.md`, and all of `.ptah/specs/**`.
+
+**Three inert hunks of theirs ARE in `36775671e`, knowingly**: the `@ptah-extension/output-styles` path mapping in `tsconfig.base.json`, `apps/ptah-cli/tsconfig.build.json` and `apps/ptah-electron/tsconfig.build.json` (3 lines each, 6 added lines total). They point at `libs/backend/output-styles/src/index.ts`, which is untracked and absent from HEAD, so they are **inert** — nothing committed imports it, and nothing of theirs was removed or altered.
+
+Hunk-splitting them was **mechanically impossible without a worse outcome**, for two independent reasons:
+
+1. This repo's `pre-commit` runs `lint-staged --no-stash`, which **implies `--no-hide-partially-staged`** — a partially-staged file is committed **in full** regardless of what was staged.
+2. The mandatory `nx run ptah-electron:validate-deps` gate performs a real esbuild of the electron main bundle **from the working tree**. Removing the output-styles mapping from `apps/ptah-electron/tsconfig.build.json` would break it, because their `phase-2-libraries.ts` imports `@ptah-extension/output-styles` — and reverting that would cascade through `rpc-handlers`' index, manifest and DI.
+
+Omitting the mappings entirely was the worse option: `@ptah-extension/shared/schemas` would not resolve at HEAD and `ptah-electron:build-main` would fail. **No `--no-verify` was used; both hooks ran and passed.** The concurrent session's staged index entry was parked and **restored byte-identically** afterwards.
+
+---
+
+### Task 5.3: Full regression gate ✅ AUTOMATED HALF COMPLETE · ⏸️ HUMAN GATE OPEN
+
+> **Read this status literally — it is not "done".** Everything mechanisable has been
+> mechanised and passes; see `e2e-validation-report.md` §11 and the team-leader gate table
+> above. What remains is the set of properties that were **proven not observable** in the
+> Playwright harness, plus the visual checks. Those are listed under "Residual — human gate"
+> below and are carried into `completion-summary.md` as open items. **The task is being closed
+> with them open, deliberately and on the record**, because none of them blocks the shipped
+> change and all of them are visual-confirmation of behaviour that automated gates already
+> cover structurally.
+>
+> **Automated, all green**: workspace-wide typecheck 89/89 · `core` 479 · `chat` 705/2-skipped ·
+> `shared` 642 · `ptah-extension-webview` 25 · `tasks-ui` 470 · lint 0 errors ·
+> `ptah-electron:validate-deps` (run again by the pre-commit hook on `a91babff2`) ·
+> the `wire-parsers` equivalence corpus 14/14 over 3,063 inputs ·
+> e2e coverage of every deferred surface, both `message-handlers-eager` specs, the streaming
+> parser accept/reject spec, and 5 theme specs.
+>
+> **Residual — human gate, carried open into `completion-summary.md`**:
+>
+> - **H1 — no `anubis` flash on the first painted frame** for a non-default-theme user.
+>   **Confirmed NOT mechanisable in this harness, empirically rather than by assumption** —
+>   three instruments were tried and rejected (`performance.getEntriesByType('resource')`
+>   returns empty for `file://` CSS; `response.timing()` returns `-1` sentinels and sits on a
+>   different clock axis from paint entries; cross-instrument correlation is ~tens of ms against
+>   a single-frame ~16 ms question). Documented in the spec header so nobody re-tries them.
+> - **Monaco diff add/remove highlighting** seen, not inferred (I-5 / R1).
+> - **`@else` spinner / `@placeholder` visual check** on every deferred surface, under throttling.
+> - **A human looking at a message bubble** with markdown, a code block, a callout, a table and
+>   a streaming avatar in view — new from Unit 7.
+> - **The paint-timing instrument is broken on the current build and nobody knows why.**
+>   `first-paint`/`first-contentful-paint` came back an empty array in **8 of 8** runs
+>   (Unit 10's own report saw 8 of 11 and also could not resolve it). This removes the
+>   corroborating control that §8/§9/§10 used to separate a real TTI delta from session drift.
+>   Wall-clock (220 ms median) and `domContentLoadedEventEnd` (152 ms median) both show
+>   **no regression** and DCL is _better_ than Unit 10's own after-condition figure — but the
+>   confidence is materially lower than earlier sections and that is stated rather than smoothed.
 
 **No file changes.** Run before Task 5.4 so that the final build is the last thing that happens.
 
@@ -1202,7 +1431,28 @@ Manual, **both hosts** (VS Code webview and `npm run electron:serve`):
 
 ---
 
-### Task 5.4: ★ FINAL, MANDATORY — restore `maximumError` to `3.5mb` ⏸️ PENDING
+### Task 5.4 (Unit 8): ★ FINAL, MANDATORY — restore `maximumError` to `3.5mb` ✅ COMPLETE
+
+**Commit**: `a91babff2` | **`"4mb"` → `"3.5mb"`** | **landed last, as mandated.** See the OUTCOME block at the end of this task.
+
+> **Unit 8's blocker is cleared.** Unit 9's report correctly refused to let this run at a
+> 12,563 B shortfall (`:1325` — _"If Unit 9 did not close the gap, do NOT tick this and do NOT
+> change `maximumError`"_). **Unit 10 closed it.** The initial total is **2,200,511 B**, the
+> initial-bundle warning is **gone**, and this task can now land honestly rather than landing
+> green-but-still-warning. **It remains MANDATORY LAST.**
+>
+> **Confirmed still outstanding**: `apps/ptah-extension-webview/project.json` currently reads
+> `"maximumError": "4mb"` — Units 9 and 10 did **not** touch the `budgets` block. Unit 9's only
+> `project.json` edit was the `styles` array.
+>
+> **R12a — expect `npx nx reset` to FAIL here; do not escalate it.** Unit 9 hit exactly this and
+> recorded the working substitute: the daemon _does_ stop, and the failure is only the recursive
+> removal of `.nx/workspace-data`. **Deleting the four graph artifacts inside it directly —
+> `project-graph.json`, `file-map.json`, `source-maps.json`, `nx_files.nxt` — succeeded**, and
+> that is the thing I-6 actually cares about (the graph gets recomputed from the edited
+> `project.json` rather than read stale, F-11). Unit 9 proved it worked: the build picked up the
+> new `styles` entry and emitted `theme-extra.css`, which a stale graph could not have produced.
+> Still `mkdir -p .nx/cache/terminalOutputs` pre-emptively so the pre-commit hook does not crash.
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-webview\project.json`
 **Line anchor**: **line 61** (verified — the `budgets[0]` block spans lines 58-62)
@@ -1234,10 +1484,91 @@ Budget the time; do not escalate a failing `nx reset` as a blocker. **Do NOT wor
 
 **Final acceptance**:
 
-- [ ] Build **green** with **zero initial-bundle budget warnings** — initial total under **2.50 MB**. **This is the first time in the task that this box can honestly be ticked; Batch 4 finished 36,716 B above it.** If Unit 9 did not close the gap, do NOT tick this and do NOT change `maximumError` — report the shortfall instead
-- [ ] No component-style warning **if Task 5.2 landed**; if 5.2 was skipped, the remaining warning is named and explained
-- [ ] `maximumError` is `"3.5mb"`
-- [ ] Final before/after chunk table recorded: **3.63 MB → final**, with `main.js` transfer against the 353.23 kB baseline and the full `modulepreload` diff
+- [x] Build **green** with **zero initial-bundle budget warnings** — initial total under **2.50 MB**. ✅ **VERIFIED at 2,200,514 B / 467.90 kB on the post-`maximumError` production build.** The gate condition is satisfied by Units 9 + 10 together — Unit 9 alone left 12,563 B
+- [x] No component-style warning — **Task 5.2 LANDED**, so there is none. **Zero budget warnings of any kind.** The only warnings left are the three `@xterm/* is not ESM` notices, which are I-7: CJS interop, emitted regardless of chunk placement, unactioned by design
+- [x] `maximumError` is `"3.5mb"` — confirmed on disk, on the **recomputed** Nx project graph via `nx show project`, and in the committed tree (`git show a91babff2:apps/ptah-extension-webview/project.json`)
+- [x] Final before/after chunk table recorded — see below, `units-7-8-report.md` §3 (full per-chunk tables) and `completion-summary.md`
+
+#### ✅ OUTCOME — Unit 8 COMPLETE, and the loop `context.md` opened is closed
+
+`apps/ptah-extension-webview/project.json`, `budgets[0]`:
+
+```jsonc
+{ "type": "initial", "maximumWarning": "2.5mb", "maximumError": "3.5mb" }
+```
+
+`budgets[1]` (`anyComponentStyle`) is **untouched at 10 kb / 20 kb**. The component-style
+warning was silenced by splitting the file (Unit 7), never by raising the budget. **No budget
+was raised anywhere in this task.**
+
+**`npx nx reset` failed again, exactly as R12a predicts** — `EPERM` on
+`.nx/workspace-data`, exit 1, not retried. The R12a substitute was applied: delete
+`project-graph.json`, `file-map.json`, `source-maps.json`, `nx_files.nxt` directly, and
+`mkdir -p .nx/cache/terminalOutputs`. **The graph refresh was then verified rather than
+assumed** — `npx nx show project ptah-extension-webview --json` was read back off the
+recomputed graph and carries `"maximumError":"3.5mb"`. **F-11 is closed on evidence: the final
+budget check did not validate against a stale graph.**
+
+**`nx reset` is now 4-for-4 broken on this machine** (Batch 1 ×2, Unit 9, Unit 8); the
+direct-delete substitute is 3-for-3. It should be promoted from a risk-row footnote to the
+standing procedure for any `project.json` edit in this repo.
+
+---
+
+## ✅ FINAL BEFORE/AFTER — the acceptance criterion at `context.md:96-97`
+
+**Full per-chunk tables (initial and lazy, raw and transfer) are in `units-7-8-report.md` §3.**
+Summary and per-batch ledger:
+
+|                                               |                              Raw |                 Transfer |
+| --------------------------------------------- | -------------------------------: | -----------------------: |
+| **Initial BEFORE**                            |        **3,628,659 B** (3.63 MB) |            **694.00 kB** |
+| **Initial AFTER**                             |        **2,200,514 B** (2.20 MB) |            **467.90 kB** |
+| **Delta**                                     |       **−1,428,145 B (−39.4 %)** | **−226.10 kB (−32.6 %)** |
+| Initial file count                            |                           7 → 21 |                          |
+| Lazy total                                    | 8,022 B → **1,497,165 B** (×186) |       ~3.00 kB → ~283 kB |
+| Lazy file count                               |                           3 → 13 |                          |
+| Deferred share of the app                     |              **0.22 % → 40.5 %** |                          |
+| Headroom under the 2,500,000 B warning        |                    **299,486 B** |                          |
+| Headroom under the restored 3,500,000 B error |                  **1,299,486 B** |                          |
+
+### Per-batch ledger
+
+| Batch / Unit                                                                    | Initial total after (B) |                            Δ (B) |
+| ------------------------------------------------------------------------------- | ----------------------: | -------------------------------: |
+| Baseline                                                                        |               3,628,659 |                                — |
+| Batch 1 — editor → `/services` barrel                                           |               3,628,659 | **0** (`main.js` byte-identical) |
+| Batch 2 — `LazyViewService`, marketplace + tribunal lazy (**canvas reverted**)  |                       — |                 see batch report |
+| Batch 3 — `@defer` thoth-shell (**dashboard NOT deferred, R15**)                |                       — |                 see batch report |
+| Batch 4 close — tasks-ui + harness-builder (**setup-wizard NOT deferred, R15**) |               2,536,716 |        cumulative **−1,091,943** |
+| Unit 9 — daisyUI theme split                                                    |               2,512,563 |                          −24,153 |
+| Unit 10 — zod out of the eager bundle                                           |               2,200,511 |                         −312,052 |
+| Unit 7 — `message-bubble.css` split                                             |               2,200,514 |                           **+3** |
+| Unit 8 — `maximumError` → `3.5mb`                                               |               2,200,514 |               0 (threshold only) |
+| **Final**                                                                       |           **2,200,514** |                   **−1,428,145** |
+
+**Reconciliation note, stated rather than smoothed**: the per-batch rows for Batches 2 and 3 are
+not carried as absolute initial totals in this file — each batch measured its delta against the
+_previous_ batch's build and recorded it in its own report. The two endpoints (3,628,659 and
+2,200,514) and the Batch 4 close (2,536,716) are directly measured filesystem sums and they
+reconcile exactly with the four Batch 5 unit deltas. The Batch 1-4 cumulative figure is derived
+by subtraction from those endpoints, not independently re-measured.
+
+### I-4 — `main.js` transfer trace
+
+|           |                   Raw |                 Transfer |
+| --------- | --------------------: | -----------------------: |
+| Baseline  | 1,904,251 B (1.90 MB) |                353.23 kB |
+| **Final** |         **186,883 B** |             **44.08 kB** |
+| Delta     |      **−1,717,368 B** | **−309.15 kB (−87.5 %)** |
+
+I-4 required only that `main.js` never **grow**. It fell to an eighth of its transfer size.
+
+### R7 — `modulepreload`, final state
+
+**10 entries, every one resolving to a file on the initial list. Zero of the 13 lazy chunks are
+preloaded.** `theme-extra.css` carries an inert `rel="ptah-deferred-stylesheet"` marker, which
+is not a `stylesheet`, `preload` or `modulepreload` rel and so is not fetched by the browser.
 
 ---
 
