@@ -42,6 +42,38 @@ export interface ComplimentaryLicenseResult {
 }
 
 /**
+ * Input to {@link LicenseService.issueComplimentaryLicenseTx} — the `tx`-aware
+ * complimentary-licence core (TASK_2026_201 R2, mechanism (b)).
+ *
+ * Deliberately NOT the DTO: the core is called both by
+ * `createComplimentaryLicense` (which has a DTO) and by the waitlist
+ * approve-to-cohort action (which has a waitlist row, not a DTO). Everything
+ * the core needs is passed explicitly so neither caller has to fabricate a DTO.
+ */
+export interface IssueComplimentaryLicenseTxParams {
+  /** Already-resolved recipient. The core never find-or-creates. */
+  user: User;
+  plan: PlanName;
+  /**
+   * Recorded verbatim in the `license.complimentary.issue` audit metadata.
+   * The core does NOT recompute `expiresAt` from it — the caller owns that,
+   * via {@link LicenseService.computeComplimentaryExpiresAt}, so a 400 for an
+   * invalid custom date is still thrown before any write.
+   */
+  durationPreset: ComplimentaryDurationPreset;
+  expiresAt: Date | null;
+  /** Persisted to `License.createdBy`. Callers pass `actor.email`. */
+  createdBy: string;
+  actor: AdminActor;
+  reason: string;
+  /**
+   * When `true`, skips the `EXISTING_ACTIVE_LICENSE` conflict guard. The
+   * approve-to-cohort path never sets it (TASK_2026_201 R5.4).
+   */
+  stackOnTopOfPaid?: boolean;
+}
+
+/**
  * License Tier type — open-source + Builders model (exactly three values).
  *
  * Tier values:
@@ -329,7 +361,7 @@ export class LicenseService {
     source?: string;
   }): Promise<{ licenseKey: string; expiresAt: Date | null }> {
     const { email, plan, createdBy = 'admin', source } = params;
-    const user = await this.findOrCreateUserByEmail(email);
+    const { user } = await this.findOrCreateUserByEmail(email);
     await this.prisma.license.updateMany({
       where: {
         userId: user.id,
@@ -380,30 +412,48 @@ export class LicenseService {
   /**
    * Find an existing user by (lowercased) email or create a bare one.
    *
-   * Shared by `createLicense` (admin gift-by-email) and
-   * `createComplimentaryLicense` (Early-Adopter approval that starts from a
-   * waitlist email with no `User` yet). Kept identical to the original inline
-   * `createLicense` logic so behavior is unchanged.
+   * Shared by `createLicense` (admin gift-by-email), `createComplimentaryLicense`
+   * (approval that starts from a waitlist email with no `User` yet) and — since
+   * TASK_2026_201 — the waitlist approve-to-cohort action, which calls it
+   * **inside** its per-row transaction.
+   *
+   * @param email - raw address; lowercased before any query.
+   * @param client - optional interactive-transaction client. When supplied, both
+   *   the read and the create run on the caller's transaction so a rollback
+   *   removes a user this call created. Omit it to run on the base client.
+   *   Same `tx ?? this.prisma` shape as `AuditLogService.write`.
+   * @returns the resolved user and whether THIS call created it — the latter
+   *   feeds `userWasCreated` in the `waitlist.approve` audit metadata (R7).
    */
-  private async findOrCreateUserByEmail(email: string): Promise<User> {
+  async findOrCreateUserByEmail(
+    email: string,
+    client?: Prisma.TransactionClient,
+  ): Promise<{ user: User; created: boolean }> {
+    const db: Prisma.TransactionClient = client ?? this.prisma;
     const normalized = email.toLowerCase();
-    const existing = await this.prisma.user.findUnique({
+    const existing = await db.user.findUnique({
       where: { email: normalized },
     });
     if (existing) {
-      return existing;
+      return { user: existing, created: false };
     }
-    return this.prisma.user.create({
+    const created = await db.user.create({
       data: { email: normalized },
     });
+    return { user: created, created: true };
   }
 
   /**
    * Compute the `expiresAt` for a complimentary license given a preset + optional
    * custom date. Throws `BadRequestException` on invalid input so the controller
    * returns a 400 with a precise error code.
+   *
+   * Public since TASK_2026_201 so the waitlist approve-to-cohort action resolves
+   * `'1y'` through the SAME definition rather than re-deriving `365 * DAY_MS`.
+   * Callers must invoke it BEFORE opening their transaction — the 400 it throws
+   * has to precede every write.
    */
-  private computeComplimentaryExpiresAt(
+  computeComplimentaryExpiresAt(
     preset: ComplimentaryDurationPreset,
     customExpiresAt: string | undefined,
     now: Date,
@@ -448,7 +498,167 @@ export class LicenseService {
   }
 
   /**
+   * Run `fn` under the 3-attempt licenseKey-collision retry.
+   *
+   * ⚠️ THE OWNER OF THE TRANSACTION OWNS THE RETRY. `fn` MUST open (and close)
+   * its own transaction — pass `() => prisma.$transaction(...)`, never a
+   * statement inside somebody else's open transaction.
+   *
+   * On PostgreSQL, any statement error inside an open transaction puts the
+   * session into the aborted state (`25P02`) and every subsequent statement
+   * fails until `ROLLBACK`. So a P2002 caught *inside* an interactive
+   * transaction cannot be retried inside it: the retry would issue its next
+   * statement into an aborted session and fail with an error that has nothing
+   * to do with a key collision — while still LOOKING like a retry. Wrapping the
+   * whole transaction is therefore the only correct shape, and it is the shape
+   * this code has always had (TASK_2026_201 R5.6).
+   *
+   * Retrying the whole transaction also means a re-entered attempt cannot leave
+   * the previous attempt's writes behind: attempt N rolled back in full.
+   *
+   * Only P2002 is retried. Every other error — including the
+   * `EXISTING_ACTIVE_LICENSE` 409 raised by the conflict guard — propagates on
+   * the first attempt.
+   */
+  async withLicenseKeyRetry<T>(fn: () => Promise<T>): Promise<T> {
+    const maxAttempts = 3;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err;
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          attempt < maxAttempts
+        ) {
+          this.logger.warn(
+            `License key collision on attempt ${attempt}/${maxAttempts}, retrying`,
+          );
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    // Unreachable: the final attempt either returns or rethrows above. Kept as
+    // the same defensive tail the pre-extraction loop carried.
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Failed to create complimentary license after retries');
+  }
+
+  /**
+   * The complimentary-licence CORE, executed on a caller-supplied transaction
+   * (TASK_2026_201 R2, mechanism (b)).
+   *
+   * Does exactly four things, in this order, and nothing else:
+   *   1. the `EXISTING_ACTIVE_LICENSE` conflict guard, **read through `tx`**,
+   *      unless `stackOnTopOfPaid === true`;
+   *   2. generates a FRESH licence key — one per call, so a caller-level retry
+   *      gets a new key rather than re-issuing the colliding one;
+   *   3. writes the `license.complimentary.issue` audit row through `tx`
+   *      (PRE-6: the audit row commits and rolls back with the mutation);
+   *   4. `tx.license.create` with `source: 'complimentary'`.
+   *
+   * It **sends no email, stamps no waitlist row, and never opens a
+   * transaction.** Suppression of `sendLicenseKey` on the approval path is
+   * therefore structural, not conditional: there is no mail side effect here to
+   * suppress, and each caller owns its own outbound message.
+   *
+   * It also does not retry. See {@link withLicenseKeyRetry} for why the retry
+   * must live outside the transaction, and therefore outside this method.
+   *
+   * The conflict guard reading through `tx` rather than the base client is a
+   * deliberate improvement over the pre-extraction code: it closes the TOCTOU
+   * window between "no active paid licence" and the create. No observable
+   * contract changes — same `findFirst`, same `ConflictException` body.
+   *
+   * @throws ConflictException `EXISTING_ACTIVE_LICENSE` when the user already
+   *   holds an active NON-complimentary licence and stacking was not requested.
+   */
+  async issueComplimentaryLicenseTx(
+    tx: Prisma.TransactionClient,
+    params: IssueComplimentaryLicenseTxParams,
+  ): Promise<License> {
+    const {
+      user,
+      plan,
+      durationPreset,
+      expiresAt,
+      createdBy,
+      actor,
+      reason,
+      stackOnTopOfPaid,
+    } = params;
+
+    if (stackOnTopOfPaid !== true) {
+      const conflict = await tx.license.findFirst({
+        where: {
+          userId: user.id,
+          status: 'active',
+          source: { not: 'complimentary' },
+        },
+        select: {
+          id: true,
+          plan: true,
+          source: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+      });
+      if (conflict) {
+        throw new ConflictException({
+          code: 'EXISTING_ACTIVE_LICENSE',
+          message:
+            'User has an existing active non-complimentary license. Pass stackOnTopOfPaid=true to override.',
+          existingLicense: conflict,
+        });
+      }
+    }
+
+    const licenseKey = this.generateLicenseKey();
+
+    await this.auditLog.write({
+      tx,
+      actorEmail: actor.email,
+      action: 'license.complimentary.issue',
+      targetType: 'License',
+      metadata: {
+        userId: user.id,
+        userEmail: user.email,
+        durationPreset,
+        expiresAt: expiresAt ? expiresAt.toISOString() : null,
+        reason,
+        plan,
+        stacked: stackOnTopOfPaid === true,
+      },
+      ipAddress: actor.ip,
+      userAgent: actor.userAgent,
+    });
+
+    return tx.license.create({
+      data: {
+        licenseKey,
+        userId: user.id,
+        plan,
+        status: 'active',
+        source: 'complimentary',
+        expiresAt,
+        createdBy,
+      },
+    });
+  }
+
+  /**
    * Issue a complimentary (admin-gifted) license.
+   *
+   * Since TASK_2026_201 this is a thin composition over
+   * {@link issueComplimentaryLicenseTx} + {@link withLicenseKeyRetry}; its
+   * observable contract (signature, {@link ComplimentaryLicenseResult}, and the
+   * `Conflict` / `BadRequest` / `NotFound` it throws) is unchanged.
    *
    * TASK_2025_292 §6.3 — DIFFERS from `createLicense` in several critical ways
    * the spec calls out explicitly:
@@ -480,7 +690,7 @@ export class LicenseService {
         where: { id: dto.userId },
       });
     } else if (dto.email) {
-      user = await this.findOrCreateUserByEmail(dto.email);
+      user = (await this.findOrCreateUserByEmail(dto.email)).user;
     } else {
       throw new BadRequestException({
         code: 'MISSING_RECIPIENT',
@@ -493,117 +703,56 @@ export class LicenseService {
         message: `User ${dto.userId} not found`,
       });
     }
+    // Narrowed alias: `user` is `User | null` above, and the closure below
+    // needs the non-null form.
+    const recipient: User = user;
     const expiresAt = this.computeComplimentaryExpiresAt(
       dto.durationPreset,
       dto.customExpiresAt,
       now,
     );
-    if (dto.stackOnTopOfPaid !== true) {
-      const conflict = await this.prisma.license.findFirst({
-        where: {
-          userId: user.id,
-          status: 'active',
-          source: { not: 'complimentary' },
-        },
-        select: {
-          id: true,
-          plan: true,
-          source: true,
-          expiresAt: true,
-          createdAt: true,
-        },
-      });
-      if (conflict) {
-        throw new ConflictException({
-          code: 'EXISTING_ACTIVE_LICENSE',
-          message:
-            'User has an existing active non-complimentary license. Pass stackOnTopOfPaid=true to override.',
-          existingLicense: conflict,
-        });
-      }
-    }
-    const maxAttempts = 3;
-    let lastError: unknown = null;
-    let createdLicense: License | null = null;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const licenseKey = this.generateLicenseKey();
-      try {
-        createdLicense = await this.prisma.$transaction(async (tx) => {
-          await this.auditLog.write({
-            tx,
-            actorEmail: actor.email,
-            action: 'license.complimentary.issue',
-            targetType: 'License',
-            metadata: {
-              userId: user.id,
-              userEmail: user.email,
-              durationPreset: dto.durationPreset,
-              expiresAt: expiresAt ? expiresAt.toISOString() : null,
-              reason: dto.reason,
-              plan: dto.plan,
-              stacked: dto.stackOnTopOfPaid === true,
-            },
-            ipAddress: actor.ip,
-            userAgent: actor.userAgent,
-          });
-
-          return tx.license.create({
-            data: {
-              licenseKey,
-              userId: user.id,
-              plan: dto.plan,
-              status: 'active',
-              source: 'complimentary',
-              expiresAt,
-              createdBy: actor.email,
-            },
-          });
-        });
-        break; // Success — exit retry loop.
-      } catch (err) {
-        lastError = err;
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002' &&
-          attempt < maxAttempts
-        ) {
-          this.logger.warn(
-            `License key collision on attempt ${attempt}/${maxAttempts}, retrying`,
-          );
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    if (!createdLicense) {
-      throw lastError instanceof Error
-        ? lastError
-        : new Error('Failed to create complimentary license after retries');
-    }
-
-    this.logger.log(
-      `Complimentary license ${createdLicense.id} issued to ${user.email} by ${actor.email} (preset=${dto.durationPreset}, stacked=${dto.stackOnTopOfPaid === true})`,
+    // The retry wraps the WHOLE transaction (see `withLicenseKeyRetry`), and
+    // the core generates a fresh key on every attempt.
+    const createdLicense = await this.withLicenseKeyRetry(() =>
+      this.prisma.$transaction((tx) =>
+        this.issueComplimentaryLicenseTx(tx, {
+          user: recipient,
+          plan: dto.plan,
+          durationPreset: dto.durationPreset,
+          expiresAt,
+          createdBy: actor.email,
+          actor,
+          reason: dto.reason,
+          stackOnTopOfPaid: dto.stackOnTopOfPaid,
+        }),
+      ),
     );
 
-    // Best-effort: stamp the founding waitlist lead as converted. The
-    // Early-Adopter approval starts from a waitlist email, but we stamp for both
-    // paths — markConverted is idempotent and a no-op when no un-converted row
-    // matches. A failure here must NEVER fail an already-persisted grant.
+    this.logger.log(
+      `Complimentary license ${createdLicense.id} issued to ${recipient.email} by ${actor.email} (preset=${dto.durationPreset}, stacked=${dto.stackOnTopOfPaid === true})`,
+    );
+
+    // Best-effort: stamp the waitlist lead APPROVED — TASK_2026_201 R4.3.
+    // A gift is not a conversion. This used to call `markConverted`, which
+    // polluted the paid-conversion funnel with every free grant; `convertedAt`
+    // is now written by exactly one thing, the Paddle provisioning fan-out.
+    // We stamp for both recipient paths — `markApproved` is idempotent and a
+    // no-op when no un-approved row matches (R4.6). A failure here must NEVER
+    // fail an already-persisted grant.
     try {
-      await this.waitlist.markConverted(user.email);
+      await this.waitlist.markApproved(recipient.email);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Complimentary license ${createdLicense.id} persisted but waitlist markConverted failed for ${user.email}: ${message}`,
+        `Complimentary license ${createdLicense.id} persisted but waitlist markApproved failed for ${recipient.email}: ${message}`,
       );
     }
 
     if (dto.sendEmail !== false) {
       try {
         await this.emailService.sendLicenseKey({
-          email: user.email,
+          email: recipient.email,
           licenseKey: createdLicense.licenseKey,
           plan: dto.plan,
           expiresAt: createdLicense.expiresAt,

@@ -127,6 +127,46 @@ export class WaitlistService {
   }
 
   /**
+   * Stamp `approvedAt` on the waitlist row matching `email` (lowercased),
+   * marking the lead as granted FREE founding access.
+   *
+   * TASK_2026_201 R4.3 / R4.6. `approvedAt` and `convertedAt` are disjoint
+   * facts and must stay that way:
+   *   - `approvedAt`  — approve-to-cohort, and complimentary-licence issuance.
+   *   - `convertedAt` — the Paddle provisioning fan-out ONLY (they paid).
+   * A gift is not a conversion; stamping `convertedAt` for a free grant
+   * silently inflates the paid-conversion funnel.
+   *
+   * Idempotent and forgiving, mirroring {@link markConverted} exactly:
+   *   - No matching row → no-op (many recipients never joined the waitlist).
+   *   - Row already approved → no-op, and the existing timestamp is NEVER
+   *     moved — that is what the `approvedAt: null` guard in the `where` buys.
+   *
+   * Uses `updateMany` so a missing row resolves to `{ count: 0 }` instead of
+   * throwing — the caller must never fail a persisted grant on this.
+   *
+   * ⚠️ This is the non-transactional, email-keyed stamp used by the
+   * complimentary-licence endpoint. The approve-to-cohort action does NOT use
+   * it: that path claims the row by id inside its own transaction, because the
+   * claim is also its idempotency guard (R5).
+   */
+  async markApproved(email: string): Promise<void> {
+    const normalized = this.normalizeEmail(email);
+    const { count } = await this.prisma.waitlist.updateMany({
+      where: { email: normalized, approvedAt: null },
+      data: { approvedAt: new Date() },
+    });
+
+    if (count > 0) {
+      this.logger.log(`Waitlist lead marked approved (${normalized})`);
+    } else {
+      this.logger.log(
+        `Waitlist markApproved no-op — no un-approved row for ${normalized}`,
+      );
+    }
+  }
+
+  /**
    * Send the founding early-adopter invite to a wave of waitlist rows and stamp
    * `notifiedAt` on each successful send.
    *
