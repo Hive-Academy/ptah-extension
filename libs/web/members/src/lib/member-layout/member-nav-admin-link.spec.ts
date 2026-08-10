@@ -11,6 +11,7 @@ import {
   MEMBER_ADMIN_NAV_GROUP,
   MEMBER_NAV_GROUPS,
 } from '../member-nav.config';
+import { MemberNotificationsStore } from '../state/member-notifications.store';
 
 /**
  * The member panel's cross-panel Admin link.
@@ -35,6 +36,13 @@ describe('MemberLayout — the Admin nav item', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        // 🔴 SUPPLIED AS THE `/members` ROUTE SUPPLIES IT (Batch 15). The
+        // layout now injects the notifications store to bind the Notifications
+        // `badgeCount` — the same computed this file is about. The store is
+        // NOT `providedIn: 'root'` on purpose (RISK-AM: a 60 s poll in a root
+        // singleton outlives sign-out), so a direct `createComponent` of the
+        // shell has to provide it exactly as the route does.
+        MemberNotificationsStore,
       ],
     });
 

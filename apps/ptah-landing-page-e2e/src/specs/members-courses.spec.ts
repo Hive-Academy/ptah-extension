@@ -1,5 +1,6 @@
 import type { Page, Request } from '@playwright/test';
 
+import { runAxe } from '../support/axe';
 import { expect, test } from '../support/fixtures';
 import { cleanupCourse, seedCourse, type SeededCourse } from '../support/db';
 
@@ -601,13 +602,41 @@ test.describe('Member courses — the P3 journey @p0', () => {
     // first run of this test measured `['…/members/entitlement',
     // '…/members/hub']`; without the exclusion the constant would have had to
     // read `2`, which describes nothing.
+    // ⚠️ 🔴 BATCH 15 ADDED A SECOND SHELL-LEVEL EXCLUSION, AND IT IS THE SAME
+    // KIND AS THE PROBE ABOVE RATHER THAN A NEW LOOPHOLE.
+    //
+    // `…/notifications/unread-count` is the nav badge's ≥60 s poll (R10.4,
+    // R10.5, AD-14 — a REQUIREMENT, not an optimisation). It is issued by
+    // `MemberLayout`, the SHELL, on every member surface — the hub, the
+    // courses list, the account page, all of them — for exactly the same reason
+    // the entitlement probe is: it belongs to the panel, not to any page in it.
+    // Counting it would turn this assertion into a statement about the shell.
+    //
+    // What R6.2/R6.6 forbid is a SECTION fetching for itself, and every such
+    // request still lands on `/hub`, `/courses`, `/community/*`, `/live`,
+    // `/search` or `/packs` — all of which remain counted. This test therefore
+    // got STRICTER, not looser: the poll is asserted below to fire EXACTLY
+    // ONCE, so a shell that started polling per-section, or twice per entry,
+    // fails here.
+    //
+    // 🔴 THAT SECOND CLAUSE IS NOT HYPOTHETICAL — IT IS WHY THIS TEST WENT RED.
+    // The first run after the badge landed measured
+    // `[unread-count, unread-count, hub]`: `start()`'s eager fetch and the
+    // router's `NavigationEnd` for the same navigation both fired. The store
+    // now de-duplicates concurrent count reads, and the `toHaveLength(1)` below
+    // is what holds it to that.
     const memberRequests: string[] = [];
     const guardProbes: string[] = [];
+    const badgePolls: string[] = [];
     builderPage.on('request', (request: Request) => {
       const url = request.url();
       if (!url.includes('/api/v1/members/')) return;
       if (url.includes('/members/entitlement')) {
         guardProbes.push(url);
+        return;
+      }
+      if (url.includes('/notifications/unread-count')) {
+        badgePolls.push(url);
         return;
       }
       memberRequests.push(url);
@@ -620,87 +649,25 @@ test.describe('Member courses — the P3 journey @p0', () => {
     // Give any lazy child the chance to fetch before counting.
     await builderPage.waitForTimeout(1_500);
 
-    expect(memberRequests).toHaveLength(1);
+    expect(
+      memberRequests,
+      `member API calls during hub render: ${JSON.stringify(memberRequests)}`,
+    ).toHaveLength(1);
     expect(memberRequests[0]).toContain('/api/v1/members/hub');
     expect(memberRequests.filter((u) => u.includes('/courses'))).toEqual([]);
 
-    // ANTI-VACUITY on the exclusion: the guard probe really did fire, so the
-    // filter above removed something real rather than nothing.
+    // ANTI-VACUITY on the exclusions: BOTH really did fire, so the filters
+    // above removed something real rather than nothing.
     expect(guardProbes.length).toBeGreaterThan(0);
+    expect(badgePolls.length).toBeGreaterThan(0);
+
+    // 🔴 AND THE BADGE POLL IS EXACTLY ONE PER PANEL ENTRY. This is the half
+    // that makes the exclusion a tightening rather than a hole: the shell is
+    // allowed ONE count read, and the duplicate that shipped with the badge
+    // fails here.
+    expect(
+      badgePolls,
+      `badge polls during hub render: ${JSON.stringify(badgePolls)}`,
+    ).toHaveLength(1);
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* axe                                                                         */
-/* -------------------------------------------------------------------------- */
-
-interface AxeViolation {
-  id: string;
-  impact: string | null;
-  nodes: number;
-}
-
-/**
- * Runs axe over the page's OWN DOM.
- *
- * ⚠️ 🔴 THE THIRD-PARTY IFRAME IS EXCLUDED, AND THAT EXCLUSION IS STATED. In
- * the activated state the page embeds YouTube's player. Its internals are not
- * this repository's to fix and an unscoped run would report them forever, which
- * is how an a11y gate becomes noise someone learns to ignore. The exclusion is
- * `iframe` and nothing else — every element this repo authored is still in
- * scope.
- *
- * ⚠️ AXE IS LOADED FROM A CDN RATHER THAN FROM A DEV DEPENDENCY, AND THAT IS A
- * DELIBERATE TRADE THIS BATCH REPORTS RATHER THAN HIDES. `@axe-core/playwright`
- * is not installed, and installing it would rewrite `package.json` and
- * `package-lock.json` while two other processes are writing to this repository —
- * the shared-registry collision `context.md`'s serialisation rule exists to
- * prevent. The durable fix is one `devDependencies` line, and it belongs to
- * whoever owns Batch 15's full axe pass. This helper FAILS LOUDLY if the script
- * cannot be loaded — it never skips silently, which would make the gate
- * vacuous.
- */
-async function runAxe(page: Page): Promise<AxeViolation[]> {
-  await page.addScriptTag({
-    url: 'https://cdn.jsdelivr.net/npm/axe-core@4.10.2/axe.min.js',
-  });
-
-  const loaded = await page.evaluate(
-    () => typeof (window as { axe?: unknown }).axe !== 'undefined',
-  );
-  // A silent skip here would make the whole clause vacuous.
-  expect(loaded, 'axe-core failed to load — the a11y gate did not run').toBe(
-    true,
-  );
-
-  return page.evaluate(async () => {
-    const axe = (
-      window as unknown as {
-        axe: {
-          run(
-            context: unknown,
-            options: unknown,
-          ): Promise<{
-            violations: {
-              id: string;
-              impact: string | null;
-              nodes: unknown[];
-            }[];
-          }>;
-        };
-      }
-    ).axe;
-
-    const results = await axe.run(
-      // The page's own DOM; the third-party iframe is excluded by selector.
-      { include: [['body']], exclude: [['iframe']] },
-      { resultTypes: ['violations'] },
-    );
-
-    return results.violations.map((v) => ({
-      id: v.id,
-      impact: v.impact,
-      nodes: v.nodes.length,
-    }));
-  });
-}

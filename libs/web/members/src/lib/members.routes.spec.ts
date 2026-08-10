@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Route } from '@angular/router';
 
@@ -117,41 +117,69 @@ describe('MEMBER_ROUTES — no catch-all (R9.4, RK-11)', () => {
     expect(wildcards[0].isRedirect).toBe(true);
   });
 
-  it('🔴 the three live routes resolve REAL components, not the phase placeholder', () => {
-    // Batch 13's swap. Asserted by RESOLVING the lazy import rather than by
-    // reading the source, because a route can point at the right file and
-    // still export the placeholder.
+  it('🔴 EVERY lazy route resolves a REAL component — zero placeholders remain', async () => {
+    // 🔴 BATCH 15 SWAPPED THE LAST TWO (`packs`, `notifications`) AND DELETED
+    // THE PLACEHOLDER COMPONENT. This assertion used to name the three live
+    // routes Batch 13 swapped and was paired with an anti-vacuity test proving
+    // the placeholder mechanism was still wired for the remaining two. There is
+    // no remaining two, so the scope widened to the WHOLE TREE and the
+    // anti-vacuity partner was replaced by the count below — a route table that
+    // silently lost its children would otherwise pass this vacuously.
+    //
+    // Asserted by RESOLVING the lazy import rather than by reading the source,
+    // because a route can point at the right file and still export the wrong
+    // symbol.
     const children = MEMBER_ROUTES[0].children ?? [];
-    const live = children.filter((route) =>
-      ['live', 'live/replays', 'live/request'].includes(route.path ?? ''),
-    );
+    const lazy = children.filter((route) => route.loadComponent !== undefined);
 
-    expect(live).toHaveLength(3);
+    // Every child except the two redirects (`''` and `'**'`) loads a component.
+    expect(lazy).toHaveLength(children.length - 2);
+    expect(lazy.length).toBeGreaterThanOrEqual(13);
 
-    return Promise.all(
-      live.map(async (route) => {
-        expect(route.loadComponent).toBeDefined();
-        expect(route.data).toBeUndefined();
-
+    const resolved = await Promise.all(
+      lazy.map(async (route) => {
         const component = await (
           route.loadComponent as () => Promise<{ name: string }>
         )();
-        expect(component.name).not.toBe('MemberPhasePlaceholder');
+        return { path: route.path, name: component.name };
       }),
-    ).then((resolved) => {
-      expect(resolved).toHaveLength(3);
-    });
+    );
+
+    // A real, distinctly-named component per route.
+    expect(resolved.every((entry) => entry.name.length > 0)).toBe(true);
+    expect(new Set(resolved.map((entry) => entry.name)).size).toBe(
+      resolved.length,
+    );
+    expect(resolved.filter((entry) => /Placeholder/.test(entry.name))).toEqual(
+      [],
+    );
   });
 
-  it('the placeholder still serves the two routes Batch 15 owns', () => {
-    // Anti-vacuity for the assertion above: the placeholder mechanism is still
-    // wired, so "not the placeholder" means something.
+  it('🔴 NO route carries a `data` block, and the two Batch 15 owned are real', () => {
+    // The placeholder was configured ENTIRELY through route `data`
+    // (`surface`/`phase`/`summary`). With the component deleted, a surviving
+    // `data` block would be the residue of a half-finished swap — and would be
+    // invisible to the resolution test above, because the route would still
+    // load a real component while carrying dead configuration.
     const children = MEMBER_ROUTES[0].children ?? [];
-    const stubbed = children
-      .filter((route) => route.data !== undefined)
-      .map((route) => route.path);
 
-    expect(stubbed).toEqual(['packs', 'notifications']);
+    expect(children.filter((route) => route.data !== undefined)).toEqual([]);
+
+    // Named explicitly: these are the two this batch swapped, so the assertion
+    // is about them rather than about a tree that happened to be clean.
+    for (const path of ['packs', 'notifications']) {
+      const route = children.find((candidate) => candidate.path === path);
+      expect(route).toBeDefined();
+      expect(route?.loadComponent).toBeDefined();
+      expect(route?.data).toBeUndefined();
+    }
+  });
+
+  it('🔴 the placeholder module is DELETED from disk, not merely unreferenced', () => {
+    // An unreferenced file still compiles, still ships in no bundle, and still
+    // reads as "we might go back to stubs". Three docblocks promised the last
+    // consumer would delete it; this is the assertion that it did.
+    expect(existsSync(join(__dirname, 'placeholder'))).toBe(false);
   });
 
   it('matches the route table plan §5.2 specifies, exactly', () => {

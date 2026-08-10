@@ -1,5 +1,4 @@
-import type { Page } from '@playwright/test';
-
+import { runAxe } from '../support/axe';
 import {
   cleanupLiveSessions,
   cleanupSessionRequests,
@@ -466,81 +465,3 @@ test.describe('Member live surfaces (§8.2 P4, frontend half)', () => {
     }
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* axe                                                                         */
-/* -------------------------------------------------------------------------- */
-
-interface AxeViolation {
-  id: string;
-  impact: string | null;
-  /**
-   * ⚠️ THE SELECTORS, NOT JUST A COUNT. B10's helper returned `nodes: 3` and a
-   * failure then said only "three things are wrong somewhere on the page",
-   * which costs a re-run with an ad-hoc probe to act on. Two of this batch's
-   * three real a11y findings were located from this field.
-   */
-  targets: string[];
-  summary: string;
-}
-
-/**
- * Runs axe over the page's OWN DOM.
- *
- * ⚠️ THE SCOPE IS B10'S, VERBATIM, AND KEEPING IT IS DELIBERATE:
- * `{ include: [['body']], exclude: [['iframe']] }`. In the activated replay
- * state the page embeds YouTube's player, whose internals are not this
- * repository's to fix; an unscoped run would report them forever, which is how
- * an a11y gate becomes noise someone learns to ignore.
- *
- * ⚠️ AXE IS STILL LOADED FROM A CDN RATHER THAN FROM A DEV DEPENDENCY.
- * `@axe-core/playwright` is not installed, and installing it rewrites
- * `package.json` and `package-lock.json` while other processes write to this
- * repository. B10 recorded the same trade and routed the durable fix — one
- * `devDependencies` line — to Batch 15's full axe pass; this batch re-records it
- * rather than quietly taking it a second time. The helper FAILS LOUDLY if the
- * script cannot be loaded; it never skips silently.
- */
-async function runAxe(page: Page): Promise<AxeViolation[]> {
-  await page.addScriptTag({
-    url: 'https://cdn.jsdelivr.net/npm/axe-core@4.10.2/axe.min.js',
-  });
-
-  const loaded = await page.evaluate(
-    () => typeof (window as { axe?: unknown }).axe !== 'undefined',
-  );
-  expect(loaded, 'axe-core failed to load — the a11y gate did not run').toBe(
-    true,
-  );
-
-  return page.evaluate(async () => {
-    const axe = (
-      window as unknown as {
-        axe: {
-          run(
-            context: unknown,
-            options: unknown,
-          ): Promise<{
-            violations: {
-              id: string;
-              impact: string | null;
-              nodes: { target: string[]; failureSummary?: string }[];
-            }[];
-          }>;
-        };
-      }
-    ).axe;
-
-    const results = await axe.run(
-      { include: [['body']], exclude: [['iframe']] },
-      { resultTypes: ['violations'] },
-    );
-
-    return results.violations.map((violation) => ({
-      id: violation.id,
-      impact: violation.impact,
-      targets: violation.nodes.flatMap((node) => node.target),
-      summary: violation.nodes[0]?.failureSummary ?? '',
-    }));
-  });
-}

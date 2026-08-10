@@ -35,10 +35,17 @@ internal operator surface; on a member-facing surface it is a data-exposure
 hazard (R9.4, RK-11). `members.routes.spec.ts` fails the build if one is
 reintroduced.
 
-Phase 1 ships real `hub` and `account` pages. The remaining routes render
-`MemberPhasePlaceholder`, which reads its `data.surface` / `data.phase` from the
-route and renders the shared `EmptyState`. The route table is declared **now** so
-its enforcing spec is in force from day one.
+**Every route now renders a real surface.** Phase 1 declared the whole table up
+front — so its enforcing spec was in force from day one — and served the
+not-yet-built routes from one shared "ships in phase N" stand-in component.
+Batch 10 swapped the three course routes, Batch 13 the three live ones, and
+Batch 15 the last two (`packs`, `notifications`), which is the change that
+**deleted that component and its two route helpers**. `members.routes.spec.ts`
+asserts every lazy route resolves a real component, that no route carries a
+`data` block, and that the stand-in is gone from disk.
+
+A future surface that is not ready is a route that is **not declared**, or a
+component rendering its own honest empty state — not a new shared stub.
 
 ## Data
 

@@ -493,6 +493,183 @@ export function cleanupSessionRequests(userId: string): void {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Pack fixtures — TASK_2026_177 Batch 15                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ 🔴 `member_visible` IS THE ONLY THING THAT DECIDES WHAT A MEMBER SEES, AND
+ * `cohort_key` IS NOT IT (A-1).
+ *
+ * That is the single most important property these fixtures exist to prove, and
+ * it is counter-intuitive enough that a reader will assume the opposite: a pack
+ * carrying `cohort_key: 'founding'` is visible to EVERY entitled member,
+ * including one holding no `member_group_assignment` at all. The cohort is a
+ * DISPLAY LABEL that grants and revokes nothing. `seedPack` therefore takes the
+ * two as independent options rather than deriving one from the other, so a spec
+ * can seed the combination that would be a security bug if A-1 were false.
+ *
+ * ⚠️ `notes` IS ADMIN-INTERNAL (R5.2) AND MUST NEVER REACH A MEMBER. It is
+ * seeded with a marker string precisely so a spec can assert its ABSENCE from
+ * the page source non-vacuously — an assertion that the page does not contain
+ * `undefined` proves nothing.
+ */
+export interface SeededPack {
+  id: string;
+  slug: string;
+  title: string;
+}
+
+export function seedPack(
+  slugPrefix: string,
+  opts: {
+    memberVisible: boolean;
+    cohortKey?: string | null;
+    accessNote?: string | null;
+    notes?: string | null;
+    title?: string;
+  },
+): SeededPack {
+  const stamp = Date.now();
+  const id = `pck_${randomUUID()}`;
+  const slug = `${slugPrefix}-${stamp}-${randomUUID().slice(0, 6)}`;
+  const title = opts.title ?? `E2E Pack ${stamp}`;
+
+  const sqlText = (value: string | null | undefined): string =>
+    value === null || value === undefined
+      ? 'NULL'
+      : `'${value.replace(/'/g, "''")}'`;
+
+  psql(
+    `INSERT INTO packs (id, slug, title, description, repo_url, notes, member_visible, access_note, tags, cohort_key, created_by, created_at, updated_at) ` +
+      `VALUES ('${id}', '${slug}', ${sqlText(title)}, 'A throwaway pack for the Batch 15 e2e run.', ` +
+      `'https://github.com/hive-academy/${slug}', ${sqlText(opts.notes)}, ${opts.memberVisible}, ` +
+      `${sqlText(opts.accessNote)}, ARRAY['agents','nx']::text[], ${sqlText(opts.cohortKey)}, 'batch-15-e2e', now(), now())`,
+  );
+
+  return { id, slug, title };
+}
+
+/**
+ * Removes seeded packs by id, one statement per row.
+ *
+ * ⚠️ PER-STATEMENT ISOLATION AND A LOUD WARNING — the shape `cleanupCourse` was
+ * repaired into after B10's first full run abandoned nine parent rows because
+ * one child delete failed inside a single shared `try`.
+ */
+export function cleanupPacks(ids: readonly string[]): void {
+  for (const id of ids) {
+    try {
+      psql(`DELETE FROM packs WHERE id='${id}'`);
+    } catch (error: unknown) {
+      console.warn(
+        `[cleanupPacks] ${id} failed: ${
+          error instanceof Error ? firstLine(error.message) : String(error)
+        }`,
+      );
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notification fixtures — TASK_2026_177 Batch 15                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One row in a member's inbox.
+ *
+ * ⚠️ 🔴 `route` IS STORED, NOT DERIVED, AND THAT IS WHY IT IS A PARAMETER.
+ * The client refuses any stored route outside `/members/` (RISK-AO) because the
+ * value is FROZEN in the row and would outlive any later fix to the producer.
+ * A fixture that could only write well-formed routes could not test that guard
+ * at all, so this helper will happily write `//evil.example` — which is exactly
+ * the value a spec needs in order to prove the refusal is real.
+ *
+ * ⚠️ `bodyPreview` DEFAULTS TO LITERAL MARKDOWN plus an HTML tag. `bodyPreview`
+ * is an excerpt of member-authored markdown the contract states is NOT
+ * sanitized, and it is rendered as an escaped TEXT NODE (NFR-S2). A fixture of
+ * plain prose would make an `[innerHTML]` regression invisible — the characters
+ * have to be there for their survival to mean anything.
+ *
+ * ⚠️ `actor_id` IS NULLABLE AND IS LEFT NULL BY DEFAULT. It is a `@db.Uuid` FK
+ * to `users`; a fabricated value would violate it, and the member-facing
+ * contract carries `actorName`, never an id (NFR-S4).
+ */
+export interface SeededNotification {
+  id: string;
+  title: string;
+}
+
+export function seedNotification(
+  userId: string,
+  opts: {
+    kind?: string;
+    targetType?: string;
+    targetId?: string;
+    title?: string;
+    bodyPreview?: string | null;
+    route?: string;
+    read?: boolean;
+    actorId?: string | null;
+    /** Minutes into the past — newest-first ordering is asserted on this. */
+    ageMinutes?: number;
+  } = {},
+): SeededNotification {
+  const id = `ntf_${randomUUID()}`;
+  const title = opts.title ?? 'New reply to your topic';
+  const bodyPreview =
+    opts.bodyPreview === undefined
+      ? '**bold** <img src=x onerror=alert(1)> preview'
+      : opts.bodyPreview;
+
+  const sqlText = (value: string | null | undefined): string =>
+    value === null || value === undefined
+      ? 'NULL'
+      : `'${value.replace(/'/g, "''")}'`;
+
+  psql(
+    `INSERT INTO member_notifications (id, user_id, kind, actor_id, target_type, target_id, title, body_preview, route, read_at, created_at) ` +
+      `VALUES ('${id}', '${userId}'::uuid, ${sqlText(opts.kind ?? 'topic.reply')}, ` +
+      `${opts.actorId ? `'${opts.actorId}'::uuid` : 'NULL'}, ` +
+      `${sqlText(opts.targetType ?? 'Topic')}, ${sqlText(opts.targetId ?? 'top_e2e')}, ` +
+      `${sqlText(title)}, ${sqlText(bodyPreview)}, ` +
+      `${sqlText(opts.route ?? '/members/community/topics/e2e-topic')}, ` +
+      `${opts.read ? 'now()' : 'NULL'}, now() - interval '${opts.ageMinutes ?? 0} minutes')`,
+  );
+
+  return { id, title };
+}
+
+/**
+ * Every notification owned by one member.
+ *
+ * ⚠️ SCOPED BY OWNER RATHER THAN BY ID, DELIBERATELY, AND ONLY BECAUSE THE
+ * OWNER IS ITSELF A THROWAWAY FIXTURE. The specs drive the real UI, which marks
+ * rows read and could in principle create more; deleting by the ids this file
+ * minted would strand anything the product wrote for the same member. The user
+ * row is deleted moments later by `cleanupUser`, so the blast radius is one
+ * identity that did not exist before the spec started.
+ */
+export function cleanupNotifications(userId: string): void {
+  try {
+    psql(`DELETE FROM member_notifications WHERE user_id='${userId}'::uuid`);
+  } catch (error: unknown) {
+    console.warn(
+      `[cleanupNotifications] ${userId} failed: ${
+        error instanceof Error ? firstLine(error.message) : String(error)
+      }`,
+    );
+  }
+}
+
+/** How many of a member's notifications are still unread — for anti-vacuity. */
+export function unreadNotificationCount(userId: string): number {
+  const out = psql(
+    `SELECT count(*) FROM member_notifications WHERE user_id='${userId}'::uuid AND read_at IS NULL`,
+  );
+  return Number.parseInt(out, 10);
+}
+
 /**
  * Removes a seeded course and everything under it, children first.
  *

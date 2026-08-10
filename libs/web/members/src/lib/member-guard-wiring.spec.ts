@@ -105,6 +105,24 @@ describe('MemberGuard guards /members from app.routes.ts (R9.5)', () => {
   });
 
   afterEach(() => {
+    // 🔴 THE PANEL NOW POLLS, AND THAT IS ANSWERED RATHER THAN ASSERTED AWAY
+    // (Batch 15, R10.4/R10.5). Once `MemberLayout` renders, it calls
+    // `MemberNotificationsStore.start()`, which fetches the unread count
+    // eagerly and again on every `NavigationEnd`. Those requests are a real
+    // feature of the shell, not leakage from this spec's subject — which is
+    // the GUARD.
+    //
+    // ⚠️ THEY ARE FLUSHED, NOT IGNORED, AND `verify()` IS NOT WEAKENED. Any
+    // request that is NOT the count still fails the check below, so this
+    // absorbs exactly one known, named endpoint and leaves every other
+    // assertion in this file at full strength. `member-notifications.store.spec.ts`
+    // owns the assertions about the poll itself.
+    for (const request of httpMock.match(
+      '/api/v1/members/notifications/unread-count',
+    )) {
+      request.flush({ unreadCount: 0 });
+    }
+
     httpMock.verify();
     store.clear();
   });
@@ -229,18 +247,35 @@ describe('MemberGuard guards /members from app.routes.ts (R9.5)', () => {
       expect(store.isAdmin()).toBe(true);
     }));
 
-    it('a placeholder member surface is not bounced either', fakeAsync(() => {
-      // ⚠️ THIS USED TO NAVIGATE TO `/members/live/replays`, AND BATCH 13 MOVED
-      // IT. That route became a real, fetching surface when the live pages
-      // landed, so the assertion started failing on an unanswered
-      // `GET /members/live` — a routing test failing on a data request. Moved to
-      // `/members/packs`, which is still a Batch-15 placeholder and therefore
-      // still tests what this case is about: a surface with NO activation fetch
-      // is not bounced. Batch 15 will have to move it again, or answer the
-      // request the way the `/members` case above does.
+    it('a FETCHING member surface is not bounced either', fakeAsync(() => {
+      // ⚠️ 🔴 THIS CASE HAS NOW BEEN CHASED ACROSS THREE BATCHES, AND BATCH 15
+      // STOPPED IT RUNNING. It began on `/members/live/replays`; Batch 13 made
+      // that a fetching surface and moved the case to `/members/packs`; Batch 15
+      // made `/members/packs` a fetching surface too. Its own comment offered
+      // the two repairs — move it again, or ANSWER THE REQUEST the way the
+      // `/members` case above does — and this is the second one.
+      //
+      // Moving it a third time was not available and would have been wrong
+      // anyway: EVERY member surface now fetches on activation, so there is no
+      // third destination, and "a surface with no activation fetch" had become
+      // a category with no members. Chasing it would have deferred the problem
+      // to a batch that could not solve it.
+      //
+      // ⚠️ THE ASSERTION IS NOT WEAKENED — it is about the GUARD, not about the
+      // absence of data. The request is answered with a FAILURE, exactly as the
+      // `/members` case does, precisely because the page's own rendering is not
+      // this spec's subject: `PacksPage` degrades to its error cell either way,
+      // and what is asserted below is where the admin ended up.
       navigateWith('/members/packs', entitledAdmin);
 
+      httpMock
+        .expectOne('/api/v1/members/packs')
+        .flush(null, { status: 500, statusText: 'Server Error' });
+      tick();
+      fixture.detectChanges();
+
       expect(router.url).toBe('/members/packs');
+      expect(router.url).not.toContain('/admin');
       expect(memberShellRendered()).toBe(true);
     }));
 

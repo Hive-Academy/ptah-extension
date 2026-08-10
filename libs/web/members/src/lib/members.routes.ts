@@ -1,7 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { MemberLayout } from './member-layout/member-layout';
-import type { MemberPlaceholderData } from './placeholder/member-phase-placeholder';
+import { MemberNotificationsStore } from './state/member-notifications.store';
 
 /**
  * Member Routes — lazy-loaded child tree mounted at `/members` by
@@ -22,14 +22,14 @@ import type { MemberPlaceholderData } from './placeholder/member-phase-placehold
  *   /members/courses                      -> CoursesPage          (phase 3)
  *   /members/courses/:slug                -> CoursePage            (phase 3)
  *   /members/courses/:slug/lessons/:lessonSlug -> LessonPage       (phase 3)
- *   /members/packs                        -> member packs         (phase 5)
+ *   /members/packs                        -> PacksPage            (phase 5)
  *   /members/live                         -> LivePage             (phase 4)
  *   /members/live/replays                 -> ReplaysPage          (phase 4)
  *   /members/live/request                 -> RequestSessionPage   (phase 4)
  *   /members/community                    -> FeedPage             (phase 2)
  *   /members/community/topics/:slug       -> ThreadPage           (phase 2)
  *   /members/community/my-threads         -> MyThreadsPage         (phase 2)
- *   /members/notifications                -> inbox                (phase 5)
+ *   /members/notifications                -> NotificationsPage    (phase 5)
  *   /members/search                       -> SearchPage           (phase 2)
  *   /members/account                      -> AccountPage
  *
@@ -60,6 +60,33 @@ export const MEMBER_ROUTES: Routes = [
      */
     path: '',
     component: MemberLayout,
+    /**
+     * 🔴 `MemberNotificationsStore` IS PROVIDED HERE, AT THE PANEL ROUTE, AND
+     * NOWHERE ELSE (RISK-AM, R9.3).
+     *
+     * TWO properties come from this one line and neither is available any other
+     * way:
+     *
+     * 1. **LIFETIME.** The store holds a 60 s `setInterval`. Root-provided, it
+     *    would outlive sign-out (a `401` loop against an endpoint that can
+     *    never succeed again), outlive the member leaving `/members`, and leave
+     *    an open handle in Jest. Provided here it is destroyed with the panel,
+     *    and `member-notifications.store.spec.ts` asserts that a destroyed
+     *    store makes no request when the clock is advanced past 60 s.
+     *
+     * 2. **IDENTITY.** `MemberLayout` (the nav badge) and `NotificationsPage`
+     *    (the inbox) must resolve THE SAME INSTANCE — that is what makes the
+     *    count have one writer. A `providers` array on either component would
+     *    give that component its own copy, and the badge would then be reading
+     *    a different object from the one the member just acted on. That is
+     *    precisely the second source of truth R9.3 forbids, arriving through
+     *    dependency injection instead of through a second template chip.
+     *
+     * `providedIn: 'any'` would be worse than `'root'` for both: it silently
+     * gives each lazy route its own copy — its own poll, its own count — while
+     * looking global.
+     */
+    providers: [MemberNotificationsStore],
     children: [
       {
         path: '',
@@ -102,13 +129,22 @@ export const MEMBER_ROUTES: Routes = [
           import('./learning/lesson-page').then((m) => m.LessonPage),
       },
       {
+        /**
+         * ⚠️ THE LAST TWO PLACEHOLDERS IN THE TREE WERE THIS AND
+         * `notifications`, AND BATCH 15 SWAPPED BOTH. Phase 5 needed the
+         * `packs` table's `member_visible` column and `GET /v1/members/packs`
+         * before a member surface could render anything but a stub — A-1 makes
+         * `cohortKey` a LABEL that gates nothing, so there was no client-side
+         * way to decide what a member may see. Batch 14 landed the endpoint.
+         *
+         * With these two gone, the shared phase stand-in component and its two
+         * route helpers were DELETED, exactly as that component's own docblock
+         * and this file's promised: "the last one to do so deletes this file".
+         * `members.routes.spec.ts` asserts none remains.
+         */
         path: 'packs',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Packs',
-          phase: 5,
-          summary: 'No packs have been published to members yet.',
-        }),
+        loadComponent: () =>
+          import('./packs/packs-page').then((m) => m.PacksPage),
       },
       {
         /**
@@ -179,13 +215,19 @@ export const MEMBER_ROUTES: Routes = [
           import('./community/my-threads-page').then((m) => m.MyThreadsPage),
       },
       {
+        /**
+         * ⚠️ THIS ROUTE RESOLVES THE SAME STORE INSTANCE THE NAV BADGE READS,
+         * and that is the `providers` array above rather than anything here.
+         * A `providers: [MemberNotificationsStore]` on this route — or on
+         * `NotificationsPage` — would give the inbox its own count and its own
+         * poll, and the badge would then be reading a different object from the
+         * one the member just acted on (R9.3, RISK-AM).
+         */
         path: 'notifications',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Notifications',
-          phase: 5,
-          summary: 'Your notification inbox opens in phase 5.',
-        }),
+        loadComponent: () =>
+          import('./notifications/notifications-page').then(
+            (m) => m.NotificationsPage,
+          ),
       },
       {
         path: 'search',
@@ -208,22 +250,22 @@ export const MEMBER_ROUTES: Routes = [
   },
 ];
 
-/**
- * ⚠️ TWO CONSUMERS LEFT: `packs` and `notifications`, both Batch 15's.
+/*
+ * ⚠️ 🔴 THE SHARED "SHIPS IN PHASE N" STAND-IN COMPONENT AND ITS TWO ROUTE
+ * HELPERS ARE GONE, AND NOTHING SHOULD BRING THEM BACK.
  *
- * Batch 10 took the three course routes and Batch 13 took the three live ones,
- * so this helper is down from eight to two. **It is not dead and must not be
- * deleted**: the placeholder component is what keeps a nav item that Batch 4
- * shipped from being a broken link for a whole phase, and Batch 15 is the
- * change that removes the last two — with the component and both helpers.
+ * Every route in this tree now renders a real surface. The stand-in existed so
+ * a nav item Batch 4 shipped would not be a broken link while its backend was
+ * built, and it was deleted the moment its last two consumers were swapped —
+ * which is what its own docblock and this file both promised would happen: "the
+ * last one to do so deletes this file". Eight consumers became three, became
+ * two, became none.
+ *
+ * A future surface that is not ready is a route that is NOT DECLARED, or a
+ * component rendering its own honest empty state. Re-introducing a shared stub
+ * would mean carrying a component whose entire purpose is to be deleted, and
+ * the last one took three batches to go.
+ *
+ * `members.routes.spec.ts` asserts every lazy route resolves a real component,
+ * that no route carries a `data` block, and that the module is gone from disk.
  */
-function loadPlaceholder() {
-  return import('./placeholder/member-phase-placeholder').then(
-    (m) => m.MemberPhasePlaceholder,
-  );
-}
-
-/** Typed passthrough so a malformed placeholder `data` block fails to compile. */
-function placeholder(data: MemberPlaceholderData): MemberPlaceholderData {
-  return data;
-}
