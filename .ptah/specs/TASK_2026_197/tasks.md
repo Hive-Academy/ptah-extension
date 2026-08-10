@@ -576,14 +576,14 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 7 — P4b CLI parity write (opt-in) ⏸️ PENDING
+## Batch 7 — P4b CLI parity write (opt-in) 🔄 IMPLEMENTED
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: B5 | **Tasks**: 2
 **Rationale**: A leaf. **Independently cuttable** — if cut, the feature still works end to end inside Ptah and only cross-tool parity is lost. Cut this before cutting anything except P5.
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full.
 
-### Task 7.1 — Wire the parity write behind the opt-in flag ⏸️ PENDING
+### Task 7.1 — Wire the parity write behind the opt-in flag 🔄 IMPLEMENTED
 
 **Files**: `.../rpc-handlers/src/lib/handlers/output-style-rpc.handlers.ts` — **EDIT** (authored by this task in B4); optionally `.../settings/output-style/output-style-list.component.ts` — **EDIT** (authored by this task in B6) to enable the checkbox
 **Spec**: plan §4.1, §4.2. `outputStyle:activate` accepts `parity?: { enabled: boolean; tier: SettingsTier }`. **Default target: `<workspaceRoot>/.claude/settings.json` (project tier). Parity is OPT-IN, default OFF.** Tier remains user-selectable to `~/.claude/settings.json` or `.claude/settings.local.json`.
@@ -591,7 +591,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 **UI copy**: "Also apply this style when I run `claude` in this project", naming the exact file **before** it is written (R6, E2).
 **Never** write a `${plugin}:${style}` value into any settings file (G6, defensive).
 
-### Task 7.2 — Parity oracle spec ⏸️ PENDING
+### Task 7.2 — Parity oracle spec 🔄 IMPLEMENTED
 
 **File**: `D:/projects/ptah-extension/libs/backend/output-styles/src/lib/claude-settings.writer.parity.spec.ts` — **CREATE**
 **Spec**: plan §4.4(b), §13. Write a fixture `.claude/settings.json` via `ClaudeSettingsWriter`, then call the SDK's `resolveSettings({ cwd, settingSources })` and assert the effective `outputStyle` came from the tier Ptah's UI claimed (`sources[].source`). **Guard with an availability check** (`typeof resolveSettings === 'function'`) and `it.skip` otherwise — the API is `@alpha`, and an alpha-API removal must degrade to a skip, not a red build.

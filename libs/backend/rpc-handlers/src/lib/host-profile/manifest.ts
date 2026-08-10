@@ -49,6 +49,7 @@ import {
   McpDirectoryRpcHandlers,
   MemoryRpcHandlers,
   MemRpcHandlers,
+  OutputStyleRpcHandlers,
   PersistenceRpcHandlers,
   PluginRpcHandlers,
   ProviderRpcHandlers,
@@ -183,6 +184,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: McpDirectoryRpcHandlers.METHODS,
     requires: [],
     handler: McpDirectoryRpcHandlers,
+  },
+  {
+    key: 'outputStyle',
+    methods: OutputStyleRpcHandlers.METHODS,
+    requires: [],
+    handler: OutputStyleRpcHandlers,
   },
   {
     key: 'plugin',

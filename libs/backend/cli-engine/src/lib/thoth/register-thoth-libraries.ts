@@ -29,6 +29,7 @@ import {
   registerTaskSpecsServices,
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
   registerCronSchedulerServices,
   CRON_TOKENS,
@@ -127,6 +128,12 @@ export function registerThothLibraries(
   // README.md` lands even in a headless run that never touches the Tasks RPCs.
   // Non-blocking and failure-swallowing by contract — see startTaskSpecsIndex.
   startTaskSpecsIndex(container, logger);
+
+  // output-styles registered independently for the same reason as task-specs:
+  // OutputStyleRpcHandlers is a `requires: []` manifest entry fanned to every
+  // host, so its backing services must resolve here too. They depend only on
+  // the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER, WORKSPACE_PROVIDER).
+  registerOutputStyleServices(container, logger);
 
   try {
     container.register(CRON_TOKENS.CRON_POWER_MONITOR, {

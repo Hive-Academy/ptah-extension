@@ -23,7 +23,7 @@ ptah-extension/
 │   └── *-e2e/                         # ptah-electron | ptah-extension-vscode |
 │                                      # ptah-landing-page | ptah-license-server
 │
-├── libs/backend/                      # 25 runtime-agnostic libs (DI: tsyringe)
+├── libs/backend/                      # 26 runtime-agnostic libs (DI: tsyringe)
 │   ├── platform-core/                 # ★ Port interfaces + 22 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
@@ -37,6 +37,7 @@ ptah-extension/
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
 │   ├── vscode-lm-tools/               # Code-exec MCP + browser/web capabilities
 │   ├── settings-core/                 # ~/.ptah/settings.json store + secret envelopes
+│   ├── output-styles/                 # Output-style discovery + activation decision
 │   ├── persistence-sqlite/            # ~/.ptah/ptah.db + migrations + IEmbedder
 │   ├── memory-contracts/              # Zero-dep memory port interfaces
 │   ├── memory-curator/                # Letta-style memory + IndexingControl
@@ -175,6 +176,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [vscode-core](./libs/backend/vscode-core/CLAUDE.md) — Logger, License, RPC infra
 - [vscode-lm-tools](./libs/backend/vscode-lm-tools/CLAUDE.md) — Code-exec MCP + browser
 - settings-core — `~/.ptah/settings.json` store + secret envelopes (no CLAUDE.md yet)
+- [output-styles](./libs/backend/output-styles/CLAUDE.md) — Output-style discovery + activation
 - [persistence-sqlite](./libs/backend/persistence-sqlite/CLAUDE.md) — SQLite + migrations
 - [memory-contracts](./libs/backend/memory-contracts/CLAUDE.md) — Memory port interfaces
 - [memory-curator](./libs/backend/memory-curator/CLAUDE.md) — Letta-style memory

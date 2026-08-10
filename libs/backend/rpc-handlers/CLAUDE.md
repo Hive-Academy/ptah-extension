@@ -41,6 +41,7 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - `src/lib/harness/` — `HarnessRpcHandlers` sub-services + `HARNESS_TOKENS`
 - `src/lib/chat/` — `ChatRpcHandlers` sub-services + `CHAT_TOKENS`
 - `src/lib/utils/workspace-authorization.ts` — shared `isAuthorizedWorkspace` (PR-267)
+- `src/lib/utils/output-style-selection.ts` — the one read/write/normalisation of `outputStyle.selectedName`, shared by `OutputStyleRpcHandlers` (what is active) and `ChatOutputStyleActivationService` (what to activate). Two implementations means the picker can show one style while another reaches the SDK — do not re-inline either half.
 - `src/lib/host-profile/` — `Capability` vocabulary, `RPC_HANDLER_MANIFEST`, `HostProfile`, `registerRpcSurface`
 - `src/lib/verify-and-report.ts` — runtime verification of registration completeness
 

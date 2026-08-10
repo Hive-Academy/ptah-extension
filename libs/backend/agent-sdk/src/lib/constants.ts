@@ -20,11 +20,16 @@ import type { Settings } from './types/sdk-types/claude-sdk.types';
  * overrides user/project/local settings.json — so auto-memory stays off
  * regardless of the user's global Claude Code configuration. CLAUDE.md
  * instruction loading is unaffected; that is governed by `settingSources`.
+ *
+ * FROZEN deliberately (TASK_2026_197 G4): this object is handed to the SDK by
+ * reference on every query, so a mutation here would leak across every later
+ * session. Per-session additions (e.g. the output-style flag key) must build a
+ * fresh spread — see `buildFlagSettings` in `sdk-query-options-builder.ts`.
  */
-export const PTAH_DISABLE_SDK_AUTO_MEMORY: Settings = {
+export const PTAH_DISABLE_SDK_AUTO_MEMORY: Settings = Object.freeze({
   autoMemoryEnabled: false,
   autoDreamEnabled: false,
-};
+});
 
 /**
  * Default port for Ptah HTTP MCP server.

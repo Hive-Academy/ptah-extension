@@ -156,6 +156,8 @@ function makeService(params: {
         .fn()
         .mockResolvedValue(undefined),
     } as never,
+    // ChatOutputStyleActivationService — no style selected in these specs.
+    { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
   );
 }
 

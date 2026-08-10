@@ -18,6 +18,7 @@ import {
   registerTaskSpecsServices,
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -58,6 +59,11 @@ export function registerPhase2Libraries(
   // README.md` lands even for a user who never opens the Tasks board. Non-
   // blocking and failure-swallowing by contract — see startTaskSpecsIndex.
   startTaskSpecsIndex(container, logger);
+  // output-styles registered in all three hosts: OutputStyleRpcHandlers is a
+  // `requires: []` manifest entry, so every host resolves it. Its services
+  // depend only on the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER,
+  // WORKSPACE_PROVIDER) and are consumed by Phase 3/4 handlers.
+  registerOutputStyleServices(container, logger);
   registerVsCodeLmToolsServices(container, logger);
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),

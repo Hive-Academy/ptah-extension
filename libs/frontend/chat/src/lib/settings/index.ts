@@ -9,6 +9,7 @@ export { LicenseStatusCardComponent } from './license/license-status-card.compon
 export { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 export { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
 export { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
+export { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 export { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 export { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';

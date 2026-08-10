@@ -31,6 +31,8 @@ export * from './rpc/rpc-skill-clone.types';
 
 export * from './rpc/rpc-tasks.types';
 
+export * from './rpc/rpc-output-style.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -515,6 +517,20 @@ import type {
   TasksSaveViewsParams,
   TasksSaveViewsResult,
 } from './rpc/rpc-tasks.types';
+import type {
+  OutputStyleListParams,
+  OutputStyleListResult,
+  OutputStyleGetParams,
+  OutputStyleGetResult,
+  OutputStyleActivateParams,
+  OutputStyleActivateResult,
+  OutputStyleSaveParams,
+  OutputStyleSaveResult,
+  OutputStyleDeleteParams,
+  OutputStyleDeleteResult,
+  OutputStyleDiagnoseParams,
+  OutputStyleDiagnoseResult,
+} from './rpc/rpc-output-style.types';
 
 /**
  * RPC Method Registry
@@ -1839,6 +1855,30 @@ export interface RpcMethodRegistry {
     params: TasksSaveViewsParams;
     result: TasksSaveViewsResult;
   };
+  'outputStyle:list': {
+    params: OutputStyleListParams;
+    result: OutputStyleListResult;
+  };
+  'outputStyle:get': {
+    params: OutputStyleGetParams;
+    result: OutputStyleGetResult;
+  };
+  'outputStyle:activate': {
+    params: OutputStyleActivateParams;
+    result: OutputStyleActivateResult;
+  };
+  'outputStyle:save': {
+    params: OutputStyleSaveParams;
+    result: OutputStyleSaveResult;
+  };
+  'outputStyle:delete': {
+    params: OutputStyleDeleteParams;
+    result: OutputStyleDeleteResult;
+  };
+  'outputStyle:diagnose': {
+    params: OutputStyleDiagnoseParams;
+    result: OutputStyleDiagnoseResult;
+  };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -3003,6 +3043,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:doctorPlan': true,
   'tasks:getViews': true,
   'tasks:saveViews': true,
+
+  'outputStyle:list': true,
+  'outputStyle:get': true,
+  'outputStyle:activate': true,
+  'outputStyle:save': true,
+  'outputStyle:delete': true,
+  'outputStyle:diagnose': true,
 };
 
 /**

@@ -24,6 +24,7 @@ import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
 import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
+import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
@@ -63,6 +64,7 @@ import {
     VscodeLmConfigComponent,
     McpPortConfigComponent,
     WorkflowsConfigComponent,
+    OutputStyleConfigComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,

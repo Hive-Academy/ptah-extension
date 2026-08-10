@@ -62,6 +62,7 @@
         "voice-providers",
         "cron-scheduler",
         "task-specs",
+        "output-styles",
         "skill-synthesis",
         "thoth-runtime",
         "core",

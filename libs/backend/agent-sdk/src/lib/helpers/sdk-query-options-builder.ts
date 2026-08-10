@@ -59,6 +59,7 @@ import {
   type ModelInfo,
   type SdkBeta,
   type Options,
+  type Settings,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
@@ -164,6 +165,17 @@ export interface AssembleSystemPromptInput {
   authEnv: AuthEnv;
   /** User's custom system prompt (from sessionConfig or UI) */
   userSystemPrompt?: string;
+  /**
+   * Output-style BODY to append (TASK_2026_197, Req 5.2).
+   *
+   * Populated ONLY when `ActivationDecision.path === 'inject'` — a user-tier
+   * style FILE on a localhost-proxy provider, where `settingSources` drops
+   * `'user'` and the SDK never scans `~/.claude/output-styles/` at all. Every
+   * other case rides the flag tier (`Options.settings.outputStyle`) instead,
+   * which is why this is a separate field from `outputStyleName` and why the
+   * two can never both be set — see `assertSingleOutputStylePath`.
+   */
+  outputStyleBody?: string;
   /** Whether the MCP server is currently running */
   mcpServerRunning: boolean;
   /** Enhanced prompts content (AI-generated guidance) */
@@ -206,8 +218,13 @@ export interface SystemPromptAssemblyResult {
 export function assembleSystemPrompt(
   input: AssembleSystemPromptInput,
 ): SystemPromptAssemblyResult {
-  const { providerId, authEnv, userSystemPrompt, enhancedPromptsContent } =
-    input;
+  const {
+    providerId,
+    authEnv,
+    userSystemPrompt,
+    enhancedPromptsContent,
+    outputStyleBody,
+  } = input;
   const appendParts: string[] = [];
   const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
   if (identityPrompt) {
@@ -217,6 +234,13 @@ export function assembleSystemPrompt(
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
   }
+  // Output-style INJECT fallback. Pushed exactly once, from exactly one place:
+  // there is no other `appendParts.push(outputStyleBody)` in this file, which
+  // is what makes Req 5.3 ("applied exactly once") structural. The trim guard
+  // keeps an all-whitespace body from adding a stray blank section.
+  if (outputStyleBody?.trim()) {
+    appendParts.push(outputStyleBody);
+  }
   if (enhancedPromptsContent?.trim()) {
     appendParts.push(enhancedPromptsContent);
   }
@@ -225,6 +249,60 @@ export function assembleSystemPrompt(
     mode: 'preset-append',
     content: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
   };
+}
+
+/** The two `AISessionConfig` fields that carry an output-style activation. */
+type OutputStyleActivationFields = Pick<
+  AISessionConfig,
+  'outputStyleName' | 'outputStyleBody'
+>;
+
+/**
+ * Defensive guard: the flag field and the inject field must never both be set.
+ *
+ * `OutputStyleActivationResolver` defines `inject` as `!fileVisible`, so the
+ * two branches are complements of one boolean and this is unreachable through
+ * the supported path. It is asserted anyway because the failure mode it
+ * guards is silent — a style applied through BOTH the flag tier and the
+ * appended prompt is a doubled instruction the user cannot see (R3 / Req 5.3).
+ * Throwing here makes a future regression loud at session start instead.
+ */
+export function assertSingleOutputStylePath(
+  sessionConfig?: OutputStyleActivationFields,
+): void {
+  if (sessionConfig?.outputStyleName && sessionConfig?.outputStyleBody) {
+    throw new SdkError(
+      'Output style activation is ambiguous: outputStyleName and ' +
+        'outputStyleBody are both set. ActivationDecision guarantees exactly ' +
+        'one of them; this is a regression in the activation resolver or in ' +
+        'the chat-session call site.',
+    );
+  }
+}
+
+/**
+ * Build the SDK's FLAG-tier settings object for one session.
+ *
+ * `PTAH_DISABLE_SDK_AUTO_MEMORY` is a MODULE-LEVEL object handed to the SDK by
+ * reference on every query. Mutating it to carry a style would leak that style
+ * into every later session, including sessions that chose none (G4) — so a
+ * style is merged into a FRESH spread and the shared constant is only ever
+ * read.
+ *
+ * When no style is active the constant is returned unchanged, so `outputStyle`
+ * is ABSENT rather than `undefined` or `'default'`. This matters: the flag tier
+ * OUTRANKS user/project/local settings, so emitting the key when Ptah has no
+ * opinion would silently clobber a style the user picked for their own Claude
+ * Code CLI usage. Absence is the only correct "no opinion" value (G4b).
+ */
+export function buildFlagSettings(
+  sessionConfig?: OutputStyleActivationFields,
+): Settings {
+  assertSingleOutputStylePath(sessionConfig);
+  const styleName = sessionConfig?.outputStyleName?.trim();
+  return styleName
+    ? { ...PTAH_DISABLE_SDK_AUTO_MEMORY, outputStyle: styleName }
+    : PTAH_DISABLE_SDK_AUTO_MEMORY;
 }
 
 /**
@@ -597,7 +675,11 @@ export class SdkQueryOptionsBuilder {
         resume: resumeSessionId,
         maxTurns: this.calculateMaxTurns(sessionConfig),
         systemPrompt,
-        settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+        // Flag tier. Fresh per session when a style is active; the shared
+        // PTAH_DISABLE_SDK_AUTO_MEMORY constant itself is never mutated (G4),
+        // and the `outputStyle` key is absent entirely when no style is
+        // chosen so a CLI-chosen style is not clobbered (G4b).
+        settings: buildFlagSettings(sessionConfig),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
@@ -932,6 +1014,9 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning,
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
+      // Set only on the `inject` branch of ActivationDecision; the `flag`
+      // branch travels on options.settings instead (see buildFlagSettings).
+      outputStyleBody: sessionConfig?.outputStyleBody,
     });
     let sessionStartBlock = '';
     if (cwd) {

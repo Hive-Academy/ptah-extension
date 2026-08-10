@@ -83,6 +83,7 @@ import type {
 } from '../streaming/chat-stream-broadcaster.service';
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
+import type { ChatOutputStyleActivationService } from './chat-output-style-activation.service';
 import { hasStopIntent } from './chat-stop-intent';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
@@ -149,6 +150,12 @@ export class ChatSessionService {
     private readonly authSecretsService: IAuthSecretsService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
     private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
+    /**
+     * Resolves the output-style activation ONCE per session, at the two
+     * `AISessionConfig` literals below, and never caches it (Req 5.6).
+     */
+    @inject(CHAT_TOKENS.OUTPUT_STYLE_ACTIVATION)
+    private readonly outputStyleActivation: ChatOutputStyleActivationService,
   ) {}
 
   /**
@@ -427,6 +434,12 @@ export class ChatSessionService {
           workspacePath,
           currentModel,
         );
+      // Output-style activation, resolved fresh for THIS session (Req 5.6).
+      // Spreads to at most one field — `outputStyleName` for the flag tier or
+      // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
+      // both (R3 / Req 5.3).
+      const outputStyle =
+        await this.outputStyleActivation.resolveSessionFields(workspacePath);
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
         workspaceId: workspacePath,
@@ -446,6 +459,7 @@ export class ChatSessionService {
         includePartialMessages: options?.includePartialMessages,
         mcpServersOverride,
         providerProfile,
+        ...outputStyle,
       });
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
@@ -957,6 +971,12 @@ export class ChatSessionService {
         currentModel,
       );
 
+    // Re-resolved for the resumed turn rather than carried over from the
+    // original start: the provider or the style may have changed since, and
+    // Req 5.6 forbids caching the decision across sessions.
+    const outputStyle =
+      await this.outputStyleActivation.resolveSessionFields(workspacePath);
+
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
@@ -970,6 +990,7 @@ export class ChatSessionService {
         workflowsDisabled: this.resolveWorkflowsDisabled(),
         prompt,
         providerProfile,
+        ...outputStyle,
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,
