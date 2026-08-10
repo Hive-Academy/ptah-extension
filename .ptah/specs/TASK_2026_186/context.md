@@ -71,3 +71,45 @@ alpha modifier applied uniformly across themes.
 - **A single alpha floor across all themes.** The table above is why.
 - **Per-component hardcoded hex values.** Defeats theming; the next theme added
   silently breaks.
+
+---
+
+## Scope widened 2026-08-10 — this is not a Tasks-UI problem
+
+TASK_2026_177 Batch 15B ran the first axe pass this repository has ever done in
+a **light** theme, and found the same defect class outside `tasks-ui` entirely.
+
+**Measured**: `text-base-content/60` renders `#747477` on `#faf9f7` in
+`operator-member-light` — **4.42:1 against the required 4.5:1**. It fails.
+
+Three things make this bigger than the original scope:
+
+1. **It hits the shared panel nav**, so it affects **every panel surface —
+   member and admin**, not one feature area. ~21 elements on `/members/account`
+   alone.
+2. **Every axe pass in this repository before 2026-08-10 ran in the dark theme
+   only.** The light themes were never audited. This is one measured failure in
+   the first light-theme pass ever run, not a complete inventory — assume more
+   exist and sweep rather than fixing the known instance.
+3. 🔴 **It lands on TASK_2026_177 B13's F-1's own element.** F-1 was closed by
+   moving `EmptyState`'s hint from `/40` to `/60` (commit `e9181716f`). `/60` is
+   what fails here. **That fix was correct for the theme it was measured in and
+   insufficient for the other one** — which is the strongest available argument
+   for this task's whole thesis: an alpha modifier tuned against one theme is a
+   fix with an expiry date, and the token is what has to carry the value.
+
+**Consequently the scope is `libs/frontend/**`AND`libs/web/panel-ui`,
+`libs/web/members`, `libs/web/admin`, across dark and light themes** — not
+`tasks-ui`alone. Batch 15B deliberately did NOT patch it: every failing element
+uses the *correct* semantic token, so patching alphas at the call sites would
+scatter the exact debt this task exists to remove. TASK_2026_177's`code-logic-review-batch-15.md` independently confirmed that scope call.
+
+**Evidence**: `.ptah/specs/TASK_2026_177/batch-15b-report.md` §6.3, and
+`code-logic-review-batch-15.md` Finding 3.
+
+## Consequence for the fix
+
+A `base-content-muted` token now has to be defined and tested per theme across
+**both** polarities, and the acceptance gate should be an axe pass run in a
+light theme as well as a dark one — the absence of which is why this went
+unnoticed for as long as it did.
