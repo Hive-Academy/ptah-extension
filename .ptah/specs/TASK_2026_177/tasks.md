@@ -10657,7 +10657,7 @@ Green, against **Task 15.1's freshly measured baselines** (ground truth 14), not
 
 ---
 
-## Batch 16: P5-CLOSEOUT — MG-4 Seshat harness + final documentation sweep ⏸️ PENDING
+## Batch 16: P5-CLOSEOUT — final documentation sweep (Seshat/MG-4 half CUT) 🔄 IMPLEMENTED
 
 ### ✅ USER DECISION 2026-08-10 — the Seshat half is OUT OF SCOPE for this task
 
@@ -10790,7 +10790,7 @@ touch `.commitlintrc.json`** (F-G — foreign WIP).
 
 ---
 
-### Task 16.1: Pre-flight — confirm the path, confirm the absence, take the backup ⏸️ PENDING
+### Task 16.1: Pre-flight — confirm the path, confirm the absence, take the backup 🚫 CUT (user decision 2026-08-10)
 
 **Files**: none in either repository (verification + one backup copy outside both)
 **Requirement refs**: MG-4.1, MG-4.3, PRE-7, F-M
@@ -10809,7 +10809,7 @@ touch `.commitlintrc.json`** (F-G — foreign WIP).
 
 ---
 
-### Task 16.2: The Seshat inventory — five declared skills, four subagents, zero files ⏸️ PENDING
+### Task 16.2: The Seshat inventory — five declared skills, four subagents, zero files 🚫 CUT (user decision 2026-08-10)
 
 **Files**: none (read-only)
 **Requirement refs**: **MG-4.1**, MG-4.3
@@ -10830,7 +10830,7 @@ touch `.commitlintrc.json`** (F-G — foreign WIP).
 
 ---
 
-### Task 16.3: Retarget the Seshat spec, and deliver the changed/removed list ⏸️ PENDING
+### Task 16.3: Retarget the Seshat spec, and deliver the changed/removed list 🚫 CUT (user decision 2026-08-10)
 
 **Files** (all outside this repository; **no test covers any of them**):
 
@@ -10878,7 +10878,7 @@ re-introducing one would be the batch failing on its own terms.
 
 ---
 
-### Task 16.4: `CLAUDE.md` — document the 25 libs the module index has never seen ⏸️ PENDING
+### Task 16.4: `CLAUDE.md` — document the libs the module index has never seen (26 + thoth-runtime + showcase-manifest) 🔄 IMPLEMENTED
 
 **Files**:
 
@@ -10902,7 +10902,7 @@ re-introducing one would be the batch failing on its own terms.
 
 ---
 
-### Task 16.5: The NFR-M5 sweep, and the amendment that makes it honest ⏸️ PENDING
+### Task 16.5: The NFR-M5 sweep, and the amendment that makes it honest 🔄 IMPLEMENTED
 
 **Files**:
 
@@ -10930,9 +10930,45 @@ re-introducing one would be the batch failing on its own terms.
 
 **Verification**: both `rg` runs (this repo and seshat) pasted in full, with the five-class table and its counts, and the amended gate recorded in this file.
 
+#### ✅ NFR-M5 — THE AMENDED GATE, AS RECORDED BY BATCH 16 ON 2026-08-10
+
+**This supersedes the original NFR-M5 wording and F-L's provisional numbers. Do not
+re-open it.** The original gate — _"`rg -i discourse` across both repositories returns zero
+hits outside the export JSON and this task's specs"_ — is **not satisfiable**, for two
+independent reasons: the residual hits are load-bearing, and the second repository is out of
+scope (see the `✅ USER DECISION 2026-08-10` block at the head of this batch).
+
+**Scope**: **`ptah-extension` only.** The Seshat half is deferred by explicit user decision.
+
+**NFR-M5 is satisfied when every `rg -i discourse` hit falls in one of these six classes**,
+each enumerated with its count. **Anything outside them is a defect.**
+
+| #   | Class                                                                          | Files                  | Hits   | Why it stays                                                                                                                                                  |
+| --- | ------------------------------------------------------------------------------ | ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `.ptah/specs/**`                                                               | this task's own record | n/a    | The task record must describe what it removed                                                                                                                 |
+| 2   | `docs/community/discourse-export.json` **and the seed pipeline that reads it** | 8                      | **77** | MG-1.1: the seed reads the committed export and nothing else. The type names (`DiscourseExport*`) name the _input format_, which really is a Discourse export |
+| 3   | Applied Prisma migration SQL **and directory names**                           | 3                      | **6**  | 🔴 **IMMUTABLE (NFR-M3).** `20260805090000_drop_discourse_group` is a _directory name_; renaming it breaks `_prisma_migrations`                               |
+| 4   | `.env*` tombstone comments                                                     | 3                      | **7**  | 🔴 **`.env.prod:106` carries a live key-revocation instruction.** Deleting the comment deletes the instruction                                                |
+| 5   | Source prose / history docblocks                                               | 6                      | **7**  | Deliberate historical rationale; a spec that reads as though Discourse never existed cannot explain the export the seed still reads                           |
+| 6   | Generated Prisma client (gitignored)                                           | 1                      | **1**  | `libs/api/core/.../generated-prisma-client/internal/class.ts` inlines `schema.prisma`'s comment. **Never hand-edit generated output**                         |
+
+**Class 2 is new relative to F-L**, which put the residual at 19 by silently excluding the
+seed pipeline that the stated `rg` command does **not** exclude. **Class 5 is 7, not F-L's 5** —
+`apps/ptah-landing-page-e2e/src/specs/members-packs.spec.ts` added two when Batch 15 quoted
+§8.2's own clause _"Members reach every pack repo link without Discourse"_. **`schema.prisma`'s
+comment is at `:479`, not `:461`.**
+
+**The substantive half of NFR-M5 — the half that is actually true — holds:**
+**zero live Discourse code, endpoints, env vars, SSO paths, apps, workflows or npm scripts remain.**
+
+**🔴 DEFERRED, NOT SATISFIED: MG-4 (the Seshat community-skill harness).** Deferred by the
+`✅ USER DECISION 2026-08-10` block at the head of this batch — that work belongs to a session
+opened in `D:/projects/seshat`'s own workspace. It must be re-filed as its own task; it must
+not be reported as done and it must not be allowed to lapse silently.
+
 ---
 
-### Task 16.6: Final verification and handoff ⏸️ PENDING
+### Task 16.6: Final verification and handoff 🔄 IMPLEMENTED
 
 **Files**: `.ptah/specs/TASK_2026_177/task.md` (MODIFY — **the `status:` line only**)
 **Requirement refs**: §8.2 P5, PRE-7, F-H
