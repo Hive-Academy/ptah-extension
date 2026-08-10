@@ -458,14 +458,30 @@ model MarketingCampaign {
 
 // Builders waitlist - captures leads for the new premium "Builders" tier.
 // Public, un-authenticated signups deduped by lowercased email.
-// notifiedAt / convertedAt are lifecycle timestamps the team fills in later
-// (notified when checkout opens, converted when they become a paying Builder).
+//
+// TASK_2026_201 R4 — THREE LIFECYCLE STAMPS, THREE DISJOINT WRITERS. They are not
+// interchangeable, and no code may write one to mean another:
+//
+//   notifiedAt  — HISTORICAL ONLY. Set by the retired paid-invite wave
+//                 (`POST /v1/admin/waitlist/invite`, deleted by TASK_2026_201).
+//                 NOTHING WRITES IT AFTER THAT TASK. Existing rows are kept
+//                 because "was mailed the withdrawn 70%-off invite" is a real
+//                 fact about a real person; it is never a precondition for
+//                 approval, and approval never touches it.
+//   approvedAt  — granted FREE founding access. Written by approve-to-cohort
+//                 (`POST /v1/admin/waitlist/approve`) and by complimentary
+//                 licence issuance. A gift is not a conversion.
+//   convertedAt — PAID. Written by exactly one thing, the Paddle provisioning
+//                 fan-out (`WAITLIST_CONVERSION_SINK`, paddle.module.ts). Keeping
+//                 free grants out of it is the whole point of `approvedAt`: the
+//                 conversion metric must stay uncontaminated once checkout opens.
 model Waitlist {
   id          String    @id @default(cuid())
   email       String    @unique
   source      String? // origin of the signup: 'landing' | 'pricing' | 'profile' | 'vscode' | ...
   createdAt   DateTime  @default(now()) @map("created_at")
   notifiedAt  DateTime? @map("notified_at")
+  approvedAt  DateTime? @map("approved_at")
   convertedAt DateTime? @map("converted_at")
 
   @@index([createdAt])

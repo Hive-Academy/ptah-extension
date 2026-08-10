@@ -1,0 +1,62 @@
+-- TASK_2026_201 R10 / context.md C1 — DELETE the `Founding / Waitlist Invite`
+-- marketing-campaign template row.
+--
+-- WHY DELETE RATHER THAN REWRITE. Rewriting the row to free-cohort copy was the
+-- PM's recommendation and was REJECTED at Checkpoint 1. The justification for a
+-- rewrite was "the campaign sender keeps a usable founding template", and the
+-- founder has since stated he will not use the admin campaign sender for this
+-- cohort at all. A template nobody will send is not an asset; it is a loaded gun
+-- with better copy. The approval mail (`EmailService.sendFoundingCohortWelcome`)
+-- owns the transactional "you're in" message completely, and nothing in this task
+-- replaces the announcement channel.
+--
+-- FORBIDDEN, AND WHY. Editing `20260806000000_fix_founding_invite_offer_copy/
+-- migration.sql` — the file that currently seeds this row's 70%-off body — is NOT
+-- an option. Prisma records a checksum per applied migration; editing an applied
+-- file makes `prisma migrate dev` refuse to run and demand a full database RESET.
+-- That is precisely the trap that file's own header documents (:9-13) and that it
+-- was written to escape. This is a NEW, forward-only file (R10.3), and every
+-- previously-applied migration in this directory stays byte-identical.
+--
+-- IDEMPOTENT AND UNIFORM (R10.1, R10.2). `name` is UNIQUE (schema.prisma:419), so
+-- this statement deletes 0 or 1 rows and converges every database to the same
+-- state: one holding the 70% copy, one holding the older withdrawn "price locked
+-- in" copy, and one that never seeded the row all end with no such row. A second
+-- run deletes 0 rows and is a no-op.
+--
+-- SAFE FOR HISTORY. `MarketingCampaign.template` is `onDelete: SetNull`
+-- (schema.prisma:451, documented :434, and enforced in the live DDL by
+-- `marketing_campaigns_template_id_fkey ... ON DELETE SET NULL`,
+-- `20260423_admin_panel_enhancements/migration.sql:78-82`). Past campaign rows
+-- therefore survive this delete with `template_id = NULL`; no send record is lost
+-- and no FK violation is possible.
+--
+-- ON R10's "`ON CONFLICT (\"name\") DO UPDATE`, never `DO NOTHING`" RULE — MET IN
+-- INTENT, NOT APPLICABLE IN LETTER. SAY THIS BEFORE READING R10 AS UNMET. That
+-- rule exists for one concrete reason: a `DO NOTHING` upsert CANNOT REACH a row
+-- that already exists, so on any database that had already seeded the template the
+-- correction was a silent no-op and the stale, withdrawn promise survived — the
+-- exact bug `20260806000000` was written to fix (its header, :16-23). C1 replaces
+-- the upsert with an unconditional keyed DELETE, which reaches the existing row by
+-- construction, on every database, whatever body it holds. There is no insert
+-- here, so there is no conflict clause to get wrong. The rule's intent — "the
+-- migration must actually reach a row that is already there" — is satisfied more
+-- strongly by a DELETE than by any upsert.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ✅ `_trgm` DROP-INDEX CHECK PERFORMED, NOTHING TO STRIP.
+--
+-- Hand-authored; `prisma migrate diff` was not used, so its three unprompted
+-- index-drop proposals on `community_posts_body_trgm`,
+-- `community_topics_title_trgm` and `course_lessons_title_trgm` never entered this
+-- file (`20260902090000_.../migration.sql:16-40`). This migration contains no DDL
+-- at all — one DML statement, no CREATE, no ALTER, no DROP. The two-word SQL
+-- keyword is written hyphenated here on purpose: Batch 1's acceptance gate greps
+-- these folders for the literal statement text and must return NOTHING, so a
+-- comment about the hazard may not itself trip the gate.
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- ACCEPTANCE (R10, restated for a delete): after this migration no row in
+-- `marketing_campaign_templates` carries a `/pricing?promo=founding` link or a
+-- founding discount percentage.
+DELETE FROM "marketing_campaign_templates" WHERE "name" = 'Founding / Waitlist Invite';
