@@ -1,7 +1,31 @@
+<!--
+  🔴 `inert` IS LOAD-BEARING AND IT IS NOT A DUPLICATE OF THE TWO LINES BELOW.
+
+  Batch 15's axe pass found a `serious` `aria-hidden-focus` violation here on
+  `/members/live/request`: while CLOSED this container was `aria-hidden="true"`
+  and its contents — the "Close panel" button and everything projected into it —
+  were STILL IN THE TAB ORDER. `pointer-events-none` stops the MOUSE and does
+  nothing whatever to the KEYBOARD, so a keyboard user could Tab into a drawer
+  that is invisible, off-screen and hidden from screen readers, and then press a
+  button they cannot see.
+
+  `inert` is the one primitive that closes both halves at once: it removes the
+  subtree from the tab order AND from the accessibility tree. It is set to the
+  empty string rather than to `true`, because it is a BOOLEAN ATTRIBUTE —
+  `inert="false"` is still inert, so the attribute has to be ABSENT when the
+  drawer is open, which is what the `null` branch does.
+
+  ⚠️ THIS WAS INVISIBLE FOR FOUR PHASES FOR THE SAME REASON B13's F-1 WAS: the
+  Task 4.7 lint rule reads only `libs/web/members/**`, and every axe pass before
+  Batch 15 loaded axe-core 4.10.2 from a CDN, which did not report it. The
+  migration to the pinned `@axe-core/playwright` 4.12.1 dependency is what
+  surfaced it. `detail-drawer.spec.ts` now pins it.
+-->
 <div
   class="fixed inset-0 z-50"
   [class.pointer-events-none]="!open()"
   [attr.aria-hidden]="!open()"
+  [attr.inert]="open() ? null : ''"
 >
   <!-- Backdrop -->
   <div
