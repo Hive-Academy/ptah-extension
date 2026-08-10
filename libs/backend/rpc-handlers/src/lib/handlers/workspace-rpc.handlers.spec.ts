@@ -26,6 +26,7 @@ import type {
   IUserInteraction,
 } from '@ptah-extension/platform-core';
 import type { SessionImporterService } from '@ptah-extension/agent-sdk';
+import type { DependencyContainer } from 'tsyringe';
 
 import { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 
@@ -43,6 +44,11 @@ type SwitchHandler = (
   params: { path: string; origin?: string } | undefined,
 ) => Promise<SwitchResult>;
 
+interface FileIndexDouble {
+  ensureReadyFor: jest.Mock<Promise<void>, [string]>;
+  fileCount: number;
+}
+
 interface Suite {
   handlers: WorkspaceRpcHandlers;
   rpc: MockRpcHandler;
@@ -50,7 +56,13 @@ interface Suite {
   lifecycle: Mocked<IWorkspaceLifecycleProvider>;
   contextManager: Mocked<WorkspaceContextManager>;
   sessionImporter: Mocked<SessionImporterService>;
+  fileIndex: FileIndexDouble;
   switchHandler: SwitchHandler;
+}
+
+interface SuiteOptions {
+  /** When false, the DI container reports the file index as unregistered. */
+  registerFileIndex?: boolean;
 }
 
 const WS_A = 'D:\\projects\\alpha';
@@ -61,7 +73,7 @@ async function flushMicrotasks(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
-function buildSuite(): Suite {
+function buildSuite(opts: SuiteOptions = {}): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
 
@@ -95,6 +107,20 @@ function buildSuite(): Suite {
     disposeAll: jest.fn().mockResolvedValue(undefined),
   } as unknown as import('@ptah-extension/auth-providers').ProviderProxyPool;
 
+  // Minimal file-index double. `registerFileIndex: false` models a host that
+  // does not register the service at all (CLI has no picker surface).
+  const fileIndex = {
+    ensureReadyFor: jest.fn().mockResolvedValue(undefined),
+    fileCount: 0,
+  };
+  const container = {
+    isRegistered: jest.fn(() => opts.registerFileIndex !== false),
+    resolve: jest.fn(() => fileIndex),
+  } as unknown as DependencyContainer & {
+    isRegistered: jest.Mock;
+    resolve: jest.Mock;
+  };
+
   const handlers = new WorkspaceRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -104,6 +130,7 @@ function buildSuite(): Suite {
     contextManager,
     sessionImporter,
     providerProxyPool,
+    container,
   );
   handlers.register();
 
@@ -121,6 +148,7 @@ function buildSuite(): Suite {
     lifecycle,
     contextManager,
     sessionImporter,
+    fileIndex,
     switchHandler,
   };
 }
@@ -246,5 +274,73 @@ describe('WorkspaceRpcHandlers — workspace:switch import deferral', () => {
 
     expect(result).toEqual({ success: false, error: 'path is required' });
     expect(s.sessionImporter.scanAndImport).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TASK_2026_200 task 1.3 — the file index must be rebuilt for the new root on
+ * every switch, off the critical path. Pre-fix, nothing on this path referenced
+ * the index at all, so the `@` picker served the boot workspace's files for the
+ * rest of the process lifetime.
+ */
+describe('WorkspaceRpcHandlers — workspace:switch file re-index', () => {
+  it('re-indexes the file index for the NEW root after a successful switch', async () => {
+    const s = buildSuite();
+
+    const result = await s.switchHandler({ path: WS_B });
+    await flushMicrotasks();
+
+    expect(result.success).toBe(true);
+    expect(s.fileIndex.ensureReadyFor).toHaveBeenCalledWith(WS_B);
+  });
+
+  it('responds successfully WITHOUT awaiting the re-index', async () => {
+    const s = buildSuite();
+    // Re-index never resolves: if the switch awaited it, this would hang.
+    s.fileIndex.ensureReadyFor.mockReturnValue(
+      new Promise<void>(() => {
+        /* never resolves */
+      }),
+    );
+
+    const result = await s.switchHandler({ path: WS_B });
+
+    expect(result.success).toBe(true);
+    expect(s.fileIndex.ensureReadyFor).toHaveBeenCalledWith(WS_B);
+  });
+
+  it('a failing re-index does not fail the switch', async () => {
+    const s = buildSuite();
+    s.fileIndex.ensureReadyFor.mockRejectedValue(new Error('index boom'));
+
+    const result = await s.switchHandler({ path: WS_B });
+    await flushMicrotasks();
+
+    expect(result.success).toBe(true);
+    expect(s.logger.warn).toHaveBeenCalledWith(
+      '[RPC] workspace:switch file re-index failed (non-fatal)',
+      expect.objectContaining({ error: 'index boom' }),
+    );
+  });
+
+  it('degrades silently on a host that does not register the file index', async () => {
+    const s = buildSuite({ registerFileIndex: false });
+
+    const result = await s.switchHandler({ path: WS_B });
+    await flushMicrotasks();
+
+    expect(result.success).toBe(true);
+    expect(s.fileIndex.ensureReadyFor).not.toHaveBeenCalled();
+  });
+
+  it('does not re-index when the workspace context fails to switch', async () => {
+    const s = buildSuite();
+    s.contextManager.switchWorkspace.mockResolvedValue('');
+
+    const result = await s.switchHandler({ path: WS_B });
+    await flushMicrotasks();
+
+    expect(result.success).toBe(false);
+    expect(s.fileIndex.ensureReadyFor).not.toHaveBeenCalled();
   });
 });

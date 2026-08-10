@@ -20,12 +20,58 @@
  *      `searchDirectories`) returning the same `FileSearchResult` shape the
  *      autocomplete pipeline already consumes. `ensureReady()` performs the
  *      lazy first build; queries operate on the current in-memory snapshot.
+ *
+ * ---------------------------------------------------------------------------
+ * ROOT MODEL — read this before threading a workspace root through (TASK_2026_200)
+ * ---------------------------------------------------------------------------
+ *
+ * **This service holds SINGLE-ACTIVE-ROOT state with rebuild-on-change.** It is
+ * NOT a root-keyed map, and that is a deliberate decision (context.md §7.2 of
+ * TASK_2026_200): the frontend model is one active workspace at a time
+ * (`TabManagerService` swaps between per-workspace tab partitions), so a
+ * concurrent multi-root index is explicitly out of scope. At any instant there
+ * is exactly one indexed root; asking for a different one TEARS DOWN and
+ * REBUILDS.
+ *
+ * The public contract:
+ *
+ *   - `ensureReadyFor(root)` — **the entry point for a caller that knows which
+ *     root it wants.** Guarantees that, when it resolves, the in-memory index
+ *     holds `root` and nothing else. If a different root is currently indexed
+ *     it is superseded (watcher disposed, maps cleared, rebuild started); if
+ *     the same root is already built or building, it is a no-op that shares the
+ *     existing build. Roots are compared by `normalizeWorkspaceRoot`, so
+ *     `D:\proj`, `D:\proj\` and `d:\proj` are ONE root and never force a
+ *     redundant rebuild.
+ *   - `ensureReady()` — for callers with no opinion. Re-resolves
+ *     `IWorkspaceProvider.getWorkspaceRoot()` on EVERY call and delegates to
+ *     `ensureReadyFor`. It deliberately does not short-circuit on "already
+ *     started": that short-circuit was the TASK_2026_200 defect (the picker
+ *     served the boot workspace's files for the whole process lifetime).
+ *   - `start(root)` — the activation-time alias for `ensureReadyFor(root)`,
+ *     kept for the existing fire-and-forget boot call sites.
+ *   - `indexedRoot` — the normalized root the current snapshot represents, or
+ *     `undefined` before the first build. A caller that must not serve another
+ *     root's files (the R5 "loud mismatch" rule) can compare against this.
+ *
+ * Consequences a caller must respect:
+ *   - Because there is one root, a request for root B invalidates root A. Do
+ *     not interleave per-request roots on a hot path without deciding what
+ *     "wrong root" should mean for the caller (rebuild vs. explicit error) —
+ *     silently returning the other root's files is the bug this all exists to
+ *     kill.
+ *   - Rebuilds SUPERSEDE rather than interleave. Every build carries a
+ *     generation token; a superseded build stops feeding the maps immediately,
+ *     so a slow build for A can never contaminate B's snapshot.
  */
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import picomatch from 'picomatch';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -125,10 +171,27 @@ export class WorkspaceFileIndexService {
   /** Absolute directory path → entry. */
   private readonly directories = new Map<string, IndexEntry>();
 
+  /** Raw root string the current snapshot was built from (host-native form). */
   private workspaceRoot: string | undefined;
+  /**
+   * `normalizeWorkspaceRoot(workspaceRoot)` — the identity key. All root
+   * comparisons go through this so separator/drive-case variants of one
+   * workspace never force a redundant rebuild.
+   */
+  private rootKey: string | undefined;
   private watcher: IFileWatcher | undefined;
   private startPromise: Promise<void> | undefined;
   private started = false;
+
+  /**
+   * Monotonic build generation. Bumped synchronously by every
+   * {@link ensureReadyFor} that decides to rebuild, BEFORE any await, so a
+   * build already in flight can detect that it has been superseded and stop
+   * writing into the maps. Without this the `files.clear()` at the head of
+   * `build()` is racy: a slow stream for root A would keep calling
+   * `addFileEntry` into the freshly-cleared maps that now belong to root B.
+   */
+  private generation = 0;
 
   /** Parsed ignore files for the active workspace (for create re-checks). */
   private ignoreFiles: ParsedIgnoreFile[] = [];
@@ -151,42 +214,90 @@ export class WorkspaceFileIndexService {
   ) {}
 
   /**
-   * Explicitly start the index for a workspace. Idempotent per root; concurrent
-   * callers share one build. Safe to fire-and-forget from activation.
+   * Explicitly start the index for a workspace. Activation-time alias for
+   * {@link ensureReadyFor} — kept so the existing fire-and-forget boot call
+   * sites (`boot-thoth-runtime.ts`, `wire-runtime.ts`) read naturally.
+   * Idempotent per NORMALIZED root; concurrent callers share one build.
    */
   start(workspaceRoot: string): Promise<void> {
-    if (this.startPromise && this.workspaceRoot === workspaceRoot) {
+    return this.ensureReadyFor(workspaceRoot);
+  }
+
+  /**
+   * Ensure the in-memory index holds exactly `root` when this resolves.
+   *
+   * This is the entry point for any caller that knows which workspace it wants
+   * (an RPC carrying an explicit `workspaceRoot`, the `workspace:switch`
+   * handler, activation). See the ROOT MODEL block in this file's header: the
+   * service is single-active-root, so requesting a different root supersedes
+   * the current one rather than adding to it.
+   *
+   * - Same normalized root, build in flight or complete → shares that build,
+   *   no rebuild (`D:\proj`, `D:\proj\` and `d:\proj` are one root).
+   * - Different normalized root → dispose the watcher, drop the snapshot,
+   *   rebuild. Any in-flight build for the old root is superseded via the
+   *   generation token and stops writing immediately.
+   * - Same root but a previous build FAILED (`startPromise` was reset) →
+   *   retries, preserving the existing retry-on-next-query behaviour.
+   */
+  ensureReadyFor(root: string): Promise<void> {
+    const key = normalizeWorkspaceRoot(root);
+    if (this.rootKey === key && this.startPromise) {
       return this.startPromise;
     }
-    this.workspaceRoot = workspaceRoot;
-    this.startPromise = this.doStart(workspaceRoot);
+
+    // Supersede synchronously — before any await — so an in-flight build for
+    // the previous root can never write into the new root's maps.
+    const generation = ++this.generation;
+    this.disposeWatcher();
+    this.started = false;
+    this.workspaceRoot = root;
+    this.rootKey = key;
+    this.startPromise = this.doStart(root, generation);
     return this.startPromise;
   }
 
   /**
-   * Lazily build the index on first query if it was never started. Resolves the
-   * workspace root from the workspace provider. No-op when there is no root.
+   * Ensure the index is ready for whatever root the platform currently reports.
+   *
+   * Re-resolves `IWorkspaceProvider.getWorkspaceRoot()` on EVERY call. It used
+   * to short-circuit on a `started` flag that was set once and never cleared,
+   * which pinned the index to the boot workspace for the whole process lifetime
+   * — the TASK_2026_200 defect. When the reported root has not changed this is
+   * still a cheap no-op (normalized key compare, no rebuild).
    */
   async ensureReady(): Promise<void> {
-    if (this.started) return;
-    if (this.startPromise) {
-      await this.startPromise;
+    const root = this.workspaceProvider.getWorkspaceRoot();
+    if (!root) {
+      // The provider reports no root (no folder open / all folders closed).
+      // Do NOT tear down a good snapshot — a query is better served by the
+      // last known index than by nothing. Just settle any in-flight build.
+      if (this.startPromise) await this.startPromise;
       return;
     }
-    const root = this.workspaceProvider.getWorkspaceRoot();
-    if (!root) return;
-    await this.start(root);
+    await this.ensureReadyFor(root);
   }
 
-  private async doStart(workspaceRoot: string): Promise<void> {
+  private async doStart(
+    workspaceRoot: string,
+    generation: number,
+  ): Promise<void> {
     try {
-      await this.build(workspaceRoot);
-      this.setupWatcher(workspaceRoot);
+      await this.build(workspaceRoot, generation);
+      // A newer root was requested while this build ran: its rebuild owns the
+      // maps and the watcher now. Exit without arming a watcher for a root
+      // nobody is looking at.
+      if (generation !== this.generation) return;
+      this.setupWatcher(workspaceRoot, generation);
       this.started = true;
       this.logger.info(
         `[WorkspaceFileIndex] Ready: ${this.files.size} files, ${this.directories.size} directories`,
       );
-    } catch (error) {
+    } catch (error: unknown) {
+      // A superseded build's failure is not the current build's problem, and
+      // must not reset the live `startPromise` that now belongs to a newer
+      // root. Swallow it.
+      if (generation !== this.generation) return;
       this.logger.error('[WorkspaceFileIndex] Failed to start', error);
       // Reset so a later query can retry the build.
       this.startPromise = undefined;
@@ -194,45 +305,99 @@ export class WorkspaceFileIndexService {
     }
   }
 
-  private async build(workspaceRoot: string): Promise<void> {
+  private async build(
+    workspaceRoot: string,
+    generation: number,
+  ): Promise<void> {
     this.files.clear();
     this.directories.clear();
+
+    // Parse into a LOCAL first, then publish behind the generation check.
+    // `ignoreFiles` is shared mutable state read by `isExcluded()` on every
+    // watcher create/change event, so a late-landing build for a superseded
+    // root must never publish its rules: root B's index would keep filtering
+    // its incremental updates through root A's .gitignore for the rest of its
+    // lifetime. Assigning before the check (either branch — the `catch`
+    // fallback contaminates just as effectively as the success value) is the
+    // same cross-root contamination this service exists to prevent, relocated
+    // from the bulk path to the incremental one.
+    let parsed: ParsedIgnoreFile[];
     try {
-      this.ignoreFiles =
+      parsed =
         await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceRoot);
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.warn(
         '[WorkspaceFileIndex] Failed to parse ignore files (continuing)',
         error,
       );
-      this.ignoreFiles = [];
+      parsed = [];
     }
+    if (generation !== this.generation) return;
+    this.ignoreFiles = parsed;
 
     for await (const file of this.indexer.indexWorkspaceStream({
       workspaceFolder: workspaceRoot,
     })) {
+      // Checked per entry, not once up front: the stream is long-lived and a
+      // switch can land at any point inside it. Without this, entries for the
+      // superseded root keep landing in the new root's maps and the picker
+      // serves a mixed index.
+      if (generation !== this.generation) return;
       this.addFileEntry(file.path, workspaceRoot);
     }
   }
 
-  private setupWatcher(workspaceRoot: string): void {
+  /**
+   * Dispose the current watcher, if any, and drop the reference.
+   *
+   * Called before every re-arm. `setupWatcher` used to overwrite `this.watcher`
+   * outright, which leaked one OS file-watch handle per workspace switch once
+   * rebuilds became possible. Clearing the field guarantees a given watcher is
+   * disposed exactly once, and a throwing `dispose()` never blocks the rebuild.
+   */
+  private disposeWatcher(): void {
+    const watcher = this.watcher;
+    if (!watcher) return;
+    this.watcher = undefined;
     try {
-      this.watcher = this.fsProvider.createFileWatcher('**/*', {
+      watcher.dispose();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[WorkspaceFileIndex] failed to dispose previous watcher',
+        error,
+      );
+    }
+  }
+
+  private setupWatcher(workspaceRoot: string, generation: number): void {
+    // Defensive: rebuilds dispose in `ensureReadyFor`, but never let a second
+    // watcher be armed over a live one.
+    this.disposeWatcher();
+    try {
+      const watcher = this.fsProvider.createFileWatcher('**/*', {
         exclude: [...DEFAULT_WORKSPACE_EXCLUDES],
         cwd: workspaceRoot,
       });
-      this.watcher.onDidCreate((p) => {
-        void this.onCreate(p);
+      this.watcher = watcher;
+      // Every handler is generation-gated: an event that a disposed watcher
+      // already had in flight must not patch a newer root's snapshot. The gate
+      // here is necessary but NOT sufficient for the async handlers — they
+      // await inside, so they re-check at their write. See `onCreate`.
+      watcher.onDidCreate((p) => {
+        if (generation !== this.generation) return;
+        void this.onCreate(p, generation);
       });
-      this.watcher.onDidChange((p) => {
-        void this.onChange(p);
+      watcher.onDidChange((p) => {
+        if (generation !== this.generation) return;
+        void this.onChange(p, generation);
       });
-      this.watcher.onDidDelete((p) => {
+      watcher.onDidDelete((p) => {
+        if (generation !== this.generation) return;
         this.onDelete(p);
       });
-    } catch (error) {
+    } catch (error: unknown) {
       // A host without a real watcher degrades to a static snapshot — still
-      // correct, just not live.
+      // correct, just not live. Re-indexing must never start throwing here.
       this.logger.warn(
         '[WorkspaceFileIndex] watcher unavailable (index will not stay live)',
         error,
@@ -240,21 +405,35 @@ export class WorkspaceFileIndexService {
     }
   }
 
-  private async onCreate(absPath: string): Promise<void> {
+  /**
+   * The caller's gate in `setupWatcher` is NOT enough on its own: `isExcluded`
+   * awaits `isIgnored` whenever the workspace has any ignore file — the normal
+   * case — so a workspace switch can land in that window. Without the re-check
+   * below, a create event for root A resuming after a switch writes an
+   * A-rooted path into root B's live maps, and the `@` picker lists a file
+   * from the wrong workspace. `root` is captured pre-await too, so the
+   * re-check also guards against writing with a stale root.
+   *
+   * Rule for this file: a generation check upstream does not protect a write
+   * that sits behind an `await`. Re-check immediately before the write.
+   */
+  private async onCreate(absPath: string, generation: number): Promise<void> {
     const root = this.workspaceRoot;
     if (!root) return;
     if (this.files.has(absPath)) return;
     if (await this.isExcluded(absPath, root)) return;
+    if (generation !== this.generation) return;
     this.addFileEntry(absPath, root);
   }
 
-  private async onChange(absPath: string): Promise<void> {
+  private async onChange(absPath: string, generation: number): Promise<void> {
     const root = this.workspaceRoot;
     if (!root) return;
     // Content changes carry no metadata we track. Re-add only if a prior create
     // event was missed and the path is not ignored.
     if (this.files.has(absPath)) return;
     if (await this.isExcluded(absPath, root)) return;
+    if (generation !== this.generation) return;
     this.addFileEntry(absPath, root);
   }
 
@@ -386,9 +565,19 @@ export class WorkspaceFileIndexService {
     return matches;
   }
 
-  /** Whether the first build has completed. */
+  /** Whether a build has completed for the currently requested root. */
   isReady(): boolean {
     return this.started;
+  }
+
+  /**
+   * The `normalizeWorkspaceRoot`-canonical root the current snapshot
+   * represents, or `undefined` before the first build. A caller that must not
+   * serve another workspace's files can compare its requested root's
+   * normalized form against this before querying.
+   */
+  get indexedRoot(): string | undefined {
+    return this.rootKey;
   }
 
   /** Current file count (excludes directories). Primarily for diagnostics. */
@@ -397,12 +586,16 @@ export class WorkspaceFileIndexService {
   }
 
   dispose(): void {
-    this.watcher?.dispose();
-    this.watcher = undefined;
+    // Bump the generation so any build still in flight stops writing into the
+    // maps we are about to clear.
+    this.generation++;
+    this.disposeWatcher();
     this.files.clear();
     this.directories.clear();
     this.started = false;
     this.startPromise = undefined;
+    this.workspaceRoot = undefined;
+    this.rootKey = undefined;
   }
 }
 

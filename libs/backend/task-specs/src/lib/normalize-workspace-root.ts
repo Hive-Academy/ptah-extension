@@ -1,21 +1,19 @@
-import * as path from 'path';
-
 /**
  * Canonical workspace-root key used by the index store, the watcher event
  * filter, and RPC params alike — so the same workspace never yields two
  * different keys (NFR-8).
  *
- * Steps:
- *  1. `path.resolve` — absolutize + normalize separators for the host OS.
- *  2. strip a trailing separator (defensive; `resolve` already does for
- *     non-root paths, but callers may pass pre-joined strings).
- *  3. lower-case a Windows drive letter (`D:\` and `d:\` are the same root).
+ * The implementation was PROMOTED to `@ptah-extension/platform-core`
+ * (`src/utils/normalize-workspace-root.ts`) by TASK_2026_200 task 1.1, so that
+ * `workspace-intelligence` and `vscode-lm-tools` can share the one canonical
+ * key function without taking a dependency edge on this lib (which pulls
+ * `persistence-sqlite` → `better-sqlite3` with it).
+ *
+ * This module is now a pure re-export: `task-specs`' public API
+ * (`normalizeWorkspaceRoot` from its barrel) and every internal import path are
+ * unchanged, and there is exactly ONE implementation body. Do NOT re-inline a
+ * copy here — divergent normalization is the defect class this helper exists to
+ * prevent.
  */
-export function normalizeWorkspaceRoot(root: string): string {
-  let resolved = path.resolve(root);
-  resolved = resolved.replace(/[\\/]+$/, '');
-  resolved = resolved.replace(/^([a-zA-Z]):/, (_m, drive: string) => {
-    return `${drive.toLowerCase()}:`;
-  });
-  return resolved;
-}
+
+export { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
