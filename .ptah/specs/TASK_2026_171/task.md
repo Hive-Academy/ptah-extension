@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_171
-status: in_progress
+status: done
 type: REFACTORING
 title: RPC host-profile architecture — one handler surface, capability-driven registration
 description: Replace per-app RPC handler duplication and hand-maintained exclusion lists with a declarative handler manifest + per-app HostProfile + a single registerRpcSurface() engine in libs/backend/rpc-handlers. Apps stop containing RPC code entirely; per-host variation becomes data.

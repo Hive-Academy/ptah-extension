@@ -593,3 +593,17 @@ The single failure — `editor/editor.spec.ts:73` Monaco visibility — was tria
 Coverage checked directly: `dashboard/dashboard.spec.ts` asserts only `'status cards render'`; `settings/settings.spec.ts` asserts only `'settings renders'` and `'toggle persists (round-trip)'`. Neither touches the Builders or Membership card. Item 8 is structurally un-automatable in the current harness — `ui-driver.ts:51-107` `installFakeRpcListener` intercepts the RPC channel before `license.service.ts`'s real fetch path executes.
 
 **Remaining to close this task**: e2e coverage for items 3, 6, 7, 8. Items 6 and 7 are the cheap ones (`ui.goto()` exists at `ui-driver.ts:237`; both components expose stable hooks — `ptah-builders-card`, the `ptah.builders-card.dismissed` key, and `license-status-card`'s three CTAs), but they ride on `app-shell.component.html`'s `@switch` view dispatch and on `ui-driver.ts`, both under active refactor by TASK_2026_187. Sequence that work after 187 settles.
+
+### Sequencing update (2026-08-10, stale-status audit)
+
+**The 187 blocker has cleared.** TASK_2026_187 is `done` (webview bundle 3.63 MB → 2.20 MB,
+closed at `4b0313783`), so `app-shell.component.html`'s `@switch` view dispatch and
+`ui-driver.ts` are no longer under active refactor. The remaining B5.5 work — e2e coverage
+for items 3, 6 and 7 — is unblocked and can be picked up now.
+
+Item 8 is unchanged and still structurally un-automatable in the current harness
+(`ui-driver.ts:51-107` `installFakeRpcListener` intercepts the RPC channel before
+`license.service.ts`'s real fetch path runs). Closing this task means either extending the
+harness to allow a real-fetch lane, or accepting item 8 as manual and saying so here.
+
+This carrier stays `in_review` — the work above is real and open, not bookkeeping.

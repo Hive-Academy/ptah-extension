@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_197
-status: in_progress
+status: done
 type: FEATURE
 title: Output-style surface — discover, choose, create, and edit Claude Code output styles inside Ptah
 description: >-

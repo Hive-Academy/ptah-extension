@@ -3,7 +3,7 @@
 **Feature**: Output-style surface — discover, choose, create, and edit Claude Code output styles inside Ptah
 **Source of truth**: `implementation-plan.md` **revision 2** (sections marked `> **Revised (rev 2):**` supersede the original text), `task-description.md` (Req IDs), `context.md` (SDK mechanism + settled decisions).
 
-**Total batches**: 8 shippable + 1 deferred | **Total tasks**: 41 | **Status**: 0/8 complete
+**Total batches**: 8 shippable + 1 deferred | **Total tasks**: 41 | **Status**: ✅ **8/8 COMPLETE** — shipped in a single commit `d7101460b` (2026-08-10, 72 files, +11,854). Board refreshed 2026-08-10 by a stale-status audit; it had read `0/8` against already-shipped code.
 **Execution Mode**: `sequential` for **every** batch. **CLI agent delegation is DISABLED for this task** — sub-agents only, no `ptah_agent_spawn` fan-out.
 
 ---
@@ -12,14 +12,14 @@
 
 | Batch      | Phase | Name                                                  | Executor           | Mode       | Depends on | Status                          |
 | ---------- | ----- | ----------------------------------------------------- | ------------------ | ---------- | ---------- | ------------------------------- |
-| **B1**     | P0    | Contracts + workspace registration                    | backend-developer  | sequential | —          | PENDING                         |
-| **B2**     | P1a   | Lib scaffold, frontmatter, slug, built-ins, discovery | backend-developer  | sequential | B1         | PENDING                         |
-| **B3**     | P1b   | File writer, settings writer, activation resolver     | backend-developer  | sequential | B2         | PENDING                         |
-| **B4**     | P2    | RPC surface — all three registration sites            | backend-developer  | sequential | B3         | PENDING                         |
-| **B5**     | P4    | Activation wiring — flag tier + prompt injection      | backend-developer  | sequential | B4         | PENDING                         |
-| **B6**     | P3    | Frontend — picker + editor in the Advanced tab        | frontend-developer | sequential | B5         | PENDING                         |
-| **B7**     | P4b   | CLI parity write (opt-in, independently cuttable)     | backend-developer  | sequential | B5         | PENDING                         |
-| **B8**     | P6    | Docs                                                  | backend-developer  | sequential | B4         | PENDING                         |
+| **B1**     | P0    | Contracts + workspace registration                    | backend-developer  | sequential | —          | ✅ COMPLETE `d7101460b`         |
+| **B2**     | P1a   | Lib scaffold, frontmatter, slug, built-ins, discovery | backend-developer  | sequential | B1         | ✅ COMPLETE `d7101460b`         |
+| **B3**     | P1b   | File writer, settings writer, activation resolver     | backend-developer  | sequential | B2         | ✅ COMPLETE `d7101460b`         |
+| **B4**     | P2    | RPC surface — all three registration sites            | backend-developer  | sequential | B3         | ✅ COMPLETE `d7101460b`         |
+| **B5**     | P4    | Activation wiring — flag tier + prompt injection      | backend-developer  | sequential | B4         | ✅ COMPLETE `d7101460b`         |
+| **B6**     | P3    | Frontend — picker + editor in the Advanced tab        | frontend-developer | sequential | B5         | ✅ COMPLETE `d7101460b`         |
+| **B7**     | P4b   | CLI parity write (opt-in, independently cuttable)     | backend-developer  | sequential | B5         | ✅ COMPLETE `d7101460b`         |
+| **B8**     | P6    | Docs                                                  | backend-developer  | sequential | B4         | ✅ COMPLETE `d7101460b`         |
 | **~~B9~~** | P5    | Plugin tier                                           | —                  | —          | —          | **DEFERRED — do not implement** |
 
 **Critical path**: B1 → B2 → B3 → B4 → B5 → B6. B7 and B8 are leaves.
@@ -121,14 +121,14 @@ Plan §3.3a recommends promoting `PTAH_DISABLE_SDK_AUTO_MEMORY` to `Object.freez
 
 ---
 
-## Batch 1 — P0 Contracts + workspace registration ⏸️ PENDING
+## Batch 1 — P0 Contracts + workspace registration ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: — | **Tasks**: 4
 **Rationale**: Pure type and configuration work with no runtime behaviour. It unblocks every other batch and touches three shared, high-traffic files, so it must land fast and small to minimise the window in which another agent collides with it.
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full. Additionally: **all four files in this batch except one are shared files under active concurrent edit. `Read` each one immediately before editing. Do not reformat. Do not reorder existing entries.**
 
-### Task 1.1 — Create the shared RPC contract types ⏸️ PENDING
+### Task 1.1 — Create the shared RPC contract types ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-output-style.types.ts` — **CREATE**
 **Spec**: plan §6 (method table), §3.2 (`ActivationDecision`), §8 (`OutputStyleEntry` fields)
@@ -136,19 +136,19 @@ Plan §3.3a recommends promoting `PTAH_DISABLE_SDK_AUTO_MEMORY` to `Object.freez
 **Contents**: all six `*Params`/`*Result` interface pairs for `outputStyle:list|get|activate|save|delete|diagnose`, plus `OutputStyleEntry`, `OutputStyleTier`, `SettingsTier`, `ActivationDecision`, `InvalidOutputStyle`, `ActiveOutputStyleState`, `OutputStyleDetail`.
 **Critical**: `ActivationDecision` is a **discriminated union with exactly three members** — `{path:'none'}`, `{path:'flag'; styleName}`, `{path:'inject'; body; styleName}`. **`'inert'` must NOT exist** (plan §3.2, G5 — it is unreachable dead state and its absence is what makes a compile error the intended outcome if anyone reintroduces it). `OutputStyleEntry` carries `editable`, `deletable`, `immutableReason` as **data**, not UI convention (§8).
 
-### Task 1.2 — Add the two activation fields to `AISessionConfig` ⏸️ PENDING
+### Task 1.2 — Add the two activation fields to `AISessionConfig` ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/libs/shared/src/lib/types/ai-provider.types.ts` — **EDIT** ⚠️ shared
 **Spec**: plan §3.3. Add **two** optional readonly fields immediately after `workflowsDisabled` (hint: ≈`:179` — re-confirm by reading):
 `readonly outputStyleName?: string;` (flag tier, set only when `path === 'flag'`) and `readonly outputStyleBody?: string;` (append, set only when `path === 'inject'`). Keep the doc comments from §3.3 — they are what stops a future reader collapsing the two fields into one.
 **See F3** — the §9.4 manifest row mentioning only `outputStyleBody` is stale; two fields is correct.
 
-### Task 1.3 — Register the new lib's TS path ⏸️ PENDING
+### Task 1.3 — Register the new lib's TS path ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/tsconfig.base.json` — **EDIT** ⚠️ shared
 **Change**: exactly one entry in `compilerOptions.paths`: `"@ptah-extension/output-styles": ["./libs/backend/output-styles/src/index.ts"]`. Place it alphabetically near the existing `@ptah-extension/task-specs` / `@ptah-extension/settings-core` entries (hint: ≈`:108-135`). Match the surrounding formatting exactly.
 
-### Task 1.4 — Add the `output-styles` commitlint scope ⏸️ PENDING — **see F1**
+### Task 1.4 — Add the `output-styles` commitlint scope ✅ COMPLETE — **see F1**
 
 **File**: `D:/projects/ptah-extension/.commitlintrc.json` — **EDIT** ⚠️ shared
 **Change**: add `"output-styles"` to the `rules.scope-enum` array, beside the other backend-lib scopes (e.g. after `"task-specs"` / near `"settings-core"`). One array entry, nothing else.
@@ -179,7 +179,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 2 — P1a Lib scaffold, frontmatter, slug, built-ins, discovery ⏸️ PENDING
+## Batch 2 — P1a Lib scaffold, frontmatter, slug, built-ins, discovery ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: B1 | **Tasks**: 8
 **Rationale**: Almost entirely new files in a lib nobody else can be touching, so concurrency risk is near zero and it can be written in one sitting. This is half (a) of the plan §14 P1 split — _frontmatter + slug + built-ins + discovery_.
@@ -188,7 +188,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full. Everything in this batch is **CREATE** inside a brand-new directory, so `Write` is legal here. Do not touch any file outside `libs/backend/output-styles/`.
 
-### Task 2.1 — Scaffold the lib ⏸️ PENDING — **see F2**
+### Task 2.1 — Scaffold the lib ✅ COMPLETE — **see F2**
 
 **Files** (all **CREATE**, under `D:/projects/ptah-extension/libs/backend/output-styles/`):
 `project.json`, `tsconfig.json`, `tsconfig.lib.json`, `tsconfig.spec.json`, `jest.config.ts`, `src/index.ts`
@@ -196,18 +196,18 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 **F2**: do **not** create `package.json` — `task-specs` has none, Nx discovers via `project.json`, and root `jest.config.ts` uses `getJestProjectsAsync()`. If a target genuinely fails without it, add it and say so in the report.
 **Do NOT create** `CLAUDE.md` here (F6 — that is B8).
 
-### Task 2.2 — DI tokens ⏸️ PENDING
+### Task 2.2 — DI tokens ✅ COMPLETE
 
 **File**: `.../output-styles/src/lib/di/tokens.ts` — **CREATE**
 **Spec**: plan §10 — `OUTPUT_STYLE_TOKENS` with `DISCOVERY`, `FILE_WRITER`, `CLAUDE_SETTINGS_WRITER`, `ACTIVATION_RESOLVER`, all `Symbol.for(...)`, `as const`. Declare **all four** now even though only `DISCOVERY` has an implementation in this batch — the file is pure symbols and has no imports, so it cannot break.
 **Do NOT create** `plugin-roots.port.ts` or `PLUGIN_ROOTS_SOURCE_TOKEN` (**F5** — P5 is deferred).
 
-### Task 2.3 — Frontmatter Zod schema, pinned ⏸️ PENDING
+### Task 2.3 — Frontmatter Zod schema, pinned ✅ COMPLETE
 
 **File**: `.../src/lib/output-style-frontmatter.schema.ts` — **CREATE**
 **Spec**: plan §5.2 verbatim — `SDK_OUTPUT_STYLE_VERSION_PIN = '0.3.150'`, `OUTPUT_STYLE_FRONTMATTER_KEYS` (the four keys), `OutputStyleFrontmatterSchema` as `z.object({...}).strict()` with all four keys optional. **Keep the full header comment** naming the source of truth and the R4 upgrade checkpoint — that comment _is_ the R4 mitigation.
 
-### Task 2.4 — Frontmatter parse / serialize ⏸️ PENDING
+### Task 2.4 — Frontmatter parse / serialize ✅ COMPLETE
 
 **File**: `.../src/lib/output-style-frontmatter.ts` — **CREATE**
 **Exports**: `parseOutputStyleFile`, `serializeOutputStyleFile`, `normalizeFrontmatterKeys`, `deriveDescription`, `toValidationError`.
@@ -222,23 +222,23 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - `description` fallback: first non-heading, non-empty paragraph, single line, ≤160 chars (Req 1.4).
 - `toValidationError`: `unrecognized_keys` → `{code:'UNRECOGNIZED_KEY', key, validKeys, message}` naming the offending key and listing all four valid ones; `matter()` throw → `{code:'YAML_PARSE', line?, message}` taking `line`/`column` from `YAMLException.mark` when present. **Formatted diagnostics only — never raw exception text, never an absolute host path** (Req 7.6).
 
-### Task 2.5 — Slug safety ⏸️ PENDING
+### Task 2.5 — Slug safety ✅ COMPLETE
 
 **File**: `.../src/lib/output-style-slug.ts` — **CREATE**
 **Spec**: plan §5.6 — lowercase, NFKD-strip, non-`[a-z0-9-]` → `-`, collapse runs, trim leading/trailing `-`, reject empty, cap 64 chars, reject `.` and `..`, reject path separators and drive-colons **pre-normalisation**, reject reserved Windows device names (`CON PRN AUX NUL COM1-9 LPT1-9`, case-insensitive, bare or with extension). Collision in the target tier → `{code:'FILE_EXISTS'}` unless `overwrite: true`.
 
-### Task 2.6 — Built-in styles ⏸️ PENDING
+### Task 2.6 — Built-in styles ✅ COMPLETE
 
 **File**: `.../src/lib/built-in-output-styles.ts` — **CREATE**
 **Spec**: plan §8 — `Object.freeze([...])` with `default`, `Explanatory`, `Learning`, `Proactive`. **Casing is verbatim from the binary and is load-bearing** (`default` lowercase, the other three capitalised) because `outputStyle` binds by exact `name`. Each entry: `tier:'builtin'`, `keepCodingInstructions` per the binary, `editable:false`, `deletable:false`, `body: undefined`, `immutableReason:'built-in'`.
 **Marketplace (BLOCKING)**: this is a `.ts` file **deliberately** — it compiles into `main.mjs`, which is the only sanctioned home for trademarked product names in this feature (§12.1).
 
-### Task 2.7 — Test fixtures as inline TS ⏸️ PENDING
+### Task 2.7 — Test fixtures as inline TS ✅ COMPLETE
 
 **File**: `.../src/lib/__fixtures__/output-style.fixtures.ts` — **CREATE**
 **Marketplace (BLOCKING)**: **inline TS string constants, NOT `.md` files** (§12.3). Creating any `.md` fixture is a hard failure of this batch. No starter/template style asset is added anywhere by this task.
 
-### Task 2.8 — Discovery service + its spec ⏸️ PENDING
+### Task 2.8 — Discovery service + its spec ✅ COMPLETE
 
 **Files**: `.../src/lib/output-style-discovery.service.ts` — **CREATE**; `.../src/lib/di/register.ts` — **CREATE** (registering **only** `OutputStyleDiscoveryService` + `OUTPUT_STYLE_TOKENS.DISCOVERY` in this batch; B3 extends it).
 **Spec**: plan §9.1, §10, §5.5, §8.
@@ -273,20 +273,20 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 3 — P1b File writer, settings writer, activation resolver ⏸️ PENDING
+## Batch 3 — P1b File writer, settings writer, activation resolver ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: B2 | **Tasks**: 4
 **Rationale**: Half (b) of the plan §14 P1 split. It carries the two highest-risk pieces in the whole task — R2 (writing a co-owned `.claude/settings.json`) and R3 (double application) — so it gets its own batch and its own review rather than being buried in a larger one.
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full. All new files inside `libs/backend/output-styles/` except one **EDIT** to `di/register.ts`, which this task authored in B2 — extend it with `Edit`, do not `Write` over it.
 
-### Task 3.1 — Output-style file writer ⏸️ PENDING
+### Task 3.1 — Output-style file writer ✅ COMPLETE
 
 **File**: `.../src/lib/output-style-file.writer.ts` — **CREATE**
 **Spec**: plan §9.1, §5.1, §5.6, E8.
 **Details**: `@injectable()`; create/edit/delete of user- and project-tier `.md` files through `IFileSystemProvider`. Upsert semantics (create + edit share one path) so Req 4.4 is one server-side operation. Body preserved verbatim (the `.replace(/\n$/,'')` from Task 2.4). E8 concurrent-edit guard: capture `stat().mtime` on read, echo it on save, re-check before write. **Known gap to compensate for**: the shared FS contract suite asserts only `type` and `size` on `stat`, so `mtime` is not cross-adapter-guaranteed — **also compare byte length** as belt-and-braces (plan §15, E8 row).
 
-### Task 3.2 — Claude settings writer (merge-preserving) ⏸️ PENDING — **R2, CRITICAL**
+### Task 3.2 — Claude settings writer (merge-preserving) ✅ COMPLETE — **R2, CRITICAL**
 
 **File**: `.../src/lib/claude-settings.writer.ts` — **CREATE**
 **Spec**: plan §4.3, steps 1–11, implemented **in order**. Do not shorten the sequence.
@@ -300,13 +300,13 @@ Co-Authored-By: Claude <noreply@anthropic.com>
    Emit 2-space `JSON.stringify` + trailing newline. Error messages name the **workspace-relative** path; `SyntaxError.message` is sanitised to strip absolute paths. Return `{success, writtenPath, tier}` so the UI can name the file.
    **Pattern to follow**: `task-specs/src/lib/task-writer.service.ts` `applyFrontmatterPatch` (≈`:587-698`) — the repo's existing optimistic-concurrency shape, honestly documented as _narrowing_ rather than closing the window.
 
-### Task 3.3 — Activation resolver ⏸️ PENDING — **R3, the single decision point**
+### Task 3.3 — Activation resolver ✅ COMPLETE — **R3, the single decision point**
 
 **File**: `.../src/lib/output-style-activation.resolver.ts` — **CREATE**
 **Spec**: plan §3.2 verbatim — `LOCALHOST_BASE_URL_RE`, the pure `resolveActivation()` function, and a thin `@injectable() OutputStyleActivationResolver` around it.
 **The invariant**: `inject` is defined as `!fileVisible`, so the two paths are **complements of one boolean and cannot both be true**. `fileVisible` is true for `builtin`, `plugin` and `project` tiers unconditionally, and for `user` tier only when the provider base URL is not localhost. **Key visibility is NOT an input** — the `outputStyle` key always rides the flag tier, which the binary's `km()` enables unconditionally (G1). Do not reintroduce a `keyTier` parameter, and do not reintroduce an `'inert'` branch (G5 — built-ins come from a hardcoded map, never a directory scan, so they can never be hidden). **Keep the full doc comment from §3.2** — it is what tells the next reader why the shape is this shape.
 
-### Task 3.4 — Extend `di/register.ts` ⏸️ PENDING
+### Task 3.4 — Extend `di/register.ts` ✅ COMPLETE
 
 **File**: `.../src/lib/di/register.ts` — **EDIT** (authored by this task in B2)
 **Change**: register `OutputStyleFileWriter`, `ClaudeSettingsWriter`, `OutputStyleActivationResolver` as singletons and bind their three `OUTPUT_STYLE_TOKENS` entries, per plan §10's `registerOutputStyleServices` body. No plugin-roots registration (F5).
@@ -336,7 +336,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 4 — P2 RPC surface, all three registration sites ⏸️ PENDING
+## Batch 4 — P2 RPC surface, all three registration sites ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: B3 | **Tasks**: 6
 **Rationale**: The plan's §6 mandates that the three registration sites land together. `rpc-allowlist.spec.ts` is an **existing** guard spec that asserts every registry method has exactly one manifest owner and an allowlisted prefix — it stays red until compile-time types, the runtime `ALLOWED_METHOD_PREFIXES` guard, and the handler manifest entry are **all** present. Splitting them leaves CI red for no reason.
@@ -345,7 +345,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full. This batch edits four shared, high-traffic files (`rpc.types.ts`, `rpc-handler.ts`, `manifest.ts`, and three composition roots). **`Read` every one of them immediately before editing.** `rpc.types.ts` is thousands of lines and its line numbers have certainly moved — locate the four insertion points by surrounding code (`export * from './rpc/...'` block, the tasks `import type` block, `RpcMethodRegistry`, `RPC_METHOD_ENTRIES`), never by the plan's line numbers.
 
-### Task 4.1 — Handler + param schemas + spec ⏸️ PENDING
+### Task 4.1 — Handler + param schemas + spec ✅ COMPLETE
 
 **Files** (all **CREATE**):
 
@@ -357,7 +357,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
   **Security**: every payload Zod-validated at the boundary; traversal and reserved-name payloads rejected **before any FS call**; no absolute host path and no raw exception text in any surfaced message (Req 7.6).
   **Parity is NOT wired here** — `activate`'s `parity` param is accepted and validated, but the `ClaudeSettingsWriter` call arrives in B7. Until then `activate` returns `parity: undefined`. A parity failure must **never** roll back or block the selection (plan §4.1).
 
-### Task 4.2 — Registration site A: compile-time types ⏸️ PENDING
+### Task 4.2 — Registration site A: compile-time types ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts` — **EDIT** ⚠️ shared, four separate insertions
 
@@ -366,20 +366,20 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 3. Six entries in `RpcMethodRegistry`.
 4. Six keys in `RPC_METHOD_ENTRIES`. **Skipping this is a compile error** (`Record<RpcMethodName, true>`) — that is the intended guard, not a nuisance.
 
-### Task 4.3 — Registration site B: the runtime guard ⏸️ PENDING
+### Task 4.3 — Registration site B: the runtime guard ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/libs/backend/vscode-core/src/messaging/rpc-handler.ts` — **EDIT** ⚠️ shared
 **Change**: one line into `ALLOWED_METHOD_PREFIXES`, after `'mcpDirectory:'` and before `'cron:'`:
 `'outputStyle:', // Claude Code output styles (list, get, activate, save, delete, diagnose)`
 **Note the trailing colon** — the allowlist format is `'tasks:'`, not `'tasks.'`. **Missing this site causes a silent runtime crash**, which is exactly why the plan calls it out separately.
 
-### Task 4.4 — Registration site C: the handler manifest ⏸️ PENDING
+### Task 4.4 — Registration site C: the handler manifest ✅ COMPLETE
 
 **Files**: `D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts` — **EDIT** (+1 entry, +1 import); `.../rpc-handlers/src/lib/handlers/index.ts` — **EDIT** (+1 export); `.../rpc-handlers/src/index.ts` — **EDIT** (+1 name)
 **Change**: insert into `RPC_HANDLER_MANIFEST` group 1 (`requires: []`, all hosts), **alphabetically between `mcpDirectory` and `plugin`**: `{ key: 'outputStyle', methods: OutputStyleRpcHandlers.METHODS, requires: [], handler: OutputStyleRpcHandlers }`. `requires: []` is correct — the feature needs only `IFileSystemProvider` + `IWorkspaceProvider`, which every host has. **No new `Capability`.**
 **No app-level edits needed for the handler itself**: it is `@injectable()` with all-`@inject` args and `requires: []`, so `registerHandlers` resolves it on demand on all three hosts. It does **not** go in `registerSharedRpcHandlers`.
 
-### Task 4.5 — Register the lib in the three composition roots ⏸️ PENDING
+### Task 4.5 — Register the lib in the three composition roots ✅ COMPLETE
 
 **Files** (all **EDIT**, +1 call and +1 import each):
 
@@ -388,7 +388,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - `D:/projects/ptah-extension/libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts` — same anchor
   **Why Phase 2**: these services depend only on Phase 1 platform adapters (`FILE_SYSTEM_PROVIDER`, `WORKSPACE_PROVIDER`) and are consumed by Phase 3/4 handlers.
 
-### Task 4.6 — `settings-core` selection setting ⏸️ PENDING — **see F4 (pulled forward from P4)**
+### Task 4.6 — `settings-core` selection setting ✅ COMPLETE — **see F4 (pulled forward from P4)**
 
 **Files**: `D:/projects/ptah-extension/libs/backend/settings-core/src/schema/output-style-schema.ts` — **CREATE** (beside the other `*-schema.ts` files); `.../settings-core/src/schema/index.ts` — **EDIT** (+1 barrel entry)
 **Change**: one `defineSetting()` entry, `outputStyle.selectedName`, **workspace-scoped**, read through the existing `SETTINGS_TOKENS.SETTINGS_STORE`.
@@ -420,7 +420,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 5 — P4 Activation wiring: flag tier + prompt injection ⏸️ PENDING
+## Batch 5 — P4 Activation wiring: flag tier + prompt injection ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: B4 | **Tasks**: 4
 **Rationale**: Small in line count (~10 edited lines across three files) but it is **what makes the feature work at all** — rev 2 promoted this from a fallback concern to the primary activation mechanism. It must land before B6 is demoable. It carries three HIGH-severity risks (R3, G4, G4b) in a handful of lines, so it gets its own batch and its own review.
@@ -429,7 +429,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full. `sdk-query-options-builder.ts` and `chat-session.service.ts` are large, hot files. **`Read` both immediately before editing** and locate each of the four sub-edits by surrounding code — every line number below is a stale hint.
 
-### Task 5.1 — Flag-tier spread ⏸️ PENDING — **G4 + G4b, HIGH RISK**
+### Task 5.1 — Flag-tier spread ✅ COMPLETE — **G4 + G4b, HIGH RISK**
 
 **File**: `D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` — **EDIT**, the `settings:` property (hint ≈`:600`)
 **Change**: replace the bare `settings: PTAH_DISABLE_SDK_AUTO_MEMORY` reference with a **fresh spread built per session**:
@@ -447,21 +447,21 @@ settings: sessionConfig?.outputStyleName
 3. When no style is active, `outputStyle` is **absent** — not `undefined`, not `'default'`. **The flag tier outranks user/project/local**, so unconditionally sending the key would clobber a style the user chose themselves via the Claude Code CLI. Absence is the only correct "no opinion" value.
    **Optional**: promote the constant to `Object.freeze(...)` in `agent-sdk/src/lib/constants.ts` if it does not break existing specs; skip and report if it does.
 
-### Task 5.2 — Prompt append path ⏸️ PENDING
+### Task 5.2 — Prompt append path ✅ COMPLETE
 
 **File**: same `sdk-query-options-builder.ts` — **EDIT**, three more sub-edits
 (b) `+1` field `outputStyleBody` on `AssembleSystemPromptInput`; (c) inside `assembleSystemPrompt`, after the `userSystemPrompt` block: `if (outputStyleBody?.trim()) { appendParts.push(outputStyleBody); }`; (d) `+1` line `outputStyleBody: sessionConfig?.outputStyleBody` at the `assembleSystemPrompt({...})` call in `buildSystemPrompt`.
 **Also**: the defensive assertion — if `outputStyleName` and `outputStyleBody` are both set, **throw**. The resolver's union guarantees this cannot happen; the assertion makes a future regression loud instead of silent.
 **Do NOT touch** `PTAH_CORE_SYSTEM_PROMPT`, the `assembleSystemPrompt` ordering/precedence, or the `settingSources` localhost branches. All explicitly out of scope.
 
-### Task 5.3 — Session wiring ⏸️ PENDING — **see F3**
+### Task 5.3 — Session wiring ✅ COMPLETE — **see F3**
 
 **File**: `D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` — **EDIT**
 **Change**: `+1` constructor `@inject` of the activation resolver; at **both** `AISessionConfig` object literals (`chat:start`, hint ≈`:430-449`; `chat:continue`, hint ≈`:961-973`) call `OutputStyleActivationResolver.resolveForSession({ baseUrl, activeStyle })` and map the decision onto the literal.
 **F3 — set BOTH fields, one per branch**: `path:'flag'` → `outputStyleName`; `path:'inject'` → `outputStyleBody`; `path:'none'` → neither. The §9.4 manifest row mentioning only `outputStyleBody` is stale rev-1 text; §3.3 is authoritative. **Never set both.**
 `providerProfile` is already in hand from `resolveProviderProfileForWorkspace(...)` immediately above each literal, and `ProviderProfile.baseUrl` is the resolved base URL — **no new resolution work, no new async hop, and no caching**, which is what satisfies Req 5.6.
 
-### Task 5.4 — Activation specs ⏸️ PENDING
+### Task 5.4 — Activation specs ✅ COMPLETE
 
 **Files** (both **CREATE**):
 
@@ -495,7 +495,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 6 — P3 Frontend: picker + editor in the Advanced tab ⏸️ PENDING
+## Batch 6 — P3 Frontend: picker + editor in the Advanced tab ✅ COMPLETE
 
 **Recommended Executor**: `frontend-developer` | **Execution Mode**: `sequential` | **Depends on**: B5 | **Tasks**: 6
 **Rationale**: Angular signals, OnPush, daisyUI, and a large amount of user-facing copy that carries three risk mitigations (R1, R5, R6) — squarely a frontend-developer batch. Depends on B5 rather than only B4 so the surface is demoable the moment it lands.
@@ -506,24 +506,24 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 **Explicitly NOT touched by this batch**: `app-shell.component.{ts,html}`, anything in `libs/frontend/core` (which is why the surface is a **section inside the existing "Advanced" / pro-features tab** rather than a new tab — a new tab would have forced an edit to `SettingsTabId` in `libs/frontend/core`, which has in-flight work), `apps/ptah-extension-webview/src/app/app.config.ts`, `apps/ptah-electron-e2e/**`.
 
-### Task 6.1 — Signal store ⏸️ PENDING
+### Task 6.1 — Signal store ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/libs/frontend/chat/src/lib/settings/output-style/output-style.store.ts` — **CREATE**
 **Spec**: plan §11. `@Injectable({providedIn:'root'})`, shape modelled on `skill-clones-state.service.ts`. Signals: `styles`, `invalid`, `active`, `decision`, `loading`, `saving`, `error`; computed `hasCollision` (E4), `activeMissing` (E5). Methods `refresh()` (`outputStyle:list` + `outputStyle:diagnose`), `activate()`, `save()`, `remove()`.
 **Critical**: `ClaudeRpcService.call<T>()` returns a **Result object, not a throw** — use `result.isSuccess()` / `result.data` / `result.error`, never try/catch-on-throw. `activate()` uses the optimistic-set-then-rollback pattern from `workflows-config.component.ts`, which is what makes Req 2.7 free. `save()` triggers `refresh()` (Req 3.6) and must **not** auto-activate (Req 3.7).
 
-### Task 6.2 — Config shell component ⏸️ PENDING
+### Task 6.2 — Config shell component ✅ COMPLETE
 
 **File**: `.../settings/output-style/output-style-config.component.ts` — **CREATE**
 Selector `ptah-output-style-config`. `standalone: true`, `ChangeDetectionStrategy.OnPush`, `inject()`, `host: { class: 'mt-4 block' }`. Signal `view = 'list' | 'editor'`. Loads the store in **its own** `ngOnInit`, not in `SettingsComponent` — since the section lives inside the `pro-features` `@if`, it is not instantiated until the user opens the tab, so the settings panel's initial render is untouched **by construction** (the NFR's "must not block initial render", satisfied structurally rather than by a timing promise).
 
-### Task 6.3 — List component ⏸️ PENDING
+### Task 6.3 — List component ✅ COMPLETE
 
 **File**: `.../settings/output-style/output-style-list.component.ts` — **CREATE**
 **Spec**: plan §11 list subtree, in full. Per row: name · tier badge (user/project/plugin/built-in) · description · active check (Req 1.6) · **disabled** edit/delete with the `immutableReason` string rendered (Req 4.2 — a disabled control plus a reason, **never a silently missing button**). Namespaced `${pluginName}:${styleName}` display for plugin entries (Req 1.3). Invalid rows rendered inline, non-selectable, with the formatted diagnostic and an "Open to fix" action for user/project tiers (Req 7.1/7.4/7.5). Collision banner (E4). Missing-active banner naming the orphan value with "Revert to default" (E5). Fallback banner when `decision().path === 'inject'` — **rev-2 copy**: the trigger is only _user-tier style file + localhost provider_, and the copy says the provider does not read user-level style **files**, **not** that it ignores settings (the key half is handled by the flag tier). Footer: "Applies to the next session" (Req 2.5).
 **The CLI-parity checkbox is rendered here, default OFF, but is inert until B7** — see B7. Render it disabled with a "coming with the parity write" state, or omit it and add it in B7; state which you chose in the report.
 
-### Task 6.4 — Editor component ⏸️ PENDING
+### Task 6.4 — Editor component ✅ COMPLETE
 
 **File**: `.../settings/output-style/output-style-editor.component.ts` — **CREATE**
 **Spec**: plan §11 editor subtree.
@@ -535,12 +535,12 @@ Selector `ptah-output-style-config`. `standalone: true`, `ChangeDetectionStrateg
 **Preview**: `<ptah-markdown-block [content]="body()" />` from `@ptah-extension/markdown`. **NEVER `[innerHTML]`** — a style body is user-authored content that may contain arbitrary HTML, and `libs/frontend/markdown` is the single DOMPurify chokepoint.
 **R1 copy rule, everywhere in this batch**: describe a style as _influencing_ how the agent writes. **Never** claim it governs or guarantees behaviour — `PTAH_CORE_SYSTEM_PROMPT` is unconditionally appended and is the stronger voice, so compliance is partial by construction.
 
-### Task 6.5 — Frontend specs ⏸️ PENDING
+### Task 6.5 — Frontend specs ✅ COMPLETE
 
 **Files** (both **CREATE**): `.../settings/output-style/output-style.store.spec.ts`, `.../settings/output-style/output-style-editor.component.spec.ts`
 **Required**: the editor spec **must include the `jest.mock('ngx-markdown', …)` stub block copied from `settings.component.spec.ts`** — without it the suite will not run.
 
-### Task 6.6 — Three wiring edits ⏸️ PENDING
+### Task 6.6 — Three wiring edits ✅ COMPLETE
 
 **Files** (all **EDIT**, all tiny):
 
@@ -618,20 +618,20 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Batch 8 — P6 Docs ⏸️ PENDING
+## Batch 8 — P6 Docs ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` | **Execution Mode**: `sequential` | **Depends on**: B4 | **Tasks**: 2
 **Rationale**: Trivial leaf. Sequenced after B4 so the lib's documented surface is the real one. May be executed any time after B4.
 
 **Concurrency (verbatim, binding)** — rules 1–6 of the Concurrency Contract above apply in full. The root `CLAUDE.md` is a shared, frequently-edited file — **`Read` it fresh, add exactly one line to the Backend Libs module index, change nothing else.**
 
-### Task 8.1 — Lib documentation ⏸️ PENDING — **see F6**
+### Task 8.1 — Lib documentation ✅ COMPLETE — **see F6**
 
 **File**: `D:/projects/ptah-extension/libs/backend/output-styles/CLAUDE.md` — **CREATE**
 **Marketplace (belt-and-braces, §12.5)**: this is repo documentation under `libs/`, excluded from the VSIX like every other lib `CLAUDE.md` — but **keep its prose free of trademarked product names anyway** (`claude`, `copilot`, `codex`, `openai`, `anthropic`).
 Must record: the lib's one-sentence concern, the four services, the SDK version pin and the R4 upgrade checkpoint, the flag-tier-vs-injection split, and that P5 (plugin tier) is deferred.
 
-### Task 8.2 — Root module index ⏸️ PENDING
+### Task 8.2 — Root module index ✅ COMPLETE
 
 **File**: `D:/projects/ptah-extension/CLAUDE.md` — **EDIT** ⚠️ shared
 **Change**: `+1` line in the **Backend Libs** module index list, alphabetically placed, matching the surrounding entry format.
@@ -707,3 +707,41 @@ Every backend batch must confirm these exist **by reading**, not by trusting the
 | 🔄 IMPLEMENTED | Developer done, awaiting verification | developer             |
 | ✅ COMPLETE    | Verified, reviewed, and committed     | team-leader           |
 | ❌ FAILED      | Verification failed                   | team-leader           |
+
+---
+
+## Close-out (2026-08-10)
+
+Found by a stale-status audit: this board read **0/8 PENDING** while all eight batches
+were already shipped, almost entirely in `d7101460b` (72 files, +11,854 / -9).
+
+**Basis for the flip, stated honestly**: batch-level evidence, not 41 individual task
+re-verifications. Every batch's deliverables were confirmed present in the tree, and both
+reviews read the full 38-file surface — but individual task ACs were not each re-run.
+
+**One deliverable did not land where this board implies.** Task 1.3's TS path alias
+(`@ptah-extension/output-styles` → `tsconfig.base.json:135-136`) was added by `36775671e`,
+a **TASK_2026_187 commit**, not by `d7101460b`. It is present and correct; it just rode in
+on another task's change. Flagged because a future `git log -- tsconfig.base.json` looking
+for this task's fingerprint will not find one.
+
+Verified against the tree, not the report — `libs/backend/output-styles/` exists in full (discovery, frontmatter, slug,
+file writer, `claude-settings.writer` + its parity spec, activation resolver, DI), the RPC
+surface is registered at all three sites (`manifest.ts`, `rpc.types.ts`,
+`rpc-handler.ts` `ALLOWED_METHOD_PREFIXES`), the Angular picker/editor tree is under
+`libs/frontend/chat/src/lib/settings/output-style/`, and `libs/backend/output-styles/CLAUDE.md`
+is present with the root module index pointing at it. B7 (CLI parity) is evidenced by
+`claude-settings.writer.parity.spec.ts`; B8 (docs) by the two CLAUDE.md edits.
+
+Both reviews returned **APPROVED**: `code-logic-review.md` 9/10 (0 critical, 0 serious,
+1 moderate, 3 nits), `code-style-review.md` 7/10 (0 blocking, 3 serious, 2 minor).
+
+**Open follow-ups — not blocking the close, but not done either.** The style review's
+three serious issues survive in the shipped code. The one with a real six-month failure
+mode: a **third, unguarded copy of `LOCALHOST_BASE_URL_RE`** at
+`output-style-rpc.handlers.ts:124`, used to compute `visibleTiers` for `outputStyle:diagnose`.
+The resolver's copy is protected by a source-reading drift guard
+(`output-style-activation.resolver.spec.ts:194-215`); this one is not, so if the SDK's
+`settingSources` predicate moves, `diagnose` silently reports wrong visible tiers with no
+test to catch it. Cosmetic today. File as its own task rather than leaving it in this
+carrier.

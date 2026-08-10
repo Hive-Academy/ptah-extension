@@ -513,6 +513,28 @@ effect(() => { for (const key of cache.keys()) if (!liveDiffKeys().has(key)) dis
 
 ## Batch 4: Tree & Drag Performance (B3 + B5) ⚠️ PARTIAL — B5 landed `16da79d2f` (2026-08-03, out of order); B3 outstanding
 
+> **Residue re-verified against the tree, 2026-08-10** (audit, not agent-report). What "B5 landed"
+> does and does not mean:
+>
+> - **Requirement B5's _behavior_ is fully shipped.** All three resize drags coalesce to one
+>   `requestAnimationFrame` with a single zone re-entry, and every cleanup path cancels the armed
+>   frame — `editor-panel.component.ts:921, 1015, 1109` (the three `runOutsideAngular` blocks),
+>   `:1190` (the shared `_dragFrame` handle), `:1207` (`cancelAnimationFrame` on teardown).
+> - **Task 4.3's _deliverable_ is NOT done.** `startDragTracking` does not exist anywhere in
+>   `libs/frontend/editor` — the pattern was applied three times, not extracted once. B5 AC4
+>   was specified to "fall out of having a single implementation"; with three copies it does
+>   not fall out of anything and is currently unproven.
+> - **Task 4.4 is genuinely closed** — the blur/Escape teardown shipped under TASK_2026_176
+>   (`e82dc9802`), whose message names editor-panel as the pattern it followed.
+> - **B3 has not started.** `changedDirPrefixes` appears only inside a perf-spec comment
+>   (`perf-m2-status-update.spec.ts:61`) as the thing being measured for; it is not in
+>   `git-status.service.ts`. `hasChangedChildren` (`file-tree-node.component.ts:284`) still
+>   does the per-node linear scan.
+> - **Task 4.5 is confirmed outstanding** by `measurements.md:252` — the M2/M4 after-figures
+>   are still recorded as PENDING in Batch 4.
+>
+> **Net**: 4.4 ✅ · 4.3 behavior ✅ / extraction ⏸️ · 4.1, 4.2, 4.5 ⏸️.
+
 **Recommended Executor**: `frontend-developer`
 **Fallback Executor**: `senior-tester` (for the M2/M4 after-measurements only)
 **Execution Mode**: sequential
@@ -552,9 +574,17 @@ readonly changedDirPrefixes = computed<ReadonlySet<string>>(() => {
 **Details**: Drop the per-node linear scan of `fileStatusMap` for `changedDirPrefixes().has(relativeDirPath)`.
 **Validation Notes**: AC2 requires evaluation to be **effectively constant-time with respect to the number of changed files**. AC3 requires correctness in _both_ directions: every directory transitively containing a changed file is marked, and no directory without one is marked.
 
-### Task 4.3: Extract `startDragTracking` ⏸️ PENDING
+### Task 4.3: Extract `startDragTracking` ⏸️ PENDING — behavior already shipped, extraction is what remains
 
-**File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts` (`:832-858`, `:879-903`, `:921-949`)
+> **Re-verified 2026-08-10.** `16da79d2f` applied this task's rAF pattern **inline to all three
+> drag paths** rather than extracting the helper. So AC1, AC2 and AC5 are already satisfied in
+> behavior, and **AC4 is not** — it was written to fall out of a single implementation, and
+> there are three. This task is now a pure de-duplication: fold `:921`, `:1015` and `:1109`
+> into one `startDragTracking`, keeping the clamping arithmetic per-surface and the shared
+> `_dragFrame` teardown at `:1190`/`:1207` intact. Line numbers below are pre-`16da79d2f`
+> and no longer resolve — use the three current `runOutsideAngular` blocks.
+
+**File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts` (~~`:832-858`, `:879-903`, `:921-949`~~ → now `:921`, `:1015`, `:1109`)
 **Requirement**: B5 AC1, AC2, AC4, AC5
 **Details**: One private helper replacing three duplicated drag paths — **AC4 falls out of having a single implementation**:
 
