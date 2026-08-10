@@ -1,6 +1,7 @@
 {
   "exportedFrom": "http://localhost:3001",
   "note": "raw markdown fetched per-post from /posts/{id}.json; /t/{id}.json omits it",
+  "curriculumNote": "Topics 15-22, 24 and 25 are EDITORIAL curriculum content maintained in place, not a Discourse capture. The forum this export came from was destroyed on 2026-08-04; do not try to re-capture them. The nine remaining topics ARE a capture.",
   "categories": [
     {
       "id": 4,
@@ -200,145 +201,171 @@
     },
     {
       "id": 15,
-      "title": "Week 1 build thread — Foundation — workspace, boundaries, CI",
-      "slug": "week-1-build-thread-foundation-workspace-boundaries-ci",
+      "title": "Day 1 build thread — The workspace — monorepo, boundaries, first green CI",
+      "slug": "day-01-build-thread-the-workspace-monorepo-boundaries-first-green-ci",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:24.242Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:24.648Z",
-          "raw": "**Week 1: Foundation — workspace, boundaries, CI**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 1: Foundation — workspace, boundaries, CI</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 1: The workspace — monorepo, boundaries, first green CI**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 16,
-      "title": "Week 2 build thread — The domain — modelling and migrations",
-      "slug": "week-2-build-thread-the-domain-modelling-and-migrations",
+      "title": "Day 2 build thread — The database and the deploy pipe — Postgres, migrations, staging on merge",
+      "slug": "day-02-build-thread-the-database-and-the-deploy-pipe-postgres-migrations-staging-on-merge",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:25.997Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:26.425Z",
-          "raw": "**Week 2: The domain — modelling and migrations**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 2: The domain — modelling and migrations</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 2: The database and the deploy pipe — Postgres, migrations, staging on merge**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 17,
-      "title": "Week 3 build thread — Authentication and tenancy",
-      "slug": "week-3-build-thread-authentication-and-tenancy",
+      "title": "Day 3 build thread — Sign-up, sign-in, session",
+      "slug": "day-03-build-thread-sign-up-sign-in-session",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:28.304Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:28.860Z",
-          "raw": "**Week 3: Authentication and tenancy**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 3: Authentication and tenancy</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 3: Sign-up, sign-in, session**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 18,
-      "title": "Week 4 build thread — Billing and entitlements",
-      "slug": "week-4-build-thread-billing-and-entitlements",
+      "title": "Day 4 build thread — Users, organisations and the tenancy boundary",
+      "slug": "day-04-build-thread-users-organisations-and-the-tenancy-boundary",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:30.874Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:31.362Z",
-          "raw": "**Week 4: Billing and entitlements**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 4: Billing and entitlements</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 4: Users, organisations and the tenancy boundary**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 19,
-      "title": "Week 5 build thread — The first vertical slice",
-      "slug": "week-5-build-thread-the-first-vertical-slice",
+      "title": "Day 5 build thread — Projects and products — the aggregates and their contracts",
+      "slug": "day-05-build-thread-projects-and-products-the-aggregates-and-their-contracts",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:33.107Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:33.529Z",
-          "raw": "**Week 5: The first vertical slice**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 5: The first vertical slice</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 5: Projects and products — the aggregates and their contracts**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 20,
-      "title": "Week 6 build thread — Agents, memory and skills",
-      "slug": "week-6-build-thread-agents-memory-and-skills",
+      "title": "Day 6 build thread — Checkout — plans, prices and the first paid subscription",
+      "slug": "day-06-build-thread-checkout-plans-prices-and-the-first-paid-subscription",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:35.103Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:35.438Z",
-          "raw": "**Week 6: Agents, memory and skills**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 6: Agents, memory and skills</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 6: Checkout — plans, prices and the first paid subscription**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 21,
-      "title": "Week 7 build thread — Hardening — tests, policies, observability",
-      "slug": "week-7-build-thread-hardening-tests-policies-observability",
+      "title": "Day 7 build thread — Webhooks and entitlements — turning a payment into a durable fact",
+      "slug": "day-07-build-thread-webhooks-and-entitlements-turning-a-payment-into-a-durable-fact",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:36.929Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:37.298Z",
-          "raw": "**Week 7: Hardening — tests, policies, observability**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 7: Hardening — tests, policies, observability</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 7: Webhooks and entitlements — turning a payment into a durable fact**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },
     {
       "id": 22,
-      "title": "Week 8 build thread — Deploy and launch",
-      "slug": "week-8-build-thread-deploy-and-launch",
+      "title": "Day 8 build thread — The agent in the product — tools, streaming and cost control",
+      "slug": "day-08-build-thread-the-agent-in-the-product-tools-streaming-and-cost-control",
       "categoryId": 5,
       "categoryName": "Builders Lounge",
       "pinned": false,
-      "createdAt": "2026-08-01T20:49:38.644Z",
+      "createdAt": "2026-08-10T00:00:00.000Z",
       "posts": [
         {
           "postNumber": 1,
           "username": "system",
-          "createdAt": "2026-08-01T20:49:39.027Z",
-          "raw": "**Week 8: Deploy and launch**\n\nPost here as you work through this week.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule.",
-          "cooked": "<p><strong>Week 8: Deploy and launch</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 8: The agent in the product — tools, streaming and cost control**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Day 9 build thread — Connecting an integration — OAuth and the token lifecycle",
+      "slug": "day-09-build-thread-connecting-an-integration-oauth-and-the-token-lifecycle",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 9: Connecting an integration — OAuth and the token lifecycle**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Day 10 build thread — Publish, fail, retry — and launch",
+      "slug": "day-10-build-thread-publish-fail-retry-and-launch",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-10T00:00:00.000Z",
+          "raw": "**Day 10: Publish, fail, retry — and launch**\n\nPost here as you work through this session.\n\n- What you shipped\n- What broke, and what the error actually said\n- Anything you want reviewed before it merges\n\nScreenshots and diffs welcome. If you are behind, say so — the point is\nto finish, not to keep pace with a schedule."
         }
       ]
     },

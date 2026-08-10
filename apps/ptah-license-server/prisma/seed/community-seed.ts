@@ -23,8 +23,8 @@
  * chokepoint; putting HTML through it would be a sanitiser mismatch, and this
  * quarantine is what makes "no HTML in the pipeline" total.
  *
- * ⚠️ THE 8 "Week N" TOPICS ARE NOT IMPORTED AS FORUM TOPICS. Batch 11 turns them
- * into ONE `Course`, 8 `CourseModule` rows and 8 `Lesson` rows in this same
+ * ⚠️ THE 10 "Day N" TOPICS ARE NOT IMPORTED AS FORUM TOPICS. Batch 11 turns them
+ * into ONE `Course`, 10 `CourseModule` rows and 10 `Lesson` rows in this same
  * transaction (MG-1.5, §7.3). See `IMPORTED_TOPIC_IDS` / `CURRICULUM_TOPIC_IDS`
  * for the split and `map-course.ts` for the mapping. Every source topic is
  * therefore written exactly once, in exactly one shape.
@@ -270,8 +270,8 @@ export async function runCommunitySeed(
     },
     // The default 5s interactive-transaction budget is tight for ~60 round trips
     // over a cold pool; a timeout here would look like a mapping bug rather than
-    // a budget. Batch 11 adds 1 + 8 + 8 natural-key reads and the same number of
-    // writes — ~34 more round trips, ~94 in total. Measured wall time for the
+    // a budget. Batch 11 adds 1 + 10 + 10 natural-key reads and the same number of
+    // writes — ~42 more round trips, ~98 in total. Measured wall time for the
     // whole transaction on this workspace stayed well inside a second, so the
     // 60s ceiling is left where Batch 8 set it: it was already ~60x the observed
     // cost and raising it further would only delay a real hang.
@@ -295,16 +295,18 @@ export async function runCommunitySeed(
     unmatchedUsernames: collectUnmatchedUsernames(exportData),
     bodies: {
       // Both halves now, because both are written by this run: 10 forum post
-      // bodies + 8 lesson bodies = the export's 18 non-empty ones.
+      // bodies + 10 lesson bodies = 20, the export's non-empty ones.
       imported: importedBodies + curriculumBodies,
       total: importedBodies + curriculumBodies,
       transformed: 0,
     },
     skippedEmptyBodies,
     refreshedBodies,
-    // ⚠️ EVERY NUMBER BELOW IS COMPUTED, NOT RESTATED. `17`, `19`, `9`, `8` and
+    // ⚠️ EVERY NUMBER BELOW IS COMPUTED, NOT RESTATED. `19`, `21`, `9`, `10` and
     // `10` are all derived from the census constants and the mapped rows, so a
     // re-captured export moves the line instead of making it a lie. Task 11.4.
+    // TASK_2026_202 is the proof: the eight-week → ten-day restructure moved
+    // every one of those numbers and not one character of the code below.
     assertions: [
       `source topics ${EXPECTED_TOPIC_COUNT} = ${CURRICULUM_TOPIC_IDS.length} curriculum + ` +
         `${IMPORTED_TOPIC_IDS.length} topics ${
@@ -519,8 +521,13 @@ async function writeTopic(
  * `bodyMarkdown` is excluded unless `--refresh-bodies` is passed (§7.4), and so
  * are three columns the seed has no business owning after the first run:
  *   - `Course.createdBy` — null here (A-4); an admin may since have claimed it;
- *   - `CourseModule.releaseAt` — R2.4.1's weekly-release schedule. Re-running the
- *     seed must not silently unschedule eight modules an admin has date-gated;
+ *   - `CourseModule.releaseAt` — R2.4.1's release schedule. Re-running the seed
+ *     must not silently unschedule ten modules an admin has date-gated. ⚠️ THIS
+ *     EXCLUSION IS MORE IMPORTANT AFTER TASK_2026_202, NOT LESS: the schedule is
+ *     now set by `POST /v1/admin/course-modules/schedule` from one cohort start
+ *     date, so the seed and the scheduler are two writers of one column and only
+ *     the scheduler owns it. Seeded modules are created open (`releaseAt = null`)
+ *     and stay that way until an admin deliberately applies a schedule;
  *   - `Lesson.youtubeVideoId` and the video columns — an admin may have attached
  *     a recording, and clobbering it back to null would also reset every member's
  *     completion basis for that lesson (ASSUMPTION-8).

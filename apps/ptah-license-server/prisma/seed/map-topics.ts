@@ -13,10 +13,10 @@ import type {
 /**
  * The 9 topics this batch imports as forum threads (MG-1.6).
  *
- * The remaining 8 — source ids 15…22, the "Week N build thread" topics — are
- * NOT forum topics. They become a course, and that is Batch 11's work against
- * the same module. Importing them here as threads and re-importing them there as
- * lessons would double the content.
+ * The remaining 10 — source ids 15…22, 24 and 25, the "Day N build thread"
+ * topics — are NOT forum topics. They become a course, and that is Batch 11's
+ * work against the same module. Importing them here as threads and re-importing
+ * them there as lessons would double the content.
  */
 export const IMPORTED_TOPIC_IDS: readonly number[] = [
   5,
@@ -30,9 +30,18 @@ export const IMPORTED_TOPIC_IDS: readonly number[] = [
   6, // Staff
 ] as const;
 
-/** Source ids 15…22 — Batch 11's curriculum. Listed so the split is explicit. */
+/**
+ * Source ids 15…22, 24 and 25 — Batch 11's curriculum. Listed so the split is
+ * explicit.
+ *
+ * ⚠️ 23 IS NOT A GAP TO BE FILLED. It is `welcome-to-the-ptah-community`, a
+ * forum topic. TASK_2026_202 grew this list from eight to ten and allocated the
+ * next two FREE ids rather than renumbering, so the ten are in DAY order here
+ * and in the export while the file order of the export reads `… 22, 24, 25, 23`.
+ * Nothing asserts ascending ids, and moving topic 23 would be a forum-half edit.
+ */
 export const CURRICULUM_TOPIC_IDS: readonly number[] = [
-  15, 16, 17, 18, 19, 20, 21, 22,
+  15, 16, 17, 18, 19, 20, 21, 22, 24, 25,
 ] as const;
 
 /**
@@ -134,12 +143,15 @@ export interface TopicMappingResult {
  * calling it here would break idempotency outright: its collision resolver takes
  * the set of slugs already in use, so a second run would see the first run's
  * `guidelines`, resolve to `guidelines-2` and create a duplicate topic. The
- * export's slugs are stable, unique across all 17, and the schema constrains
+ * export's slugs are stable, unique across all 19, and the schema constrains
  * them to exactly the character set `slugify()` emits — so the RULES are
  * reproduced and asserted, while the VALUES stay the ones the source published.
- * (16 of the 17 are byte-identical to `slugify(title)` anyway; the one exception
- * is topic 5, whose title ends in an emoji shortcode that Discourse dropped from
- * the slug and `slugify` would render as a trailing `-wave`.)
+ * (8 of the 9 imported here are byte-identical to `slugify(title)`; the one
+ * exception is topic 5, whose title ends in an emoji shortcode that Discourse
+ * dropped from the slug and `slugify` would render as a trailing `-wave`. The
+ * ten curriculum slugs are deliberately NOT `slugify(title)` — they carry a
+ * zero-padded `day-NN` prefix, see `map-course.ts` — but they are never written
+ * to the database, so the only invariant they owe is uniqueness in the export.)
  */
 export function buildTopicRows(
   exportData: DiscourseExport,

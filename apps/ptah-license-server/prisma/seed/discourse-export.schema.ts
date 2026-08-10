@@ -32,7 +32,7 @@ import { z } from 'zod';
 /**
  * How many of the export's posts must carry a non-empty `raw`.
  *
- * 🔴 THIS IS 18, NOT 19, AND THE PLAN SAYS 19. plan §7.1 records "`raw`
+ * 🔴 THIS IS 20, NOT 21, AND THE PLAN SAYS 21. plan §7.1 records "`raw`
  * populated: 19 of 19. Zero nulls. 12,474 chars of markdown", and Task 8.3
  * therefore prescribes `raw: z.string().min(1)`. The character total is right
  * and "zero nulls" is literally true, but the export contains **one post whose
@@ -46,19 +46,25 @@ import { z } from 'zod';
  * control instead. This constant is the third option and the one the repo
  * already uses elsewhere (`EXPECTED_ROUTES`, `NAMED_PRIMITIVE_PARAM_COUNT`): an
  * **exact census**, checked by equality. A re-capture that regresses to empty
- * bodies aborts, because 0 ≠ 18. A re-capture that fixes the phantom post also
- * aborts, because 19 ≠ 18 — which is correct: that is a change to the content
+ * bodies aborts, because 0 ≠ 20. A re-capture that fixes the phantom post also
+ * aborts, because 21 ≠ 20 — which is correct: that is a change to the content
  * source and a human should acknowledge it rather than have it slip through.
+ *
+ * TASK_2026_202 moved this pair 18/19 → 20/21 by adding two curriculum topics
+ * (source ids 24 and 25) when the eight weekly modules became ten daily ones.
+ * The one skipped small-action post is untouched, so the invariant
+ * `NON_EMPTY = POST_COUNT − 1` is unchanged and the exact-census control is
+ * intact — the pair moved together, which is the only way it may ever move.
  *
  * The seed skips the one empty-body post rather than writing a blank reply into
  * the product; see `SKIP_EMPTY_BODY_POSTS` in `map-topics.ts`.
  */
-export const EXPECTED_NON_EMPTY_BODY_POSTS = 18;
+export const EXPECTED_NON_EMPTY_BODY_POSTS = 20;
 
 /** MG-1.6's counts, asserted before any write rather than counted after one. */
 export const EXPECTED_CATEGORY_COUNT = 4;
-export const EXPECTED_TOPIC_COUNT = 17;
-export const EXPECTED_POST_COUNT = 19;
+export const EXPECTED_TOPIC_COUNT = 19;
+export const EXPECTED_POST_COUNT = 21;
 
 /** The U+FFFD replacement character, built from its code point. */
 const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
