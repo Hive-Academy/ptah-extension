@@ -1,4 +1,5 @@
 import type { INestApplicationContext, Type } from '@nestjs/common';
+import { MODULE_METADATA } from '@nestjs/common/constants';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { PrismaService } from '@ptah-api/core';
 import { asPrismaService, createMockPrisma } from '@ptah-api/core/testing';
@@ -84,6 +85,8 @@ const HERMETIC_ENV: Readonly<Record<string, string>> = {
 describe('AppModule — boot smoke test', () => {
   let moduleRef: TestingModule;
   let compileError: unknown;
+  /** The real `AppModule` class, kept for the metadata assertion below. */
+  let appModuleClass: Type<unknown>;
 
   beforeAll(async () => {
     // `PkceService` and `MagicLinkService` both start a `setInterval` in their
@@ -103,6 +106,7 @@ describe('AppModule — boot smoke test', () => {
     const { AppModule } = (await import('./app.module')) as {
       AppModule: Type<unknown>;
     };
+    appModuleClass = AppModule;
 
     try {
       moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -144,5 +148,43 @@ describe('AppModule — boot smoke test', () => {
     const context: INestApplicationContext = moduleRef;
     expect(typeof context.get).toBe('function');
     expect(moduleRef.get(PrismaService, { strict: false })).toBeDefined();
+  });
+
+  /**
+   * 🔴 TASK_2026_177 Phase 5, RISK-AE — THE SCHEDULER ROOT IS REGISTERED.
+   *
+   * `NotificationRetentionService.prune()` (`libs/api/notifications`) carries a
+   * `@Cron`, and a `@Cron` without `ScheduleModule.forRoot()` is INERT, SILENT
+   * AND UNIT-TEST-GREEN FOREVER. It is the first scheduled job in this server:
+   * before Phase 5, `@nestjs/schedule` was a dependency imported nowhere.
+   *
+   * ⚠️ THIS ASSERTION CANNOT LIVE IN THE LIB, AND THAT IS WHY IT IS HERE.
+   * `notification-retention.service.spec.ts` boots `ScheduleModule.forRoot()`
+   * ITSELF alongside `NotificationsModule`, so it proves the decorator and the
+   * scheduler agree — and it stays green if the app's registration is deleted.
+   * Only a test that looks at THIS module can see the app's own line. Removing
+   * `ScheduleModule.forRoot()` from `app.module.ts` turns exactly this test red
+   * and nothing else, which is the deliberate-failure property RISK-AE asks for.
+   *
+   * Asserted on the module's own metadata rather than by resolving
+   * `SchedulerRegistry`, because this suite deliberately stops at `compile()`
+   * (see the file docblock) and the orchestrator mounts jobs in
+   * `onApplicationBootstrap` — which `init()` would run, and `init()` would also
+   * fire `PrismaService.onModuleInit` and its `$connect()`.
+   */
+  it('registers ScheduleModule.forRoot() — the first cron in this server (RISK-AE)', () => {
+    const imports = (Reflect.getMetadata(
+      MODULE_METADATA.IMPORTS,
+      appModuleClass as object,
+    ) ?? []) as Array<{ module?: { name?: string }; name?: string }>;
+
+    // `forRoot()` returns a DynamicModule (`{ module, providers, … }`), not the
+    // class — so the name lives one level down. Both shapes are checked so the
+    // assertion does not depend on which one `@nestjs/schedule` returns.
+    const names = imports.map(
+      (entry) => entry?.module?.name ?? entry?.name ?? String(entry),
+    );
+
+    expect(names).toContain('ScheduleModule');
   });
 });

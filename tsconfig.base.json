@@ -201,6 +201,7 @@
       "@ptah-api/membership": ["./libs/api/membership/src/index.ts"],
       "@ptah-api/youtube": ["./libs/api/youtube/src/index.ts"],
       "@ptah-api/member-hub": ["./libs/api/member-hub/src/index.ts"],
+      "@ptah-api/notifications": ["./libs/api/notifications/src/index.ts"],
       "@ptah-api/forum": ["./libs/api/forum/src/index.ts"],
       "@ptah-api/learning": ["./libs/api/learning/src/index.ts"],
       "@ptah-api/community": ["./libs/api/community/src/index.ts"],

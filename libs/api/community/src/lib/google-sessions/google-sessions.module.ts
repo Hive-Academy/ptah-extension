@@ -64,10 +64,33 @@ import { MemberSessionRequestsController } from './member-session-requests.contr
  * `MembershipModule` is `@Global()` and exports it — a second declaration would
  * resolve entitlement out of a different injector.
  *
- * ⚠️ `NotificationsModule` IS DELIBERATELY ABSENT (RISK-L). `libs/api/notifications`
- * does not exist until Batch 14, which owns R10.1's `session_request.status`
- * producer. Importing it now gives an unresolvable module and a red
- * `app.module.spec.ts`. The absence is a decision, not an oversight.
+ * ── 🔴 `NotificationsModule` IS STILL ABSENT — AND THIS MODULE PRODUCES
+ *    `session_request.status` (RISK-L, TASK_2026_177 Phase 5, R10.1) ────────
+ *
+ * The old reason ("`libs/api/notifications` does not exist until Batch 14") is
+ * dead: it exists, and `SessionRequestsService` now injects
+ * `NotificationsService` and writes a notification on all three admin
+ * transitions. The import is nevertheless NOT here, because
+ * `NotificationsModule` is `@Global()` and exports that service — its own
+ * docblock argues that an explicit import at each of the four producer sites
+ * would put a graph edge into it from three libs for no resolution benefit.
+ *
+ * This module already relies on that idiom in the other direction: it IS
+ * `@Global()` itself, precisely so `SessionsService` reaches the Paddle webhook
+ * fan-out and `LiveSessionsModule` without either importing it.
+ *
+ * ⚠️ THE INJECTION IS NOT `@Optional()`. `SessionsService` takes `EmailModule`'s
+ * mailer optionally because a deployment genuinely may have no Resend key;
+ * notifications are unconditional. An `@Optional()` here would mean that
+ * forgetting `NotificationsModule` in `app.module.ts` silently stops telling
+ * members their session requests were answered — for ever, with a perfectly
+ * healthy-looking `200` on every transition.
+ *
+ * ⚠️ THE THREE ADMIN TRANSITIONS ARE THE PRODUCERS AND `cancelOwn` IS NOT.
+ * `accept`, `reschedule` and `decline` each notify the request's OWNER;
+ * `cancelOwn` writes nothing at all, because the actor there IS the recipient.
+ * `create()` would suppress it anyway (R10.2) — the point is that no producer is
+ * wired to that path, so the suppression is not what is keeping the row out.
  */
 @Global()
 @Module({

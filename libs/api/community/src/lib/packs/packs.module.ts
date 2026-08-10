@@ -28,12 +28,21 @@ import { PacksService } from './packs.service';
  * ⚠️ NOT `@Global()`, unlike its sibling feature modules. `PacksService` has
  * exactly one consumer — `AdminPacksController`, in this module. Exporting it
  * globally would make a member-facing injection possible from anywhere, which
- * is precisely the shape this design excludes.
+ * is precisely the shape this design excludes. Phase 5 made that refusal MORE
+ * valuable, not less: now that a member surface for this table exists, "the
+ * admin service is not reachable from it" is a fact the module graph enforces
+ * rather than a convention.
  *
- * ⛔ NO MEMBER-FACING CONTROLLER. Distribution happens on GitHub; Ptah stores
- * a bookkeeping row and nothing else. This module injects neither
- * `MembershipService` nor `MemberGroupsService`. Structural test G6
- * asserts every controller here is mounted under `v1/admin/`.
+ * ⛔ NO MEMBER-FACING CONTROLLER IN THIS MODULE. Structural test G6 asserts
+ * every controller here is mounted under `v1/admin/`, and Phase 5 did NOT
+ * weaken it. `GET /v1/members/packs` is served by `MemberPacksController` in
+ * `MemberPacksModule` — same directory, different module, its own
+ * `MemberPacksService` whose only dependency is `PrismaService`. Nothing here
+ * imports that module and nothing there imports this one.
+ *
+ * Distribution still happens on GitHub; Ptah stores a bookkeeping row and
+ * provisions no access (R5.7). This module injects neither `MembershipService`
+ * nor `MemberGroupsService`.
  */
 @Module({
   imports: [ConfigModule, IdentityModule],

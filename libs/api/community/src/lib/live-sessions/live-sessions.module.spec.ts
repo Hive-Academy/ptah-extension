@@ -51,21 +51,40 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
 }
 
 describe('LiveSessionsModule', () => {
-  describe('RISK-L — NotificationsModule is deliberately absent', () => {
+  /**
+   * 🔴 RISK-L, REWRITTEN IN THE CHANGE THAT MADE ITS OLD REASON FALSE
+   * (TASK_2026_177 Task 14.14).
+   *
+   * `libs/api/notifications` exists now, and `session_request.status` — named in
+   * the old comment as the reason the temptation was real — IS a Phase-5
+   * producer. It lives one directory away in `google-sessions/`, per AD-6. So
+   * the absence survives and its justification is completely different, which is
+   * precisely the situation in which deleting the assertion loses information.
+   */
+  describe('RISK-L — no NotificationsModule import, and no producer either', () => {
     it('imports no notifications module', () => {
       const names = metadata<{ name?: string }>(MODULE_METADATA.IMPORTS).map(
         (m) => m?.name ?? String(m),
       );
 
-      // `libs/api/notifications` does not exist until Batch 14. R10.1's
-      // producers include `session_request.status`, written one directory away,
-      // so the temptation is real and the import would be unresolvable.
+      // It is `@Global()`, so the import would buy nothing — the same reason
+      // `GoogleSessionsModule` is absent three assertions below.
       expect(names).not.toContain('NotificationsModule');
     });
 
-    it('records the omission as a DECISION in the module docblock', () => {
-      // Without the note, the next reader sees a MISSING import rather than a
-      // deferred one, and "fixes" it against a lib that does not exist.
+    it('🔴 no source file under live-sessions/ reaches @ptah-api/notifications', () => {
+      // THE HALF THAT BITES NOW. A producer added here would inject
+      // `NotificationsService` out of the global scope and never touch this
+      // module's metadata, so the import assertion alone would stay green while
+      // `session_request.status` was produced from the wrong module.
+      const offenders = sourceFiles(__dirname).filter((file) =>
+        /from\s+'@ptah-api\/notifications'/.test(readFileSync(file, 'utf8')),
+      );
+
+      expect(offenders).toEqual([]);
+    });
+
+    it('records the reason as a DECISION in the module docblock', () => {
       const source = readFileSync(
         join(__dirname, 'live-sessions.module.ts'),
         'utf8',
@@ -73,7 +92,13 @@ describe('LiveSessionsModule', () => {
 
       expect(source).toContain('NotificationsModule');
       expect(source).toContain('RISK-L');
-      expect(source).toMatch(/Batch 14/);
+      // The docblock must name BOTH reasons: AD-6 (the producer is elsewhere)
+      // and `@Global()` (the import would be redundant anyway).
+      expect(source).toMatch(/AD-6/);
+      expect(source).toMatch(/@Global\(\)/);
+
+      // 🔴 THE STALE CLAIM MUST BE GONE (Task 14.6's rule).
+      expect(source).not.toMatch(/DOES NOT EXIST/);
     });
 
     it('imports exactly the six modules that DO exist', () => {

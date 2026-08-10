@@ -257,8 +257,15 @@ describe('CommunitySection', () => {
             .fn()
             .mockResolvedValue({ status: 'unavailable', data: null }),
         } as unknown as SessionsSection,
-        new PacksSection(),
-        new NotificationsSection(),
+        // TASK_2026_177 P5 — both Phase-5 sections now take a collaborator.
+        // Each is given one that genuinely ANSWERS WITH NOTHING, so both stay
+        // `'empty'` and do not perturb the community assertions below. A
+        // throwing double would be a second fault injected into a file whose
+        // subject is exactly one.
+        new PacksSection({ list: jest.fn().mockResolvedValue([]) } as never),
+        new NotificationsSection({
+          unreadCount: jest.fn().mockResolvedValue({ unreadCount: 0 }),
+        } as never),
       );
     }
 

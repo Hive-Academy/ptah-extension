@@ -2,10 +2,7 @@ import type { MemberContext } from '@ptah-api/membership';
 import type { TopicsReadService } from '@ptah-api/forum';
 import type { CourseReadService } from '@ptah-api/learning';
 import { CommunitySection } from './community.section';
-import { EMPTY_NOTIFICATIONS } from './hub-section';
 import { LearningSection } from './learning.section';
-import { NotificationsSection } from './notifications.section';
-import { PacksSection } from './packs.section';
 
 /**
  * The sections that report `'empty'`, and why that is not `'unavailable'`.
@@ -42,6 +39,24 @@ import { PacksSection } from './packs.section';
  * there is no such thing as an empty one; `null` is the honest empty for it, and
  * `'unavailable'` carries the same `null` so the shape still does not vary by
  * status.
+ *
+ * ⚠️ `packs` AND `notifications` ARE NO LONGER HERE EITHER (TASK_2026_177 P5),
+ * AND THEY LEFT FOR A STRONGER REASON THAN THE OTHER TWO. `community` and
+ * `learning` stayed because their `'empty'` case is still real and is now
+ * REACHED THROUGH A QUERY. These two would have stayed on the same terms — but
+ * this file's own opening paragraph says a later batch that fills a section in
+ * "must change `'empty'` to `'ok'`", and both of them now CAN say `'ok'`.
+ * Constructing them here with no collaborator is no longer possible, and
+ * constructing them with an empty one would assert the `'empty'` cell TWICE
+ * while the `'ok'` cell — the one F-D warns will be hard-coded — lived only in
+ * the new files. Their three cells are asserted together in
+ * `packs.section.spec.ts` and `notifications.section.spec.ts`, which is where
+ * "the status is derived, not pinned" is actually provable.
+ *
+ * ⚠️ THE `'none of them reports unavailable'` SWEEP THEREFORE COVERS TWO
+ * SECTIONS, NOT FOUR. That is a narrowing, and it is compensated: each of the
+ * two new files asserts its own `'unavailable'` absence AND that its resolver
+ * does not catch, which is the property the sweep was standing in for.
  *
  * The empty SHAPES are pinned for the same reason as before: the contract
  * requires array sections to send `[]` in every status so one client renderer
@@ -103,33 +118,15 @@ describe('the Phase-1 empty sections', () => {
     ).resolves.toEqual({ status: 'empty', data: [] });
   });
 
-  it('packs is empty with an EMPTY ARRAY, never null', async () => {
-    // Also the correct answer today for a second reason: `packs` is an
-    // admin-only registry with no member-facing read by design, and the table
-    // holds zero rows. Batch 14 revisits that decision explicitly.
-    await expect(new PacksSection().resolve(memberContext())).resolves.toEqual({
-      status: 'empty',
-      data: [],
-    });
-  });
-
-  it('notifications is empty with a zero COUNT OBJECT, not a bare number', async () => {
-    await expect(
-      new NotificationsSection().resolve(memberContext()),
-    ).resolves.toEqual({ status: 'empty', data: { unreadCount: 0 } });
-  });
-
   it('none of them reports "unavailable" — nothing is broken or switched off', async () => {
     const statuses = await Promise.all(
       [
         new LearningSection(emptyCurriculum()),
         new CommunitySection(emptyForum()),
-        new PacksSection(),
-        new NotificationsSection(),
       ].map(async (section) => (await section.resolve(memberContext())).status),
     );
 
-    expect(statuses).toEqual(['empty', 'empty', 'empty', 'empty']);
+    expect(statuses).toEqual(['empty', 'empty']);
   });
 
   it('a member with cohorts gets the same answer when the forum is genuinely empty', async () => {
@@ -143,17 +140,9 @@ describe('the Phase-1 empty sections', () => {
     ).resolves.toEqual({ status: 'empty', data: [] });
   });
 
-  it('hands out a COPY of the shared empty-notifications shape', async () => {
-    // The shared constant is frozen, but the section must not hand the same
-    // object to two concurrent requests either — a caller that mutated it would
-    // corrupt every later response in the process.
-    const section = new NotificationsSection();
-
-    const first = await section.resolve(memberContext());
-    const second = await section.resolve(memberContext());
-
-    expect(first.data).not.toBe(second.data);
-    expect(first.data).not.toBe(EMPTY_NOTIFICATIONS);
-    expect(first.data).toEqual(EMPTY_NOTIFICATIONS);
-  });
+  // ⚠️ THE `EMPTY_NOTIFICATIONS` COPY ASSERTION MOVED, IT WAS NOT DROPPED. It is
+  // now in `notifications.section.spec.ts`, beside the resolver that has to
+  // satisfy it — see that file's R6.6 block, which keeps both halves (not the
+  // frozen object, equal to the frozen object) and adds the two-resolutions
+  // case.
 });

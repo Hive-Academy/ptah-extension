@@ -36,18 +36,27 @@ import type { PackResponse } from './packs.types';
  * risk L1, asserted by structural test G1). Write routes add
  * `AdminThrottlerGuard` for a per-admin-email rate budget.
  *
- * ⚠️ THIS MODULE HAS NO MEMBER-FACING SIBLING TODAY.
- * Unlike `google-sessions/` — where an admin controller sits beside a
- * Builders-gated member controller — packs are an admin-only registry. Members
- * receive pack CONTENT through GitHub (a collaborator invite, or the repo link
- * handed to their cohort), never through Ptah, and that stays true.
+ * ⚠️ THIS CONTROLLER NOW HAS A MEMBER-FACING SIBLING — IN ANOTHER MODULE.
+ * Phase 5 (Batch 14) added a member-facing READ of this table at
+ * `GET /v1/members/packs`, filtered on `memberVisible` alone (A-1, R5.6),
+ * because the forum group the link used to be posted in was deleted by
+ * TASK_2026_177 P1b. It is served by `MemberPacksController`, which sits in the
+ * SAME DIRECTORY and a DIFFERENT MODULE (`MemberPacksModule`).
  *
- * Phase 5 (Batch 14) adds a member-facing READ of this table at
- * `GET /members/packs`, filtered on `memberVisible` alone (A-1, R5.6), because
- * the forum group the link used to be posted in was deleted by TASK_2026_177
- * P1b. Structural test G6 asserts every controller in `PacksModule` is mounted
- * under `v1/admin/` — when the member endpoint lands it belongs in the member
- * surface, NOT in this module, so G6 stays true as written.
+ * 🔴 CO-LOCATION IS NOT CO-REGISTRATION, AND THE DISTINCTION IS LOAD-BEARING.
+ * Structural test G6 asserts that every controller in `PacksModule` is mounted
+ * under `v1/admin/`. A member controller added to `PacksModule` would fail G6 —
+ * which is the correct outcome, because `PacksModule` deliberately refuses to
+ * be `@Global()` so that `PacksService` (the mapper of which emits `notes`)
+ * cannot be injected from a member surface at all. `MemberPacksModule` provides
+ * its own `MemberPacksService` and imports nothing from `PacksModule`, so G6
+ * stays true exactly as this docblock predicted before the sibling existed.
+ *
+ * ⚠️ WHAT DID NOT CHANGE. Members still receive pack CONTENT through GitHub (a
+ * collaborator invite, or the repo link handed to their cohort), never through
+ * Ptah, and Ptah still provisions no GitHub access (R5.7). Only the discovery
+ * and link-delivery channel moved in-product. `accessNote` exists precisely to
+ * say so to the member before they follow `repoUrl` (R5.5).
  */
 @Controller('v1/admin/packs')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -86,6 +95,10 @@ export class AdminPacksController {
         description: dto.description,
         repoUrl: dto.repoUrl,
         notes: dto.notes ?? null,
+        // A-1: passed through UNDEFAULTED. `dto.memberVisible ?? false` would
+        // look identical and quietly move the authority off the column default.
+        memberVisible: dto.memberVisible,
+        accessNote: dto.accessNote ?? null,
         tags: dto.tags ?? [],
         cohortKey: dto.cohortKey ?? null,
       },

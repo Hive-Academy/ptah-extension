@@ -8,6 +8,14 @@ import {
 } from '@nestjs/common';
 import { Prisma, PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
+import {
+  buildNotificationRoute,
+  NotificationsService,
+} from '@ptah-api/notifications';
+import type {
+  NotificationKind,
+  NotificationTargetType,
+} from '@ptah-contracts/community';
 
 import { assertWithinEditWindow } from '../common/edit-window';
 import { FIRST_POST_NUMBER } from '../common/post-numbering';
@@ -55,6 +63,49 @@ import type { UpdatePostDto } from './dto/update-post.dto';
  */
 const MAX_POST_NUMBER_ATTEMPTS = 6;
 
+/**
+ * How much of a reply's markdown becomes the notification's `bodyPreview`.
+ *
+ * ⚠️ THE STORED VALUE IS THE MARKDOWN SOURCE, VERBATIM AND UNRENDERED (ground
+ * truth 4). `MemberNotification.bodyPreview`'s contract says in terms that this
+ * string is NOT sanitized, and the client renders it as an escaped text node —
+ * so sanitizing here would be the wrong end of the pipe, and rendering here
+ * would put HTML into a column whose consumer is a text node.
+ *
+ * 140 characters, because the notification list shows one line per row. It is a
+ * named constant rather than a literal so a change is one edit and shows up in
+ * a diff as a decision.
+ */
+const NOTIFICATION_PREVIEW_LENGTH = 140;
+
+/**
+ * The two reply notification titles — R10.1.
+ *
+ * 🔴 NEITHER CARRIES THE ACTOR'S NAME, AND THAT IS DELIBERATE. `title` is
+ * written once and frozen in the row for as long as it lives;
+ * `MemberNotification.actorName` is composed at READ time from the actor's
+ * `firstName`/`lastName` relation. Interpolating "Ada replied to your topic"
+ * here would (a) freeze another member's identity into a column nobody
+ * re-reads, which is precisely what NFR-S4 keeps off member responses, and
+ * (b) go stale the moment that member changes their name, while the `actorName`
+ * beside it did not. The client composes the sentence from the two fields.
+ */
+const TOPIC_REPLY_TITLE = 'New reply to your topic';
+const CHILD_REPLY_TITLE = 'New reply to your post';
+
+/**
+ * One resolved notification recipient for one reply — the de-duplicated unit
+ * RISK-AF is about. See {@link resolveReplyRecipients}.
+ */
+interface ReplyRecipient {
+  readonly recipientId: string;
+  readonly kind: NotificationKind;
+  readonly targetType: NotificationTargetType;
+  readonly targetId: string;
+  readonly title: string;
+  readonly route: string;
+}
+
 /** What `createReply` hands back; the controller composes the wire shape. */
 export interface CreatedPost {
   readonly id: string;
@@ -90,12 +141,37 @@ export interface CreatedPost {
  * directly: `Topic.postCount === count({ topicId, postNumber: { gt: 1 },
  * deletedAt: null })`, after ANY sequence of creates, replies, edits and
  * deletes.
+ *
+ * ── 🔴 A FOURTH THING NOW HAPPENS IN THAT TRANSACTION: THE NOTIFICATIONS
+ *    (TASK_2026_177 Phase 5, R10.1, R10.2, RISK-AF, ASSUMPTION-21) ──────────
+ * `createReply` is the ONLY reply path in this lib — there is no
+ * `createChildReply` — so it is the single producer of BOTH `topic.reply` and
+ * `post.child_reply`. The distinction is `input.parentId`, and the two can name
+ * the SAME PERSON, which is the whole of RISK-AF: see
+ * {@link resolveReplyRecipients}.
+ *
+ * ⚠️ THE WRITES ENLIST IN THE REPLY'S OWN `$transaction` (ASSUMPTION-21), so a
+ * failed notification rolls the reply back rather than committing a thread
+ * nobody was told about. They are inside the RETRY loop too — a `postNumber`
+ * collision rolls the whole transaction back, notifications included, so a
+ * retried reply cannot leave a duplicate row behind.
+ *
+ * 🔴 THIS SERVICE NEVER CHECKS WHETHER THE RECIPIENT IS THE ACTOR. R10.2's
+ * suppression lives in `NotificationsService.create` and nowhere else, and a
+ * copy of it here would be a second place for the rule to drift — the copy that
+ * drifts being the one that stops suppressing. The return value is ignored for
+ * the same reason: "did it write?" is not a question this method has a use for,
+ * and treating a correct suppression as a failure would roll back a real reply.
  */
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger(PostsService.name);
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(NotificationsService)
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * Reply to a topic — R1.3.1, R1.3.3, R1.3.4, R1.6.4, AD-11, RK-12.
@@ -126,7 +202,13 @@ export class PostsService {
         ...NOT_DELETED,
         ...buildTopicCategoryVisibilityWhere(ctx),
       },
-      select: { id: true, locked: true },
+      // `authorId` and `slug` are read for the Phase-5 notification producer:
+      // the topic's author is the `topic.reply` recipient, and the slug is what
+      // `buildNotificationRoute` needs — the member route table is
+      // slug-addressed, and the slug is only known to be current at write time
+      // (RISK-AJ). Both ride the read the method already performs; neither adds
+      // a round trip.
+      select: { id: true, locked: true, authorId: true, slug: true },
     });
 
     if (!topic) {
@@ -137,7 +219,8 @@ export class PostsService {
     // refusal is constructed in ONE place, shared with the moderation service.
     assertTopicNotLocked(topic.locked);
 
-    const parentId = await this.resolveParentId(topic.id, input.parentId);
+    const parent = await this.resolveParent(topic.id, input.parentId);
+    const parentId = parent?.id ?? null;
     const depthRepaired =
       input.parentId !== undefined && parentId !== input.parentId;
 
@@ -192,6 +275,27 @@ export class PostsService {
             update: { lastReadPostNumber: post.postNumber },
           });
 
+          // 🔴 R10.1 / R10.2 / RISK-AF — the de-duplicated recipient set,
+          // resolved BEFORE any write and emitted one row per distinct person.
+          // Inside this transaction on purpose (ASSUMPTION-21): a failed
+          // notification, or a `buildNotificationRoute` throw on a malformed
+          // slug, rolls the reply back rather than committing beside it.
+          const recipients = resolveReplyRecipients(topic, parent, post.id);
+          for (const recipient of recipients) {
+            await this.notifications.create({
+              recipientId: recipient.recipientId,
+              // 🔴 PASSED, NEVER PRE-CHECKED. `create()` owns R10.2.
+              actorId: ctx.userId,
+              kind: recipient.kind,
+              targetType: recipient.targetType,
+              targetId: recipient.targetId,
+              title: recipient.title,
+              bodyPreview: excerptOf(input.bodyMarkdown),
+              route: recipient.route,
+              tx,
+            });
+          }
+
           return post;
         });
 
@@ -228,9 +332,9 @@ export class PostsService {
   /**
    * The R1.3.3 depth repair — the one piece of logic RK-12 names.
    *
-   * Returns the parent id the reply should ACTUALLY be attached to:
+   * Returns the parent the reply should ACTUALLY be attached to:
    *   - `null` for a top-level reply;
-   *   - the requested id, when that post is itself top-level (depth 2, legal);
+   *   - the requested post, when it is itself top-level (depth 2, legal);
    *   - the requested post's OWN parent, when the request would have produced
    *     depth 3 (the repair).
    *
@@ -240,26 +344,68 @@ export class PostsService {
    * put a post in a thread its parent does not belong to. Both mean the client
    * is referring to something that does not exist in this context, which is what
    * `404` says.
+   *
+   * ── 🔴 IT RETURNS THE AUTHOR TOO, AND THE REPAIR IS WHY (Task 14.13) ──────
+   * The `post.child_reply` notification MUST FOLLOW THE REPAIRED PARENT, not
+   * the requested one. Notifying the requested post's author would tell a member
+   * their post was replied to when the reply landed somewhere else in the tree —
+   * a message that is not merely imprecise but false, and unfalsifiable from the
+   * member's side because the thread renders the reply under a different post.
+   * Returning an id and looking the author up at the call site would reintroduce
+   * exactly that ambiguity, so the two travel together.
+   *
+   * ⚠️ THE REPAIR COSTS ONE EXTRA READ, AND ONLY ON THE REPAIR PATH. A nested
+   * `select: { parent: { … } }` would fetch it in the first query, but AD-5's
+   * RULE-NESTED requires a relation read reaching a soft-deletable model to
+   * carry `NOT_DELETED`, and a nested `parent` select cannot — so the honest
+   * shape is a second filtered `findFirst`. A top-level parent (the common case)
+   * takes no second query at all.
+   *
+   * ⚠️ A REPAIRED PARENT THAT IS ITSELF A TOMBSTONE YIELDS `authorId: null`,
+   * SO NOBODY IS NOTIFIED — while the reply still attaches to it, exactly as
+   * before. That asymmetry is deliberate: R1.3.5 keeps the tombstone in the tree
+   * so children are not orphaned, but telling a member "someone replied to your
+   * post" about a post that has been deleted is a notification whose target the
+   * member cannot read.
    */
-  private async resolveParentId(
+  private async resolveParent(
     topicId: string,
     requestedParentId: string | undefined,
-  ): Promise<string | null> {
+  ): Promise<{ id: string; authorId: string | null } | null> {
     if (requestedParentId === undefined) return null;
 
     const parentPost = await this.prisma.post.findFirst({
       where: { id: requestedParentId, topicId, ...NOT_DELETED },
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true, authorId: true },
     });
 
     if (!parentPost) {
       throw new NotFoundException('Parent post not found in this topic');
     }
 
+    // Depth 2, legal: attach to the requested post itself.
+    if (parentPost.parentId === null) {
+      return { id: parentPost.id, authorId: parentPost.authorId };
+    }
+
     // THE REPAIR. `parentPost.parentId` is non-null exactly when the requested
     // parent is itself a depth-2 reply — attaching to it would be depth 3, so
     // the new reply becomes its SIBLING instead.
-    return parentPost.parentId ?? parentPost.id;
+    //
+    // 🔴 THE SECOND READ SUPPLIES THE AUTHOR AND NOTHING ELSE. The repaired id
+    // is `parentPost.parentId` — already known, already the value R1.3.3
+    // specifies — so it is returned verbatim rather than read back out of this
+    // row. Taking the id from here would make the ATTACHMENT depend on a query
+    // that exists only to answer a notification question, which is a
+    // notification feature quietly acquiring the power to move a post.
+    const repaired = await this.prisma.post.findFirst({
+      where: { id: parentPost.parentId, topicId, ...NOT_DELETED },
+      select: { authorId: true },
+    });
+
+    // The attachment is unchanged whether or not the grandparent is readable —
+    // see the docblock. Only the notification recipient differs.
+    return { id: parentPost.parentId, authorId: repaired?.authorId ?? null };
   }
 
   /**
@@ -533,4 +679,106 @@ export class PostsService {
       ? error
       : new Error('Unknown post persistence error');
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* The Phase-5 notification producer — R10.1, R10.2, RISK-AF, RISK-AJ          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 🔴 THE DE-DUPLICATED RECIPIENT SET — RISK-AF, IN ONE FUNCTION.
+ *
+ * ONE reply produces up to TWO kinds and they can name the SAME PERSON. In a
+ * two-message thread — a member posts a topic, someone replies to the opening
+ * post — the topic's author IS the parent post's author, and the naive producer
+ * ("notify the topic author, then notify the parent author") writes TWO rows for
+ * ONE event. R10.2's self-suppression does not catch it, because neither
+ * recipient is the actor: the rule that fires is about the ACTOR, and this
+ * duplicate is about the RECIPIENT.
+ *
+ * So the set is keyed by RECIPIENT ID and resolved BEFORE any write:
+ *
+ *   - the topic's author earns `topic.reply`;
+ *   - the repaired parent's author earns `post.child_reply`;
+ *   - when they are the same person, `Map.set` REPLACES rather than appends,
+ *     and the more specific kind wins because it is written second. That
+ *     ordering is the entire mechanism, so it is stated here rather than left to
+ *     be inferred from the line order below.
+ *
+ * ⚠️ THE ACTOR IS NOT FILTERED OUT HERE, AND MUST NOT BE. `create()` owns R10.2
+ * (see {@link PostsService}'s docblock). A pre-check here would be a second copy
+ * of the rule and would also change what the de-duplication means: with the
+ * actor removed early, "the topic author and the parent author are the same
+ * person" and "the topic author is the actor" would collapse into one branch.
+ *
+ * ⚠️ `targetId` AND THE ROUTE'S ANCHOR ARE DIFFERENT IDS FOR
+ * `post.child_reply`, DELIBERATELY. `targetId` answers "what is this
+ * notification ABOUT" and is the repaired parent — the post that was replied to,
+ * which is what Task 14.13's repair assertion pins. The route answers "where
+ * does clicking it go" and anchors on the NEW reply, because a member told they
+ * have a reply wants to land on the reply. Both are stable ids; only the route
+ * is frozen (see `notification-kinds.ts`).
+ *
+ * ⚠️ A `null` AUTHOR IS A DELETED ACCOUNT (`Topic.authorId` and `Post.authorId`
+ * are both nullable, `onDelete: SetNull`). There is nobody to notify, so the
+ * entry is simply absent — not a notification with a `null` recipient, which the
+ * foreign key would reject inside the reply's transaction and turn a working
+ * reply into a `400`.
+ */
+export function resolveReplyRecipients(
+  topic: { id: string; slug: string; authorId: string | null },
+  parent: { id: string; authorId: string | null } | null,
+  newPostId: string,
+): ReplyRecipient[] {
+  const byRecipient = new Map<string, ReplyRecipient>();
+
+  if (topic.authorId !== null) {
+    byRecipient.set(topic.authorId, {
+      recipientId: topic.authorId,
+      kind: 'topic.reply',
+      targetType: 'Topic',
+      targetId: topic.id,
+      title: TOPIC_REPLY_TITLE,
+      route: buildNotificationRoute('Topic', { topicSlug: topic.slug }),
+    });
+  }
+
+  // Written SECOND on purpose: on a collision the more specific kind replaces
+  // the more general one. See the docblock.
+  if (parent !== null && parent.authorId !== null) {
+    byRecipient.set(parent.authorId, {
+      recipientId: parent.authorId,
+      kind: 'post.child_reply',
+      targetType: 'Post',
+      targetId: parent.id,
+      title: CHILD_REPLY_TITLE,
+      route: buildNotificationRoute('Post', {
+        topicSlug: topic.slug,
+        postId: newPostId,
+      }),
+    });
+  }
+
+  return [...byRecipient.values()];
+}
+
+/**
+ * The reply's markdown, truncated to {@link NOTIFICATION_PREVIEW_LENGTH}.
+ *
+ * ⚠️ IT IS NOT RENDERED, NOT SANITIZED AND NOT ESCAPED (ground truth 4). What
+ * is stored is the member's markdown source as plain text; the contract says so
+ * and the client renders it into a text node. Doing anything else here would put
+ * markup in a column whose only consumer escapes it, so the member would read
+ * their own `&lt;b&gt;`.
+ *
+ * An empty or whitespace-only body yields `null` rather than `''`, because the
+ * contract's `bodyPreview` is `string | null` and "there is no preview" is the
+ * case the client branches on.
+ */
+export function excerptOf(bodyMarkdown: string): string | null {
+  const text = bodyMarkdown.trim();
+  if (text.length === 0) return null;
+  if (text.length <= NOTIFICATION_PREVIEW_LENGTH) return text;
+
+  return `${text.slice(0, NOTIFICATION_PREVIEW_LENGTH).trimEnd()}…`;
 }

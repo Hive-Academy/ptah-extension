@@ -19,12 +19,37 @@ import type {
  * member-owned inbox, and an admin "see everyone's notifications" surface is
  * not in scope. If one is ever added it goes in `admin/`, re-declared.
  *
- * PHASE 1 SCOPE. {@link HubNotificationSummary} is the hub's `notifications`
- * section payload — the only part Phase 1 emits (always
- * `{ status: 'empty', data: { unreadCount: 0 } }` until Batch 14 lands R10).
- * {@link MemberNotification} is declared alongside it because the badge
- * (R9.3 / R10.4) and the list (R10.3) are one contract and splitting them
- * across two batches is how the two halves drift.
+ * WHAT SHIPS. Both types below are BACKED BY A REAL TABLE as of Phase 5
+ * (`member_notifications`, migration
+ * `20260902090000_packs_visibility_and_notifications`).
+ * {@link HubNotificationSummary} is the hub's `notifications` section payload
+ * AND the body of `GET /v1/members/notifications/unread-count`;
+ * {@link MemberNotification} is one row of `GET /v1/members/notifications`.
+ * The two were declared together in Phase 1, before either had a producer,
+ * because the badge (R9.3 / R10.4) and the list (R10.3) are one contract and
+ * splitting them across two batches is how the two halves drift.
+ *
+ * ⚠️ THE HUB SECTION'S `status` IS DERIVED FROM THE DATA, NOT PINNED. Phase 1
+ * emitted a hard-coded `{ status: 'empty', data: { unreadCount: 0 } }` because
+ * there was no table to read. Phase 5 replaces the constant with a count — it
+ * does NOT replace it with a hard-coded `'ok'`. `HUB_SECTION_STATUSES` is
+ * `'ok' | 'empty' | 'unavailable'`, and a member with nothing unread is
+ * honestly `'empty'`. Pinning the status to `'ok'` would be a new lie standing
+ * where the old one stood.
+ *
+ * ⚠️ FOUR OF THE FIVE {@link NotificationKind}S HAVE A PRODUCER. `announcement`
+ * is declared, accepted by the service, and written by nothing: R10.1's
+ * admin-publish action has no admin surface in this task (RK-1), and a producer
+ * for an action nobody can take is dead code. The kind stays in the enum.
+ *
+ * ⚠️ THE TWO WRITE ENDPOINTS HAVE NO RESPONSE CONTRACT HERE, DELIBERATELY.
+ * `POST :id/read` returns `{ readAt }` and `POST read-all` returns
+ * `{ marked }`, but the client treats both as FIRE-AND-REFETCH: it decrements
+ * optimistically and then re-reads the count from
+ * `GET .../unread-count`, which is the only writer of the badge. Nothing parses
+ * either body, so declaring a schema for them would add two exported symbols
+ * with no boundary to guard. If a client ever reads one of those bodies, the
+ * contract is added THEN, in the change that reads it.
  */
 
 /**

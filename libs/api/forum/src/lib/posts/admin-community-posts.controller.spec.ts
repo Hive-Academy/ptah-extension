@@ -8,6 +8,7 @@ import {
   AdminThrottlerGuard,
   JwtAuthGuard,
 } from '@ptah-api/identity';
+import type { NotificationsService } from '@ptah-api/notifications';
 
 import {
   ROUTE_PARAMTYPES,
@@ -55,12 +56,24 @@ interface Harness {
   audit: { write: jest.Mock };
 }
 
+/** The Phase-5 notification double; see the note at its use below. */
+let notifyCreate: jest.Mock;
+
 function createHarness(): Harness {
   const prisma = createMockPrisma();
   const audit = { write: jest.fn().mockResolvedValue('audit-row-1') };
+  notifyCreate = jest.fn().mockResolvedValue('notif-1');
 
   const controller = new AdminCommunityPostsController(
-    new PostsService(asPrismaService(prisma)),
+    // Phase 5: `PostsService` gained the notification producer. This
+    // controller reaches only `softDeleteAsAdmin` / `restore`, neither of
+    // which produces one — a moderator removing a post does not tell its
+    // author, and R10.1's producer list does not include moderation. The
+    // double is here to satisfy the constructor, and the assertion that it
+    // stays unused is below.
+    new PostsService(asPrismaService(prisma), {
+      create: notifyCreate,
+    } as unknown as NotificationsService),
     audit as unknown as AuditLogService,
   );
 

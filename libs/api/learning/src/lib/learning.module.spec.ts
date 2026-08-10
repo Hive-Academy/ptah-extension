@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { MODULE_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { AdminGuard, AdminThrottlerGuard } from '@ptah-api/identity';
@@ -16,8 +16,9 @@ import { ProgressService } from './progress/progress.service';
  *
  * Four properties, each of which fails somewhere far away when it is wrong:
  *
- *   RISK-L — `NotificationsModule` is absent. Present, the lib does not compile
- *            and `app.module.spec.ts` (the real-injector boot test) goes red.
+ *   RISK-L — `NotificationsModule` is absent AND this lib produces no
+ *            notification at all. Phase 5 built the lib and wired four producers
+ *            in two OTHER modules; a lesson-comment producer is not one of them.
  *   §2.6   — exactly two SERVICES are exported. A third makes a curriculum
  *            mutation, a tombstone read or a hand-built visibility `where`
  *            callable from outside the guard chain, and nothing else in the repo
@@ -36,26 +37,63 @@ import { ProgressService } from './progress/progress.service';
  * barrel. The line count was a proxy for the capability rule and it broke first.
  */
 
+/**
+ * Every source file in `src/lib/`, recursively, excluding specs.
+ *
+ * ⚠️ SPECS ARE EXCLUDED DELIBERATELY. This file itself names
+ * `@ptah-api/notifications` in the assertion below, and a scan that included
+ * specs would flag its own accuser. The property being asserted is about
+ * SHIPPED code — the same shape `live-sessions.module.spec.ts` uses.
+ */
+function sourceFiles(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) sourceFiles(full, acc);
+    else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) {
+      acc.push(full);
+    }
+  }
+  return acc;
+}
+
 function metadata<T>(key: string): T[] {
   return (Reflect.getMetadata(key, LearningModule) as T[]) ?? [];
 }
 
 describe('LearningModule', () => {
-  describe('RISK-L — NotificationsModule is deliberately absent', () => {
+  /**
+   * 🔴 RISK-L, REWRITTEN IN THE CHANGE THAT MADE ITS OLD REASON FALSE
+   * (TASK_2026_177 Task 14.14).
+   *
+   * "The lib does not exist" was true and is not. What replaces it is stronger,
+   * not weaker: this lib writes NO notification, and the assertion below now
+   * says that about the SOURCE rather than about a module import — because with
+   * `NotificationsModule` `@Global()`, a producer added here would resolve
+   * perfectly well WITHOUT touching the imports array, and the old assertion
+   * would have stayed green through it.
+   */
+  describe('RISK-L — no NotificationsModule import, and no producer either', () => {
     it('imports no notifications module', () => {
       const names = metadata<{ name?: string }>(MODULE_METADATA.IMPORTS).map(
         (m) => m?.name ?? String(m),
       );
 
-      // `libs/api/notifications` does not exist until Batch 14. R10.1's
-      // producers include lesson-comment replies, which this module writes, so
-      // the temptation is real and the import would be unresolvable.
       expect(names).not.toContain('NotificationsModule');
     });
 
-    it('records the omission as a DECISION in the module docblock', () => {
-      // Without the note, the next reader sees a MISSING import rather than a
-      // deferred one, and "fixes" it against a lib that does not exist.
+    it('🔴 no source file in this lib reaches @ptah-api/notifications', () => {
+      // THE ASSERTION THAT ACTUALLY BITES NOW. `NotificationsModule` is
+      // `@Global()`, so a lesson-comment producer would inject
+      // `NotificationsService` and never appear in this module's metadata. Only
+      // a source scan can see it.
+      const offenders = sourceFiles(__dirname).filter((file) =>
+        /from\s+'@ptah-api\/notifications'/.test(readFileSync(file, 'utf8')),
+      );
+
+      expect(offenders).toEqual([]);
+    });
+
+    it('records the reason as a DECISION in the module docblock', () => {
       const source = readFileSync(
         join(__dirname, 'learning.module.ts'),
         'utf8',
@@ -63,7 +101,13 @@ describe('LearningModule', () => {
 
       expect(source).toContain('NotificationsModule');
       expect(source).toContain('RISK-L');
-      expect(source).toMatch(/Batch 14/);
+      // The `@Global()` half must be stated, or the next reader concludes the
+      // import is what stops a producer appearing here. It is not.
+      expect(source).toMatch(/@Global\(\)/);
+
+      // 🔴 THE STALE CLAIM MUST BE GONE — Task 14.6's rule, applied to this
+      // docblock: retiring one false tense by writing another is the trap.
+      expect(source).not.toMatch(/DOES NOT EXIST/);
     });
 
     it('imports exactly the six modules that DO exist', () => {

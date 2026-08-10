@@ -9389,66 +9389,1548 @@ three deliberate failures with both runs pasted.
 
 ---
 
+# PHASE 5 — Packs, notifications and closeout (refined at the Phase-4/Phase-5 boundary, 2026-08-10)
+
+**Ships**: a member finds every pack repo link in-product with the access story told
+_before_ the GitHub 404, and learns that something needs their attention from a badge on
+their own nav — with no email, no socket and no Discourse anywhere in either repository.
+
+---
+
 ## Batch 14: P5-BE — member packs, notifications, migration 5 ⏸️ PENDING
 
+### 🔴 Phase 5 refinement — findings
+
+**The three coarse batches were written before Phases 3 and 4 shipped, and before 32 further
+commits landed on this branch. Nine of their claims are now wrong.** Every row below was
+verified against the tree at `4b0313783` on 2026-08-10. Nothing is silently dropped and
+nothing stale is silently kept.
+
+| #       | Coarse text said                                                                                                       | Actually true at `4b0313783`                                                                                                                                                                                                                                                                                    | Disposition                                                                    |
+| ------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **F-A** | B14.4: rewrite the `packs.types.ts` `:1-16` docblock to remove _"posted inside that cohort's Discourse group"_         | **That sentence is already gone.** Batch 5 (P1b) rewrote it. `packs.types.ts:8-19` now reads _"the repo link handed to the cohort"_ and already names Batch 14. `admin-packs.controller.ts:38-50` likewise.                                                                                                     | **Task 14.6, RESHAPED** — the work is retiring the _"until that lands"_ tense  |
+| **F-B** | B14.2: _"mirroring how `PacksService` refuses to inject `BuildersMembershipService`"_                                  | **`BuildersMembershipService` DOES NOT EXIST** — P1b deleted it. The live symbols are `MembershipService` and `MemberGroupsService`, and `packs.service.ts:34-37` names those two. `member-pack.contract.ts:37` already states the corrected sentence.                                                          | **Task 14.7, CORRECTED NAMES**                                                 |
+| **F-C** | B14 implies the Phase-5 contracts are this batch's                                                                     | **Every Phase-5 contract already ships.** `MemberPack` + `memberPackSchema`, `MemberNotification` + `memberNotificationSchema`, `HubNotificationSummary`, `NOTIFICATION_KINDS` (5), `NOTIFICATION_TARGET_TYPES` (4), `isNotificationKind`, and `AdminPack.memberVisible`/`.accessNote`. Batch 2 wrote them all. | **Task 14.4 is a RECONCILE, not an author**                                    |
+| **F-D** | B14.7: hub `packs` and `notifications` sections → `'ok'`                                                               | `HUB_SECTION_STATUSES` is `['ok','empty','unavailable']` and **status is data-dependent**. With `packs` at 0 rows and no notifications, the honest post-batch answer is still `'empty'`. A resolver hard-coded to `'ok'` would be a new lie replacing an old one.                                               | **Task 14.16, RESTATED** — read the table, derive the status, seed to see `ok` |
+| **F-E** | Plan §2.7 puts `member-packs.*` under `libs/api/community/src/lib/packs/`                                              | **Structural test G6 asserts every controller in `PacksModule` is mounted under `v1/admin/`**, and `packs.module.ts:29-36` says `PacksService` is deliberately not `@Global`. A member controller added to `PacksModule` fails G6.                                                                              | **Task 14.8 — new `MemberPacksModule`, same directory, different module**      |
+| **F-F** | (unstated) the `@Cron` prune is routine                                                                                | **`@nestjs/schedule` (`^6.1.1`, `package.json:109`) is installed and wired NOWHERE.** Zero `ScheduleModule`, zero `@Cron` in the whole repo. B14's prune is the **first scheduled job in this server**, and a `@Cron` without `ScheduleModule.forRoot()` is inert and silent.                                   | **Task 14.9 — RISK-AE, the highest risk in this batch**                        |
+| **F-G** | Commit plan: valid scopes are the 13 listed at line 9463                                                               | **`a13b12cac` expanded `scope-enum` to ~100 scopes**, including `api-community`, `api-member-hub`, `api-forum`, `web-members`, `web-panel-ui`, `migration`, `e2e` — but **there is no `api-notifications`**, and `.commitlintrc.json` is MODIFIED right now by TASK_2026_197.                                   | **Keep `license-server` / `landing`. Do NOT touch `.commitlintrc.json`.**      |
+| **F-H** | PRE-7: _"`TASK_2026_176` is active in the same specs directory"_                                                       | **`.ptah/specs` is TRACKED IN GIT since `eb10c5cb8`.** `git status` right now shows `M .ptah/specs/TASK_2026_179/task.md`, `TASK_2026_184/task.md`, `TASK_2026_197/tasks.md` — three FOREIGN carriers. The active neighbours are 171, 173, 189, **197**, not 176.                                               | **PRE-7 amended below; `git add .ptah/specs` is now a hazard**                 |
+| **F-I** | B13 carried forward: _"`@axe-core/playwright` is STILL not a devDependency"_                                           | **It IS.** `package.json:202` — `"@axe-core/playwright": "^4.12.1"`. Both CDN loaders (`members-courses.spec.ts:663`, `members-live.spec.ts:504`) still assert in comments that it is absent.                                                                                                                   | **Task 15.10 — closed by migrating BOTH loaders**                              |
+| **F-J** | B13 F-9: `libs/web/members/src/lib/__fixtures__/` is untracked                                                         | **Closed by `80444178e`** (`chore(landing): track the member curriculum body fixtures`). Still has no consumer.                                                                                                                                                                                                 | **Closed. Do not re-report.**                                                  |
+| **F-K** | B12 ground truth 13: `prisma.config.ts` loads a `.env` that does not exist, so pass `DATABASE_URL` on the command line | **Fixed by `4898d2601`** — it now loads the repo-root `.env` too. The manual `DATABASE_URL` workaround is no longer needed (harmless if kept).                                                                                                                                                                  | **Task 14.3 simplified**                                                       |
+| **F-L** | B16.5: `rg -i discourse` across **both** repositories returns zero hits outside the export JSON and this task's specs  | **NOT SATISFIABLE AS WRITTEN.** 19 non-spec, non-export hits remain and **6 of them are inside immutable Prisma migration SQL** that NFR-M3 forbids editing. Another is Prisma's generated client echoing a schema comment.                                                                                     | **Task 16.5 — the gate is amended and the amendment is the deliverable**       |
+| **F-M** | B16.1-16.3: inventory the community **skills** at `D:/projects/seshat` and rewrite or delete each                      | 🔴 **`D:/projects/seshat` CONTAINS ZERO SKILLS AND IS NOT A GIT REPOSITORY.** It is five markdown files (`BRIEF`, `OPERATIONS`, `PRD`, `README`, `.gitignore`) plus a `reference/` directory of junctions. Five skills are _declared_ in `PRD.md:213-219` and none was ever created.                            | **B16 RESHAPED — see the Batch 16 findings block**                             |
+
+**B12's F-1 — the still-open finding B13 recorded — IS CLOSED BY THIS BATCH, in Task 14.14.**
+B13's F-7 was right that a `page.route()` client stub cannot prove a server branch, and right
+that closing it needs _"a server-side test that stubs `GoogleAuthProvider`"_ belonging to
+_"whoever next touches `session-requests.service.ts`"_. **That is Task 14.14**, which wires the
+`session_request.status` producer into `accept` / `reschedule` / `decline` — the three methods
+that carry the `503`. `session-requests.service.spec.ts:139` already constructs the service with
+`calendar as unknown as GoogleCalendarProvider`, so a double whose `isEnabled()` returns `false`
+is a two-line addition against an existing harness. **If Task 14.14 does not close it, the report
+must re-file it explicitly rather than let it lapse.**
+
+---
+
 **Recommended Executor**: `backend-developer` | **Fallback**: `backend-developer`
-**Execution Mode**: sequential
-**Dependencies**: Batch 6 (forum — the notification **producers** need topics and posts to exist, §8.1), Batch 12 (migration order)
-**Preconditions**: PRE-1, PRE-2, PRE-6, PRE-7
-**Coarse tasks**:
+**Execution Mode**: sequential — and **dispatch it in THREE parts, as Batch 6, 9 and 12 were.**
+17 tasks across one new lib, one extended lib, one migration, the first scheduled job in this
+server, and five shared-registry files.
 
-1. Migration 5 `20260902090000_packs_visibility_and_notifications` — `packs.member_visible` (default **false**, so no existing pack becomes visible by migration), `packs.access_note`, `member_notifications`
-2. `member-packs.controller` + service: filters on `memberVisible: true` **only** (A-1). It does **not** filter on `cohortKey`, and the service **does not inject `CohortResolver`** — the absence is the control, mirroring how `PacksService` refuses to inject `BuildersMembershipService`
-3. **The NFR-S5 test**: `MemberPack` serialization asserts `notes` is absent under all circumstances (R5.2)
-4. Rewrite the `packs.types.ts` `:1-16` docblock and `admin-packs.controller.ts` — remove _"posted inside that cohort's Discourse group"_, describe the `/members/packs` channel and the A-1 visibility rule (R5.6). Ptah still serves **no** pack content and provisions **no** GitHub access (R5.7)
-5. `libs/api/notifications` (`@Global` — producers span three libs): `create()` **returns without writing when `recipientId === actorId`** (R10.2, suppression in one place so no producer can forget it); list, markRead, unreadCount; `@Cron` 90-day prune of **read** rows
-6. Producers wired in `forum` (`topic.reply`, `post.child_reply`, `post.accepted`) and `community` (`session_request.status`)
-7. Hub `packs` and `notifications` sections → `'ok'`
+| Dispatch | Tasks         | Shape                                                                                                                                                             |
+| -------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **14A**  | 14.1 – 14.6   | Pre-flight, `schema.prisma`, **migration 5**, the contracts reconcile, the admin DTO + nullable census, the R5.6 docblocks. Ends after the one irreversible step. |
+| **14B**  | 14.7 – 14.12  | `member-packs` service + controller + module; `libs/api/notifications` scaffold, service, retention cron, controller. No producer, no registry edit.              |
+| **14C**  | 14.13 – 14.17 | The four producers, the four RISK-L spec rewrites, the registries, the two hub sections, and the exit-gate proofs.                                                |
 
-**Scope boundary**: no websocket, no SSE, no email. Poll only (AD-14). `libs/api/licensing`'s existing `@Sse` endpoint is **not** extended.
-**Exit gate (§8.2 P5, backend half)**: `MemberPack` serialization test asserts `notes` absent · retention prune verified · a member's own action creates no notification for them.
+**Rationale**: packs and notifications are one batch because they share migration 5 and both
+land hub sections that must move together (R6.6 — the hub envelope changes once or not at all).
+They are **not** one dispatch: 14A ends on an applied migration, and nothing may be built on
+top of it inside the same dispatch that authored it.
+
+**Dependencies**: Batch 6 (forum — the notification **producers** need topics and posts to
+exist, §8.1), Batch 12 (migration order, and the `session_request.status` producer's three
+methods), Batch 3 (the hub sections this extends)
+**Preconditions**: PRE-1, PRE-2, PRE-6, **PRE-7 as amended by F-H**
+**Tasks**: 17
+
+**Scope boundary (RK-1, AD-14, §5)**: 🔴 **no websocket, no SSE, no email, no push, no digest.
+Poll only.** `libs/api/licensing`'s existing `@Sse` endpoint is **NOT** extended and **NOT**
+imported. Also out: no admin notification surface (R10 is a member-owned inbox; an admin
+"see everyone's notifications" screen is not in scope and would go in `admin/` re-declared);
+no notification preferences or mute settings; no per-kind opt-out; no `announcement` producer
+(the fifth kind is declared in the contract and has **no** producer in this task — say so);
+no GitHub access provisioning and no pack **content** (R5.7 — only the discovery and
+link-delivery channel moved in-product); no change to `Pack`'s existing columns.
+
+**File set** (for the serialisation claim): `libs/api/notifications/**` (NEW),
+`libs/api/community/src/lib/packs/**`, `libs/api/forum/src/lib/posts/**`,
+`libs/api/forum/src/lib/forum.module.spec.ts`,
+`libs/api/learning/src/lib/learning.module.spec.ts`,
+`libs/api/community/src/lib/google-sessions/**`,
+`libs/api/community/src/lib/live-sessions/live-sessions.module.{ts,spec.ts}`,
+`libs/api/core/src/lib/common/nullable-dto.spec.ts`,
+`libs/api/member-hub/src/lib/sections/{packs,notifications}.section.ts` (+ new specs),
+`libs/api/audit/src/lib/audit-log.types.ts`,
+`apps/ptah-license-server/prisma/schema.prisma`,
+`apps/ptah-license-server/prisma/migrations/20260902090000_packs_visibility_and_notifications/**`,
+`apps/ptah-license-server/src/app/app.module.ts`,
+`apps/ptah-license-server/src/testing/controller-registry.ts`,
+`apps/ptah-license-server/src/common/{route-map,controller-validation}.spec.ts`,
+`tsconfig.base.json` (**one alias**, `@ptah-api/notifications`).
+
+🔴 **B14 CANNOT OVERLAP ANYTHING.** It edits `tsconfig.base.json` — the one shared file B12
+avoided — plus `schema.prisma`, `app.module.ts`, `controller-registry.ts`, `route-map.spec.ts`,
+`controller-validation.spec.ts` and the shared nullable-DTO census. `context.md`'s
+serialisation rule exists for exactly this shape.
+
+**Exit gate (§8.2 P5, backend half)** — six clauses, each with a named owner task:
+
+1. **`MemberPack` serialization asserts `notes` is absent under all circumstances** (Task 14.7,
+   R5.2 / NFR-S5) — asserted on the mapper AND on a live `V-CURL` body, **and proven by
+   deliberate failure**.
+2. **A member's own action creates NO notification for them** (Task 14.10, R10.2) — the
+   suppression lives in `create()` and nowhere else, proven by a producer-level test that
+   drives the real `createReply` path with author == actor.
+3. **The retention prune deletes READ rows older than 90 days and NOTHING else** (Task 14.11,
+   R10.6) — unread-and-ancient survives, read-and-recent survives, and the job is proven to be
+   **actually scheduled**, not merely callable (RISK-AE).
+4. **`GET /members/packs` filters on `memberVisible: true` and nothing else** (Task 14.7, A-1) —
+   with a `cohortKey`-bearing pack visible to a zero-cohort member, and a static assertion that
+   the service imports and injects neither `CohortResolver` nor `MembershipService`.
+5. **Migration 5 makes no existing pack member-visible** (Task 14.3) — `member_visible` defaults
+   to `false`, proven by counting `packs where member_visible = true` before and after.
+6. **B12's F-1 is closed**: the `503 scheduling_unavailable` branch is exercised **server-side**
+   with a `GoogleCalendarProvider` double whose `isEnabled()` is `false`, on all three of
+   `accept` / `reschedule` / `decline`, asserting the DB row is untouched (Task 14.14).
+
+Plus the standing structural gates: `route-map` (RI-1/RI-2/RI-3, both ledgers still empty) ·
+`controller-validation` (`NAMED_PRIMITIVE_PARAM_COUNT` **exactly 6**, `MIN_TOTAL_PAYLOAD_PARAMS`
+re-derived and raised from **76**, `UNVALIDATED_DEBT` still `[]`) · the nullable-DTO census
+(`libs/api/core/src/lib/common/nullable-dto.spec.ts`) green with its list re-derived ·
+`admin-guards` G1 · packs G6 · `app.module.spec` boots · migration 5 applied against the
+running `ptah_db` and confirmed by `npx prisma migrate status`.
+
+---
+
+### 🔴 Ground truth Phase 5 inherits — verified against the tree at `4b0313783` on 2026-08-10
+
+**Do not re-derive these and do not plan against the plan's stale facts.**
+
+1. 🔴 **THE BRANCH MOVED 32 COMMITS PAST B13.** B13 ended at `db584deaa`; HEAD is
+   `4b0313783`. Three of those commits touch this task's file set: `a3830108d` (the
+   `@IsOptional()` null hole, 59 fields), `4898d2601` (`prisma.config.ts` loads the repo-root
+   `.env`), `80444178e` (tracked B13's F-9 fixtures). **B13's ground-truth-7 baselines are
+   stale — re-measure before claiming a delta.**
+2. 🔴 **EVERY PHASE-5 CONTRACT ALREADY SHIPS** (F-C). `MemberPack` + `memberPackSchema`
+   (`member/member-pack.contract.ts`, 80 lines), `MemberNotification` +
+   `memberNotificationSchema` and `HubNotificationSummary` + `hubNotificationSummarySchema`
+   (`member/member-notification.contract.ts`), `NOTIFICATION_KINDS` (5) /
+   `NOTIFICATION_TARGET_TYPES` (4) / `isNotificationKind` (`shared/notification-kind.ts`),
+   `Paged<T>` + `pagedSchema` + `DEFAULT_PAGE_SIZE`(25)/`MAX_PAGE_SIZE`(50)/`FIRST_PAGE`(1)
+   (`shared/paged.ts`), and `AdminPack.memberVisible` + `.accessNote`
+   (`admin/admin-pack.contract.ts:64-71`). All exported from `src/index.ts:134-150`.
+   **Do not re-declare any of them.**
+3. 🔴 **`MemberNotification` CARRIES `actorName: string | null`, NOT `actorId`** — and
+   `User` has **no `name` column**. It has `firstName String?` and `lastName String?`
+   (`schema.prisma:27-28`). The mapper must compose a display name from those two, and
+   **must NOT fall back to `email`** — another member's email is exactly the field NFR-S4
+   keeps off member responses, and the contract says so in terms at `:62-66`. Both-null is a
+   real case in this database; decide the fallback string once, in the mapper, and pin it.
+4. 🔴 **`bodyPreview` IS PLAIN TEXT AND THE CONTRACT SAYS IT IS NOT SANITIZED**
+   (`member-notification.contract.ts:71`). It is an excerpt of member-authored markdown.
+   **The producer stores an excerpt; the client renders an escaped text node.** No renderer,
+   no `[innerHTML]`, and `markdown-chokepoint.spec.ts`'s importer list stays at **six**.
+5. 🔴 **`libs/api/notifications` DOES NOT EXIST AND FOUR MODULES ASSERT THAT IT DOES NOT.**
+   `live-sessions.module.spec.ts:54-77`, `forum.module.spec.ts:34-50`,
+   `learning.module.spec.ts:45-50` and `google-sessions.module.ts:67` each carry a RISK-L
+   block. `live-sessions.module.spec.ts:79` additionally pins **"imports exactly the six
+   modules that DO exist"**. Adding `NotificationsModule` breaks all of them **by design** —
+   Task 14.14 rewrites them in the same change, and a batch that adds the import without
+   rewriting them is reporting a red board rather than a finished one.
+6. 🔴 **`session-requests.service.ts` IS UNDER `google-sessions/`, NOT `live-sessions/`** —
+   `libs/api/community/src/lib/google-sessions/session-requests.service.ts`. The three
+   status transitions are `accept` (`:255`), `reschedule` (`:385`), `decline` (`:486`), plus
+   the member-side `cancelOwn` (`:169`) and `submit` (`:131`). All three admin transitions
+   already run inside `prisma.$transaction`, so a notification write enlists in the existing
+   transaction — the same shape `PacksService` uses for its audit row (PRE-6).
+7. 🔴 **`SCHEDULING_UNAVAILABLE` (`:704`) HAS THREE CALL SITES**, not one: `accept:261`,
+   `reschedule:390`, `decline:494`. B12's F-1 named only the first. Closing it means all three.
+8. 🔴 **`@nestjs/schedule` IS INSTALLED AND WIRED NOWHERE** (F-F). `package.json:109`,
+   `^6.1.1`. Zero `ScheduleModule` and zero `@Cron` in the entire repo.
+   `apps/ptah-license-server/CLAUDE.md` mentions a "trial-reminder cron" — **that is not
+   `@nestjs/schedule`** and is not a precedent to copy.
+9. 🔴 **THE NULLABLE-DTO CENSUS IS NEW, SHARED, AND SCANS EVERY `*.dto.ts` UNDER `libs/api`
+   WITH NO BY-NAME EXCLUSIONS** (`a3830108d`). It lives at
+   `libs/api/core/src/lib/common/nullable-dto.spec.ts`. `EXPECTED_NULLABLE_OPTIONALS` holds
+   **11** entries (four of them already `pack.dto.ts`'s `notes`/`cohortKey` pairs),
+   `MIN_DTO_FILES = 50`, `LIBS_WITH_DTOS` lists **8** libs. `IsOptionalNotNull` and
+   `NullMeansAbsent` were **promoted to `@ptah-api/core`**; the per-lib copies are now
+   re-exports. **`accessNote` is genuinely nullable and must be censused; `memberVisible` is
+   a boolean and must be `@IsOptionalNotNull()` and must NOT appear in the census.**
+10. **Census constants, read from source**: `MIN_TOTAL_PAYLOAD_PARAMS = 76`
+    (`controller-validation.spec.ts:224`, a **floor**), `NAMED_PRIMITIVE_PARAM_COUNT = 6`
+    (`:250`, **exact equality** — one `@Query('status') status: string` anywhere in this
+    batch fails the build), `UNVALIDATED_DEBT = []` (`:78`). ⚠️ **`PREFIX_EXCEPTIONS` and
+    `KNOWN_PREFIX_DEBT` are in `route-map.spec.ts`, not `controller-validation.spec.ts`** —
+    `:508` (one entry, `PublicMarketingController`) and `:558` (**empty**). **Add nothing to
+    either.** `controller-registry.ts` holds **38** controllers and auto-discovers
+    `libs/api/*/src`, so a new lib's controllers are found whether or not they are registered
+    — and the census then fails until they are.
+11. **RI-1 disjointness for the two new prefixes, checked segment-wise the way RI-1 actually
+    checks.** `v1/members/packs` and `v1/members/notifications` against the nine existing
+    member prefixes (`entitlement`, `hub`, `sessions`, `session-requests`, `live`,
+    `community`, `courses`, `lesson-comments`, `search`) — segment 3 differs in every pair.
+    ⚠️ `unread-count`, `:id/read` and `read-all` are **method paths inside** the one
+    `v1/members/notifications` controller, not sibling prefixes.
+12. **`CohortResolver` IS REAL, IS `@Global`, AND IS THEREFORE INJECTABLE FROM ANYWHERE** —
+    `libs/api/membership/src/lib/cohort-resolver.service.ts:29`, one public method
+    `resolveCohortKeys(userId): Promise<readonly string[]>`, provided by the `@Global()`
+    `MembershipModule`. That is precisely why the absence assertion in Task 14.7 is worth
+    writing: nothing structural stops the injection.
+13. **The `Pack` table holds ZERO rows in this workspace** and `member_groups` holds one
+    (`key='founding'`, `is_default=true`). Exit-gate clause 4 therefore needs the batch to
+    **seed its own throwaway packs and tear them down by id** — a zero-row table makes every
+    filter assertion vacuous.
+14. **The command shapes that work here** (unchanged from B9/B12): `nx lint` **does not
+    exist** for `libs/api/*` — the target is `eslint:lint`. Jest 30's flag is
+    `--testPathPatterns=`. `npm run test` runs 3 unrelated projects and is never the gate.
+    **Never `nx affected`** — a second process commits to this branch. Always an explicit
+    project list with `--skip-nx-cache`, and `npx nx reset` when a **boundary** verdict is
+    what is being claimed (B12's F-11).
+15. 🔴 **`V-MIG` IS STILL SUPERSEDED. Do NOT run `prisma migrate dev`, `db push` or
+    `migrate reset`.** Hand-author the folder; generate the DDL with
+    `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`;
+    strip Prisma 7's dotenv stdout banner; apply with `npx prisma migrate deploy`; confirm
+    with `npx prisma migrate status`. **`DATABASE_URL` no longer needs passing explicitly**
+    (F-K) but doing so is harmless. There are **20** migrations today; migration 5 makes 21.
+
+---
+
+### Risks surfaced by the Phase-5 refine pass
+
+| #           | Risk                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Sev      | Mitigation                                                                                                                                                                                                                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RISK-AE** | 🔴 **A `@Cron` WITHOUT `ScheduleModule.forRoot()` IS INERT, SILENT, AND UNIT-TEST-GREEN.** This is the first scheduled job in this server (ground truth 8). Every natural test calls `prune()` directly, so the decorator's wiring is never exercised — the prune passes its unit spec forever and never runs once in production. R10.6 is then satisfied on paper and unsatisfied in fact, and the failure is invisible until the table is years old.         | **HIGH** | Task 14.9 registers `ScheduleModule.forRoot()` in `app.module.ts` **in the same task that creates the lib**, and Task 14.11's spec asserts the wiring **structurally** — reflect the `SchedulerRegistry` out of a booted `Test.createTestingModule` and assert a cron job with the job's name is registered, not merely that the method exists.                  |
+| **RISK-AF** | 🔴 **ONE CALL SITE PRODUCES TWO NOTIFICATION KINDS, AND THE SAME PERSON CAN EARN BOTH.** `topic.reply` and `post.child_reply` both come out of `PostsService.createReply()` (`:117`) — there is no `createChildReply`. When the topic author IS the parent post's author (the common case in a two-message thread), a naive producer writes **two rows for one event**, and R10.2's self-suppression does not catch it because neither recipient is the actor. | **HIGH** | Task 14.13 resolves the recipient set as a **de-duplicated set of user ids** before any write, and emits **one** row per distinct recipient with the more specific kind winning (`post.child_reply` over `topic.reply`). Its spec drives the real `createReply` with author == parent-author and asserts **exactly one** row. Deliberate-failure proof in 14.17. |
+| **RISK-AG** | 🔴 **A MEMBER-FACING CONTROLLER IN `PacksModule` FAILS STRUCTURAL TEST G6** (F-E), and the plan's file layout (§2.7) puts `member-packs.controller.ts` in the `packs/` directory, which reads as "same module". `packs.module.ts:29-36` also refuses to be `@Global` precisely so a member-facing injection is impossible from elsewhere.                                                                                                                      | **HIGH** | Task 14.8 creates a **separate `MemberPacksModule`** in the same directory, importing nothing from `PacksModule` and providing its own `MemberPacksService`. `PacksModule` is byte-identical except for its docblock. G6 stays true as `admin-packs.controller.ts:48-50` predicted.                                                                              |
+| **RISK-AH** | **`markRead` AND `read-all` ARE OWNERSHIP-SCOPED WRITES ON A GUESSABLE ID.** A cuid is not a secret, and `POST /members/notifications/:id/read` that filters on `id` alone lets any member mark any other member's notification read. It is a low-value write, which is exactly why it is the one that gets written without a `userId` clause.                                                                                                                 | MED      | Every write is an `updateMany` with `{ id, userId: ctx.userId }` in the **`where`**, never a `findUnique` followed by an ownership check — the two-step version has a window and reads as correct. A spec drives identity B against identity A's notification id and asserts `{ marked: 0 }` and the row untouched. NFR-S8.                                      |
+| **RISK-AI** | **THE 60 s POLL IS THE MOST-CALLED ENDPOINT IN THE PRODUCT AND IT IS A `COUNT`.** Every open member tab issues it. Written as `findMany().length`, or without the composite index, it degrades linearly with a member's history and is the first thing to fall over.                                                                                                                                                                                           | MED      | `unreadCount` is `prisma.notification.count({ where: { userId, readAt: null } })` and nothing else, served by `@@index([userId, readAt, createdAt])` (plan §1.6). A spec asserts the query shape; the exit gate measures the live endpoint.                                                                                                                      |
+| **RISK-AJ** | **`route` IS STORED AT WRITE TIME AND IS AN UNVALIDATED STRING ON A NAVIGATION PATH.** The client navigates to whatever the server stored. A producer that builds it from a slug with no constraint can persist an absolute URL, and the client's `router.navigateByUrl` then becomes an open redirect that survives every future routing change because the value is frozen in the row.                                                                       | MED      | One exported `buildNotificationRoute(targetType, target)` in `notification-kinds.ts`, returning a string pinned to start with `/members/` by a `satisfies`-style guard and a spec over all four target types. The client additionally refuses any stored `route` not starting with `/members/` (Task 15.4) — **defence at both ends**.                           |
+| **RISK-AK** | **`memberVisible` DEFAULTS TO `false`, SO EVERY EXIT-GATE ASSERTION IS VACUOUSLY TRUE ON THIS DATABASE.** `packs` holds zero rows; after migration 5 it holds zero rows with a new column. "No pack leaked" and "the filter works" both pass against an empty table.                                                                                                                                                                                           | MED      | Task 14.1 and Task 14.17 seed **three** throwaway packs by known id — visible+cohort-labelled, visible+unlabelled, hidden — and assert the member sees exactly two, one of them cohort-labelled, with `notes` absent from both. Torn down by id, with a census proving it (B13's residue discipline).                                                            |
+| **RISK-AL** | **`MIN_TOTAL_PAYLOAD_PARAMS` IS A FLOOR AND RAISING IT IS EASY TO FORGET.** It is 76. This batch adds payload params and the suite still passes if the number is left alone — the floor only fails downward.                                                                                                                                                                                                                                                   | LOW      | Task 14.15 **re-derives** the total from the run's own output and raises the constant, and the report pastes the old and new numbers. Same discipline B9 and B12 used.                                                                                                                                                                                           |
+
+---
+
+### Assumptions this refine pass takes (not in the plan; flag if wrong)
+
+- **ASSUMPTION-19 — `libs/api/notifications` gets a FOURTH copy of the `common/` helpers it
+  needs, or none at all.** `forum`, `learning` and `community` each carry their own
+  `member-context.ts` / `admin-audit.ts` / `soft-delete.ts` copies (ASSUMPTION-11). A
+  notification has **no** visibility rule, **no** soft delete and **no** admin mutation — it
+  is owned by exactly one user and read by exactly that user. **So this lib copies nothing**
+  and imports `MemberContext` as a type from `@ptah-api/membership`, the way the hub sections
+  do. One import to overrule.
+- **ASSUMPTION-20 — the `announcement` kind ships with NO producer.** It is declared in
+  `NOTIFICATION_KINDS` and its target type is `LiveSession`, but R10.1's admin-publish action
+  has no admin surface in this task (RK-1 keeps §3.5's admin routes unrendered). Writing a
+  producer for an action nobody can take is dead code. **The kind stays in the enum, the
+  service accepts it, and the report says plainly that four of five kinds have producers.**
+- **ASSUMPTION-21 — notifications are created in the producer's OWN transaction, best-effort
+  only where none exists.** The three admin session-request transitions and `createReply`
+  already run inside `prisma.$transaction`, so the notification enlists there (PRE-6's shape)
+  and a failed notification rolls the reply back. `accept()` is the one exception —
+  §3.5 mandates Calendar-first / DB-second with a compensating delete (RISK-U), so the
+  notification goes **after** the transaction commits, best-effort, logged on failure. A
+  notification is not worth deleting a real Calendar event over.
+- **ASSUMPTION-22 — `MemberNotification.actorName` falls back to `'A member'`, never to an
+  email and never to `null` when the actor exists.** `null` is reserved for a genuinely
+  system-generated row (ground truth 3). A user with both name columns null is a real row in
+  this database, and rendering "replied to your topic" with a blank subject is worse than a
+  generic one. One constant in one mapper to overrule.
+- **ASSUMPTION-23 — the retention prune runs DAILY at a fixed off-peak hour, not hourly.**
+  R10.6 says "prunable by a scheduled job" and names no cadence. 90 days is the window;
+  running the sweep more than once a day buys nothing and puts a global
+  `deleteMany` over `@@index([createdAt])` on a schedule. `CronExpression.EVERY_DAY_AT_4AM`,
+  named as a constant, with the window (`RETENTION_DAYS = 90`) as a second named constant.
+- **ASSUMPTION-24 — migration 5 keeps the plan's literal name
+  `20260902090000_packs_visibility_and_notifications`.** The batch index (line ~108) says to
+  let Prisma generate the timestamp, but B12 kept the plan's literal and the last applied
+  migration is `20260826090000_live_and_private_sessions`, so `20260902090000` sorts strictly
+  after with nothing in between. **Task 14.1 re-checks that no newer migration landed** — if
+  one has, the timestamp moves and the suffix does not.
+
+---
+
+### Task 14.1: Pre-flight — the seven facts this batch is not allowed to guess ⏸️ PENDING
+
+**Files**: none (verification only)
+**Requirement refs**: PRE-1/2/6/7, §1.8, ground truth 1, 8, 9, 10, 13, 15, ASSUMPTION-24
+**Dependencies**: none — this is the batch's root
+
+**Implementation details** — run and paste all of it:
+
+- `docker exec ptah_postgres psql -U ptah -d ptah_db -tAc "select migration_name from _prisma_migrations order by started_at desc limit 3;"` → 🔴 **`20260826090000_live_and_private_sessions` MUST be present and applied, and NOTHING may sort after `20260902090000`.** If something does, move the timestamp and say so (ASSUMPTION-24).
+- `npx prisma migrate status` → _"Database schema is up to date!"_ with **20** migrations.
+- `select column_name from information_schema.columns where table_name='packs' order by ordinal_position;` → the **eleven** current columns, so the two added are provably new. `select count(*) from packs;` → the pre-batch count (expected `0`).
+- `select count(*) from packs where member_visible = true;` → **must error** (the column does not exist yet). This is the before-half of exit-gate clause 5.
+- Read `libs/api/core/src/lib/common/dto-validation.pipe.ts` (PRE-1) **and** `libs/api/core/src/lib/common/optional-field.ts` + `nullable-dto.spec.ts` (ground truth 9) — state in one sentence which of `memberVisible` / `accessNote` is census-eligible and why.
+- Paste `MIN_TOTAL_PAYLOAD_PARAMS`, `NAMED_PRIMITIVE_PARAM_COUNT`, `UNVALIDATED_DEBT` from `controller-validation.spec.ts` **and** `PREFIX_EXCEPTIONS`, `KNOWN_PREFIX_DEBT` from `route-map.spec.ts`, each with its line number (ground truth 10 — the two files are different and the coarse plan conflated them).
+- `grep -rn "ScheduleModule\|@Cron" --include=*.ts libs/api apps/ptah-license-server` → **zero hits** (RISK-AE's evidence, re-confirmed rather than trusted).
+- `grep -rn "NotificationsModule" --include=*.spec.ts libs/api` → the **four** RISK-L sites Task 14.14 must rewrite.
+- `git log --oneline -1` → confirm HEAD, and `git status --short` → confirm the foreign WIP set (F-H). **Name the foreign files in the report so no later `git add` is ambiguous.**
+
+**Verification**: every value above pasted verbatim. A migration mismatch **STOPS the batch** — migrations are forward-only and sequential.
+
+---
+
+### Task 14.2: `schema.prisma` — two `Pack` columns, the `Notification` model, two `User` back-relations ⏸️ PENDING
+
+**Files**: `apps/ptah-license-server/prisma/schema.prisma` (MODIFY)
+
+**Requirement refs**: §1.2, §1.6, §1.7, A-1, R5.5, R10, ASSUMPTION-22
+**Dependencies**: 14.1
+**Pattern to follow**: the `LiveSession` model added by Batch 12 (same file) for a fresh model; the `Course.createdBy` precedent for a plain `String?` admin column.
+
+**Implementation details**:
+
+- `Pack` gains exactly two columns, inserted after `notes` so the admin/member pair reads together:
+  - `memberVisible Boolean @default(false) @map("member_visible")` — 🔴 **the default is load-bearing (A-1, exit-gate clause 5): no existing pack becomes visible by migration.** Carry plan §1.2's comment verbatim, including _"cohortKey is NOT it and never becomes it."_
+  - `accessNote String? @map("access_note")` — with plan §1.2's comment, including _"Distinct from `notes`, which stays admin-internal (R5.2)."_
+- ⚠️ **No index on `member_visible`.** Plan §1.2 rejects it in terms: _"tens of rows, always read in full."_ Adding one is a deviation that must be argued, not assumed.
+- `Notification` **verbatim from plan §1.6**, including both indexes and their comments: `@@index([userId, readAt, createdAt])` serves **both** the badge count (R10.4) and the newest-first list (R10.3); `@@index([createdAt])` serves the R10.6 global prune that the `userId`-leading index cannot.
+- Both relations from §1.6: `user` (`onDelete: Cascade` — a notification is personal state with no meaning once the user is gone) and `actor` (`onDelete: SetNull` — the row survives the actor's deletion and reads as system-generated).
+- `User` gains exactly the two back-relations from §1.7: `notifications Notification[] @relation("NotificationRecipient")` and `actedNotifications Notification[] @relation("NotificationActor")`, in the same commented region as the Phase-2/3/4 back-relations.
+- ⚠️ **Every existing `Pack` field is left EXACTLY as it is.** `notes`, `cohortKey`, the `cohort` FK and `@@index([cohortKey])` keep their comments and meanings.
+
+**Verification**: `npx prisma validate` and `npx prisma format --check`; `git diff` on the file shows **only** the additions above and no reformatting of untouched models.
+
+---
+
+### Task 14.3: Migration 5 — hand-authored, applied, and confirmed ⏸️ PENDING
+
+**Files**: `apps/ptah-license-server/prisma/migrations/20260902090000_packs_visibility_and_notifications/migration.sql` (NEW)
+
+**Requirement refs**: §1.8 row 5, NFR-M3, RISK-K, RISK-AK, ground truth 15, ASSUMPTION-24
+**Dependencies**: 14.2
+
+**Implementation details**:
+
+- 🔴 **DO NOT RUN `prisma migrate dev`, `db push` OR `migrate reset`.** Create the directory by hand.
+- Generate the DDL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, **strip Prisma 7's dotenv stdout banner**, and review every statement before saving. `DATABASE_URL` no longer needs passing explicitly (F-K).
+- Expected statements, and **nothing else**: `ALTER TABLE "packs" ADD COLUMN "member_visible" BOOLEAN NOT NULL DEFAULT false`; `ALTER TABLE "packs" ADD COLUMN "access_note" TEXT`; `CREATE TABLE "member_notifications"`; its two indexes; its two foreign keys.
+- ⚠️ **No `pg_trgm` index.** Migrations 2 and 3 own the only three (A-7); a notification has no searchable long text and RK-1 licenses no fourth.
+- ⚠️ **Both added `packs` columns are nullable-or-defaulted**, so the migration is safe against a populated table and independently deployable (NFR-M3).
+- Apply with `npx prisma migrate deploy`, then `npx prisma migrate status`.
+
+**Verification**: `migrate status` → _"Database schema is up to date!"_ with **21** migrations · `\d packs` shows both columns with `member_visible` defaulting to `false` · `\d member_notifications` shows the table, both indexes and both FKs · `select count(*) from packs where member_visible = true;` → **`0`** (exit-gate clause 5, the after-half) · `select count(*) from member_notifications;` → `0` · a re-run of `migrate diff` produces an **empty** script. All pasted.
+
+---
+
+### Task 14.4: Contracts — reconcile, do not author ⏸️ PENDING
+
+**Files**:
+
+- `libs/api-contracts/community/src/lib/member/member-notification.contract.ts` (MODIFY — the three small response envelopes only)
+- `libs/api-contracts/community/src/index.ts` (MODIFY — only if a new symbol is exported)
+
+**Requirement refs**: §3.6, R10.3, R10.4, RK-8, ground truth 2, F-C
+**Dependencies**: 14.1
+**Pattern to follow**: `member-live.contract.ts` — a member contract file that says which batch extends it and then is extended exactly that far.
+
+**Implementation details**:
+
+- 🔴 **START BY READING WHAT ALREADY EXISTS.** `MemberPack`, `memberPackSchema`, `MemberNotification`, `memberNotificationSchema`, `HubNotificationSummary`, `hubNotificationSummarySchema`, `NOTIFICATION_KINDS`, `NOTIFICATION_TARGET_TYPES` and `isNotificationKind` **all ship**. **Re-declaring any of them is the failure mode this task exists to prevent.**
+- What is genuinely missing is only the three write-response envelopes from plan §3.6's table: `{ readAt: string }` for `POST :id/read` and `{ marked: number }` for `POST read-all`. Declare them here **only if** they need a client-side parse; if the client treats them as fire-and-refetch (Task 15.4's stated design), say so and add **nothing**.
+- The list response is `Paged<MemberNotification>` built from the existing `pagedSchema(memberNotificationSchema)` — **not** a new type.
+- Update `member-notification.contract.ts`'s docblock: it currently says _"the only part Phase 1 emits … until Batch 14 lands R10."_ That tense is now false. State what ships.
+- ⚠️ **No `admin/*` notification contract.** R10 is a member-owned inbox (scope boundary); `contract-boundary.spec.ts` enforces the split in both directions and must stay green untouched.
+
+**Verification**: `npx nx run-many -t eslint:lint,typecheck,test -p api-contracts-community --skip-nx-cache` green, with `contract-boundary.spec.ts` and `member-progress-privacy.spec.ts` unchanged. The report states **explicitly** how many symbols this task added (expected: 0–2).
+
+---
+
+### Task 14.5: `pack.dto.ts` — two admin fields, and the shared nullable census ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/community/src/lib/packs/dto/pack.dto.ts` (MODIFY)
+- `libs/api/core/src/lib/common/nullable-dto.spec.ts` (MODIFY — `EXPECTED_NULLABLE_OPTIONALS`)
+
+**Requirement refs**: R8.4, R5.5, A-1, PRE-1, ground truth 9, `a3830108d`
+**Dependencies**: 14.2
+**Pattern to follow**: the same file's existing `notes` / `cohortKey` handling — both are already censused nullable optionals.
+
+**Implementation details**:
+
+- `UpdatePackDto` gains `memberVisible?: boolean` and `accessNote?: string | null`. `CreatePackDto` gains the same two, `memberVisible` defaulting to `false` at the service layer rather than in the DTO (the column default is the authority).
+- 🔴 **THE TWO FIELDS TAKE OPPOSITE DECORATORS AND THAT IS THE WHOLE POINT OF `a3830108d`:**
+  - `memberVisible` is `boolean` on a non-nullable declared type → **`@IsOptionalNotNull()` + `@IsBoolean()`**. A present `null` must be a `400` naming the field, not a silent skip. **It must NOT appear in `EXPECTED_NULLABLE_OPTIONALS`.**
+  - `accessNote` is genuinely nullable — `null` clears the column, exactly like `notes` — so it stays **`@IsOptional()`** and **MUST be added to `EXPECTED_NULLABLE_OPTIONALS`** as `community/src/lib/packs/dto/pack.dto.ts:UpdatePackDto.accessNote` (and the `CreatePackDto` entry if it is declared nullable there too). The census fails otherwise, which is the mechanism working.
+- ⚠️ **A new census entry is a review event** — the spec's own docblock says so. State in the report, in one sentence, why `accessNote` accepting `null` is correct (it is the "clear this stored column" case) and why `memberVisible` accepting `null` would not be.
+- `PATCH /v1/admin/packs/:id` binds `dtoPipe(UpdatePackDto)` already; confirm it, do not re-bind (PRE-1).
+
+**Verification**: `npx nx test api-core --skip-nx-cache --testPathPatterns=nullable-dto` green with the census re-derived · `npx nx test api-community --skip-nx-cache --testPathPatterns=admin-packs` green · a hand `V-CURL` `PATCH` with `{"memberVisible": null}` → **`400` naming the field**, and with `{"accessNote": null}` → **`200`, column cleared**. Both pasted.
+
+---
+
+### Task 14.6: R5.6 — retire the conditional tense in three docblocks ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/community/src/lib/packs/packs.types.ts` (MODIFY — the `:1-23` docblock, and `PackResponse`'s field list)
+- `libs/api/community/src/lib/packs/admin-packs.controller.ts` (MODIFY — the `:29-50` docblock)
+- `libs/api/community/src/lib/packs/packs.service.ts` (MODIFY — the `:24-47` class docblock)
+- `libs/api/community/src/lib/packs/packs.module.ts` (MODIFY — the `:9-37` docblock)
+
+**Requirement refs**: R5.6, R5.7, A-1, F-A, F-B, RISK-AG
+**Dependencies**: 14.5
+**Pattern to follow**: how `sessions.section.ts`'s docblock named its future caller and was then corrected by that caller.
+
+**Implementation details**:
+
+- 🔴 **THE DISCOURSE SENTENCE IS ALREADY GONE (F-A).** Batch 5 rewrote it. Do **not** go looking for _"posted inside that cohort's Discourse group"_ — it is not there, and `rg -i discourse` over `libs/api/community/src/lib/packs/` returns **zero**. Confirm that in the report rather than performing a no-op edit.
+- What is actually stale is the **conditional tense**, in four places:
+  - `packs.types.ts:17-19` — _"Until that lands there is no member-facing endpoint reading this table."_ → it lands here. State the shipped channel in the present tense, keep _"delivering a link is not granting access"_ verbatim (R5.7).
+  - `packs.types.ts:28-29` — `notes` is described as _"never shown to a member; no member surface exists."_ The second clause becomes false. The first must become **stronger**, not weaker: name the NFR-S5 assertion and the `MemberPack` re-declaration that make it structural.
+  - `admin-packs.controller.ts:39-50` — _"THIS MODULE HAS NO MEMBER-FACING SIBLING TODAY"_ and _"Phase 5 (Batch 14) adds…"_. It now has a sibling **module**, and G6 is still true because the sibling is not in `PacksModule`. Say exactly that (RISK-AG).
+  - `packs.service.ts:27-32` — _"THERE IS NO MEMBER-FACING READ PATH, BY DESIGN"_. Still true **of this service**; false of the table. Narrow the claim to the service and name `MemberPacksService` as the read path that exists, with the reason the two are separate.
+- ⚠️ **`packs.service.ts:34-37` names `MembershipService` and `MemberGroupsService`, not `BuildersMembershipService`** (F-B). Keep the live names. `BuildersMembershipService` does not exist and referencing it would re-introduce a ghost.
+- `PackResponse` gains `memberVisible: boolean` and `accessNote: string | null` (the admin shape mirrors `AdminPack`), and `toPackResponse` maps both.
+- ⚠️ **Ptah still serves no pack content and provisions no GitHub access (R5.7).** Every one of these docblocks must still say so after the edit. A reviewer should be able to grep `R5.7` and find it.
+
+**Verification**: `npx nx run-many -t eslint:lint,typecheck,test -p api-community --skip-nx-cache` green · `rg -i discourse libs/api/community/src/lib/packs/` → **0** · `rg "BuildersMembershipService" libs/api/community/` → **0** · `git diff --stat` shows four files, docblocks and one interface only.
+
+---
+
+### Task 14.7: `MemberPacksService` — `memberVisible` only, and the two absences that are the control ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/community/src/lib/packs/member-packs.service.ts` (NEW)
+- `libs/api/community/src/lib/packs/member-packs.service.spec.ts` (NEW — incl. the NFR-S5 field-absence assertion)
+- `libs/api/community/src/lib/packs/packs.types.ts` (MODIFY — add `toMemberPack`)
+
+**Requirement refs**: R5.1, **R5.2**, R5.3, **R5.4 / A-1**, R5.5, NFR-S4, **NFR-S5**, RISK-AK, ground truth 12
+**Dependencies**: 14.6
+**Pattern to follow**: `libs/api/learning/src/lib/courses/course-read.service.ts` — a member read service whose only dependency is `PrismaService` and whose mapper is a pure exported function.
+
+**Implementation details**:
+
+- `list(ctx: MemberContext): Promise<MemberPack[]>` → `prisma.pack.findMany({ where: { memberVisible: true }, include: COHORT_INCLUDE, orderBy: { title: 'asc' } })` mapped through `toMemberPack`.
+- 🔴 **THE `where` CLAUSE IS EXACTLY `{ memberVisible: true }` AND NOTHING ELSE (A-1).** No `cohortKey` clause, no `ctx.cohortKeys` clause, no visibility helper. `ctx` is taken as a parameter **for the guard contract's sake and is deliberately unread by the query** — say so in the docblock, because an unused parameter otherwise reads as a bug and the next reader "fixes" it into a filter.
+- 🔴 **`toMemberPack` is a STANDALONE mapper that names its eight output fields explicitly.** No spread of the Prisma row, no `omit`, no `delete`. `notes`, `createdBy`, `createdAt`, `updatedAt`, `cohortKey` and `memberVisible` are absent **because they were never written**, not because they were removed — a spread-then-delete mapper leaks the day someone adds a column.
+- `cohortName` comes from `COHORT_INCLUDE`'s `cohort.name`, `null` when unlabelled or the cohort was deleted (`onDelete: SetNull`).
+- **The service injects `PrismaService` and NOTHING ELSE.** No `AuditLogService` (a read), no `MembershipService`, no `MemberGroupsService`, no `CohortResolver`.
+
+**Validation notes** — the spec carries four assertions, and two of them are about absence:
+
+- 🔴 **NFR-S5 (exit-gate clause 1)**: for a pack whose `notes` is a non-empty string, `expect(Object.keys(result[0])).not.toContain('notes')` **and** `expect(JSON.stringify(result)).not.toContain(theNotesValue)`. The second is what catches a `notes` value smuggled into another field.
+- 🔴 **The absence-of-injection assertion, written the way `admin-courses.controller.spec.ts:484-504` writes it**: read `member-packs.service.ts` as source text and assert it matches **neither** `/import\s[^;]*\bCohortResolver\b[^;]*from/` **nor** `/@Inject\(\s*CohortResolver\s*\)/`, and the same pair for `MembershipService` and `MemberGroupsService`. `CohortResolver` is `@Global` and injectable from anywhere (ground truth 12) — nothing structural stops it, so this test **is** the control.
+- **A-1 positively**: three fixture packs — visible+cohort-labelled, visible+unlabelled, hidden — against a **zero-cohort** `ctx`. The member sees exactly two, and the cohort-labelled one is among them. A cohort-filtering implementation returns one and fails here (RISK-AK).
+- **`accessNote` survives the mapper** as its own field and is never conflated with `notes` (R5.5).
+
+**Verification**: `npx nx test api-community --skip-nx-cache --testPathPatterns=member-packs`
+
+---
+
+### Task 14.8: `MemberPacksController` + `MemberPacksModule` — a new module, not a new controller in `PacksModule` ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/community/src/lib/packs/member-packs.controller.ts` (NEW)
+- `libs/api/community/src/lib/packs/member-packs.controller.spec.ts` (NEW)
+- `libs/api/community/src/lib/packs/member-packs.module.ts` (NEW)
+- `libs/api/community/src/index.ts` (MODIFY — export `MemberPacksModule`)
+
+**Requirement refs**: §3.6, R5.1, PRE-1, PRE-2, **RISK-AG / G6**, ground truth 11
+**Dependencies**: 14.7
+**Pattern to follow**: `libs/api/community/src/lib/live-sessions/member-live.controller.ts` — the most recent member controller in this lib, with the `MemberGuard` chain and the AD-12-style prefix discipline.
+
+**Implementation details**:
+
+- `@Controller('v1/members/packs')` with the member guard chain declared at **class** level, mirroring `MemberLiveController` exactly. One handler: `@Get()` → `MemberPack[]`.
+- 🔴 **A BARE ARRAY, NOT `Paged`.** Plan §3.6's table says `MemberPack[]`, and §1.2 rejects an index on `member_visible` because the table is _"tens of rows, always read in full."_ Paginating it would contradict both. **No `@Query` params at all** — which also keeps `NAMED_PRIMITIVE_PARAM_COUNT` at exactly 6 (ground truth 10).
+- 🔴 **`MemberPacksModule` IS A SEPARATE MODULE (RISK-AG).** It provides `MemberPacksService`, declares its own guard providers the way `PacksModule` does, and **imports nothing from `PacksModule`**. `PacksModule` is unchanged except for Task 14.6's docblock. **G6 — "every controller in `PacksModule` is mounted under `v1/admin/`" — must still pass, unmodified.** If a task appears to need G6 weakened, stop and report.
+- Both modules live in the same directory on purpose (plan §2.9's layout); the report states that co-location is not co-registration and names the test that proves it.
+
+**Validation notes**:
+
+- The spec asserts the class-level guards (a method-only guard is leak risk L1, asserted by G1).
+- A structural assertion that `MemberPacksModule`'s `controllers` array contains **exactly one** controller and that it is **not** in `PacksModule`'s.
+
+**Verification**: `npx nx test api-community --skip-nx-cache --testPathPatterns="member-packs|packs.module"` · `npx nx test ptah-license-server --skip-nx-cache --testPathPatterns="admin-guards"` — G1 and G6 both green and **untouched**.
+
+---
+
+### Task 14.9: `libs/api/notifications` scaffold — and `ScheduleModule.forRoot()`, the first cron in this server ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/notifications/{project.json,eslint.config.mjs,package.json,jest.config.cts,tsconfig*.json,README.md}` (NEW)
+- `libs/api/notifications/src/index.ts` (NEW)
+- `libs/api/notifications/src/lib/notifications.module.ts` (NEW — `@Global()`)
+- `libs/api/notifications/src/lib/notifications.module.spec.ts` (NEW)
+- `libs/api/notifications/src/lib/notification-kinds.ts` (NEW — `buildNotificationRoute`)
+- `tsconfig.base.json` (MODIFY — **one** alias, `@ptah-api/notifications`)
+- `apps/ptah-license-server/src/app/app.module.ts` (MODIFY — `ScheduleModule.forRoot()` **and** `NotificationsModule`)
+
+**Requirement refs**: §2.7, R10, **RISK-AE**, **RISK-AJ**, ASSUMPTION-19, RISK-F
+**Dependencies**: 14.3
+**Pattern to follow**: `libs/api/membership` — the other `@Global()` lib in this task, and the one whose tag set must be matched (RISK-F: a `type:util` lib may depend only on `type:util` libs; check the tag census before scaffolding and state which tags this lib takes and why).
+
+**Implementation details**:
+
+- 🔴 **`ScheduleModule.forRoot()` LANDS HERE, IN THE SAME TASK THAT CREATES THE LIB (RISK-AE).** `@nestjs/schedule@^6.1.1` is installed and imported nowhere in the repo. A `@Cron` added in Task 14.11 without this line is **inert, silent, and unit-test-green forever**. Register it in `app.module.ts`'s `imports` beside `EventEmitterModule.forRoot()`, with a comment saying it exists for `NotificationRetentionService` and that it is the first scheduled job in this server.
+- `NotificationsModule` is `@Global()` — plan §2.7's stated reason is that producers live in three libs (`forum`, `learning`, `community`) and an explicit import in each would make the dependency graph carry an edge per producer. **Say that in the module docblock**, and contrast it with `PacksModule`, which refuses `@Global` for the opposite reason.
+- **`ASSUMPTION-19`: this lib copies NO `common/` helpers.** A notification has no visibility rule, no soft delete and no admin mutation. `MemberContext` is imported as a **type** from `@ptah-api/membership`. Record the decision in the module docblock so the next reader does not add a fourth copy by symmetry.
+- `notification-kinds.ts` exports **`buildNotificationRoute(targetType, target)`** (RISK-AJ) — the single place a stored `route` is constructed, returning a string that **must** start with `/members/`, with a spec over all four `NOTIFICATION_TARGET_TYPES`. It re-exports nothing from the contracts lib; `NotificationKind` and `NotificationTargetType` are imported as types.
+- ⚠️ **One `tsconfig.base.json` alias.** This is the shared file that forces B14's serialisation (`context.md`'s rule). Add it once, at the top of the batch, and touch the file no further.
+
+**Validation notes**:
+
+- `notifications.module.spec.ts` asserts the module is `@Global()`, exports exactly the service surface Task 14.10 defines, and **does not export the Prisma client or any `where`-builder** — the same reasoning `forum.module.spec.ts` uses for its `common/` non-export.
+- A spec asserts `buildNotificationRoute` returns a `/members/`-prefixed path for all four target types and **throws** for an unknown one.
+
+**Verification**: `npx nx show project api-notifications` resolves · `npx nx run-many -t eslint:lint,typecheck,test -p api-notifications --skip-nx-cache` green · `npx nx test ptah-license-server --skip-nx-cache --testPathPatterns=app.module` boots with the real injector.
+
+---
+
+### Task 14.10: `NotificationsService` — one suppression, one ownership clause, one count ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/notifications/src/lib/notifications.service.ts` (NEW)
+- `libs/api/notifications/src/lib/notifications.service.spec.ts` (NEW)
+
+**Requirement refs**: **R10.2**, R10.3, R10.4, NFR-S4, NFR-S7, NFR-S8, NFR-P5, **RISK-AH**, **RISK-AI**, ASSUMPTION-21, ASSUMPTION-22, ground truth 3
+**Dependencies**: 14.9
+**Pattern to follow**: `libs/api/forum/src/lib/read-state/*.service.ts` — a per-member service whose every write is ownership-scoped in the `where`.
+
+**Implementation details** — four methods, and each one has exactly one thing that can go wrong:
+
+- 🔴 **`create({ recipientId, actorId, kind, targetType, targetId, title, bodyPreview, route, tx? })` RETURNS WITHOUT WRITING WHEN `recipientId === actorId` (R10.2).** This is the whole reason the service exists rather than four inline `prisma.notification.create` calls: **suppression lives in ONE place so no producer can forget it.** It returns `null` (not a thrown error, not a written row) and the producers ignore the return. The docblock states that a producer must **never** pre-check the equality itself — a second copy of the rule is a second place for it to drift.
+  - `tx?` is an optional `Prisma.TransactionClient` so a producer can enlist the write in its own transaction (ASSUMPTION-21), exactly as `AuditLogService.write` accepts one (PRE-6).
+- **`list(ctx, { page, pageSize })` → `Paged<MemberNotification>`, newest first (R10.3).** `pageSize` defaults to 25, maxes at 50, and `> 50` is a **`400`, not a silent clamp** (NFR-P5, and the shape every other paged member endpoint in this task already uses).
+- 🔴 **`markRead(ctx, id)` and `markAllRead(ctx)` ARE `updateMany` WITH `userId` IN THE `where` (RISK-AH).** Never `findUnique` → check → `update`: that has a window and reads as correct. `markRead` returns `{ readAt }` from a re-read, or the not-found shape when `count === 0` — **and the not-found and not-yours responses are indistinguishable**, because a distinguishable one is an existence oracle over guessable cuids.
+- 🔴 **`unreadCount(ctx)` IS `prisma.notification.count({ where: { userId, readAt: null } })` AND NOTHING ELSE (RISK-AI).** Not `findMany().length`. This is the most-called endpoint in the product — every open member tab hits it every 60 s — and it is served by `@@index([userId, readAt, createdAt])`.
+- **The mapper resolves `actorName` from `firstName`/`lastName` and NEVER from `email`** (ground truth 3, NFR-S4). Both-null on an existing actor yields the ASSUMPTION-22 constant, not `null`; `null` is reserved for a genuinely actor-less row. One named constant, one mapper, one spec.
+- Prisma errors map through the sanitized-exception pattern (`packs.service.ts:277-313`); no raw `error.message` reaches a client (NFR-S7).
+
+**Validation notes**:
+
+- 🔴 **The R10.2 assertion is exit-gate clause 2** and is asserted **twice**: once directly on `create()`, and once in Task 14.13 through the real producer path. A unit-only assertion proves the branch exists; the producer test proves it is on the path that matters.
+- The RISK-AH assertion drives identity B against identity A's notification id and asserts `{ marked: 0 }` **and** that A's row still reads `readAt: null` afterwards.
+- A `NOTIFICATION_KINDS`-exhaustive test: every one of the five kinds round-trips through `create` → `list` → parse against `memberNotificationSchema`. `announcement` is included even though it has no producer (ASSUMPTION-20).
+- Assert the serialized shape has **no** `userId` and **no** `actorId` own key — the client gets `actorName` and nothing that identifies another member (NFR-S4).
+
+**Verification**: `npx nx test api-notifications --skip-nx-cache --testPathPatterns=notifications.service`
+
+---
+
+### Task 14.11: `NotificationRetentionService` — 90 days, READ rows only, and proven to be scheduled ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/notifications/src/lib/notification-retention.service.ts` (NEW)
+- `libs/api/notifications/src/lib/notification-retention.service.spec.ts` (NEW)
+
+**Requirement refs**: **R10.6**, NFR-M3, **RISK-AE**, ASSUMPTION-23
+**Dependencies**: 14.10
+
+**Implementation details**:
+
+- One method, `prune(now: Date = new Date())` → `{ deleted: number }`, decorated `@Cron(CronExpression.EVERY_DAY_AT_4AM, { name: PRUNE_JOB_NAME })`.
+- 🔴 **THE `where` IS `{ readAt: { not: null }, createdAt: { lt: cutoff } }` — BOTH CLAUSES.** Dropping the `readAt` clause deletes a member's unread backlog, which is the one thing the inbox exists to hold. R10.6 says _"older than a retention window **and already read**"_; the conjunction is the requirement.
+- `RETENTION_DAYS = 90` and `PRUNE_JOB_NAME` are **named constants**, not literals (ASSUMPTION-23). `now` is an explicit parameter with a default and is **never** `new Date()` inside the query — the same rule Task 12.8 took for `LiveFeedItem.state`, and the reason this spec can be deterministic.
+- The `deleteMany` is served by `@@index([createdAt])`, the second index §1.6 adds for exactly this global sweep.
+- Logs the count at `info`; a failure is caught and logged, never thrown — a cron that throws takes nothing useful with it and a scheduler that stops retrying is worse than a noisy log.
+
+**Validation notes** — three cases, and the third is the one that matters:
+
+1. **Read + 91 days old → deleted.**
+2. **Four survivors, asserted individually**: unread + 91 days old (survives — the clause that matters), read + 89 days old (survives), unread + 89 days old (survives), and a row created exactly at the cutoff boundary (state the inclusive/exclusive choice and pin it).
+3. 🔴 **THE WIRING ASSERTION (RISK-AE).** Boot a `Test.createTestingModule` including `ScheduleModule.forRoot()` and `NotificationsModule`, resolve `SchedulerRegistry`, and assert **a cron job named `PRUNE_JOB_NAME` is registered**. A spec that only calls `prune()` directly passes forever against a decorator nobody wired, and that is precisely the failure this batch is at risk of (ground truth 8). **Prove it by deliberate failure in Task 14.17: remove `ScheduleModule.forRoot()` and watch this one test — and only this one — go red.**
+
+**Verification**: `npx nx test api-notifications --skip-nx-cache --testPathPatterns=retention` · exit-gate clause 3 evidence pasted, including the registry read.
+
+---
+
+### Task 14.12: `MemberNotificationsController` + DTOs ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/notifications/src/lib/member-notifications.controller.ts` (NEW)
+- `libs/api/notifications/src/lib/member-notifications.controller.spec.ts` (NEW)
+- `libs/api/notifications/src/lib/dto/list-notifications.query.dto.ts` (NEW)
+
+**Requirement refs**: §3.6, R10.3, R10.4, R10.5, PRE-1, PRE-2, ground truth 10, 11
+**Dependencies**: 14.11
+**Pattern to follow**: `libs/api/learning/src/lib/comments/member-lesson-comments.controller.ts` — a member controller with a paged list and two small writes.
+
+**Implementation details**:
+
+- `@Controller('v1/members/notifications')`, member guard chain at **class** level. Four handlers, exactly as plan §3.6's table gives them:
+  - `@Get()` → `Paged<MemberNotification>`, binding `dtoPipe(ListNotificationsQueryDto)` on the **whole** query object (PRE-1 — a bare `@Query() q: X` is silently unvalidated).
+  - `@Get('unread-count')` → `{ unreadCount: number }`.
+  - `@Post(':id/read')` → `{ readAt }`.
+  - `@Post('read-all')` → `{ marked: number }`.
+- 🔴 **NO NAMED PRIMITIVE `@Query`/`@Param` OF `string` TYPE BEYOND `:id`.** `NAMED_PRIMITIVE_PARAM_COUNT` is asserted at **exactly 6** (ground truth 10); a single `@Query('page') page: string` here fails the build. Page and pageSize arrive inside the DTO.
+- ⚠️ **`unread-count` and `read-all` are literal segments under one controller prefix**, not sibling controllers. RI-1 sees one prefix, `v1/members/notifications`, disjoint at segment 3 from all nine existing member prefixes (ground truth 11).
+- ⚠️ **No `@Sse`, no `@Header('Cache-Control')` games, no long-poll.** AD-14 is a plain `GET` on a 60 s client timer. `libs/api/licensing`'s `@Sse` endpoint is not imported, not extended, not referenced.
+- **`@Post(':id/read')` returns `200`, not `201`** — it is idempotent state, not a creation. Pin it with `@HttpCode(200)` and a spec, because Nest's default for `@Post` is `201` and a client that branches on the status would be reading a lie.
+
+**Validation notes**: the spec asserts the class-level guard chain (G1), that `pageSize=51` is a `400` rather than a clamp, and that re-reading an already-read notification is a no-op returning the original `readAt` rather than moving it.
+
+**Verification**: `npx nx test api-notifications --skip-nx-cache` · `npx nx test ptah-license-server --skip-nx-cache --testPathPatterns="route-map|controller-validation|admin-guards"`
+
+---
+
+### Task 14.13: The forum producers — three kinds, one call site, one recipient set ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/forum/src/lib/posts/posts.service.ts` (MODIFY — `createReply`, `:117`)
+- `libs/api/forum/src/lib/posts/posts.service.spec.ts` (MODIFY)
+- `libs/api/forum/src/lib/posts/accepted-answer.service.ts` (MODIFY — `accept`, `:62`)
+- `libs/api/forum/src/lib/posts/accepted-answer.service.spec.ts` (MODIFY)
+- `libs/api/forum/src/lib/forum.module.ts` (MODIFY — the RISK-L docblock)
+
+**Requirement refs**: **R10.1**, **R10.2**, §8.1 (P2 `forum` blocks P5 producers), **RISK-AF**, ASSUMPTION-21
+**Dependencies**: 14.12
+**Pattern to follow**: how `PacksService` enlists its audit row in the mutation's own `$transaction` (PRE-6) — same shape, different table.
+
+**Implementation details**:
+
+- 🔴 **`topic.reply` AND `post.child_reply` COME OUT OF ONE METHOD (RISK-AF).** `PostsService.createReply()` is the only reply path; there is no `createChildReply`. The distinction is `input.parentId`.
+- 🔴 **RESOLVE A DE-DUPLICATED RECIPIENT SET BEFORE ANY WRITE.** Candidates are the topic's author (`topic.reply`) and, when `parentId` is present, the parent post's author (`post.child_reply`). **When they are the same person — the common case in a two-message thread — that is ONE notification, with the more specific kind (`post.child_reply`) winning.** R10.2's self-suppression does not catch this, because neither recipient is the actor.
+- Both writes enlist in `createReply`'s existing `$transaction` (ASSUMPTION-21), so a failed notification rolls the reply back rather than leaving a silently un-notified thread.
+- `post.accepted` is produced in `AcceptedAnswerService.accept()` for the accepted post's author. `assertMayAccept(ctx, topic.authorId)` already means the actor is the topic author or an admin; the recipient is the **post** author, and R10.2 suppresses the self-accept case at `create()`.
+- 🔴 **The depth repair changes the recipient.** `createReply`'s docblock (`:101-116`) records that a `parentId` naming a depth-2 post is silently re-pointed to that post's parent. **The notification must follow the REPAIRED parent, not the requested one** — otherwise a member is told their reply was replied to when the reply landed elsewhere in the tree. Assert it.
+- `forum.module.ts`'s RISK-L docblock is rewritten in **this** change (see Task 14.14 for the specs).
+- ⚠️ **`bodyPreview` is an excerpt of the reply's markdown, truncated at a named constant, stored as plain text** (ground truth 4). No rendering, no sanitizing, no HTML.
+
+**Validation notes** — three assertions, each made to fail before it is allowed to pass:
+
+- **RISK-AF**: author of the topic **is** the author of the parent post; one reply from a third member → **exactly one** row, kind `post.child_reply`.
+- **Exit-gate clause 2 through the real path**: the topic author replies to their own topic → **zero** rows. This is the assertion that proves the suppression is on the path, not merely in the service.
+- **The repair case**: reply with a `parentId` at depth 2 → the notification's `targetId` and recipient match the **repaired** parent.
+
+**Verification**: `npx nx run-many -t eslint:lint,typecheck,test -p api-forum,api-notifications --skip-nx-cache`
+
+---
+
+### Task 14.14: The `session_request.status` producer, the four RISK-L rewrites, and B12's F-1 ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/community/src/lib/google-sessions/session-requests.service.ts` (MODIFY — `accept:255`, `reschedule:385`, `decline:486`)
+- `libs/api/community/src/lib/google-sessions/session-requests.service.spec.ts` (MODIFY)
+- `libs/api/community/src/lib/google-sessions/google-sessions.module.ts` (MODIFY — RISK-L docblock)
+- `libs/api/community/src/lib/live-sessions/live-sessions.module.{ts,spec.ts}` (MODIFY — RISK-L, incl. the "exactly six modules" count)
+- `libs/api/forum/src/lib/forum.module.spec.ts` (MODIFY — RISK-L block)
+- `libs/api/learning/src/lib/learning.module.spec.ts` (MODIFY — RISK-L block)
+
+**Requirement refs**: R10.1, R10.2, R4.8, **B12's F-1 / B13's F-7**, ASSUMPTION-21, ground truth 5, 6, 7
+**Dependencies**: 14.13
+
+**Implementation details**:
+
+- Produce `session_request.status` on all three admin transitions, recipient = the request's owner, `targetType: 'SessionRequest'`, `route` from `buildNotificationRoute` (RISK-AJ). `decline` carries `declineReason` into `bodyPreview` (R4.8 — admin-authored plain prose, no rendering).
+- 🔴 **`accept()` IS THE ONE PRODUCER THAT DOES NOT ENLIST IN THE TRANSACTION (ASSUMPTION-21).** §3.5 mandates Calendar-first / DB-second with a compensating `deleteEvent` (RISK-U). The notification goes **after** the commit, best-effort, logged on failure. A failed notification must never trigger the compensation and delete a real Calendar event. State this in the method's docblock beside RISK-U's existing note.
+- `cancelOwn` produces **nothing** — the actor is the recipient, so `create()` suppresses it anyway (R10.2); the point is that no producer is wired there at all, and the report says so.
+- 🔴 **THE FOUR RISK-L SITES ARE REWRITTEN IN THIS SAME CHANGE (ground truth 5).** Each currently asserts `NotificationsModule` is absent and that the docblock says why. Since the module is `@Global()` (Task 14.9), **the correct rewrite may be that these modules still import nothing** — a `@Global()` provider needs no import. **Decide deliberately and say which:** if the assertion survives unchanged because `@Global` makes the import unnecessary, that is a stronger outcome than deleting it, and `live-sessions.module.spec.ts:79`'s "exactly six modules" then also survives. **Do not delete an assertion that is still true.** What must change either way is the prose: `Batch 14` and `does not exist` are now false.
+- 🔴 **B12's F-1 CLOSES HERE.** `session-requests.service.spec.ts:139` already builds the service with `calendar as unknown as GoogleCalendarProvider`. Add a describe block with a double whose `isEnabled()` returns `false` and assert, for **each** of `accept` / `reschedule` / `decline`: the thrown error carries `reason: SCHEDULING_UNAVAILABLE`, the response is a `503`, **the DB row is untouched**, and **no notification was created**. That is the server-side branch B13's F-7 said only a server-side stub could reach.
+
+**Validation notes**: the three `503` cases and the three happy-path cases are asserted as a pair per method, so a change that fixes one and breaks the other cannot pass. `decline`'s third branch (`calendarEventId !== null` **and** Google off, `:494`) is its own case — B12's F-1 named only `accept`.
+
+**Verification**: `npx nx run-many -t eslint:lint,typecheck,test -p api-community,api-forum,api-learning,api-notifications --skip-nx-cache` — and the report states **explicitly** whether B12's F-1 is closed, with the pasted test output, or re-filed with a reason.
+
+---
+
+### Task 14.15: The three registries, the census constants, and the DTO census reach ⏸️ PENDING
+
+**Files**:
+
+- `apps/ptah-license-server/src/testing/controller-registry.ts` (MODIFY — 38 → 40)
+- `apps/ptah-license-server/src/common/route-map.spec.ts` (MODIFY — `EXPECTED_ROUTES`)
+- `apps/ptah-license-server/src/common/controller-validation.spec.ts` (MODIFY — `MIN_TOTAL_PAYLOAD_PARAMS`)
+- `apps/ptah-license-server/src/app/app.module.ts` (MODIFY — `MemberPacksModule`)
+- `libs/api/core/src/lib/common/nullable-dto.spec.ts` (MODIFY — `LIBS_WITH_DTOS`)
+- `libs/api/audit/src/lib/audit-log.types.ts` (MODIFY — only if a new audit action is written)
+
+**Requirement refs**: PRE-2, ground truth 10, 11, **RISK-AL**
+**Dependencies**: 14.14
+
+**Implementation details**:
+
+- Register `MemberPacksController` and `MemberNotificationsController` in `ALL_CONTROLLERS` **in the same commit that creates them** (PRE-2). The count goes **38 → 40**, and the registry's own count-trail docblock (`:56-58`) gains its Phase-5 clause. The census auto-discovers `libs/api/*/src`, so a missing entry fails rather than passes.
+- `EXPECTED_ROUTES` gains the five routes from plan §3.6's table. **`PREFIX_EXCEPTIONS` and `KNOWN_PREFIX_DEBT` gain NOTHING** — both ledgers are deliberately at their floor (one entry / empty), and the two new prefixes are segment-wise disjoint (ground truth 11).
+- 🔴 **`MIN_TOTAL_PAYLOAD_PARAMS` IS A FLOOR AND MUST BE RE-DERIVED AND RAISED (RISK-AL).** It is **76**. Read the new total off the suite's own output, raise the constant, and paste both numbers. Leaving it at 76 passes and is wrong.
+- **`NAMED_PRIMITIVE_PARAM_COUNT` stays at exactly 6.** If this batch made it 7, the fix is the controller, not the constant.
+- `LIBS_WITH_DTOS` gains `'notifications'`. ⚠️ **The per-lib reach assertion is one-directional** — a lib not listed does not fail — **so this is a deliberate coverage strengthening, not a build fix.** Say so, because a reviewer will otherwise assume the suite forced it.
+- `AdminAuditAction` / `AdminAuditTargetType`: **only if** an admin mutation in this batch writes an audit row. The pack `memberVisible` toggle rides the existing `PATCH /admin/packs/:id` audit action; a notification is not an admin mutation. **The expected diff here is zero — state that rather than inventing a vocabulary entry.**
+
+**Verification**: `npx nx test ptah-license-server --skip-nx-cache --testPathPatterns="route-map|controller-validation|controller-registry|admin-guards|app.module"` · `npx nx test api-core --skip-nx-cache --testPathPatterns=nullable-dto`
+
+---
+
+### Task 14.16: The two hub sections — read the table, derive the status ⏸️ PENDING
+
+**Files**:
+
+- `libs/api/member-hub/src/lib/sections/packs.section.ts` (MODIFY)
+- `libs/api/member-hub/src/lib/sections/packs.section.spec.ts` (NEW — the section has never had one)
+- `libs/api/member-hub/src/lib/sections/notifications.section.ts` (MODIFY)
+- `libs/api/member-hub/src/lib/sections/notifications.section.spec.ts` (NEW)
+- `libs/api/member-hub/src/lib/sections/empty-sections.section.spec.ts` (MODIFY — two fewer subjects)
+- `libs/api/member-hub/src/lib/member-hub.module.ts` (MODIFY — the two collaborators)
+
+**Requirement refs**: R6.1, R6.3, **R6.4**, **R6.6**, R10.4, **F-D**
+**Dependencies**: 14.15
+**Pattern to follow**: `sessions.section.ts` — the only section that already has a real collaborator, `@Optional() @Inject`-ed so an unregistered module degrades one card rather than failing construction.
+
+**Implementation details**:
+
+- 🔴 **THE COARSE INSTRUCTION "→ `'ok'`" IS WRONG AS LITERALLY WRITTEN (F-D).** `HUB_SECTION_STATUSES` is `['ok','empty','unavailable']` and **status is a function of the data**: rows present → `'ok'`; source answered with nothing → `'empty'`; source failed or is disabled → `'unavailable'` (R6.3/R6.4, and `hub-section.ts`'s docblock states the distinction is the one thing the vocabulary exists to preserve). With `packs` at 0 rows and no notifications, the correct post-batch answer on **this** database is still `'empty'` — which is why the verification below seeds.
+- `PacksSection` injects `MemberPacksService` and returns `{ status: rows.length ? 'ok' : 'empty', data: rows }`. `data` is `[]`, never `null`.
+- `NotificationsSection` injects `NotificationsService` and returns `{ status: count > 0 ? 'ok' : 'empty', data: { unreadCount: count } }`. ⚠️ **`data` stays an OBJECT** so a later per-kind breakdown does not change the envelope (R6.6).
+- 🔴 **THE RESOLVER DOES NOT CATCH FOR FAULT ISOLATION.** `hub-section.ts`'s port docblock is explicit: a resolver returns `'unavailable'` only for a condition it can NAME, and otherwise lets the failure propagate to the composer's `Promise.allSettled` (R6.4). A `try/catch` here would make the single fault boundary untestable and would report an outage as `'empty'`.
+- **The hub envelope does not change** — both slots already exist with the right types (`member-hub.contract.ts:122,124`). This is R6.6 working: four phases of extension, one client request.
+- Both docblocks currently say _"PHASE 1"_ and _"until Batch 14 lands"_. Rewrite to the present tense and delete the deferral.
+- Remove the two sections from `empty-sections.section.spec.ts`'s subject list **in the same change**, or it asserts `'empty'` against a resolver that can now say `'ok'`.
+
+**Validation notes**: each new spec covers three cells — populated (`'ok'`), genuinely empty (`'empty'`), and collaborator throws (**propagates**, is not swallowed) — and the composer's existing R6.4 fault-injection case is re-run unchanged.
+
+**Verification**: `npx nx run-many -t eslint:lint,typecheck,test -p api-member-hub --skip-nx-cache` · `V-CURL` `GET /v1/members/hub` **before and after seeding**, showing the same section flipping `'empty'` → `'ok'` with no envelope change.
+
+---
+
+### Task 14.17: Live verification, the deliberate-failure proofs, and the exit gate ⏸️ PENDING
+
+**Files**: none new (verification)
+**Requirement refs**: the whole exit gate, RISK-AE, RISK-AF, RISK-AH, RISK-AK
+**Dependencies**: 14.16
+
+**Implementation details** — run it, paste it, do not summarise it:
+
+- `V-HEALTH` → `200`. `V-TOKEN` headless, **minted in memory and never written to a file** (B13's residue finding). `V-CURL` uses the `ptah_auth` **cookie**, never an `Authorization` header.
+- 🔴 **SEED THREE THROWAWAY PACKS BY KNOWN ID (RISK-AK)** — visible+cohort-labelled, visible+unlabelled, hidden — because a zero-row table makes every filter assertion vacuous. Then:
+  - `GET /v1/members/packs` → `200`, **exactly two items**, one with a non-null `cohortName`, and `notes` absent from both bodies (exit-gate clauses 1 and 4). Paste the raw body.
+  - Re-run as a **second identity with no cohort assignment** — the same two packs. A cohort-filtering implementation differs here.
+- `GET /v1/members/notifications` → `200` empty `Paged`; `GET .../unread-count` → `{ unreadCount: 0 }`. Then drive a **real** forum reply from identity B on identity A's topic and re-read as A → one row, correct `route`, `actorName` present and **not an email**. Then `POST :id/read` → `200 { readAt }`, and the count drops. Then have A reply to A's own topic → **count unchanged** (exit-gate clause 2, live).
+- `POST /v1/members/notifications/:id/read` **as identity B against A's id** → `{ marked: 0 }`, and A's row still unread (RISK-AH, live).
+- `V-DB`: `\d packs`, `\d member_notifications`, `select count(*) from packs where member_visible = true;` before and after the seed.
+- **At least four deliberate-failure proofs**, each reverted and `diff`-confirmed byte-identical:
+  1. 🔴 **Remove `ScheduleModule.forRoot()`** → **only** Task 14.11's registry assertion goes red, and every other notification test stays green. **This is the proof that RISK-AE is real and that the guard against it works.**
+  2. Drop the `readAt: { not: null }` clause from the prune → the unread-and-ancient survivor assertion goes red.
+  3. Collapse the recipient set in `createReply` to two unconditional writes → the RISK-AF single-row assertion goes red.
+  4. Add `notes` to `toMemberPack`'s output → the NFR-S5 field-absence assertion goes red **in both of its halves**.
+- The full batch gate: `npx nx run-many -t eslint:lint,typecheck,test -p api-notifications,api-community,api-contracts-community,api-member-hub,api-forum,api-learning,api-core,api-audit,ptah-license-server --skip-nx-cache`, with **baseline vs post totals per project**. ⚠️ **Re-measure the baselines** — HEAD moved 32 commits past B13 and ground truth 7's figures are stale (ground truth 1). `api-learning:eslint:lint`'s pre-existing errors, if still present, are shown unchanged and are not this batch's.
+- 🔴 **Tear the seed down by id, in one `BEGIN`/`COMMIT`, and paste the census proving it.** No `TRUNCATE`, no blanket `DELETE`, no `DELETE FROM packs` without a `WHERE`.
+
+**Verification**: every clause of the exit gate above, each with its pasted evidence, in `batch-14-report.md`. The report states plainly whether B12's F-1 is closed and by which test.
 
 ---
 
 ## Batch 15: P5-FE — packs, notifications badge, full a11y and e2e pass ⏸️ PENDING
 
 **Recommended Executor**: `frontend-developer` | **Fallback**: `frontend-developer`
-**Execution Mode**: sequential
-**Dependencies**: Batch 4, Batch 14
-**Preconditions**: PRE-3, PRE-4, PRE-7
-**Coarse tasks**:
+**Execution Mode**: sequential — one dispatch. If a split is needed the seam is
+**15.1–15.4 (identity, the two API services, the store) then 15.5–15.11 (the pages, the
+badge, the routes, the a11y migration, the proofs)**.
+**Rationale**: the packs page, the notifications page and the nav badge share ONE store, ONE
+poll cadence and ONE "a stored route is not a trusted route" rule. Splitting them is how the
+badge ends up reading a second signal (R9.3's exact prohibition).
+**Dependencies**: Batch 4 (the shell, `MEMBER_ROUTES`, the Task 4.7 lint rule), **Batch 14
+(all of it — the two endpoints, the hub sections and the live server)**
+**Preconditions**: **PRE-3 (read the BARREL, not PRE-3's number — it is stale, see ground
+truth 3)**, PRE-4, **PRE-7 as amended by F-H**
+**Tasks**: 11
 
-1. Packs page — title, description, tags, `repoUrl`, and the `accessNote` shown **in advance** so a GitHub 404 is not the first signal (R5.5)
-2. Notifications page + `MemberNotificationsStore` — 60 s poll plus an eager fetch on every navigation (R10.5, AD-14); opening one navigates to the stored `route` and marks it read
-3. `badgeCount` bound in `MemberLayout` from `MemberNotificationsStore.unreadCount()` via a `computed()` recomputing `MEMBER_NAV_GROUPS` with that one item's `badgeCount` replaced. **No parallel badge mechanism** (R9.3)
-4. Account page; `SelectionToolbar` for bulk mark-read (R9.7)
-5. Full NFR-P / NFR-U / axe pass across every member surface, both themes; e2e coverage for every member surface (NFR-M1); re-run the R6.2 one-request assertion unchanged — it must still pass four phases later (R6.6)
+**Scope boundary (RK-1)**: 🔴 **no websocket, no SSE, no service worker, no `Notification`
+browser API, no sound, no desktop toast.** Poll only (AD-14). Also out: no notification
+preferences screen, no per-kind filter, no admin surface, no pack **detail** page (the list
+carries `repoUrl` and `accessNote`; there is nothing else to show — R5.7 means Ptah serves no
+pack content), no pack search or tag filter (tens of rows), no infinite scroll. **No second
+markdown renderer and no second sanitizer** (NFR-S2) — `bodyPreview` is an **escaped text
+node** (ground truth 4 of Batch 14).
 
-**Exit gate (§8.2 P5, frontend half)**: members reach every pack repo link without Discourse ·
-the unread count is accurate on the nav `badgeCount` · full NFR-P / NFR-U / axe pass ·
-e2e green for every member surface.
+**File set** (for the serialisation claim): `libs/web/members/**`, `libs/web/panel-ui/**`,
+`apps/ptah-landing-page-e2e/**`, `package.json` (**only if** an axe dependency move is
+needed — see ground truth 5).
+🔴 **This batch touches no `tsconfig.base.json`, no `nx.json`, no `eslint.config.mjs`, no
+`app.module.ts`, no `route-map.spec.ts`, no `controller-registry.ts`, no `schema.prisma` and
+no migration.**
+
+**Exit gate (§8.2 P5, frontend half)** — five clauses, each with a named owner task:
+
+1. **Members reach every pack repo link without Discourse**, with `accessNote` rendered
+   **before** the link so a GitHub 404 is not the first signal (Tasks 15.5 + 15.11, R5.1,
+   R5.5).
+2. 🔴 **The unread count is accurate on the nav `badgeCount`, and there is exactly ONE badge
+   mechanism** (Tasks 15.4 + 15.7, R9.3, R10.4) — asserted structurally, not just visually.
+3. **Full NFR-P / NFR-U / axe pass across every member surface, in both themes** (Task 15.10),
+   🔴 **including EMPTY surfaces** — B13's F-1 was a real WCAG failure that survived three
+   phases because every prior pass ran against populated ones.
+4. **e2e coverage for every member surface** (Task 15.11, NFR-M1) — the four with none today
+   are `/members/packs`, `/members/notifications`, `/members/account` and `/members/search`.
+5. **The R6.2 one-request assertion re-run UNCHANGED and still passing** (Task 15.11, R6.6) —
+   both halves, the stubbed one and the live one.
+
+Plus the standing gates: `members.routes.spec.ts` green with **zero** placeholder routes left
+and `MemberPhasePlaceholder` deleted · the markdown chokepoint spec still green **and
+re-proven to fail**, importer list unchanged at **six** · `npx nx lint web-members` green (the
+Task 4.7 token rule) · `nx build ptah-landing-page --configuration=production` green with **no
+NEW budget warning**.
+
+---
+
+### 🔴 Ground truth Phase 5-FE inherits — verified against the tree at `4b0313783` on 2026-08-10
+
+1. 🔴 **EVERYTHING THE BADGE NEEDS ALREADY EXISTS AND NONE OF IT IS NEW WORK.**
+   `PanelNavItem.badgeCount?: number` is declared at `libs/web/panel-ui/src/lib/panel-nav.types.ts:36`
+   and **`PanelLayout` already renders it in BOTH nav branches** — `panel-layout.html:147`
+   (primary) and `:171` (secondary), each `@if (item.badgeCount) { <span class="badge
+badge-primary badge-xs …"> }`. The Notifications item is `primary: false`
+   (`member-nav.config.ts:122-126`), so it renders through the **secondary** branch.
+   **There is no `panel-nav` component** — the nav is an `<ng-template #navLink>` inside
+   `panel-layout.html:130-187`. **Task 15.7 writes no template and no primitive.**
+2. 🔴 **THE RESHAPE POINT ALREADY EXISTS TOO.** `member-layout.ts:77-81` is already a
+   `computed<readonly PanelNavGroup[]>` that rebuilds the array for the admin-link case:
+   `this.session.isAdmin() ? [...MEMBER_NAV_GROUPS, MEMBER_ADMIN_NAV_GROUP] : MEMBER_NAV_GROUPS`.
+   Its docblock (`:66-71`) commits Batch 15's `badgeCount` to **this same computed**.
+   `member-nav.config.ts:26-35` states R9.3 in terms: _"Introducing a second badge mechanism
+   — a bespoke chip in the member template, a separate signal read inside the shell — is what
+   R9.3 forbids, because then two things claim to be 'the unread count' and they disagree the
+   first time one of them is missed."_ **`MEMBER_NAV_GROUPS` itself is `readonly` and is not
+   mutated.**
+3. 🔴 **PRE-3's NUMBER IS STALE AND THE BARREL SAYS SO ITSELF.** `libs/web/panel-ui/src/index.ts`
+   is now **10 export lines / 11 symbols** (`PanelNavItem`, `PanelNavGroup`, `BadgeVariant`,
+   `PanelLayout`, `StatTile`, `StatusBadge`, `EmptyState`, `DetailDrawer`, `SelectionToolbar`,
+   `ThreadRow`, `TagChip`) — Batch 7 promoted `ThreadRow` and `TagChip`. Its header docblock
+   is the authoritative count and must be updated **in the same edit** as any list change
+   (RISK-M). **Read the barrel, not PRE-3.**
+4. 🔴 **`SelectionToolbar` EXISTS, IS EXPORTED, AND HAS FOUR WORKING ADMIN CONSUMERS** —
+   `libs/web/panel-ui/src/lib/selection-toolbar/selection-toolbar.ts`, API
+   `count = input<number>(0)`, `itemNoun = input<string>('item')`, `cleared = output<void>()`,
+   `role="region" aria-label="Bulk actions"`, hidden entirely at `count() === 0`, actions
+   projected through a bare `<ng-content />`. The cleanest template to mirror is
+   `libs/web/admin/src/lib/users/users-list.html:59-72`. ⚠️ **It has NO spec file** —
+   Task 15.6 is its first test.
+5. 🔴 **`@axe-core/playwright` IS NOW A DEV DEPENDENCY** — `package.json:202`, `^4.12.1`
+   (F-I). B10's and B13's carried-forward item is **closed by installation and open by
+   usage**: both CDN loaders still run and both still carry comments asserting the package is
+   absent — `members-courses.spec.ts:653-674` and `members-live.spec.ts:496-514`, two
+   near-identical copies with **different `AxeViolation` shapes** (`nodes: number` vs
+   `targets: string[]` + `summary: string`; the live one is the better shape).
+   **Task 15.10 owns collapsing them into one shared support helper.**
+6. 🔴 **`MemberPlaceholderData` IS DOWN TO EXACTLY TWO CONSUMERS AND THIS BATCH IS THE LAST
+   ONE.** `members.routes.ts:104-112` (`packs`) and `:181-189` (`notifications`) are the only
+   `loadPlaceholder` call sites. `member-phase-placeholder.ts`'s own docblock says _"the last
+   one to do so deletes this file"_, and `members.routes.ts:211-219` says the same. **Task
+   15.8 deletes the component, both helpers and the type.**
+7. 🔴 **`member-guard-wiring.spec.ts:232-245` WILL BREAK, ITS OWN COMMENT PREDICTS IT, AND
+   IT MUST NOT BE WEAKENED.** The case _"a placeholder member surface is not bounced either"_
+   navigates to `/members/packs` and was moved there by B13 precisely because
+   `/members/live/replays` became a fetching surface. Its comment: _"Batch 15 will have to
+   move it again, or answer the request the way the `/members` case above does."_
+8. 🔴 **THERE IS NO APPROVED DESIGN FOR ANY OF THIS BATCH'S SURFACES.** R9.8 says _"match the
+   8 approved screens in `docs/design-system/stitch_ptah_builders_member_home/`"_ — that
+   directory holds member home, community feed, discussion thread, course learning (each in
+   both themes) and an admin sessions calendar. **There is no Packs, Notifications or Account
+   screen.** Derive from `panel-theme-spec.md` and the shipped member surfaces, and **say in
+   the report that no approved screen existed** rather than implying one was matched.
+9. 🔴 **THE ONLY POLLING PRECEDENT IN `libs/web/members` IS A LOCAL CLOCK, NOT A NETWORK
+   POLL.** `course-player.store.ts:93,195` holds `setInterval` at `POLL_INTERVAL_MS = 1_000`
+   — but that tick reads a clock; the network write is separately gated at
+   `WRITE_INTERVAL_MS = 15_000`. Zero RxJS `timer(`/`interval(` anywhere in the lib. The
+   store pattern to copy is that file: `@Injectable()` **without** `providedIn` (with the
+   documented `use-injectable-provided-in` disable and its justification), private
+   `signal<T>()` + public `.asReadonly()` + `computed()`, and
+   `inject(DestroyRef).onDestroy(() => …)` teardown.
+10. **The API-service pattern is `member-live-api.service.ts`**: `@Injectable({ providedIn:
+'root' })`, `inject(HttpClient)`, one method per endpoint, every response through
+    `validate(schema, 'GET /members/…')` from `@ptah-web/core`, **relative URLs**
+    (`apiInterceptor` prepends the base and sets `withCredentials`), **no signals and no
+    cached state**, free helper functions alongside the class, and a client-side guard that
+    throws before issuing a request the server would `400`. Seven sibling services exist,
+    **every one with a spec**; `member-packs-api.service.ts` and
+    `member-notifications-api.service.ts` do not.
+11. **`/members/account` ALREADY EXISTS AND IS FULLY IMPLEMENTED** —
+    `account/account-page.ts` (258 lines), routed at `members.routes.ts:195-199`, three
+    sections, issues no request beyond `AuthService.getCurrentUser()`. **It has NO spec.**
+    The coarse task "Account page" is therefore **not** authoring work (Task 15.9).
+12. **e2e fixtures: `apps/ptah-landing-page-e2e/src/support/db.ts` has community, course and
+    live-session helpers and NO packs or notifications helpers.** The convention to extend:
+    unique/timestamped slug, teardown by minted id in FK order, **per-statement**
+    `try`/`catch` with a `console.warn` — 🔴 **do not restore the single-`try` shape**, which
+    is how B10's first run orphaned nine courses.
+13. **B7's five pre-existing e2e failures are still not yours** (`admin-crud.spec.ts:16`,
+    `admin-founding-invites.spec.ts:28,65`, `auth.spec.ts:65`, `pricing-waitlist.spec.ts:22`).
+    Report the same five and move on.
+14. 🔴 **RE-MEASURE THE BASELINES.** B13 recorded `web-members` **38 suites / 706 tests**,
+    `web-panel-ui` 3/19, `web-core` 4/25 at `db584deaa` — **32 commits ago**. The build
+    baseline was two budget warnings (initial 1.32 MB vs 1.00 MB; `@fullcalendar` skeleton.css
+    20.71 kB), but `TASK_2026_187` has since been closing bundle work. **Measure at HEAD
+    before the first edit and compare against that.**
+
+---
+
+### Risks surfaced by the Phase 5-FE refine pass
+
+| #           | Risk                                                                                                                                                                                                                                                                                                                                                                                                                                           | Sev      | Mitigation                                                                                                                                                                                                                                                                                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RISK-AM** | 🔴 **A 60 s `setInterval` IN A ROOT-PROVIDED STORE OUTLIVES EVERY TEST AND EVERY LOGOUT.** `MemberNotificationsStore` is the first network poll in this lib. Left running it fires after sign-out (a `401` loop), after the member leaves `/members` (a request from a page that is gone), and inside Jest (open handles, and a suite that passes locally and hangs in CI). A `providedIn: 'root'` store has no natural teardown point.        | **HIGH** | Task 15.4 follows `CoursePlayerStore` exactly: `@Injectable()` **without** `providedIn`, provided at the `MemberLayout` route level so it dies with the panel, `inject(DestroyRef).onDestroy()` clearing the handle, and the timer **started by an explicit `start()` the layout calls** rather than in the constructor. A spec asserts the handle is cleared. |
+| **RISK-AN** | 🔴 **THE BADGE IS THE ONE THING R9.3 FORBIDS DOING TWICE, AND THE SECOND COPY IS THE EASY ONE TO WRITE.** A bespoke chip in `member-layout.html`, or a second `unreadCount()` read inside a page, satisfies every visual check and disagrees with the nav the first time one of them is missed. The template already renders `badgeCount`, so the wrong version _also works_.                                                                  | **HIGH** | Task 15.7 changes **only** the existing `navGroups` computed. A structural spec globs `libs/web/members/**/*.{ts,html}` and asserts **zero** occurrences of `badge-` classes outside `panel-ui`, and that `unreadCount()` is read in **exactly one** file. Deliberate-failure proof: add a second chip, watch the spec go red.                                 |
+| **RISK-AO** | 🔴 **`notification.route` IS A SERVER-STORED STRING THE CLIENT NAVIGATES TO.** Opening a notification does `router.navigateByUrl(n.route)`. A stored absolute URL, a `//evil.example` protocol-relative value, or a path outside `/members` turns the inbox into an open redirect — and the value is **frozen in the row**, so it survives every later fix.                                                                                    | **HIGH** | Task 15.4 refuses any `route` not matching `/^\/members\//`, falls back to the notifications page, and logs. This is the client half of RISK-AJ's server-side `buildNotificationRoute` — **defence at both ends**, because either alone is one bug away from the hole.                                                                                         |
+| **RISK-AP** | 🔴 **"MARK READ ON OPEN" RACES THE NAVIGATION AND THE POLL.** Opening a notification marks it read (R10.3) _and_ navigates away. If the badge is refreshed by the 60 s poll only, it stays stale for up to a minute after the member acted; if it is decremented optimistically _and_ the poll lands mid-flight, the count flickers back up and then down.                                                                                     | MED      | The store owns the count and is the only writer. `markRead` decrements optimistically, issues the request, and on success **replaces** the count from the server's `unread-count`; on failure it restores. The poll is skipped while a write is in flight. Asserted with an unflushed request, the way B13's F-4 regression test is.                           |
+| **RISK-AQ** | **THE PACKS PAGE HAS TWO EMPTY STATES AND THEY MEAN DIFFERENT THINGS.** "No packs are available to you yet" (the server answered, `memberVisible` is false everywhere) and "we could not load your packs" (the request failed) are the same blank screen if the page branches on `items.length` first. This is RISK-Z's shape, and B13 proved it is the failure that actually ships.                                                           | MED      | Task 15.5 branches `error → loading → empty → list`, four distinct renders asserted by their copy, with the error branch carrying a retry and `role="alert"` and the empty branch `EmptyState` with `role="status"`. Deliberate-failure proof in 15.11.                                                                                                        |
+| **RISK-AR** | **`EmptyState`'S HINT WAS THE LAST WCAG FAILURE AND THE CLASS OF DEFECT IS NOT EXHAUSTED** (B13's F-1). The Task 4.7 token lint rule is scoped to `libs/web/members/**` and reads **nothing** in `libs/web/panel-ui/**`. `panel-layout.html` and `stat-tile.html` still carry `/40` on `aria-hidden` icons (legal), and `libs/web/auth/auth-page.component.ts:125` carries it on a **divider label** (text). Nothing enforces the distinction. | MED      | Task 15.10 points axe at **empty** surfaces specifically, and adds a `panel-ui` spec scoping the `/40` prohibition to text-bearing elements rather than to the file. Out-of-scope hits in `libs/web/admin` and `libs/web/auth` are **reported, not fixed** (RK-1) — they are another surface's.                                                                |
+
+---
+
+### Assumptions this refine pass takes (not in the plan; flag if wrong)
+
+- **ASSUMPTION-25 — the packs list is ONE flat list, not grouped by cohort.** A-1 says
+  `cohortName` is a display label that grants and revokes nothing. Grouping by it would render
+  the label as structure and re-create, visually, exactly the access illusion A-1 exists to
+  refuse. `cohortName` renders as a `TagChip` beside the pack's own tags. One template branch
+  to overrule.
+- **ASSUMPTION-26 — `accessNote` renders as an ESCAPED TEXT NODE, above the repo link.**
+  It is admin-authored plain prose (R5.5) with no markdown affordance in the admin form, and
+  `MemberPack` does not name it `bodyMarkdown`. **No renderer is added to this page**, so the
+  chokepoint importer list stays at six (ASSUMPTION-17 continuing to hold). Placement above
+  the link is the requirement, not a preference: R5.5 says the member must be told _"in
+  advance"_.
+- **ASSUMPTION-27 — a pack with a null `accessNote` shows a single shared default line**, not
+  a blank gap. `accessNote` is nullable and every pack in this workspace has it null on day
+  one. Silence at the exact spot R5.5 exists to fill is the failure mode; one constant string
+  ("Access is granted on GitHub — ask in the community if the link 404s") in one place.
+- **ASSUMPTION-28 — the notifications page marks read on OPEN only, never on scroll or on
+  view.** R10.3 says _"opening one SHALL navigate to the source and mark it read"_ and says
+  nothing about visibility. A read-on-view implementation empties the inbox for a member who
+  merely glanced at it, and it is unfalsifiable from the server side. Bulk mark-read is the
+  explicit alternative and it is `SelectionToolbar`'s job (R9.7).
+- **ASSUMPTION-29 — the poll interval is 60 s exactly, as a named constant, and is NOT
+  backed off.** R10.5 says _"≥ 60 s"_. Adaptive backoff is a second piece of state that
+  disagrees with the first the moment a tab is restored. `POLL_INTERVAL_MS = 60_000` beside
+  `CoursePlayerStore`'s constants, plus the eager fetch on every navigation, is the whole
+  design (AD-14).
+
+---
+
+### Task 15.1: Pre-flight — the identity, the seed, and the baselines this batch cannot borrow ⏸️ PENDING
+
+**Files**: none (verification + a throwaway identity and fixtures)
+**Requirement refs**: `V-TOKEN`, PRE-7, ground truth 12, 14, RISK-AK
+**Dependencies**: none — this is the batch's root
+**Pattern to follow**: `apps/ptah-landing-page-e2e/src/support/db.ts` — `seedUser()` / `cleanupUser()`, insert by minted id, delete by that id.
+
+**Implementation details**:
+
+- `V-HEALTH` → `200`. Confirm Batch 14 shipped: `V-CURL` `GET /v1/members/packs` → `200` and `GET /v1/members/notifications/unread-count` → `200 { unreadCount: 0 }`. **If either 404s, STOP** — this batch has no backend to build against.
+- Create **two** identities by known id (A and B), as B13 did. B is required for the RISK-AH ownership case and the own-only notification case; one identity proves nothing about isolation.
+- Seed **three packs** (visible+labelled, visible+unlabelled, hidden) and, from identity B, a real forum reply on a topic identity A authored — so A has a real notification with a real `actorName` and a real `route`. 🔴 **Report what the live bodies actually contain**, including whether `actorName` is populated or fell back (B14's ASSUMPTION-22).
+- 🔴 **MEASURE THE BASELINES AT HEAD, BEFORE THE FIRST EDIT** (ground truth 14): one
+  `npx nx run-many -t lint,typecheck,test -p web-members,web-panel-ui,web-core --skip-nx-cache`
+  and one `npx nx build ptah-landing-page --configuration=production`. Paste suite/test counts
+  per project, the warning list, and the initial bundle size. **B13's figures are 32 commits
+  stale and are not the comparison.**
+- `git status --short` → name the foreign WIP (F-H), including the three foreign
+  `.ptah/specs/**` carriers, so no later `git add` is ambiguous.
+
+**Verification**: every value pasted. Mint the JWT **in memory**; write no token file (B13's residue finding). Record the teardown SQL for Task 15.11 now, not later.
+
+---
+
+### Task 15.2: `MemberPacksApiService` ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/services/member-packs-api.service.ts` (NEW)
+- `libs/web/members/src/lib/services/member-packs-api.service.spec.ts` (NEW)
+
+**Requirement refs**: §3.6, R5.1, R5.3, NFR-S1, ground truth 10
+**Dependencies**: 15.1
+**Pattern to follow**: `member-live-api.service.ts` — verbatim shape.
+
+**Implementation details**:
+
+- One method: `list(): Observable<MemberPack[]>`, parsed with `z.array(memberPackSchema)` through `validate(schema, 'GET /members/packs')`. **`memberPackSchema` is imported from `@ptah-contracts/community` and is NOT re-declared** (Batch 14 ground truth 2).
+- 🔴 **NO `?page` / `?pageSize`.** The server returns a bare array by contract (Task 14.8). A client that sends pagination params is describing a different endpoint.
+- No signals, no cached state, relative URL.
+
+**Validation notes**:
+
+- Assert the request URL **and** that **no** params are sent.
+- Assert the parse **rejects** a body missing `accessNote`, and that `z.object()` **strips** an unknown extra key (RISK-C's asymmetry, in the tolerant direction).
+- 🔴 **Assert the parsed object has no `notes` own key** — the client half of NFR-S5, and the assertion that would catch a future contract widening. Feed it a body that _does_ carry `notes` and assert it is stripped.
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns=member-packs-api`
+
+---
+
+### Task 15.3: `MemberNotificationsApiService` ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/services/member-notifications-api.service.ts` (NEW)
+- `libs/web/members/src/lib/services/member-notifications-api.service.spec.ts` (NEW)
+
+**Requirement refs**: §3.6, R10.3, R10.4, R10.5, NFR-P5, NFR-S1
+**Dependencies**: 15.1
+**Pattern to follow**: as 15.2, plus `member-community-api.service.ts`'s paged-request shape.
+
+**Implementation details**:
+
+- Four methods, one per endpoint: `list(page?, pageSize?)` → `Paged<MemberNotification>` via `pagedSchema(memberNotificationSchema)`; `unreadCount()` → `{ unreadCount: number }` via `hubNotificationSummarySchema`; `markRead(id)`; `markAllRead()`.
+- Send `?page`/`?pageSize` **only when supplied** so the server's echoed values stay the authority; a `pageSize > MAX_PAGE_SIZE` **throws client-side** rather than issuing a request that will `400`.
+- 🔴 **`unreadCount()` PARSES THROUGH `hubNotificationSummarySchema` — THE SAME SCHEMA THE HUB SECTION USES.** One shape, one parse, two callers. A second inline `z.object({ unreadCount: z.number() })` here is the beginning of the drift R6.6 exists to prevent.
+- **No signals here.** The polling and the count live in the store (Task 15.4); this service is pure data access, like its six siblings.
+
+**Validation notes**: assert the four request URLs and methods; assert `markRead` is a `POST` expecting **`200`**, not `201` (Task 14.12 pins the server side); assert the parsed notification has **no `userId` and no `actorId`** own key (NFR-S4's client half).
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns=member-notifications-api`
+
+---
+
+### Task 15.4: `MemberNotificationsStore` — one count, one timer, one route guard ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/state/member-notifications.store.ts` (NEW)
+- `libs/web/members/src/lib/state/member-notifications.store.spec.ts` (NEW)
+
+**Requirement refs**: **R10.4**, **R10.5**, AD-14, **RISK-AM**, **RISK-AO**, **RISK-AP**, ASSUMPTION-29
+**Dependencies**: 15.3
+**Pattern to follow**: `libs/web/members/src/lib/learning/course-player.store.ts` — the only store in this lib, and the one whose teardown discipline this task depends on (ground truth 9).
+
+**Implementation details**:
+
+- Public surface: `unreadCount()` (readonly signal), `items()`, `loading()`, `error()`, `start()`, `refresh()`, `markRead(id)`, `markAllRead()`, `openRoute(n)`.
+- 🔴 **`@Injectable()` WITHOUT `providedIn`, PROVIDED AT THE `MemberLayout` ROUTE LEVEL (RISK-AM).** A root-provided store with a 60 s timer outlives sign-out, outlives leaving `/members`, and leaves an open handle in Jest. Copy `CoursePlayerStore`'s eslint-disable **and its justification comment**. The timer is started by an explicit `start()` the layout calls — **never in the constructor** — and cleared in `inject(DestroyRef).onDestroy()`.
+- `POLL_INTERVAL_MS = 60_000` as a named constant (ASSUMPTION-29). **Plus an eager fetch on every navigation** (R10.5, AD-14) — subscribe to `Router` `NavigationEnd` inside the layout-scoped store, not with a second timer.
+- 🔴 **`openRoute(n)` REFUSES ANY STORED `route` NOT MATCHING `/^\/members\//` (RISK-AO)**, falling back to `/members/notifications` and logging. The server builds it through `buildNotificationRoute` (RISK-AJ); this is the second end of the same defence, and neither end may be dropped on the grounds that the other exists.
+- 🔴 **THE STORE IS THE ONLY WRITER OF THE COUNT (RISK-AP).** `markRead` decrements optimistically, issues the request, replaces the count from the server on success and restores it on failure; **the poll is skipped while a write is in flight**. `openRoute` marks read _then_ navigates.
+
+**Validation notes**:
+
+- **RISK-AM**: assert `onDestroy` clears the handle — advance a fake timer past 60 s after destruction and assert **no** request. `http.verify()` in `afterEach` is what makes a stray one fail.
+- **RISK-AO**: table-driven over `'https://evil.example'`, `'//evil.example'`, `'/admin/users'`, `'/members/community/topics/x'` — only the last navigates.
+- **RISK-AP**: leave the `markRead` request unflushed, fire the poll, assert no count flicker and no second write — the shape of B13's F-4 regression test.
+- An error from the poll **must not** clear `unreadCount()` — a failed refresh tells us nothing about the count, and zeroing it is the badge lying.
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns=member-notifications.store`
+
+---
+
+### Task 15.5: `PacksPage` — `/members/packs`, the access note before the link ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/packs/packs-page.ts` (NEW)
+- `libs/web/members/src/lib/packs/packs-page.spec.ts` (NEW)
+
+**Requirement refs**: **R5.1**, **R5.5**, R5.7, R9.7, NFR-U1/U2/U3/U4, **RISK-AQ**, ASSUMPTION-25/26/27
+**Dependencies**: 15.2
+**Pattern to follow**: `courses-page.ts` — a member list surface with the same four-cell branch discipline.
+
+**Implementation details**:
+
+- Renders title, description, tags, `cohortName` and `repoUrl` per pack (R5.1). Tags and `cohortName` use the promoted **`TagChip`**; the empty branch uses **`EmptyState`** (R9.7 — reuse, do not re-implement).
+- 🔴 **`accessNote` RENDERS ABOVE THE `repoUrl` LINK, ALWAYS** (R5.5, ASSUMPTION-26) — the requirement is that the member is told _"in advance"_, so placement is load-bearing, not cosmetic. Null falls back to one shared constant line (ASSUMPTION-27); a blank gap at exactly the spot R5.5 exists to fill is the failure.
+- 🔴 **FOUR DISTINCT RENDERS, BRANCHED `error → loading → empty → list` (RISK-AQ).** "We could not load your packs" (retryable, `role="alert"`) is a different message from "No packs are available to you yet" (`EmptyState`, `role="status"`). Branching on `items.length` first collapses them.
+- The external link carries `rel="noopener noreferrer"` and an accessible name that includes the pack title — a page of links all reading "Open repository" is unusable on a screen reader.
+- **One flat list, no cohort grouping** (ASSUMPTION-25).
+- ⚠️ **Nothing on this page implies Ptah grants access** (R5.7). No "Request access" button, no entitlement check, no gate.
+- `ChangeDetectionStrategy.OnPush`, signals, `inject()` (NFR-U1). Tokens only — `/60` or stronger for anything a member must read, `/40` never (NFR-U3, B13's F-1).
+
+**Validation notes**: the spec is table-driven over the four cells, each asserted **by its copy**; plus one case that a pack with `accessNote: null` still renders the fallback line, and one that `notes` appears nowhere in the rendered HTML even when the fixture carries it.
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns=packs-page` · `npx nx lint web-members --skip-nx-cache`
+
+---
+
+### Task 15.6: `NotificationsPage` + bulk mark-read ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/notifications/notifications-page.ts` (NEW)
+- `libs/web/members/src/lib/notifications/notifications-page.spec.ts` (NEW)
+- `libs/web/panel-ui/src/lib/selection-toolbar/selection-toolbar.spec.ts` (NEW — its first spec)
+
+**Requirement refs**: **R10.3**, R10.4, **R9.7**, NFR-P5, NFR-S2, ASSUMPTION-28, ground truth 4 (B14)
+**Dependencies**: 15.4
+**Pattern to follow**: `libs/web/admin/src/lib/users/users-list.html:59-72` — the cleanest of the four existing `SelectionToolbar` consumers.
+
+**Implementation details**:
+
+- Newest first, read/unread state visually distinct (R10.3), paged at the contract's 25 with the server's echoed `page`/`pageSize` as the authority.
+- 🔴 **`bodyPreview` IS AN ESCAPED TEXT NODE.** It is an excerpt of member-authored markdown that the contract states is **not sanitized** (B14 ground truth 4). No `<ptah-markdown-block>`, no `[innerHTML]`, no `bypassSecurityTrustHtml`. `markdown-chokepoint.spec.ts`'s importer list stays at **six** — and Task 15.11 re-proves that spec can still fail.
+- Opening a notification calls `store.openRoute(n)` — marks read, then navigates (R10.3). **Read on open only, never on scroll or on view** (ASSUMPTION-28).
+- **`SelectionToolbar` for bulk mark-read (R9.7)** — `[count]="selected().length" itemNoun="notification" (cleared)="clearSelection()"`, with a "Mark read" action projected into its `<ng-content />`. Reused from `@ptah-web/panel-ui`, **not re-implemented**, and **no barrel edit** (it is already exported — ground truth 4).
+- `SelectionToolbar` gets its first spec in this task: it renders nothing at `count() === 0`, pluralises `itemNoun`, emits `cleared`, and exposes `role="region"` with its label. That is a **cross-panel improvement** benefiting the four admin consumers, in the same shape as B13's F-1 fix — and, like that one, it should be **committed separately** so it stays revertible independent of the batch.
+- Relative timestamps via the existing `relative-time`/`highlight-text` shared pipes if present; do not author a second date formatter.
+
+**Validation notes**: assert the unread marker is driven by `readAt === null` and nothing else; assert bulk mark-read issues **one** `read-all`-shaped request rather than N; assert an empty inbox renders `EmptyState` and not an error.
+
+**Verification**: `npx nx run-many -t lint,typecheck,test -p web-members,web-panel-ui --skip-nx-cache --testPathPatterns="notifications-page|selection-toolbar"`
+
+---
+
+### Task 15.7: `badgeCount` — one binding, in the computed that already exists ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/member-layout/member-layout.ts` (MODIFY — the `navGroups` computed, `:77-81`)
+- `libs/web/members/src/lib/member-layout/member-nav-badge.spec.ts` (NEW)
+
+**Requirement refs**: **R9.3**, R10.4, **RISK-AN**, ground truth 1, 2
+**Dependencies**: 15.4
+
+**Implementation details**:
+
+- 🔴 **THIS TASK WRITES NO TEMPLATE AND NO PRIMITIVE.** `PanelNavItem.badgeCount` is declared (`panel-nav.types.ts:36`) and `PanelLayout` already renders it in **both** nav branches (`panel-layout.html:147`, `:171`). The Notifications item is `primary: false`, so it renders through the **secondary** branch — assert that branch specifically, because a test written against the primary one passes for the wrong item.
+- The **only** change is inside `member-layout.ts:77-81`'s existing `computed<readonly PanelNavGroup[]>`: rebuild `MEMBER_NAV_GROUPS` with the Community group's Notifications item's `badgeCount` replaced by `store.unreadCount()`. The admin-link branch composes with it, it does not fork from it.
+- 🔴 **`MEMBER_NAV_GROUPS` IS `readonly` AND IS NOT MUTATED.** Map to a new array. A mutation would leak the count into the module-level constant and across tests.
+- `badgeCount` is **hidden at 0** by the template's `@if (item.badgeCount)` — pass `0`, not `undefined`, and let the existing branch do the hiding. Do not add a second falsy check.
+- **No parallel badge mechanism** (R9.3). `member-nav.config.ts:26-35` states the prohibition; this task is the one that discharges it.
+
+**Validation notes**:
+
+- Assert the count moves the rendered badge when the store's signal moves, **and** that it disappears at 0.
+- 🔴 **RISK-AN, structurally**: glob `libs/web/members/**/*.{ts,html}` and assert `unreadCount()` is read in **exactly one** file, and that no member template contains a `badge-` class of its own. Deliberate-failure proof in 15.11: add a second chip and watch it go red.
+- Assert `MEMBER_NAV_GROUPS` is referentially unchanged after the computed runs.
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns="member-layout|member-nav-badge"`
+
+---
+
+### Task 15.8: Swap the last two placeholder routes and delete the placeholder ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/members.routes.ts` (MODIFY — `:104-112`, `:181-189`, `:211-229`, and the header comment)
+- `libs/web/members/src/lib/members.routes.spec.ts` (MODIFY)
+- `libs/web/members/src/lib/placeholder/member-phase-placeholder.ts` (**DELETE**)
+- `libs/web/members/src/lib/member-guard-wiring.spec.ts` (MODIFY — `:232-245`)
+
+**Requirement refs**: R9.4, R9.5, ground truth 6, 7
+**Dependencies**: 15.5, 15.6, 15.7
+
+**Implementation details**:
+
+- Swap both `loadComponent: loadPlaceholder` entries for real `loadComponent` imports and delete their `data:` blocks.
+- 🔴 **DELETE `member-phase-placeholder.ts`, `loadPlaceholder()`, `placeholder()` AND THE `MemberPlaceholderData` IMPORT.** Three files' docblocks say this batch is the one that does it (ground truth 6): the component's own (_"the last one to do so deletes this file"_) and `members.routes.ts:211-219`. Leaving them is leaving dead code that three comments promised would go.
+- 🔴 **`member-guard-wiring.spec.ts:232-245` MUST BE FIXED, NOT WEAKENED (ground truth 7).** Its case is _"a surface with NO activation fetch is not bounced"_ and `/members/packs` is about to acquire one. Its own comment offers the two legitimate repairs: move it to a surface that still has no fetch, or **answer the request the way the `/members` case above it does**. 🔴 **Prefer answering the request** — every member surface now fetches, so moving it again just defers the problem one more batch, and the assertion is about the guard, not about the absence of data.
+- `members.routes.spec.ts` re-runs its R9.4 walk unchanged: no first segment beginning with `:`, every parameter drawn from `{ ':slug', ':lessonSlug', ':id' }`, and the literals `':model'` / `':model/:id'` nowhere.
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns="members.routes|member-guard-wiring"` · `rg "MemberPlaceholderData|loadPlaceholder|member-phase-placeholder" libs/web` → **0 hits**.
+
+---
+
+### Task 15.9: `AccountPage` — it already exists; give it a spec and an a11y pass ⏸️ PENDING
+
+**Files**:
+
+- `libs/web/members/src/lib/account/account-page.spec.ts` (NEW)
+- `libs/web/members/src/lib/account/account-page.ts` (MODIFY — only if the spec or the a11y pass finds something)
+
+**Requirement refs**: R9.6, R9.7, NFR-U1–U5, NFR-M1, ground truth 11
+**Dependencies**: 15.8
+
+**Implementation details**:
+
+- 🔴 **THE COARSE TASK SAYS "ACCOUNT PAGE" AS THOUGH IT NEEDS AUTHORING. IT DOES NOT.**
+  `account/account-page.ts` is 258 lines, routed at `members.routes.ts:195-199`, standalone,
+  OnPush, three sections, and issues no request beyond `AuthService.getCurrentUser()`.
+  **What it has never had is a test.** Say so in the report rather than rewriting a shipped
+  surface.
+- The spec covers: the identity section renders the signed-in email; the appearance section's
+  theme toggle persists across a re-instantiation (R9.6 — `localStorage`, AD-13); the billing
+  section renders without a subscription; sign-out is reachable by keyboard with a visible
+  focus state (NFR-U4).
+- Fix only what the spec or the axe pass actually finds, and **report each fix as a finding**
+  rather than folding it into the task — it is pre-existing code, in the shape of B13's F-1.
+
+**Verification**: `npx nx test web-members --skip-nx-cache --testPathPatterns=account-page`
+
+---
+
+### Task 15.10: The a11y migration — one axe helper, from the dependency, pointed at EMPTY surfaces ⏸️ PENDING
+
+**Files**:
+
+- `apps/ptah-landing-page-e2e/src/support/axe.ts` (NEW — the single shared helper)
+- `apps/ptah-landing-page-e2e/src/specs/members-courses.spec.ts` (MODIFY — delete its CDN copy)
+- `apps/ptah-landing-page-e2e/src/specs/members-live.spec.ts` (MODIFY — delete its CDN copy)
+- `libs/web/panel-ui/src/lib/empty-state/empty-state.spec.ts` (MODIFY)
+
+**Requirement refs**: **NFR-U4**, NFR-U3, NFR-U5, **F-I**, **RISK-AR**, B13's F-1 and its carried-forward item 2
+**Dependencies**: 15.9
+
+**Implementation details**:
+
+- 🔴 **`@axe-core/playwright` IS ALREADY INSTALLED — `package.json:202`, `^4.12.1` (F-I).** B10 and B13 each recorded "not a devDependency" and each loaded axe from `cdn.jsdelivr.net`; **that is now false and both spec files still say it in comments.** Replace both loaders with `AxeBuilder` from the package, and **delete the two CDN copies and their stale comments**.
+- 🔴 **THE TWO COPIES HAVE DIFFERENT VIOLATION SHAPES** (ground truth 5): `members-courses.spec.ts:640` reports `nodes: number`, `members-live.spec.ts:483-484` reports `targets: string[]` + `summary: string`. **Keep the live one's shape** — it is the one that made B13's F-1 diagnosable — and collapse both onto it.
+- Keep B10's scope (`include: [['body']]`, `exclude: [['iframe']]`) and **say so**, so the narrowing is a recorded decision rather than an accident.
+- 🔴 **POINT AXE AT EMPTY SURFACES SPECIFICALLY (RISK-AR).** B13's F-1 — a real 3.2:1 WCAG AA failure on a shipping component — survived three phases because every prior pass ran against **populated** surfaces and `EmptyState`'s hint only renders when a surface is empty. Every surface in this batch's sweep is run **twice**: populated and empty.
+- Strengthen `empty-state.spec.ts` so the `/40` prohibition is scoped to **text-bearing elements** rather than to the file, keeping the `aria-hidden` decorative icon legal — the distinction B13 drew but did not enforce.
+- ⚠️ **`libs/web/auth/auth-page.component.ts:125` and six `<p>` sites in `libs/web/admin` also carry `/40` on text.** They are **out of scope (RK-1)** — another surface's. **Report them; do not fix them.**
+
+**Verification**: `npx nx run-many -t lint,typecheck -p ptah-landing-page-e2e --skip-nx-cache` · `npx nx test web-panel-ui --skip-nx-cache` · `rg "cdn.jsdelivr.net" apps/ptah-landing-page-e2e` → **0 hits**.
+
+---
+
+### Task 15.11: The proofs — e2e for every member surface, both themes, and the deliberate failures ⏸️ PENDING
+
+**Files**:
+
+- `apps/ptah-landing-page-e2e/src/specs/members-packs.spec.ts` (NEW)
+- `apps/ptah-landing-page-e2e/src/specs/members-notifications.spec.ts` (NEW)
+- `apps/ptah-landing-page-e2e/src/specs/members-account.spec.ts` (NEW)
+- `apps/ptah-landing-page-e2e/src/support/db.ts` (MODIFY — packs + notification fixtures)
+- `apps/ptah-landing-page-e2e/src/specs/members-content.spec.ts` (**re-run unchanged**)
+
+**Requirement refs**: exit-gate clauses 1–5, **NFR-M1**, **R6.2 / R6.6**, NFR-U4, NFR-U5, ground truth 12, 13
+**Dependencies**: 15.10
+**Pattern to follow**: `members-live.spec.ts` — the most recent, and the one whose seed/teardown discipline this task inherits.
+
+**Implementation details**:
+
+- New fixtures: `seedPack(slugPrefix, { memberVisible, cohortKey, accessNote, notes })` / `cleanupPacks(ids)` and `seedNotification(userId, { kind, actorId, route })` / `cleanupNotifications(userId)`. 🔴 **Per-statement `try`/`catch` with a `console.warn`** — do not restore the single-`try` shape that orphaned nine courses in B10's first run (ground truth 12).
+- 🔴 **ANTI-VACUITY FIRST, EVERY TIME.** Assert the seeded rows are genuinely present and the surface genuinely populated **before** asserting anything about how it renders. B10's NFR-S3 assertion was true-because-empty until it was made to fail.
+- **Clause 1 — packs**: seeded `notes` value appears **nowhere** in the page source; `accessNote` is present and **precedes** the `repoUrl` link in DOM order; the hidden pack is absent; the cohort-labelled pack is present for a **zero-cohort** member.
+- **Clause 2 — badge**: identity B replies to identity A's topic; A loads `/members/hub` and the nav badge reads `1`; A opens it, is navigated to the thread, and the badge clears — **with no page reload**.
+- 🔴 **Clause 4 — coverage**: the four uncovered surfaces get a spec each (`/members/packs`, `/members/notifications`, `/members/account`, `/members/search`). `/members/search` has only indirect coverage today via `members-community.spec.ts:392`; either promote it or state plainly that it remains indirect and why.
+- 🔴 **Clause 5 — R6.2, RE-RUN UNCHANGED (R6.6).** `members-content.spec.ts` carries **two** halves — the stubbed one-request assertion (~`:71`) and the live one (~`:126`, _"the live hub still costs exactly one request now that community returns real data"_). **Both must pass with two more hub sections now returning real data, and neither may be edited.** If one fails, that is the finding.
+- **Both themes on POPULATED surfaces**, `[data-theme="…"]` asserted as actually attached (NFR-U5).
+- **At least four deliberate-failure proofs**, each reverted and `diff`-confirmed byte-identical:
+  1. 🔴 **Add a second unread chip to `member-layout.html`** → RISK-AN's structural spec goes red. **This is the proof R9.3 is enforced and not merely stated.**
+  2. Collapse RISK-AQ's branch order on `PacksPage` → the "could not load" cell renders "No packs" and its assertion fails.
+  3. Change `openRoute` to navigate unconditionally → RISK-AO's `//evil.example` case goes red.
+  4. Bind `[innerHTML]` on `bodyPreview` → `markdown-chokepoint.spec.ts` goes red and the importer list moves off six.
+
+**Validation notes**: B7's five pre-existing e2e failures are **not yours** (ground truth 13) — report the same five and do not weaken those assertions. Tear down both identities and every fixture **by id**, in one `BEGIN`/`COMMIT`, and paste the census proving the database is back to its pre-batch state.
+
+**Verification**:
+
+```
+npx nx run-many -t lint,typecheck,test -p web-members,web-panel-ui,web-core,ptah-landing-page --skip-nx-cache
+npx nx build ptah-landing-page --configuration=production
+npx nx run-many -t lint,typecheck -p ptah-landing-page-e2e --skip-nx-cache
+```
+
+Green, against **Task 15.1's freshly measured baselines** (ground truth 14), not B13's. Then the e2e run, then the four deliberate failures with both runs pasted.
 
 ---
 
 ## Batch 16: P5-CLOSEOUT — MG-4 Seshat harness + final documentation sweep ⏸️ PENDING
 
+### ✅ USER DECISION 2026-08-10 — the Seshat half is OUT OF SCOPE for this task
+
+**Tasks 16.1–16.3 (inventory / retarget / changed-removed list at `D:/projects/seshat`) are
+CUT.** The user's call: that work belongs to a session opened in Seshat's own workspace, not
+driven cross-repo from `ptah-extension`.
+
+The refinement's own findings support it independently — `D:/projects/seshat` has **no `.git`
+and no parent repo**, so every edit made from here would be irreversible and unreviewable,
+and there are **zero skills to retarget** (the five are declared at `PRD.md:213-219` and were
+never created). Retargeting its spec is a Seshat-workspace task with a Seshat-workspace
+reviewer.
+
+**Consequences for this task:**
+
+- **MG-4 is not satisfied by TASK_2026_177 and must not be reported as satisfied.** Batch 16's
+  report records it as deferred-by-decision, naming this block — not as done, and not as lapsed.
+- **Batch 16 keeps only its in-repo half**: the `CLAUDE.md` module-index pass (see F-N — the
+  real scope is 25 undocumented `libs/api` / `libs/web` / `libs/api-contracts` projects, not
+  "seven new libs") and the NFR-M5 gate amendment (F-L).
+- **The `rg -i discourse` gate collapses to ONE repository**, not two. `ptah-extension` only.
+- **Batch 16 no longer depends on anything outside this repo**, so its `backend-developer`
+  executor and its position after B14/B15 are unchanged, but its risk profile drops to normal.
+
+### 🔴 Batch 16 findings — both of its premises are false
+
+**F-M — `D:/projects/seshat` CONTAINS ZERO SKILLS AND IS NOT A GIT REPOSITORY.**
+
+The path **exists**. What is in it is five files and one directory:
+
+```
+D:\projects\seshat\.gitignore     D:\projects\seshat\BRIEF.md
+D:\projects\seshat\OPERATIONS.md  D:\projects\seshat\PRD.md
+D:\projects\seshat\README.md      D:\projects\seshat\reference\   (junctions to two repos)
+```
+
+- **No `.git` directory, and no parent is a repo either.** `git status` there returns
+  `fatal: not a git repository`. 🔴 **There is no revert. Every edit is irreversible.**
+- **No `.claude/`, no `skills/`, no `SKILL.md`, no `*skill*` directory anywhere.**
+- **Five skills are DECLARED at `PRD.md:213-219` and none was ever created**:
+  `seshat-weekly-cadence`, `seshat-discourse-ops`, `seshat-course-mapping`,
+  `seshat-build-log`, `seshat-cohort-pulse`. Four subagents are declared at `PRD.md:141-204`
+  (`curriculum-cartographer`, `build-log-writer`, `community-steward`, `session-producer`)
+  and none exists either.
+- `PRD.md:311-315` **predicted exactly this failure mode**: _"`ptah_harness_create_skill`
+  writes to disk during the conversation, not at apply. A skill listed in `createdSkills` but
+  never actually created produces no file. Verify each skill exists before applying."_
+
+**So MG-4.1's "inventory the community skills" has an answer, and it is "there are none."**
+MG-4.2's _"a rewritten skill contains no Discourse endpoint"_ has no subject. **What actually
+carries the Discourse coupling is the SPEC — 49 hits across the four markdown files** —
+and the spec is what a future `apply` would build the skills from. **Retargeting the spec is
+therefore the only way MG-4 can be satisfied at all**, and it is what this batch does.
+
+**Seshat's spec is stale in seven load-bearing ways** — every path it cites is gone:
+
+| Seshat asserts                                                                  | Reality in `ptah-extension` at `4b0313783`                                                                       |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `BRIEF.md:14-15` — integration lives in `libs/api/community/src/lib/discourse/` | **Directory deleted.** The lib now holds `circle`, `google-sessions`, `live-sessions`, `member-groups`, `packs`  |
+| `BRIEF.md:16` — `scripts/discourse-seed-community.mjs`                          | **File deleted**                                                                                                 |
+| `OPERATIONS.md:19-20`, `PRD.md:80-83` — `apps/ptah-discourse-theme/`            | **Directory deleted**; only stale `dist/` output remains                                                         |
+| `PRD.md:88` — `docs/deploy/discourse-digitalocean.md`                           | **File deleted**                                                                                                 |
+| `OPERATIONS.md:92` — `admin-community.controller.ts` is `@Get`-only             | **File deleted**; its four routes are recorded as removed in `route-map.spec.ts:230-232`                         |
+| `PRD.md:70-71` — `DISCOURSE_API_KEY` / `DISCOURSE_THEME_API_KEY` are live       | **No reader remains**; the vars are gone and `.env.prod:106` says the keys must be **revoked**, not merely unset |
+| `OPERATIONS.md:16` — the site is `https://community.ptah.live`                  | The community is in-product at `/members`                                                                        |
+
+**F-L — the NFR-M5 gate as written is NOT SATISFIABLE, and pretending otherwise is the
+failure mode.** `rg -i discourse` over `ptah-extension`, excluding `.ptah/specs` and the
+export JSON, returns **19 hits**, and **none of them is live code**:
+
+| Group                      | Count | Disposition                                                                                                                                                                                                     |
+| -------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prisma migration SQL       | **6** | 🔴 **IMMUTABLE.** `20260719160000_add_member_groups`, `20260801120000_add_packs`, and `20260805090000_drop_discourse_group` — whose **directory name** also matches. NFR-M3 forbids editing applied migrations. |
+| `.env*` tombstone comments | **7** | Carry a **live operational instruction** — `.env.prod:106` says two keys must be **revoked**. Deleting them deletes the instruction.                                                                            |
+| Generated Prisma client    | **1** | `libs/api/core/.../generated-prisma-client/internal/class.ts` inlines `schema.prisma`'s comment text. Disappears automatically when `schema.prisma:461` is reworded and the client regenerates.                 |
+| Source prose / history     | **5** | `schema.prisma:461`, `route-map.spec.ts:231`, `member-topic.contract.ts:30`, `forum/README.md:3`, `forum/.../visibility.ts:83` — historical rationale, deliberately kept                                        |
+
+**Zero live Discourse code, endpoints, env vars or SSO paths remain.** `apps/ptah-discourse-theme/`
+and `.github/workflows/deploy-community-theme.yml` are **both gone**, and **zero**
+`package.json` scripts mention discourse or community-theme — so B16's coarse items 4 and 5
+are partly already done.
+
+**F-N — the CLAUDE.md module-index task is far larger than "seven new libs".** Root
+`CLAUDE.md` has **zero** references to `libs/api/**`, `libs/web/**` or `libs/api-contracts/**`
+— `grep -n "libs/api\|libs/web\|@ptah-api\|@ptah-web"` returns nothing. The Module Index
+documents `backend`, `frontend` and `shared` and **omits `api`, `api-contracts`, `web` and
+`showcase-manifest` entirely**. **25 projects — 14 `libs/api`, 10 `libs/web`, 1
+`libs/api-contracts` — have no CLAUDE.md and no index entry anywhere.** Separately,
+**`ptah-discourse-theme` is ALREADY absent from the Apps list**, so that half of the coarse
+item is a no-op to confirm rather than perform.
+
+⚠️ **`CLAUDE.md` IS MODIFIED IN THE WORKING TREE RIGHT NOW** by the concurrent TASK_2026_197
+session (F-H). **Re-read it immediately before editing and stage it by explicit path.**
+
+---
+
 **Recommended Executor**: `backend-developer` | **Fallback**: `backend-developer`
 **Execution Mode**: sequential
-**Rationale**: `D:/projects/seshat` is **outside this repository and outside this task's test
-coverage** — it cannot be caught by any test here and must be verified by hand (MG-4.3).
-Sequenced last so the API surface it targets is final.
+**Rationale**: `D:/projects/seshat` is **outside this repository, outside this task's test
+coverage, and — as F-M establishes — outside version control entirely.** Nothing here can be
+caught by a test and nothing can be reverted by a checkout, so every change is verified by
+hand and the changed/removed list **is** the deliverable (MG-4.3). Sequenced last so the API
+surface it targets is final.
 **Dependencies**: Batch 14, Batch 15
-**Preconditions**: PRE-7 (**never write into another task's folder**; Seshat is a different repo — confirm the path before writing)
-**Coarse tasks**:
+**Preconditions**: **PRE-7 as amended by F-H** — never write into another task's folder;
+`.ptah/specs` is now **tracked** and three foreign carriers are modified; Seshat is a
+different, unversioned repository, so **confirm the path and take a backup before any write**
+**Tasks**: 6
 
-1. Inventory the community-related skills at `D:/projects/seshat`
-2. Rewrite each against the new API **or** delete it. A rewritten skill contains **no** Discourse endpoint, admin-API call, or SSO reference (MG-4.2)
-3. Deliver the explicit changed/removed list (MG-4.3) — this is the deliverable, since no test covers it
-4. Final `CLAUDE.md` module-index pass: all seven new libs described, `ptah-discourse-theme` gone
-5. Final NFR-M5 sweep: `rg -i discourse` across **both** repositories returns zero hits outside the export JSON and this task's specs
+**Scope boundary (RK-1)**: 🔴 **Do NOT create the five declared skills.** MG-4 asks for the
+community skills to be _"rewritten against the new API or deleted"_ — authoring five skills
+that never existed is building a harness, not retargeting one, and it is a separate task with
+its own review. **Do NOT edit anything under `D:/projects/seshat/reference/`** — those are
+junctions into `property-hub` and this very repository, and a write through one lands in the
+real tree. **Do NOT edit applied Prisma migrations** (NFR-M3). **Do NOT delete the `.env*`
+tombstone comments** without carrying their revoke instruction somewhere durable. **Do NOT
+touch `.commitlintrc.json`** (F-G — foreign WIP).
 
-**Exit gate (§8.2 P5, closeout)**: the Seshat changed/removed list is delivered · **no
-Discourse reference remains in either repository**.
+**Exit gate (§8.2 P5, closeout)** — four clauses:
+
+1. **The Seshat changed/removed list is delivered** (Task 16.3, MG-4.3), naming every file
+   touched, every declaration removed, and every skill **not** created, with the reason.
+2. **No Discourse reference remains in either repository except the four enumerated,
+   justified classes** (Task 16.5) — and the amended gate is written into this file so the
+   next reader does not re-open a closed question.
+3. **`libs/api/**`and`libs/web/**` are documented** (Task 16.4, MG-3.2) and
+   `ptah-discourse-theme` is confirmed absent from the module index.
+4. **`task.md`'s `status:` line moves to `in_review`** (Task 16.6) — edited on that one line,
+   never rewritten.
+
+---
+
+### Task 16.1: Pre-flight — confirm the path, confirm the absence, take the backup ⏸️ PENDING
+
+**Files**: none in either repository (verification + one backup copy outside both)
+**Requirement refs**: MG-4.1, MG-4.3, PRE-7, F-M
+**Dependencies**: none — this is the batch's root
+
+**Implementation details**:
+
+- Confirm `D:/projects/seshat` **exists** before any write (PRE-7). If it does not, **STOP and report** — MG-4 is then unsatisfiable and that is the finding.
+- 🔴 **Confirm it is NOT a git repository** (`git -C D:/projects/seshat status` → `fatal: not a git repository`) and **state the consequence in the report: there is no revert.**
+- 🔴 **Take a timestamped backup copy of the four markdown files before touching them**, outside both repositories and outside `.ptah/`. This is the only rollback that will exist.
+- Confirm `reference/property-hub` and `reference/ptah-extension` are **junctions**, and record that **nothing under `reference/` is written to** — a write through a junction lands in the real tree.
+- Re-run the skill census and paste it: `find D:/projects/seshat -iname "SKILL.md"` → **empty**; `D:/projects/seshat/.claude/` → **absent**. **Do not take F-M on trust; it is a snapshot.**
+- `git -C D:/projects/ptah-extension status --short` → name the foreign WIP, **including `CLAUDE.md`**, before Task 16.4 touches it.
+
+**Verification**: every command and its output pasted, including the backup path.
+
+---
+
+### Task 16.2: The Seshat inventory — five declared skills, four subagents, zero files ⏸️ PENDING
+
+**Files**: none (read-only)
+**Requirement refs**: **MG-4.1**, MG-4.3
+**Dependencies**: 16.1
+
+**Implementation details**:
+
+- Produce the inventory MG-4.1 asks for, **as it actually is**: for each of the five declared skills (`PRD.md:213-219`) and four declared subagents (`PRD.md:141-204`) — name, declaration site, triggers, what it would do, whether it is community-related, and **whether it exists on disk (all: no)**.
+- Classify each by what retargeting requires:
+  - **`seshat-discourse-ops` — DELETE the declaration.** It is defined entirely by the two-key rule, the theme deploy, the `@discourse/mcp` invocation profiles and the six admin surfaces. **Every one of those is gone.** There is nothing to rewrite it _into_; the in-product admin surfaces are `libs/api/forum`'s admin controllers and they are reached through the admin panel, not an MCP server.
+  - **`community-steward` (subagent) — DELETE.** Same reasoning; `PRD.md:181` defines it as _"Read the forum through the `@discourse/mcp` server."_
+  - **`seshat-cohort-pulse` — REWRITE.** The need ("who has gone quiet") survives the platform change and is now answerable from the member API. `OPERATIONS.md:89-92` says in terms that this is the one legitimate custom surface _"which Discourse structurally cannot answer."_
+  - **`seshat-weekly-cadence` — REWRITE (narrowly).** Its only coupling is open decision **D4** (Discourse Calendar plugin vs Google Meet), which Phase 4 settled: Ptah owns live sessions and Google Calendar supplies the Meet link. **Close D4 in the spec.**
+  - **`seshat-course-mapping`, `seshat-build-log` — UNCHANGED.** Zero Discourse references. Say so explicitly; "no change" is a finding, not an omission.
+- Enumerate all **49** Discourse hits across the four files with counts per file (`BRIEF.md` 8, `OPERATIONS.md` 16, `PRD.md` 23, `README.md` 2) so Task 16.3's after-count is checkable.
+
+**Verification**: the inventory table, in the report. **No file is written in this task.**
+
+---
+
+### Task 16.3: Retarget the Seshat spec, and deliver the changed/removed list ⏸️ PENDING
+
+**Files** (all outside this repository; **no test covers any of them**):
+
+- `D:/projects/seshat/BRIEF.md` (MODIFY — 8 hits)
+- `D:/projects/seshat/OPERATIONS.md` (MODIFY — 16 hits)
+- `D:/projects/seshat/PRD.md` (MODIFY — 23 hits)
+- `D:/projects/seshat/README.md` (MODIFY — 2 hits)
+
+**Requirement refs**: **MG-4.2**, **MG-4.3**, R5.7, AD-14, §5
+**Dependencies**: 16.2
+
+**Implementation details**:
+
+- 🔴 **NO DISCOURSE ENDPOINT, NO ADMIN-API CALL, NO SSO REFERENCE SURVIVES IN ANY RETARGETED SECTION (MG-4.2).** That means: the `@discourse/mcp` server registration (`PRD.md:234-252`), the two-key table (`PRD.md:66-71`, `OPERATIONS.md:29-30`), the theme-deploy ownership (`PRD.md:80-83`, `OPERATIONS.md:19-21`), the seeded-content note (`OPERATIONS.md:21`), and `community.ptah.live` (`OPERATIONS.md:16`). ⚠️ **A search for "sso" across seshat already returns zero** — record that rather than implying a removal.
+- Replace them with what is true: the community is **in-product** at `/members`, served by
+  `libs/api/forum`, `libs/api/learning`, `libs/api/community` and `libs/api/notifications`;
+  cohort membership is `member_groups` + `member_group_assignments`; **notifications are
+  in-app, poll-only — no email, no websocket, no SSE (AD-14, §5)**; packs deliver a **link**,
+  never content or GitHub access (R5.7).
+- **Close open decision D4** (`OPERATIONS.md:67`, `PRD.md:341`): Phase 4 settled it.
+- 🔴 **Update the historical-accuracy note honestly.** Where a section records _why_ something
+  is the way it is, keep the history and mark it as history — the failure mode is a spec that
+  reads as though Discourse never existed and then cannot explain the `discourse-export.json`
+  the seed still reads.
+- 🔴 **DELETE the `seshat-discourse-ops` skill declaration and the `community-steward`
+  subagent declaration**, and renumber/repoint every reference to them — including
+  `PRD.md:221-222`'s _"Priority if the builder wants to trim: `seshat-discourse-ops` and
+  `seshat-course-mapping` are load-bearing"_, which now names a deleted skill.
+- ⚠️ **`README.md:75` — _"It does not replace Discourse. Discourse remains the forum."_** is
+  the single most wrong sentence in the repository and must go.
+
+**The deliverable (MG-4.3)** — a table in `batch-16-report.md`, because **no test covers any
+of this**:
+
+| File | Sections rewritten | Declarations removed | Discourse hits before → after | Verified how |
+| ---- | ------------------ | -------------------- | ----------------------------- | ------------ |
+
+Plus an explicit list of **skills NOT created and why** (scope boundary), and a plain
+statement that **seshat is unversioned, so the backup from Task 16.1 is the only rollback**.
+
+**Verification**: `rg -ic discourse D:/projects/seshat --glob '!reference'` → **0**, pasted
+before and after. Every retargeted claim spot-checked against a real path in this repository —
+**a spec that cites a path that does not exist is the exact defect being repaired**, and
+re-introducing one would be the batch failing on its own terms.
+
+---
+
+### Task 16.4: `CLAUDE.md` — document the 25 libs the module index has never seen ⏸️ PENDING
+
+**Files**:
+
+- `CLAUDE.md` (MODIFY — the Module Index)
+
+**Requirement refs**: MG-3.2, NFR-M5, **F-N**
+**Dependencies**: 16.3
+
+**Implementation details**:
+
+- 🔴 **RE-READ `CLAUDE.md` IMMEDIATELY BEFORE EDITING.** It is modified in the working tree by the concurrent TASK_2026_197 session (F-H), and it must be staged by explicit path.
+- 🔴 **`ptah-discourse-theme` IS ALREADY ABSENT from the Apps list.** Confirm it and say so; do not perform a no-op edit and report it as work.
+- Add **two new Module Index sections** — `### API Libs (license server)` and `### Web Libs (landing + panels)` — placed beside the existing `Backend Libs` / `Frontend Libs` / `Shared` sections, following their exact one-line-per-lib format.
+  - **API**: `admin`, `audit`, `billing`, `community`, `core`, `email`, `forum`, `identity`, `learning`, `licensing`, `marketing`, `member-hub`, `membership`, `notifications`, `youtube` (15 after Batch 14), plus `api-contracts/community`.
+  - **Web**: `account`, `admin`, `auth`, `core`, `landing`, `legal`, `members`, `panel-ui`, `pricing`, `ui`.
+- ⚠️ **The coarse text says "all seven new libs described". The honest count is different and should be stated**: this task added `membership`, `api-contracts/community`, `member-hub`, `forum`, `learning`, `youtube`, `notifications` (**seven** api-side) plus `web/members` and `web/panel-ui`. **Documenting only those nine while leaving sixteen siblings undocumented would leave the index still structurally blind** (F-N) — so the sections are complete or they are not worth adding.
+- ⚠️ Every new lib gets a **one-line description only**. **Do NOT author 25 per-lib `CLAUDE.md` files** — that is a separate task, and the scope boundary applies. Note the gap in the report as a follow-up.
+- Mark the ★ chokepoints consistently with the existing sections (`api-contracts/community` is the RK-8 member/admin split; `libs/frontend/markdown` remains the XSS chokepoint).
+
+**Verification**: `grep -n "libs/api\|libs/web" CLAUDE.md` → non-empty · `rg -i "discourse" CLAUDE.md` → **0** · `git diff CLAUDE.md` shows **only** the Module Index additions and **none** of TASK_2026_197's in-flight changes.
+
+---
+
+### Task 16.5: The NFR-M5 sweep, and the amendment that makes it honest ⏸️ PENDING
+
+**Files**:
+
+- `apps/ptah-license-server/prisma/schema.prisma` (MODIFY — the one comment at `:461`, optional)
+- this file, `tasks.md` (MODIFY — record the amended gate)
+
+**Requirement refs**: **NFR-M5**, MG-3.3, NFR-M3, **F-L**
+**Dependencies**: 16.4
+
+**Implementation details**:
+
+- Run plan §6.5's command and paste it in full:
+  ```
+  rg -i discourse --glob '!node_modules' --glob '!.nx' --glob '!coverage' \
+                  --glob '!dist' --glob '!.ptah' \
+                  --glob '!docs/community/discourse-export.json'
+  ```
+- 🔴 **IT WILL NOT RETURN ZERO, AND THE CORRECT RESPONSE IS TO AMEND THE GATE, NOT TO FORCE THE NUMBER (F-L).** Six of the residual hits are inside **applied Prisma migrations**, which NFR-M3 forbids editing — including the directory name `20260805090000_drop_discourse_group`, which cannot be renamed without breaking `_prisma_migrations`. **Editing them to satisfy a search would be a real defect introduced to satisfy a cosmetic gate.**
+- **The amended gate, written here so it is not re-litigated**: NFR-M5 is satisfied when `rg -i discourse` returns hits in **only** these five classes, each enumerated with its count: (1) `.ptah/specs/**` — this task's own record; (2) `docs/community/discourse-export.json` and the seed pipeline that reads it; (3) applied Prisma migration SQL and directory names — **immutable by NFR-M3**; (4) `.env*` tombstone comments — which carry a **live key-revocation instruction**; (5) source docblocks recording history deliberately. **Anything outside those five is a defect.** Today: **19** hits, all inside classes 3–5.
+- Optionally reword `schema.prisma:461`'s comment; note that `libs/api/core/.../generated-prisma-client/internal/class.ts`'s hit is **generated** and clears itself on regeneration — **never hand-edit generated output**.
+- 🔴 **The `.env*` tombstones stay unless their instruction is carried elsewhere.** `.env.prod:106` says two keys must be **revoked**, not merely unset. If they have been revoked, say so and then delete; if not, **the comment is the only record and deleting it loses an open security action**.
+- Delete the two stale gitignored artefact directories if present — `coverage/apps/ptah-license-server/discourse/` (coverage HTML for three deleted source files) and `dist/apps/ptah-discourse-theme/`. Both are untracked; **neither is ever staged**.
+- Confirm the already-done half of the coarse item: `apps/ptah-discourse-theme/` **gone**, `.github/workflows/deploy-community-theme.yml` **gone**, **zero** `package.json` scripts matching discourse or community-theme.
+- `npx nx graph` → no orphaned project, no broken dependency.
+
+**Verification**: both `rg` runs (this repo and seshat) pasted in full, with the five-class table and its counts, and the amended gate recorded in this file.
+
+---
+
+### Task 16.6: Final verification and handoff ⏸️ PENDING
+
+**Files**: `.ptah/specs/TASK_2026_177/task.md` (MODIFY — **the `status:` line only**)
+**Requirement refs**: §8.2 P5, PRE-7, F-H
+**Dependencies**: 16.5
+
+**Implementation details**:
+
+- Re-run every phase's standing gate one last time and paste it: the full backend `run-many`, the full frontend `run-many`, the production build, and the e2e suite. Compare against **Task 15.1's** baselines.
+- Walk §8.2's P5 row clause by clause and mark each against the task that discharged it:
+  _"Members reach every pack repo link without Discourse"_ (15.11) · _"`MemberPack`
+  serialization test asserts `notes` absent"_ (14.7) · _"Unread count accurate on the nav
+  `badgeCount`"_ (15.7) · _"Retention prune verified"_ (14.11) · _"Seshat changed/removed
+  list delivered"_ (16.3) · _"Full NFR-P / NFR-U / axe pass; e2e for every member surface"_
+  (15.10, 15.11).
+- 🔴 **State whether B12's F-1 was closed by Task 14.14 or re-filed**, and carry forward any
+  finding that Phase 5 could not close — including the 25 libs still without a per-lib
+  `CLAUDE.md`, the `/40` text sites in `libs/web/admin` and `libs/web/auth`, and the
+  `announcement` notification kind that ships with no producer (ASSUMPTION-20).
+- 🔴 **Edit `task.md`'s `status:` line to `in_review`. Do NOT rewrite the carrier with
+  `Write`**, and remember `description` must stay a `>-` block scalar.
+- ⚠️ **`.ptah/specs` IS TRACKED NOW (F-H).** `tasks.md`, `batch-14/15/16-report.md` and
+  `task.md` are **staged changes**, and `TASK_2026_179/task.md`, `TASK_2026_184/task.md` and
+  `TASK_2026_197/tasks.md` are **foreign modifications in the same directory**. 🔴 **Never
+  `git add .ptah/specs`.** Stage this task's files one path at a time.
+
+**Verification**: the completion summary in `batch-16-report.md`, with every §8.2 P5 clause
+mapped to the task and the evidence that discharged it.
 
 ---
 

@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsOptional,
   IsString,
   Matches,
@@ -82,6 +83,25 @@ export class CreatePackDto {
   @MaxLength(2000)
   notes?: string | null;
 
+  /**
+   * A-1: the SINGLE control over member visibility. Omitted on create, the
+   * column default (`false`) decides — see the `memberVisible` note on
+   * {@link UpdatePackDto}, which explains why this field takes
+   * `@IsOptionalNotNull()` while its neighbours take `@IsOptional()`.
+   */
+  @IsOptionalNotNull()
+  @IsBoolean()
+  memberVisible?: boolean;
+
+  /**
+   * R5.5. Member-facing prose about HOW repo access is granted, shown above the
+   * `repoUrl` link. NOT `notes` — see {@link UpdatePackDto.accessNote}.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  accessNote?: string | null;
+
   @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(20)
@@ -100,18 +120,31 @@ export class CreatePackDto {
 /**
  * Body DTO for PATCH /api/v1/admin/packs/:id.
  *
- * All fields optional. `notes` and `cohortKey` are declared `string | null` and
- * keep `@IsOptional()`: `null` is a REAL value meaning "clear the stored
- * column", and because the service writes only keys present on the body it can
- * still tell "clear it" from "not supplied".
+ * All fields optional. `notes`, `accessNote` and `cohortKey` are declared
+ * `string | null` and keep `@IsOptional()`: `null` is a REAL value meaning
+ * "clear the stored column", and because the service writes only keys present
+ * on the body it can still tell "clear it" from "not supplied".
  *
  * ⚠️ EVERY OTHER FIELD USES `@IsOptionalNotNull()`. `slug`, `title`,
- * `description`, `repoUrl` and `tags` have no meaning as `null` — an explicit
- * `{"slug": null}` used to skip every validator and reach `packs.service.ts`
- * unchecked, writing `null` into a NOT NULL column below the boundary (NFR-S7,
- * TASK_2026_188). `@IsOptionalNotNull()` lets that `null` fall through to the
- * field's own validator, so it becomes a `400` naming the property instead. See
- * `@ptah-api/core`'s `optional-field.ts` and `common/nullable-dto.spec.ts`.
+ * `description`, `repoUrl`, `tags` and `memberVisible` have no meaning as
+ * `null` — an explicit `{"slug": null}` used to skip every validator and reach
+ * `packs.service.ts` unchecked, writing `null` into a NOT NULL column below the
+ * boundary (NFR-S7, TASK_2026_188). `@IsOptionalNotNull()` lets that `null`
+ * fall through to the field's own validator, so it becomes a `400` naming the
+ * property instead. See `@ptah-api/core`'s `optional-field.ts` and
+ * `common/nullable-dto.spec.ts`.
+ *
+ * 🔴 THE PHASE-5 PAIR TAKES OPPOSITE DECORATORS, AND THAT CONTRAST IS THE
+ * POINT. They arrive in the same change and look symmetrical; they are not.
+ *   - `accessNote` is `string | null`. `null` CLEARS the member-facing note,
+ *     exactly as it clears `notes`. It is censused in
+ *     `nullable-dto.spec.ts`'s `EXPECTED_NULLABLE_OPTIONALS`.
+ *   - `memberVisible` is `boolean`, and `member_visible` is `NOT NULL DEFAULT
+ *     false` in Postgres. There is no third state: a pack is member-visible or
+ *     it is not. `{"memberVisible": null}` is a malformed request, so it must
+ *     be a `400` naming the field — NOT a silently skipped property that leaves
+ *     visibility at whatever it already was while the admin believes they
+ *     changed it. It therefore must NOT appear in the census.
  */
 export class UpdatePackDto {
   @IsOptionalNotNull()
@@ -143,6 +176,17 @@ export class UpdatePackDto {
   @IsString()
   @MaxLength(2000)
   notes?: string | null;
+
+  /** A-1. `null` is a `400`; see the class docblock's Phase-5 pair note. */
+  @IsOptionalNotNull()
+  @IsBoolean()
+  memberVisible?: boolean;
+
+  /** R5.5. `null` CLEARS the note; see the class docblock's Phase-5 pair note. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  accessNote?: string | null;
 
   @IsOptionalNotNull()
   @IsArray()

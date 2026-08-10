@@ -59,12 +59,21 @@ model User {
   //                     the user is gone.
   //   lessonComments -> `SetNull`. Same rule as topics/posts (A-4): deleting a
   //                     user must not delete the conversation.
-  // §1.7 lists eight back-relations across ALL phases. The Phase-5
-  // `notifications` / `actedNotifications` pair names a model that does not
-  // exist until then and would not validate — same reason Batch 6A held them
-  // back (its D-7).
   lessonProgress   LessonProgress[]
   lessonComments   LessonComment[]  @relation("LessonCommentAuthor")
+  // TASK_2026_177 Phase 5 — notifications (see the model at the end of this
+  // file). §1.7's eighth and ninth back-relations, held back by Batch 6A's D-7
+  // until the model existed; migration 5 creates it, so they land here.
+  // TWO back-relations for ONE model, because `Notification` names `User`
+  // twice and the two FKs are split the same way Phase 2's were:
+  //   notifications      -> `Cascade`. A notification is personal state with no
+  //                         meaning once the recipient is gone.
+  //   actedNotifications -> `SetNull`. The row SURVIVES the actor's deletion
+  //                         and then reads as system-generated, which is the
+  //                         same shape a genuinely system-authored row has
+  //                         (A-4's rule applied to the actor side).
+  notifications      Notification[]   @relation("NotificationRecipient")
+  actedNotifications Notification[]   @relation("NotificationActor")
 
   @@index([workosId])
   @@index([paddleCustomerId])
@@ -161,6 +170,13 @@ model Pack {
   description String
   repoUrl     String   @map("repo_url") // https://github.com/<owner>/<repo> — one repo per pack
   notes       String? // freeform ADMIN note (e.g. "invites sent 2026-08-01")
+  /// A-1: the single admin control over member visibility. cohortKey is NOT it
+  /// and never becomes it. Default false so no existing pack becomes visible
+  /// by migration.
+  memberVisible Boolean @default(false) @map("member_visible")
+  /// R5.5: how repo access is granted, shown to members before they hit a
+  /// GitHub 404. Distinct from `notes`, which stays admin-internal (R5.2).
+  accessNote    String? @map("access_note")
   tags        String[] @default([])
   cohortKey   String?  @map("cohort_key") // bookkeeping label only — gates nothing
   createdBy   String?  @map("created_by") // admin email at creation time
@@ -172,6 +188,8 @@ model Pack {
   @@index([cohortKey])
   @@map("packs")
 }
+
+// Index on memberVisible REJECTED: tens of rows, always read in full.
 
 // Subscription model - tracks Paddle subscription state for payment lifecycle
 // TASK_2025_121: Added trialEnd field for trial period tracking
@@ -814,4 +832,59 @@ model LessonComment {
 
   @@index([lessonId, createdAt])   // the lesson comment thread render
   @@map("lesson_comments")
+}
+
+// ===========================================================================
+// TASK_2026_177 Phase 5 — NOTIFICATIONS (plan §1.6)
+//
+// One model. Migration 5 (`20260902090000_packs_visibility_and_notifications`)
+// creates it alongside the two `packs` columns above.
+//
+// 🔴 IN-APP ONLY. No email, no push, no websocket and no SSE (§5, AD-14). The
+// client POLLS `GET /api/v1/members/notifications/unread-count` every 60 s.
+// `libs/api/licensing`'s existing `@Sse` endpoint is NOT extended and NOT
+// imported — if a future change wants a stream, that is a new decision, not an
+// extension of this table.
+//
+// ⚠️ NO TRIGRAM INDEX HERE, DELIBERATELY. Migrations 2 and 3 own the only three
+// `gin_trgm_ops` indexes in this database (A-7) and both carry the banner above
+// warning that they are invisible to `prisma migrate diff`. A notification has
+// no searchable long text — `title` is server-composed and `bodyPreview` is a
+// short excerpt — so there is no fourth, and the "read the generated SQL"
+// warning applies to migration 5 only because of the OTHER three.
+// ===========================================================================
+
+/// R10. In-app only — no email, no websocket, no SSE (§5).
+///
+/// ⚠️ ONE ROW IS OWNED BY EXACTLY ONE USER AND READ BY EXACTLY THAT USER. There
+/// is no visibility rule, no soft delete and no admin mutation on this table —
+/// which is why every read and write carries `userId` in its `where` rather
+/// than fetching by `id` and checking ownership afterwards (NFR-S8).
+model Notification {
+  id      String @id @default(cuid())
+  userId  String @map("user_id") @db.Uuid
+  /// 'topic.reply' | 'post.child_reply' | 'post.accepted' |
+  /// 'session_request.status' | 'announcement'
+  kind    String
+  /// The member who caused it, for "X replied to your topic". null for system.
+  actorId String? @map("actor_id") @db.Uuid
+  /// 'Topic' | 'Post' | 'SessionRequest' | 'LiveSession'
+  targetType  String  @map("target_type")
+  targetId    String  @map("target_id")
+  title       String
+  bodyPreview String? @map("body_preview")
+  /// The /members deep link opening one navigates to (R10.3). Stored rather
+  /// than derived so a routing change never orphans historical notifications.
+  route       String
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user  User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])  // serves BOTH the unread badge count
+                                        // (R10.4) and the newest-first list (R10.3)
+  @@index([createdAt])                  // R10.6 retention prune — a global sweep
+                                        // the userId-leading index cannot serve
+  @@map("member_notifications")
 }

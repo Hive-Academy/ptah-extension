@@ -63,10 +63,12 @@ const NULL_STRICT = 'IsOptionalNotNull';
  * VALUE. If the answer is "no, `null` should be rejected", the fix is
  * `@IsOptionalNotNull()`, not a line here.
  *
- * The eleven below were verified against source on 2026-08-09. The six under
+ * The first eleven were verified against source on 2026-08-09. The six under
  * `community/` were previously censused NOWHERE — the per-lib scan that owned
- * `community` did not reach `packs/` or `member-groups/` at all — and are
- * enumerated here for the first time.
+ * `community` did not reach `packs/` or `member-groups/` at all — and were
+ * enumerated here for the first time. TASK_2026_177 Batch 14 added the
+ * twelfth and thirteenth (`pack.dto.ts`'s `accessNote` pair), taking the list
+ * to THIRTEEN.
  */
 const EXPECTED_NULLABLE_OPTIONALS: readonly string[] = [
   // community/member-groups — `null` clears the column on PATCH groups/:id.
@@ -77,6 +79,16 @@ const EXPECTED_NULLABLE_OPTIONALS: readonly string[] = [
   'community/src/lib/packs/dto/pack.dto.ts:CreatePackDto.cohortKey',
   'community/src/lib/packs/dto/pack.dto.ts:UpdatePackDto.notes',
   'community/src/lib/packs/dto/pack.dto.ts:UpdatePackDto.cohortKey',
+  // community/packs — TASK_2026_177 Batch 14 / migration 5. `access_note` is a
+  // NULLABLE member-facing column (R5.5), so `null` means "clear the note I
+  // wrote", the same idiom `notes` next door uses. It is NOT the same shape as
+  // its Phase-5 twin: `memberVisible` is `boolean` over a `NOT NULL DEFAULT
+  // false` column with no third state, so it takes `@IsOptionalNotNull()` and
+  // is DELIBERATELY ABSENT from this census — a `{"memberVisible": null}` that
+  // silently skipped validation would leave a pack's visibility unchanged while
+  // the admin believed they had changed it, which is A-1's failure mode.
+  'community/src/lib/packs/dto/pack.dto.ts:CreatePackDto.accessNote',
+  'community/src/lib/packs/dto/pack.dto.ts:UpdatePackDto.accessNote',
   // forum/categories — `description` is the one field a category PATCH may clear.
   'forum/src/lib/categories/dto/create-category.dto.ts:CreateCategoryDto.description',
   'forum/src/lib/categories/dto/update-category.dto.ts:UpdateCategoryDto.description',
@@ -95,7 +107,7 @@ const EXPECTED_NULLABLE_OPTIONALS: readonly string[] = [
 const MIN_DTO_FILES = 50;
 
 /**
- * The eight `libs/api` libraries that actually contain `*.dto.ts` files today.
+ * The `libs/api` libraries that actually contain `*.dto.ts` files today.
  * Asserted individually so that "the walk reached every corner" is a checked
  * fact rather than a hope — a walk that silently stopped after the first lib
  * would still clear the file-count floor, but not this.
@@ -103,6 +115,24 @@ const MIN_DTO_FILES = 50;
  * `billing` is here deliberately: it carries ZERO `@IsOptional()` today, so it
  * needs COVERAGE (a future null-hole in a billing DTO must fail this suite), not
  * a sweep. Its two DTO files are what prove the root reaches it.
+ *
+ * 🔴 `notifications` IS THE NINTH, ADDED BY TASK_2026_177 Task 14.15 — AND THE
+ * SUITE DID NOT FORCE IT.
+ *
+ * The per-lib reach assertion below is ONE-DIRECTIONAL: it fails when a listed
+ * lib is NOT reached, and says nothing about a lib that exists and is missing
+ * from this list. So `libs/api/notifications` and its
+ * `list-notifications.query.dto.ts` were already being scanned for null-holes
+ * from the moment Batch 14B created them — the walk is rooted at `libs/api`
+ * itself and has no by-name exclusions. Adding the entry does not fix a build
+ * and did not close a hole.
+ *
+ * What it adds is that the WALK REACHING that lib becomes a checked fact. If a
+ * future refactor moved the root, renamed the directory, or made the recursion
+ * skip a lib with no `lib/dto/` at the depth it expects, the new lib would drop
+ * out of the census SILENTLY and every "no violations" assertion would keep
+ * passing over one fewer library. A reviewer would otherwise reasonably assume
+ * the suite demanded this line; it did not, and that is why the line is here.
  */
 const LIBS_WITH_DTOS: readonly string[] = [
   'admin',
@@ -113,6 +143,7 @@ const LIBS_WITH_DTOS: readonly string[] = [
   'learning',
   'licensing',
   'marketing',
+  'notifications',
 ];
 
 /* -------------------------------------------------------------------------- */

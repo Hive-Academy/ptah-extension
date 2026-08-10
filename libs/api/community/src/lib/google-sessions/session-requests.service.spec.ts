@@ -1,5 +1,6 @@
 import { Prisma } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
+import type { NotificationsService } from '@ptah-api/notifications';
 
 import {
   asPrismaService,
@@ -9,6 +10,7 @@ import {
 
 import type { GoogleCalendarProvider } from './google-calendar.provider';
 import {
+  SCHEDULING_UNAVAILABLE,
   SessionRequestsService,
   type RequestWithRequester,
 } from './session-requests.service';
@@ -108,6 +110,8 @@ interface Harness {
     patchEvent: jest.Mock;
     deleteEvent: jest.Mock;
   };
+  /** The Phase-5 producer's collaborator — see {@link wire}. */
+  notify: jest.Mock;
   service: SessionRequestsService;
   auditCalls: Array<{ tx: unknown; targetId: string | null }>;
   audit: (tx: unknown, targetId: string | null) => Promise<void>;
@@ -131,18 +135,52 @@ function wire(enabled = true): Harness {
   };
   const auditCalls: Array<{ tx: unknown; targetId: string | null }> = [];
 
+  // TASK_2026_177 Phase 5 — `session_request.status`. A bare `jest.fn()`: R10.2
+  // belongs to `NotificationsService.create` and is asserted in that lib. What
+  // THIS file asserts is what the producer hands it, and — for B12's F-1 — that
+  // it is not called at all on the `503` branch.
+  const notify = jest.fn().mockResolvedValue('notif-1');
+
   return {
     prisma,
     calendar,
+    notify,
     service: new SessionRequestsService(
       asPrismaService(prisma),
       calendar as unknown as GoogleCalendarProvider,
+      { create: notify } as unknown as NotificationsService,
     ),
     auditCalls,
     audit: async (tx, targetId) => {
       auditCalls.push({ tx, targetId });
     },
   };
+}
+
+/**
+ * Every write verb on `sessionRequest`, so "the DB row is untouched" can be
+ * asserted as an ABSENCE OF ALL OF THEM rather than of the one the reader
+ * happened to think of.
+ *
+ * ⚠️ THIS IS THE DIFFERENCE BETWEEN B12's F-1 AND ITS CLOSURE. Asserting
+ * `update` was not called leaves `updateMany`, `upsert`, `delete` and
+ * `deleteMany` unchecked — and `accept`'s real write IS an `updateMany`, so the
+ * obvious assertion is the one that proves the least.
+ */
+const WRITE_VERBS = [
+  'create',
+  'createMany',
+  'update',
+  'updateMany',
+  'upsert',
+  'delete',
+  'deleteMany',
+] as const;
+
+function writesAttempted(h: Harness): string[] {
+  return WRITE_VERBS.filter(
+    (verb) => h.prisma.sessionRequest[verb].mock.calls.length > 0,
+  );
 }
 
 /** Make the accept path's terminal re-read return something coherent. */
@@ -819,6 +857,359 @@ describe('SessionRequestsService', () => {
         'canceled',
         'pending',
         'scheduled',
+      ]);
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* 🔴 B12's F-1 / B13's F-7 — CLOSED HERE (TASK_2026_177 Task 14.14)        */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * 🔴 THE FINDING, AND WHY IT SURVIVED TWO BATCHES.
+   *
+   * B12 recorded that the `503 scheduling_unavailable` branch was never
+   * exercised. B13 tried to close it from the client with `page.route()` and
+   * B13's own F-7 correctly recorded that this cannot work: a client stub
+   * fabricates the RESPONSE, so it proves the browser handles a `503` and says
+   * nothing whatever about whether the server produces one, or about what the
+   * server did to the database on the way there. F-7 named the fix — "a
+   * server-side test that stubs the provider", belonging to "whoever next
+   * touches `session-requests.service.ts`". That is this change.
+   *
+   * ⚠️ GROUND TRUTH 7: `SCHEDULING_UNAVAILABLE` HAS **THREE** CALL SITES, AND
+   * B12's F-1 NAMED ONLY `accept`. All three are exercised below, and
+   * `decline`'s is the one that is easy to miss twice: it is nested inside
+   * `if (request.calendarEventId !== null)`, AFTER `requireOpen`, so a PENDING
+   * request declines perfectly well with Google off. A fixture that forgot the
+   * event id would take the happy path and the test would pass having proved
+   * the opposite of what it claims.
+   *
+   * FOUR THINGS ARE ASSERTED PER METHOD, and the third is the one B12 asked for:
+   *   1. the reason is `SCHEDULING_UNAVAILABLE`;
+   *   2. the status is `503`;
+   *   3. 🔴 THE DB ROW IS UNTOUCHED — no `create`/`update`/`updateMany`/
+   *      `upsert`/`delete`/`deleteMany`, and no `$transaction` at all;
+   *   4. no notification was created.
+   */
+  describe("🔴 B12's F-1 — the 503 branch, SERVER-SIDE, on all three methods", () => {
+    /**
+     * A request row shaped so that EACH method reaches its own
+     * `SCHEDULING_UNAVAILABLE` guard rather than an earlier refusal.
+     *
+     * - `accept` guards FIRST, before any read, so any row works;
+     * - `reschedule` needs `status: 'scheduled'` with a non-null
+     *   `calendarEventId`, or `requireScheduled` refuses with a `409` first;
+     * - `decline` needs a non-null `calendarEventId`, or it takes the
+     *   no-calendar-call path and SUCCEEDS.
+     */
+    const SCHEDULED_WITH_EVENT = request({
+      status: 'scheduled',
+      scheduledAt: START,
+      durationMinutes: 60,
+      calendarEventId: CREATED_EVENT_ID,
+      meetLink: MEET_LINK,
+    });
+
+    const CASES = [
+      {
+        method: 'accept' as const,
+        run: (h: Harness) =>
+          h.service.accept(
+            'req_1',
+            { startsAt: START, durationMinutes: 60 },
+            h.audit,
+          ),
+      },
+      {
+        method: 'reschedule' as const,
+        run: (h: Harness) =>
+          h.service.reschedule('req_1', { startsAt: START }, h.audit),
+      },
+      {
+        method: 'decline' as const,
+        run: (h: Harness) =>
+          h.service.decline('req_1', { declineReason: 'no' }, h.audit),
+      },
+    ];
+
+    it.each(CASES)(
+      '$method — 503 { reason: scheduling_unavailable }, DB row UNTOUCHED, no notification',
+      async ({ run }) => {
+        // 🔴 THE DOUBLE B13's F-7 NAMED: `isEnabled()` returns `false`. This is
+        // the real server branch, reached through the real method.
+        const h = wire(false);
+        h.prisma.sessionRequest.findUnique.mockResolvedValue(
+          SCHEDULED_WITH_EVENT,
+        );
+
+        await expect(run(h)).rejects.toMatchObject({
+          status: 503,
+          response: { reason: SCHEDULING_UNAVAILABLE },
+        });
+
+        // (3) — the clause B12 asked for, over EVERY write verb.
+        expect(writesAttempted(h)).toEqual([]);
+        expect(h.prisma.$transaction).not.toHaveBeenCalled();
+
+        // (4)
+        expect(h.notify).not.toHaveBeenCalled();
+
+        // …and nothing was said to Google either: the guard is BEFORE the
+        // integration call in all three, which is why "nothing was written" is
+        // true rather than merely untested.
+        expect(h.calendar.createEvent).not.toHaveBeenCalled();
+        expect(h.calendar.patchEvent).not.toHaveBeenCalled();
+        expect(h.calendar.deleteEvent).not.toHaveBeenCalled();
+      },
+    );
+
+    it('🔴 the machine reason is the exported constant, not a hand-typed string', () => {
+      // The admin UI matches on this value. A test asserting the literal
+      // 'scheduling_unavailable' would keep passing after a rename that broke
+      // every screen reading it.
+      expect(SCHEDULING_UNAVAILABLE).toBe('scheduling_unavailable');
+    });
+
+    it('🔴 decline of a PENDING request still WORKS with Google off — the branch is conditional', async () => {
+      // THE CONTROL FOR THE `decline` CASE ABOVE, and the reason its fixture
+      // carries an event id. Without this, a `decline` that refused
+      // unconditionally would pass the `503` assertion and would have broken the
+      // one thing `decline`'s docblock promises: that an admin can still run the
+      // queue in a workspace where `GOOGLE_OAUTH_*` is unset.
+      const h = wire(false);
+      h.prisma.sessionRequest.findUnique.mockResolvedValue(PENDING_ROW);
+      h.prisma.sessionRequest.update.mockResolvedValue({});
+
+      await expect(
+        h.service.decline('req_1', { declineReason: 'not now' }, h.audit),
+      ).resolves.toBeDefined();
+
+      expect(h.calendar.deleteEvent).not.toHaveBeenCalled();
+      // And the member IS told, even though Google is off.
+      expect(h.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 the three happy paths still produce their transitions — paired, so one cannot be fixed by breaking the other', async () => {
+      // Task 14.14's validation note: the `503` case and the happy path are
+      // asserted as a PAIR per method. A service that threw
+      // `SCHEDULING_UNAVAILABLE` unconditionally would pass every assertion in
+      // the `it.each` above.
+      const accepted = wire(true);
+      stubAcceptReads(accepted);
+      await expect(
+        accepted.service.accept(
+          'req_1',
+          { startsAt: START, durationMinutes: 60 },
+          accepted.audit,
+        ),
+      ).resolves.toBeDefined();
+
+      const moved = wire(true);
+      moved.prisma.sessionRequest.findUnique.mockResolvedValue(
+        SCHEDULED_WITH_EVENT,
+      );
+      moved.prisma.sessionRequest.update.mockResolvedValue({});
+      await expect(
+        moved.service.reschedule('req_1', { startsAt: START }, moved.audit),
+      ).resolves.toBeDefined();
+
+      const declined = wire(true);
+      declined.prisma.sessionRequest.findUnique.mockResolvedValue(
+        SCHEDULED_WITH_EVENT,
+      );
+      declined.prisma.sessionRequest.update.mockResolvedValue({});
+      await expect(
+        declined.service.decline(
+          'req_1',
+          { declineReason: 'no' },
+          declined.audit,
+        ),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* TASK_2026_177 Task 14.14 — the `session_request.status` producer          */
+  /* ---------------------------------------------------------------------- */
+
+  describe('🔴 R10.1 — session_request.status', () => {
+    const SCHEDULED_WITH_EVENT = request({
+      status: 'scheduled',
+      scheduledAt: START,
+      durationMinutes: 60,
+      calendarEventId: CREATED_EVENT_ID,
+      meetLink: MEET_LINK,
+    });
+
+    it('accept notifies the request OWNER, with a null actor', async () => {
+      const h = wire();
+      stubAcceptReads(h);
+
+      await h.service.accept(
+        'req_1',
+        { startsAt: START, durationMinutes: 60 },
+        h.audit,
+      );
+
+      expect(h.notify).toHaveBeenCalledTimes(1);
+      expect(h.notify.mock.calls[0]?.[0]).toEqual({
+        recipientId: 'user_1',
+        // 🔴 `null`, NOT THE ACTING ADMIN. See the service docblock: the
+        // admin's identity is internal, and `actorName` is member-facing.
+        actorId: null,
+        kind: 'session_request.status',
+        targetType: 'SessionRequest',
+        targetId: 'req_1',
+        title: 'Your session request was scheduled',
+        bodyPreview: null,
+        route: '/members/live/request',
+        // 🔴 NO `tx` — accept is the ONE producer that does not enlist.
+        tx: undefined,
+      });
+    });
+
+    it('🔴 accept does NOT enlist, and a failed notification does not undo the acceptance (RISK-U)', async () => {
+      // THE ASSERTION THAT MATTERS MOST IN THIS FILE. A notification write
+      // inside `accept`'s `try` would reach the compensating `deleteEvent` and
+      // DELETE A REAL CALENDAR EVENT the member is already invited to.
+      const h = wire();
+      stubAcceptReads(h);
+      h.notify.mockRejectedValue(new Error('notification exploded'));
+
+      await expect(
+        h.service.accept(
+          'req_1',
+          { startsAt: START, durationMinutes: 60 },
+          h.audit,
+        ),
+      ).resolves.toBeDefined();
+
+      // The event survives: no compensation ran.
+      expect(h.calendar.deleteEvent).not.toHaveBeenCalled();
+      // And the row was written.
+      expect(h.prisma.sessionRequest.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('reschedule ENLISTS, and a failed notification rolls the move back', async () => {
+      const h = wire();
+      h.prisma.sessionRequest.findUnique.mockResolvedValue(
+        SCHEDULED_WITH_EVENT,
+      );
+      h.prisma.sessionRequest.update.mockResolvedValue({});
+
+      await h.service.reschedule('req_1', { startsAt: START }, h.audit);
+      expect(h.notify.mock.calls[0]?.[0]).toMatchObject({
+        title: 'Your session was moved to a new time',
+        // The SAME client the mutation used, so the two commit together.
+        tx: h.prisma,
+      });
+
+      const failing = wire();
+      failing.prisma.sessionRequest.findUnique.mockResolvedValue(
+        SCHEDULED_WITH_EVENT,
+      );
+      failing.prisma.sessionRequest.update.mockResolvedValue({});
+      failing.notify.mockRejectedValue(new Error('notification exploded'));
+      await expect(
+        failing.service.reschedule('req_1', { startsAt: START }, failing.audit),
+      ).rejects.toThrow('notification exploded');
+    });
+
+    it('🔴 decline carries declineReason into bodyPreview (R4.8), enlisted', async () => {
+      const h = wire();
+      h.prisma.sessionRequest.findUnique.mockResolvedValue(
+        SCHEDULED_WITH_EVENT,
+      );
+      h.prisma.sessionRequest.update.mockResolvedValue({});
+
+      await h.service.decline(
+        'req_1',
+        { declineReason: 'That week is fully booked — try the following one.' },
+        h.audit,
+      );
+
+      expect(h.notify.mock.calls[0]?.[0]).toMatchObject({
+        title: 'Your session request was declined',
+        bodyPreview: 'That week is fully booked — try the following one.',
+        tx: h.prisma,
+      });
+    });
+
+    it('a decline with no reason carries a null preview, never the empty string', async () => {
+      const h = wire();
+      h.prisma.sessionRequest.findUnique.mockResolvedValue(
+        SCHEDULED_WITH_EVENT,
+      );
+      h.prisma.sessionRequest.update.mockResolvedValue({});
+
+      await h.service.decline('req_1', {}, h.audit);
+
+      expect(h.notify.mock.calls[0]?.[0]).toMatchObject({ bodyPreview: null });
+    });
+
+    it('🔴 cancelOwn produces NOTHING — no producer is wired there at all', async () => {
+      // R10.2 would suppress it anyway (the actor IS the recipient); the point
+      // is that the suppression is not what is keeping the row out. A future
+      // change to `create()` must not be able to make this path start writing.
+      const h = wire();
+      h.prisma.sessionRequest.findUnique.mockResolvedValue(PENDING_ROW);
+      h.prisma.sessionRequest.update.mockResolvedValue({});
+
+      await h.service.cancelOwn(CTX, 'req_1');
+
+      expect(h.notify).not.toHaveBeenCalled();
+    });
+
+    it('submit produces NOTHING either', async () => {
+      const h = wire();
+      h.prisma.sessionRequest.create.mockResolvedValue(PENDING_ROW);
+
+      await h.service.submit(CTX, {
+        sessionTopicId: 'architecture-review',
+      });
+
+      expect(h.notify).not.toHaveBeenCalled();
+    });
+
+    it('🔴 all three routes come from buildNotificationRoute and start with /members/ (RISK-AJ)', async () => {
+      const routes: string[] = [];
+      for (const build of [
+        async (h: Harness) => {
+          stubAcceptReads(h);
+          await h.service.accept(
+            'req_1',
+            { startsAt: START, durationMinutes: 60 },
+            h.audit,
+          );
+        },
+        async (h: Harness) => {
+          h.prisma.sessionRequest.findUnique.mockResolvedValue(
+            SCHEDULED_WITH_EVENT,
+          );
+          h.prisma.sessionRequest.update.mockResolvedValue({});
+          await h.service.reschedule('req_1', { startsAt: START }, h.audit);
+        },
+        async (h: Harness) => {
+          h.prisma.sessionRequest.findUnique.mockResolvedValue(
+            SCHEDULED_WITH_EVENT,
+          );
+          h.prisma.sessionRequest.update.mockResolvedValue({});
+          await h.service.decline('req_1', {}, h.audit);
+        },
+      ]) {
+        const h = wire();
+        await build(h);
+        routes.push(h.notify.mock.calls[0]?.[0].route);
+      }
+
+      // One destination for all three, and it is a literal in the route table —
+      // there is no member-supplied segment in a `SessionRequest` route to
+      // encode, which is why this one cannot be made hostile.
+      expect(routes).toEqual([
+        '/members/live/request',
+        '/members/live/request',
+        '/members/live/request',
       ]);
     });
   });

@@ -244,6 +244,10 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * **132** since TASK_2026_177 Batch 12 added the 15 live/private-session routes
  * listed third below (117 + 15): 1 member live + 3 member session-request +
  * 7 admin live-session + 4 admin session-request.
+ * **137** since TASK_2026_177 Batch 14 added the 5 Phase-5 member routes listed
+ * fourth below (132 + 5): 1 member pack + 4 member notification. NO admin route
+ * was added — R10 is a member-owned inbox with no admin surface (RK-1), and the
+ * pack `memberVisible` toggle rides the EXISTING `PATCH v1/admin/packs/:id`.
  *
  * ⚠️ THE PROSE TOTAL IS RE-DERIVED IN EVERY BATCH THAT MOVES IT, and the note
  * above about it having read 68 against an actual 64 is why: this number is the
@@ -408,6 +412,29 @@ const EXPECTED_ROUTES: readonly string[] = [
   'GET v1/members/live',
   'GET v1/members/session-requests',
   'POST v1/members/session-requests',
+  // ── TASK_2026_177 Batch 14 (P5-BE): member packs + the notification inbox ──
+  //
+  // FIVE routes at TWO new depth-3 literal prefixes, `v1/members/packs` and
+  // `v1/members/notifications`. Segment 3 differs from all nine pre-existing
+  // member prefixes AND from each other, so RI-1 has nothing to arbitrate and
+  // NEITHER `PREFIX_EXCEPTIONS` NOR `KNOWN_PREFIX_DEBT` GAINS AN ENTRY — both
+  // stay at their floor (one designed exception / empty).
+  //
+  // ⚠️ `unread-count` AND `read-all` ARE METHOD PATHS UNDER ONE CONTROLLER
+  // PREFIX, NOT SIBLING CONTROLLERS. RI-1 sees `v1/members/notifications` once.
+  // They also do not contest `:id/read` under RI-3: `unread-count` is a `GET`
+  // with no `POST` twin, and `read-all` is one segment where `:id/read` is two.
+  //
+  // ⚠️ `GET v1/members/packs` IS SERVED BY `MemberPacksModule`, NOT
+  // `PacksModule` (RISK-AG). `admin-guards.spec.ts` G6 asserts every controller
+  // in `PacksModule` is mounted under `v1/admin/`, and Phase 5 did not weaken
+  // it — the member controller lives in the same DIRECTORY and a different
+  // MODULE.
+  'GET v1/members/notifications',
+  'GET v1/members/notifications/unread-count',
+  'GET v1/members/packs',
+  'POST v1/members/notifications/:id/read',
+  'POST v1/members/notifications/read-all',
   // ── everything that existed before ──────────────────────────────────────
   'DELETE v1/admin/groups/:id/members/:userId',
   'DELETE v1/admin/packs/:id',

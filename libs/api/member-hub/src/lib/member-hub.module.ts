@@ -4,7 +4,7 @@ import { PrismaModule } from '@ptah-api/core';
 import { ForumModule } from '@ptah-api/forum';
 import { IdentityModule } from '@ptah-api/identity';
 import { LearningModule } from '@ptah-api/learning';
-import { LiveSessionsModule } from '@ptah-api/community';
+import { LiveSessionsModule, MemberPacksModule } from '@ptah-api/community';
 import { CohortBadgesService } from './cohort-badges.service';
 import { MemberEntitlementController } from './member-entitlement.controller';
 import { MemberHubController } from './member-hub.controller';
@@ -115,6 +115,39 @@ import { SessionsSection } from './sections/sessions.section';
  *
  * ⚠️ NO NEW LIB EDGE. `api-member-hub` already depends on `@ptah-api/community`
  * for `SessionsService`; this is a second module out of the same package.
+ *
+ * ── 🔴 `MemberPacksModule` (TASK_2026_177 Phase 5, Task 14.16) ────────────
+ * Imported for ONE exported read service, `MemberPacksService`, which
+ * `PacksSection` injects. It is a NORMAL import and a NORMAL injection —
+ * `MemberPacksModule` is NOT `@Global()` (deliberately: see its own docblock),
+ * so without this line the section could not construct at all.
+ *
+ * 🔴 THE SECTION DOES NOT READ PRISMA, AND THAT IS AN NFR-S5 DECISION RATHER
+ * THAN A STYLE ONE. `toMemberPack` — the explicit-field mapper that makes
+ * `notes` structurally unable to reach a member — lives inside that service. A
+ * resolver with its own `pack.findMany` would need its own `where` AND its own
+ * mapper, so `memberVisible: true` would have two homes and the admin-only
+ * `notes` column two places to leak from. `CommunitySection` and
+ * `LearningSection` are the same shape for weaker reasons.
+ *
+ * ⚠️ AND IT DOES NOT WIDEN THE HUB'S REACH. `MemberPacksModule` exports ONE
+ * READ service and nothing else. `PacksService` — every pack MUTATION and every
+ * audit write — lives in `PacksModule`, which this module does not import and
+ * which has no import edge to `MemberPacksModule` in either direction (RISK-AG).
+ *
+ * ── 🔴 `NotificationsModule` IS *NOT* IN THIS LIST, AND `NotificationsSection`
+ *    STILL INJECTS `NotificationsService` ────────────────────────────────
+ * That module IS `@Global()`, so the injection resolves at app scope — the same
+ * reason `SessionsService` and `SessionRequestsService` reach `SessionsSection`
+ * with no `GoogleSessionsModule` import. The asymmetry between the two Phase-5
+ * sections is therefore real and is a property of the two modules, not an
+ * oversight in one of them: packs is a leaf module with one importer,
+ * notifications is a cross-cutting definition with four consumers in three libs.
+ *
+ * ⚠️ NEITHER PHASE-5 INJECTION IS `@Optional()`. Both modules are
+ * unconditionally registered; an `@Optional()` would turn a forgotten
+ * registration into a card that says "nothing here" for ever, which is
+ * indistinguishable from the truth and therefore never gets reported.
  */
 @Module({
   imports: [
@@ -124,6 +157,7 @@ import { SessionsSection } from './sections/sessions.section';
     ForumModule,
     LearningModule,
     LiveSessionsModule,
+    MemberPacksModule,
   ],
   controllers: [MemberHubController, MemberEntitlementController],
   providers: [

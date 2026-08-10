@@ -220,8 +220,34 @@ const EXCLUDED: ReadonlyArray<{
  * and read the ACTUAL total out of the failure message
  * (`Expected: >= 9999 / Received: 67`), then restore it to that number and write
  * the per-controller breakdown here so the arithmetic closes.
+ *
+ * ── 76 -> 77, TASK_2026_177 Batch 14 (P5-BE) ───────────────────────────────
+ * Re-derived by exactly that procedure: `Expected: >= 9999 / Received: 77`.
+ *
+ * **+1, AND THE ARITHMETIC OF THE OTHER +0 IS THE INTERESTING HALF.** Phase 5
+ * adds TWO controllers and FIVE routes, and only ONE payload param:
+ *
+ *   notifications/MemberNotificationsController.list  `@Query(dtoPipe(ListNotificationsQueryDto))`  +1
+ *   notifications/…                    .unreadCount   no body, no query                             0
+ *   notifications/…                    .markRead      `@Param('id')` only — a PATH segment          0
+ *   notifications/…                    .markAllRead   no body, no query                             0
+ *   packs/MemberPacksController        .list          no body, no query, NO PAGINATION              0
+ *
+ * `MemberPacksController` contributes zero because plan §3.6 returns a BARE
+ * ARRAY: plan §1.2 rejects an index on `member_visible` on the grounds that the
+ * table is "tens of rows, always read in full", so paginating it would have been
+ * a page cursor with no second page behind it. The four `@Param`/no-payload
+ * handlers contribute zero for the reason recorded above — `paramBindings`
+ * filters on `PARAMTYPE.BODY | QUERY`, and `@Param('id')` binds a path segment
+ * Express has already produced.
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND THAT IS THE
+ * LOAD-BEARING HALF (RISK-I). `page` and `pageSize` on the inbox arrive inside
+ * `ListNotificationsQueryDto`; a single `@Query('page') page: string` there
+ * would make the total read 78 against a named count of 7 and the arithmetic
+ * would not close. `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 76;
+const MIN_TOTAL_PAYLOAD_PARAMS = 77;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

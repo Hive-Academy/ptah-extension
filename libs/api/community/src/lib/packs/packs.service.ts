@@ -24,17 +24,30 @@ const COHORT_INCLUDE = { cohort: { select: { name: true } } } as const;
 /**
  * PacksService — owns the ADMIN-ONLY Builders pack registry (TASK_2026_169).
  *
- * ⚠️ THERE IS NO MEMBER-FACING READ PATH, BY DESIGN. Every method on this
- * service is reachable only from `AdminPacksController`, which is
- * `AdminGuard`-gated at class level. Ptah never serves pack content and never
- * decides who may access a pack — access is administered on GitHub. Adding a
- * member-facing read here would reintroduce a gate this architecture
- * deliberately does not have (structural test G6 asserts its absence).
+ * ⚠️ THIS SERVICE HAS NO MEMBER-FACING READ PATH, BY DESIGN — AND THAT IS A
+ * CLAIM ABOUT THIS SERVICE, NOT ABOUT THE TABLE. Every method here is reachable
+ * only from `AdminPacksController`, which is `AdminGuard`-gated at class level.
+ *
+ * The TABLE does have a member-facing read as of Phase 5: `MemberPacksService`
+ * (`member-packs.service.ts`) serves `GET /v1/members/packs`, filtered on
+ * `memberVisible: true` and nothing else (A-1, R5.6). The two services are
+ * separate on purpose and neither delegates to the other:
+ *   - They emit DIFFERENT SHAPES. This one returns `PackResponse`, which
+ *     carries `notes`; that one returns `MemberPack`, which cannot (R5.2,
+ *     NFR-S5). A shared read method would have to strip a field, and a mapper
+ *     that strips is one added column away from leaking.
+ *   - They live in DIFFERENT MODULES. `MemberPacksModule` is not `PacksModule`,
+ *     so structural test G6 — every controller in `PacksModule` is mounted
+ *     under `v1/admin/` — stays true unmodified.
+ * Ptah still never serves pack content and never decides who may access a pack;
+ * access is administered entirely on GitHub (R5.7). Delivering a link is not
+ * granting access, so the member read is not a gate.
  *
  * Dependencies are therefore just the two `@Global()` services: `PrismaService`
  * and `AuditLogService`. In particular this service injects NEITHER
  * `MembershipService` NOR `MemberGroupsService` — it performs no membership or
- * cohort resolution of any kind.
+ * cohort resolution of any kind. `MemberPacksService` injects even less: only
+ * `PrismaService`, and a spec asserts it imports no cohort resolver at all.
  *
  * `cohortKey` is a bookkeeping label backed by a real FK to `MemberGroup.key`
  * so it cannot name a cohort that does not exist. It gates nothing.
@@ -113,6 +126,13 @@ export class PacksService {
             description: input.description,
             repoUrl: input.repoUrl,
             notes: input.notes ?? null,
+            // A-1: NOT defaulted here. Omitted, the column default (`false`)
+            // decides, so a create that forgets this field yields a pack no
+            // member can see. `?? false` would duplicate the authority.
+            ...(input.memberVisible === undefined
+              ? {}
+              : { memberVisible: input.memberVisible }),
+            accessNote: input.accessNote ?? null,
             tags: input.tags ?? [],
             cohortKey: input.cohortKey ?? null,
             createdBy: actor.email,
@@ -125,6 +145,10 @@ export class PacksService {
           title: created.title,
           repoUrl: created.repoUrl,
           cohortKey: created.cohortKey,
+          // R8.5: member visibility is the one field on this row whose change
+          // is a PUBLISHING decision, so the audit trail records it explicitly
+          // rather than leaving it to the `fields` key list.
+          memberVisible: created.memberVisible,
           tags: created.tags,
         });
 
@@ -169,6 +193,10 @@ export class PacksService {
         }
         if (input.repoUrl !== undefined) data.repoUrl = input.repoUrl;
         if (input.notes !== undefined) data.notes = input.notes;
+        if (input.memberVisible !== undefined) {
+          data.memberVisible = input.memberVisible;
+        }
+        if (input.accessNote !== undefined) data.accessNote = input.accessNote;
         if (input.tags !== undefined) data.tags = input.tags;
         if (input.cohortKey !== undefined) {
           // Relation field: connect the label, or detach it entirely when null.
@@ -188,6 +216,11 @@ export class PacksService {
           slug: updated.slug,
           fields: this.suppliedKeys(input),
           cohortKey: updated.cohortKey,
+          // R8.5, as in `create`: the resulting visibility is recorded as a
+          // VALUE, not merely as a key name in `fields`. "memberVisible was
+          // among the changed keys" does not tell an auditor whether a pack was
+          // published or unpublished.
+          memberVisible: updated.memberVisible,
         });
 
         return updated;

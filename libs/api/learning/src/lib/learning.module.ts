@@ -30,22 +30,28 @@ import { ProgressService } from './progress/progress.service';
  * Five controllers: two member (`v1/members/{courses,lesson-comments}`) and
  * three admin (`v1/admin/{courses,course-modules,lessons}`). Seven services.
  *
- * ── ⚠️ `NotificationsModule` IS DELIBERATELY ABSENT (RISK-L) ────────────────
- * `libs/api/notifications` DOES NOT EXIST — **Batch 14** creates it. Plan §2.6
- * does not list it here, but §2.7 exists and the temptation is real: R10.1's
- * notification producers include lesson-comment replies, which are written by
- * this module. Copying the anticipated import in now gives an unresolvable
- * module, a failed compile, and a red `app.module.spec.ts` (the boot test that
- * catches exactly this class of wiring mistake).
+ * ── ⚠️ `NotificationsModule` IS STILL ABSENT, AND SO IS ANY PRODUCER (RISK-L)
  *
- * It is omitted so the next reader sees a DECISION rather than an oversight:
- * **Batch 14 adds the import together with the notification producers it exists
- * for** — a reply notifying the lesson author, an answered mark notifying the
- * asker. Nothing in this module currently writes a `Notification` row, so there
- * is nothing to wire it to yet. `ForumModule` carries the same note for the same
- * reason, and `learning.module.spec.ts` asserts BOTH that the import is absent
- * AND that this paragraph exists — so the absence cannot be "fixed" against a
- * lib that does not exist.
+ * 🔴 `libs/api/notifications` NOW EXISTS — Phase 5 (TASK_2026_177) built it —
+ * and this module still imports nothing from it, for TWO independent reasons.
+ * Both are stated because either alone would be enough and a reader who knows
+ * only one will draw the wrong conclusion:
+ *
+ *   1. **This module writes no notification at all.** Phase 5's producer set is
+ *      exactly four: `topic.reply`, `post.child_reply` and `post.accepted` in
+ *      `ForumModule`, and `session_request.status` in `GoogleSessionsModule`.
+ *      LESSON-COMMENT REPLIES ARE NOT IN IT. The temptation this paragraph was
+ *      written for is therefore still live and now MORE plausible, because the
+ *      import would resolve: a lesson-comment producer is a reasonable thing to
+ *      want and is not in scope until someone specifies who receives it, what
+ *      the route is, and whether an instructor gets one per comment.
+ *   2. **Even a producer would not need the import.** `NotificationsModule` is
+ *      `@Global()` and exports `NotificationsService`; `ForumModule` produces
+ *      three kinds and imports nothing. See that module's docblock.
+ *
+ * `learning.module.spec.ts` asserts BOTH halves — that the import is absent AND
+ * that no source file in this lib reaches `@ptah-api/notifications` — so a
+ * producer added here without a spec update fails rather than ships silently.
  *
  * ── ⚠️ `AdminGuard` AND `AdminThrottlerGuard` ARE DECLARED LOCALLY ──────────
  * Not by importing `AdminModule`. That is the acyclicity idiom

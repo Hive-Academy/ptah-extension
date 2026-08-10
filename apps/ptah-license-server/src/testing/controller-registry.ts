@@ -16,6 +16,8 @@ import { AdminLiveSessionsController } from '@ptah-api/community';
 import { AdminSessionRequestsController } from '@ptah-api/community';
 import { MemberLiveController } from '@ptah-api/community';
 import { MemberSessionRequestsController } from '@ptah-api/community';
+import { MemberPacksController } from '@ptah-api/community';
+import { MemberNotificationsController } from '@ptah-api/notifications';
 import { MemberEntitlementController } from '@ptah-api/member-hub';
 import { MemberHubController } from '@ptah-api/member-hub';
 import { AdminCommunityCategoriesController } from '@ptah-api/forum';
@@ -55,7 +57,8 @@ import { WaitlistController } from '@ptah-api/marketing';
  * Both specs need the identical list — 21 entries when this file was written,
  * 24 after TASK_2026_177 P1d, 29 since P2 added `libs/api/forum`, 34 since P3
  * added `libs/api/learning`, 38 since P4 added the live and private session
- * surfaces to `libs/api/community`. Duplicating
+ * surfaces to `libs/api/community`, 40 since P5 added the member pack read and
+ * the notification inbox. Duplicating
  * it would create exactly the drift both specs exist to prevent: a controller
  * added to one list and not the other is enforced by one guard and invisible to
  * the other, with nothing failing. One list, two importers.
@@ -448,6 +451,38 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     label: 'packs/AdminPacksController',
     file: 'libs/api/community/src/lib/packs/admin-packs.controller.ts',
     controller: AdminPacksController,
+  },
+  // TASK_2026_177 P5 — the member-facing half of the pack registry.
+  //
+  // 🔴 SAME DIRECTORY AS `AdminPacksController`, DIFFERENT NEST MODULE
+  // (RISK-AG). `admin-guards.spec.ts` G6 asserts that every controller in
+  // `PacksModule` is mounted under `v1/admin/`; this one is at
+  // `v1/members/packs` and is registered by `MemberPacksModule`, which imports
+  // nothing from `PacksModule` and provides its own `MemberPacksService`.
+  // Co-location is not co-registration, and G6 stayed green and unmodified
+  // through Phase 5 — which is exactly what `admin-packs.controller.ts:48-50`
+  // predicted when it said this sibling would arrive.
+  {
+    label: 'packs/MemberPacksController',
+    file: 'libs/api/community/src/lib/packs/member-packs.controller.ts',
+    controller: MemberPacksController,
+  },
+  // TASK_2026_177 P5 — the member-owned notification inbox (`libs/api/
+  // notifications`). ONE controller at ONE depth-3 literal prefix, serving four
+  // routes.
+  //
+  // ⚠️ `unread-count`, `:id/read` and `read-all` ARE METHOD PATHS INSIDE IT,
+  // NOT SIBLING CONTROLLERS. Split into three classes they would be three
+  // prefixes for RI-1 to arbitrate and three guard chains to keep in step, for
+  // one member-owned resource.
+  //
+  // ⚠️ THERE IS NO ADMIN COUNTERPART, BY DESIGN. R10 describes a member-owned
+  // inbox; an admin "see everyone's notifications" surface is not in scope
+  // (RK-1). If one is ever added it goes in `admin/`, re-declared.
+  {
+    label: 'notifications/MemberNotificationsController',
+    file: 'libs/api/notifications/src/lib/member-notifications.controller.ts',
+    controller: MemberNotificationsController,
   },
   {
     label: 'paddle/PaddleController',

@@ -29,21 +29,25 @@ import { MemberLiveController } from './member-live.controller';
  * `GoogleCalendarProvider`, which is exactly the "one integration, two owners"
  * shape that produces two `loggedDisabled` flags and two abort budgets.
  *
- * ── ⚠️ `NotificationsModule` IS DELIBERATELY ABSENT (RISK-L) ────────────────
- * `libs/api/notifications` DOES NOT EXIST — **Batch 14** creates it. The
- * temptation is real: R10.1's notification producers include
- * `session_request.status`, which is written one directory away. Copying the
- * anticipated import in now gives an unresolvable module, a failed compile, and
- * a red `app.module.spec.ts` (the boot test that catches exactly this class of
- * wiring mistake).
+ * ── ⚠️ `NotificationsModule` IS STILL ABSENT, AND SO IS ANY PRODUCER (RISK-L)
  *
- * It is omitted so the next reader sees a DECISION rather than an oversight:
- * **Batch 14 adds the import together with the producers it exists for.**
- * Nothing in this module writes a `Notification` row, so there is nothing to
- * wire it to yet. `ForumModule` and `LearningModule` carry the same note for the
- * same reason, and `live-sessions.module.spec.ts` asserts BOTH that the import
- * is absent AND that this paragraph exists — so the absence cannot be "fixed"
- * against a lib that does not exist.
+ * 🔴 `libs/api/notifications` NOW EXISTS — Phase 5 (TASK_2026_177) built it, and
+ * `session_request.status` IS one of its four producers. That producer is
+ * written ONE DIRECTORY AWAY, in `google-sessions/session-requests.service.ts`,
+ * and NOT here. AD-6 is why: a `SessionRequest` and the Calendar write path
+ * belong to `GoogleSessionsModule`, while a `LiveSession` is a row of ours that
+ * merely MAY claim a Calendar event. Nothing in THIS module writes a
+ * `Notification`, and the proximity is exactly what makes the mistake plausible.
+ *
+ * ⚠️ AND EVEN A PRODUCER HERE WOULD NOT NEED THE IMPORT. `NotificationsModule`
+ * is `@Global()` and exports `NotificationsService`. That is the same reason
+ * this module does not import `GoogleSessionsModule` although `LiveFeedService`
+ * reads it — see the assertion below, which was already making this argument for
+ * a different global before Phase 5 existed.
+ *
+ * `live-sessions.module.spec.ts` asserts BOTH that the import is absent AND that
+ * no source file under `live-sessions/` reaches `@ptah-api/notifications` — the
+ * second being the half that still bites now that the import would resolve.
  *
  * ── ⚠️ `AdminGuard` AND `AdminThrottlerGuard` ARE DECLARED LOCALLY ──────────
  * Not by importing `AdminModule`. That is the acyclicity idiom

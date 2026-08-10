@@ -8,12 +8,26 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
+import {
+  buildNotificationRoute,
+  NotificationsService,
+} from '@ptah-api/notifications';
 
 import { FIRST_POST_NUMBER } from '../common/post-numbering';
 import { NOT_DELETED } from '../common/soft-delete';
 import { buildTopicCategoryVisibilityWhere } from '../common/visibility';
 
 import type { AcceptAnswerDto } from './dto/accept-answer.dto';
+
+/**
+ * The `post.accepted` notification title — R10.1.
+ *
+ * 🔴 IT CARRIES NO NAME, for the reason `posts.service.ts` states at its own two
+ * title constants: `actorName` is composed at READ time from the actor relation,
+ * so a name interpolated here would be both a frozen copy of another member's
+ * identity (NFR-S4) and a copy that goes stale independently of the live one.
+ */
+const ACCEPTED_ANSWER_TITLE = 'Your answer was accepted';
 
 /**
  * AcceptedAnswerService — R1.5.1, R1.5.2, R1.5.3.
@@ -40,12 +54,27 @@ import type { AcceptAnswerDto } from './dto/accept-answer.dto';
  * lock, move, delete and restore all stay behind `AdminGuard` on
  * `v1/admin/community/*` — and it is the only write in this lib a member-side
  * `isAdmin` reaches.
+ *
+ * ── 🔴 `post.accepted` IS PRODUCED HERE (TASK_2026_177 Phase 5, R10.1) ──────
+ * The recipient is the ACCEPTED POST'S author, which is a different person from
+ * the actor in the case that matters: `assertMayAccept` already establishes that
+ * the actor is the topic author or an admin, and the point of the notification
+ * is to tell whoever wrote the answer that it was chosen.
+ *
+ * 🔴 THE SELF-ACCEPT CASE IS SUPPRESSED BY `create()`, NOT HERE (R10.2). A
+ * member answering their own question and marking it accepted is ordinary
+ * behaviour, and this service passes `actorId` and reads no equality itself —
+ * see `NotificationsService.create`, which owns the rule in exactly one place.
  */
 @Injectable()
 export class AcceptedAnswerService {
   private readonly logger = new Logger(AcceptedAnswerService.name);
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(NotificationsService)
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * Mark a post as the accepted answer — R1.5.1, R1.5.2, R1.5.3.
@@ -72,7 +101,9 @@ export class AcceptedAnswerService {
       // ANOTHER topic must not resolve here, and the cheapest way to guarantee
       // that is to make it impossible for the query to return one.
       where: { id: input.postId, topicId: topic.id, ...NOT_DELETED },
-      select: { id: true, postNumber: true },
+      // `authorId` rides this read for the `post.accepted` recipient — the
+      // answer's author, who is the whole point of the notification.
+      select: { id: true, postNumber: true, authorId: true },
     });
 
     if (!post) {
@@ -84,12 +115,44 @@ export class AcceptedAnswerService {
       );
     }
 
-    // ⚠️ SCALAR ASSIGNMENT, NOT `acceptedPost: { connect: … }`. Both compile;
-    // the scalar is used because a previously accepted post is replaced by this
-    // single write with no `disconnect` step to forget (R1.5.2).
-    await this.prisma.topic.update({
-      where: { id: topic.id },
-      data: { acceptedPostId: post.id },
+    // ⚠️ STILL EXACTLY ONE `Topic` WRITE, AND R1.5.2's ARGUMENT IS UNCHANGED.
+    // The transaction added here does not introduce a compensating write: there
+    // is one `update`, it overwrites any previous `acceptedPostId` by
+    // assignment, and there is still no state in which two posts are accepted.
+    // What the transaction buys is ASSUMPTION-21 — the notification commits with
+    // the acceptance or not at all, so a member is never told their answer was
+    // chosen by a write that rolled back.
+    await this.prisma.$transaction(async (tx) => {
+      // ⚠️ SCALAR ASSIGNMENT, NOT `acceptedPost: { connect: … }`. Both compile;
+      // the scalar is used because a previously accepted post is replaced by
+      // this single write with no `disconnect` step to forget (R1.5.2).
+      await tx.topic.update({
+        where: { id: topic.id },
+        data: { acceptedPostId: post.id },
+      });
+
+      // R10.1. `authorId` is null when the answer's author deleted their
+      // account — there is nobody to tell, and a null recipient would fail the
+      // foreign key and turn a valid acceptance into a `400`.
+      if (post.authorId !== null) {
+        await this.notifications.create({
+          recipientId: post.authorId,
+          // 🔴 PASSED, NEVER PRE-CHECKED — `create()` owns R10.2's suppression.
+          actorId: ctx.userId,
+          kind: 'post.accepted',
+          targetType: 'Post',
+          targetId: post.id,
+          title: ACCEPTED_ANSWER_TITLE,
+          // No excerpt: the member wrote the post, so quoting it back to them
+          // says nothing. The title and the deep link are the whole message.
+          bodyPreview: null,
+          route: buildNotificationRoute('Post', {
+            topicSlug: topic.slug,
+            postId: post.id,
+          }),
+          tx,
+        });
+      }
     });
 
     this.logger.log(
@@ -140,14 +203,17 @@ export class AcceptedAnswerService {
   private async requireVisibleTopic(
     ctx: MemberContext,
     topicId: string,
-  ): Promise<{ id: string; authorId: string | null }> {
+  ): Promise<{ id: string; authorId: string | null; slug: string }> {
     const topic = await this.prisma.topic.findFirst({
       where: {
         id: topicId,
         ...NOT_DELETED,
         ...buildTopicCategoryVisibilityWhere(ctx),
       },
-      select: { id: true, authorId: true },
+      // `slug` rides this read for `buildNotificationRoute` — the member route
+      // table is slug-addressed and the slug is only known to be current at
+      // write time (RISK-AJ). No extra round trip.
+      select: { id: true, authorId: true, slug: true },
     });
 
     if (!topic) {

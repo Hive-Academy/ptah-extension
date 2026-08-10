@@ -45,6 +45,35 @@ export * from './lib/member-groups/member-groups.module';
 export * from './lib/member-groups/member-groups.service';
 export * from './lib/packs/admin-packs.controller';
 export * from './lib/packs/dto/pack.dto';
+// TASK_2026_177 Phase 5 — the member-facing half of the pack registry.
+//
+// THE CONTROLLER, THE MODULE **AND** `MemberPacksService` ARE EXPORTED — on the
+// same terms `live-sessions` exports `LiveFeedService` above. PRE-2 needs the
+// controller (`controller-registry.ts` imports each BY PACKAGE NAME) and
+// `app.module.ts` needs the module class.
+//
+// 🔴 THE SERVICE IS EXPORTED FOR THE HUB, AND TASK 14.16 CHANGED THIS LINE.
+// It previously said the service stayed internal and that the hub's `packs`
+// section would read the table through its own resolver. That is the wrong
+// design and `member-packs.module.ts`'s docblock argues it in full: the
+// `toMemberPack` mapper — the thing that makes exit-gate clause 1 structural
+// rather than tested — lives in this service, and a hub resolver with its own
+// query would need its own copy of it. `PacksService` (every pack MUTATION and
+// every audit write) is what must stay unreachable, and it still is: it is
+// exported only because `PacksModule` needs it, and `MemberPacksModule` imports
+// nothing from that module in either direction.
+//
+// ⚠️ `MemberPacksModule` IS STILL NOT `@Global()`, so the export widens nothing
+// by itself: a consumer has to IMPORT the module, which is visible on the graph
+// and in `member-hub.module.ts`. Today there is exactly one such consumer.
+//
+// ⚠️ `MemberPacksModule` IS A DIFFERENT MODULE FROM `PacksModule` AND THE TWO
+// LINES BEING ADJACENT HERE IS NOT AN INVITATION TO MERGE THEM (RISK-AG).
+// `admin-guards.spec.ts` G6 asserts every controller in `PacksModule` is
+// mounted under `v1/admin/`; co-location is not co-registration.
+export * from './lib/packs/member-packs.controller';
+export * from './lib/packs/member-packs.module';
+export * from './lib/packs/member-packs.service';
 export * from './lib/packs/packs.module';
 export * from './lib/packs/packs.service';
 export * from './lib/packs/packs.types';

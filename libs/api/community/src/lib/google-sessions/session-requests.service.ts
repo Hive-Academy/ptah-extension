@@ -11,6 +11,10 @@ import {
 } from '@nestjs/common';
 import { Prisma, PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
+import {
+  buildNotificationRoute,
+  NotificationsService,
+} from '@ptah-api/notifications';
 import type {
   AdminSessionRequest,
   MemberSessionRequest,
@@ -87,6 +91,34 @@ import type {
  * against a `GoogleCalendarProvider` double returning the documented
  * `GoogleApiResult` shapes, with a real `events.insert` response body pasted
  * into the spec. No real Google request was made.
+ *
+ * ── 🔴 `session_request.status` IS PRODUCED HERE, ON THREE METHODS
+ *    (TASK_2026_177 Phase 5, R10.1, R4.8, ASSUMPTION-21) ───────────────────
+ *
+ * `accept`, `reschedule` and `decline` each tell the request's OWNER what
+ * happened to it. `submit` and `cancelOwn` produce nothing: in both, the actor
+ * IS the recipient, and no producer is wired to either path — `create()`'s
+ * suppression is not what keeps those rows out.
+ *
+ * 🔴 `actorId` IS `null` ON ALL THREE, AND THAT IS A PRIVACY DECISION RATHER
+ * THAN A MISSING PARAMETER. These are admin transitions, and none of the three
+ * signatures carries the acting admin's user id — the admin's identity reaches
+ * only the `AuditHook`, which writes the internal ledger. Threading it into a
+ * MEMBER-FACING row would put a specific staff member's name on a notification
+ * (`actorName` is composed from the actor relation), which is exactly the class
+ * of identity NFR-S4 keeps off member responses. `null` renders the contract's
+ * system-generated case, which is what "your request was accepted" honestly is
+ * from the member's side.
+ *
+ * ⚠️ THE ONE CONSEQUENCE, STATED: an admin who submits a request FOR THEMSELVES
+ * and then accepts it receives a notification for their own action, because
+ * R10.2's suppression compares `recipientId` to `actorId` and `actorId` is
+ * `null`. That is a real gap and it is the right trade — the alternative puts a
+ * staff identity on every member's notification to close a case that requires an
+ * admin to be their own requester.
+ *
+ * ⚠️ `accept()` IS THE ONE PRODUCER THAT DOES NOT ENLIST IN THE TRANSACTION —
+ * see its own docblock and RISK-U. `reschedule` and `decline` both do.
  */
 @Injectable()
 export class SessionRequestsService {
@@ -96,6 +128,8 @@ export class SessionRequestsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(GoogleCalendarProvider)
     private readonly calendar: GoogleCalendarProvider,
+    @Inject(NotificationsService)
+    private readonly notifications: NotificationsService,
   ) {}
 
   /* ---------------------------------------------------------------------- */
@@ -250,7 +284,21 @@ export class SessionRequestsService {
    * ⚠️ `sendUpdates` IS LEFT AT THE PROVIDER DEFAULT (`'none'`). Accepting a
    * request should not email the member from Google under the founder's name;
    * the member sees the accepted request, with its Meet link, in the members'
-   * area. Notifying is Batch 14's, through the notification producers R10 adds.
+   * area — and, since Phase 5, an in-app notification (R10.1). Still no email:
+   * AD-14 is poll-only, and the notification is a row, not a message.
+   *
+   * ── 🔴 THE NOTIFICATION GOES AFTER THE COMMIT, BEST-EFFORT, AND THIS IS THE
+   *    ONE PRODUCER THAT DOES NOT ENLIST IN A TRANSACTION (ASSUMPTION-21) ───
+   * Every other Phase-5 producer passes `tx` so the notification commits with
+   * the event that caused it. Here it MUST NOT, and RISK-U is why: this method's
+   * `catch` runs a compensating `deleteEvent` on ANY failure past a successful
+   * create. A notification write inside that `try` would make a failed
+   * notification DELETE A REAL CALENDAR EVENT the member has already been
+   * invited to, and roll back an acceptance that had otherwise succeeded. A
+   * notification is not worth that. So it runs after the transaction has
+   * committed and the compensation window has closed, inside its own `catch`
+   * that logs and swallows — the one place in this batch where a lost
+   * notification is the correct outcome.
    */
   async accept(
     id: string,
@@ -318,8 +366,14 @@ export class SessionRequestsService {
     }
 
     // ── (4)/(5) the row, SECOND, with the event deleted on any failure ───
+    //
+    // ⚠️ `row` IS DECLARED OUTSIDE THE `try` SO THE NOTIFICATION CAN BE OUTSIDE
+    // IT TOO. Keeping the notify call inside and relying on `notifyOwner` never
+    // throwing would put the RISK-U compensation one refactor away from being
+    // triggered by a notification failure. The scope is the guarantee.
+    let row: AdminSessionRequest;
     try {
-      const row = await this.withMappedPrismaErrors(async () =>
+      row = await this.withMappedPrismaErrors(async () =>
         this.prisma.$transaction(async (tx) => {
           // ⚠️ THE STATUS GUARD IS IN THE `where`, so a concurrent accept
           // loses here rather than overwriting the winner's event id.
@@ -346,12 +400,6 @@ export class SessionRequestsService {
           return this.readWithRequester(tx, id);
         }),
       );
-
-      this.logger.log(
-        `Session request accepted: id=${id} event=${eventId} ` +
-          `startsAt=${input.startsAt.toISOString()}`,
-      );
-      return row;
     } catch (error: unknown) {
       // 🔴 THE COMPENSATING DELETE. Every failure past a successful create
       // reaches here — including the `P2002` RISK-Y describes and the
@@ -360,6 +408,18 @@ export class SessionRequestsService {
       await this.compensate(eventId, id);
       throw error;
     }
+
+    this.logger.log(
+      `Session request accepted: id=${id} event=${eventId} ` +
+        `startsAt=${input.startsAt.toISOString()}`,
+    );
+
+    // 🔴 AFTER THE COMMIT AND OUTSIDE THE COMPENSATION WINDOW — structurally.
+    // `notifyOwner` also never throws, but that is the second line of defence,
+    // not the first: nothing reachable from here can delete the Calendar event.
+    await this.notifyOwner(request.userId, id, ACCEPTED_TITLE, null);
+
+    return row;
   }
 
   /**
@@ -450,6 +510,13 @@ export class SessionRequestsService {
           },
         });
         await audit?.(tx, id);
+
+        // R10.1 — ENLISTED (ASSUMPTION-21). Unlike `accept`, this method has no
+        // compensating Calendar delete to trigger: the patch already happened
+        // and a rollback here leaves the row unchanged, which is the honest
+        // outcome for "the reschedule did not complete".
+        await this.notifyOwner(request.userId, id, RESCHEDULED_TITLE, null, tx);
+
         return this.readWithRequester(tx, id);
       }),
     );
@@ -533,6 +600,21 @@ export class SessionRequestsService {
           },
         });
         await audit?.(tx, id);
+
+        // R10.1 + R4.8 — ENLISTED, and the decline reason travels as the
+        // preview. It is ADMIN-AUTHORED PLAIN PROSE, stored unrendered exactly
+        // like a reply excerpt (ground truth 4), and it is already
+        // member-visible: `declineReason` is the one migration-4 column that
+        // appears on `MemberSessionRequest`, so this puts nothing new in front
+        // of the member — it puts it in front of them SOONER.
+        await this.notifyOwner(
+          request.userId,
+          id,
+          DECLINED_TITLE,
+          input.declineReason ?? null,
+          tx,
+        );
+
         return this.readWithRequester(tx, id);
       }),
     );
@@ -576,6 +658,63 @@ export class SessionRequestsService {
         `ORPHANED CALENDAR EVENT ${eventId}: created for session request ` +
           `${requestId}, the write failed, and the compensating delete threw ` +
           `(${message}). Delete it by hand.`,
+      );
+    }
+  }
+
+  /**
+   * Tell the request's OWNER what an admin just did — R10.1, `session_request.status`.
+   *
+   * 🔴 ONE CALL SHAPE FOR ALL THREE TRANSITIONS. `kind`, `targetType` and the
+   * route are identical across accept / reschedule / decline; only the title and
+   * the preview differ. Three inline `create` calls would be three chances for
+   * one of them to drift onto a different `targetType` — and `targetType` is
+   * what `buildNotificationRoute` switches on, so a drifted one would store a
+   * permanently wrong deep link (RISK-AJ).
+   *
+   * ⚠️ IT NEVER THROWS WHEN IT IS NOT ENLISTED, AND ALWAYS THROWS WHEN IT IS.
+   * That asymmetry is the point:
+   *
+   *   - with a `tx` (reschedule, decline) the caller WANTS a failure to roll the
+   *     transition back, so the error propagates untouched (ASSUMPTION-21);
+   *   - without one (accept) the transition has already committed and a real
+   *     Calendar event exists, so a failure is logged loudly and swallowed —
+   *     throwing would report a `500` for a request that WAS accepted, and the
+   *     admin would retry it into a `409`.
+   *
+   * ⚠️ `actorId: null`. See the class docblock: the acting admin's identity is
+   * an internal fact, and this row is member-facing.
+   */
+  private async notifyOwner(
+    recipientId: string,
+    requestId: string,
+    title: string,
+    bodyPreview: string | null,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    try {
+      await this.notifications.create({
+        recipientId,
+        actorId: null,
+        kind: 'session_request.status',
+        targetType: 'SessionRequest',
+        targetId: requestId,
+        title,
+        bodyPreview,
+        route: buildNotificationRoute('SessionRequest'),
+        tx,
+      });
+    } catch (error: unknown) {
+      if (tx !== undefined) {
+        // Enlisted: the caller's transaction must see this and roll back.
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Session request ${requestId} was accepted and committed, but the ` +
+          `member notification could not be written (${message}). The ` +
+          `acceptance and its Calendar event STAND — the member will see the ` +
+          `scheduled request in the members' area without an inbox entry.`,
       );
     }
   }
@@ -691,6 +830,24 @@ export class SessionRequestsService {
 const PENDING = 'pending' satisfies SessionRequestStatus;
 const SCHEDULED = 'scheduled' satisfies SessionRequestStatus;
 const CANCELED = 'canceled' satisfies SessionRequestStatus;
+
+/* -------------------------------------------------------------------------- */
+/* Notification titles — R10.1                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 🔴 NONE OF THESE NAMES THE ADMIN WHO ACTED, and none interpolates a time.
+ *
+ * The name is a privacy decision argued in the class docblock. The TIME is left
+ * out for a different reason: `title` is frozen in the row, and the request's
+ * `scheduledAt` is not — a member who is rescheduled twice would otherwise have
+ * two inbox entries each confidently stating a different, and one of them wrong,
+ * hour. The notification's job is to say "this changed, look"; the current time
+ * lives on the request the deep link opens.
+ */
+const ACCEPTED_TITLE = 'Your session request was scheduled';
+const RESCHEDULED_TITLE = 'Your session was moved to a new time';
+const DECLINED_TITLE = 'Your session request was declined';
 
 /* -------------------------------------------------------------------------- */
 /* The refusal vocabulary — NFR-S7                                             */

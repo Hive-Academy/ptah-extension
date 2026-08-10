@@ -459,8 +459,13 @@ describe('LearningSection', () => {
           }),
         } as never),
         new SessionsSection(),
-        new PacksSection(),
-        new NotificationsSection(),
+        // TASK_2026_177 P5 — see the identical note in
+        // `community.section.spec.ts`: collaborators that answer with nothing,
+        // so this file injects exactly one fault.
+        new PacksSection({ list: jest.fn().mockResolvedValue([]) } as never),
+        new NotificationsSection({
+          unreadCount: jest.fn().mockResolvedValue({ unreadCount: 0 }),
+        } as never),
       );
     }
 

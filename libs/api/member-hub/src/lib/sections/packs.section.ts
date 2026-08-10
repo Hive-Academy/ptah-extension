@@ -1,29 +1,64 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { HubSection, MemberPack } from '@ptah-contracts/community';
 import type { MemberContext } from '@ptah-api/membership';
+import { MemberPacksService } from '@ptah-api/community';
 import type { HubSectionResolver } from './hub-section';
 
 /**
  * The hub's `packs` section — the member-visible Builders packs (R6.1, R5).
  *
- * ── PHASE 1: `{ status: 'empty', data: [] }` ───────────────────────────────
- * The `Pack` table EXISTS today, and this section still reports `'empty'` on
- * purpose. `packs.types.ts` states that the registry is admin-only, gates
- * nothing, and has no member-facing endpoint BY DESIGN — delivery happens on
- * GitHub by hand. Reading that table here would quietly overturn a written
- * product decision as a side effect of building a home screen.
+ * ── WHAT SHIPS (TASK_2026_177 Phase 5) ────────────────────────────────────
+ * Migration 5 added `Pack.memberVisible`, and `MemberPacksService.list` is the
+ * member-facing read: `where: { memberVisible: true }` and nothing else (A-1),
+ * mapped through `toMemberPack`, which names its eight output fields explicitly
+ * and therefore cannot emit `notes` (R5.2 / NFR-S5).
  *
- * Batch 14 (P5) revisits it explicitly: it adds a `memberVisible` column and a
- * `toMemberPack` mapper that drops the admin-only fields (the NFR-S5
- * field-absence assertion), and only THEN does this resolver read anything.
- * Until that lands, "no member-visible packs" is the honest answer — and it is
- * also the live answer, since the table currently holds zero rows.
+ * ── 🔴 THE STATUS IS DERIVED FROM THE DATA. IT IS NOT PINNED (F-D) ────────
+ * The coarse batch text said this section becomes `'ok'`. That is wrong as
+ * literally written. `HUB_SECTION_STATUSES` is `['ok', 'empty', 'unavailable']`
+ * and `hub-section.ts`'s port docblock states that preserving the distinction is
+ * the only reason the vocabulary exists:
  *
- * ⚠️ `data: []`, never `null` — see {@link CommunitySection}.
+ *   - rows present            → `'ok'`
+ *   - the query ran, found none → `'empty'`
+ *   - the source failed or is off → `'unavailable'`
+ *
+ * On THIS database, with `packs` at zero rows, the honest answer is still
+ * `'empty'` — and a resolver hard-coded to `'ok'` would be a new lie standing
+ * exactly where the old one stood. The exit gate seeds packs and watches the
+ * same section flip.
+ *
+ * ── THIS RESOLVER DOES NOT CATCH, AND THAT IS THE PORT'S RULE (R6.4) ──────
+ * A resolver returns `'unavailable'` only for a condition it can NAME. There is
+ * no such condition here: `MemberPacksService` is unconditionally registered and
+ * reads one local table. A `try/catch` would make the composer's
+ * `Promise.allSettled` — the single fault boundary — untestable, and would
+ * report a Postgres outage as `'empty'`, which is the one thing
+ * `HubSectionStatus` exists to prevent. A database failure PROPAGATES.
+ *
+ * ── ⚠️ IT INJECTS THE SERVICE RATHER THAN READING PRISMA ──────────────────
+ * The same rule `CommunitySection` and `LearningSection` follow, and here it is
+ * load-bearing rather than stylistic: `toMemberPack` is the NFR-S5 chokepoint. A
+ * second query here would need a second mapper, and `notes` would then have two
+ * places to leak from instead of none. It is NOT `@Optional()` — packs are
+ * unconditionally part of the product, so a missing `MemberPacksModule` is a
+ * wiring mistake that should fail at boot rather than degrade this card to
+ * `'unavailable'` for ever (the same call `CommunitySection` makes about
+ * `ForumModule`).
+ *
+ * ⚠️ `data: []`, never `null` — R6.3, so one client renderer handles all three
+ * statuses.
  */
 @Injectable()
 export class PacksSection implements HubSectionResolver<MemberPack[]> {
-  async resolve(_ctx: MemberContext): Promise<HubSection<MemberPack[]>> {
-    return { status: 'empty', data: [] };
+  constructor(
+    @Inject(MemberPacksService)
+    private readonly packs: MemberPacksService,
+  ) {}
+
+  async resolve(ctx: MemberContext): Promise<HubSection<MemberPack[]>> {
+    const rows = await this.packs.list(ctx);
+
+    return { status: rows.length > 0 ? 'ok' : 'empty', data: rows };
   }
 }

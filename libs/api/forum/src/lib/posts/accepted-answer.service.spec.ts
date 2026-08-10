@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { MemberContext } from '@ptah-api/membership';
+import type { NotificationsService } from '@ptah-api/notifications';
 
 import {
   asPrismaService,
@@ -37,8 +38,14 @@ const AUTHOR: MemberContext = {
 const STRANGER: MemberContext = { ...AUTHOR, userId: 'stranger' };
 const ADMIN: MemberContext = { ...AUTHOR, userId: 'admin-1', isAdmin: true };
 
+/** See `posts.service.spec.ts` for why this is a bare `jest.fn()` double. */
+let notifyCreate: jest.Mock;
+
 function build(prisma: MockForumPrisma): AcceptedAnswerService {
-  return new AcceptedAnswerService(asPrismaService(prisma));
+  notifyCreate = jest.fn().mockResolvedValue('notif-1');
+  return new AcceptedAnswerService(asPrismaService(prisma), {
+    create: notifyCreate,
+  } as unknown as NotificationsService);
 }
 
 describe('AcceptedAnswerService', () => {
@@ -52,9 +59,111 @@ describe('AcceptedAnswerService', () => {
     prisma.topic.findFirst.mockResolvedValue({
       id: 'topic-1',
       authorId: AUTHOR.userId,
+      // Phase 5: `buildNotificationRoute` needs the slug (RISK-AJ).
+      slug: 'a-topic',
     });
-    prisma.post.findFirst.mockResolvedValue({ id: 'post-5', postNumber: 5 });
+    prisma.post.findFirst.mockResolvedValue({
+      id: 'post-5',
+      postNumber: 5,
+      // Phase 5: the `post.accepted` recipient. NOT the topic author, which is
+      // the case the notification exists for — someone else answered.
+      authorId: 'answer-author',
+    });
     prisma.topic.update.mockResolvedValue({});
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* TASK_2026_177 Task 14.13 — the `post.accepted` producer (R10.1, R10.2)   */
+  /* ---------------------------------------------------------------------- */
+
+  describe('🔴 R10.1 — post.accepted', () => {
+    it("notifies the ANSWER's author, not the topic author", async () => {
+      await service.accept(AUTHOR, 'topic-1', { postId: 'post-5' });
+
+      expect(notifyCreate).toHaveBeenCalledTimes(1);
+      expect(notifyCreate.mock.calls[0]?.[0]).toEqual({
+        recipientId: 'answer-author',
+        actorId: AUTHOR.userId,
+        kind: 'post.accepted',
+        targetType: 'Post',
+        targetId: 'post-5',
+        title: 'Your answer was accepted',
+        bodyPreview: null,
+        route: '/members/community/topics/a-topic#post-post-5',
+        tx: prisma,
+      });
+    });
+
+    it('🔴 the SELF-ACCEPT case is passed to create(), not filtered here (R10.2)', async () => {
+      // A member answering their own question and accepting it is ordinary.
+      // The suppression belongs to `create()`; this service must hand it the
+      // equality rather than resolve it.
+      prisma.post.findFirst.mockResolvedValue({
+        id: 'post-5',
+        postNumber: 5,
+        authorId: AUTHOR.userId,
+      });
+
+      await service.accept(AUTHOR, 'topic-1', { postId: 'post-5' });
+
+      expect(notifyCreate.mock.calls[0]?.[0]).toMatchObject({
+        recipientId: AUTHOR.userId,
+        actorId: AUTHOR.userId,
+      });
+      // The acceptance still committed — a suppression is not a failure.
+      expect(prisma.topic.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('an ADMIN accepting someone else’s answer is the actor, and the author is the recipient', async () => {
+      await service.accept(ADMIN, 'topic-1', { postId: 'post-5' });
+
+      expect(notifyCreate.mock.calls[0]?.[0]).toMatchObject({
+        recipientId: 'answer-author',
+        actorId: ADMIN.userId,
+      });
+    });
+
+    it('an answer whose author DELETED THEIR ACCOUNT writes nothing, and the accept still lands', async () => {
+      prisma.post.findFirst.mockResolvedValue({
+        id: 'post-5',
+        postNumber: 5,
+        authorId: null,
+      });
+
+      await service.accept(AUTHOR, 'topic-1', { postId: 'post-5' });
+
+      expect(notifyCreate).not.toHaveBeenCalled();
+      expect(prisma.topic.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 ENLISTS in the accept transaction (ASSUMPTION-21) and rolls it back on failure', async () => {
+      notifyCreate.mockRejectedValue(new Error('notification exploded'));
+
+      await expect(
+        service.accept(AUTHOR, 'topic-1', { postId: 'post-5' }),
+      ).rejects.toThrow('notification exploded');
+
+      // The update ran INSIDE the same `$transaction`, so a real Postgres would
+      // have rolled it back. What is asserted here is that both statements went
+      // through one transaction rather than two.
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 R1.5.2 is UNWEAKENED: still exactly one Topic write, no compensating clear', async () => {
+      // The transaction added in Phase 5 must not have grown a "clear the
+      // previous accepted answer" step — that is the shape with a state in which
+      // two posts are accepted.
+      await service.accept(AUTHOR, 'topic-1', { postId: 'post-5' });
+
+      expect(prisma.topic.update).toHaveBeenCalledTimes(1);
+      expect(prisma.topic.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('clear() produces NO notification — nothing happened to anyone’s answer', async () => {
+      await service.clear(AUTHOR, 'topic-1');
+
+      expect(notifyCreate).not.toHaveBeenCalled();
+    });
   });
 
   /* ---------------------------------------------------------------------- */
@@ -99,6 +208,7 @@ describe('AcceptedAnswerService', () => {
       prisma.topic.findFirst.mockResolvedValue({
         id: 'topic-1',
         authorId: null,
+        slug: 'a-topic',
       });
 
       await expect(
@@ -138,8 +248,13 @@ describe('AcceptedAnswerService', () => {
         id: 'topic-1',
         authorId: AUTHOR.userId,
         acceptedPostId: 'post-5',
+        slug: 'a-topic',
       });
-      prisma.post.findFirst.mockResolvedValue({ id: 'post-9', postNumber: 9 });
+      prisma.post.findFirst.mockResolvedValue({
+        id: 'post-9',
+        postNumber: 9,
+        authorId: 'answer-author',
+      });
 
       const result = await service.accept(AUTHOR, 'topic-1', {
         postId: 'post-9',
