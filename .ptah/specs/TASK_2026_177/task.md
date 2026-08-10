@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_177
-status: in_review
+status: done
 type: FEATURE
 title: Native community platform (replaces Discourse)
 description: Build a native community platform to replace the Discourse instance. Full workflow (PM, Architect, Team-Leader, QA). See context.md and task-description.md for scope.

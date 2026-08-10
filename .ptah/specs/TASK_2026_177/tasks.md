@@ -4553,7 +4553,7 @@ this same seed module and must not truncate, re-run destructively, or seed
 
 ---
 
-## Batch 9: P3-BE — `libs/api/youtube` + `libs/api/learning` + migration 3 ⏸️ PENDING
+## Batch 9: P3-BE — `libs/api/youtube` + `libs/api/learning` + migration 3 ✅ COMPLETE (`a8d33adde` · `4d1c57707` · `aa38f5f42`)
 
 **Recommended Executor**: `backend-developer` | **Fallback**: `backend-developer`
 **Execution Mode**: sequential — and **dispatch it in THREE parts, as Batch 6 was**.
@@ -6520,7 +6520,7 @@ npx nx run-many -t eslint:lint,typecheck,test \
 
 ---
 
-## Batch 10: P3-FE — course screens + the facade-then-player ⏸️ PENDING
+## Batch 10: P3-FE — course screens + the facade-then-player ✅ COMPLETE (`254b99227` · `b56124fc0`)
 
 **Recommended Executor**: `frontend-developer` | **Fallback**: `frontend-developer`
 **Execution Mode**: sequential — one dispatch, unless the executor asks for a split, in which
@@ -7567,7 +7567,7 @@ ones.
 
 ---
 
-## Batch 11: P3-MIG — seed the curriculum course (8 Week topics) ⏸️ PENDING
+## Batch 11: P3-MIG — seed the curriculum course (8 Week topics) ✅ COMPLETE (`e6cb8f49b`)
 
 **Recommended Executor**: `backend-developer` | **Fallback**: `backend-developer`
 **Execution Mode**: sequential internally; **parallel with Batch 10** (see the file-set claim
@@ -8221,7 +8221,7 @@ admin accepts into a real Calendar event with a real Meet link.
 
 ---
 
-## Batch 12: P4-BE — live sessions, private sessions, migration 4 ⏸️ PENDING
+## Batch 12: P4-BE — live sessions, private sessions, migration 4 ✅ COMPLETE (`10d5981e7` · `dca2735d3` · `d574f62a7` · `ecf3603ec` · `42ce775ef` · `5f9572956`)
 
 **Recommended Executor**: `backend-developer` | **Fallback**: `backend-developer`
 **Execution Mode**: sequential — and **dispatch it in THREE parts, as Batch 6 and Batch 9
@@ -10657,7 +10657,7 @@ Green, against **Task 15.1's freshly measured baselines** (ground truth 14), not
 
 ---
 
-## Batch 16: P5-CLOSEOUT — final documentation sweep (Seshat/MG-4 half CUT) 🔄 IMPLEMENTED
+## Batch 16: P5-CLOSEOUT — final documentation sweep (Seshat/MG-4 half CUT) ✅ COMPLETE (`335aa9a13`)
 
 ### ✅ USER DECISION 2026-08-10 — the Seshat half is OUT OF SCOPE for this task
 
