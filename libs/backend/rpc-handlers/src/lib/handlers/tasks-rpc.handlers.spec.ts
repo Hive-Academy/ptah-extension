@@ -63,6 +63,7 @@ import {
   BULK_CHUNK_SIZE,
   CARRIER_FILE,
   DEFAULT_TASK_SORT,
+  DOC_FILES,
   EMPTY_TASK_FILTER,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
@@ -114,6 +115,7 @@ interface FakeIndex {
   ensureStarted: jest.Mock;
   list: jest.Mock;
   getDetail: jest.Mock;
+  readArtifact: jest.Mock;
   reindex: jest.Mock;
   fire: (event: TaskIndexChangeEvent) => void;
 }
@@ -133,6 +135,7 @@ function createFakeIndex(): FakeIndex {
       specsDirExists: true,
     }),
     getDetail: jest.fn().mockResolvedValue(null),
+    readArtifact: jest.fn().mockResolvedValue(null),
     reindex: jest
       .fn()
       .mockResolvedValue({ indexedCount: 0, excludedCount: 0, durationMs: 1 }),
@@ -306,10 +309,11 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 14 tasks:* methods', () => {
+  it('owns exactly the 15 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
+      'tasks:getArtifact',
       'tasks:create',
       'tasks:updateStatus',
       'tasks:updateMetadata',
@@ -332,6 +336,85 @@ describe('TasksRpcHandlers.register', () => {
     for (const method of TasksRpcHandlers.METHODS) {
       expect(() => getHandler(rpc, method)).not.toThrow();
     }
+  });
+});
+
+describe('tasks:getArtifact', () => {
+  it('returns the document markdown and echoes the file back', async () => {
+    const { rpc, index } = buildSuite();
+    index.readArtifact.mockResolvedValue('# Plan\n\nStep one.');
+    const handler = getHandler(rpc, 'tasks:getArtifact');
+
+    await expect(
+      handler({ taskId: 'TASK_2026_401', file: 'implementation-plan.md' }),
+    ).resolves.toEqual({
+      file: 'implementation-plan.md',
+      content: '# Plan\n\nStep one.',
+    });
+  });
+
+  /**
+   * Absent is the ORDINARY case, not a fault: most tasks carry a handful of
+   * the fifteen recognised documents. A task with no plan has not been planned
+   * yet, and reporting that as an error sends the user looking for a break
+   * that is not there.
+   */
+  it('reports a missing document as content: null, not an error', async () => {
+    const { rpc, index } = buildSuite();
+    index.readArtifact.mockResolvedValue(null);
+    const handler = getHandler(rpc, 'tasks:getArtifact');
+
+    await expect(
+      handler({ taskId: 'TASK_2026_401', file: 'implementation-plan.md' }),
+    ).resolves.toEqual({ file: 'implementation-plan.md', content: null });
+  });
+
+  /**
+   * THE security boundary for this method. `file` is joined onto a folder path
+   * on the other side, so the enum is what keeps it a document reader rather
+   * than an arbitrary-file read primitive pointed at the user's disk. Each of
+   * these must die at Zod, before `readArtifact` is ever reached.
+   */
+  it.each([
+    ['traversal', '../../../../etc/passwd'],
+    ['absolute path', '/etc/passwd'],
+    ['windows absolute path', 'C:\\Windows\\win.ini'],
+    ['a nested path inside the folder', 'sub/context.md'],
+    ['an unrecognised filename', 'secrets.md'],
+    ['the carrier itself', 'task.md'],
+  ])('refuses %s with INVALID_PARAMS', async (_label, file) => {
+    const { rpc, index } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getArtifact');
+
+    await expect(
+      handler({ taskId: 'TASK_2026_401', file }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(index.readArtifact).not.toHaveBeenCalled();
+  });
+
+  it('accepts every document the contract recognises', async () => {
+    const { rpc } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getArtifact');
+    for (const file of DOC_FILES) {
+      await expect(
+        handler({ taskId: 'TASK_2026_401', file }),
+      ).resolves.toMatchObject({ file });
+    }
+  });
+
+  it('normalizes the workspace root before delegating', async () => {
+    const { rpc, index } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getArtifact');
+    await handler({
+      taskId: 'TASK_2026_401',
+      file: 'context.md',
+      workspaceRoot: 'D:\\workspace\\',
+    });
+    expect(index.readArtifact).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace\\'),
+      'TASK_2026_401',
+      'context.md',
+    );
   });
 });
 
@@ -3680,6 +3763,10 @@ describe('tasks:* workspace authorization', () => {
   const VALID_PARAMS: Record<string, Record<string, unknown>> = {
     'tasks:list': {},
     'tasks:get': { taskId: 'TASK_2026_401' },
+    'tasks:getArtifact': {
+      taskId: 'TASK_2026_401',
+      file: 'implementation-plan.md',
+    },
     'tasks:create': { title: 'T', type: 'BUGFIX' },
     'tasks:updateStatus': { taskId: 'TASK_2026_401', status: 'done' },
     'tasks:updateMetadata': {

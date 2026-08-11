@@ -5,9 +5,20 @@ import {
   input,
   output,
 } from '@angular/core';
-import { Check, LucideAngularModule, Minus, X } from 'lucide-angular';
+import {
+  Check,
+  ChevronDown,
+  ExternalLink,
+  LucideAngularModule,
+  Minus,
+  X,
+} from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
-import type { TaskGraph, TaskSpecDetail } from '@ptah-extension/shared';
+import type {
+  DocFile,
+  TaskGraph,
+  TaskSpecDetail,
+} from '@ptah-extension/shared';
 import {
   TASK_ESTIMATE_LABELS,
   TASK_STATUS_BADGE,
@@ -37,8 +48,16 @@ import { TaskRelationsComponent } from './task-relations.component';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <!-- Two widths, one panel. Beside the Kanban this is a fixed 384px column
+         so the board keeps the space; beside the list rail it takes the
+         remainder, because there the panel IS the reading surface and the
+         markdown body is the thing being read. -->
     <aside
-      class="flex flex-col h-full w-96 flex-shrink-0 border-l border-base-content/10 bg-base-100"
+      class="flex flex-col h-full border-l border-base-content/10 bg-base-100"
+      [class.w-96]="!wide()"
+      [class.flex-shrink-0]="!wide()"
+      [class.flex-1]="wide()"
+      [class.min-w-0]="wide()"
       aria-label="Task detail"
     >
       <header
@@ -184,27 +203,64 @@ import { TaskRelationsComponent } from './task-relations.component';
 
           <!-- Workflow stage artifacts — presence signals the orchestration
                stage ran; a missing Review/Tests row on a Done task is the gap
-               the board can't otherwise surface. -->
+               the board can't otherwise surface.
+
+               A present stage now has TWO actions, and they are separate
+               controls rather than one overloaded click: reading the document
+               here, and opening it in the editor. They are different intents —
+               one is "show me the plan", the other is "I am about to change
+               it" — and collapsing them meant the panel could only ever do the
+               second. -->
           <div class="flex flex-col gap-1">
             <span class="text-xs text-base-content-muted">Workflow</span>
             <div class="flex flex-col gap-0.5">
               @for (stage of workflowArtifacts(); track stage.label) {
                 @if (stage.present) {
-                  <button
-                    type="button"
-                    class="flex items-center gap-1.5 text-xs text-left hover:text-primary"
-                    [title]="'Open ' + stage.file"
-                    (click)="openArtifact.emit(stage.file)"
-                  >
-                    <lucide-angular
-                      [img]="CheckIcon"
-                      class="w-3 h-3 text-success shrink-0"
-                    />
-                    <span>{{ stage.label }}</span>
-                    <span class="font-mono text-base-content-muted truncate">{{
-                      stage.file
-                    }}</span>
-                  </button>
+                  <div class="flex items-center gap-1">
+                    <button
+                      type="button"
+                      class="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs hover:text-primary"
+                      [attr.aria-expanded]="openDocument() === stage.file"
+                      [attr.data-testid]="'task-doc-read-' + stage.file"
+                      [title]="
+                        openDocument() === stage.file
+                          ? 'Hide ' + stage.file
+                          : 'Read ' + stage.file + ' here'
+                      "
+                      (click)="onToggleDocument(stage.file)"
+                    >
+                      <lucide-angular
+                        [img]="
+                          openDocument() === stage.file
+                            ? ChevronDownIcon
+                            : CheckIcon
+                        "
+                        class="h-3 w-3 shrink-0"
+                        [class.text-success]="openDocument() !== stage.file"
+                        aria-hidden="true"
+                      />
+                      <span>{{ stage.label }}</span>
+                      <span
+                        class="truncate font-mono text-base-content-muted"
+                        >{{ stage.file }}</span
+                      >
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square shrink-0"
+                      [attr.aria-label]="
+                        'Open ' + stage.file + ' in the editor'
+                      "
+                      [title]="'Open ' + stage.file + ' in the editor'"
+                      [attr.data-testid]="'task-doc-open-' + stage.file"
+                      (click)="openArtifact.emit(stage.file)"
+                    >
+                      <lucide-angular
+                        [img]="ExternalLinkIcon"
+                        class="h-3 w-3"
+                      />
+                    </button>
+                  </div>
                 } @else {
                   <div
                     class="flex items-center gap-1.5 text-xs text-base-content-muted"
@@ -221,6 +277,52 @@ import { TaskRelationsComponent } from './task-relations.component';
               }
             </div>
           </div>
+
+          <!-- The opened document, rendered in place.
+               NFR-10: through MarkdownBlockComponent, the DOMPurify chokepoint,
+               exactly like the carrier body above it. These files are written
+               by agents, so they are no more trusted than the body is. -->
+          @if (openDocument(); as file) {
+            <div
+              class="flex flex-col gap-1 rounded border border-base-content/10 bg-base-200/40 p-2"
+              data-testid="task-doc-panel"
+            >
+              <div class="flex items-center gap-2">
+                <span class="flex-1 truncate font-mono text-[11px]">{{
+                  file
+                }}</span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square"
+                  aria-label="Close document"
+                  title="Close document"
+                  data-testid="task-doc-close"
+                  (click)="readDocument.emit(null)"
+                >
+                  <lucide-angular [img]="XIcon" class="h-3 w-3" />
+                </button>
+              </div>
+              @if (documentLoading()) {
+                <span
+                  class="loading loading-spinner loading-xs"
+                  role="status"
+                  [attr.aria-label]="'Loading ' + file"
+                ></span>
+              } @else if (documentContent(); as content) {
+                <ptah-markdown-block [content]="content" />
+              } @else {
+                <!-- Absent is not broken. A task with no plan has not been
+                     planned; saying "failed to load" about the ordinary case
+                     sends the user looking for a fault that is not there. -->
+                <p
+                  class="text-[11px] text-base-content-muted"
+                  data-testid="task-doc-absent"
+                >
+                  This task folder does not contain {{ file }} yet.
+                </p>
+              }
+            </div>
+          }
 
           <!-- Artifacts — every filename present on disk in the task folder.
                Click to open in the editor (file:open). -->
@@ -268,6 +370,14 @@ export class TaskDetailComponent {
   public readonly detail = input.required<TaskSpecDetail | null>();
   public readonly loading = input(false);
   /**
+   * Take the remaining width instead of a fixed 384px column.
+   *
+   * Set by the host when the surface is in list mode, where the list collapses
+   * to a rail and this panel becomes the reading surface. Defaults to `false`,
+   * so every existing use — and the Kanban — renders exactly as before.
+   */
+  public readonly wide = input(false);
+  /**
    * The derived board graph, for the inverse relations no single-task fetch can
    * see: Blocks, Duplicated by, and the derived half of Related. `TasksGetResult`
    * is deliberately unchanged — the inverses are a property of the whole board.
@@ -284,9 +394,30 @@ export class TaskDetailComponent {
   /** Set while a write is outstanding, so a second cannot be queued behind it. */
   public readonly busy = input(false);
 
+  /**
+   * Which workflow document is expanded in place, or `null` for none.
+   *
+   * Owned by the HOST, not by this panel: the content is fetched over
+   * `tasks:getArtifact` and a panel that held its own "which file" would be a
+   * second opinion about the same thing as the content beside it, free to
+   * disagree while a fetch is in flight.
+   */
+  public readonly openDocument = input<DocFile | null>(null);
+  /** The expanded document's markdown, or `null` when absent from the folder. */
+  public readonly documentContent = input<string | null>(null);
+  public readonly documentLoading = input(false);
+
   public readonly closed = output<void>();
   /** Emits an artifact filename the host should open in the editor. */
   public readonly openArtifact = output<string>();
+  /**
+   * Read a workflow document in place, or `null` to close the one that is open.
+   *
+   * Distinct from {@link openArtifact}, which hands the file to the editor.
+   * Reading and editing are different intents and this panel can now serve
+   * both — see the Workflow section's two controls.
+   */
+  public readonly readDocument = output<DocFile | null>();
   /** Emits the id of a related task the user asked to open. A read. */
   public readonly openTask = output<string>();
   /**
@@ -330,8 +461,15 @@ export class TaskDetailComponent {
     });
   });
 
+  /** Clicking the open document's own row closes it — one control, one place. */
+  protected onToggleDocument(file: DocFile): void {
+    this.readDocument.emit(this.openDocument() === file ? null : file);
+  }
+
   protected readonly XIcon = X;
   protected readonly CheckIcon = Check;
+  protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly ExternalLinkIcon = ExternalLink;
   protected readonly MinusIcon = Minus;
 
   /** Hashed chip classes for one label — see `labelChipClass`. */

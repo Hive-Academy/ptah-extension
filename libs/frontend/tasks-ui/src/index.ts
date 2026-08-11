@@ -1,6 +1,7 @@
 export { TasksViewComponent } from './lib/components/tasks-view.component';
 export { TaskBoardComponent } from './lib/components/board/task-board.component';
 export { TaskColumnComponent } from './lib/components/board/task-column.component';
+export { TaskListComponent } from './lib/components/board/task-list.component';
 export { TaskCardComponent } from './lib/components/board/task-card.component';
 export type {
   TaskSelectionToggle,
@@ -83,3 +84,9 @@ export {
   taskSortEquals,
 } from './lib/services/task-views.service';
 export type { TaskViewMoveDirection } from './lib/services/task-views.service';
+export {
+  TASK_VIEW_MODES,
+  TASK_VIEW_MODE_LABELS,
+  TaskViewModeService,
+} from './lib/services/task-view-mode.service';
+export type { TaskViewMode } from './lib/services/task-view-mode.service';

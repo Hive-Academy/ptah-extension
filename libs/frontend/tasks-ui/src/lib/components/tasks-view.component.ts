@@ -8,10 +8,12 @@ import {
 import { FormsModule } from '@angular/forms';
 import {
   ClipboardList,
+  Columns3,
   Command,
   EyeOff,
   FileText,
   FilterX,
+  List,
   LucideAngularModule,
   Plus,
   RefreshCw,
@@ -21,16 +23,25 @@ import { NativeDrawerComponent } from '@ptah-extension/ui';
 import {
   SPEC_ROOT,
   TASK_ESTIMATES,
+  TASK_STATUSES,
   TASK_TYPES,
   type ExcludedTaskFolder,
   type TaskEstimate,
   type TaskSpecSummary,
+  type TaskStatus,
   type TaskType,
 } from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskStartService } from '../services/task-start.service';
 import { TaskViewsService } from '../services/task-views.service';
+import {
+  TASK_VIEW_MODES,
+  TASK_VIEW_MODE_LABELS,
+  TaskViewModeService,
+  type TaskViewMode,
+} from '../services/task-view-mode.service';
 import { TaskBoardComponent } from './board/task-board.component';
+import { TaskListComponent } from './board/task-list.component';
 import type {
   TaskSelectionToggle,
   TaskStartRequest,
@@ -49,7 +60,10 @@ import {
   buildPaletteEntries,
   type TaskPaletteAction,
 } from './palette/palette-entries';
-import { taskExclusionReasonLabel } from '../task-presentation';
+import {
+  TASK_STATUS_LABELS,
+  taskExclusionReasonLabel,
+} from '../task-presentation';
 
 /** One excluded folder plus the sentence explaining its typed reason. */
 interface ExcludedFolderRow extends ExcludedTaskFolder {
@@ -84,6 +98,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
     LucideAngularModule,
     NativeDrawerComponent,
     TaskBoardComponent,
+    TaskListComponent,
     TaskBulkBarComponent,
     TaskBulkSummaryComponent,
     TaskDetailComponent,
@@ -95,7 +110,8 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
   // R10: the palette shortcut is bound to THIS component's host element, never
   // to `window` or `document`. See {@link TasksViewComponent.onKeyDown}.
   host: { '(keydown)': 'onKeyDown($event)' },
-  template: `
+  template:
+    `
     <div class="flex flex-col h-full w-full bg-base-100">
       <!-- Header -->
       <header
@@ -136,6 +152,33 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
             </span>
           </button>
         }
+
+        <!-- Layout switcher. A segmented control rather than a menu: there are
+             two options, both are always available, and which one is active is
+             the single most useful thing this header can state at rest.
+             aria-pressed carries the active state, so it is announced rather
+             than being available only as a background colour. -->
+        <div class="join ml-1" role="group" aria-label="Task layout">
+          @for (mode of viewModes; track mode) {
+            <button
+              type="button"
+              class="btn btn-xs join-item gap-1"
+              [class.btn-active]="viewMode.mode() === mode"
+              [class.btn-ghost]="viewMode.mode() !== mode"
+              [attr.aria-pressed]="viewMode.mode() === mode"
+              [attr.data-testid]="'tasks-view-mode-' + mode"
+              [title]="modeTitle(mode)"
+              (click)="viewMode.setMode(mode)"
+            >
+              <lucide-angular
+                [img]="mode === 'kanban' ? Columns3Icon : ListIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+              <span class="text-xs">{{ modeLabel(mode) }}</span>
+            </button>
+          }
+        </div>
 
         <div class="flex-1"></div>
 
@@ -362,7 +405,17 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
             </button>
           </div>
         } @else {
-          <div class="flex-1 min-w-0">
+          <!-- In LIST mode with a task open, the list becomes a fixed-width
+               navigation rail and the detail panel takes the rest — a task
+               body is prose, and 384px is not a width anyone wants to read
+               prose in. The Kanban keeps the opposite split, because a
+               six-column board narrowed to a rail is not a board. -->
+          <div
+            class="min-w-0"
+            [class.flex-1]="!detailRail()"
+            [class.w-96]="detailRail()"
+            [class.flex-none]="detailRail()"
+          >
             <!-- "Nothing matches" is NOT "nothing exists" (FR-C1.3). The
                  create CTA is deliberately absent here: offering to create a
                  182nd task to someone whose 181 are behind a chip answers a
@@ -401,6 +454,28 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                   Clear the filter
                 </button>
               </div>
+            } @else if (viewMode.mode() === 'list') {
+              <!-- Same board model, same six outputs as the Kanban. The two
+                   layouts are interchangeable here on purpose: a facet added
+                   to the filter, or a new bulk state, reaches both without
+                   either being taught about it. -->
+              <ptah-task-list
+                [columns]="store.board()"
+                [graph]="store.graph()"
+                [compact]="detailRail()"
+                [selectedTaskId]="store.selectedTaskId()"
+                [selection]="store.selection()"
+                [pending]="store.pending()"
+                [outcomes]="store.lastRunOutcomes()"
+                (taskSelect)="store.openTask($event)"
+                (taskToggle)="onTaskToggle($event)"
+                (selectionToggle)="onSelectionToggle($event)"
+                (escapePressed)="onBoardEscape()"
+                (statusChange)="onStatusChange($event)"
+                (startTask)="onStartTask($event)"
+                (filterChildren)="store.showChildrenOf($event)"
+                (createInStatus)="openCreate($event)"
+              />
             } @else {
               <ptah-task-board
                 [columns]="store.board()"
@@ -422,13 +497,18 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
 
           @if (store.selectedTaskId()) {
             <ptah-task-detail
+              [wide]="detailRail()"
               [detail]="store.taskDetail()"
               [graph]="store.graph()"
               [knownLabels]="store.knownLabels()"
               [knownTaskIds]="knownTaskIds()"
               [busy]="writing()"
               [loading]="store.detailLoading()"
+              [openDocument]="store.openDocument()"
+              [documentContent]="store.documentContent()"
+              [documentLoading]="store.documentLoading()"
               (closed)="store.closeTask()"
+              (readDocument)="store.readDocument($event)"
               (openArtifact)="store.openArtifact($event)"
               (openTask)="store.openTask($event)"
               (applyMetadata)="onApplyMetadata($event)"
@@ -479,6 +559,26 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
               >
                 @for (type of taskTypes; track type) {
                   <option [value]="type">{{ type }}</option>
+                }
+              </select>
+            </label>
+
+            <!-- Editable, and pre-set by whichever ` +
+    ` opened this. Showing it
+                 as a read-only note would leave the one control the group
+                 button implies — "put it somewhere else after all" — with no
+                 way to reach it short of cancelling and starting again. -->
+            <label class="form-control">
+              <span class="label-text text-xs mb-1">Status</span>
+              <select
+                class="select select-sm select-bordered"
+                data-testid="tasks-create-status"
+                [ngModel]="createStatus()"
+                (ngModelChange)="setCreateStatus($event)"
+                aria-label="Task status"
+              >
+                @for (status of taskStatuses; track status) {
+                  <option [value]="status">{{ statusLabel(status) }}</option>
                 }
               </select>
             </label>
@@ -599,13 +699,31 @@ export class TasksViewComponent {
   protected readonly store = inject(TasksStore);
   protected readonly taskStart = inject(TaskStartService);
   protected readonly views = inject(TaskViewsService);
+  protected readonly viewMode = inject(TaskViewModeService);
 
   protected readonly taskTypes = TASK_TYPES;
+  protected readonly taskStatuses = TASK_STATUSES;
+  protected readonly viewModes = TASK_VIEW_MODES;
+
+  /**
+   * The list is a navigation rail beside an open task (list mode only).
+   *
+   * Drives three things at once so they cannot disagree: the list drops its
+   * scanning columns, its wrapper stops flexing and takes a fixed width, and
+   * the detail panel takes the space that frees up. In Kanban mode it is always
+   * false — a board narrowed to 384px is not a board.
+   */
+  protected readonly detailRail = computed(
+    () =>
+      this.viewMode.mode() === 'list' && this.store.selectedTaskId() !== null,
+  );
 
   protected readonly createOpen = signal(false);
   protected readonly creating = signal(false);
   protected readonly createTitle = signal('');
   protected readonly createType = signal<TaskType>('FEATURE');
+  /** Status the new task opens in — set by whichever `+` was pressed. */
+  protected readonly createStatus = signal<TaskStatus>('backlog');
   protected readonly createDescription = signal('');
 
   protected readonly canCreate = computed(
@@ -734,7 +852,19 @@ export class TasksViewComponent {
       })),
   );
 
+  protected modeLabel(mode: TaskViewMode): string {
+    return TASK_VIEW_MODE_LABELS[mode];
+  }
+
+  protected modeTitle(mode: TaskViewMode): string {
+    return mode === 'kanban'
+      ? 'Kanban — six status columns of cards'
+      : 'List — one scrolling table, grouped by status';
+  }
+
   protected readonly ClipboardListIcon = ClipboardList;
+  protected readonly Columns3Icon = Columns3;
+  protected readonly ListIcon = List;
   protected readonly CommandIcon = Command;
   protected readonly EyeOffIcon = EyeOff;
   protected readonly FilterXIcon = FilterX;
@@ -759,9 +889,28 @@ export class TasksViewComponent {
     }
   }
 
-  protected openCreate(): void {
+  /** Narrowed rather than cast — the select's value is a bare string. */
+  protected setCreateStatus(value: string): void {
+    if ((TASK_STATUSES as readonly string[]).includes(value)) {
+      this.createStatus.set(value as TaskStatus);
+    }
+  }
+
+  protected statusLabel(status: TaskStatus): string {
+    return TASK_STATUS_LABELS[status];
+  }
+
+  /**
+   * Open the create modal, optionally opening the task in a given status.
+   *
+   * `status` comes from a list group's `+`. Omitted — the header's New Task
+   * button — means `backlog`, which is where every create landed before the
+   * per-group control existed.
+   */
+  protected openCreate(status: TaskStatus = 'backlog'): void {
     this.createTitle.set('');
     this.createType.set('FEATURE');
+    this.createStatus.set(status);
     this.createDescription.set('');
     this.createOpen.set(true);
   }
@@ -954,9 +1103,13 @@ export class TasksViewComponent {
     this.creating.set(true);
     try {
       const description = this.createDescription().trim();
+      const status = this.createStatus();
       const result = await this.store.createTask({
         title: this.createTitle().trim(),
         type: this.createType(),
+        // Omitted for `backlog` so the header's New Task keeps producing the
+        // exact params — and therefore the exact carrier bytes — it always did.
+        ...(status === 'backlog' ? {} : { status }),
         ...(description ? { description } : {}),
       });
       if (result?.success) {

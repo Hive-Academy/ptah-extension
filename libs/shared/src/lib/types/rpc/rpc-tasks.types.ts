@@ -18,6 +18,7 @@ import type {
   TaskStatus,
   TaskType,
 } from '../task-spec.types';
+import type { DocFile } from '../task-spec.contract';
 import type { TaskFilterSpec } from '../task-filter';
 import type { TaskMetadataPatch } from '../task-view.types';
 import type { SavedTaskView } from '../task-saved-view.types';
@@ -58,9 +59,49 @@ export interface TasksGetResult {
   task: TaskSpecDetail | null;
 }
 
+/**
+ * Read ONE workflow document out of a task folder, for rendering in place.
+ *
+ * Separate from `tasks:get` rather than folded into it: a task folder can hold
+ * fifteen documents and the panel shows one at a time, so returning them all on
+ * every detail fetch would make opening a task pay for prose nobody asked to
+ * read.
+ *
+ * `file` is a {@link DocFile}, NOT a path and not a free string. The Zod
+ * boundary refuses anything outside the contract's document set, which is what
+ * keeps this method a document reader rather than an arbitrary-file read
+ * primitive pointed at the user's disk (R4.4, BR-10).
+ */
+export interface TasksGetArtifactParams extends TasksWorkspaceScopedParams {
+  taskId: string;
+  file: DocFile;
+}
+export interface TasksGetArtifactResult {
+  /** Echoed back so a late response cannot be rendered under the wrong tab. */
+  file: DocFile;
+  /**
+   * The document's markdown, or `null` when the folder does not hold it.
+   *
+   * `null` is the ordinary case, not a failure: most tasks carry three or four
+   * of the fifteen documents, and a task with no `implementation-plan.md` has
+   * not errored — it has not been planned yet.
+   */
+  content: string | null;
+}
+
 export interface TasksCreateParams extends TasksWorkspaceScopedParams {
   title: string;
   type: TaskType;
+  /**
+   * Status to open the task in. Omitted means `backlog`, which is what every
+   * create did before this key existed — the emitter defaults it, so a carrier
+   * written without it is byte-identical to one written before.
+   *
+   * It exists for the board's per-column create affordance: a `+` on the In
+   * Review column that dropped its task into Backlog would be an affordance
+   * that lies about where it puts things.
+   */
+  status?: TaskStatus;
   description?: string;
   dependsOn?: string[];
   executor?: string;

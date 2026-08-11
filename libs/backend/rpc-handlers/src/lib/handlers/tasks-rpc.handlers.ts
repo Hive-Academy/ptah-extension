@@ -4,7 +4,8 @@
  * Serves the standalone Tasks board on all hosts (VS Code, Electron, CLI) via
  * `SHARED_HANDLERS`. Methods:
  *   - tasks:list             - filtered summaries + excluded count
- *   - tasks:get              - single task detail (body + artifacts)
+ *   - tasks:get              - single task detail (body + artifact NAMES)
+ *   - tasks:getArtifact      - ONE workflow document's markdown, by DocFile
  *   - tasks:create           - create a new TASK_YYYY_NNN folder + task.md
  *   - tasks:updateStatus     - byte-preserving status transition
  *   - tasks:bulkUpdateStatus - N independent status writes, one result each
@@ -68,6 +69,8 @@ import {
   type TasksListResult,
   type TasksGetParams,
   type TasksGetResult,
+  type TasksGetArtifactParams,
+  type TasksGetArtifactResult,
   type TasksCreateParams,
   type TasksCreateResult,
   type TasksUpdateStatusParams,
@@ -99,6 +102,7 @@ import {
 import {
   TasksListParamsSchema,
   TasksGetParamsSchema,
+  TasksGetArtifactParamsSchema,
   TasksCreateParamsSchema,
   TasksUpdateStatusParamsSchema,
   TasksUpdateMetadataParamsSchema,
@@ -252,6 +256,7 @@ export class TasksRpcHandlers {
   static readonly METHODS = [
     'tasks:list',
     'tasks:get',
+    'tasks:getArtifact',
     'tasks:create',
     'tasks:updateStatus',
     'tasks:updateMetadata',
@@ -293,6 +298,7 @@ export class TasksRpcHandlers {
   register(): void {
     this.registerList();
     this.registerGet();
+    this.registerGetArtifact();
     this.registerCreate();
     this.registerUpdateStatus();
     this.registerUpdateMetadata();
@@ -639,6 +645,42 @@ export class TasksRpcHandlers {
     );
   }
 
+  /**
+   * Read ONE workflow document out of a task folder, for in-place rendering.
+   *
+   * A missing document is `content: null` and a SUCCESS — most tasks carry a
+   * handful of the fifteen recognised documents, and one that has not been
+   * planned yet simply has no `implementation-plan.md`. Reporting that as an
+   * error would make the ordinary case look like a fault.
+   *
+   * The requested name is echoed in the result so a slow response cannot be
+   * rendered under whichever tab the user has since switched to.
+   */
+  private registerGetArtifact(): void {
+    this.rpcHandler.registerMethod<
+      TasksGetArtifactParams,
+      TasksGetArtifactResult
+    >('tasks:getArtifact', async (params) => {
+      const parsed = this.parse(TasksGetArtifactParamsSchema, params);
+      const root = this.resolveRoot(parsed.workspaceRoot);
+      try {
+        await this.index.ensureStarted(root);
+        const content = await this.index.readArtifact(
+          root,
+          parsed.taskId,
+          parsed.file,
+        );
+        return { file: parsed.file, content };
+      } catch (error: unknown) {
+        throw this.sanitize(
+          error,
+          'tasks:getArtifact',
+          'Failed to read task document.',
+        );
+      }
+    });
+  }
+
   private registerCreate(): void {
     this.rpcHandler.registerMethod<TasksCreateParams, TasksCreateResult>(
       'tasks:create',
@@ -650,6 +692,7 @@ export class TasksRpcHandlers {
           const result = await this.writer.create(root, {
             title: parsed.title,
             type: parsed.type,
+            status: parsed.status,
             description: parsed.description,
             dependsOn: parsed.dependsOn,
             executor: parsed.executor,

@@ -27,6 +27,12 @@ import {
 export interface CreateTaskInput {
   title: string;
   type: TaskType;
+  /**
+   * Status to open the task in. Omitted means `backlog` — `renderTaskMd`
+   * defaults it, so a create that leaves this out produces a carrier
+   * byte-identical to one written before the field existed.
+   */
+  status?: TaskStatus;
   description?: string;
   dependsOn?: string[];
   executor?: string;
@@ -304,6 +310,7 @@ export class TaskWriterService {
           id: claimedId,
           title: input.title,
           type: input.type,
+          status: input.status,
           description: input.description,
           dependsOn: input.dependsOn,
           executor: input.executor,

@@ -34,6 +34,7 @@ import {
   CARRIER_FILE,
   SPECS_README_FILE,
   renderSpecsReadme,
+  type DocFile,
   type ExcludedTaskFolder,
   type TaskSpecDetail,
   type TaskSpecSummary,
@@ -322,6 +323,39 @@ export class TaskIndexService implements ITaskIndexNotifier {
     } catch (error: unknown) {
       this.logger.warn('[task-specs] getDetail failed', {
         folderName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Read ONE workflow document out of a task folder (`tasks:getArtifact`).
+   *
+   * `file` is a {@link DocFile} — a member of the contract's closed document
+   * set, already narrowed at the Zod boundary. It is joined onto the folder
+   * path, so accepting a free string here would turn this into an
+   * arbitrary-file read primitive; the type is the guard, and it is why this
+   * method takes `DocFile` rather than `string`.
+   *
+   * A missing document returns `null`, not an error. Most tasks carry three or
+   * four of the fifteen recognised documents, and one that has not been planned
+   * yet has no `implementation-plan.md` to read — that is the ordinary case.
+   */
+  async readArtifact(
+    workspaceRoot: string,
+    folderName: string,
+    file: DocFile,
+  ): Promise<string | null> {
+    const root = normalizeWorkspaceRoot(workspaceRoot);
+    const target = path.join(root, '.ptah', 'specs', folderName, file);
+    try {
+      if (!(await this.fs.exists(target))) return null;
+      return await this.fs.readFile(target);
+    } catch (error: unknown) {
+      this.logger.warn('[task-specs] readArtifact failed', {
+        folderName,
+        file,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

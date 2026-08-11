@@ -73,6 +73,121 @@ describe('TaskDetailComponent', () => {
     return fixture;
   }
 
+  // ---------------------------------------------------------------------------
+  // In-place workflow documents
+  // ---------------------------------------------------------------------------
+
+  describe('workflow documents', () => {
+    function renderWithDoc(
+      inputs: Record<string, unknown>,
+      detail: TaskSpecDetail = makeDetail({
+        artifacts: [CARRIER_FILE, CONTEXT_FILE, 'implementation-plan.md'],
+      }),
+    ) {
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.componentRef.setInput('detail', detail);
+      for (const [key, value] of Object.entries(inputs)) {
+        fixture.componentRef.setInput(key, value);
+      }
+      fixture.detectChanges();
+      return { fixture, host: fixture.nativeElement as HTMLElement };
+    }
+
+    /**
+     * Reading a document and opening it in the editor are different intents —
+     * "show me the plan" versus "I am about to change it" — so they are two
+     * controls. Collapsing them is what meant the panel could only ever do the
+     * second.
+     */
+    it('asks to READ on the row, and to EDIT on the separate control', () => {
+      const { fixture, host } = renderWithDoc({});
+      const read: Array<string | null> = [];
+      const opened: string[] = [];
+      fixture.componentInstance.readDocument.subscribe((file) =>
+        read.push(file),
+      );
+      fixture.componentInstance.openArtifact.subscribe((file) =>
+        opened.push(file),
+      );
+
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="task-doc-read-implementation-plan.md"]',
+        )
+        ?.click();
+      expect(read).toEqual(['implementation-plan.md']);
+      expect(opened).toEqual([]);
+
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="task-doc-open-implementation-plan.md"]',
+        )
+        ?.click();
+      expect(opened).toEqual(['implementation-plan.md']);
+      expect(read).toEqual(['implementation-plan.md']);
+    });
+
+    it('closes the open document when its own row is clicked again', () => {
+      const { fixture, host } = renderWithDoc({
+        openDocument: 'implementation-plan.md',
+      });
+      const read: Array<string | null> = [];
+      fixture.componentInstance.readDocument.subscribe((file) =>
+        read.push(file),
+      );
+
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="task-doc-read-implementation-plan.md"]',
+        )
+        ?.click();
+      expect(read).toEqual([null]);
+    });
+
+    it('renders the document through the markdown chokepoint', () => {
+      const { host } = renderWithDoc({
+        openDocument: 'implementation-plan.md',
+        documentContent: '# Plan\n\nStep one.',
+      });
+      const panel = host.querySelector('[data-testid="task-doc-panel"]');
+      expect(panel).not.toBeNull();
+      expect(panel?.querySelector('ptah-markdown-block')).not.toBeNull();
+      expect(host.innerHTML).not.toContain('# Plan');
+    });
+
+    /**
+     * Absent is not broken. Most tasks carry a handful of the fifteen
+     * recognised documents, and "failed to load" about the ordinary case sends
+     * the user hunting a fault that is not there.
+     */
+    it('says the document is absent rather than reporting a failure', () => {
+      const { host } = renderWithDoc({
+        openDocument: 'implementation-plan.md',
+        documentContent: null,
+      });
+      const absent = host.querySelector('[data-testid="task-doc-absent"]');
+      expect(absent?.textContent).toContain('does not contain');
+      expect(absent?.textContent).toContain('implementation-plan.md');
+    });
+
+    it('shows a spinner instead of an absence claim while the read is in flight', () => {
+      const { host } = renderWithDoc({
+        openDocument: 'implementation-plan.md',
+        documentContent: null,
+        documentLoading: true,
+      });
+      expect(host.querySelector('[data-testid="task-doc-absent"]')).toBeNull();
+      expect(
+        host.querySelector('[data-testid="task-doc-panel"] .loading'),
+      ).not.toBeNull();
+    });
+
+    it('renders no document panel when nothing is open', () => {
+      const { host } = renderWithDoc({});
+      expect(host.querySelector('[data-testid="task-doc-panel"]')).toBeNull();
+    });
+  });
+
   it('renders frontmatter facts and depends_on', () => {
     const fixture = render(makeDetail());
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';

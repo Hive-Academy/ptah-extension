@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import {
   BULK_CHUNK_SIZE,
+  DOC_FILES,
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
@@ -71,10 +72,30 @@ export const TasksGetParamsSchema = z.object({
   taskId: taskIdRef,
 });
 
+/**
+ * `file` is a CLOSED ENUM over the contract's document set, never a string.
+ *
+ * This is the whole security boundary for `tasks:getArtifact`: the value is
+ * joined onto a folder path on the other side, so a free string — even one
+ * screened for `..` — would make the method a general file reader pointed at
+ * the user's disk. An enum cannot express a path at all, which is a stronger
+ * guarantee than any sanitiser, and it comes from `DOC_FILES` so the boundary
+ * cannot drift from the contract it is enforcing.
+ */
+export const TasksGetArtifactParamsSchema = z.object({
+  workspaceRoot,
+  taskId: taskIdRef,
+  file: z.enum(DOC_FILES),
+});
+
 export const TasksCreateParamsSchema = z.object({
   workspaceRoot,
   title: z.string().min(1),
   type: typeEnum,
+  // Omitted means `backlog`, defaulted by the emitter rather than here — one
+  // place decides what an unstated status means, and it is the same place for
+  // every writer.
+  status: statusEnum.optional(),
   description: z.string().optional(),
   dependsOn: z.array(z.string().min(1)).optional(),
   executor: z.string().optional(),
@@ -272,6 +293,9 @@ export const TasksSaveViewsParamsSchema = z.object({
 
 export type TasksListParamsParsed = z.infer<typeof TasksListParamsSchema>;
 export type TasksGetParamsParsed = z.infer<typeof TasksGetParamsSchema>;
+export type TasksGetArtifactParamsParsed = z.infer<
+  typeof TasksGetArtifactParamsSchema
+>;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;
 export type TasksUpdateStatusParamsParsed = z.infer<
   typeof TasksUpdateStatusParamsSchema

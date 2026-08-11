@@ -28,6 +28,7 @@ import {
   type TaskGraph,
   type TaskMetadataPatch,
   type TaskSortSpec,
+  type DocFile,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -434,6 +435,11 @@ export class TasksStore implements MessageHandler {
   private readonly _taskDetail = signal<TaskSpecDetail | null>(null);
   private readonly _detailLoading = signal(false);
 
+  /** The workflow document expanded in the detail panel — see {@link readDocument}. */
+  private readonly _openDocument = signal<DocFile | null>(null);
+  private readonly _documentContent = signal<string | null>(null);
+  private readonly _documentLoading = signal(false);
+
   /**
    * The active filter and sort. SESSION STATE — never persisted, never sent.
    *
@@ -566,6 +572,9 @@ export class TasksStore implements MessageHandler {
    */
   private detailReqSeq = 0;
 
+  /** Same guard as {@link detailReqSeq}, for the workflow-document read. */
+  private documentReqSeq = 0;
+
   /**
    * Workspace key the switch effect last observed. Seeded synchronously at
    * construction with the same key the component's initial `loadBoard()` uses,
@@ -598,6 +607,9 @@ export class TasksStore implements MessageHandler {
   public readonly selectedTaskId = this._selectedTaskId.asReadonly();
   public readonly taskDetail = this._taskDetail.asReadonly();
   public readonly detailLoading = this._detailLoading.asReadonly();
+  public readonly openDocument = this._openDocument.asReadonly();
+  public readonly documentContent = this._documentContent.asReadonly();
+  public readonly documentLoading = this._documentLoading.asReadonly();
 
   /** The active filter spec — read-only; mutate through {@link setFilter}. */
   public readonly filter = this._filter.asReadonly();
@@ -981,6 +993,11 @@ export class TasksStore implements MessageHandler {
    */
   public async openTask(taskId: string): Promise<void> {
     const seq = ++this.detailReqSeq;
+    // Opening a different task must not leave the previous one's plan expanded
+    // underneath the new task's heading. Cleared unconditionally: re-opening
+    // the SAME task is a re-read, and it is cheaper to reopen a document than
+    // to reason about when the old content is still the right content.
+    this.closeDocument();
     this._selectedTaskId.set(taskId);
     this._detailLoading.set(true);
     try {
@@ -1009,6 +1026,57 @@ export class TasksStore implements MessageHandler {
     this._selectedTaskId.set(null);
     this._taskDetail.set(null);
     this._detailLoading.set(false);
+    this.closeDocument();
+  }
+
+  /**
+   * Read ONE workflow document of the open task, for in-place rendering.
+   *
+   * Sequenced exactly like {@link openTask}, and for the same reason: the user
+   * can click three documents faster than the first read returns, and the last
+   * one clicked is the one that must win. The response's own `file` is checked
+   * against the request as a second guard, so a reply cannot be rendered under
+   * a heading naming a different document.
+   *
+   * `content: null` on success means the folder does not hold that file. It is
+   * NOT an error and does not set one — most tasks carry a handful of the
+   * fifteen recognised documents.
+   */
+  public async readDocument(file: DocFile | null): Promise<void> {
+    const taskId = this._selectedTaskId();
+    if (file === null || taskId === null) {
+      this.closeDocument();
+      return;
+    }
+
+    const seq = ++this.documentReqSeq;
+    this._openDocument.set(file);
+    this._documentContent.set(null);
+    this._documentLoading.set(true);
+    try {
+      const result = await this.rpc.call('tasks:getArtifact', {
+        taskId,
+        file,
+        ...this.workspaceParam(),
+      });
+      if (seq !== this.documentReqSeq) return;
+      if (result.isSuccess() && result.data && result.data.file === file) {
+        this._documentContent.set(result.data.content);
+      } else {
+        this._documentContent.set(null);
+        this._error.set(result.error ?? `Failed to read ${file}`);
+      }
+    } finally {
+      if (seq === this.documentReqSeq) this._documentLoading.set(false);
+    }
+  }
+
+  /** Close the expanded document and invalidate any read still in flight. */
+  public closeDocument(): void {
+    this.documentReqSeq++;
+    this._openDocument.set(null);
+    this._documentContent.set(null);
+    this._documentLoading.set(false);
   }
 
   /**
