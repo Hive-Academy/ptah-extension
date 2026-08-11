@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Delete-confirm and name-input modals have no role, no aria-modal, no focus

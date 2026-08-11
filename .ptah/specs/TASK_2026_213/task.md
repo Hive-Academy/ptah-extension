@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Pre-existing right-pane self-echo in updateSplitContent

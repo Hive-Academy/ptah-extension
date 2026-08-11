@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: DEVOPS
 title: >-
   axe-core is not a declared dependency, so dialog accessibility relies on

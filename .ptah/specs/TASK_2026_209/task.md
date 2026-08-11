@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: REFACTORING
 title: >-
   Editor-panel resize handles would benefit from pointer capture hardening

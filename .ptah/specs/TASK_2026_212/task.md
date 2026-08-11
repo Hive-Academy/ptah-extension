@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: REFACTORING
 title: >-
   closeSplit's stopPropagation() is the last live leftover stopPropagation

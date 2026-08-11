@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Empty-state role="list" ownership violation in SourceControlPanelComponent

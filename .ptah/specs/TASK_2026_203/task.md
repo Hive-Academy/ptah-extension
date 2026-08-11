@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: FEATURE
 title: >-
   File tree has no windowing/virtualization for large expanded directories
