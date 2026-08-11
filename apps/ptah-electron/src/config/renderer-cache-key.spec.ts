@@ -306,6 +306,185 @@ describe('apps/ptah-electron/project.json renderer cache key', () => {
   });
 });
 
+/**
+ * NESTED OUTPUT DECLARATIONS — the second mechanism, same directory.
+ *
+ * TASK_2026_232 removed `cache: true` from `copy-renderer` because a cache hit
+ * could SKIP restoring its output. This block closes the opposite failure on
+ * the same directory: a cache hit that restores TOO MUCH.
+ *
+ * Four `@nx/esbuild:esbuild` targets (`build-main`, `build-preload`,
+ * `build-embedder-worker`, `build-voice-worker`) all wrote to `outputPath:
+ * "dist/apps/ptah-electron"` and each declared `outputs: ["{options.outputPath}"]`
+ * — the whole shared directory. `copy-renderer` writes
+ * `dist/apps/ptah-electron/renderer`, i.e. INSIDE all four of those. `package`
+ * declares `dependsOn: ["build", "copy-renderer", "rebuild-native"]`, which are
+ * UNORDERED siblings.
+ *
+ * Nx restores a cache hit by `remove(output)` then `copy(cached, output)`
+ * (`node_modules/nx/src/tasks-runner/cache.js` `copyFilesFromCache`), and a
+ * directory-form output expands to the directory ITSELF, not to its files —
+ * verified directly against this Nx's native binding:
+ *
+ *   expandOutputs(root, ['dist/apps/ptah-electron'])
+ *     -> ["dist/apps/ptah-electron"]
+ *
+ * So a `build-main` cache hit landing after `copy-renderer` DELETES the whole
+ * directory and replaces it with `build-main`'s snapshot — whose `renderer/` is
+ * whatever happened to be on disk the last time `build-main` MISSED. Run
+ * `nx e2e` (leaves a development renderer via `copy-renderer-dev`) and then
+ * `nx package`, and `electron-builder` can pack that stale development
+ * renderer.
+ *
+ * Not theoretical: every cached snapshot of these targets on disk contained the
+ * full 12-entry, ~44 MB dist — a one-file `build-preload` bundle was caching
+ * and restoring `renderer/` and `wasm/`. The repo already documents the
+ * consequence for the sibling directory at
+ * `.github/workflows/publish-electron.yml` ("a cache restore wipes wasm/ from
+ * dist"), which re-runs `copy-wasm` after every cache-restoring step. There was
+ * no equivalent guard for `renderer/`.
+ *
+ * Reproduced live on this Nx 22.6.5 in an isolated probe workspace, daemon
+ * disabled so the restore path is taken deterministically rather than racing
+ * `outputs-tracking`. One target, two `outputs` declarations, nothing else
+ * changed:
+ *
+ *   A) outputs: ["{workspaceRoot}/out"]           (the shape that shipped)
+ *      before hit: out/ = main.txt renderer
+ *      > nx run probe:emit-main  [local cache]
+ *      after  hit: out/ = main.txt          <- out/renderer DELETED
+ *
+ *   B) outputs: ["{workspaceRoot}/out/main.txt"]  (the fix)
+ *      before hit: main.txt=CORRUPT-MAIN, renderer/index.txt=RENDERER-FRESH
+ *      > nx run probe:emit-main  [local cache]
+ *      after  hit: main.txt restored from cache, renderer/index.txt=RENDERER-FRESH
+ *
+ * THE FIX IS NOT "STOP CACHING". `build-main` costs 168 s with its
+ * dependencies already cached (measured). Removing `cache: true` from four
+ * expensive bundles to fix a declaration bug would be paying 168 s per
+ * `nx package` for nothing. The declaration was simply wrong: these targets
+ * emit specific FILES into a shared directory, so they must declare those
+ * files. `wasm/` stays deliberately unclaimed by any target — `copy-wasm.js`
+ * runs inside the uncacheable `build` / `package` command lists, so nothing
+ * caches it and, now, nothing wipes it either.
+ *
+ * ONE ACCEPTED REGRESSION, STATED PLAINLY. The old whole-directory `remove()`
+ * incidentally swept stale artifacts. It no longer does. The only case in this
+ * project is `main.mjs.map`: the `production` configuration sets
+ * `sourcemap: false` and `deleteOutputPath: false`, so a `main.mjs.map` left by
+ * an earlier `development` build now survives a production restore instead of
+ * being swept. It is declared above so that it is captured and restored
+ * CONSISTENTLY when it does exist; the residue is a stray sourcemap in the
+ * asar, not a wrong bundle. Trading that for "electron-builder can pack a
+ * stale renderer" is the whole point of this change. Relying on a cache
+ * restore as a cleaner is what made the directory shared in the first place.
+ */
+describe('apps/ptah-electron/project.json output nesting', () => {
+  const OUT = 'dist/apps/ptah-electron';
+
+  /** Declared outputs with Nx's two placeholders resolved, workspace-relative. */
+  function declaredOutputs(targetName: string): string[] {
+    const target = config.targets[targetName];
+    const outputs = (target?.outputs ?? []) as string[];
+    const outputPath = (target?.options as { outputPath?: string } | undefined)
+      ?.outputPath;
+    return outputs.map((o) =>
+      o
+        .replace('{options.outputPath}', outputPath ?? '')
+        .replace('{workspaceRoot}/', ''),
+    );
+  }
+
+  const ESBUILD_TARGETS = [
+    'build-main',
+    'build-preload',
+    'build-embedder-worker',
+    'build-voice-worker',
+  ] as const;
+
+  // Anti-vacuity: every target this block reasons about must exist and declare
+  // outputs, or the invariants below pass against empty arrays.
+  it('anti-vacuity: all five artifact targets exist and declare outputs', () => {
+    for (const name of [...ESBUILD_TARGETS, 'copy-renderer']) {
+      expect(declaredOutputs(name).length).toBeGreaterThan(0);
+    }
+  });
+
+  // RI-14 — THE CORE INVARIANT. No artifact target's declared output may be a
+  // proper ancestor of another's. This is what makes a cache restore
+  // (remove + copy) affect only the restoring target's own artifacts.
+  it('RI-14: no artifact target output contains another target output', () => {
+    const names = [...ESBUILD_TARGETS, 'copy-renderer'];
+    const violations: string[] = [];
+    for (const a of names) {
+      for (const b of names) {
+        if (a === b) continue;
+        for (const outA of declaredOutputs(a)) {
+          for (const outB of declaredOutputs(b)) {
+            if (
+              outB !== outA &&
+              outB.startsWith(outA.replace(/\/+$/, '') + '/')
+            )
+              violations.push(
+                `${a} output '${outA}' contains ${b} output '${outB}'`,
+              );
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  // RI-15 — the specific regression. None of the four may declare the bare
+  // shared directory again. Stated separately from RI-14 so the failure names
+  // the mistake rather than a containment pair.
+  it.each([...ESBUILD_TARGETS])(
+    'RI-15: %s does not declare the shared dist directory as an output',
+    (targetName) => {
+      expect(declaredOutputs(targetName)).not.toContain(OUT);
+    },
+  );
+
+  // RI-16 — completeness. A narrowed output list is only safe if it names
+  // everything the target emits: an artifact left out is not captured, so a
+  // cache HIT leaves it missing from dist entirely. Pinned against the emit
+  // set verified on disk after a forced `nx build-main --skip-nx-cache`.
+  it('RI-16: build-main declares every artifact it emits', () => {
+    expect(declaredOutputs('build-main').sort()).toEqual(
+      [
+        `${OUT}/assets`,
+        `${OUT}/electron-builder.yml`,
+        `${OUT}/main.mjs`,
+        `${OUT}/main.mjs.map`,
+        `${OUT}/package-lock.json`,
+        `${OUT}/package.json`,
+        `${OUT}/templates`,
+      ].sort(),
+    );
+  });
+
+  // RI-17 — the three worker/preload bundles each own exactly their one file.
+  it.each([
+    ['build-preload', `${OUT}/preload.js`],
+    ['build-embedder-worker', `${OUT}/embedder-worker.mjs`],
+    ['build-voice-worker', `${OUT}/voice-worker.mjs`],
+  ])('RI-17: %s declares exactly %s', (targetName, expected) => {
+    expect(declaredOutputs(targetName)).toEqual([expected]);
+  });
+
+  // RI-18 — caching must stay ON for all four. The whole point of fixing the
+  // declaration rather than deleting `cache: true` is that these are the
+  // expensive builds (`build-main` = 168 s with deps cached). If a later change
+  // disables caching here "to be safe", that is the 168 s regression this task
+  // explicitly rejected — reopen the declaration instead.
+  it.each([...ESBUILD_TARGETS])(
+    'RI-18: %s does not disable caching (the fix is the declaration, not the flag)',
+    (targetName) => {
+      expect(config.targets[targetName].cache).not.toBe(false);
+    },
+  );
+});
+
 describe('apps/ptah-electron-e2e/project.json dev renderer wiring (TASK_2026_229)', () => {
   // Anti-vacuity.
   it('anti-vacuity: e2e project.json parses and declares the three dev-build targets', () => {

@@ -8,7 +8,15 @@
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}/main.mjs",
+        "{options.outputPath}/main.mjs.map",
+        "{options.outputPath}/package.json",
+        "{options.outputPath}/package-lock.json",
+        "{options.outputPath}/electron-builder.yml",
+        "{options.outputPath}/assets",
+        "{options.outputPath}/templates"
+      ],
       "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/ptah-electron",
@@ -113,7 +121,7 @@
     },
     "build-preload": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/preload.js"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/preload.ts",
@@ -135,7 +143,7 @@
     },
     "build-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/embedder-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
@@ -158,7 +166,7 @@
     },
     "build-voice-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/voice-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/voice-providers/src/lib/worker/voice-worker.ts",
