@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   A glyph click landing mid-await inside runApply is guarded but not tested

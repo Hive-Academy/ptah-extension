@@ -1640,6 +1640,126 @@ describe('DiffViewComponent — hunk affordances (D2)', () => {
   });
 
   // -------------------------------------------------------------------------
+  // TASK_2026_223 — the click that lands mid-await.
+  //
+  // `applyInFlight` gates `canApply`, and `onHunkAction` returns early when
+  // that is false. The refresh-then-click ordering has a test; the
+  // click-DURING-RPC ordering had none, and this batch has twice found guards
+  // that looked structurally correct and were never actually exercised, so a
+  // refactor could have removed this one with every test still green.
+  //
+  // The apply promise is held open deliberately rather than awaited, because
+  // the whole question is what the component does while it is pending. Every
+  // assertion is about how many calls reach the wire, not about whether a
+  // handler was entered — a guard that merely runs is exactly the shape that
+  // proved vacuous before.
+  // -------------------------------------------------------------------------
+
+  describe('a second action landing mid-RPC (TASK_2026_223)', () => {
+    /** An apply whose promise the test controls. */
+    function deferredApply() {
+      let resolve!: (value: { success: boolean; message?: string }) => void;
+      const apply = jest.fn(
+        () =>
+          new Promise<{ success: boolean; message?: string }>((r) => {
+            resolve = r;
+          }),
+      );
+      return { apply, settle: () => resolve({ success: true }) };
+    }
+
+    it('(223-1) a second toolbar press while the first RPC is pending never reaches the wire', async () => {
+      const { apply, settle } = deferredApply();
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      expect(apply).toHaveBeenCalledTimes(1);
+
+      // The RPC has NOT settled. Press again — repeatedly, as an impatient
+      // user does.
+      fixture.detectChanges();
+      click(fixture, 'hunk-stage');
+      click(fixture, 'hunk-stage');
+
+      expect(apply).toHaveBeenCalledTimes(1);
+
+      settle();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(apply).toHaveBeenCalledTimes(1);
+    });
+
+    it('(223-2) a glyph click mid-RPC re-aims the selection but still cannot fire a second apply', async () => {
+      const { apply, settle } = deferredApply();
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      expect(apply).toHaveBeenCalledWith(
+        expect.objectContaining({ hunkIndices: [0] }),
+      );
+
+      // The exact ordering the register flagged: the glyph moves the selection
+      // while the first write is still in the air.
+      monaco.diffEditors[0].modifiedEditor.mouseListeners[0]({
+        target: { type: GUTTER_GLYPH_MARGIN, position: { lineNumber: 9 } },
+      });
+      fixture.detectChanges();
+      click(fixture, 'hunk-stage');
+
+      // One call, still aimed at the hunk the user actually pressed for.
+      expect(apply).toHaveBeenCalledTimes(1);
+
+      settle();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(apply).toHaveBeenCalledTimes(1);
+    });
+
+    it('(223-3) the toolbar is ABSENT-of-action, not latched — a press after the RPC settles works', async () => {
+      const { apply, settle } = deferredApply();
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      settle();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // A successful apply clears the selection, so re-select before pressing.
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+
+      expect(apply).toHaveBeenCalledTimes(2);
+    });
+
+    it('(223-4) a failed apply also releases the guard, so the user can retry', async () => {
+      let reject!: (reason: unknown) => void;
+      const apply = jest.fn(
+        () =>
+          new Promise<{ success: boolean }>((_, r) => {
+            reject = r;
+          }),
+      );
+      const { fixture } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      click(fixture, 'hunk-stage');
+      expect(apply).toHaveBeenCalledTimes(1);
+
+      reject(new Error('transport died'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      click(fixture, 'hunk-next');
+      click(fixture, 'hunk-stage');
+      expect(apply).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // AC5 — revert is never a single unconfirmed click
   // -------------------------------------------------------------------------
 
