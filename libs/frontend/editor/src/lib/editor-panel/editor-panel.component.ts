@@ -9,7 +9,6 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   NgZone,
-  afterNextRender,
   viewChild,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
@@ -458,14 +457,61 @@ import type { FileTreeNode } from '../models/file-tree.model';
         />
       }
 
-      <!-- Delete confirmation modal -->
+      <!-- Delete confirmation (TASK_2026_216).
+
+           A native dialog element opened with showModal(), NOT a positioned
+           div, matching the shape TASK_2026_227 gave the revert and
+           save-conflict dialogs. Read the long version in
+           diff-view.component.ts: a z-index only orders siblings inside the
+           nearest ancestor that establishes a stacking context, so a dialog
+           that bids with z-50 is reachable only for as long as nothing above
+           its stacking context outbids it. The top layer showModal() promotes
+           into is painted after the whole document and is outside every
+           stacking context by construction, so reachability stops depending on
+           that ordering at all.
+
+           HONEST SCOPE, because the carrier overstates it: this modal is
+           declared at the END of this template, OUTSIDE the isolation:isolate
+           wrapper opened for the Monaco surfaces above — that wrapper is what
+           trapped the revert dialog, which ptah-diff-view renders from inside
+           it. Only the gridstack tile ever contained this one, and a live probe
+           on the pre-fix markup found the buttons on top, not the canvas
+           (apps/ptah-electron-e2e/src/specs/editor/file-ops-dialogs-top-layer.spec.ts).
+           So this is hardening plus the accessibility shape the task was
+           originally filed for — role, aria, focus in and out, no click-to-
+           dismiss on a destructive question — not a reproduced defect.
+
+           modal-open is gone: daisyUI reveals a dialog through its modal[open]
+           rule, and leaving the class on would re-apply the wrapper's own scrim
+           on top of ::backdrop. The modal-backdrop child is inert and
+           aria-hidden — a click handler there (or a form with method="dialog",
+           daisyUI's click-to-close idiom) is exactly what must not exist on a
+           dialog that destroys a file, and daisyUI gives that child
+           z-index: -1 so it cannot take the buttons' clicks in either shape.
+
+           Tab containment is the UA's here rather than hand-rolled: showModal()
+           confines sequential focus navigation to the dialog. The save-conflict
+           dialog below still carries its own two-way toggle because that
+           predates its conversion; there is no reason to add a second one. -->
       @if (deleteTarget()) {
-        <div class="modal modal-open z-50">
+        <dialog
+          #deleteDialog
+          class="modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="ptah-delete-confirm-title"
+          aria-describedby="ptah-delete-confirm-desc"
+          data-testid="delete-confirm-dialog"
+          (cancel)="onDeleteDialogCancel($event)"
+        >
           <div class="modal-box max-w-sm">
-            <h3 class="font-bold text-base">
+            <h3 id="ptah-delete-confirm-title" class="font-bold text-base">
               Delete {{ deleteTarget()!.name }}?
             </h3>
-            <p class="py-3 text-sm text-base-content/70">
+            <p
+              id="ptah-delete-confirm-desc"
+              class="py-3 text-sm text-base-content/70"
+            >
               @if (deleteTarget()!.type === 'directory') {
                 This will permanently delete the folder and all its contents.
               } @else {
@@ -473,49 +519,101 @@ import type { FileTreeNode } from '../models/file-tree.model';
               }
             </p>
             <div class="modal-action">
-              <button class="btn btn-sm" (click)="deleteTarget.set(null)">
+              <button
+                #deleteCancel
+                type="button"
+                class="btn btn-sm"
+                data-testid="delete-confirm-cancel"
+                (click)="cancelDelete()"
+              >
                 Cancel
               </button>
-              <button class="btn btn-sm btn-error" (click)="confirmDelete()">
+              <button
+                type="button"
+                class="btn btn-sm btn-error"
+                data-testid="delete-confirm-accept"
+                (click)="confirmDelete()"
+              >
                 Delete
               </button>
             </div>
           </div>
-          <div class="modal-backdrop" (click)="deleteTarget.set(null)"></div>
-        </div>
+          <div class="modal-backdrop" aria-hidden="true"></div>
+        </dialog>
       }
 
-      <!-- Name input modal (new file/folder/rename) -->
+      <!-- Name input dialog for new file / new folder / rename
+           (TASK_2026_216). Same top-layer reasoning as the delete confirmation
+           above, and the same honest scope: hardening, not a reproduced defect.
+
+           The focus + selection setup moved from an afterNextRender callback
+           that read document.querySelector('.modal-open input[type="text"]')
+           to the effect below. That selector was a document-wide search for a
+           class this element no longer carries, and it would have matched the
+           FIRST such input anywhere in the page — the panel is one tile among
+           several.
+
+           Escape is the UA's close request now, not a keydown on the input:
+           showModal() adds a route that never passes through a keydown listener
+           at all, so binding (cancel) is the only way to see every dismissal.
+           The three controls tab in their natural order inside the UA's own
+           containment, so there is nothing to trap by hand. -->
       @if (inputDialogTitle()) {
-        <div class="modal modal-open z-50">
+        <dialog
+          #inputDialog
+          class="modal"
+          aria-modal="true"
+          aria-labelledby="ptah-name-input-title"
+          data-testid="name-input-dialog"
+          (cancel)="onInputDialogCancel($event)"
+        >
           <div class="modal-box max-w-sm">
-            <h3 class="font-bold text-base">{{ inputDialogTitle() }}</h3>
+            <h3 id="ptah-name-input-title" class="font-bold text-base">
+              {{ inputDialogTitle() }}
+            </h3>
             <input
               #nameInput
               type="text"
               class="input input-bordered input-sm w-full mt-3"
               [value]="inputDialogValue()"
+              [attr.aria-label]="inputDialogTitle()"
+              [attr.aria-describedby]="
+                inputDialogError() ? 'ptah-name-input-error' : null
+              "
+              [attr.aria-invalid]="inputDialogError() ? 'true' : null"
               (keydown.enter)="submitInputDialog(nameInput.value)"
-              (keydown.escape)="closeInputDialog()"
               placeholder="Enter name..."
             />
             @if (inputDialogError()) {
-              <p class="text-error text-xs mt-1">{{ inputDialogError() }}</p>
+              <p
+                id="ptah-name-input-error"
+                class="text-error text-xs mt-1"
+                role="alert"
+              >
+                {{ inputDialogError() }}
+              </p>
             }
             <div class="modal-action">
-              <button class="btn btn-sm" (click)="closeInputDialog()">
+              <button
+                type="button"
+                class="btn btn-sm"
+                data-testid="name-input-cancel"
+                (click)="closeInputDialog()"
+              >
                 Cancel
               </button>
               <button
+                type="button"
                 class="btn btn-sm btn-primary"
+                data-testid="name-input-accept"
                 (click)="submitInputDialog(nameInput.value)"
               >
                 OK
               </button>
             </div>
           </div>
-          <div class="modal-backdrop" (click)="closeInputDialog()"></div>
-        </div>
+          <div class="modal-backdrop" aria-hidden="true"></div>
+        </dialog>
       }
 
       <!-- Split-pane save conflict (C2 AC3).
@@ -1072,6 +1170,60 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly inputDialogError = signal('');
   private inputDialogCallback: ((name: string) => void) | null = null;
 
+  private readonly deleteDialog =
+    viewChild<ElementRef<HTMLDialogElement>>('deleteDialog');
+  private readonly deleteCancel =
+    viewChild<ElementRef<HTMLButtonElement>>('deleteCancel');
+  private readonly inputDialog =
+    viewChild<ElementRef<HTMLDialogElement>>('inputDialog');
+  private readonly nameInput =
+    viewChild<ElementRef<HTMLInputElement>>('nameInput');
+
+  /**
+   * Element that held focus when one of these two dialogs opened — in practice
+   * the file-tree row the context menu was raised from. Restored on close so a
+   * keyboard user is put back where they were rather than at the top of the
+   * document. One field for both because only one can be open at a time: both
+   * are raised from `onContextMenuAction`, which closes the menu and takes
+   * exactly one branch.
+   */
+  private fileOpsReturnFocus: HTMLElement | null = null;
+
+  /**
+   * Promote the delete confirmation into the top layer, then move focus to
+   * Cancel — the non-destructive choice, and without this the dialog would open
+   * with focus still on whatever raised it.
+   */
+  private readonly _deleteDialogFocus = effect(() => {
+    if (!this.deleteTarget()) return;
+    const dialog = this.deleteDialog()?.nativeElement;
+    if (dialog && !dialog.open) dialog.showModal();
+    this.deleteCancel()?.nativeElement.focus();
+  });
+
+  /**
+   * Promote the name dialog into the top layer, then focus its input and
+   * pre-select the stem of the existing name so a rename can be typed straight
+   * over it without clobbering the extension.
+   *
+   * Deliberately does NOT read {@link inputDialogError}: a rejected name leaves
+   * the caret and the selection exactly where the user left them instead of
+   * re-selecting the text they are in the middle of correcting.
+   */
+  private readonly _inputDialogFocus = effect(() => {
+    if (!this.inputDialogTitle()) return;
+    const dialog = this.inputDialog()?.nativeElement;
+    if (dialog && !dialog.open) dialog.showModal();
+    const input = this.nameInput()?.nativeElement;
+    if (!input) return;
+    input.focus();
+    const initialValue = this.inputDialogValue();
+    if (initialValue) {
+      const dotIdx = initialValue.lastIndexOf('.');
+      input.setSelectionRange(0, dotIdx > 0 ? dotIdx : initialValue.length);
+    }
+  });
+
   protected onContextMenu(event: {
     event: MouseEvent;
     node: FileTreeNode | null;
@@ -1140,6 +1292,10 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         break;
       case 'delete':
         if (node) {
+          // Captured BEFORE the signal flips, so it records what raised the
+          // dialog rather than the Cancel button the open-effect is about to
+          // focus.
+          this.captureFileOpsReturnFocus();
           this.deleteTarget.set(node);
         }
         break;
@@ -1154,11 +1310,73 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   protected confirmDelete(): void {
     const target = this.deleteTarget();
     if (!target) return;
-    this.deleteTarget.set(null);
+    this.closeDeleteDialog();
     void this.editorService.deleteItem(
       target.path,
       target.type === 'directory',
     );
+  }
+
+  /** Dismiss the delete confirmation without deleting anything. */
+  protected cancelDelete(): void {
+    this.closeDeleteDialog();
+  }
+
+  /**
+   * Escape as the browser's own close request.
+   *
+   * `showModal()` gives the UA a route to close the element that does not pass
+   * through any keydown listener. Left to it, the element would close with
+   * `deleteTarget` still set — a live confirmation the user can no longer see —
+   * and focus unrestored. Routed here it is the same Cancel as the button.
+   */
+  protected onDeleteDialogCancel(event: Event): void {
+    event.preventDefault();
+    this.cancelDelete();
+  }
+
+  /**
+   * Leave the top layer, then unmount, then restore focus — in that order.
+   *
+   * `close()` has to run BEFORE `@if` removes the node: an element removed from
+   * the document while still `open` skips its close steps entirely, so it never
+   * hands focus back. The restore stays last because `close()` hands focus to
+   * whatever `showModal()` remembered, which is not necessarily what raised
+   * this.
+   */
+  private closeDeleteDialog(): void {
+    const dialog = this.deleteDialog()?.nativeElement;
+    if (dialog?.open) dialog.close();
+    this.deleteTarget.set(null);
+    this.restoreFileOpsFocus();
+  }
+
+  /**
+   * Escape on the name dialog. Same UA close request as the delete
+   * confirmation — see {@link onDeleteDialogCancel}.
+   */
+  protected onInputDialogCancel(event: Event): void {
+    event.preventDefault();
+    this.closeInputDialog();
+  }
+
+  private captureFileOpsReturnFocus(): void {
+    this.fileOpsReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  }
+
+  /**
+   * Hand focus back to whatever raised the dialog, if it is still in the
+   * document — the context menu that raised it is unmounted by the time either
+   * dialog opens, so a disconnected element here is the ordinary case, not an
+   * error.
+   */
+  private restoreFileOpsFocus(): void {
+    const target = this.fileOpsReturnFocus;
+    this.fileOpsReturnFocus = null;
+    if (target?.isConnected) target.focus();
   }
 
   private openInputDialog(
@@ -1166,22 +1384,12 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     initialValue: string,
     callback: (name: string) => void,
   ): void {
+    // Before the signal flips, for the same reason as the delete confirmation.
+    this.captureFileOpsReturnFocus();
     this.inputDialogTitle.set(title);
     this.inputDialogValue.set(initialValue);
     this.inputDialogError.set('');
     this.inputDialogCallback = callback;
-    afterNextRender(() => {
-      const input = document.querySelector<HTMLInputElement>(
-        '.modal-open input[type="text"]',
-      );
-      if (input) {
-        input.focus();
-        if (initialValue) {
-          const dotIdx = initialValue.lastIndexOf('.');
-          input.setSelectionRange(0, dotIdx > 0 ? dotIdx : initialValue.length);
-        }
-      }
-    });
   }
 
   protected submitInputDialog(value: string): void {
@@ -1199,11 +1407,15 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     cb?.(name);
   }
 
+  /** Close order is load-bearing — see {@link closeDeleteDialog}. */
   protected closeInputDialog(): void {
+    const dialog = this.inputDialog()?.nativeElement;
+    if (dialog?.open) dialog.close();
     this.inputDialogTitle.set('');
     this.inputDialogValue.set('');
     this.inputDialogError.set('');
     this.inputDialogCallback = null;
+    this.restoreFileOpsFocus();
   }
 
   protected dismissError(): void {

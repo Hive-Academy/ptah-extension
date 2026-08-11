@@ -190,6 +190,11 @@ function makeEditorServiceStub() {
     updateTabContent: jest.fn(),
     updateSplitContent: jest.fn(),
     hasUnabsorbedPeerEdit: jest.fn(() => false),
+    // File-ops seam behind the delete-confirm / name-input dialogs (TASK_2026_216).
+    deleteItem: jest.fn(() => Promise.resolve()),
+    createFile: jest.fn(() => Promise.resolve()),
+    createFolder: jest.fn(() => Promise.resolve()),
+    renameItem: jest.fn(() => Promise.resolve()),
     // Read by the REAL CodeEditorComponent (used by the keyboard-save block
     // below, which mounts it instead of the stub).
     targetLine: signal<number | undefined>(undefined),
@@ -213,6 +218,10 @@ function makeEditorServiceStub() {
     updateSplitContent: jest.Mock;
     setFocusedPane: jest.Mock;
     hasUnabsorbedPeerEdit: jest.Mock;
+    deleteItem: jest.Mock;
+    createFile: jest.Mock;
+    createFolder: jest.Mock;
+    renameItem: jest.Mock;
   };
 }
 
@@ -2131,5 +2140,325 @@ describe('EditorPanelComponent — a keyboard user can save from the split pane'
       '/ws/a.ts',
       'primary pane text',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_216 — the delete-confirm and name-input dialogs.
+//
+// These two were the last `<div class="modal modal-open z-50">` wrappers in the
+// panel, and they now use the native-dialog + `showModal()` shape TASK_2026_227
+// gave the revert and save-conflict dialogs: the top layer is painted after the
+// whole document, so reachability stops depending on how a z-index happens to
+// resolve inside the gridstack tile.
+//
+// The carrier claims they shared the revert dialog's mouse-unanswerable defect.
+// They did not — they are declared OUTSIDE the `isolation: isolate` wrapper that
+// trapped that one, and a live probe on the pre-fix markup found the buttons on
+// top rather than the canvas. See the header of
+// `apps/ptah-electron-e2e/src/specs/editor/file-ops-dialogs-top-layer.spec.ts`
+// for the evidence. What is fixed here is the accessibility shape the task was
+// originally filed for, plus that hardening.
+//
+// What jsdom can hold: that the element IS a `<dialog>`, that `showModal()` is
+// what opens it, that `close()` runs while the node is still in the document,
+// that the UA's own Escape route is bound, and that the backdrop is inert.
+// What jsdom CANNOT hold: the top layer itself. It has no layout, no
+// compositing and no hit-testing. The mouse-level check lives in Electron.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — file-ops dialogs live in the top layer (TASK_2026_216)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+  let showModalSpy: jest.SpyInstance;
+  let closeSpy: jest.SpyInstance;
+  /** `isConnected` of each dialog at the instant `close()` was called on it. */
+  let connectedAtClose: boolean[];
+  /** Stands in for the file-tree row the context menu was raised from. */
+  let raiser: HTMLButtonElement;
+
+  const FILE_NODE = { path: '/ws/src/a.ts', name: 'a.ts', type: 'file' };
+  const DIR_NODE = { path: '/ws/src', name: 'src', type: 'directory' };
+
+  /** Drive the real path: file-tree context menu → menu action → dialog. */
+  function chooseMenuAction(type: string, node: unknown): void {
+    const sidebar = fixture.debugElement.query(
+      By.directive(StubSidebarComponent),
+    );
+    sidebar.componentInstance.contextMenuRequested.emit({
+      event: new MouseEvent('contextmenu', {
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+      }),
+      node,
+    });
+    fixture.detectChanges();
+
+    const menu = fixture.debugElement.query(
+      By.directive(StubContextMenuComponent),
+    );
+    menu.componentInstance.action.emit({ type, node });
+    fixture.detectChanges();
+  }
+
+  function deleteDialog(): HTMLDialogElement | null {
+    return fixture.nativeElement.querySelector(
+      '[data-testid="delete-confirm-dialog"]',
+    );
+  }
+
+  function nameDialog(): HTMLDialogElement | null {
+    return fixture.nativeElement.querySelector(
+      '[data-testid="name-input-dialog"]',
+    );
+  }
+
+  function byTestId<T extends HTMLElement>(id: string): T | null {
+    return fixture.nativeElement.querySelector(`[data-testid="${id}"]`);
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+    connectedAtClose = [];
+
+    showModalSpy = jest.spyOn(HTMLDialogElement.prototype, 'showModal');
+    closeSpy = jest
+      .spyOn(HTMLDialogElement.prototype, 'close')
+      .mockImplementation(function (this: HTMLDialogElement) {
+        connectedAtClose.push(this.isConnected);
+        this.removeAttribute('open');
+      } as HTMLDialogElement['close']);
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    raiser = document.createElement('button');
+    raiser.textContent = 'file row';
+    document.body.appendChild(raiser);
+    raiser.focus();
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    raiser.remove();
+    showModalSpy.mockRestore();
+    closeSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  // -- delete confirmation ---------------------------------------------------
+
+  it('(216-D1) the delete confirmation is a native <dialog> opened with showModal(), not a positioned div', () => {
+    chooseMenuAction('delete', FILE_NODE);
+
+    const dialog = deleteDialog();
+    expect(dialog).toBeTruthy();
+    expect(dialog?.tagName).toBe('DIALOG');
+    expect(showModalSpy).toHaveBeenCalledTimes(1);
+    expect(showModalSpy.mock.instances[0]).toBe(dialog);
+  });
+
+  it('(216-D2) carries NO modal-open class — daisyUI would re-apply the wrapper scrim over ::backdrop', () => {
+    chooseMenuAction('delete', FILE_NODE);
+
+    expect(deleteDialog()?.classList.contains('modal')).toBe(true);
+    expect(deleteDialog()?.classList.contains('modal-open')).toBe(false);
+    // ...and nowhere else in the panel either.
+    expect(fixture.nativeElement.querySelectorAll('.modal-open').length).toBe(
+      0,
+    );
+  });
+
+  it('(216-D3) is an alertdialog that is both named and described', () => {
+    chooseMenuAction('delete', DIR_NODE);
+
+    const dialog = deleteDialog();
+    expect(dialog?.getAttribute('role')).toBe('alertdialog');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    const labelId = dialog?.getAttribute('aria-labelledby');
+    const descId = dialog?.getAttribute('aria-describedby');
+    expect(dialog?.querySelector('#' + labelId)?.textContent).toContain(
+      'Delete src?',
+    );
+    expect(dialog?.querySelector('#' + descId)?.textContent).toContain(
+      'permanently delete the folder',
+    );
+  });
+
+  it('(216-D4) opens with focus on Cancel, the non-destructive choice', () => {
+    chooseMenuAction('delete', FILE_NODE);
+
+    expect(document.activeElement).toBe(byTestId('delete-confirm-cancel'));
+  });
+
+  it('(216-D5) leaves the top layer BEFORE the node is unmounted', () => {
+    chooseMenuAction('delete', FILE_NODE);
+
+    byTestId<HTMLButtonElement>('delete-confirm-cancel')?.click();
+
+    // close() ran, and it ran while the element was still in the document: an
+    // element removed while still `open` skips its close steps entirely.
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(connectedAtClose).toEqual([true]);
+
+    fixture.detectChanges();
+    expect(deleteDialog()).toBeNull();
+    expect(editor.deleteItem).not.toHaveBeenCalled();
+  });
+
+  it('(216-D6) the backdrop is inert — clicking it cannot answer the confirmation', () => {
+    chooseMenuAction('delete', FILE_NODE);
+
+    const backdrop = deleteDialog()?.querySelector('.modal-backdrop');
+    expect(backdrop?.getAttribute('aria-hidden')).toBe('true');
+    // No <form method="dialog"> either: that is daisyUI's click-to-close idiom.
+    expect(deleteDialog()?.querySelector('form[method="dialog"]')).toBeNull();
+
+    backdrop?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(deleteDialog()).not.toBeNull();
+    expect(closeSpy).not.toHaveBeenCalled();
+  });
+
+  it("(216-D7) binds the UA's own close request, so Escape cannot orphan the open state", () => {
+    chooseMenuAction('delete', FILE_NODE);
+
+    const event = new Event('cancel', { cancelable: true });
+    deleteDialog()?.dispatchEvent(event);
+    fixture.detectChanges();
+
+    // Left to the UA this would close the element with deleteTarget still set:
+    // a live confirmation the user can no longer see.
+    expect(event.defaultPrevented).toBe(true);
+    expect(deleteDialog()).toBeNull();
+    expect(editor.deleteItem).not.toHaveBeenCalled();
+  });
+
+  it('(216-D8) Delete deletes exactly the target and closes', () => {
+    chooseMenuAction('delete', DIR_NODE);
+
+    byTestId<HTMLButtonElement>('delete-confirm-accept')?.click();
+    fixture.detectChanges();
+
+    expect(editor.deleteItem).toHaveBeenCalledWith('/ws/src', true);
+    expect(connectedAtClose).toEqual([true]);
+    expect(deleteDialog()).toBeNull();
+  });
+
+  it('(216-D9) hands focus back to whatever raised it, and does not throw when that is gone', () => {
+    chooseMenuAction('delete', FILE_NODE);
+    expect(document.activeElement).not.toBe(raiser);
+
+    byTestId<HTMLButtonElement>('delete-confirm-cancel')?.click();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(raiser);
+
+    // A file-tree row can be re-rendered out of existence while the dialog is
+    // open; the restore is guarded on isConnected rather than assumed.
+    raiser.focus();
+    chooseMenuAction('delete', FILE_NODE);
+    raiser.remove();
+    expect(() =>
+      byTestId<HTMLButtonElement>('delete-confirm-cancel')?.click(),
+    ).not.toThrow();
+  });
+
+  // -- name input (new file / new folder / rename) ---------------------------
+
+  it('(216-N1) the name dialog is a native <dialog> opened with showModal()', () => {
+    chooseMenuAction('rename', FILE_NODE);
+
+    const dialog = nameDialog();
+    expect(dialog?.tagName).toBe('DIALOG');
+    expect(dialog?.classList.contains('modal-open')).toBe(false);
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(showModalSpy).toHaveBeenCalledTimes(1);
+    expect(showModalSpy.mock.instances[0]).toBe(dialog);
+  });
+
+  it('(216-N2) focuses the input and pre-selects the name stem, without the removed .modal-open lookup', () => {
+    chooseMenuAction('rename', FILE_NODE);
+
+    const input = nameDialog()?.querySelector('input');
+    expect(document.activeElement).toBe(input);
+    expect(input?.value).toBe('a.ts');
+    // Stem only: typing replaces the name and keeps the extension.
+    expect(input?.selectionStart).toBe(0);
+    expect(input?.selectionEnd).toBe(1);
+  });
+
+  it('(216-N3) leaves the top layer before unmounting, and runs the callback after', () => {
+    chooseMenuAction('rename', FILE_NODE);
+
+    const input = nameDialog()?.querySelector('input') as HTMLInputElement;
+    input.value = 'b.ts';
+    byTestId<HTMLButtonElement>('name-input-accept')?.click();
+    fixture.detectChanges();
+
+    expect(connectedAtClose).toEqual([true]);
+    expect(nameDialog()).toBeNull();
+    expect(editor.renameItem).toHaveBeenCalledWith(
+      '/ws/src/a.ts',
+      '/ws/src/b.ts',
+    );
+  });
+
+  it("(216-N4) binds the UA's close request, so Escape closes it without running the callback", () => {
+    chooseMenuAction('newFile', DIR_NODE);
+
+    const event = new Event('cancel', { cancelable: true });
+    nameDialog()?.dispatchEvent(event);
+    fixture.detectChanges();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(nameDialog()).toBeNull();
+    expect(editor.createFile).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(raiser);
+  });
+
+  it('(216-N5) a rejected name leaves the caret where the user left it', () => {
+    chooseMenuAction('rename', FILE_NODE);
+    const input = nameDialog()?.querySelector('input') as HTMLInputElement;
+
+    input.value = '   ';
+    byTestId<HTMLButtonElement>('name-input-accept')?.click();
+    fixture.detectChanges();
+
+    expect(nameDialog()).not.toBeNull();
+    expect(byTestId('name-input-dialog')?.textContent).toContain(
+      'Name cannot be empty.',
+    );
+    expect(editor.renameItem).not.toHaveBeenCalled();
+    // The open-effect must NOT have re-run and re-selected the text the user is
+    // in the middle of correcting.
+    expect(input.value).toBe('   ');
+    expect(showModalSpy).toHaveBeenCalledTimes(1);
   });
 });
