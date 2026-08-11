@@ -124,12 +124,13 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     // invalidation entry point (it bumps their generation and resets
     // `_isLoading`), so there is no separate switch method to call.
     //
-    // `appState` swaps the view pointer (`currentView` / `openViews`) onto the
-    // new workspace's slice and goes LAST, so the surface only flips once the
-    // tab, session and picker state behind it is already the new workspace's.
-    // Without it the shell keeps rendering the previous workspace's view —
-    // tribunal, say — now backed by the new workspace's (empty) slice, which is
-    // the symptom this task was filed for.
+    // `appState` swaps the whole view slice (`currentView` / `openViews`, plus
+    // the in-surface pointers `thothActiveTab` / `marketplaceActiveProvider`)
+    // onto the new workspace's slice and goes LAST, so the surface only flips
+    // once the tab, session and picker state behind it is already the new
+    // workspace's. Without it the shell keeps rendering the previous
+    // workspace's view — tribunal, say — now backed by the new workspace's
+    // (empty) slice, which is the symptom TASK_2026_195 was filed for.
     this.tabManager.switchWorkspace(newPath);
     this.sessionLoader.switchWorkspace(newPath);
     this.filePicker.switchWorkspace(newPath);

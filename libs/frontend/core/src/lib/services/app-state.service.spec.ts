@@ -19,6 +19,9 @@
  *     `removeWorkspaceState` swap and drop `currentView` + `openViews` slices,
  *     and the bootstrap sentinel slice migrates onto the first real workspace
  *     (TASK_2026_195).
+ *   - The same slice also carries the in-surface pointers `thothActiveTab` and
+ *     `marketplaceActiveProvider`, so neither survives a workspace switch
+ *     (TASK_2026_228).
  *   - Canvas session request signal-bridge methods.
  *
  * Note: `initializeState` runs in the constructor, so each spec sets up
@@ -475,6 +478,107 @@ describe('AppStateManager', () => {
       service.switchWorkspace('/ws/b');
 
       expect(service.layoutMode()).toBe('single');
+    });
+  });
+
+  describe('per-workspace in-surface pointers (TASK_2026_228)', () => {
+    it("does NOT carry the previous workspace's Thoth tab onto a never-visited workspace", () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('gateway');
+      expect(service.thothActiveTab()).toBe('gateway');
+
+      service.switchWorkspace('/ws/b');
+
+      // B has its own cron jobs / gateway adapters; landing on A's tab shows
+      // the wrong pillar against B's state.
+      expect(service.thothActiveTab()).toBe('memory');
+    });
+
+    it("does NOT carry the previous workspace's marketplace provider onto a never-visited workspace", () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setMarketplaceActiveProvider('skills-sh');
+      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
+
+      service.switchWorkspace('/ws/b');
+
+      expect(service.marketplaceActiveProvider()).toBeNull();
+    });
+
+    it('restores each workspace Thoth tab and provider on return (A→B→A)', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('skills');
+      service.setMarketplaceActiveProvider('official-mcp');
+
+      service.switchWorkspace('/ws/b');
+      service.setThothActiveTab('cron');
+      service.setMarketplaceActiveProvider('skills-sh');
+
+      service.switchWorkspace('/ws/a');
+      expect(service.thothActiveTab()).toBe('skills');
+      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
+
+      service.switchWorkspace('/ws/b');
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
+    });
+
+    it('keeps the in-surface pointers independent of the view pointer in the same slice', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('cron');
+      service.setMarketplaceActiveProvider('official-mcp');
+
+      // Widening ViewSlice means every view mutation rewrites the slice — the
+      // in-surface pointers must survive that, not be reset by it.
+      service.setCurrentView('thoth');
+      service.setCurrentView('marketplace');
+      service.closeView('thoth');
+
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
+      expect(service.currentView()).toBe('marketplace');
+    });
+
+    it('carries a pointer set before the first workspace arrives onto that workspace', () => {
+      const service = createService();
+      // Electron's initial workspace:switch lands after the shell renders, so
+      // a tab picked in that window is written to the bootstrap sentinel slice.
+      service.setThothActiveTab('skills');
+      service.setMarketplaceActiveProvider('official-mcp');
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.thothActiveTab()).toBe('skills');
+      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
+    });
+
+    it('removeWorkspaceState drops the pointers so a re-added workspace gets defaults', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('gateway');
+      service.setMarketplaceActiveProvider('skills-sh');
+      service.switchWorkspace('/ws/b');
+
+      service.removeWorkspaceState('/ws/a');
+      service.switchWorkspace('/ws/a');
+
+      expect(service.thothActiveTab()).toBe('memory');
+      expect(service.marketplaceActiveProvider()).toBeNull();
+    });
+
+    it('switching to the already-active workspace leaves the pointers alone', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('cron');
+      service.setMarketplaceActiveProvider('skills-sh');
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
     });
   });
 

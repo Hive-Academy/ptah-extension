@@ -142,20 +142,34 @@ export interface AppState {
 const IMPLICIT_WORKSPACE_PATH = '';
 
 /**
- * Which surface a single workspace is looking at. `currentView` and
- * `openViews` move together: closing the active view tab falls back to chat,
- * so splitting them across a partitioned and an unpartitioned store would let
- * the two disagree per workspace.
+ * Which surface a single workspace is looking at, and where inside that
+ * surface. `currentView` and `openViews` move together: closing the active
+ * view tab falls back to chat, so splitting them across a partitioned and an
+ * unpartitioned store would let the two disagree per workspace.
+ *
+ * `thothActiveTab` and `marketplaceActiveProvider` are the same kind of
+ * pointer one level down — which tab of the `'thoth'` view, which provider of
+ * the `'marketplace'` view — so they live in the same slice rather than in
+ * parallel maps. That is not just tidiness: retention, lazy seeding, the
+ * bootstrap-sentinel migration in {@link AppStateManager.switchWorkspace} and
+ * the cleanup in {@link AppStateManager.removeWorkspaceState} are all
+ * slice-shaped, and a parallel map would have to re-implement each of them.
  */
 interface ViewSlice {
   readonly currentView: ViewType;
   readonly openViews: ReadonlySet<ViewType>;
+  /** Active tab of this workspace's Thoth hub. */
+  readonly thothActiveTab: ThothActiveTabId;
+  /** Selected marketplace provider id, or null when none is selected. */
+  readonly marketplaceActiveProvider: string | null;
 }
 
 /** Slice a never-visited workspace reads until its first view mutation. */
 const DEFAULT_VIEW_SLICE: ViewSlice = {
   currentView: 'chat',
   openViews: new Set<ViewType>(['chat']),
+  thothActiveTab: 'memory',
+  marketplaceActiveProvider: null,
 };
 
 /**
@@ -252,18 +266,6 @@ export class AppStateManager implements MessageHandler {
   );
 
   /**
-   * Active tab inside the Thoth hub. Persisted via setter so re-entering
-   * the `'thoth'` view restores the user's last tab.
-   */
-  private readonly _thothActiveTab = signal<ThothActiveTabId>('memory');
-  /**
-   * Currently selected marketplace provider id (e.g. 'official-mcp',
-   * 'skills-sh'), or null when no provider is selected. Persisted in-memory
-   * via setter so re-entering the `'marketplace'` view restores the user's
-   * last provider — mirrors {@link _thothActiveTab}.
-   */
-  private readonly _marketplaceActiveProvider = signal<string | null>(null);
-  /**
    * Whether the user has dismissed the Thoth first-run hint.
    * Persisted to `localStorage` under {@link THOTH_FIRST_RUN_DISMISSED_KEY}
    * (same pattern as `ptah-layout-mode`) so a reload preserves the dismissed
@@ -312,11 +314,23 @@ export class AppStateManager implements MessageHandler {
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
   readonly chatPromptRequest = this._chatPromptRequest.asReadonly();
   readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
-  /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
-  readonly thothActiveTab = this._thothActiveTab.asReadonly();
-  /** Selected marketplace provider id (null when none selected). */
-  readonly marketplaceActiveProvider =
-    this._marketplaceActiveProvider.asReadonly();
+  /**
+   * Active tab id inside the Thoth hub (memory / skills / cron / gateway),
+   * for the active workspace. Partitioned so switching workspaces does not
+   * leave the previous workspace's tab selected against the new workspace's
+   * memory / skills / cron / gateway state.
+   */
+  readonly thothActiveTab = computed<ThothActiveTabId>(
+    () => this.activeViewSlice().thothActiveTab,
+  );
+  /**
+   * Selected marketplace provider id of the active workspace (null when none
+   * selected). Partitioned for the same reason as {@link thothActiveTab}:
+   * installed content is per-workspace, so the provider selection is too.
+   */
+  readonly marketplaceActiveProvider = computed<string | null>(
+    () => this.activeViewSlice().marketplaceActiveProvider,
+  );
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
   readonly canSwitchViews = computed(() => {
@@ -433,6 +447,7 @@ export class AppStateManager implements MessageHandler {
   /** Make `view` the active workspace's current view and mark it open. */
   private openViewInActiveSlice(view: ViewType): void {
     this.updateActiveViewSlice((slice) => ({
+      ...slice,
       currentView: view,
       openViews: slice.openViews.has(view)
         ? slice.openViews
@@ -506,6 +521,7 @@ export class AppStateManager implements MessageHandler {
       const openViews = new Set(slice.openViews);
       openViews.delete(view);
       return {
+        ...slice,
         currentView: slice.currentView === view ? 'chat' : slice.currentView,
         openViews,
       };
@@ -559,14 +575,23 @@ export class AppStateManager implements MessageHandler {
     this.setStatusMessage(`Error: ${error}`);
   }
 
-  /** Update the active Thoth hub tab. */
+  /** Update the active workspace's Thoth hub tab. */
   setThothActiveTab(tab: ThothActiveTabId): void {
-    this._thothActiveTab.set(tab);
+    this.updateActiveViewSlice((slice) =>
+      slice.thothActiveTab === tab ? slice : { ...slice, thothActiveTab: tab },
+    );
   }
 
-  /** Update the selected marketplace provider id (null to clear selection). */
+  /**
+   * Update the active workspace's selected marketplace provider id (null to
+   * clear the selection).
+   */
   setMarketplaceActiveProvider(id: string | null): void {
-    this._marketplaceActiveProvider.set(id);
+    this.updateActiveViewSlice((slice) =>
+      slice.marketplaceActiveProvider === id
+        ? slice
+        : { ...slice, marketplaceActiveProvider: id },
+    );
   }
 
   /**

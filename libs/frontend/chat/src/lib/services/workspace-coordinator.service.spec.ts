@@ -11,7 +11,8 @@
  *     (the dynamic import() throws in test env because the alias is not
  *     registered in the module resolver â€” we swallow and continue).
  *   - switchWorkspace swaps AppStateManager's view slice, so the previous
- *     workspace's view does not survive the switch (TASK_2026_195).
+ *     workspace's view does not survive the switch (TASK_2026_195), and
+ *     neither does its Thoth tab or marketplace provider (TASK_2026_228).
  *   - The captured switchGeneration is re-checked after the awaited editor
  *     resolution, so a superseded switch cannot apply last (TASK_2026_195).
  */
@@ -400,6 +401,37 @@ describe('WorkspaceCoordinatorService', () => {
       await service.switchWorkspace('D:/repo/A');
 
       expect(appState.currentView()).toBe('chat');
+    });
+
+    it("replaces the previous workspace's Thoth tab and marketplace provider too (TASK_2026_228)", async () => {
+      await service.switchWorkspace('D:/repo/A');
+      appState.setCurrentView('thoth');
+      appState.setThothActiveTab('gateway');
+      appState.setMarketplaceActiveProvider('skills-sh');
+
+      await service.switchWorkspace('D:/repo/B');
+
+      // B's Thoth pillars and installed content are its own; A's selections
+      // used to survive the switch and point at the wrong workspace's state.
+      expect(appState.thothActiveTab()).toBe('memory');
+      expect(appState.marketplaceActiveProvider()).toBeNull();
+    });
+
+    it('restores each workspace Thoth tab and provider on return (TASK_2026_228)', async () => {
+      await service.switchWorkspace('D:/repo/A');
+      appState.setThothActiveTab('skills');
+      appState.setMarketplaceActiveProvider('official-mcp');
+
+      await service.switchWorkspace('D:/repo/B');
+      appState.setThothActiveTab('cron');
+
+      await service.switchWorkspace('D:/repo/A');
+      expect(appState.thothActiveTab()).toBe('skills');
+      expect(appState.marketplaceActiveProvider()).toBe('official-mcp');
+
+      await service.switchWorkspace('D:/repo/B');
+      expect(appState.thothActiveTab()).toBe('cron');
+      expect(appState.marketplaceActiveProvider()).toBeNull();
     });
   });
 
