@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Submodule paths surface as the generic "unknown" git-read error code

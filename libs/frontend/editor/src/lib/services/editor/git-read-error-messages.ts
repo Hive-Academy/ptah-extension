@@ -23,6 +23,9 @@ export const GIT_READ_ERROR_MESSAGES: Readonly<
     'Git was not found. Install git and make sure it is on your PATH.',
   timeout: 'Git took too long to respond. Try again.',
   'permission-denied': 'Permission denied while reading this file from git.',
+  'is-a-directory': 'This is a folder, not a file. There is nothing to diff.',
+  submodule:
+    'This is a submodule. Open its own repository to see the changes inside it.',
   unknown: 'Git could not read this file.',
 };
 

@@ -231,6 +231,10 @@ export interface GitShowFileResult {
  * Why a git read failed. Deliberately a closed set of machine-readable codes:
  * the backend never ships raw stderr to the client (A3 AC4, NFR-8), so the
  * frontend maps these to user-facing copy from its own string table.
+ *
+ * `is-a-directory` and `submodule` name the two paths that are not blobs at
+ * all. Both used to land on `unknown`, which told the user only that the read
+ * failed — never that the thing they clicked is not a file.
  */
 export type GitReadErrorCode =
   | 'not-a-repo'
@@ -239,6 +243,8 @@ export type GitReadErrorCode =
   | 'git-missing'
   | 'timeout'
   | 'permission-denied'
+  | 'is-a-directory'
+  | 'submodule'
   | 'unknown';
 
 /**

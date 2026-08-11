@@ -715,6 +715,75 @@ describe('GitInfoService.applyHunks (real git)', () => {
     expect(git(repo, 'diff', '--cached', '--no-color')).toBe(indexBefore);
   });
 
+  it('AC7: the pre-write offset guard restores too, so "nothing changed" is true of the FILE', async () => {
+    // The only way to reach guard 2 is an external write landing between the
+    // snapshot re-check and the `--check` dry run. `--check` writes nothing,
+    // which is why this branch used to return without restoring — but the
+    // *external* write is still there, and the reply claimed nothing had
+    // changed. (TASK_2026_219; the guard-2 half of batch-8c §3.)
+    const repo = makeRepo();
+    write(repo, 'f.txt', `${baseLines().join('\n')}\n`);
+    git(repo, 'add', 'f.txt');
+    git(repo, 'commit', '-qm', 'init');
+
+    const edited = baseLines();
+    edited[29] = 'L30-MOD';
+    write(repo, 'f.txt', `${edited.join('\n')}\n`);
+
+    const diff = await snapshot(repo, 'worktree');
+    expect(diff.hunks).toHaveLength(1);
+
+    const bytesTheUserSaw = readBytes(repo, 'f.txt');
+
+    // Shift the working tree five lines down at the instant of the dry run.
+    // The hunk's context is intact, so `git apply -R --check` still says yes —
+    // at an offset — which is exactly the case guard 2 refuses. `revert` is
+    // the operation whose pre-image is the working tree, so this is the shape
+    // an external editor save actually produces.
+    const seam = execGitSeam(service);
+    const original = seam.execGit.bind(service);
+    const spy = jest
+      .spyOn(seam, 'execGit')
+      .mockImplementation(async (args, cwd, options) => {
+        if (args[0] === 'apply' && args.includes('--check')) {
+          write(
+            repo,
+            'f.txt',
+            `${['X1', 'X2', 'X3', 'X4', 'X5', ...edited].join('\n')}\n`,
+          );
+        }
+        return original(args, cwd, options);
+      });
+
+    let result;
+    try {
+      result = await service.applyHunks(
+        repo,
+        {
+          path: 'f.txt',
+          comparison: 'worktree',
+          operation: 'revert',
+          hunkIndices: [0],
+          snapshotToken: diff.snapshotToken,
+        },
+        fileSystem,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    // Asserted unconditionally: if the sabotage ever stops producing an
+    // offset, this must fail rather than pass vacuously.
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('APPLY_FAILED');
+    expect(result.message).toContain('restored');
+    // The claim under test: the concurrent write is gone, not merely
+    // un-written-to. Before the fix the file still held the five extra lines
+    // while the reply said "Nothing was changed".
+    expect(readBytes(repo, 'f.txt')).toEqual(bytesTheUserSaw);
+    expect(git(repo, 'diff', '--cached', '--no-color')).toBe('');
+  });
+
   it('AC7: a patch git refuses leaves the repository byte-identical', async () => {
     const repo = repoWithThreeWorktreeHunks();
     const diff = await snapshot(repo, 'worktree');

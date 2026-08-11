@@ -131,6 +131,24 @@ export interface ApplyHunksRequest extends DiffFileRequest {
   snapshotToken: string;
 }
 
+/**
+ * **Every method on this service assumes `workspacePath` is the git repository
+ * top level.** It is not merely the process cwd for the subprocess: `readBlob`
+ * addresses objects with root-relative `rev:path` specs, `readWorktreeBlob`
+ * joins `workspacePath + path`, and `applyHunks` hands `git apply` a patch
+ * whose `a/`…`b/` names `git diff` emitted relative to the top level.
+ *
+ * Opening a **subdirectory** of a repository as the workspace folder is
+ * therefore unsupported. It fails safely rather than corrupting: `git diff`
+ * still emits root-relative paths while `git apply` resolves them against cwd,
+ * so the patch simply does not apply and the guards in {@link
+ * GitInfoService.applyHunks} refuse before writing. Undocumented, that safe
+ * failure reads as a bug to whoever hits it — hence this note.
+ *
+ * Removing the assumption (rather than stating it) means resolving the top
+ * level once via `git rev-parse --show-toplevel` and using it as the cwd for
+ * every invocation. That is a larger change and is deliberately not made here.
+ */
 export class GitInfoService {
   constructor(private readonly logger: Logger) {}
 
@@ -542,8 +560,12 @@ export class GitInfoService {
    * ```
    * git show <rev>:<path>
    *   exit 0    -> 'content' (or 'binary' when the bytes contain NUL)
-   *   exit != 0 -> git rev-parse --verify --quiet <rev>:<path>
-   *                  exit 0     -> 'error' (object resolves, show failed)
+   *   exit 128  -> git rev-parse --verify --quiet <rev>:<path>
+   *                  exit 0     -> 'error'/'submodule' (a gitlink: the spec
+   *                                resolves, but to a commit, not a blob)
+   *                  exit 1     -> 'absent'
+   *                  otherwise  -> 'error', classified by pre-flight probes
+   *   other     -> git rev-parse --verify --quiet <rev>:<path>
    *                  exit 1     -> 'absent'
    *                  otherwise  -> 'error', classified by pre-flight probes
    * ```
@@ -580,6 +602,16 @@ export class GitInfoService {
 
       if (probe.exitCode === 1) {
         return { outcome: 'absent' };
+      }
+
+      // A gitlink. `git show` exits 128 because the entry resolves to a commit
+      // object rather than a blob, while `rev-parse --verify` on the very same
+      // spec exits 0 because that commit is a perfectly good object. That pair
+      // is what separates a submodule from a missing or unreadable blob, and
+      // the ladder already has both halves — no extra spawn, no message
+      // sniffing.
+      if (show.exitCode === 128 && probe.exitCode === 0) {
+        return this.gitReadError('submodule', relativePath);
       }
 
       // Raw stderr and the absolute workspace path stay in the log; only a
@@ -897,8 +929,10 @@ export class GitInfoService {
    * | `worktree` | `revert`  | `git apply -R -`          |
    * | `staged`   | `unstage` | `git apply --cached -R -` |
    *
-   * Every refusal below happens before anything is written, and the two
-   * post-write failure paths restore the pre-operation state (AC7).
+   * Every refusal below happens before the user's selection is written, and
+   * every failure path from the restore point onwards puts the pre-operation
+   * state back (AC7) — including the pre-write offset guard, which is only
+   * reachable when someone else wrote to the repository in the meantime.
    */
   async applyHunks(
     workspacePath: string,
@@ -1085,9 +1119,22 @@ export class GitInfoService {
       // exactly that case (reproduced against git 2.54.0). With the snapshot
       // token verified above, a non-zero offset is impossible; if one appears
       // anyway, an invariant has broken and the only safe move is to refuse
-      // while nothing has been written yet.
+      // before writing the user's selection.
+      //
+      // `--check` is a dry run, so *this service* has written nothing — but the
+      // only way to reach here is an external write landing between the token
+      // match and the dry run, and that write is still on disk. Restoring is
+      // what makes the message below true about the FILE and not merely about
+      // our own actions; guard 3 below has always done the same.
       const checkOffsets = this.parseApplyOffsets(check.stderr);
       if (checkOffsets.some((offset) => offset !== 0)) {
+        const restored = await this.restoreAfterFailedApply(
+          workspacePath,
+          worktreeFile,
+          indexRestoreTree,
+          worktreeRestoreBytes,
+          fileSystem,
+        );
         this.logger.error(
           '[GitInfoService] applyHunks refused an offset match',
           {
@@ -1097,11 +1144,14 @@ export class GitInfoService {
             operation,
             offsets: checkOffsets,
             stderr: check.stderr,
+            restored,
           },
         );
         return this.applyFailure(
           'APPLY_FAILED',
-          'The selected changes no longer line up with this file. Nothing was changed.',
+          restored
+            ? 'The selected changes no longer line up with this file. The previous state was restored.'
+            : 'The selected changes no longer line up with this file, and restoring the previous state also failed. Check the repository before continuing.',
         );
       }
 
@@ -1419,6 +1469,13 @@ export class GitInfoService {
     if (!(error instanceof Error)) return 'unknown';
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return 'git-missing';
+    // An untracked *directory* row is clickable in Source Control, and its
+    // worktree side reads the directory itself. Node answers `EISDIR`; the VS
+    // Code file-system port answers `FileIsADirectory` for the same thing.
+    // Without this the row reports only that the read failed, never why.
+    if (code === 'EISDIR' || code === 'FileIsADirectory') {
+      return 'is-a-directory';
+    }
     if (code === 'EACCES' || code === 'EPERM') return 'permission-denied';
     if (/timed out after \d+ms/.test(error.message)) return 'timeout';
     return 'unknown';

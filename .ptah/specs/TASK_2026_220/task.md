@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   applyHunks inherits the undocumented service-wide assumption that

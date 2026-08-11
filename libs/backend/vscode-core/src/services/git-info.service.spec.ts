@@ -25,6 +25,10 @@
  *   diffFile      — snapshotToken is stable per snapshot, differs per content
  *   parseFileStatus — origPath from the type-2 post-tab segment (N3)
  *
+ * TASK_2026_204 / TASK_2026_205 additions:
+ *   readBlob      — a gitlink classifies as `submodule`, not `unknown`
+ *   diffFile      — a directory read classifies as `is-a-directory`
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -578,6 +582,41 @@ describe('GitInfoService.readBlob()', () => {
     }
   });
 
+  it('classifies a gitlink as error/submodule rather than the generic unknown', async () => {
+    // The exact pair the ladder already had: `git show` refuses (128) because
+    // the entry is a commit reference, while `rev-parse --verify` on the same
+    // spec succeeds (0) because that commit is a perfectly good object.
+    const { calls } = queueSpawn([
+      { exitCode: 128, stderr: 'fatal: bad object HEAD:vendor/sub\n' },
+      { stdout: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0\n', exitCode: 0 },
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'vendor/sub');
+
+    expect(result.outcome).toBe('error');
+    if (result.outcome === 'error') {
+      expect(result.code).toBe('submodule');
+    }
+    // No pre-flight probes: the signal was already in hand, so classifying it
+    // must not cost the extra spawns the `unknown` path pays.
+    expect(calls).toHaveLength(2);
+  });
+
+  it('still falls through to the pre-flight probes when show failed for a reason other than 128', async () => {
+    queueSpawn([
+      { exitCode: 129 }, // show
+      { stdout: 'sha\n', exitCode: 0 }, // rev-parse <spec> resolves
+      { exitCode: 128 }, // rev-parse --is-inside-work-tree
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'src/a.ts');
+
+    expect(result.outcome).toBe('error');
+    if (result.outcome === 'error') {
+      expect(result.code).toBe('not-a-repo');
+    }
+  });
+
   it('never leaks stderr or an absolute path into the client-facing message', async () => {
     queueSpawn([
       { exitCode: 128, stderr: 'fatal: /fake/workspace/.git is corrupt\n' },
@@ -781,6 +820,41 @@ describe('GitInfoService.diffFile()', () => {
     expect(result.modifiedRef).toEqual({ kind: 'absent' });
     expect(reader.readFileBytes).not.toHaveBeenCalled();
   });
+
+  // An untracked *directory* row is clickable in Source Control, so this
+  // request really does reach the service. Its worktree side reads the
+  // directory itself: node answers `EISDIR`, the VS Code file-system port
+  // answers `FileIsADirectory`, and both used to land on `unknown`.
+  it.each([['EISDIR'], ['FileIsADirectory']])(
+    'classifies a directory read (%s) as error/is-a-directory',
+    async (errnoCode) => {
+      queueSpawn([
+        { exitCode: 128 }, // show :path
+        { exitCode: 1 }, // rev-parse <spec> => absent from the index
+      ]);
+      const reader = {
+        exists: jest.fn(async () => true),
+        readFileBytes: jest.fn(async () => {
+          throw Object.assign(new Error('illegal operation on a directory'), {
+            code: errnoCode,
+          });
+        }),
+      };
+
+      const result = await service.diffFile(
+        WS,
+        { path: 'src/some-dir', comparison: 'worktree' },
+        reader,
+      );
+
+      expect(result.original).toEqual({ outcome: 'absent' });
+      expect(result.modified.outcome).toBe('error');
+      if (result.modified.outcome === 'error') {
+        expect(result.modified.code).toBe('is-a-directory');
+        expect(result.modified.message).not.toContain(WS);
+      }
+    },
+  );
 
   it('detects a binary worktree file by its NUL bytes', async () => {
     queueSpawn([{ exitCode: 128 }, { exitCode: 1 }]);
