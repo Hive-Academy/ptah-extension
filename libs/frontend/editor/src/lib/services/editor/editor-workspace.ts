@@ -62,6 +62,16 @@ export class EditorWorkspaceHelper {
       refreshDiffTabsForFile(absolutePath: string): void;
       /** Close the split pane (used when the removed workspace was active). */
       closeSplit(): void;
+      /**
+       * Forget a recorded split-pane divergence (TASK_2026_214).
+       *
+       * A workspace switch is a reconciliation: the restore below derives BOTH
+       * pane surfaces from the tab record, so the two panes are identical the
+       * moment they come back. It is also a change of subject — the latch is
+       * not workspace-partitioned, so a divergence recorded in one workspace
+       * must not be allowed to describe another workspace's split.
+       */
+      clearSplitDiverged(): void;
     },
   ) {}
 
@@ -82,6 +92,9 @@ export class EditorWorkspaceHelper {
     }
     this.saveCurrentWorkspaceState();
     this.state.setActiveWorkspacePath(workspacePath);
+    // Before either branch: both of them rebuild the split from scratch, and
+    // neither can inherit the outgoing workspace's disagreement (TASK_2026_214).
+    this.callbacks.clearSplitDiverged();
     const cachedState = this.state.workspaceEditorState.get(workspacePath);
     if (cachedState) {
       this.state.fileTree.set(cachedState.fileTree);

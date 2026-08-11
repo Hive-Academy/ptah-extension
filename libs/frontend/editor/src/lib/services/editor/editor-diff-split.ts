@@ -1,3 +1,4 @@
+import { computed, signal, type Signal } from '@angular/core';
 import { rpcCall } from '@ptah-extension/core';
 import type {
   GitApplyHunksParams,
@@ -391,6 +392,12 @@ export class EditorDiffSplitHelper {
    * strip that the user never asked for.
    */
   public async openFileInSplit(filePath: string): Promise<void> {
+    // A fresh split cannot be carrying an older split's disagreement. Both
+    // branches below give the right pane either the tab record's own content or
+    // a straight read from disk, so the two panes agree on the first frame —
+    // and a latch that outlived the split it described would light the chip on
+    // that frame (TASK_2026_214).
+    this.clearSplitDiverged();
     this.state.splitFilePath.set(filePath);
     this.state.splitActive.set(true);
 
@@ -419,6 +426,11 @@ export class EditorDiffSplitHelper {
   /** Close the split pane and return focus to the left pane. */
   public closeSplit(): void {
     this.cancelPendingMirror();
+    // The absorb below IS the reconciliation: the surviving pane ends up on the
+    // tab record and the pane that held the other version is gone. Nothing is
+    // left to disagree (TASK_2026_214). This route also carries the tab-close
+    // and workspace-switch callbacks, which never reach the panel component.
+    this.clearSplitDiverged();
     // Absorb any split-pane edit the left pane has not seen yet BEFORE the
     // split state is torn down: once `splitFilePath` is gone the shared-file
     // gate can no longer route it anywhere, and the left pane would be left
@@ -536,6 +548,72 @@ export class EditorDiffSplitHelper {
     return shared.content !== content;
   }
 
+  // -------------------------------------------------------------------------
+  // Knowingly-diverged panes (TASK_2026_214)
+  // -------------------------------------------------------------------------
+
+  /**
+   * The file a save-conflict Cancel left the two panes knowingly disagreeing
+   * about, or `null`.
+   *
+   * A LATCH, and deliberately nothing more than a file path. It was originally
+   * a `{ filePath, content }` pair held by the panel component, where `content`
+   * was the declined text frozen at the moment of Cancel and the predicate was
+   * `hasUnabsorbedPeerEdit(filePath, frozenContent)`. That string is never
+   * invalidated by anything that actually RESOLVES the divergence — a focus
+   * change reconciles both panes onto the tab record without touching either
+   * operand — so the chip stayed lit after the panes had agreed again, and lit
+   * up on the first frame of a re-opened split where the two panes were
+   * byte-identical by construction. It degenerated into a second dirty dot,
+   * which is the exact ambiguity the chip was added to remove.
+   *
+   * It lives here rather than in the panel because reconciliation is decided
+   * here. Three of the routes that resolve a divergence — a tab close and a
+   * workspace switch, both of which reach {@link closeSplit} through
+   * `EditorTabsHelper` / `EditorWorkspaceHelper` callbacks — never pass through
+   * the panel component at all, so a latch cleared from the panel would have
+   * survived them.
+   */
+  private readonly divergedFile = signal<string | null>(null);
+
+  /**
+   * Whether the split panes are knowingly holding different text.
+   *
+   * Latch AND live predicate, both required. The latch alone would never clear;
+   * the live half alone is true for the whole mirror-debounce window after any
+   * keystroke in the other pane, so a chip on it would blink on every
+   * character. Together they say the narrow, useful thing: you were asked, you
+   * chose to keep both versions, and nothing has reconciled them since.
+   *
+   * The live half is `sharedSplitTab()` — so it falls false the moment the
+   * split closes, either pane moves to another file, or the tab record goes
+   * clean (a clean record holds the persisted text, so there is no unabsorbed
+   * peer edit left to disagree about). Being a `computed` over those signals is
+   * what makes that automatic rather than another thing to remember.
+   */
+  public readonly splitPanesDiverged: Signal<boolean> = computed(() => {
+    const file = this.divergedFile();
+    if (!file) return false;
+    const shared = this.sharedSplitTab();
+    return shared !== null && shared.filePath === file && shared.isDirty;
+  });
+
+  /** Record that a Cancel left `filePath` disagreeing across the two panes. */
+  public markSplitDiverged(filePath: string): void {
+    this.divergedFile.set(filePath);
+  }
+
+  /**
+   * Forget a recorded divergence.
+   *
+   * Called from every route that reconciles the panes — and from the panel when
+   * the user answers a later conflict with Overwrite, which resolves the
+   * question the latch was standing for.
+   */
+  public clearSplitDiverged(): void {
+    this.divergedFile.set(null);
+  }
+
   /**
    * The open tab both panes are looking at, or `null`.
    *
@@ -565,6 +643,12 @@ export class EditorDiffSplitHelper {
 
   /** Bring both panes onto the tab record's content. */
   private reconcilePanesToTabRecord(): void {
+    // Unconditional, and BEFORE the shared-tab gate: this method is the whole
+    // of what a focus change does about divergence, so a latch that survived it
+    // would keep the chip lit over two panes that now hold identical text and
+    // a save path that would no longer prompt (TASK_2026_214). The gate below
+    // is about which signals to write, not about whether the panes reconciled.
+    this.clearSplitDiverged();
     const shared = this.sharedSplitTab();
     if (!shared) return;
     this.setLeftPaneContent(shared.filePath, shared.content);

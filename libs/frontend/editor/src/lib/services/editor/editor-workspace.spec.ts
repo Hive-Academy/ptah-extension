@@ -121,22 +121,26 @@ function makeHelper(opts?: {
   handleFileContentChanged?: jest.Mock;
   refreshDiffTabsForFile?: jest.Mock;
   closeSplit?: jest.Mock;
+  clearSplitDiverged?: jest.Mock;
 }): {
   helper: EditorWorkspaceHelper;
   ctx: ReturnType<typeof makeState>;
   handleFileContentChanged: jest.Mock;
   refreshDiffTabsForFile: jest.Mock;
   closeSplit: jest.Mock;
+  clearSplitDiverged: jest.Mock;
 } {
   const ctx = makeState();
   const handleFileContentChanged =
     opts?.handleFileContentChanged ?? jest.fn().mockResolvedValue(undefined);
   const refreshDiffTabsForFile = opts?.refreshDiffTabsForFile ?? jest.fn();
   const closeSplit = opts?.closeSplit ?? jest.fn();
+  const clearSplitDiverged = opts?.clearSplitDiverged ?? jest.fn();
   const helper = new EditorWorkspaceHelper(ctx.state, {
     handleFileContentChanged,
     refreshDiffTabsForFile,
     closeSplit,
+    clearSplitDiverged,
   });
   return {
     helper,
@@ -144,6 +148,7 @@ function makeHelper(opts?: {
     handleFileContentChanged,
     refreshDiffTabsForFile,
     closeSplit,
+    clearSplitDiverged,
   };
 }
 
@@ -763,6 +768,28 @@ describe('EditorWorkspaceHelper.switchWorkspace — panes restore from the tab r
 
     expect(ctx.state.activeFileContent()).toBe('v1 split edit');
     expect(ctx.state.splitFileContent()).toBe('v1 split edit');
+  });
+
+  it('(214) forgets a recorded split-pane divergence, in BOTH branches', () => {
+    // The restore above is a reconciliation — it derives both pane surfaces
+    // from the tab record, so the panes are identical the moment they come
+    // back — and it reaches neither `closeSplit` nor `openFileInSplit`, the two
+    // places `EditorDiffSplitHelper` clears its own latch. Without this call a
+    // Cancel in one workspace kept the "Diverged" chip lit after a round trip
+    // that had already resolved it, and could light it over a DIFFERENT
+    // workspace's split on the same path.
+    const { helper, ctx, clearSplitDiverged } = makeHelper();
+    ctx.workspaceMap.set('/away', {
+      fileTree: [],
+      activeFilePath: undefined,
+      activeFileContent: '',
+      openTabs: [] as never,
+    });
+
+    helper.switchWorkspace('/away'); // cached branch
+    helper.switchWorkspace('/never-seen'); // first-seen branch
+
+    expect(clearSplitDiverged).toHaveBeenCalledTimes(2);
   });
 });
 

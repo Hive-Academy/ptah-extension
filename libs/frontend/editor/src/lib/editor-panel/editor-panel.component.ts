@@ -92,7 +92,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
         <!-- Left: View controls -->
         <div class="flex items-center gap-0.5">
           <button
-            class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
+            class="btn btn-ghost btn-xs px-2 text-base-content-muted hover:text-base-content"
             [class.text-primary]="sidebarVisible()"
             [title]="sidebarVisible() ? 'Hide sidebar' : 'Show sidebar'"
             aria-label="Toggle sidebar"
@@ -113,7 +113,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
             [class]="
               vimModeService.enabled()
                 ? 'bg-primary/15 text-primary'
-                : 'text-base-content/30 hover:text-base-content/50 hover:bg-base-content/5'
+                : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
             "
             [title]="
               vimModeService.enabled() ? 'Disable Vim mode' : 'Enable Vim mode'
@@ -125,7 +125,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
           </button>
 
           <button
-            class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
+            class="btn btn-ghost btn-xs px-2 text-base-content-muted hover:text-base-content"
             [class.text-primary]="editorService.splitActive()"
             [disabled]="!editorService.hasActiveFile()"
             title="Split editor"
@@ -136,7 +136,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
           </button>
 
           <button
-            class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
+            class="btn btn-ghost btn-xs px-2 text-base-content-muted hover:text-base-content"
             data-testid="editor-terminal-toggle"
             [class.text-primary]="editorService.terminalVisible()"
             [title]="
@@ -229,7 +229,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                       [ngClass]="
                         tab.filePath === editorService.activeFilePath()
                           ? 'bg-base-100 text-base-content'
-                          : 'bg-transparent text-base-content/50 hover:text-base-content/70 hover:bg-base-200/50'
+                          : 'bg-transparent text-base-content-muted hover:text-base-content hover:bg-base-200/50'
                       "
                       role="presentation"
                     >
@@ -389,7 +389,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   class="flex items-center bg-base-300/50 border-b border-base-content/5 flex-shrink-0 px-3 py-1.5"
                 >
                   <span
-                    class="text-xs text-base-content/60 truncate"
+                    class="text-xs text-base-content-muted truncate"
                     [attr.title]="editorService.splitFilePath()"
                     >{{ splitFileName() }}</span
                   >
@@ -536,7 +536,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
             </h3>
             <p
               id="ptah-delete-confirm-desc"
-              class="py-3 text-sm text-base-content/70"
+              class="py-3 text-sm text-base-content-muted"
             >
               @if (deleteTarget()!.type === 'directory') {
                 This will permanently delete the folder and all its contents.
@@ -681,7 +681,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
             </h3>
             <p
               id="ptah-save-conflict-desc"
-              class="py-3 text-sm text-base-content/70"
+              class="py-3 text-sm text-base-content-muted"
             >
               {{ saveConflictFileName() }} has unsaved changes made in the other
               split pane. Saving now writes what this pane shows and discards
@@ -1113,7 +1113,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     if (!conflict) return;
     // Answering the question resolves the disagreement, so the record of a
     // previous Cancel on this file stops meaning anything (TASK_2026_214).
-    this.cancelledConflict.set(null);
+    this.editorService.clearSplitDiverged();
     this.closeSaveConflict();
     // The tab record OWNS content, so it has to end up holding what was
     // actually written — otherwise the text the user just chose to discard
@@ -1123,47 +1123,23 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * The save a Cancel walked away from, kept so the panes can SAY they
-   * disagree (TASK_2026_214).
+   * Whether the split panes are knowingly holding different text
+   * (TASK_2026_214) — read straight off the split helper, which owns both the
+   * latch and every route that clears it.
    *
-   * `content` is the text of the pane that tried to save — the side of the
-   * disagreement the tab record does not hold. Keeping it here rather than
-   * re-deriving the pane's live text is deliberate: TASK_2026_213 made
-   * `splitFileContent` a deliberately stale read surface, so it is no longer
-   * an answer to "what does the right pane actually show", and the register's
-   * proposed `hasUnabsorbedPeerEdit(splitFilePath(), splitFileContent())`
-   * would light the chip on every ordinary keystroke instead.
+   * This used to be a component-local `{ filePath, content }` record of the
+   * declined save, compared against the tab record. That comparison could not
+   * be right: the declined `content` was frozen at the moment of Cancel, and
+   * the things that actually RESOLVE a divergence — a focus change, a split
+   * close, a re-open — reconcile the panes without moving either operand, so
+   * the chip stayed lit over two panes that had agreed again. Three of those
+   * routes (tab close, workspace switch, and the `EditorTabsHelper` callback
+   * behind them) never pass through this component at all, which is why the
+   * latch had to move rather than just gain a `set(null)` here.
    */
-  private readonly cancelledConflict = signal<{
-    filePath: string;
-    content: string;
-  } | null>(null);
-
-  /**
-   * Whether the split panes are knowingly holding different text.
-   *
-   * Gated on a cancelled conflict rather than on the raw predicate, because
-   * the raw predicate is also briefly true during ordinary typing — an edit in
-   * one pane reaches the tab record immediately and the other pane only after
-   * the mirror debounce, so a chip on the bare predicate would blink on every
-   * keystroke in the other pane. This says the narrower and more useful thing:
-   * you were asked, you chose to keep both versions, and nothing has
-   * reconciled them since.
-   *
-   * Self-clearing. It re-evaluates the same predicate the save path uses, so
-   * the moment a focus change reconciles the panes, or the tab record comes to
-   * hold the declined text, or the file goes clean, the chip goes away without
-   * anyone having to remember to clear it.
-   */
-  protected readonly splitPaneDiverged = computed(() => {
-    const cancelled = this.cancelledConflict();
-    if (!cancelled) return false;
-    if (this.editorService.splitFilePath() !== cancelled.filePath) return false;
-    return this.editorService.hasUnabsorbedPeerEdit(
-      cancelled.filePath,
-      cancelled.content,
-    );
-  });
+  protected readonly splitPaneDiverged = computed(() =>
+    this.editorService.splitPanesDiverged(),
+  );
 
   /**
    * Abort the save. Nothing is written and no tab state changes: the other
@@ -1176,7 +1152,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * show it (TASK_2026_214).
    */
   protected cancelSaveConflict(): void {
-    this.cancelledConflict.set(this.saveConflict());
+    const conflict = this.saveConflict();
+    if (conflict) this.editorService.markSplitDiverged(conflict.filePath);
     this.closeSaveConflict();
   }
 

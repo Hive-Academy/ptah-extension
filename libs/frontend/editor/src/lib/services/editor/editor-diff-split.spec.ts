@@ -1039,6 +1039,164 @@ describe('EditorDiffSplitHelper.hasUnabsorbedPeerEdit (C2 AC2/AC3)', () => {
 });
 
 // ============================================================================
+// TASK_2026_214 — "Diverged", and the four ways it has to stop being true.
+//
+// The chip started life in the panel component as a `{ filePath, content }`
+// record of the declined save, tested against `hasUnabsorbedPeerEdit(filePath,
+// frozenContent)`. `frozenContent` was the saving pane's text AT THE MOMENT OF
+// CANCEL and nothing ever invalidated it, so:
+//
+//   - a focus change reconciled both panes onto the tab record — the save path
+//     would no longer prompt from either pane — and the chip stayed lit, now
+//     claiming an absorption failure that had already been absorbed;
+//   - closing and re-opening the split lit it on the FIRST FRAME, over two
+//     panes `openFileInSplit` had just seeded from the same tab record.
+//
+// After one Cancel it therefore degenerated into a permanent second dirty
+// indicator: precisely the ambiguity it was added to remove.
+//
+// The latch lives here now because reconciliation is decided here, and because
+// two of the four routes that resolve a divergence (a tab close, a workspace
+// switch) never reach the panel component at all. Every test below drives the
+// REAL predicate against real tab records — the panel-level spec can only ever
+// assert that the component renders this signal.
+// ============================================================================
+describe('EditorDiffSplitHelper — knowingly diverged panes (TASK_2026_214)', () => {
+  /**
+   * The state a Cancel leaves behind: the left pane's edit is in the tab
+   * record and dirty, the right pane still shows the pre-edit text it tried to
+   * save, and the save path says so.
+   */
+  function cancelledConflict(
+    ctx: ReturnType<typeof makeState>,
+    helper: EditorDiffSplitHelper,
+  ): void {
+    shareFileInBothPanes(ctx, '/ws/a.ts', 'orig');
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L', true)]);
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'orig')).toBe(true);
+    helper.markSplitDiverged('/ws/a.ts');
+  }
+
+  it('(214-h1) says nothing until a Cancel actually records one', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx, '/ws/a.ts', 'orig');
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L', true)]);
+
+    // The raw predicate is TRUE here — it is true for the whole mirror-debounce
+    // window after any keystroke in the other pane, which is most of the time
+    // somebody is typing. The chip must not be.
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'orig')).toBe(true);
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h2) is TRUE after a Cancel, while the record is still dirty', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    expect(helper.splitPanesDiverged()).toBe(true);
+  });
+
+  it('(214-h3) a focus change clears it — the panes now hold the SAME text', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // Scenario A. Clicking into either pane runs the reconcile, which is the
+    // whole of what a focus change does about a divergence.
+    helper.setFocusedPane('right');
+
+    // Both panes are on the tab record now, so a save from EITHER of them
+    // carries the record and would not prompt...
+    expect(ctx.state.activeFileContent()).toBe('L');
+    expect(ctx.state.splitFileContent()).toBe('L');
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'L')).toBe(false);
+    // ...so there is nothing left for the chip to be describing.
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h4) a re-opened split does not inherit the old disagreement', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // Scenario B, isolated to the re-open leg: no closeSplit in between, so
+    // this is `openFileInSplit`'s clear and nothing else.
+    return helper.openFileInSplit('/ws/a.ts').then(() => {
+      // Seeded straight from the tab record, so the two panes are byte-
+      // identical on the very first frame.
+      expect(ctx.state.splitFileContent()).toBe('L');
+      expect(helper.splitPanesDiverged()).toBe(false);
+    });
+  });
+
+  it('(214-h5) Scenario B end to end: close the split, keep editing, re-open', async () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // Closing hides the chip because there is no split — but the record of the
+    // Cancel used to survive it.
+    helper.closeSplit();
+    expect(helper.splitPanesDiverged()).toBe(false);
+
+    // The user keeps typing in the left pane; the file is still dirty.
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L2', true)]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    await helper.openFileInSplit('/ws/a.ts');
+
+    expect(ctx.state.splitFileContent()).toBe('L2');
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h6) a workspace round trip clears it — the restore rebuilds both panes', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // `EditorWorkspaceHelper.switchWorkspace` derives BOTH pane surfaces from
+    // the tab record on the way back in, and calls this on the way through.
+    // It reaches neither closeSplit nor openFileInSplit, which is why the
+    // clear cannot live only in those two.
+    helper.clearSplitDiverged();
+
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h7) falls false on its own once the file goes clean', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // A clean record holds the persisted text, so there is no unabsorbed peer
+    // edit left to disagree about.
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L', false)]);
+
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h8) does not follow the split pane to a different file', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    ctx.state.splitFilePath.set('/ws/other.ts');
+
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h9) the debounced mirror does NOT clear it — only one pane moved', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+    // Right pane focused: it is the one that tried to save and was refused.
+    ctx.state.focusedPane.set('right');
+
+    helper.scheduleSplitMirror('/ws/a.ts');
+    jest.advanceTimersByTime(MIRROR_MS);
+
+    // The mirror wrote the record into the LEFT (unfocused) pane. The right
+    // pane still holds the text the user declined to overwrite, so the panes
+    // still disagree and the chip has to keep saying so.
+    expect(ctx.state.activeFileContent()).toBe('L');
+    expect(ctx.state.splitFileContent()).toBe('orig');
+    expect(helper.splitPanesDiverged()).toBe(true);
+  });
+});
+
+// ============================================================================
 // D2 — hunk stage / unstage / revert (Batch 8, task 8.6)
 //
 // The property under test throughout is the CLIENT-SIDE half of AC6. The

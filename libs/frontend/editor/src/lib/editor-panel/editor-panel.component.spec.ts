@@ -216,6 +216,15 @@ function makeEditorServiceStub() {
   const isLoading = signal(false);
   const splitActive = signal(false);
   const focusedPane = signal<'left' | 'right'>('left');
+  /**
+   * The TASK_2026_214 latch, faithful to `EditorDiffSplitHelper`: a signal the
+   * mark/clear pair actually moves. A `jest.fn()` that changed nothing would
+   * make every chip assertion below vacuous — which is exactly how the first
+   * version of this feature shipped broken. The live half of the predicate
+   * (the panes agreeing again) is not stubbable and is not stubbed: it is
+   * driven against real tab records in `editor-diff-split.spec.ts`.
+   */
+  const splitPanesDiverged = signal(false);
   return {
     isLoading,
     activeFilePath,
@@ -253,6 +262,11 @@ function makeEditorServiceStub() {
     updateTabContent: jest.fn(),
     updateSplitContent: jest.fn(),
     hasUnabsorbedPeerEdit: jest.fn(() => false),
+    splitPanesDiverged,
+    markSplitDiverged: jest.fn((_filePath: string) =>
+      splitPanesDiverged.set(true),
+    ),
+    clearSplitDiverged: jest.fn(() => splitPanesDiverged.set(false)),
     // File-ops seam behind the delete-confirm / name-input dialogs (TASK_2026_216).
     deleteItem: jest.fn(() => Promise.resolve()),
     createFile: jest.fn(() => Promise.resolve()),
@@ -282,6 +296,9 @@ function makeEditorServiceStub() {
     setFocusedPane: jest.Mock;
     closeSplit: jest.Mock;
     hasUnabsorbedPeerEdit: jest.Mock;
+    splitPanesDiverged: ReturnType<typeof signal<boolean>>;
+    markSplitDiverged: jest.Mock;
+    clearSplitDiverged: jest.Mock;
     deleteItem: jest.Mock;
     createFile: jest.Mock;
     createFolder: jest.Mock;
@@ -2811,6 +2828,16 @@ describe('EditorPanelComponent — closing the split (TASK_2026_212)', () => {
 // whole mirror-debounce window after any keystroke in the other pane. The chip
 // is gated on a cancelled conflict instead, which is both the narrower thing
 // and the thing that was actually filed.
+//
+// WHERE THE LOGIC LIVES. The first version of this block kept the cancelled
+// conflict in the component and compared the tab record against the text
+// frozen at Cancel — a string nothing invalidated, so the chip outlived every
+// reconciliation. The latch moved to `EditorDiffSplitHelper`, which owns the
+// four routes that bring both panes back onto the tab record (focus change,
+// split close, split re-open, workspace switch); two of them never pass
+// through this component at all. `editor-diff-split.spec.ts` drives that
+// predicate against real tab records. What is left HERE is the seam: Cancel
+// records, Overwrite forgets, and the chip renders whatever the helper says.
 // ---------------------------------------------------------------------------
 describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => {
   let fixture: ComponentFixture<EditorPanelComponent>;
@@ -2957,17 +2984,16 @@ describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => 
     expect(editor.saveFile).toHaveBeenCalledWith('/ws/a.ts', 'this pane text');
   });
 
-  it('(214-5) clears itself once the panes reconcile — no explicit teardown to forget', async () => {
+  it('(214-5) Cancel records the divergence against the file that was saved', async () => {
     shareFileInBothPanes();
+
     await conflictThen('Cancel');
-    expect(chip()).toBeTruthy();
 
-    // What a focus change does: both panes brought onto the tab record, so the
-    // save path would no longer prompt either.
-    peerEditUnabsorbed.set(false);
-    fixture.detectChanges();
-
-    expect(chip()).toBeNull();
+    // The FILE, not the declined text. The text was the defect: frozen at
+    // Cancel, compared forever, and never invalidated by anything that
+    // actually reconciled the two panes.
+    expect(editor.markSplitDiverged).toHaveBeenCalledWith('/ws/a.ts');
+    expect(editor.markSplitDiverged).toHaveBeenCalledTimes(1);
   });
 
   it('(214-7) answering a LATER conflict with Overwrite clears an earlier Cancel', async () => {
@@ -2977,20 +3003,23 @@ describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => 
 
     // The predicate is unchanged by Cancel, so the next save re-prompts — and
     // this time the user overwrites. In production the tab record then goes
-    // clean and the predicate falls false on its own; the explicit clear is
+    // clean and the helper's own predicate falls false; the explicit clear is
     // what makes that independent of the predicate.
     await conflictThen('Overwrite');
 
+    expect(editor.clearSplitDiverged).toHaveBeenCalled();
     expect(peerEditUnabsorbed()).toBe(true);
     expect(chip()).toBeNull();
   });
 
-  it('(214-6) does not follow the split pane to a different file', async () => {
+  it('(214-6) the chip follows the helper, which owns every route that clears it', async () => {
     shareFileInBothPanes();
     await conflictThen('Cancel');
     expect(chip()).toBeTruthy();
 
-    editor.splitFilePath.set('/ws/other.ts');
+    // A focus change, a split close, a re-open or a workspace switch — all four
+    // land here, and none of them is reachable from this component's state.
+    editor.splitPanesDiverged.set(false);
     fixture.detectChanges();
 
     expect(chip()).toBeNull();

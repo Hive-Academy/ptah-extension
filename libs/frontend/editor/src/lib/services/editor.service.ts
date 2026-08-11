@@ -4,6 +4,7 @@ import {
   signal,
   computed,
   DestroyRef,
+  type Signal,
 } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { VSCodeService } from '@ptah-extension/core';
@@ -178,6 +179,7 @@ export class EditorService implements MessageHandler {
       refreshDiffTabsForFile: (absolutePath: string): void =>
         this.diffSplitHelper.onFileContentChanged(absolutePath),
       closeSplit: (): void => this.diffSplitHelper.closeSplit(),
+      clearSplitDiverged: (): void => this.diffSplitHelper.clearSplitDiverged(),
     });
 
     // C1 AC3: nothing may stay pending past destruction. The panel already
@@ -356,6 +358,24 @@ export class EditorService implements MessageHandler {
    */
   hasUnabsorbedPeerEdit(filePath: string, content: string): boolean {
     return this.diffSplitHelper.hasUnabsorbedPeerEdit(filePath, content);
+  }
+
+  /**
+   * Whether the two split panes are knowingly holding different text — a
+   * save-conflict Cancel that nothing has reconciled since (TASK_2026_214).
+   */
+  get splitPanesDiverged(): Signal<boolean> {
+    return this.diffSplitHelper.splitPanesDiverged;
+  }
+
+  /** Record that a Cancel left `filePath` disagreeing across the two panes. */
+  markSplitDiverged(filePath: string): void {
+    this.diffSplitHelper.markSplitDiverged(filePath);
+  }
+
+  /** Forget a recorded divergence — the user answered the question. */
+  clearSplitDiverged(): void {
+    this.diffSplitHelper.clearSplitDiverged();
   }
 
   /** Mark a tab as clean (not dirty) after a successful save. */
