@@ -72,8 +72,6 @@
           "react",
           "ink-text-input",
           "ink-spinner",
-          "ink-gradient",
-          "ink-big-text",
           "react-devtools-core"
         ],
         "assets": []

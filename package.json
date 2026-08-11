@@ -157,8 +157,6 @@
     "gridstack": "^12.5.0",
     "helmet": "^8.1.0",
     "ink": "^7.0.0",
-    "ink-big-text": "^2.0.0",
-    "ink-gradient": "^4.0.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "jpeg-js": "^0.4.4",
