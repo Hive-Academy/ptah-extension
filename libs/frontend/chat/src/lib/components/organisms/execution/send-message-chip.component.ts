@@ -31,10 +31,10 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         class="w-3.5 h-3.5 shrink-0 text-info"
         aria-hidden="true"
       />
-      <span class="text-xs font-semibold text-base-content/80 shrink-0">
+      <span class="text-xs font-semibold text-base-content-muted shrink-0">
         Message
       </span>
-      <span class="text-xs text-base-content/40 shrink-0">&rarr;</span>
+      <span class="text-xs text-base-content-muted shrink-0">&rarr;</span>
       <span
         class="text-xs font-medium text-info truncate shrink-0 max-w-[8rem]"
         [title]="recipient()"
@@ -43,7 +43,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       </span>
       @if (preview(); as p) {
         <span
-          class="text-[11px] text-base-content/50 truncate min-w-0"
+          class="text-[11px] text-base-content-muted truncate min-w-0"
           [title]="p"
         >
           {{ p }}

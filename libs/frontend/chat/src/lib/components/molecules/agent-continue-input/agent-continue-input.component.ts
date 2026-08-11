@@ -22,7 +22,7 @@ import {
       <div
         class="flex flex-col gap-1.5 border-t border-base-content/10 px-2.5 py-2"
       >
-        <span class="text-[11px] font-medium text-base-content/50">
+        <span class="text-[11px] font-medium text-base-content-muted">
           {{ subtitle() }}
         </span>
         <div class="flex items-end gap-1.5">

@@ -113,7 +113,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
         <!-- Expand/Collapse chevron -->
         <lucide-angular
           [img]="isCollapsed() ? ChevronRightIcon : ChevronDownIcon"
-          class="w-3.5 h-3.5 text-base-content/50 flex-shrink-0"
+          class="w-3.5 h-3.5 text-base-content-muted flex-shrink-0"
         />
 
         <!-- Colored avatar -->
@@ -128,12 +128,12 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
 
         <!-- Agent type + description (inline only when expanded) -->
         <div class="flex-1 min-w-0 flex items-center gap-2">
-          <span class="text-[11px] font-semibold text-base-content/80">
+          <span class="text-[11px] font-semibold text-base-content-muted">
             {{ displayName() }}
           </span>
           @if (!isCollapsed() && node().agentDescription) {
             <span
-              class="text-[10px] text-base-content/50 truncate"
+              class="text-[10px] text-base-content-muted truncate"
               [title]="node().agentDescription"
             >
               {{ node().agentDescription }}
@@ -269,7 +269,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           <!-- Progress sub-line: italic, muted, ellipsis-truncated single line -->
           @if (progressLine(); as line) {
             <span
-              class="flex-1 min-w-0 italic text-[9px] text-base-content/50 truncate"
+              class="flex-1 min-w-0 italic text-[9px] text-base-content-muted truncate"
               data-testid="subagent-progress-line"
               [title]="line"
             >
@@ -284,7 +284,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           @if (canBackground()) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-info"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-info"
               (click)="onBackgroundClick($event)"
               [disabled]="backgroundPending()"
               data-testid="subagent-background-button"
@@ -299,7 +299,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           @if (canStop()) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-error"
               (click)="onStopClick($event)"
               [disabled]="stopPending()"
               data-testid="subagent-stop-button"
@@ -317,7 +317,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           @if (canViewTranscript()) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/50 hover:text-primary"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-primary"
               (click)="onViewTranscript($event)"
               data-testid="subagent-transcript-button"
               title="View full transcript"
@@ -334,7 +334,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
                So we surface it honestly as a "message this agent" affordance. -->
           <button
             type="button"
-            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/50"
+            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted"
             (click)="toggleSendInput($event)"
             data-testid="subagent-send-toggle"
             [attr.aria-expanded]="sendInputExpanded()"
@@ -403,7 +403,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           (click)="toggleCollapse()"
         >
           <p
-            class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2"
+            class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2"
           >
             {{ node().agentDescription }}
           </p>
@@ -444,31 +444,31 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               }
               @if (isStreaming()) {
                 <div
-                  class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
+                  class="flex items-center gap-1 text-[10px] text-base-content-muted mt-2"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
                     class="w-3 h-3 animate-spin"
                   />
                   <span>Agent working</span>
-                  <ptah-typing-cursor colorClass="text-base-content/40" />
+                  <ptah-typing-cursor colorClass="text-base-content-muted" />
                 </div>
               }
             } @else {
               <!-- No children yet -->
               @if (isStreaming()) {
                 <div
-                  class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+                  class="flex items-center gap-2 text-[10px] text-base-content-muted py-2"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
                     class="w-3 h-3 animate-spin"
                   />
                   <span>Starting agent execution</span>
-                  <ptah-typing-cursor colorClass="text-base-content/40" />
+                  <ptah-typing-cursor colorClass="text-base-content-muted" />
                 </div>
               } @else {
-                <div class="text-[10px] text-base-content/40 py-2">
+                <div class="text-[10px] text-base-content-muted py-2">
                   No execution data
                 </div>
               }
@@ -487,7 +487,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
              override below: when [data-finalizing] is set on the host, the
              keyframes are no-ops. -->
         <div
-          class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
+          class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content-muted rounded-b-lg"
           [style.background-color]="footerBgColor()"
           [attr.data-finalizing]="isFinalizing() ? '' : null"
           animate.enter="agent-fade-in"

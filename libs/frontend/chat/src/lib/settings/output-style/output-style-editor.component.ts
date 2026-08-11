@@ -104,7 +104,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
         <p class="text-xs leading-relaxed">
           {{ broken.error.message }} Because the file did not parse, its text
           cannot be shown here — the form below starts empty. Saving replaces
-          <code class="text-base-content/80">{{ broken.relativePath }}</code>
+          <code class="text-base-content-muted">{{ broken.relativePath }}</code>
           with what you enter. To keep the original wording, copy it out of that
           file first.
         </p>
@@ -188,7 +188,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
         } @else {
           <p
             id="output-style-name-hint"
-            class="text-[10px] text-base-content/50 mt-1"
+            class="text-[10px] text-base-content-muted mt-1"
           >
             The name is what a session binds to. The filename is derived from it
             and is only storage.
@@ -245,7 +245,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
                   choice.label
                 }}</span>
                 <span
-                  class="block text-[10px] text-base-content/50 leading-relaxed"
+                  class="block text-[10px] text-base-content-muted leading-relaxed"
                 >
                   {{ choice.explanation }}
                 </span>
@@ -254,7 +254,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
           }
         </div>
         @if (tierLocked()) {
-          <p class="text-[10px] text-base-content/50 mt-1">
+          <p class="text-[10px] text-base-content-muted mt-1">
             An existing style stays where it already lives. Delete it and create
             it again to move it.
           </p>
@@ -280,7 +280,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
         @if (keepCodingInstructions()) {
           <p
             data-test="keep-instructions-on-hint"
-            class="text-[10px] text-base-content/60 mt-1 px-2 leading-relaxed"
+            class="text-[10px] text-base-content-muted mt-1 px-2 leading-relaxed"
           >
             The style is added to the agent's normal coding behaviour. It
             influences how the agent writes and explains; the engineering
@@ -325,7 +325,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
             @if (body().trim().length > 0) {
               <ptah-markdown-block [content]="body()" />
             } @else {
-              <p class="text-[11px] text-base-content/50">
+              <p class="text-[11px] text-base-content-muted">
                 Nothing to preview yet.
               </p>
             }
@@ -340,14 +340,14 @@ const TIER_CHOICES: readonly TierChoice[] = [
             (input)="onBodyInput($event)"
           ></textarea>
         }
-        <p class="text-[10px] text-base-content/50 mt-1 leading-relaxed">
+        <p class="text-[10px] text-base-content-muted mt-1 leading-relaxed">
           Markdown. This text influences how the agent writes — it does not
           override Ptah's own instructions, which are always applied as well.
         </p>
       </div>
 
       @if (showRebindNote()) {
-        <p class="text-[10px] text-base-content/60 leading-relaxed">
+        <p class="text-[10px] text-base-content-muted leading-relaxed">
           This style is currently selected. Renaming it updates the selection in
           the same save, so the binding does not break.
         </p>
@@ -375,7 +375,7 @@ const TIER_CHOICES: readonly TierChoice[] = [
         </button>
       </div>
 
-      <p class="text-[10px] text-base-content/50">
+      <p class="text-[10px] text-base-content-muted">
         Saving does not switch to this style. Select it in the list when you
         want to use it.
       </p>

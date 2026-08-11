@@ -165,7 +165,7 @@
                 aria-hidden="true"
               />
               <span class="text-primary font-medium">Message queued</span>
-              <span class="text-base-content/60"
+              <span class="text-base-content-muted"
                 >(will send when Claude finishes)</span
               >
             </div>
@@ -193,7 +193,7 @@
 
           <!-- Queued content preview (click to edit) -->
           <button
-            class="w-full text-left text-xs text-base-content/70 bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
+            class="w-full text-left text-xs text-base-content-muted bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
             (click)="editQueue()"
             type="button"
             title="Edit queued message"
@@ -210,7 +210,7 @@
 
       <!-- Input Area Collapse Toggle (full-width bar above input) -->
       <button
-        class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content/40 hover:text-base-content/70 flex-shrink-0"
+        class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content-muted hover:text-base-content flex-shrink-0"
         (click)="toggleInputCollapse()"
         [title]="inputCollapsed() ? 'Show input area' : 'Hide input area'"
         type="button"

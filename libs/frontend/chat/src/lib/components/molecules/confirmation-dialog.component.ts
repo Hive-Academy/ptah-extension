@@ -22,7 +22,7 @@ import {
       <div class="modal-box max-w-sm">
         @if (dialogService.options(); as options) {
           <h3 class="font-bold text-lg">{{ options.title }}</h3>
-          <p class="py-4 text-base-content/80">{{ options.message }}</p>
+          <p class="py-4 text-base-content-muted">{{ options.message }}</p>
           @if (checkboxList().length > 0) {
             <div class="flex flex-col gap-2 pb-2">
               @for (cb of checkboxList(); track cb.id) {

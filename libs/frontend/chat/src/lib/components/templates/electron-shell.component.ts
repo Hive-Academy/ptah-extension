@@ -99,7 +99,8 @@ import {
             width="20"
             height="20"
           />
-          <span class="text-sm font-semibold text-base-content/70 select-none"
+          <span
+            class="text-sm font-semibold text-base-content-muted select-none"
             >Ptah</span
           >
         </div>

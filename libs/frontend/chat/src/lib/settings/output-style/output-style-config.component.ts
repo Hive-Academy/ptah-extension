@@ -54,7 +54,7 @@ import { OutputStyleEditorComponent } from './output-style-editor.component';
             Output Style
           </h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Choose how the agent writes to you — how much it explains, how it
           structures an answer, what wording it prefers. A style influences the
           agent's voice; it does not replace the instructions Ptah already gives

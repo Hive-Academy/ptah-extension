@@ -163,7 +163,7 @@
       >
         <lucide-angular
           [img]="SearchIcon"
-          class="w-3 h-3 text-base-content/40 flex-shrink-0"
+          class="w-3 h-3 text-base-content-muted flex-shrink-0"
         />
         <input
           type="text"
@@ -189,7 +189,7 @@
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="btn btn-ghost btn-xs gap-1 text-base-content/50 hover:text-base-content/70 flex-1 justify-start px-1"
+          class="btn btn-ghost btn-xs gap-1 text-base-content-muted hover:text-base-content flex-1 justify-start px-1"
           (click)="toggleDateFilter()"
           aria-label="Toggle date filter"
         >
@@ -204,7 +204,7 @@
         @if (hasActiveFilters()) {
           <button
             type="button"
-            class="btn btn-ghost btn-xs text-[10px] text-base-content/40 hover:text-error px-1"
+            class="btn btn-ghost btn-xs text-[10px] text-base-content-muted hover:text-error px-1"
             (click)="clearFilters()"
             aria-label="Clear all filters"
           >
@@ -218,7 +218,7 @@
         <div class="flex flex-col gap-1 px-0.5 pb-0.5">
           <label
             for="session-filter-date-from"
-            class="text-[10px] text-base-content/40"
+            class="text-[10px] text-base-content-muted"
             >From</label
           >
           <input
@@ -230,7 +230,7 @@
           />
           <label
             for="session-filter-date-to"
-            class="text-[10px] text-base-content/40"
+            class="text-[10px] text-base-content-muted"
             >To</label
           >
           <input
@@ -296,17 +296,17 @@
                 </span>
                 <!-- Session metadata row -->
                 <span
-                  class="text-xs text-base-content/50 flex items-center gap-2 w-full"
+                  class="text-xs text-base-content-muted flex items-center gap-2 w-full"
                 >
                   <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
                   @if (session.messageCount > 0) {
-                    <span class="text-base-content/40"
+                    <span class="text-base-content-muted"
                       >{{ session.messageCount }} msgs</span
                     >
                   }
                   @if (session.hasTranscript === false) {
                     <span
-                      class="text-base-content/40 italic"
+                      class="text-base-content-muted italic"
                       [title]="expiredTranscriptHint"
                       >transcript expired</span
                     >
@@ -319,7 +319,7 @@
               >
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-primary hover:bg-primary/10"
+                  class="btn btn-ghost btn-xs btn-square rounded text-base-content-muted hover:text-primary hover:bg-primary/10"
                   title="Rename session"
                   [attr.aria-label]="
                     'Rename session: ' + getSessionDisplayName(session)
@@ -330,7 +330,7 @@
                 </button>
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-error hover:bg-error/10"
+                  class="btn btn-ghost btn-xs btn-square rounded text-base-content-muted hover:text-error hover:bg-error/10"
                   title="Delete session"
                   [attr.aria-label]="
                     'Delete session: ' + getSessionDisplayName(session)
@@ -352,10 +352,10 @@
                 [img]="SearchIcon"
                 class="w-8 h-8 text-base-content/20 mb-2"
               />
-              <span class="text-sm text-base-content/40"
+              <span class="text-sm text-base-content-muted"
                 >No matching sessions</span
               >
-              <span class="text-xs text-base-content/25 mt-1">
+              <span class="text-xs text-base-content-muted mt-1">
                 Try adjusting your search or filters
               </span>
               <button
@@ -370,8 +370,8 @@
                 [img]="MessageSquareIcon"
                 class="w-8 h-8 text-base-content/20 mb-2"
               />
-              <span class="text-sm text-base-content/40">No sessions yet</span>
-              <span class="text-xs text-base-content/25 mt-1"
+              <span class="text-sm text-base-content-muted">No sessions yet</span>
+              <span class="text-xs text-base-content-muted mt-1"
                 >Create one to get started</span
               >
             }
@@ -386,7 +386,7 @@
       ) {
         <div class="px-1.5 pt-1 pb-1">
           <button
-            class="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-base-content/70 hover:bg-base-300/30 transition-all duration-200 gap-1"
+            class="btn btn-ghost btn-xs w-full text-base-content-muted hover:text-base-content hover:bg-base-300/30 transition-all duration-200 gap-1"
             [class.loading]="chatStore.isLoadingMoreSessions()"
             [disabled]="chatStore.isLoadingMoreSessions()"
             (click)="chatStore.loadMoreSessions()"
@@ -401,7 +401,7 @@
               } @else {
                 <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
                 Load More
-                <span class="text-base-content/30"
+                <span class="text-base-content-muted"
                   >({{
                     chatStore.totalSessions() - chatStore.sessions().length
                   }})</span
@@ -469,13 +469,13 @@
               class="absolute left-0 top-full mt-1 z-50 w-64 p-3 bg-base-200 border border-primary/30 rounded-lg shadow-lg text-xs"
             >
               <div class="flex items-start gap-2">
-                <span class="flex-1 text-base-content/90 leading-snug">
+                <span class="flex-1 text-base-content-muted leading-snug">
                   Thoth is your agentic platform — memory, skills, schedules,
                   and external messaging.
                 </span>
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-circle w-5 h-5 min-h-0 p-0 text-base-content/50 hover:text-base-content"
+                  class="btn btn-ghost btn-xs btn-circle w-5 h-5 min-h-0 p-0 text-base-content-muted hover:text-base-content"
                   (click)="dismissThothFirstRun()"
                   aria-label="Dismiss Thoth hint"
                   title="Dismiss"
@@ -543,7 +543,7 @@
         </div>
       } @else {
         <div class="flex-1 min-w-0 flex items-center">
-          <span class="text-xs text-base-content/60 font-medium"
+          <span class="text-xs text-base-content-muted font-medium"
             >Orchestra Canvas</span
           >
         </div>
@@ -603,7 +603,7 @@
             content
             class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
           >
-            <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+            <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
               New Session
             </h3>
 
@@ -625,7 +625,7 @@
             <!-- Action buttons -->
             <div class="flex gap-2">
               <button
-                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
                 (click)="handleCancelSession()"
               >
                 <lucide-angular [img]="XIcon" class="w-3 h-3" />

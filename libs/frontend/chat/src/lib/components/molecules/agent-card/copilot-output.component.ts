@@ -55,7 +55,7 @@ import {
           class="flex items-center gap-3 px-2 py-1 bg-base-200/50 border-b border-base-content/5"
         >
           @if (stats.model) {
-            <span class="text-[9px] font-mono text-base-content/50">
+            <span class="text-[9px] font-mono text-base-content-muted">
               {{ stats.model }}
             </span>
           }
@@ -75,7 +75,7 @@ import {
             </span>
           }
           @if (stats.durationMs !== undefined) {
-            <span class="text-[9px] font-mono text-base-content/40 ml-auto">
+            <span class="text-[9px] font-mono text-base-content-muted ml-auto">
               {{ fmtDuration(stats.durationMs) }}
             </span>
           }

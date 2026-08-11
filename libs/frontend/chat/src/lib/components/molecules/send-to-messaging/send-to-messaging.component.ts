@@ -63,7 +63,7 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
         } @else if (canSendToMessaging()) {
           <!-- Detached: send this session to a messaging app -->
           <button
-            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-base-content"
+            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-base-content"
             (click)="
               showBindingPicker() ? closeBindingPicker() : openBindingPicker()
             "
@@ -82,13 +82,13 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
             >
               @if (bindingsLoading()) {
                 <div
-                  class="flex items-center gap-2 px-3 py-3 text-sm text-base-content/60"
+                  class="flex items-center gap-2 px-3 py-3 text-sm text-base-content-muted"
                 >
                   <span class="loading loading-spinner loading-xs"></span>
                   <span>Loading bindings…</span>
                 </div>
               } @else if (approvedBindings().length === 0) {
-                <div class="px-3 py-3 text-sm text-base-content/60">
+                <div class="px-3 py-3 text-sm text-base-content-muted">
                   No approved bindings. Approve one in the Gateway tab first.
                 </div>
               } @else {
@@ -103,7 +103,7 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
                   >
                     <lucide-angular
                       [img]="MessageSquareIcon"
-                      class="w-3.5 h-3.5 flex-shrink-0 text-base-content/50"
+                      class="w-3.5 h-3.5 flex-shrink-0 text-base-content-muted"
                     />
                     <span class="truncate">{{ bindingLabel(binding) }}</span>
                   </button>

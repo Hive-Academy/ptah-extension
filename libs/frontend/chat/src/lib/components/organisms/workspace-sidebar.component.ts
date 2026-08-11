@@ -42,7 +42,7 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
       <!-- Workspace label -->
       <div class="px-3 pt-2.5 pb-1">
         <span
-          class="text-[10px] font-semibold uppercase tracking-wider text-base-content/40"
+          class="text-[10px] font-semibold uppercase tracking-wider text-base-content-muted"
         >
           Workspaces
         </span>
@@ -78,7 +78,7 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
             }
             <!-- Remove button (hover reveal) -->
             <button
-              class="remove-btn opacity-0 btn btn-ghost btn-xs btn-square p-0 min-h-0 w-5 h-5 text-base-content/30 hover:text-error transition-opacity duration-200"
+              class="remove-btn opacity-0 btn btn-ghost btn-xs btn-square p-0 min-h-0 w-5 h-5 text-base-content-muted hover:text-error transition-opacity duration-200"
               (click)="onRemoveFolder($event, i)"
               title="Remove workspace"
               aria-label="Remove workspace"
@@ -105,7 +105,7 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
       <!-- Add folder button -->
       <div class="p-2 border-t border-base-content/10">
         <button
-          class="btn btn-ghost btn-sm w-full gap-2 text-base-content/60 hover:text-base-content justify-start"
+          class="btn btn-ghost btn-sm w-full gap-2 text-base-content-muted hover:text-base-content justify-start"
           (click)="layout.addFolder()"
           aria-label="Add workspace folder"
         >

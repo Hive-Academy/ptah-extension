@@ -82,7 +82,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
                   >Membership Key Not Active</span
                 >
               </div>
-              <p class="text-xs text-base-content/60 mb-2">
+              <p class="text-xs text-base-content-muted mb-2">
                 Your membership key could not be verified. Re-enter your key to
                 restore your Ptah Builders membership. Ptah's local features
                 remain available either way.
@@ -115,7 +115,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
                     {{ userDisplayName() }}
                   </div>
                 }
-                <div class="text-xs text-base-content/50 truncate">
+                <div class="text-xs text-base-content-muted truncate">
                   {{ userEmail() }}
                 </div>
               </div>
@@ -132,7 +132,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 
           <!-- Plan description -->
           @if (planDescription()) {
-            <p class="text-xs text-base-content/50 mb-3">
+            <p class="text-xs text-base-content-muted mb-3">
               {{ planDescription() }}
             </p>
           }

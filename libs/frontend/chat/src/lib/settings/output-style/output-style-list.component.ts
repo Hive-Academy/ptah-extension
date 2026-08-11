@@ -183,7 +183,7 @@ const PARITY_TIERS: ReadonlyArray<{
         <div class="flex-1">
           <p class="text-xs">
             The selected style
-            <code class="text-base-content/80">{{ activeName() }}</code>
+            <code class="text-base-content-muted">{{ activeName() }}</code>
             {{ missingActiveExplanation() }}
           </p>
           <button
@@ -226,7 +226,7 @@ const PARITY_TIERS: ReadonlyArray<{
         <p class="text-xs">
           This provider does not read style files from your home folder, so Ptah
           adds
-          <code class="text-base-content/80">{{ activeName() }}</code>
+          <code class="text-base-content-muted">{{ activeName() }}</code>
           to each new session directly instead. Copying it into this project
           removes the need for that.
         </p>
@@ -244,7 +244,7 @@ const PARITY_TIERS: ReadonlyArray<{
     }
 
     <div class="flex items-center justify-between mb-1.5">
-      <span class="text-[11px] text-base-content/50">
+      <span class="text-[11px] text-base-content-muted">
         {{ styles().length }} available
       </span>
       <button
@@ -259,7 +259,7 @@ const PARITY_TIERS: ReadonlyArray<{
     </div>
 
     @if (loading()) {
-      <div class="flex items-center gap-2 py-3 text-xs text-base-content/50">
+      <div class="flex items-center gap-2 py-3 text-xs text-base-content-muted">
         <span class="loading loading-spinner loading-xs"></span>
         Reading your style files…
       </div>
@@ -320,7 +320,7 @@ const PARITY_TIERS: ReadonlyArray<{
                   }
                 </span>
                 <span
-                  class="block text-[11px] text-base-content/60 mt-0.5 leading-relaxed"
+                  class="block text-[11px] text-base-content-muted mt-0.5 leading-relaxed"
                 >
                   {{ style.description }}
                 </span>
@@ -360,7 +360,7 @@ const PARITY_TIERS: ReadonlyArray<{
 
             @if (shadowNote(style); as note) {
               <p
-                class="text-[10px] text-base-content/60 mt-1 pl-1"
+                class="text-[10px] text-base-content-muted mt-1 pl-1"
                 [id]="shadowNoteId(i)"
               >
                 {{ note }}
@@ -368,7 +368,7 @@ const PARITY_TIERS: ReadonlyArray<{
             }
 
             @if (immutableNote(style); as note) {
-              <p class="text-[10px] text-base-content/50 mt-1 pl-1">
+              <p class="text-[10px] text-base-content-muted mt-1 pl-1">
                 {{ note }}
               </p>
             }
@@ -381,7 +381,7 @@ const PARITY_TIERS: ReadonlyArray<{
               >
                 <span class="text-[11px] flex-1">
                   Delete
-                  <code class="text-base-content/80">{{
+                  <code class="text-base-content-muted">{{
                     style.fileName ?? style.name
                   }}</code
                   >? This removes the file from disk.
@@ -429,14 +429,14 @@ const PARITY_TIERS: ReadonlyArray<{
                   </span>
                 </div>
                 <p
-                  class="text-[11px] text-base-content/70 mt-1 leading-relaxed"
+                  class="text-[11px] text-base-content-muted mt-1 leading-relaxed"
                 >
                   {{ entry.error.message }}
                 </p>
-                <code class="text-[10px] text-base-content/50 break-all">
+                <code class="text-[10px] text-base-content-muted break-all">
                   {{ entry.relativePath }}
                 </code>
-                <p class="text-[10px] text-base-content/50 mt-0.5">
+                <p class="text-[10px] text-base-content-muted mt-0.5">
                   It is listed here rather than hidden, and it cannot be
                   selected until it parses.
                 </p>
@@ -469,10 +469,12 @@ const PARITY_TIERS: ReadonlyArray<{
             Also apply this style when I run <code>claude</code> in this project
           </span>
           <span
-            class="block text-[11px] text-base-content/60 mt-0.5 leading-relaxed"
+            class="block text-[11px] text-base-content-muted mt-0.5 leading-relaxed"
           >
             Ptah applies your choice on its own. Tick this to additionally write
-            <code class="text-base-content/80">{{ parityDisplayPath() }}</code>
+            <code class="text-base-content-muted">{{
+              parityDisplayPath()
+            }}</code>
             so the command-line tool picks up the same style. Ptah keeps every
             other setting in that file as it is.
           </span>
@@ -482,7 +484,7 @@ const PARITY_TIERS: ReadonlyArray<{
       @if (parityEnabled()) {
         <div class="mt-2 pl-6">
           <label
-            class="block text-[11px] text-base-content/70 mb-1"
+            class="block text-[11px] text-base-content-muted mb-1"
             for="output-style-parity-tier"
           >
             Where to write it
@@ -499,7 +501,7 @@ const PARITY_TIERS: ReadonlyArray<{
               </option>
             }
           </select>
-          <p class="text-[10px] text-base-content/50 mt-1 leading-relaxed">
+          <p class="text-[10px] text-base-content-muted mt-1 leading-relaxed">
             The file is written the next time you pick a style. Nothing is
             written while this box is unticked.
           </p>
@@ -528,7 +530,7 @@ const PARITY_TIERS: ReadonlyArray<{
           />
           <div class="flex-1">
             <p class="text-[11px] leading-relaxed">{{ warning }}</p>
-            <p class="text-[10px] text-base-content/60 mt-0.5">
+            <p class="text-[10px] text-base-content-muted mt-0.5">
               Your chosen style is still active in Ptah — only the extra copy
               for the command line was skipped.
             </p>
@@ -544,7 +546,7 @@ const PARITY_TIERS: ReadonlyArray<{
       }
     </div>
 
-    <p class="text-[10px] text-base-content/50 mt-2 leading-relaxed">
+    <p class="text-[10px] text-base-content-muted mt-2 leading-relaxed">
       A style applies from your next session onwards — a conversation that is
       already running keeps the style it started with. Styles influence tone and
       structure; Ptah's own engineering instructions still apply on top.
