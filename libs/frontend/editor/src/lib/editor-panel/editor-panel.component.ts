@@ -301,7 +301,17 @@ import type { FileTreeNode } from '../models/file-tree.model';
                    The code editor is fed undefined while a diff or an image is
                    showing: activeFilePath() then holds a diff KEY (or an image
                    path), which is not a text file it should ever open. -->
-              <div class="flex-1 min-h-0 relative">
+              <!-- overflow-hidden and isolate are load-bearing, not tidying.
+                   The children below are absolutely positioned with z-index
+                   auto, so CSS 2.1 paint order puts them in layer 8 while the
+                   terminal separator and terminal panel — in-flow siblings of
+                   this region — paint in layer 4. Without a clip, any Monaco
+                   surface that overflows paints OVER both, and because
+                   hit-testing follows paint order it also swallows the
+                   mousedown on [aria-label="Resize terminal"], which is why
+                   the terminal stopped being resizable (TASK_2026_196).
+                   The isolate utility keeps that stacking contained here. -->
+              <div class="flex-1 min-h-0 relative overflow-hidden isolate">
                 <ptah-diff-view
                   class="absolute inset-0"
                   [class.invisible]="!editorService.activeDiffTab()"

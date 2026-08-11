@@ -712,6 +712,46 @@ describe('EditorPanelComponent — diff and code editor stay mounted together (N
     expect(codeEditor().nativeElement.classList).toContain('invisible');
   });
 
+  /**
+   * TASK_2026_196. Both Monaco surfaces are absolutely positioned with z-index
+   * auto, so they paint in CSS 2.1 layer 8 while the terminal separator and
+   * terminal panel — in-flow siblings of the editor region — paint in layer 4.
+   * An unclipped overflow therefore paints over the terminal AND, because
+   * hit-testing follows paint order, swallows the mousedown on the resize
+   * separator.
+   *
+   * The assertion walks up from the positioned elements rather than hardcoding
+   * a selector, so it also fails if someone introduces a NEW positioned surface
+   * into a container that does not clip.
+   *
+   * Honest limit: jsdom computes no layout, so this proves the guard is
+   * DECLARED, not that painting is correct. No automated proof of the paint
+   * behaviour exists yet — two attempts at an Electron hit-test both passed
+   * with the clip reverted and were deleted rather than kept as false
+   * coverage. See TASK_2026_196 for what is still unverified.
+   */
+  it('clips every absolutely positioned editor surface (TASK_2026_196)', () => {
+    const positioned = [
+      diffView().nativeElement as HTMLElement,
+      codeEditor().nativeElement as HTMLElement,
+    ];
+
+    for (const el of positioned) {
+      expect(el.classList).toContain('absolute');
+
+      const container = el.parentElement as HTMLElement;
+      expect(container).toBeTruthy();
+      // The clip is what stops the bleed; `relative` is what makes `inset-0`
+      // resolve against this box rather than a distant ancestor.
+      expect(container.classList).toContain('overflow-hidden');
+      expect(container.classList).toContain('relative');
+    }
+
+    // Both surfaces must share the one clipped container — if a future change
+    // splits them apart, the pair-wise guarantee above stops meaning much.
+    expect(positioned[0].parentElement).toBe(positioned[1].parentElement);
+  });
+
   it('never hands the code editor a diff tab key or an image path', () => {
     (editor.activeDiffTab as unknown as { set(v: unknown): void }).set(diffTab);
     editor.activeFilePath.set(DIFF_KEY);
