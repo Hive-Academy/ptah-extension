@@ -105,11 +105,11 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
               [class]="m.dotClass"
               aria-hidden="true"
             ></span>
-            <span class="text-base-content/70" data-testid="drawer-status">{{
+            <span class="text-base-content-muted" data-testid="drawer-status">{{
               m.status
             }}</span>
             <span class="text-base-content/25" aria-hidden="true">·</span>
-            <span class="text-base-content/50">{{ m.clone.kind }}</span>
+            <span class="text-base-content-muted">{{ m.clone.kind }}</span>
           </p>
         </div>
       }
@@ -124,7 +124,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
               @for (metric of m.metrics; track metric.label) {
                 <div class="min-w-0">
                   <dt
-                    class="text-[10px] uppercase tracking-wide text-base-content/40"
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
                   >
                     {{ metric.label }}
                   </dt>
@@ -133,7 +133,10 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
               }
             </dl>
           } @else {
-            <p class="text-xs text-base-content/55" data-testid="drawer-unused">
+            <p
+              class="text-xs text-base-content-muted"
+              data-testid="drawer-unused"
+            >
               Never invoked yet — usage metrics appear after its first recorded
               run.
             </p>
@@ -141,7 +144,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
 
           @if (m.actions.upstreamNote; as note) {
             <p
-              class="rounded-lg bg-base-300/40 px-3 py-2 text-xs text-base-content/70"
+              class="rounded-lg bg-base-300/40 px-3 py-2 text-xs text-base-content-muted"
               data-testid="drawer-upstream-note"
             >
               {{ note }}
@@ -149,7 +152,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
           }
 
           <section class="space-y-2">
-            <h3 class="text-xs font-medium text-base-content/60">Actions</h3>
+            <h3 class="text-xs font-medium text-base-content-muted">Actions</h3>
             <div class="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -163,7 +166,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
               </button>
               @if (m.actions.enhance.reason; as reason) {
                 <span
-                  class="text-[11px] text-base-content/55"
+                  class="text-[11px] text-base-content-muted"
                   data-testid="drawer-enhance-reason"
                   >{{ reason }}</span
                 >
@@ -190,7 +193,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
                     >
                       Rebase to upstream
                     </button>
-                    <p class="text-[11px] text-base-content/65">
+                    <p class="text-[11px] text-base-content-muted">
                       {{ rebaseExplanation }}
                     </p>
                   </div>
@@ -207,7 +210,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
                     Keep mine
                   </button>
                   <p
-                    class="text-[11px] text-base-content/65"
+                    class="text-[11px] text-base-content-muted"
                     data-testid="drawer-keep-explanation"
                   >
                     {{ keepMineExplanation }}
@@ -219,7 +222,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
 
           @if (m.clone.kind === 'agent') {
             <section class="space-y-2" data-testid="drawer-scorecard">
-              <h3 class="text-xs font-medium text-base-content/60">
+              <h3 class="text-xs font-medium text-base-content-muted">
                 Scorecard
               </h3>
               <ptah-scorecard-badge [scorecard]="scorecard()" />
@@ -232,10 +235,10 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
           }
 
           <section class="space-y-2">
-            <h3 class="text-xs font-medium text-base-content/60">Body</h3>
+            <h3 class="text-xs font-medium text-base-content-muted">Body</h3>
             @if (detailLoading()) {
               <p
-                class="text-xs text-base-content/60"
+                class="text-xs text-base-content-muted"
                 data-testid="drawer-body-loading"
               >
                 Loading body…
@@ -249,7 +252,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
               </div>
             } @else {
               <p
-                class="text-xs text-base-content/60"
+                class="text-xs text-base-content-muted"
                 data-testid="drawer-body-empty"
               >
                 No body could be read for this entry.
@@ -258,18 +261,18 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
           </section>
 
           <section class="space-y-2">
-            <h3 class="text-xs font-medium text-base-content/60">
+            <h3 class="text-xs font-medium text-base-content-muted">
               History
-              <span class="font-normal text-base-content/40"
+              <span class="font-normal text-base-content-muted"
                 >({{ history().length }})</span
               >
             </h3>
 
             @if (detailLoading()) {
-              <p class="text-xs text-base-content/60">Loading history…</p>
+              <p class="text-xs text-base-content-muted">Loading history…</p>
             } @else if (history().length === 0) {
               <p
-                class="text-xs text-base-content/60"
+                class="text-xs text-base-content-muted"
                 data-testid="drawer-history-empty"
               >
                 No snapshots yet. One is written every time this entry is
@@ -288,7 +291,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
                         formatTs(h.ts)
                       }}</span>
                       @if (!h.hasBody) {
-                        <span class="block text-[10px] text-base-content/45"
+                        <span class="block text-[10px] text-base-content-muted"
                           >snapshot has no readable body</span
                         >
                       }
@@ -328,7 +331,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
             @if (historyDiff(); as diff) {
               <div class="space-y-1" data-testid="drawer-history-diff">
                 <div class="flex items-center justify-between">
-                  <p class="text-[11px] text-base-content/60">
+                  <p class="text-[11px] text-base-content-muted">
                     {{ formatTs(diff.ts) }} (left) vs current (right)
                   </p>
                   <button

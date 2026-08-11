@@ -63,7 +63,9 @@ function buildDefaultModelLabel(providerId: string): string {
       </header>
       <div class="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">
         <label class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-base-content/70">Provider</span>
+          <span class="text-xs font-medium text-base-content-muted"
+            >Provider</span
+          >
           <select
             class="select select-bordered select-sm"
             data-testid="curator-provider-select"
@@ -79,7 +81,7 @@ function buildDefaultModelLabel(providerId: string): string {
         </label>
 
         <label class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-base-content/70">Model</span>
+          <span class="text-xs font-medium text-base-content-muted">Model</span>
           <select
             class="select select-bordered select-sm"
             data-testid="curator-model-select"
@@ -106,7 +108,7 @@ function buildDefaultModelLabel(providerId: string): string {
       }
 
       <p
-        class="border-t border-base-300 px-3 py-2 text-xs text-base-content/60"
+        class="border-t border-base-300 px-3 py-2 text-xs text-base-content-muted"
         data-testid="curator-phase1-note"
       >
         {{ phase1Note }}

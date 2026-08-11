@@ -52,14 +52,14 @@ interface ScorecardRow {
   template: `
     @if (loading()) {
       <p
-        class="text-xs text-base-content/60"
+        class="text-xs text-base-content-muted"
         data-testid="scorecard-detail-loading"
       >
         Loading graded runs…
       </p>
     } @else if (rows().length === 0) {
       <div
-        class="space-y-1 text-xs text-base-content/60"
+        class="space-y-1 text-xs text-base-content-muted"
         data-testid="scorecard-detail-empty"
       >
         <p class="font-medium">No graded runs yet.</p>
@@ -109,7 +109,7 @@ interface ScorecardRow {
 
               @if (row.metrics.length === 0) {
                 <p
-                  class="text-[11px] text-base-content/55"
+                  class="text-[11px] text-base-content-muted"
                   data-testid="scorecard-row-no-metrics"
                 >
                   No metrics recorded for this run.
@@ -122,7 +122,7 @@ interface ScorecardRow {
                   @for (m of row.metrics; track m.testId) {
                     <div class="flex items-baseline gap-1.5">
                       <dt
-                        class="text-[10px] uppercase tracking-wide text-base-content/40"
+                        class="text-[10px] uppercase tracking-wide text-base-content-muted"
                       >
                         {{ m.label }}
                       </dt>
@@ -140,7 +140,7 @@ interface ScorecardRow {
 
       @if (findingsExcerpt(); as findings) {
         <div class="mt-3" data-testid="scorecard-findings">
-          <p class="mb-1 text-xs font-medium text-base-content/60">
+          <p class="mb-1 text-xs font-medium text-base-content-muted">
             Recent review findings
           </p>
           <ptah-markdown-block [content]="findings" />

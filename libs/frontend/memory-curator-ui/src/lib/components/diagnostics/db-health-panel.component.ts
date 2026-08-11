@@ -44,7 +44,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
           <h3 class="text-sm font-semibold text-base-content">DB Health</h3>
           @if (health(); as h) {
             <span
-              class="inline-flex items-center gap-1.5 text-xs text-base-content/60"
+              class="inline-flex items-center gap-1.5 text-xs text-base-content-muted"
             >
               <span>coherent</span>
               @if (h.coherent) {
@@ -69,7 +69,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
                     {{ row.label }}
                   </span>
                   <span
-                    class="text-[10px] uppercase tracking-wide text-base-content/50"
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
                   >
                     {{ row.secondaryLabel }}
                   </span>
@@ -110,7 +110,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
               </p>
               <ul class="mt-1 list-disc space-y-0.5 pl-5">
                 @for (err of countErrors(); track err) {
-                  <li class="font-mono text-[10px] text-base-content/70">
+                  <li class="font-mono text-[10px] text-base-content-muted">
                     {{ err }}
                   </li>
                 }
@@ -119,7 +119,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
           }
         } @else {
           <div
-            class="rounded-xl border border-base-300 bg-base-200/40 px-3 py-3 text-xs text-base-content/60"
+            class="rounded-xl border border-base-300 bg-base-200/40 px-3 py-3 text-xs text-base-content-muted"
           >
             No DB health data yet.
           </div>
@@ -149,13 +149,13 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
         <div class="text-xs">
           @if (vecDiagnostic(); as d) {
             <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-              <dt class="font-medium text-base-content/70">Reason</dt>
+              <dt class="font-medium text-base-content-muted">Reason</dt>
               <dd>{{ vecReasonLabel() }}</dd>
               @if (d.packageName) {
-                <dt class="font-medium text-base-content/70">Package</dt>
+                <dt class="font-medium text-base-content-muted">Package</dt>
                 <dd class="font-mono">{{ d.packageName }}</dd>
               }
-              <dt class="font-medium text-base-content/70">Platform</dt>
+              <dt class="font-medium text-base-content-muted">Platform</dt>
               <dd class="font-mono">
                 {{ d.processPlatform }}/{{ d.processArch }} (Electron
                 {{ d.electronVersion }})
@@ -168,7 +168,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
             @if (d.errorChain && d.errorChain.length > 0) {
               <details class="mt-2">
                 <summary
-                  class="cursor-pointer text-base-content/60 hover:text-base-content"
+                  class="cursor-pointer text-base-content-muted hover:text-base-content"
                 >
                   Show {{ d.errorChain.length }} fallback attempt(s)
                 </summary>
@@ -183,7 +183,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
               </details>
             }
           } @else {
-            <div class="text-base-content/60">
+            <div class="text-base-content-muted">
               Status not yet available — open the workspace or click Retry.
             </div>
           }
@@ -258,20 +258,20 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
                 {{ embedderProgressPercent() }}%
               </span>
             </div>
-            <p class="mt-1 text-base-content/60">
+            <p class="mt-1 text-base-content-muted">
               Downloading ONNX model — first run only, then cached locally.
             </p>
           } @else if (embedderStatus()?.error; as err) {
             <div class="text-error">{{ err.message }}</div>
-            <p class="mt-1 text-base-content/60">
+            <p class="mt-1 text-base-content-muted">
               Click Retry after fixing network access or disk-space issues.
             </p>
           } @else if (embedderReady()) {
-            <div class="text-base-content/70">
+            <div class="text-base-content-muted">
               Model loaded — semantic search and curator embeddings active.
             </div>
           } @else {
-            <div class="text-base-content/60">
+            <div class="text-base-content-muted">
               Idle — first curator or indexer run will trigger lazy download.
             </div>
           }

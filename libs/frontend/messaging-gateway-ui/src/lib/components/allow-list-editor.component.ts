@@ -15,9 +15,9 @@ import { GatewayStateService } from '../services/gateway-state.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <label class="flex flex-col gap-1.5">
-      <span class="text-xs text-base-content/60">
+      <span class="text-xs text-base-content-muted">
         Allow-list ({{ label() }})
-        <span class="text-base-content/40">
+        <span class="text-base-content-muted">
           — one ID per line. Empty = accept any sender it can see.
         </span>
       </span>
@@ -39,7 +39,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
           Save allow-list
         </button>
         @if (feedback(); as fb) {
-          <span class="text-xs text-base-content/70">{{ fb }}</span>
+          <span class="text-xs text-base-content-muted">{{ fb }}</span>
         }
       </div>
     </label>

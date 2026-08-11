@@ -95,7 +95,7 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
               aria-hidden="true"
             ></span>
             <span
-              class="text-base-content/70"
+              class="text-base-content-muted"
               [title]="statusHint()"
               data-testid="clones-status-badge"
               >{{ statusLabel() }}</span
@@ -104,7 +104,9 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
             <span
               class="tabular-nums"
               [class.text-success]="actions().eligibility === 'ready'"
-              [class.text-base-content/50]="actions().eligibility !== 'ready'"
+              [class.text-base-content-muted]="
+                actions().eligibility !== 'ready'
+              "
               [title]="eligibilityTitle()"
               data-testid="clones-enhance-hint"
               >{{ actions().eligibilityLabel }}</span
@@ -123,7 +125,10 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
       </div>
 
       @if (metrics().length === 0) {
-        <p class="text-xs text-base-content/55" data-testid="clone-card-unused">
+        <p
+          class="text-xs text-base-content-muted"
+          data-testid="clone-card-unused"
+        >
           Never invoked yet — usage metrics appear after its first recorded run.
         </p>
       } @else {
@@ -134,7 +139,7 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
           @for (m of metrics(); track m.testId) {
             <div class="min-w-0">
               <dt
-                class="text-[10px] uppercase tracking-wide text-base-content/40"
+                class="text-[10px] uppercase tracking-wide text-base-content-muted"
               >
                 {{ m.label }}
               </dt>
@@ -152,7 +157,7 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
 
       @if (actions().upstreamNote; as note) {
         <p
-          class="rounded-lg bg-base-300/40 px-2 py-1.5 text-[11px] text-base-content/70"
+          class="rounded-lg bg-base-300/40 px-2 py-1.5 text-[11px] text-base-content-muted"
           data-testid="clone-card-upstream-note"
         >
           {{ note }}

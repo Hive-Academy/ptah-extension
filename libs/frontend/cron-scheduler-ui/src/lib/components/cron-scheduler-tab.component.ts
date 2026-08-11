@@ -93,11 +93,11 @@ function emptyForm(timezone: string): CronJobFormState {
       >
         <lucide-angular
           [img]="CalendarClockIcon"
-          class="size-8 text-base-content/30"
+          class="size-8 text-base-content-muted"
           aria-hidden="true"
         />
         <p class="text-sm font-medium">Schedules need the desktop app</p>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Cron jobs run headless Ptah sessions in the background, which is only
           available in the Ptah desktop app.
         </p>
@@ -124,7 +124,7 @@ function emptyForm(timezone: string): CronJobFormState {
             </span>
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Schedules</h1>
-              <p class="mt-0.5 text-sm text-base-content/60">
+              <p class="mt-0.5 text-sm text-base-content-muted">
                 Cron jobs that run headless Ptah sessions on a schedule.
               </p>
             </div>
@@ -160,7 +160,7 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
             <button
               type="button"
-              class="btn btn-ghost btn-sm btn-square text-base-content/50 transition-colors duration-150 hover:text-base-content"
+              class="btn btn-ghost btn-sm btn-square text-base-content-muted transition-colors duration-150 hover:text-base-content"
               aria-label="Refresh jobs"
               title="Refresh jobs"
               [disabled]="loading()"
@@ -199,7 +199,7 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">Jobs</div>
+              <div class="stat-title text-base-content-muted">Jobs</div>
               <div
                 class="stat-value text-2xl text-primary"
                 data-testid="cron-stat-total"
@@ -220,7 +220,7 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">Enabled</div>
+              <div class="stat-title text-base-content-muted">Enabled</div>
               <div
                 class="stat-value text-2xl text-success"
                 data-testid="cron-stat-enabled"
@@ -234,16 +234,16 @@ function emptyForm(timezone: string): CronJobFormState {
             class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
-              <div class="stat-figure text-base-content/50">
+              <div class="stat-figure text-base-content-muted">
                 <lucide-angular
                   [img]="CirclePauseIcon"
                   class="w-6 h-6"
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">Disabled</div>
+              <div class="stat-title text-base-content-muted">Disabled</div>
               <div
-                class="stat-value text-2xl text-base-content/70"
+                class="stat-value text-2xl text-base-content-muted"
                 data-testid="cron-stat-disabled"
               >
                 {{ stats().disabled }}
@@ -262,12 +262,12 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">Next run</div>
+              <div class="stat-title text-base-content-muted">Next run</div>
               <div class="stat-value text-sm font-medium text-info">
                 {{ formatTime(stats().nextRunAt) }}
               </div>
               @if (stats().nextRunAt !== null) {
-                <div class="stat-desc text-base-content/60">
+                <div class="stat-desc text-base-content-muted">
                   {{ formatRelative(stats().nextRunAt) }}
                 </div>
               }
@@ -288,11 +288,11 @@ function emptyForm(timezone: string): CronJobFormState {
           >
             <lucide-angular
               [img]="CalendarClockIcon"
-              class="size-8 text-base-content/30"
+              class="size-8 text-base-content-muted"
               aria-hidden="true"
             />
             <p class="text-sm font-medium">No scheduled jobs yet</p>
-            <p class="max-w-sm text-xs text-base-content/60">
+            <p class="max-w-sm text-xs text-base-content-muted">
               Cron jobs run a prompt on a recurring schedule as a headless Ptah
               session — perfect for nightly builds, digests, or maintenance.
             </p>
@@ -335,7 +335,7 @@ function emptyForm(timezone: string): CronJobFormState {
             </h2>
             <div class="mt-4 grid max-w-2xl gap-4 sm:grid-cols-2">
               <label class="flex flex-col gap-1">
-                <span class="text-xs text-base-content/60">Name</span>
+                <span class="text-xs text-base-content-muted">Name</span>
                 <input
                   type="text"
                   class="input input-bordered input-sm"
@@ -346,7 +346,7 @@ function emptyForm(timezone: string): CronJobFormState {
               </label>
 
               <label class="flex flex-col gap-1">
-                <span class="text-xs text-base-content/60"
+                <span class="text-xs text-base-content-muted"
                   >Cron expression</span
                 >
                 <input
@@ -369,7 +369,7 @@ function emptyForm(timezone: string): CronJobFormState {
               </label>
 
               <label class="flex flex-col gap-1 sm:col-span-2">
-                <span class="text-xs text-base-content/60"
+                <span class="text-xs text-base-content-muted"
                   >Prompt / handler</span
                 >
                 <textarea
@@ -379,14 +379,14 @@ function emptyForm(timezone: string): CronJobFormState {
                   [value]="form().prompt"
                   (input)="patchForm({ prompt: inputValue($event) })"
                 ></textarea>
-                <span class="text-xs text-base-content/50">
+                <span class="text-xs text-base-content-muted">
                   Reserved internal handlers (prefixed "handler:") are rejected
                   by the backend.
                 </span>
               </label>
 
               <label class="flex flex-col gap-1">
-                <span class="text-xs text-base-content/60"
+                <span class="text-xs text-base-content-muted"
                   >Workspace root (optional)</span
                 >
                 <input
@@ -398,7 +398,7 @@ function emptyForm(timezone: string): CronJobFormState {
               </label>
 
               <label class="flex flex-col gap-1">
-                <span class="text-xs text-base-content/60">Timezone</span>
+                <span class="text-xs text-base-content-muted">Timezone</span>
                 <select
                   class="select select-bordered select-sm"
                   [value]="form().timezone"
@@ -408,7 +408,7 @@ function emptyForm(timezone: string): CronJobFormState {
                     <option [value]="tz">{{ tz }}</option>
                   }
                 </select>
-                <span class="text-xs text-base-content/50">
+                <span class="text-xs text-base-content-muted">
                   Detected timezone: {{ detectedTimezone }}
                 </span>
               </label>
@@ -420,7 +420,7 @@ function emptyForm(timezone: string): CronJobFormState {
                   [checked]="form().enabled"
                   (change)="patchForm({ enabled: checkboxValue($event) })"
                 />
-                <span class="text-xs text-base-content/60">Enabled</span>
+                <span class="text-xs text-base-content-muted">Enabled</span>
               </label>
             </div>
 
@@ -456,7 +456,7 @@ function emptyForm(timezone: string): CronJobFormState {
           (removed)="deleteSelected()"
         />
 
-        <p class="text-xs text-base-content/50">
+        <p class="text-xs text-base-content-muted">
           Cron settings live in
           <span class="font-mono">~/.ptah/settings.json</span> under
           <span class="font-mono">cron.*</span>. Edit that file and restart Ptah

@@ -35,7 +35,7 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
       <div class="flex flex-col gap-4 p-4 text-sm">
         <section>
           <h3 class="mb-1 text-sm font-semibold">Overview</h3>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             Configure a bot token per platform, approve the pairing request,
             then chat from the platform.
           </p>
@@ -43,7 +43,9 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 
         <section>
           <h3 class="mb-1 text-sm font-semibold">Discord setup</h3>
-          <ol class="list-decimal space-y-1 pl-5 text-xs text-base-content/70">
+          <ol
+            class="list-decimal space-y-1 pl-5 text-xs text-base-content-muted"
+          >
             <li>
               Create an app at the Discord Developer Portal and copy the Bot
               token.
@@ -76,7 +78,9 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 
         <section>
           <h3 class="mb-1 text-sm font-semibold">Telegram setup</h3>
-          <ol class="list-decimal space-y-1 pl-5 text-xs text-base-content/70">
+          <ol
+            class="list-decimal space-y-1 pl-5 text-xs text-base-content-muted"
+          >
             <li>
               Create a bot via <span class="font-mono">@BotFather</span> and
               copy the token.
@@ -92,7 +96,7 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 
         <section>
           <h3 class="mb-1 text-sm font-semibold">Allow-list</h3>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             Allow-list keys live in
             <span class="font-mono">~/.ptah/settings.json</span> under
             <span class="font-mono">gateway.discord.allowedGuildIds</span>,
@@ -105,7 +109,7 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 
         <section>
           <h3 class="mb-1 text-sm font-semibold">Pairing</h3>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             The first message from a new sender creates a pending binding and a
             6-digit code; the bot sends the code; approve it in "Pending
             bindings" to start chatting.

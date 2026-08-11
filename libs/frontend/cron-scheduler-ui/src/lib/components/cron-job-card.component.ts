@@ -56,7 +56,7 @@ import {
           <h3 class="truncate text-sm font-medium" [title]="job().name">
             {{ job().name }}
           </h3>
-          <p class="mt-0.5 truncate text-xs text-base-content/60">
+          <p class="mt-0.5 truncate text-xs text-base-content-muted">
             {{ job().timezone }}
           </p>
         </div>
@@ -66,7 +66,9 @@ import {
             [class]="dotClass()"
             aria-hidden="true"
           ></span>
-          <span class="text-xs text-base-content/70">{{ statusLabel() }}</span>
+          <span class="text-xs text-base-content-muted">{{
+            statusLabel()
+          }}</span>
         </span>
       </div>
 
@@ -74,19 +76,22 @@ import {
         @for (metric of metrics(); track metric.label) {
           <div class="min-w-0">
             <dt
-              class="text-[10px] uppercase tracking-wide text-base-content/50"
+              class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >
               {{ metric.label }}
             </dt>
             <dd
-              class="truncate text-base-content/80"
+              class="truncate text-base-content-muted"
               [class.font-mono]="metric.mono"
               [title]="metric.value"
             >
               {{ metric.value }}
             </dd>
             @if (metric.hint) {
-              <dd class="truncate text-base-content/50" [title]="metric.hint">
+              <dd
+                class="truncate text-base-content-muted"
+                [title]="metric.hint"
+              >
                 {{ metric.hint }}
               </dd>
             }
@@ -100,7 +105,7 @@ import {
       >
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150"
+          class="btn btn-ghost btn-xs btn-square text-base-content-muted transition-colors duration-150"
           aria-label="Run now"
           title="Run now"
           (click)="runNow.emit()"
@@ -113,7 +118,7 @@ import {
         </button>
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150"
+          class="btn btn-ghost btn-xs btn-square text-base-content-muted transition-colors duration-150"
           aria-label="Edit job"
           title="Edit job"
           (click)="edit.emit()"
@@ -126,7 +131,7 @@ import {
         </button>
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150"
+          class="btn btn-ghost btn-xs btn-square text-base-content-muted transition-colors duration-150"
           [attr.aria-label]="job().enabled ? 'Disable job' : 'Enable job'"
           [attr.title]="job().enabled ? 'Disable job' : 'Enable job'"
           (click)="toggled.emit()"
@@ -139,7 +144,7 @@ import {
         </button>
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150 hover:text-error"
+          class="btn btn-ghost btn-xs btn-square text-base-content-muted transition-colors duration-150 hover:text-error"
           aria-label="Delete job"
           title="Delete job"
           (click)="removed.emit()"

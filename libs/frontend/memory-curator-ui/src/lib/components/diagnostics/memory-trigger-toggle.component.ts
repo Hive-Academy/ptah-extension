@@ -42,7 +42,7 @@ export interface TriggerToggleChange {
             [attr.aria-label]="label() + ' value'"
           />
           @if (valueLabel(); as units) {
-            <span class="text-xs text-base-content/60">{{ units }}</span>
+            <span class="text-xs text-base-content-muted">{{ units }}</span>
           }
         </div>
       }

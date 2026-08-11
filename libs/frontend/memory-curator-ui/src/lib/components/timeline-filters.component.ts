@@ -110,7 +110,7 @@ const TYPE_CHIPS: readonly TypeChip[] = [
 
       <div class="flex flex-wrap items-center gap-2 text-xs">
         <label class="flex items-center gap-1">
-          <span class="text-base-content/60">From</span>
+          <span class="text-base-content-muted">From</span>
           <input
             type="date"
             class="input input-xs input-bordered"
@@ -120,7 +120,7 @@ const TYPE_CHIPS: readonly TypeChip[] = [
           />
         </label>
         <label class="flex items-center gap-1">
-          <span class="text-base-content/60">To</span>
+          <span class="text-base-content-muted">To</span>
           <input
             type="date"
             class="input input-xs input-bordered"

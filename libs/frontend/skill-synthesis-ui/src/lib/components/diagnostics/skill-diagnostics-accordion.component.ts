@@ -33,7 +33,7 @@ import {
           data-test="panel-last-run"
         >
           <h2 class="text-sm font-semibold">Last analyze run</h2>
-          <p class="mt-1 text-xs text-base-content/70">
+          <p class="mt-1 text-xs text-base-content-muted">
             {{ formattedLastRun() }}
           </p>
         </section>
@@ -44,7 +44,7 @@ import {
           data-test="panel-last-curator"
         >
           <h2 class="text-sm font-semibold">Last curator pass</h2>
-          <p class="mt-1 text-xs text-base-content/70">
+          <p class="mt-1 text-xs text-base-content-muted">
             {{ formattedLastCurator() }}
           </p>
         </section>
@@ -74,19 +74,21 @@ import {
             <span class="text-base font-semibold tabular-nums">
               {{ byStatus().totalCandidates }}
             </span>
-            <span class="block text-xs text-base-content/60">Candidates</span>
+            <span class="block text-xs text-base-content-muted"
+              >Candidates</span
+            >
           </div>
           <div>
             <span class="text-base font-semibold tabular-nums">
               {{ byStatus().totalPromoted }}
             </span>
-            <span class="block text-xs text-base-content/60">Promoted</span>
+            <span class="block text-xs text-base-content-muted">Promoted</span>
           </div>
           <div>
             <span class="text-base font-semibold tabular-nums">
               {{ byStatus().totalRejected }}
             </span>
-            <span class="block text-xs text-base-content/60">Rejected</span>
+            <span class="block text-xs text-base-content-muted">Rejected</span>
           </div>
         </div>
       </section>
@@ -187,7 +189,7 @@ import {
           </button>
           @if (!hasActiveSession()) {
             <span
-              class="text-xs text-base-content/60"
+              class="text-xs text-base-content-muted"
               data-test="no-active-session-hint"
             >
               Open a session to analyze it manually

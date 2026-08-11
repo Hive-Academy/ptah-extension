@@ -50,7 +50,9 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
       @if (clone(); as c) {
         <div drawer-header class="min-w-0">
           <h2 class="text-sm font-medium">Proposed enhancement</h2>
-          <p class="mt-0.5 truncate font-mono text-[11px] text-base-content/60">
+          <p
+            class="mt-0.5 truncate font-mono text-[11px] text-base-content-muted"
+          >
             {{ c.kind }} · {{ c.slug }}
           </p>
         </div>
@@ -60,7 +62,7 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
         <div class="space-y-4">
           @if (loading()) {
             <div
-              class="flex items-center gap-2 text-sm text-base-content/70"
+              class="flex items-center gap-2 text-sm text-base-content-muted"
               data-testid="preview-loading"
             >
               <span class="loading loading-spinner loading-sm"></span>
@@ -100,11 +102,11 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
 
             @if (p.judgeReason; as reason) {
               <div class="space-y-1" data-testid="preview-judge-reason">
-                <p class="text-xs font-medium text-base-content/60">
+                <p class="text-xs font-medium text-base-content-muted">
                   Judge reasoning
                 </p>
                 <p
-                  class="rounded-lg border border-base-300 bg-base-200/40 p-3 text-xs text-base-content/80"
+                  class="rounded-lg border border-base-300 bg-base-200/40 p-3 text-xs text-base-content-muted"
                 >
                   {{ reason }}
                 </p>
@@ -113,7 +115,7 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
 
             @if (!p.proposed && p.skipReason) {
               <p
-                class="rounded-lg bg-base-300/40 px-3 py-2 text-xs text-base-content/70"
+                class="rounded-lg bg-base-300/40 px-3 py-2 text-xs text-base-content-muted"
                 data-testid="preview-skip-reason"
               >
                 {{ p.skipReason }}
@@ -122,7 +124,7 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
 
             @if (canShowDiff()) {
               <div class="space-y-1">
-                <p class="text-[11px] text-base-content/60">
+                <p class="text-[11px] text-base-content-muted">
                   Current (left) vs proposed (right)
                 </p>
                 <div
@@ -138,7 +140,7 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
               </div>
             } @else if (!p.proposed) {
               <p
-                class="text-xs text-base-content/60"
+                class="text-xs text-base-content-muted"
                 data-testid="preview-no-diff"
               >
                 There is no candidate body to compare.
@@ -153,7 +155,7 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
           drawer-footer
           class="flex items-center justify-between gap-2 border-t border-base-300 px-4 py-3"
         >
-          <span class="text-[11px] text-base-content/55">
+          <span class="text-[11px] text-base-content-muted">
             Nothing is written until you press Apply.
           </span>
           <span class="flex items-center gap-2">

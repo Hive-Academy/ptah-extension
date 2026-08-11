@@ -35,7 +35,7 @@ import type {
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-sm font-medium">
             Invocations
-            <span class="ml-1 text-base-content/60">{{ sc.name }}</span>
+            <span class="ml-1 text-base-content-muted">{{ sc.name }}</span>
           </h2>
           <button
             type="button"
@@ -48,7 +48,7 @@ import type {
 
         @if (invocations().length === 0) {
           <p
-            class="px-4 py-8 text-center text-xs text-base-content/60"
+            class="px-4 py-8 text-center text-xs text-base-content-muted"
             data-testid="skills-invocations-empty"
           >
             No invocations recorded for this candidate yet.
@@ -75,20 +75,20 @@ import type {
                         aria-hidden="true"
                       ></span>
                       <span
-                        class="text-xs text-base-content/70"
+                        class="text-xs text-base-content-muted"
                         data-testid="skills-invocation-outcome"
                         >{{ inv.succeeded ? 'success' : 'failure' }}</span
                       >
                     </span>
                     <span
-                      class="shrink-0 font-mono text-[11px] text-base-content/50"
+                      class="shrink-0 font-mono text-[11px] text-base-content-muted"
                     >
                       {{ formatTime(inv.invokedAt) }}
                     </span>
                   </div>
 
                   <p
-                    class="truncate font-mono text-[11px] text-base-content/45"
+                    class="truncate font-mono text-[11px] text-base-content-muted"
                     [title]="inv.sessionId"
                   >
                     {{ inv.sessionId }}
@@ -96,7 +96,7 @@ import type {
 
                   @if (inv.notes; as notes) {
                     <p
-                      class="text-xs text-base-content/70"
+                      class="text-xs text-base-content-muted"
                       data-testid="skills-invocation-notes"
                     >
                       {{ notes }}

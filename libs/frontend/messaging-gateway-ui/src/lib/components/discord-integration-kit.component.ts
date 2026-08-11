@@ -24,7 +24,7 @@ function describeRegisterError(error: string): string {
   template: `
     <div class="flex flex-col gap-4" data-testid="gateway-discord-integration">
       <label class="flex flex-col gap-1">
-        <span class="text-xs text-base-content/60"
+        <span class="text-xs text-base-content-muted"
           >Application (client) ID</span
         >
         <div class="flex items-center gap-2">
@@ -61,7 +61,7 @@ function describeRegisterError(error: string): string {
             Add to your server
           </a>
         } @else {
-          <span class="text-xs text-base-content/50">
+          <span class="text-xs text-base-content-muted">
             Enter the Application ID to generate an invite link.
           </span>
         }
@@ -82,7 +82,7 @@ function describeRegisterError(error: string): string {
 
       @if (registerFeedback(); as fb) {
         <span
-          class="text-xs text-base-content/70"
+          class="text-xs text-base-content-muted"
           data-testid="gateway-discord-register-feedback"
           >{{ fb }}</span
         >
@@ -90,9 +90,9 @@ function describeRegisterError(error: string): string {
 
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-xs text-base-content/60">
+          <span class="text-xs text-base-content-muted">
             Allowed servers
-            <span class="text-base-content/40">
+            <span class="text-base-content-muted">
               — tick to allow; empty = any server the bot is in
             </span>
           </span>
@@ -106,7 +106,7 @@ function describeRegisterError(error: string): string {
           </button>
         </div>
         @if (discordGuilds().length === 0) {
-          <span class="text-xs text-base-content/50">
+          <span class="text-xs text-base-content-muted">
             Start the bot, then Refresh to pick servers by name (or add IDs in
             the allow-list above).
           </span>
@@ -129,7 +129,7 @@ function describeRegisterError(error: string): string {
         }
       </div>
 
-      <span class="text-xs text-base-content/50">
+      <span class="text-xs text-base-content-muted">
         Invite grants View Channel, Send Messages, Create Public Threads, and
         Send Messages in Threads. Enable the Message Content intent in the
         Developer Portal for free-form replies.

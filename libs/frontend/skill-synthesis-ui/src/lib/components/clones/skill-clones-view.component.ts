@@ -107,7 +107,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
     } @else {
       <div class="space-y-4" data-testid="clones-view">
         <div class="flex items-start justify-between gap-4">
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-base-content-muted">
             Your active skills, agents and commands. Thoth improves them from
             recorded usage — metrics stay hidden until an entry actually runs.
           </p>
@@ -123,7 +123,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         </div>
 
         <dl
-          class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-base-content/60"
+          class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-base-content-muted"
           aria-label="Status legend"
           data-testid="clones-legend"
         >
@@ -180,7 +180,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
           <div class="pt-4">
             @if (visibleClones().length === 0) {
               <p
-                class="px-1 py-8 text-center text-sm text-base-content/60"
+                class="px-1 py-8 text-center text-sm text-base-content-muted"
                 data-testid="clones-empty"
               >
                 @if (loading()) {
@@ -262,7 +262,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
               <span class="font-mono text-sm">{{ intent.clone.slug }}</span>
             </h3>
             <p
-              class="mt-2 text-sm text-base-content/75"
+              class="mt-2 text-sm text-base-content-muted"
               data-testid="clones-reconcile-explanation"
             >
               {{

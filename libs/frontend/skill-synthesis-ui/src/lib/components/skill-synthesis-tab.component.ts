@@ -82,13 +82,13 @@ interface ActionDialogState {
       >
         <lucide-angular
           [img]="SparklesIcon"
-          class="size-8 text-base-content/30"
+          class="size-8 text-base-content-muted"
           aria-hidden="true"
         />
         <p class="text-sm font-medium">
           Skill synthesis is only available in the Ptah desktop app.
         </p>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Download Ptah desktop to let Thoth synthesize reusable skills from
           your sessions.
         </p>
@@ -115,7 +115,7 @@ interface ActionDialogState {
             </span>
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Skills</h1>
-              <p class="mt-0.5 text-sm text-base-content/60">
+              <p class="mt-0.5 text-sm text-base-content-muted">
                 Reusable skills Thoth synthesizes from successful sessions.
               </p>
             </div>
@@ -123,7 +123,7 @@ interface ActionDialogState {
           <div class="flex items-center gap-2">
             @if (activity(); as label) {
               <span
-                class="flex items-center gap-1.5 text-xs text-base-content/60"
+                class="flex items-center gap-1.5 text-xs text-base-content-muted"
                 role="status"
                 aria-live="polite"
                 data-testid="skills-activity-indicator"
@@ -178,7 +178,7 @@ interface ActionDialogState {
         @switch (subView()) {
           @case ('candidates') {
             <div class="space-y-4">
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-base-content-muted">
                 Raw per-session captures. These feed the clustering that
                 produces Recommended skills — promote here only for one-off
                 power use.
@@ -204,7 +204,7 @@ interface ActionDialogState {
               </nav>
 
               @if (ineligibleHint(); as hint) {
-                <p class="text-xs text-base-content/60">{{ hint }}</p>
+                <p class="text-xs text-base-content-muted">{{ hint }}</p>
               }
 
               <div
@@ -238,7 +238,7 @@ interface ActionDialogState {
                     Reject matching
                   </button>
                 </div>
-                <span class="text-xs text-base-content/50">
+                <span class="text-xs text-base-content-muted">
                   Supports * wildcard, e.g. looking-at-our-skills*
                 </span>
               </div>
@@ -314,7 +314,7 @@ interface ActionDialogState {
                         <h3 class="truncate text-base font-semibold">
                           {{ sc.name }}
                         </h3>
-                        <p class="mt-0.5 text-sm text-base-content/60">
+                        <p class="mt-0.5 text-sm text-base-content-muted">
                           {{ sc.description }}
                         </p>
                       </div>
@@ -329,7 +329,7 @@ interface ActionDialogState {
                     </header>
 
                     <div
-                      class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content/60"
+                      class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content-muted"
                     >
                       <span
                         >Status:
@@ -367,7 +367,7 @@ interface ActionDialogState {
                       } @else if (candidateDetail()?.body; as body) {
                         <ptah-markdown-block [content]="body" />
                       } @else {
-                        <p class="py-4 text-sm text-base-content/60">
+                        <p class="py-4 text-sm text-base-content-muted">
                           No content available for this candidate.
                         </p>
                       }
@@ -619,14 +619,14 @@ interface ActionDialogState {
             <h3 class="text-base font-semibold">
               {{ dlg.kind === 'promote' ? 'Promote' : 'Reject' }} candidate
             </h3>
-            <p class="mt-1 text-sm text-base-content/70">
+            <p class="mt-1 text-sm text-base-content-muted">
               <span class="font-mono">{{ dlg.candidate.name }}</span>
             </p>
 
             <label class="mt-3 flex flex-col gap-1">
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-base-content-muted">
                 Reason
-                <span class="text-base-content/50">(optional)</span>
+                <span class="text-base-content-muted">(optional)</span>
               </span>
               <textarea
                 class="textarea textarea-bordered textarea-sm w-full"

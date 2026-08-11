@@ -57,7 +57,7 @@ import {
             {{ j.name }}
           </h2>
           <p
-            class="mt-0.5 flex items-center gap-1.5 text-xs text-base-content/60"
+            class="mt-0.5 flex items-center gap-1.5 text-xs text-base-content-muted"
           >
             <span
               class="inline-block size-1.5 rounded-full"
@@ -77,18 +77,18 @@ import {
             @for (metric of metrics(); track metric.label) {
               <div class="min-w-0">
                 <dt
-                  class="text-[10px] uppercase tracking-wide text-base-content/50"
+                  class="text-[10px] uppercase tracking-wide text-base-content-muted"
                 >
                   {{ metric.label }}
                 </dt>
                 <dd
-                  class="break-words text-base-content/80"
+                  class="break-words text-base-content-muted"
                   [class.font-mono]="metric.mono"
                 >
                   {{ metric.value }}
                 </dd>
                 @if (metric.hint) {
-                  <dd class="break-words text-base-content/50">
+                  <dd class="break-words text-base-content-muted">
                     {{ metric.hint }}
                   </dd>
                 }
@@ -98,7 +98,7 @@ import {
 
           <section aria-label="Prompt">
             <h3
-              class="text-[10px] uppercase tracking-wide text-base-content/50"
+              class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >
               Prompt
             </h3>
@@ -111,11 +111,13 @@ import {
           @if (j.workspaceRoot) {
             <section aria-label="Workspace">
               <h3
-                class="text-[10px] uppercase tracking-wide text-base-content/50"
+                class="text-[10px] uppercase tracking-wide text-base-content-muted"
               >
                 Workspace
               </h3>
-              <p class="mt-1 break-all font-mono text-xs text-base-content/70">
+              <p
+                class="mt-1 break-all font-mono text-xs text-base-content-muted"
+              >
                 {{ j.workspaceRoot }}
               </p>
             </section>
@@ -124,16 +126,16 @@ import {
           <section aria-label="Run history">
             <header class="flex items-center justify-between gap-3">
               <h3
-                class="text-[10px] uppercase tracking-wide text-base-content/50"
+                class="text-[10px] uppercase tracking-wide text-base-content-muted"
               >
                 Run history
               </h3>
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-base-content-muted">
                 Last {{ runs().length }} runs
               </span>
             </header>
             @if (runs().length === 0) {
-              <p class="mt-2 text-xs text-base-content/60">
+              <p class="mt-2 text-xs text-base-content-muted">
                 No runs recorded yet.
               </p>
             } @else {
@@ -154,11 +156,11 @@ import {
                         [class]="statusDotClass(run)"
                         aria-hidden="true"
                       ></span>
-                      <span class="text-xs text-base-content/70">
+                      <span class="text-xs text-base-content-muted">
                         {{ run.status }}
                       </span>
                     </span>
-                    <span class="truncate text-xs text-base-content/60">
+                    <span class="truncate text-xs text-base-content-muted">
                       {{ run.resultSummary || run.errorMessage || '' }}
                     </span>
                   </li>

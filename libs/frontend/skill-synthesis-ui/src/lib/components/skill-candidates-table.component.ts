@@ -80,7 +80,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
       @if (rows().length > 0) {
         <div class="flex items-center justify-between gap-3 px-1">
           <label
-            class="flex cursor-pointer items-center gap-2 text-xs text-base-content/60"
+            class="flex cursor-pointer items-center gap-2 text-xs text-base-content-muted"
           >
             <input
               type="checkbox"
@@ -92,7 +92,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
             />
             <span>Select all</span>
           </label>
-          <span class="text-xs tabular-nums text-base-content/40">
+          <span class="text-xs tabular-nums text-base-content-muted">
             {{ rows().length }} shown
           </span>
         </div>
@@ -126,13 +126,13 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                       <span class="truncate">{{ row.candidate.name }}</span>
                       @if (row.candidate.pinned) {
                         <span
-                          class="text-[11px] font-normal text-base-content/50"
+                          class="text-[11px] font-normal text-base-content-muted"
                           title="Pinned — kept out of automatic pruning."
                           >pinned</span
                         >
                       }
                     </p>
-                    <p class="mt-0.5 text-xs text-base-content/60">
+                    <p class="mt-0.5 text-xs text-base-content-muted">
                       {{ row.candidate.description }}
                     </p>
                   </div>
@@ -144,7 +144,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                       aria-hidden="true"
                     ></span>
                     <span
-                      class="text-xs text-base-content/70"
+                      class="text-xs text-base-content-muted"
                       data-testid="skills-candidate-status"
                       >{{ row.candidate.status }}</span
                     >
@@ -153,7 +153,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
 
                 @if (row.metrics.length === 0) {
                   <p
-                    class="text-xs text-base-content/55"
+                    class="text-xs text-base-content-muted"
                     data-testid="skills-candidate-no-runs"
                   >
                     Never invoked yet — successes and failures appear after this
@@ -167,7 +167,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                     @for (m of row.metrics; track m.testId) {
                       <div class="flex items-baseline gap-1.5">
                         <dt
-                          class="text-[10px] uppercase tracking-wide text-base-content/40"
+                          class="text-[10px] uppercase tracking-wide text-base-content-muted"
                         >
                           {{ m.label }}
                         </dt>
@@ -248,7 +248,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
           <span class="text-sm font-medium text-base-content">
             No candidates for this filter.
           </span>
-          <span class="max-w-md text-xs text-base-content/60">
+          <span class="max-w-md text-xs text-base-content-muted">
             Sessions become candidates when a workflow of at least 5 turns ends
             with a success marker (turn complete, subagent stop, idle, or boot
             scan triggers). Candidates are promoted to active skills only after

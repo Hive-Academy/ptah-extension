@@ -72,7 +72,7 @@ let diffCounter = 0;
 
       @if (state() === 'loading' || state() === 'idle') {
         <div
-          class="flex h-full min-h-[12rem] items-center justify-center gap-2 text-sm text-base-content/60"
+          class="flex h-full min-h-[12rem] items-center justify-center gap-2 text-sm text-base-content-muted"
           data-testid="lazy-diff-loading"
         >
           <span class="loading loading-spinner loading-sm"></span>
@@ -87,7 +87,7 @@ let diffCounter = 0;
           <span class="text-sm font-medium text-error"
             >Could not load the diff editor</span
           >
-          <span class="max-w-md text-xs text-base-content/60">{{
+          <span class="max-w-md text-xs text-base-content-muted">{{
             errorMessage()
           }}</span>
           <button
