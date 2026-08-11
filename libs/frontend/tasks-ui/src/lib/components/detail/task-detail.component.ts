@@ -1,9 +1,12 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
+  effect,
   input,
   output,
+  viewChild,
 } from '@angular/core';
 import {
   Check,
@@ -284,6 +287,7 @@ import { TaskRelationsComponent } from './task-relations.component';
                by agents, so they are no more trusted than the body is. -->
           @if (openDocument(); as file) {
             <div
+              #docPanel
               class="flex flex-col gap-1 rounded border border-base-content/10 bg-base-200/40 p-2"
               data-testid="task-doc-panel"
             >
@@ -460,6 +464,37 @@ export class TaskDetailComponent {
       };
     });
   });
+
+  /**
+   * The expanded document panel, scrolled to as soon as it exists.
+   *
+   * The Workflow list is fifteen stages tall, so the panel opens well below the
+   * fold on any but the tallest window: the user clicks Read and nothing they
+   * can see happens. The Electron pass caught it and the e2e assertion missed
+   * it first time round — Playwright's `toBeVisible` means laid out and not
+   * hidden, NOT on screen, so it passed over a panel nobody could see. The spec
+   * now asserts `toBeInViewport`.
+   *
+   * `block: 'start'`, not `'nearest'`. `'nearest'` satisfies "on screen" by
+   * parking the panel's top edge at the BOTTOM of the scrollport, which the
+   * visual pass showed as a document whose title bar is visible and whose text
+   * is not — technically in view, still unreadable. The user asked to read
+   * this, so it is positioned to be read.
+   *
+   * The effect fires when the panel is created, not on every pass: the
+   * viewChild signal changes only as the element appears. Switching between two
+   * documents reuses the same element, and by then it is already in place.
+   */
+  private readonly docPanel = viewChild<ElementRef<HTMLElement>>('docPanel');
+
+  public constructor() {
+    effect(() => {
+      this.docPanel()?.nativeElement.scrollIntoView({
+        block: 'start',
+        behavior: 'smooth',
+      });
+    });
+  }
 
   /** Clicking the open document's own row closes it — one control, one place. */
   protected onToggleDocument(file: DocFile): void {

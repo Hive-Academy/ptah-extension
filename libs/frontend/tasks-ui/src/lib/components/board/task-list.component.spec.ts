@@ -204,7 +204,9 @@ describe('TaskListComponent', () => {
       'Task',
       'Description',
       'Type',
-      'Estimate',
+      // "Size", not "Estimate" — the longer word clipped at this column's
+      // width in the Electron pass.
+      'Size',
       'Updated',
       'Executor',
       'Progress',
@@ -473,7 +475,35 @@ describe('TaskListComponent', () => {
     ).toContain('—');
   });
 
-  it('caps the label chips and names every label it rolled up', () => {
+  /**
+   * ISO, not a localized format. It is the shortest unambiguous form — the
+   * localized "Aug 10, 2026" wrapped this column onto two lines and put dead
+   * height on every row — it sorts lexicographically like the column it labels,
+   * and it renders identically regardless of the host locale, which the
+   * localized form did not.
+   */
+  it('renders the updated date as YYYY-MM-DD, locale-independently', () => {
+    const view = render([
+      column('backlog', [
+        makeTask('TASK_2026_200', 'backlog', {
+          updated: '2026-08-09T11:15:00.000Z',
+        }),
+      ]),
+    ]);
+    expect(
+      view.host
+        .querySelector('[data-testid="task-row-updated"]')
+        ?.textContent?.trim(),
+    ).toBe('2026-08-09');
+  });
+
+  /**
+   * ONE chip, against the card's three. The row shares a single cell with the
+   * id and the title, and every chip is taken straight off the title — three
+   * of them cut the title down to "The sta…" in the Electron pass. The overflow
+   * chip still names every label it stands for, so nothing is hidden outright.
+   */
+  it('shows one label chip and names every label it rolled up', () => {
     const view = render([
       column('backlog', [
         makeTask('TASK_2026_200', 'backlog', {
@@ -481,11 +511,14 @@ describe('TaskListComponent', () => {
         }),
       ]),
     ]);
+    expect(
+      view.host.querySelectorAll('[data-testid="task-row-labels-overflow"]'),
+    ).toHaveLength(1);
     const overflow = view.host.querySelector(
       '[data-testid="task-row-labels-overflow"]',
     );
-    expect(overflow?.textContent?.trim()).toBe('+2');
-    expect(overflow?.getAttribute('title')).toContain('three, four');
+    expect(overflow?.textContent?.trim()).toBe('+3');
+    expect(overflow?.getAttribute('title')).toContain('two, three, four');
   });
 
   /**

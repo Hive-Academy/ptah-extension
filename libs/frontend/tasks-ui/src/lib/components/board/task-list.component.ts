@@ -64,14 +64,16 @@ interface TaskListGroup {
   readonly terminal: boolean;
 }
 
-const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-});
-
-/** How many label chips a row shows before rolling the rest into `+N`. */
-const MAX_VISIBLE_LABELS = 2;
+/**
+ * How many label chips a row shows before rolling the rest into `+N`.
+ *
+ * ONE, against the card's three. The card gives labels a line of their own; the
+ * row shares one cell with the id and the title, and every chip is taken
+ * straight off the title — three of them cut "The stale-content symptom…" down
+ * to "The sta…", which is a row that has stopped identifying its own task. The
+ * overflow chip still names every label it stands for.
+ */
+const MAX_VISIBLE_LABELS = 1;
 
 /**
  * TaskListComponent
@@ -203,64 +205,85 @@ const MAX_VISIBLE_LABELS = 2;
                        the exact defect this layout exists to fix. top-8 clears
                        the h-8 group header above it, so the two pin as a pair
                        rather than one sliding under the other. -->
+                  <!-- Widths are PERCENTAGES summing to 100, applied inline.
+                       Fixed px widths do not survive a resizable pane: the
+                       eight sized columns summed past the pane, table-fixed
+                       gave the one unsized column (Task) the ~8px that were
+                       left, and the id and title spilled across Description.
+                       Percentages scale together, so every column narrows and
+                       none of them collapses. Caught by the Electron visual
+                       pass; jsdom has no layout and cannot see it. -->
                   <tr
                     class="text-left text-[10px] uppercase tracking-wide text-base-content"
                   >
                     <th
                       scope="col"
-                      class="sticky top-8 z-20 w-9 bg-base-200 px-2 py-1 font-medium"
+                      class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                      [style.width.%]="compact() ? 8 : 4"
                     >
                       <span class="sr-only">Select</span>
                     </th>
                     <th
                       scope="col"
                       class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                      [style.width.%]="compact() ? 52 : 30"
                     >
                       Task
                     </th>
                     @if (!compact()) {
                       <th
                         scope="col"
-                        class="sticky top-8 z-20 w-1/4 bg-base-200 px-2 py-1 font-medium"
+                        class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                        [style.width.%]="16"
                       >
                         Description
                       </th>
                     }
                     <th
                       scope="col"
-                      class="sticky top-8 z-20 w-24 bg-base-200 px-2 py-1 font-medium"
+                      class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                      [style.width.%]="compact() ? 18 : 8"
                     >
                       Type
                     </th>
                     @if (!compact()) {
                       <th
                         scope="col"
-                        class="sticky top-8 z-20 w-20 bg-base-200 px-2 py-1 font-medium"
+                        class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                        [style.width.%]="6"
                       >
-                        Estimate
+                        <!-- "Size", not "Estimate": at 6% the longer word
+                             clipped to "ESTIMAT", and a header that cannot
+                             finish its own word is worse than a shorter one
+                             that means the same thing. -->
+                        Size
                       </th>
                       <th
                         scope="col"
-                        class="sticky top-8 z-20 w-28 bg-base-200 px-2 py-1 font-medium"
+                        class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                        [style.width.%]="10"
                       >
                         Updated
                       </th>
                       <th
                         scope="col"
-                        class="sticky top-8 z-20 w-28 bg-base-200 px-2 py-1 font-medium"
+                        class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                        [style.width.%]="9"
                       >
                         Executor
                       </th>
                       <th
                         scope="col"
-                        class="sticky top-8 z-20 w-32 bg-base-200 px-2 py-1 font-medium"
+                        class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                        [style.width.%]="8"
                       >
                         Progress
                       </th>
                     }
                     <th
                       scope="col"
-                      class="sticky top-8 z-20 w-24 bg-base-200 px-2 py-1 font-medium"
+                      class="sticky top-8 z-20 bg-base-200 px-2 py-1 font-medium"
+                      [style.width.%]="compact() ? 22 : 9"
                     >
                       <span class="sr-only">Actions</span>
                     </th>
@@ -313,7 +336,11 @@ const MAX_VISIBLE_LABELS = 2;
                         </span>
                       </td>
 
-                      <td class="px-2 py-1.5 align-middle">
+                      <!-- overflow-hidden is load-bearing, not tidiness: the
+                           cell holds shrink-0 badges, and without it they
+                           paint straight over the next column instead of
+                           being clipped by their own cell. -->
+                      <td class="overflow-hidden px-2 py-1.5 align-middle">
                         <div class="flex min-w-0 items-center gap-1.5">
                           <span
                             class="shrink-0 font-mono text-[10px] text-base-content-muted"
@@ -373,7 +400,12 @@ const MAX_VISIBLE_LABELS = 2;
                               }
                             </span>
                           }
-                          @if (task.dependsOn.length > 0) {
+                          <!-- Scanning metadata, dropped in the rail for the
+                               same reason the columns are: 52% of a 440px
+                               pane is not a width these fit in, and a chip
+                               that squeezes the title down to one character
+                               costs more than it tells. -->
+                          @if (!compact() && task.dependsOn.length > 0) {
                             <span
                               class="badge badge-xs badge-ghost shrink-0 gap-0.5"
                               [title]="
@@ -387,7 +419,10 @@ const MAX_VISIBLE_LABELS = 2;
                               {{ task.dependsOn.length }}
                             </span>
                           }
-                          @for (label of visibleLabels(task); track label) {
+                          @for (
+                            label of compact() ? [] : visibleLabels(task);
+                            track label
+                          ) {
                             <span
                               class="badge badge-xs max-w-[6rem] shrink-0 truncate border font-normal"
                               [class]="chipClass(label)"
@@ -395,7 +430,7 @@ const MAX_VISIBLE_LABELS = 2;
                               >{{ label }}</span
                             >
                           }
-                          @if (hiddenLabelCount(task) > 0) {
+                          @if (!compact() && hiddenLabelCount(task) > 0) {
                             <span
                               class="badge badge-xs badge-ghost shrink-0 font-normal tabular-nums"
                               [title]="hiddenLabelsTitle(task)"
@@ -438,7 +473,7 @@ const MAX_VISIBLE_LABELS = 2;
                         </td>
 
                         <td
-                          class="px-2 py-1.5 align-middle tabular-nums text-base-content-muted"
+                          class="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-base-content-muted"
                           [title]="updatedTitle(task)"
                           data-testid="task-row-updated"
                         >
@@ -781,7 +816,15 @@ export class TaskListComponent {
   }
 
   /**
-   * The `updated` timestamp, formatted, or an em dash.
+   * The `updated` timestamp as `YYYY-MM-DD`, or an em dash.
+   *
+   * ISO rather than a localized `Intl` format, for three reasons that all
+   * showed up at once. It is the shortest unambiguous form — "Aug 10, 2026"
+   * wrapped this column onto two lines in the Electron pass and put 8px of
+   * dead height on EVERY row. It sorts lexicographically, matching the column
+   * the user sorts by. And it renders identically on every machine, where the
+   * localized form varied with the host locale and made the date assertions
+   * environment-dependent.
    *
    * `updated` is `string | null` on the contract and crosses the host bridge,
    * so an unparseable value is treated the same as an absent one rather than
@@ -789,7 +832,7 @@ export class TaskListComponent {
    */
   protected updatedLabel(task: TaskSpecSummary): string {
     const parsed = this.parseUpdated(task);
-    return parsed === null ? '—' : DATE_FORMAT.format(parsed);
+    return parsed === null ? '—' : parsed.toISOString().slice(0, 10);
   }
 
   protected updatedTitle(task: TaskSpecSummary): string {
