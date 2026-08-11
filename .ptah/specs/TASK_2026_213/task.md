@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Pre-existing right-pane self-echo in updateSplitContent

@@ -459,16 +459,41 @@ export class EditorDiffSplitHelper {
    * Writing only the pane signal is what let a split-pane edit vanish when the
    * same file was later activated in the left pane, and let a save from the
    * other pane overwrite it with no indication at all.
+   *
+   * This no longer echoes the edit back into `splitFileContent` when a tab owns
+   * the file (TASK_2026_213). `splitFileContent` feeds the right pane's own
+   * `[content]` input, so writing this pane's keystrokes into it was a
+   * self-referential loop: the pane's own text arriving back at the pane. It
+   * was inert only because `code-editor.component.ts` skips a full-model
+   * replacement when the incoming content already equals the model — see the
+   * comment at its `syncFile` external-update branch, which states the
+   * invariant this restores in as many words: *nothing writes this pane's own
+   * edits back into its `content` input*. Any transformation ever landing
+   * between the two would have pushed a full-model replacement into the pane
+   * being typed in, moving the cursor to the end of the buffer and flattening
+   * the undo stack.
+   *
+   * The right pane is now deliberately stale in exactly the way the primary
+   * pane already was: it is written only by the debounced mirror and the
+   * focus-change reconcile, which carry the OTHER pane's text. Nothing else
+   * needed re-pointing — the workspace cache prefers the tab record when one
+   * exists (`EditorWorkspaceHelper`), a save carries the editor's own emitted
+   * text, and `closeSplit` absorbs through the tab record.
    */
   public updateSplitContent(content: string): void {
-    this.state.splitFileContent.set(content);
-
     const path = this.state.splitFilePath();
     if (!path) return;
-    // `openFileInSplit`'s no-tab branch leaves the split pane as the ONLY
-    // editing surface for the file; there is no second view to own content on
-    // its behalf, so that case is deliberately left exactly as it was (§1.4).
-    if (!this.state.openTabs().some((t) => t.filePath === path)) return;
+
+    // §1.4 — `openFileInSplit`'s no-tab branch leaves the split pane as the
+    // ONLY editing surface for the file. There is no second view to own content
+    // on its behalf, so the pane signal has to, and the echo stays: it is what
+    // `EditorWorkspaceHelper` caches across a workspace switch, and dropping it
+    // here would restore pre-edit text on the way back. That case is
+    // deliberately left exactly as it was.
+    if (!this.state.openTabs().some((t) => t.filePath === path)) {
+      this.state.splitFileContent.set(content);
+      return;
+    }
 
     this.tabs.updateTabContent(path, content);
     this.scheduleSplitMirror(path);

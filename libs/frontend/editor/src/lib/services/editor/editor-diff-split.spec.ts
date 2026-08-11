@@ -679,7 +679,10 @@ describe('EditorDiffSplitHelper — split content ownership (C2 AC1/AC2)', () =>
     const tab = ctx.openTabs()[0];
     expect(tab.content).toBe('edited in the split pane');
     expect(tab.isDirty).toBe(true);
-    expect(ctx.state.splitFileContent()).toBe('edited in the split pane');
+    // ...and NOT back into the pane signal that feeds this pane's own
+    // `[content]` input (TASK_2026_213). The right pane is deliberately stale,
+    // exactly as the primary pane already was.
+    expect(ctx.state.splitFileContent()).toBe('v0');
   });
 
   it('writes through even when the split file is NOT the active file, so activating its tab cannot show pre-edit text', () => {
@@ -716,6 +719,90 @@ describe('EditorDiffSplitHelper — split content ownership (C2 AC1/AC2)', () =>
     expect(helper.hasUnabsorbedPeerEdit('/ws/untabbed.ts', 'anything')).toBe(
       false,
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_213 — the right pane stops echoing its own keystrokes.
+  //
+  // `updateSplitContent` opened with `splitFileContent.set(content)`, and
+  // `splitFileContent` is the right pane's own `[content]` input. That is the
+  // loop `code-editor.component.ts` names in its syncFile external-update
+  // branch as the thing that must not exist: "nothing writes this pane's own
+  // edits back into its `content` input", because that branch is a full-model
+  // replacement and would move the cursor to the end of the buffer and flatten
+  // the undo stack. It survived only because the same branch is skipped when
+  // the incoming content already equals the model.
+  //
+  // The register called this "not a one-liner" and asked for the right pane's
+  // `[content]` to be re-pointed at the tab record. It must NOT be: the right
+  // pane would then take a full-model replacement on every LEFT-pane keystroke
+  // instead of one debounced mirror, which is what the debounce exists to
+  // prevent. What was actually needed is the write, split by case.
+  // -------------------------------------------------------------------------
+
+  it('(213-1) does NOT echo a split-pane keystroke back into the pane it came from', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('typed by the user');
+
+    // The owner has it...
+    expect(ctx.openTabs()[0].content).toBe('typed by the user');
+    // ...and the pane's own input is untouched, so no full-model replacement
+    // can ever be aimed at the buffer the user is typing in.
+    expect(ctx.state.splitFileContent()).toBe('v0');
+  });
+
+  it('(213-2) still keeps the §1.4 no-tab pane signal current — it is the only owner there', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/untabbed.ts');
+    ctx.state.splitFileContent.set('original');
+    ctx.state.activeFilePath.set('/ws/other.ts');
+
+    helper.updateSplitContent('typed');
+
+    // Dropping this write unconditionally, as the register's wording implies,
+    // loses the edit: EditorWorkspaceHelper caches `splitFileContent` on a
+    // workspace switch and there is no tab record to fall back to.
+    expect(ctx.state.splitFileContent()).toBe('typed');
+    expect(ctx.openTabs()).toHaveLength(0);
+  });
+
+  it('(213-3) the debounced mirror is still the only thing that writes the right pane', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('left');
+
+    // A LEFT-pane keystroke, the way EditorService routes one.
+    const tabs = new EditorTabsHelper(ctx.state, {
+      clearActiveFile: jest.fn(),
+      closeSplit: jest.fn(),
+    });
+    tabs.updateTabContent('/ws/a.ts', 'v1');
+    helper.scheduleSplitMirror('/ws/a.ts');
+
+    // Not immediately — this is the assertion that would break if the right
+    // pane were re-pointed at the tab record.
+    expect(ctx.state.splitFileContent()).toBe('v0');
+
+    jest.advanceTimersByTime(MIRROR_MS);
+    expect(ctx.state.splitFileContent()).toBe('v1');
+  });
+
+  it('(213-4) a split-pane edit still survives a close, which absorbs through the tab record', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('unmirrored edit');
+    // Close before the mirror debounce fires: the pane signal never held this
+    // text, so absorbing from it would have lost the edit.
+    helper.closeSplit();
+
+    expect(ctx.state.activeFileContent()).toBe('unmirrored edit');
+    expect(ctx.openTabs()[0].content).toBe('unmirrored edit');
   });
 });
 
@@ -798,7 +885,12 @@ describe('EditorDiffSplitHelper — unfocused-pane mirroring (C2 AC1)', () => {
 
     // The left pane's read surface is untouched: no mirror, no reconciliation.
     expect(ctx.state.activeFileContent()).toBe('A');
-    expect(ctx.state.splitFileContent()).toBe('B edited');
+    // The right pane's read surface is untouched too — its own keystrokes do
+    // not echo back into it (TASK_2026_213). The edit went to /ws/b.ts's tab.
+    expect(ctx.state.splitFileContent()).toBe('B');
+    expect(ctx.openTabs().find((t) => t.filePath === '/ws/b.ts')?.content).toBe(
+      'B edited',
+    );
   });
 
   it('(AC5) setFocusedPane touches nothing when the panes hold different files', () => {
