@@ -35,8 +35,10 @@ function asConfig(mock: MockConfigManager): ConfigManager {
 
 type ProviderModelsSurface = Pick<
   ProviderModelsService,
-  'resolveActiveProviderId'
+  'resolveActiveProviderId' | 'getModelTiers'
 >;
+
+type TierMap = Partial<Record<'sonnet' | 'opus' | 'haiku', string>>;
 type ProxyManagerSurface = Pick<
   CuratorProxyManager,
   'ensureProxy' | 'isProxyProvider'
@@ -58,6 +60,8 @@ function createHarness(opts: {
   configValues?: Record<string, unknown>;
   proxyUrl?: string;
   copilotAuthed?: boolean;
+  /** Persisted `mainAgent` tier overrides, keyed by provider id. */
+  tierOverrides?: Record<string, TierMap>;
 }): Harness {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: opts.configValues ?? {} });
@@ -68,6 +72,14 @@ function createHarness(opts: {
 
   const providerModels: ProviderModelsSurface = {
     resolveActiveProviderId: jest.fn(() => opts.activeProviderId),
+    getModelTiers: jest.fn((providerId: string) => {
+      const overrides = opts.tierOverrides?.[providerId] ?? {};
+      return {
+        sonnet: overrides.sonnet ?? null,
+        opus: overrides.opus ?? null,
+        haiku: overrides.haiku ?? null,
+      };
+    }),
   };
 
   const ensureProxy = jest.fn(async () => ({
@@ -284,5 +296,69 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
     expect(env['ANTHROPIC_API_KEY']).toBeUndefined();
     expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
     expect(env['ANTHROPIC_BASE_URL']).toBeUndefined();
+  });
+});
+
+describe('CuratorAuthResolver — curator tier mapping (TASK_2026_159)', () => {
+  const ORIGINAL_ENV = process.env;
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it("prefers the user's persisted haiku override over the provider entry default", async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      tierOverrides: { moonshot: { haiku: 'kimi-k2-turbo-preview' } },
+    });
+    const result = await resolver.resolve('moonshot');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
+      'kimi-k2-turbo-preview',
+    );
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).not.toBe(
+      getAnthropicProvider('moonshot')?.defaultTiers?.haiku,
+    );
+  });
+
+  it('still falls back to the provider entry default for tiers the user has not overridden', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      tierOverrides: { moonshot: { haiku: 'kimi-k2-turbo-preview' } },
+    });
+    const result = await resolver.resolve('moonshot');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
+      getAnthropicProvider('moonshot')?.defaultTiers?.sonnet,
+    );
+  });
+
+  it("does not leak the CHAT provider's haiku mapping into a curator on a provider that has none", async () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'ministral-3:cloud',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-k2.5:cloud',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v3.2:cloud',
+    };
+    expect(getAnthropicProvider('lm-studio')?.defaultTiers).toBeUndefined();
+
+    const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
+    const result = await resolver.resolve('lm-studio');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined();
+    expect(result?.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+  });
+
+  it('gives a tier-less provider a haiku mapping once the user overrides it', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'ollama-cloud',
+      tierOverrides: { 'lm-studio': { haiku: 'qwen3-4b' } },
+    });
+    const result = await resolver.resolve('lm-studio');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('qwen3-4b');
   });
 });

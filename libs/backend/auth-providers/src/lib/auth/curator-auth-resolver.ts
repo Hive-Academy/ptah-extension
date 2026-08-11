@@ -23,10 +23,25 @@ import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.
 import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
 
+/**
+ * Ambient env the curator must NOT inherit when it runs on its own provider.
+ *
+ * The tier keys belong on this list for the same reason the credential keys do:
+ * they are the *chat* provider's mapping. Leaving them in place aims the
+ * curator's `haiku` tier at a model only the chat provider can serve — a
+ * curator pinned to LM Studio would inherit Ollama Cloud's `ministral-3:cloud`.
+ * Every key is cleared unconditionally and then re-populated by
+ * {@link CuratorAuthResolver.buildTierValues} from the curator provider's own
+ * mapping, so absence here is a real "this provider has no haiku tier" signal
+ * rather than a leftover.
+ */
 const CHAT_AUTH_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 ] as const;
 
 @injectable()
@@ -188,16 +203,39 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
     }
   }
 
+  /**
+   * The curator provider's tier mapping, resolved the same way the main agent
+   * resolves its own (`ProviderModelsService.applyPersistedTiers`): the user's
+   * persisted `mainAgent` override wins, the provider entry's `defaultTiers`
+   * back it, and an unmapped tier stays absent.
+   *
+   * Reading the override matters because it is the only place a provider
+   * without `defaultTiers` can get a haiku tier at all, and because a user who
+   * remapped haiku expects the curator to follow that remap rather than the
+   * snapshot frozen into the provider entry at release time.
+   */
   private buildTierValues(providerId: string): AuthEnv {
-    const tiers = getAnthropicProvider(providerId)?.defaultTiers;
-    if (!tiers) {
-      return {};
+    const defaults = getAnthropicProvider(providerId)?.defaultTiers;
+    const overrides = this.providerModels.getModelTiers(
+      providerId,
+      'mainAgent',
+    );
+
+    const tiers: AuthEnv = {};
+    const sonnet = overrides.sonnet ?? defaults?.sonnet;
+    const opus = overrides.opus ?? defaults?.opus;
+    const haiku = overrides.haiku ?? defaults?.haiku;
+    if (sonnet) tiers.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
+    if (opus) tiers.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
+    if (haiku) tiers.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
+
+    if (!haiku) {
+      this.logger.warn(
+        '[memory-curator] curator provider has no haiku tier; the curator will send the bare tier alias',
+        { providerId },
+      );
     }
-    return {
-      ANTHROPIC_DEFAULT_SONNET_MODEL: tiers.sonnet,
-      ANTHROPIC_DEFAULT_OPUS_MODEL: tiers.opus,
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: tiers.haiku,
-    };
+    return tiers;
   }
 
   private resolveProviderBaseUrl(providerId: string): string {

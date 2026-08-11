@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -9,6 +10,7 @@ import {
 } from '@angular/core';
 import {
   ANTHROPIC_PROVIDERS,
+  getAnthropicProvider,
   type ProviderModelInfo,
 } from '@ptah-extension/shared';
 
@@ -25,7 +27,28 @@ interface ProviderOption {
 }
 
 const ACTIVE_PROVIDER_LABEL = 'Active provider (default)';
-const DEFAULT_MODEL_LABEL = 'Default (claude-haiku-4-5-20251001)';
+
+/**
+ * Label for the "no model pinned" sentinel.
+ *
+ * The backend sends the bare `haiku` tier alias in this case, so the label has
+ * to name a tier, never a model id. It previously read
+ * `Default (claude-haiku-4-5-20251001)` for every provider, which told a user
+ * on Ollama Cloud that their curator ran on Claude (TASK_2026_159).
+ *
+ * We name the concrete model only where the picker can actually know it: a
+ * chosen curator provider whose registry entry declares `defaultTiers.haiku`.
+ * With no curator provider chosen the resolution happens server-side against
+ * whichever provider the chat agent settled on, and this component has no
+ * business guessing which one that is.
+ */
+function buildDefaultModelLabel(providerId: string): string {
+  if (!providerId) return "Default (active provider's haiku tier)";
+  const provider = getAnthropicProvider(providerId);
+  const haiku = provider?.defaultTiers?.haiku;
+  if (haiku) return `Default (${haiku})`;
+  return `Default (${provider?.name ?? providerId} haiku tier)`;
+}
 
 @Component({
   selector: 'ptah-curator-model-picker',
@@ -65,7 +88,7 @@ const DEFAULT_MODEL_LABEL = 'Default (claude-haiku-4-5-20251001)';
             (change)="onModelChange($event)"
             aria-label="Curator model"
           >
-            <option value="">{{ defaultModelLabel }}</option>
+            <option value="">{{ defaultModelLabel() }}</option>
             @for (m of models(); track m.id) {
               <option [value]="m.id">{{ m.name }}</option>
             }
@@ -100,7 +123,9 @@ export class CuratorModelPickerComponent {
   public readonly curatorChange = output<CuratorModelChange>();
 
   protected readonly activeProviderLabel = ACTIVE_PROVIDER_LABEL;
-  protected readonly defaultModelLabel = DEFAULT_MODEL_LABEL;
+  protected readonly defaultModelLabel = computed(() =>
+    buildDefaultModelLabel(this._provider()),
+  );
   protected readonly phase1Note =
     'model rides the active provider (full provider routing coming soon)';
 

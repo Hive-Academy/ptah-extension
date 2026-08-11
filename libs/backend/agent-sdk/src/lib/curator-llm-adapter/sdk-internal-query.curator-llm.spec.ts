@@ -4,7 +4,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SdkInternalQueryCuratorLlm,
-  CURATOR_FALLBACK_MODEL,
+  CURATOR_DEFAULT_MODEL_TIER,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
 import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
@@ -136,7 +136,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
 
-  it('falls back to CURATOR_FALLBACK_MODEL when unset', async () => {
+  it('sends the bare haiku TIER ALIAS — not a pinned Claude id — when unset', async () => {
     const capture: { model?: string } = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -148,8 +148,28 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
       makeWorkspace(''),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
-    expect(CURATOR_FALLBACK_MODEL).toBe('claude-haiku-4-5-20251001');
+    expect(capture.model).toBe('haiku');
+    expect(CURATOR_DEFAULT_MODEL_TIER).toBe('haiku');
+  });
+
+  it('never hands a hardcoded Anthropic model id to a non-Anthropic provider', async () => {
+    const capture: { model?: string } = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': '',
+        'memory.curatorProvider': 'ollama-cloud',
+        authMethod: 'thirdParty',
+      }),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.model).not.toMatch(/^claude-/);
+    expect(capture.model).toBe('haiku');
   });
 
   it('falls back when the configured value is whitespace only', async () => {
@@ -164,7 +184,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
       makeWorkspace('   '),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
+    expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
   });
 
   it('trims the configured value before sending it as the model id', async () => {
@@ -182,7 +202,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
 
-  it('falls back to CURATOR_FALLBACK_MODEL when getConfiguration throws', async () => {
+  it('falls back to CURATOR_DEFAULT_MODEL_TIER when getConfiguration throws', async () => {
     const capture: { model?: string } = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -194,7 +214,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
       makeThrowingWorkspace(),
     );
     await adapter.extract(EXTRACT_TRANSCRIPT);
-    expect(capture.model).toBe(CURATOR_FALLBACK_MODEL);
+    expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
   });
 });
 
