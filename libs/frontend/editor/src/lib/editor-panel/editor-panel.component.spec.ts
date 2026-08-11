@@ -62,7 +62,61 @@ beforeAll(() => {
       this.removeAttribute('open');
     } as HTMLDialogElement['close'];
   }
+
+  // jsdom implements none of the three pointer-capture methods and has no
+  // PointerEvent constructor either (TASK_2026_209). The resize drags call
+  // setPointerCapture behind a `typeof === 'function'` check, so without this
+  // they would silently take the degraded path and the capture assertions
+  // would be vacuous. This stands in for the real thing closely enough to be
+  // worth asserting against: capture is per element per pointer id, and
+  // releasing one that is not held throws NotFoundError.
+  if (!Element.prototype.setPointerCapture) {
+    const held = new WeakMap<Element, Set<number>>();
+    Element.prototype.setPointerCapture = function setPointerCapture(
+      this: Element,
+      pointerId: number,
+    ) {
+      const ids = held.get(this) ?? new Set<number>();
+      ids.add(pointerId);
+      held.set(this, ids);
+    };
+    Element.prototype.hasPointerCapture = function hasPointerCapture(
+      this: Element,
+      pointerId: number,
+    ) {
+      return held.get(this)?.has(pointerId) ?? false;
+    };
+    Element.prototype.releasePointerCapture = function releasePointerCapture(
+      this: Element,
+      pointerId: number,
+    ) {
+      const ids = held.get(this);
+      if (!ids?.has(pointerId)) {
+        throw new DOMException('no active capture', 'NotFoundError');
+      }
+      ids.delete(pointerId);
+    };
+  }
 });
+
+/**
+ * A pointer event jsdom can dispatch.
+ *
+ * There is no `PointerEvent` constructor here, so this is a `MouseEvent` of the
+ * right type with `pointerId` defined on it — which is the whole of the pointer
+ * surface the drag loop reads.
+ */
+function pointerEvent(
+  type: string,
+  init: MouseEventInit & { pointerId?: number } = {},
+): Event {
+  const event = new MouseEvent(type, { bubbles: true, ...init });
+  Object.defineProperty(event, 'pointerId', {
+    value: init.pointerId ?? 1,
+    configurable: true,
+  });
+  return event;
+}
 
 // ---------------------------------------------------------------------------
 // Stub child components (match selectors + bound inputs/outputs)
@@ -366,33 +420,45 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     for (const cb of pending) cb(performance.now());
   }
 
-  function mouseDownOn(label: string): void {
+  function handleFor(label: string): HTMLElement {
     const handle: HTMLElement = fixture.nativeElement.querySelector(
       `[role="separator"][aria-label="${label}"]`,
     );
     expect(handle).toBeTruthy();
-    // Angular's own rendering can arm frames (afterNextRender); zero the
-    // counters here so every assertion below counts drag-armed frames only.
-    rafSpy.mockClear();
-    frames.clear();
+    return handle;
+  }
+
+  function pointerDownOn(
+    label: string,
+    pointerId = 1,
+    { resetFrames = true } = {},
+  ): HTMLElement {
+    const handle = handleFor(label);
+    if (resetFrames) {
+      // Angular's own rendering can arm frames (afterNextRender); zero the
+      // counters here so every assertion below counts drag-armed frames only.
+      rafSpy.mockClear();
+      frames.clear();
+    }
     handle.dispatchEvent(
-      new MouseEvent('mousedown', {
+      pointerEvent('pointerdown', {
         clientX: 100,
         clientY: 100,
-        bubbles: true,
         cancelable: true,
+        pointerId,
       }),
     );
+    return handle;
   }
 
-  function moveTo(x: number, y = 100): void {
+  function moveTo(x: number, y = 100, pointerId = 1): void {
     document.dispatchEvent(
-      new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }),
+      pointerEvent('pointermove', { clientX: x, clientY: y, pointerId }),
     );
   }
 
-  function releaseMouse(): void {
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  function releasePointer(pointerId = 1): void {
+    document.dispatchEvent(pointerEvent('pointerup', { pointerId }));
   }
 
   /** Read a protected signal off the component under test. */
@@ -460,7 +526,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
   });
 
   it('arms exactly one frame for a burst of sidebar mousemove events and applies only the latest position', () => {
-    mouseDownOn('Resize sidebar');
+    pointerDownOn('Resize sidebar');
 
     moveTo(120);
     moveTo(140);
@@ -484,17 +550,17 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     tickFrame();
     expect(readSignal('sidebarWidth')).toBe(376);
 
-    releaseMouse();
+    releasePointer();
   });
 
   it('cancels the pending frame on mouseup and still applies the release position', () => {
-    mouseDownOn('Resize sidebar');
+    pointerDownOn('Resize sidebar');
 
     moveTo(150);
     moveTo(190);
     expect(frames.size).toBe(1);
 
-    releaseMouse();
+    releasePointer();
 
     // Frame cancelled...
     expect(cafSpy).toHaveBeenCalled();
@@ -509,7 +575,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
   });
 
   it('preserves the 160px/480px sidebar clamp', () => {
-    mouseDownOn('Resize sidebar');
+    pointerDownOn('Resize sidebar');
     moveTo(5000);
     tickFrame();
     expect(readSignal('sidebarWidth')).toBe(480);
@@ -518,11 +584,11 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     tickFrame();
     expect(readSignal('sidebarWidth')).toBe(160);
 
-    releaseMouse();
+    releasePointer();
   });
 
   it('cancels a pending frame on destroy so no update lands after teardown', () => {
-    mouseDownOn('Resize sidebar');
+    pointerDownOn('Resize sidebar');
     moveTo(200);
     expect(frames.size).toBe(1);
 
@@ -539,7 +605,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     editor.terminalVisible.set(true);
     fixture.detectChanges();
 
-    mouseDownOn('Resize terminal');
+    pointerDownOn('Resize terminal');
     moveTo(100, 90);
     moveTo(100, 80);
     moveTo(100, 70);
@@ -550,14 +616,14 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     tickFrame();
     expect(editor.setTerminalHeight).toHaveBeenCalledTimes(1);
 
-    releaseMouse();
+    releasePointer();
   });
 
   it('coalesces the split divider drag the same way', () => {
     editor.splitActive.set(true);
     fixture.detectChanges();
 
-    mouseDownOn('Resize split panes');
+    pointerDownOn('Resize split panes');
     moveTo(150);
     moveTo(200);
     moveTo(250);
@@ -570,7 +636,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     // clamp — what matters here is that exactly one update landed for three events.
     expect(readSignal('splitLeftPercent')).toBe(80);
 
-    releaseMouse();
+    releasePointer();
   });
 
   // ---------------------------------------------------------------------------
@@ -578,7 +644,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
   // ---------------------------------------------------------------------------
 
   it('restores the sidebar width and cancels the frame on window blur', () => {
-    mouseDownOn('Resize sidebar');
+    pointerDownOn('Resize sidebar');
     moveTo(5000);
     expect(frames.size).toBe(1);
 
@@ -594,7 +660,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
   });
 
   it('restores the sidebar width and cancels the frame on Escape', () => {
-    mouseDownOn('Resize sidebar');
+    pointerDownOn('Resize sidebar');
     moveTo(5000);
     expect(frames.size).toBe(1);
 
@@ -612,7 +678,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     editor.terminalVisible.set(true);
     fixture.detectChanges();
 
-    mouseDownOn('Resize terminal');
+    pointerDownOn('Resize terminal');
     moveTo(100, 90);
     moveTo(100, 10);
     expect(frames.size).toBe(1);
@@ -631,7 +697,7 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     editor.splitActive.set(true);
     fixture.detectChanges();
 
-    mouseDownOn('Resize split panes');
+    pointerDownOn('Resize split panes');
     moveTo(5000);
     expect(frames.size).toBe(1);
 
@@ -642,6 +708,126 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     expect(cafSpy).toHaveBeenCalled();
     expect(frames.size).toBe(0);
     expect(readSignal('splitLeftPercent')).toBe(50);
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_209 — pointer capture + one drag per pointer.
+  //
+  // Carried over from Batch 4's review, Failure Mode 3, where the reviewer
+  // ruled no action was needed for correctness: the loop was safe because
+  // there is one mouse, and a second mousedown tore the first drag down before
+  // starting a second. Safe by circumstance, not by construction. These pin
+  // the construction — the drag owns a pointer id, refuses to be restarted
+  // while it holds one, ignores every other pointer, and gives the capture
+  // back on every exit including teardown.
+  // -------------------------------------------------------------------------
+
+  it('(209-1) takes pointer capture on the handle it was started from, and gives it back on pointerup', () => {
+    const handle = pointerDownOn('Resize sidebar', 7);
+
+    expect(handle.hasPointerCapture(7)).toBe(true);
+
+    moveTo(180, 100, 7);
+    releasePointer(7);
+
+    expect(handle.hasPointerCapture(7)).toBe(false);
+    // The drag still committed its release position: capture is a layer on
+    // top of the loop, not a replacement for it.
+    expect(readSignal('sidebarWidth')).toBe(336);
+  });
+
+  it('(209-2) refuses a second pointer: the live drag stays authoritative and keeps its own baseline', () => {
+    pointerDownOn('Resize sidebar', 1);
+    moveTo(150);
+    tickFrame();
+    expect(readSignal('sidebarWidth')).toBe(306);
+
+    // A second finger presses the same handle. The old loop tore the first
+    // drag down and re-baselined `original` to the CURRENT width, so a later
+    // Escape would have restored 306 rather than 256.
+    pointerDownOn('Resize sidebar', 2, { resetFrames: false });
+
+    // Nothing from the second pointer drives anything.
+    const framesBefore = rafSpy.mock.calls.length;
+    moveTo(400, 100, 2);
+    expect(rafSpy).toHaveBeenCalledTimes(framesBefore);
+    expect(readSignal('sidebarWidth')).toBe(306);
+
+    // The first drag is still live, still measuring from where it began.
+    moveTo(170);
+    tickFrame();
+    expect(readSignal('sidebarWidth')).toBe(326);
+
+    // ...and still restores the width the FIRST pointerdown saw.
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(readSignal('sidebarWidth')).toBe(256);
+  });
+
+  it('(209-3) a foreign pointer cannot end the drag either', () => {
+    pointerDownOn('Resize sidebar', 1);
+    moveTo(180);
+
+    releasePointer(2);
+
+    // Still armed, still listening: the stray release changed nothing.
+    expect(frames.size).toBe(1);
+    moveTo(200);
+    tickFrame();
+    expect(readSignal('sidebarWidth')).toBe(356);
+
+    releasePointer(1);
+  });
+
+  it('(209-4) pointercancel is an interruption — the UA took the gesture, so the value is restored', () => {
+    const handle = pointerDownOn('Resize sidebar', 3);
+    moveTo(5000, 100, 3);
+    expect(frames.size).toBe(1);
+
+    document.dispatchEvent(pointerEvent('pointercancel', { pointerId: 3 }));
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(readSignal('sidebarWidth')).toBe(256);
+    expect(handle.hasPointerCapture(3)).toBe(false);
+
+    // Nothing is listening any more.
+    moveTo(400, 100, 3);
+    expect(readSignal('sidebarWidth')).toBe(256);
+  });
+
+  it('(209-5) losing capture ends the drag — the terminal handle can be unmounted mid-drag', () => {
+    editor.terminalHeight.set(300);
+    editor.terminalVisible.set(true);
+    fixture.detectChanges();
+
+    const handle = pointerDownOn('Resize terminal', 4);
+    moveTo(100, 10, 4);
+    expect(frames.size).toBe(1);
+
+    // What the browser fires when a capturing element leaves the document.
+    handle.dispatchEvent(pointerEvent('lostpointercapture', { pointerId: 4 }));
+
+    expect(frames.size).toBe(0);
+    expect(editor.setTerminalHeight).toHaveBeenCalledWith(300);
+
+    // And the guard is clear, so the handle can start a fresh drag.
+    editor.setTerminalHeight.mockClear();
+    pointerDownOn('Resize terminal', 5);
+    moveTo(100, 90, 5);
+    tickFrame();
+    expect(editor.setTerminalHeight).toHaveBeenCalledTimes(1);
+    releasePointer(5);
+  });
+
+  it('(209-6) releases capture on destroy, so a torn-down panel never holds a pointer', () => {
+    const handle = pointerDownOn('Resize sidebar', 9);
+    expect(handle.hasPointerCapture(9)).toBe(true);
+
+    fixture.destroy();
+
+    expect(handle.hasPointerCapture(9)).toBe(false);
   });
 });
 

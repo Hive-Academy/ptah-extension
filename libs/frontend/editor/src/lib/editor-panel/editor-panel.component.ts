@@ -174,12 +174,17 @@ import type { FileTreeNode } from '../models/file-tree.model';
               (contextMenuRequested)="onContextMenu($event)"
             />
 
-            <!-- Sidebar resize handle (vertical, draggable) -->
+            <!-- Sidebar resize handle (vertical, draggable).
+
+                 pointerdown, not mousedown, and touch-none — see
+                 startDragTracking (TASK_2026_209). touch-none is load-bearing
+                 with pointer events: without it the UA claims the gesture for
+                 scrolling and fires pointercancel mid-drag. -->
             <div
-              class="w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0"
+              class="w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0 touch-none"
               role="separator"
               aria-label="Resize sidebar"
-              (mousedown)="onSidebarResizeStart($event)"
+              (pointerdown)="onSidebarResizeStart($event)"
             ></div>
           }
 
@@ -363,10 +368,10 @@ import type { FileTreeNode } from '../models/file-tree.model';
             <!-- SPLIT DIVIDER (vertical, draggable) -->
             @if (editorService.splitActive()) {
               <div
-                class="w-1 bg-base-300 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0"
+                class="w-1 bg-base-300 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0 touch-none"
                 role="separator"
                 aria-label="Resize split panes"
-                (mousedown)="onSplitResizeStart($event)"
+                (pointerdown)="onSplitResizeStart($event)"
               ></div>
             }
 
@@ -416,10 +421,10 @@ import type { FileTreeNode } from '../models/file-tree.model';
         <!-- Resize handle between editor and terminal -->
         @if (editorService.terminalVisible()) {
           <div
-            class="h-1 bg-base-300 cursor-row-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0"
+            class="h-1 bg-base-300 cursor-row-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0 touch-none"
             role="separator"
             aria-label="Resize terminal"
-            (mousedown)="onTerminalResizeStart($event)"
+            (pointerdown)="onTerminalResizeStart($event)"
           ></div>
         }
 
@@ -728,13 +733,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   /**
    * Listeners registered by the active resize drag, stored for symmetric
-   * removal. One quartet serves all three drag surfaces: they all start from a
-   * `mousedown` and there is a single pointer, so at most one can be active at
-   * a time — the same reasoning that lets {@link _dragFrame} be a single
-   * handle. `null` means no drag is in progress.
+   * removal. One set serves all three drag surfaces: at most one drag can be
+   * active at a time because {@link startDragTracking} refuses to start a
+   * second while {@link _dragPointerId} is held — the same reasoning that lets
+   * {@link _dragFrame} be a single handle. `null` means no drag is in progress.
    */
-  private _dragMouseMove: ((e: MouseEvent) => void) | null = null;
-  private _dragMouseUp: (() => void) | null = null;
+  private _dragPointerMove: ((e: PointerEvent) => void) | null = null;
+  private _dragPointerUp: ((e: PointerEvent) => void) | null = null;
+  private _dragPointerCancel: ((e: PointerEvent) => void) | null = null;
   private _dragBlur: (() => void) | null = null;
   private _dragKeydown: ((e: KeyboardEvent) => void) | null = null;
 
@@ -1423,20 +1429,21 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle mousedown on the terminal resize handle.
-   * Starts tracking mouse movement to resize the terminal panel.
+   * Handle pointerdown on the terminal resize handle.
+   * Starts tracking pointer movement to resize the terminal panel.
    *
-   * The drag operates by calculating the delta from the mouse start Y position
+   * The drag operates by calculating the delta from the pointer start Y position
    * and subtracting it from the initial terminal height. The terminal height
    * is clamped to a minimum of 100px and a maximum of 60% of the component height.
    */
-  protected onTerminalResizeStart(event: MouseEvent): void {
+  protected onTerminalResizeStart(event: PointerEvent): void {
     event.preventDefault();
 
     const startY = event.clientY;
     const startHeight = this.editorService.terminalHeight();
 
     this.startDragTracking<number>({
+      event,
       original: startHeight,
       compute: (e) => {
         const deltaY = startY - e.clientY;
@@ -1452,17 +1459,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle mousedown on the sidebar resize handle.
-   * Starts tracking horizontal mouse movement to resize the sidebar.
+   * Handle pointerdown on the sidebar resize handle.
+   * Starts tracking horizontal pointer movement to resize the sidebar.
    * Width is clamped between 160px and 480px.
    */
-  protected onSidebarResizeStart(event: MouseEvent): void {
+  protected onSidebarResizeStart(event: PointerEvent): void {
     event.preventDefault();
 
     const startX = event.clientX;
     const startWidth = this.sidebarWidth();
 
     this.startDragTracking<number>({
+      event,
       original: startWidth,
       compute: (e) => {
         const deltaX = e.clientX - startX;
@@ -1474,11 +1482,11 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle mousedown on the split divider.
-   * Starts tracking horizontal mouse movement to resize the split panes.
+   * Handle pointerdown on the split divider.
+   * Starts tracking horizontal pointer movement to resize the split panes.
    * The left pane percentage is clamped between 20% and 80%.
    */
-  protected onSplitResizeStart(event: MouseEvent): void {
+  protected onSplitResizeStart(event: PointerEvent): void {
     event.preventDefault();
 
     const startX = event.clientX;
@@ -1488,6 +1496,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const containerWidth = container.clientWidth;
 
     this.startDragTracking<number>({
+      event,
       original: startPercent,
       compute: (e) => {
         const deltaX = e.clientX - startX;
@@ -1507,17 +1516,32 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * own clamp), and the setter — and inherits one implementation of the parts
    * that must not diverge:
    *
-   * - **Coalescing (AC1).** `mousemove` runs outside the Angular zone and only
-   *   records the latest position + arms a single `requestAnimationFrame`, so
-   *   at most one zone re-entry (one change-detection pass + one layout write)
-   *   lands per frame no matter how many pointer events arrive.
-   * - **No lost final update (AC2).** `mouseup` cancels the armed frame AND
+   * - **Coalescing (AC1).** `pointermove` runs outside the Angular zone and
+   *   only records the latest position + arms a single `requestAnimationFrame`,
+   *   so at most one zone re-entry (one change-detection pass + one layout
+   *   write) lands per frame no matter how many pointer events arrive.
+   * - **No lost final update (AC2).** `pointerup` cancels the armed frame AND
    *   applies the recorded position synchronously, so the released position is
    *   always what commits.
-   * - **Interruption (AC3, TASK_2026_176).** `blur` and `Escape` restore
-   *   `original` and end the drag; every exit path cancels the pending frame
-   *   and removes all four listeners, so nothing can fire after the drag ends
-   *   or after `ngOnDestroy`.
+   * - **Interruption (AC3, TASK_2026_176).** `blur`, `Escape`, `pointercancel`
+   *   and `lostpointercapture` restore `original` and end the drag; every exit
+   *   path cancels the pending frame and removes every listener, so nothing can
+   *   fire after the drag ends or after `ngOnDestroy`.
+   * - **One drag per pointer (TASK_2026_209).** The handle takes pointer
+   *   capture and the drag remembers the id it owns. A second `pointerdown` —
+   *   a second finger, or a synthetic re-entrant event — is refused rather than
+   *   allowed to tear down and restart the live drag, and a `pointermove` from
+   *   any other pointer is ignored. Before this, the loop relied on there being
+   *   only one mouse; the re-entry was benign but not prevented (Batch 4
+   *   Failure Mode 3, which the reviewer ruled needed no action for
+   *   correctness — this is hardening, not a defect fix).
+   *
+   * Capture is what makes it hardening rather than bookkeeping: it routes every
+   * subsequent event for that pointer to the handle no matter what the pointer
+   * is over, so a drag cannot be silently stolen by a Monaco surface or lost off
+   * the edge of the window. It is applied through a capability check because
+   * jsdom implements none of the three pointer-capture methods, and the drag
+   * must degrade to plain document listeners there rather than throw.
    *
    * `compute` deliberately runs OUTSIDE the zone — only `commit` is re-entered,
    * which keeps the per-frame zone work to the signal write alone.
@@ -1525,20 +1549,42 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * @typeParam T Surface's value type (px height, px width, or percentage).
    */
   private startDragTracking<T>(surface: {
+    /** The `pointerdown` that opened the drag. Supplies the id and the handle. */
+    readonly event: PointerEvent;
     /** Pre-drag value, re-committed when the drag is interrupted. */
     readonly original: T;
     /** Pointer position → value to commit. Pure; runs outside the zone. */
-    compute: (event: MouseEvent) => T;
+    compute: (event: PointerEvent) => T;
     /** Applies a computed value. Runs inside the Angular zone. */
     commit: (value: T) => void;
   }): void {
-    // A previous drag always tears itself down on mouseup/blur/Escape; this is
-    // belt-and-braces so the single listener quartet can never be orphaned by
-    // an unexpected second mousedown.
-    this.cleanupDragListeners();
+    // A drag already owns a pointer. Restarting here is what the old loop did,
+    // and it is the wrong answer for a second finger: the first drag is the
+    // live one. Every teardown path clears this, including the ones that fire
+    // when the handle itself is removed mid-drag, so it cannot latch.
+    if (this._dragPointerId !== null) return;
+
+    const pointerId = surface.event.pointerId;
+    const handle =
+      surface.event.currentTarget instanceof Element
+        ? surface.event.currentTarget
+        : null;
+
+    this._dragPointerId = pointerId;
+    if (handle && typeof handle.setPointerCapture === 'function') {
+      try {
+        handle.setPointerCapture(pointerId);
+        this._dragCaptureTarget = handle;
+      } catch {
+        // Capture is a hardening layer, not a precondition: a handle that is
+        // already detached refuses it, and the document listeners below still
+        // drive the drag correctly.
+        this._dragCaptureTarget = null;
+      }
+    }
 
     this.ngZone.runOutsideAngular(() => {
-      let latestEvent: MouseEvent | null = null;
+      let latestEvent: PointerEvent | null = null;
 
       const applyLatest = (): void => {
         this._dragFrame = null;
@@ -1564,14 +1610,29 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         this.cleanupDragListeners();
       };
 
-      this._dragMouseMove = (e: MouseEvent) => {
+      /** Only the pointer that opened the drag may drive or end it. */
+      const isOwnPointer = (e: PointerEvent): boolean =>
+        e.pointerId === undefined || e.pointerId === this._dragPointerId;
+
+      this._dragPointerMove = (e: PointerEvent) => {
+        if (!isOwnPointer(e)) return;
         latestEvent = e;
         if (this._dragFrame === null) {
           this._dragFrame = requestAnimationFrame(applyLatest);
         }
       };
 
-      this._dragMouseUp = () => endDrag(false);
+      this._dragPointerUp = (e: PointerEvent) => {
+        if (!isOwnPointer(e)) return;
+        endDrag(false);
+      };
+      // pointercancel means the UA took the gesture (scroll, gesture
+      // recognition); lostpointercapture fires when the handle is removed
+      // mid-drag. Both are interruptions, so both restore like blur does.
+      this._dragPointerCancel = (e: PointerEvent) => {
+        if (!isOwnPointer(e)) return;
+        endDrag(true);
+      };
       this._dragBlur = () => endDrag(true);
       this._dragKeydown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
@@ -1580,27 +1641,41 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         }
       };
 
-      document.addEventListener('mousemove', this._dragMouseMove);
-      document.addEventListener('mouseup', this._dragMouseUp);
+      document.addEventListener('pointermove', this._dragPointerMove);
+      document.addEventListener('pointerup', this._dragPointerUp);
+      document.addEventListener('pointercancel', this._dragPointerCancel);
+      handle?.addEventListener(
+        'lostpointercapture',
+        this._dragPointerCancel as EventListener,
+      );
       window.addEventListener('blur', this._dragBlur);
       document.addEventListener('keydown', this._dragKeydown);
     });
   }
 
   /**
-   * Cancel any armed frame and remove every listener registered by
-   * {@link startDragTracking}. Idempotent — safe to call when no drag is in
-   * progress, which is what makes the `ngOnDestroy` teardown unconditional.
+   * Cancel any armed frame, release pointer capture and remove every listener
+   * registered by {@link startDragTracking}. Idempotent — safe to call when no
+   * drag is in progress, which is what makes the `ngOnDestroy` teardown
+   * unconditional.
    */
   private cleanupDragListeners(): void {
     this.cancelDragFrame();
-    if (this._dragMouseMove) {
-      document.removeEventListener('mousemove', this._dragMouseMove);
-      this._dragMouseMove = null;
+    if (this._dragPointerMove) {
+      document.removeEventListener('pointermove', this._dragPointerMove);
+      this._dragPointerMove = null;
     }
-    if (this._dragMouseUp) {
-      document.removeEventListener('mouseup', this._dragMouseUp);
-      this._dragMouseUp = null;
+    if (this._dragPointerUp) {
+      document.removeEventListener('pointerup', this._dragPointerUp);
+      this._dragPointerUp = null;
+    }
+    if (this._dragPointerCancel) {
+      document.removeEventListener('pointercancel', this._dragPointerCancel);
+      this._dragCaptureTarget?.removeEventListener(
+        'lostpointercapture',
+        this._dragPointerCancel as EventListener,
+      );
+      this._dragPointerCancel = null;
     }
     if (this._dragBlur) {
       window.removeEventListener('blur', this._dragBlur);
@@ -1610,16 +1685,52 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       document.removeEventListener('keydown', this._dragKeydown);
       this._dragKeydown = null;
     }
+    this.releaseDragPointer();
+  }
+
+  /**
+   * Give the pointer back.
+   *
+   * Guarded on `hasPointerCapture` because releasing a capture the element does
+   * not hold throws `NotFoundError`, and the handle may already have been
+   * unmounted — the terminal separator lives inside an `@if`.
+   */
+  private releaseDragPointer(): void {
+    const target = this._dragCaptureTarget;
+    const pointerId = this._dragPointerId;
+    this._dragCaptureTarget = null;
+    this._dragPointerId = null;
+    if (!target || pointerId === null) return;
+    if (typeof target.releasePointerCapture !== 'function') return;
+    try {
+      if (target.hasPointerCapture?.(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // Already released, or the element left the document. Either way the
+      // capture is gone, which is the only thing this method wanted.
+    }
   }
 
   /**
    * Pending `requestAnimationFrame` handle for the active resize drag.
    *
-   * Only one drag surface can be active at a time (they all start from a
-   * `mousedown` and there is a single pointer), so the terminal, sidebar and
-   * split drags share this one handle. `null` means no frame is armed.
+   * Only one drag surface can be active at a time — {@link startDragTracking}
+   * refuses a second `pointerdown` while one owns a pointer — so the terminal,
+   * sidebar and split drags share this one handle. `null` means no frame is
+   * armed.
    */
   private _dragFrame: number | null = null;
+
+  /**
+   * The pointer id the active drag owns, or `null` when no drag is in progress.
+   * This is the re-entry guard AND the filter that keeps a second finger's
+   * moves out of the loop.
+   */
+  private _dragPointerId: number | null = null;
+
+  /** Handle currently holding pointer capture, so it can be released. */
+  private _dragCaptureTarget: Element | null = null;
 
   /**
    * Cancel any frame armed by a resize drag.
