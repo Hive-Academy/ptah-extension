@@ -409,3 +409,93 @@ In order:
 
 **Prepared by**: team-leader (MODE 3).
 **Working tree**: clean at close.
+
+---
+
+## 7. Merge-back addendum — 2026-08-11, §4's three blockers closed
+
+`ak/founding-cohort-free-access` was merged into
+`ak/license-server-validation-pipe` (merge commit on that branch; the eight
+add/add conflicts were all `.ptah/specs/TASK_2026_20{1,2}/` files created
+independently on both sides — resolved in favour of this branch, which is the
+only side carrying the batch, test and completion reports, then re-formatted
+with prettier). **Both carriers moved `in_review` → `done`.**
+
+### 7.1 Blocker 1 — migrations applied to a real database ✅
+
+`npx prisma migrate deploy` from `apps/ptah-license-server/` (the invocation
+§3 corrected) against the running `ptah_db`:
+
+- Both migrations applied. `_prisma_migrations` now reports **23 finished**.
+- `waitlist.approved_at TIMESTAMP(3)` present and nullable, beside
+  `converted_at`.
+- `marketing_campaign_templates` holds 7 rows and **`Founding / Waitlist
+Invite` is not among them** — C1 met against a persistent database, not a
+  throwaway one.
+
+### 7.2 Blocker 2 — TASK_2026_202's exit gate, and a correction to C1 ⚠️→✅
+
+**C1 was wrong, and the runbook said so in print.** "Which environments hold
+the 8-week course: none" was derived from CI and deploy evidence only. Nobody
+queried the running dev database — and it held `week-1` … `week-8`. The 18-module
+overlay was therefore **live, not latent**, and running `seed-community`
+reproduced it exactly as §2 of the runbook predicts:
+
+| Run | Result                                                                        |
+| --- | ----------------------------------------------------------------------------- |
+| 1   | modules created 10 / updated 0 → **18 modules and 18 lessons in the course**  |
+| 2   | modules created **0** / updated 10 — FR-IDEM-1 holds on a persistent database |
+| 3   | created 0 / updated 10, after cleanup — tombstones are not resurrected        |
+
+Cleanup used the **production** procedure, not `prisma:reset`: the eight
+`week-N` modules and their lessons were soft-deleted (`deleted_at`,
+`deleted_by = 'curriculum-reseed-runbook'`), leaving **10 live / 8 tombstoned**.
+`prisma:reset` was rejected — it would have destroyed the dev users, licences
+and the single waitlist row, none of which the gate needs. A `pg_dump` custom
+backup was taken first (`tmp/ptah_db_pre_seed.dump`, gitignored).
+
+`docs/community/curriculum-reseed-runbook.md` §1 was rewritten to state this,
+with a one-line probe so the next person checks the database rather than the
+pipeline.
+
+### 7.3 Blocker 3 — Playwright executed ✅
+
+`admin-waitlist-approve.spec.ts`, real Chromium against the dev SPA on :4200 and
+the license server on :3000: **2 passed (28.5s)**. Both cases reach the real
+admin surface through the real server-side `ADMIN_EMAILS` guard; only the
+side-effecting `POST /approve` is route-stubbed, by design, so no licence was
+issued and no mail was sent.
+
+**It skipped on the first attempt, and that was the real finding.**
+`E2E_ADMIN_EMAIL` has been in `.env` all along, but `support/env.ts` returns a
+parsed object and never populates `process.env` — which is what every admin
+spec guards on. The suite reported `2 skipped`, which reads as green.
+`global-setup.ts` now bridges `E2E_*` keys from `.env` into `process.env`
+(prefix-scoped on purpose: `.env` carries a second `DATABASE_URL` pointing at
+the Neon production branch). Re-run with no shell export: **2 passed.**
+
+### 7.4 Regression sweep
+
+`nx run-many -t test` across the 11 projects the merge touches —
+`ptah-license-server`, `api-{admin,audit,community,email,learning,licensing,marketing,notifications}`,
+`api-contracts-community`, `web-admin`: **1,662 tests, 0 failures.**
+
+### 7.5 What §4 leaves open after this pass
+
+Unchanged and still **not** closed by any of the above:
+
+- **Production `migrate deploy`** — `founder-setup-checklist.md` §2.4. A launch
+  step, not a task gate.
+- **The `FOUNDING35` / `FOUNDING50` Paddle discounts** — §2.1, still a console
+  chore nobody has done.
+- **No announcement channel** — C2, by decision.
+- **The approve transaction has never run for real.** Every proof of it is a
+  unit test or a stubbed route. The one local waitlist row is a real address, and
+  approving it would issue a real licence and send real mail, so it was left
+  alone. **The first genuine execution will be the founding wave itself.**
+
+§4's stale-`§2.5` correction is now applied: the launch flip no longer lists the
+deleted **Send Founding Invites** control, and approval moved to its own §2.6
+with the `founding`-group prerequisite stated first.
+
+**Addendum by**: merge-back verification pass, 2026-08-11.

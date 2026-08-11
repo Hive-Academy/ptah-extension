@@ -13,23 +13,30 @@ use.
 
 ---
 
-## 1. Which environments hold the 8-week course: **none**
+## 1. Which environments hold the 8-week course
 
-Verified at the TASK_2026_202 checkpoint, three independent ways:
+**No deployed environment does. The local development database did** — and the
+18-module overlay described in §2 was reproduced there on 2026-08-11, then
+cleaned up with the §3 production procedure.
 
-| Evidence                                      | What it shows                                                                           |
-| --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml:89`                 | Runs `ptah-license-server:prisma:generate` only — client typegen, no migration, no seed |
-| `.github/workflows/nightly-coverage.yml:62`   | Same: `prisma:generate` only                                                            |
-| `docs/deploy/founder-setup-checklist.md` §2.4 | `prisma:migrate:deploy` against the production database is still **unchecked**          |
+| Environment                   | State                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI                            | Never seeded. `.github/workflows/ci.yml:89` and `nightly-coverage.yml:62` run `ptah-license-server:prisma:generate` only — typegen, no migration  |
+| Production                    | Never seeded. `docs/deploy/founder-setup-checklist.md` §2.4 (`prisma:migrate:deploy`) is still unchecked                                          |
+| Local dev (`ptah_db`, Docker) | **Held the 8 `week-N` modules.** Re-seeding produced 18 modules and 18 lessons exactly as §2 predicts. Cleaned 2026-08-11 — 10 live, 8 tombstoned |
 
-No CI job and no deploy step has ever run `seed-community`, and the founder
-confirmed he has never run it by hand. **No cleanup is performed by this task,
-and none is needed.**
+The checkpoint claim that _no_ environment held the old course was drawn from CI
+and deploy evidence only; nobody checked the running dev database, and it had
+been seeded by hand at some point. **Check the database, not the pipeline.** A
+one-line probe settles it:
 
-Sections 2–4 are therefore written as _correct and currently unused_. They are
-here because they will be needed the first time anyone re-seeds a persistent
-database, and working them out under pressure is how a course page gets broken.
+```bash
+docker exec ptah_postgres psql -U ptah -d ptah_db \
+  -c "select slug from course_modules where deleted_at is null order by slug;"
+```
+
+Sections 2–4 are therefore _correct and already exercised once_, not
+theoretical.
 
 ---
 

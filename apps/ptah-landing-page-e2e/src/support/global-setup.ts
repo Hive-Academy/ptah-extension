@@ -33,7 +33,30 @@ function postgresReachable(): boolean {
   }
 }
 
+/**
+ * Bridge the `E2E_*` keys from `.env` into `process.env`.
+ *
+ * `loadEnv()` returns a plain object, so `.env` alone never reached the specs —
+ * every admin spec guards on `process.env['E2E_ADMIN_EMAIL']` and therefore
+ * skipped silently on a machine that had it configured all along. A skip reads
+ * as a pass in the summary, which is how `admin-waitlist-approve.spec.ts` sat
+ * collected-but-never-executed. An explicit shell export still wins.
+ *
+ * Scoped to the `E2E_` prefix deliberately: `.env` carries a second
+ * `DATABASE_URL` pointing at the Neon production branch, and hydrating every
+ * key would put it in reach of the test process.
+ */
+function bridgeE2eEnv(): void {
+  for (const [key, value] of Object.entries(env)) {
+    if (key.startsWith('E2E_') && !process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
+  bridgeE2eEnv();
+
   if (!env['JWT_SECRET']) {
     throw new Error(
       '[e2e preflight] JWT_SECRET missing from .env — auth injection cannot mint tokens. ' +

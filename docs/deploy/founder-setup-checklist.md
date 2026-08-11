@@ -85,9 +85,32 @@ model. Items marked ✅ DEV are already configured locally by the dev session.
 
 - [ ] `.env.prod`: `BUILDERS_CHECKOUT_ENABLED=true`
 - [ ] `environment.production.ts`: `buildersCheckoutEnabled: true`
-- [ ] Admin → Waitlist → select founding wave → **Send Founding Invites**
-      (emails carry the discount checkout links; conversions stamp
-      `convertedAt` and auto-join the `founding` group).
+
+> **The founding wave is NOT part of this flip.** TASK_2026_201 deleted
+> `POST /v1/admin/waitlist/invite`, `WaitlistInviteModal` and the **Send
+> Founding Invites** control that used to live here — the founding cohort is
+> free, so there is no checkout link to mail and nothing to gate on
+> `BUILDERS_CHECKOUT_ENABLED`. Approving the wave is §2.6 and can be done
+> before, during or after the flip.
+
+### 2.6 The founding wave (free — independent of the flip)
+
+- [ ] Provision the `founding` member group at `/admin/groups` **first**. If it
+      is missing, approval fails closed for the whole batch before any row is
+      touched.
+- [ ] Admin → Waitlist → select the founding wave → **Approve to Founding
+      Cohort**. Each approved row gets a free 1-year `builders` complimentary
+      licence, the `founding` cohort, an `approvedAt` stamp and one welcome
+      email carrying the licence key — all in one transaction per row.
+- [ ] Read the **outcome tally**, not a success banner: every row reports
+      `approved`, `already_approved`, `already_paid`, `not_found` or `failed`.
+      A partly-applied batch is designed behaviour.
+- [ ] `convertedAt` stays owned by the Paddle fan-out — free grants stamp
+      `approvedAt`, so they never enter paid-conversion metrics.
+
+Full procedure: `docs/community/curriculum-reseed-runbook.md` §5–6 for the
+cohort schedule, and `.ptah/specs/TASK_2026_201/completion-report.md` §5.1 for
+the approval flow.
 
 ## 3. Cohort management (ongoing, no code needed)
 

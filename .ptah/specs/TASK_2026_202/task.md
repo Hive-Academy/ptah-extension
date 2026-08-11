@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_202
-status: in_review
+status: done
 type: DOCUMENTATION
 title: >-
   Restructure the seeded Builders curriculum from 8 weekly modules to a 10-day
