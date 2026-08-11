@@ -9,9 +9,13 @@ echo "🔍 Running pre-commit checks..."
 #
 # Do NOT add --no-stash back (TASK_2026_224). In lint-staged 16 it implies
 # --no-hide-partially-staged, so tasks run against the full working tree and the
-# post-task `git add` stages whatever is on disk — silently committing unstaged
-# edits alongside the staged ones. The default path hides unstaged changes,
-# formats only what is staged, and restores the rest.
+# post-task `git add` stages whatever is on disk. The default path hides unstaged
+# changes, formats only what is staged, and restores the rest.
+#
+# Separately, and this bit is git rather than lint-staged: `git commit -- <paths>`
+# means --only, which commits the WORKING TREE content of those paths and
+# bypasses the index. Staging a file and then editing it before a pathspec commit
+# commits the edit too. Verify `git diff -- <paths>` is empty first.
 npx lint-staged --concurrent false
 
 # Check if orchestration skill files were changed
@@ -47,5 +51,3 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "✅ Pre-commit checks passed!"
-
-# PROBE-UNSTAGED-MARKER-224
