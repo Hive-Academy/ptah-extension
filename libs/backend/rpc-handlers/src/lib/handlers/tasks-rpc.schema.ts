@@ -109,6 +109,18 @@ export const TasksUpdateMetadataParamsSchema = z.object({
   workspaceRoot,
   taskId: taskIdRef,
   patch: TaskMetadataPatchSchema,
+  /**
+   * The optimistic-concurrency precondition for a full-replacement `labels`
+   * write. See `TasksUpdateMetadataParams.expectLabels` for what it closes.
+   *
+   * A bare `z.array(z.string())`, deliberately NOT `LabelSchema`: this is a
+   * description of what the caller last SAW on disk, not a proposal of what to
+   * write. The read boundary accepts a hand-authored 40-character label as a
+   * warning, so a task can legitimately carry one — and refusing to state it
+   * here would make the one carrier that most needs the precondition the one
+   * carrier that cannot use it.
+   */
+  expectLabels: z.array(z.string()).optional(),
 });
 
 /**

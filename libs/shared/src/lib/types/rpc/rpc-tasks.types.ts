@@ -130,6 +130,34 @@ export interface TasksUpdateStatusResult {
 export interface TasksUpdateMetadataParams extends TasksWorkspaceScopedParams {
   taskId: string;
   patch: TaskMetadataPatch;
+  /**
+   * The labels the CALLER believed this task carried when it computed
+   * `patch.labels`. Send it with every full-replacement label write; omit it
+   * for a patch that does not touch labels.
+   *
+   * `patch.labels` is a whole-array replacement, so a caller that means "add
+   * `b`" has to send `[...whatItLastSaw, 'b']`. If something else changed the
+   * labels between that read and this call, the writer's own pre-write re-read
+   * cannot see it: the re-read agrees with itself, and the caller's array —
+   * computed from an older truth — silently drops the other writer's change.
+   *
+   * The same window `tasks:bulkUpdateLabel` closes internally, exposed on the
+   * wire because the detail panel is the other full-replacement label writer
+   * and it is NOT serialized against a bulk run: `TasksStore.runBulk`
+   * deliberately bypasses the per-task write queue (one call spans up to
+   * `BULK_CHUNK_SIZE` carriers and has no single id to queue on). So a bulk
+   * "add `b`" landing while the panel is open, followed by removing `a` in the
+   * panel, wrote `[]` and took `b` with it — after the run's summary had
+   * already reported success.
+   *
+   * Mismatch is answered with `TASK_CONFLICT` and nothing is written. It is
+   * compared as a multiset, so order does not matter — but case DOES, unlike
+   * label matching everywhere else on the board: recasing `Licensing` to
+   * `licensing` changed the bytes a full-replacement array is about to
+   * overwrite, and folding that away would be the precondition declining to
+   * notice the one thing it exists to notice.
+   */
+  expectLabels?: readonly string[];
 }
 
 export interface TasksUpdateMetadataResult {

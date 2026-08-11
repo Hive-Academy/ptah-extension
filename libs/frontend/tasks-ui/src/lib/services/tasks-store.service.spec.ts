@@ -881,6 +881,130 @@ describe('TasksStore', () => {
     );
 
     // -----------------------------------------------------------------------
+    // expectLabels — closing the bulk -> single-edit lost update.
+    //
+    // `patch.labels` is a FULL REPLACEMENT, so every label writer sends
+    // `[...whatItSaw, added]`. The bulk path has carried an `expectLabels`
+    // precondition since it shipped, and it closed bulk -> bulk. It did not
+    // close bulk -> detail panel, because those two are not serialized against
+    // each other: `runBulk` deliberately bypasses `enqueueWrite` (one call
+    // spans up to BULK_CHUNK_SIZE carriers and has no single id to queue on).
+    //
+    // The lost update: the panel is open on a task showing ['a']. A bulk "add
+    // b" over a selection containing it lands, so disk is ['a','b'] — but board
+    // pushes are suppressed for the whole run and no reload happens until
+    // `reconcileAfterBulk`, so the panel still holds ['a']. The user removes
+    // 'a' mid-run. The writer re-reads the carrier, its own snapshot agrees
+    // with itself, no precondition is stated, and it writes []. `b` is gone,
+    // and the run's summary has already reported success.
+    // -----------------------------------------------------------------------
+    describe('expectLabels', () => {
+      it('states what this webview last saw, on a labels write', async () => {
+        rpcCall.mockResolvedValueOnce(
+          ok(
+            makeBoard({
+              backlog: [makeTask(TASK, 'backlog', { labels: ['a'] })],
+            }),
+          ),
+        );
+        await store.loadBoard();
+        rpcCall.mockReset();
+        rpcCall.mockResolvedValue(
+          ok({ success: true, task: makeTask(TASK, 'backlog') }),
+        );
+
+        // What "remove a" looks like from a panel that believes it holds ['a'].
+        await store.applyMetadata(TASK, { labels: [] }, { reload: false });
+
+        expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
+          taskId: TASK,
+          patch: { labels: [] },
+          expectLabels: ['a'],
+        });
+      });
+
+      it('prefers the OPEN DETAIL over the board row when they disagree', async () => {
+        rpcCall.mockResolvedValueOnce(
+          ok(
+            makeBoard({
+              backlog: [makeTask(TASK, 'backlog', { labels: ['a'] })],
+            }),
+          ),
+        );
+        await store.loadBoard();
+        // `openTask` re-reads one carrier, so the detail can be newer than the
+        // board payload it was opened from — and the detail is what the panel
+        // renders and therefore what the user acted on.
+        rpcCall.mockResolvedValueOnce(
+          ok({
+            task: {
+              ...makeTask(TASK, 'backlog', { labels: ['a', 'b'] }),
+              body: '',
+              artifacts: [],
+            },
+          }),
+        );
+        await store.openTask(TASK);
+        rpcCall.mockReset();
+        rpcCall.mockResolvedValue(
+          ok({ success: true, task: makeTask(TASK, 'backlog') }),
+        );
+
+        await store.applyMetadata(TASK, { labels: ['b'] }, { reload: false });
+
+        expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
+          taskId: TASK,
+          patch: { labels: ['b'] },
+          expectLabels: ['a', 'b'],
+        });
+      });
+
+      it('is ABSENT on a patch that does not replace labels', async () => {
+        rpcCall.mockResolvedValueOnce(
+          ok(
+            makeBoard({
+              backlog: [makeTask(TASK, 'backlog', { labels: ['a'] })],
+            }),
+          ),
+        );
+        await store.loadBoard();
+        rpcCall.mockReset();
+        rpcCall.mockResolvedValue(
+          ok({ success: true, task: makeTask(TASK, 'backlog') }),
+        );
+
+        // A label precondition here would refuse a status move the user asked
+        // for because somebody else labelled the task.
+        await store.applyMetadata(
+          TASK,
+          { status: 'in_progress' },
+          { reload: false },
+        );
+
+        expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
+          taskId: TASK,
+          patch: { status: 'in_progress' },
+        });
+      });
+
+      it('is ABSENT for a task this store has never seen', async () => {
+        rpcCall.mockResolvedValue(
+          ok({ success: true, task: makeTask(TASK, 'backlog') }),
+        );
+
+        // `[]` here would ASSERT the carrier carries no labels, which is a much
+        // stronger claim than "this webview does not know" — and it would
+        // refuse every write to a labelled task the board has not loaded.
+        await store.applyMetadata(TASK, { labels: ['x'] }, { reload: false });
+
+        expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
+          taskId: TASK,
+          patch: { labels: ['x'] },
+        });
+      });
+    });
+
+    // -----------------------------------------------------------------------
     // A write that landed, followed by a re-read that did not.
     //
     // The failure mode being closed: `applyMetadata` rejects, the template

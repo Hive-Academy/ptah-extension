@@ -722,6 +722,14 @@ export class TasksRpcHandlers {
           root,
           parsed.taskId,
           parsed.patch,
+          // Forwarded only when the caller stated it. Absent means "no
+          // precondition", which is the right answer for every patch that does
+          // not replace `labels`: gating a status move on the label array would
+          // refuse a write the user asked for because somebody else labelled
+          // the task.
+          parsed.expectLabels === undefined
+            ? undefined
+            : { expectLabels: parsed.expectLabels },
         );
         return result.success
           ? { success: true, task: result.task }

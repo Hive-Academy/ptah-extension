@@ -741,6 +741,11 @@ describe('tasks:updateMetadata', () => {
       normalizeWorkspaceRoot('D:\\workspace'),
       'TASK_2026_181',
       { labels: ['licensing'], estimate: 'M' },
+      // No `expectLabels` was stated, so no precondition is forwarded. A
+      // caller that did not say what it believed must not have a belief
+      // invented for it: `{ expectLabels: [] }` here would refuse every write
+      // to a task that carries any label at all.
+      undefined,
     );
   });
 
@@ -761,6 +766,65 @@ describe('tasks:updateMetadata', () => {
       normalizeWorkspaceRoot('D:\\workspace'),
       'TASK_2026_181',
       { estimate: null, labels: [] },
+      undefined,
+    );
+  });
+
+  /**
+   * `expectLabels` — the optimistic-concurrency precondition, on the wire.
+   *
+   * `patch.labels` is a full replacement, so a caller that means "add b" sends
+   * `[...whatItLastSaw, 'b']`. The writer's own pre-write re-read cannot catch
+   * a third party that moved the labels since that read: the re-read agrees
+   * with itself, and the caller's stale array silently wins.
+   *
+   * `tasks:bulkUpdateLabel` has stated the precondition internally since it
+   * shipped. This method could not state it at all, which left the board's
+   * OTHER full-replacement label writer — the detail panel — unprotected
+   * against exactly the run the bulk path was protecting itself from.
+   */
+  it('forwards expectLabels to the writer as a precondition', async () => {
+    const { rpc, writer } = buildSuite();
+
+    await getHandler(
+      rpc,
+      'tasks:updateMetadata',
+    )({
+      taskId: 'TASK_2026_181',
+      patch: { labels: ['b'] },
+      expectLabels: ['a', 'b'],
+    });
+
+    expect(writer.updateMetadata).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+      'TASK_2026_181',
+      { labels: ['b'] },
+      { expectLabels: ['a', 'b'] },
+    );
+  });
+
+  it('accepts an expectLabels entry LabelSchema itself would refuse', async () => {
+    const { rpc, writer } = buildSuite();
+
+    // The read boundary admits a hand-authored 40-character label as a
+    // warning, so a carrier can legitimately hold one. `expectLabels`
+    // describes what is already on disk rather than proposing a write, so
+    // validating it as a label would make the one carrier that most needs the
+    // precondition the one carrier that cannot use it.
+    await getHandler(
+      rpc,
+      'tasks:updateMetadata',
+    )({
+      taskId: 'TASK_2026_181',
+      patch: { labels: [] },
+      expectLabels: ['x'.repeat(40)],
+    });
+
+    expect(writer.updateMetadata).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+      'TASK_2026_181',
+      { labels: [] },
+      { expectLabels: ['x'.repeat(40)] },
     );
   });
 

@@ -1126,9 +1126,55 @@ export class TasksStore implements MessageHandler {
 
     this._error.set(null);
     const reload = options.reload ?? true;
+    // Derived HERE rather than passed by each caller — see
+    // {@link believedLabels} for why this is the honest place to take it from,
+    // and `TasksUpdateMetadataParams.expectLabels` for the lost update it
+    // closes.
+    const expectLabels =
+      parsed.data.labels === undefined
+        ? undefined
+        : this.believedLabels(taskId);
     return this.enqueueWrite(taskId, () =>
-      this.writeMetadata(taskId, parsed.data, reload),
+      this.writeMetadata(taskId, parsed.data, reload, expectLabels),
     );
+  }
+
+  /**
+   * What THIS webview last knew task `taskId` to be labelled.
+   *
+   * ## Why the store derives it instead of each caller passing it
+   *
+   * `patch.labels` is a full replacement, so every label writer computes
+   * `[...whatItSaw, added]` or `whatItSaw.filter(...)`. There are three such
+   * writers — the detail panel's add and remove, and the palette's label
+   * toggle — and all three compute `whatItSaw` from state that came from this
+   * store: the panel from `taskDetail()`, the palette from the board rows.
+   * `expectLabels` therefore is not a new fact any of them holds; it is the
+   * value they already read, and taking it from its source makes the
+   * precondition impossible to forget at a fourth call site. Threading it
+   * through the emit chain would make it another thing to remember, and the
+   * whole defect being closed here is a precondition somebody remembered on
+   * one path and not the other.
+   *
+   * ## Why it is taken ONLY for a patch that replaces labels
+   *
+   * A status move, an estimate, a parent or a `depends_on` edit does not touch
+   * `labels`, so a label precondition on those would refuse a write the user
+   * asked for because somebody else labelled the task — turning a safety net
+   * into a denial of service on the busiest carriers.
+   *
+   * ## Why the detail is preferred over the board row
+   *
+   * They can disagree: `openTask` re-reads one carrier, so the open task's
+   * detail can be newer than the board payload it was opened from. The detail
+   * is what the panel renders and therefore what the user acted on. `null` when
+   * this store has never seen the task — an empty array would ASSERT the task
+   * carries no labels, which is a different and much stronger claim.
+   */
+  private believedLabels(taskId: string): readonly string[] | undefined {
+    const detail = this._taskDetail();
+    if (detail?.id === taskId) return detail.labels;
+    return this.allTasks().find((task) => task.id === taskId)?.labels;
   }
 
   /**
@@ -1815,6 +1861,7 @@ export class TasksStore implements MessageHandler {
     taskId: string,
     patch: TaskMetadataPatch,
     reload: boolean,
+    expectLabels: readonly string[] | undefined,
   ): Promise<TasksUpdateMetadataResult> {
     // The RPC service resolves with a failed `RpcResult` on timeout and abort,
     // but a broken transport can still throw. A throw here would escape through
@@ -1828,6 +1875,10 @@ export class TasksStore implements MessageHandler {
       result = await this.rpc.call('tasks:updateMetadata', {
         taskId,
         patch,
+        // Omitted, not sent as `undefined`: absent means "no precondition" on
+        // the wire, and a `labels` patch for a task this store has never seen
+        // has no belief to state.
+        ...(expectLabels === undefined ? {} : { expectLabels }),
         ...this.workspaceParam(),
       });
     } catch (error: unknown) {
