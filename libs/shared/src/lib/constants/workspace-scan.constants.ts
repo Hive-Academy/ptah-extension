@@ -26,6 +26,44 @@
  * deliberately NOT excluded. Do not add a name here without evidence that it
  * can never hold source.
  *
+ * ## Reachability: navigation is filtered, explicit access is not
+ *
+ * Both sets answer "which directories does a WALK skip". Neither is an access
+ * control, and the difference between those two things is observable today:
+ *
+ * - **Navigation from the workspace root is filtered.** `editor:getFileTree`
+ *   walks from the root and tests every entry it enumerates against
+ *   `TREE_HIDDEN_DIRS`, at every depth. Clicking down the tree can therefore
+ *   never arrive inside `node_modules`, `dist`, `.git` or any other member.
+ * - **Explicit access is not filtered at all.** `buildFileTree` filters the
+ *   entries it reads OUT of a directory — never the directory it was pointed
+ *   AT. So `editor:getFileTree { rootPath: '<workspace>/node_modules' }`
+ *   enumerates it happily, `editor:getDirectoryChildren { dirPath: … }` does
+ *   the same, and `file:open` / `editor:openFile` apply no exclusion test
+ *   whatsoever. The only gate on those three is `validatePathInWorkspace`.
+ *
+ * **This asymmetry is intentional and stays.** These sets exist to keep noise
+ * out of a tree someone is browsing, not to make files unreadable. A caller
+ * that passes an exact path has stated an intent that a default-hiding rule
+ * should not override — the same way a file manager omits dotfiles from a
+ * listing but still opens the one you name. Making it symmetric would break,
+ * among other things, opening a file from a stack frame that points into
+ * `node_modules`. So changing it is a PRODUCT decision, not a bug fix.
+ *
+ * Two consequences, stated out loud because they had been written down
+ * nowhere at all before TASK_2026_208:
+ *
+ * 1. Adding a name here hides more from NAVIGATION. It denies nothing. Do not
+ *    add one expecting it to protect anything — the containment boundary is
+ *    the workspace check, and that is the only thing holding it.
+ * 2. An agent, or any RPC caller, can read inside an excluded directory by
+ *    naming it. Intended; see above.
+ *
+ * Both halves are pinned by executable tests in
+ * `apps/ptah-electron/src/services/rpc/handlers/editor-rpc.handlers.spec.ts`,
+ * so a change to either one lands as a red test rather than as silent drift
+ * away from this comment.
+ *
  * Zero-dependency by construction: no `path`, no `fs`, no Node built-ins. This
  * module is compiled into the VS Code extension host, the Electron main
  * process and the headless CLI alike.

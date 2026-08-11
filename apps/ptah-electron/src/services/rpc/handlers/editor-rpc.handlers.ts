@@ -214,6 +214,15 @@ export class EditorRpcHandlers {
    * Shared implementation for file:open and editor:openFile.
    * Reads file content and notifies the editor provider.
    * Accepts both 'path' (FileOpenParams standard) and 'filePath' (legacy).
+   *
+   * NOTE, and it is deliberate: no `TREE_HIDDEN_DIRS` test happens here. A
+   * path inside `node_modules` opens, even though the tree can never navigate
+   * to one. Naming an exact path is an explicit intent that a default-hiding
+   * rule does not override — opening a file from a stack frame is the case
+   * that matters. `validatePathInWorkspace` below is the ONLY containment
+   * boundary on this method. Full rationale in the header of
+   * `workspace-scan.constants.ts` (@ptah-extension/shared); both halves of the
+   * asymmetry are pinned in this file's spec (TASK_2026_208).
    */
   private async handleFileOpen(
     params: FileOpenCompatParams | undefined,
@@ -280,6 +289,17 @@ export class EditorRpcHandlers {
     );
   }
 
+  /**
+   * `rootPath` is the explicit-access half of the exclusion asymmetry.
+   *
+   * Omitted, this walks the workspace root and `buildFileTree` filters every
+   * entry against `TREE_HIDDEN_DIRS` — so navigation cannot reach an excluded
+   * directory. Supplied, the given root is enumerated as-is: `buildFileTree`
+   * filters a directory's CHILDREN, never the directory it was handed, so
+   * `{ rootPath: '<workspace>/node_modules' }` returns its contents. Intended;
+   * see `workspace-scan.constants.ts` (@ptah-extension/shared) for why, and
+   * this file's spec for the pin (TASK_2026_208).
+   */
   private registerGetFileTree(): void {
     this.rpcHandler.registerMethod(
       'editor:getFileTree',
@@ -315,6 +335,9 @@ export class EditorRpcHandlers {
   /**
    * Lazy-load children of a directory that was at the initial depth boundary.
    * Returns immediate children (1 level) for the given directory path.
+   *
+   * Same explicit-access shape as `editor:getFileTree` above: `dirPath` is
+   * enumerated as given, only its children are filtered (TASK_2026_208).
    */
   private registerGetDirectoryChildren(): void {
     this.rpcHandler.registerMethod(
