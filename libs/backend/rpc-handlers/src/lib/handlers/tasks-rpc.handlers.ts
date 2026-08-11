@@ -52,6 +52,7 @@ import {
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { TasksSettings } from '@ptah-extension/settings-core';
 import {
+  LabelSchema,
   SavedTaskViewSchema,
   TaskMetadataPatchSchema,
 } from '@ptah-extension/shared/schemas';
@@ -912,6 +913,37 @@ export class TasksRpcHandlers {
       const root = this.resolveRoot(parsed.workspaceRoot);
       const taskIds = dedupeTaskIds(parsed.taskIds);
 
+      // The three label rules live in `LabelSchema` and are applied HERE, not
+      // in the request schema, so that their refusal can be reported the way
+      // every other refusal in this method is: one entry per task, carrying
+      // Zod's own sentence and INVALID_PARAMS. At the request schema they
+      // reached the caller as `parse`'s single generic
+      // "Invalid task request parameters." throw, which `callBulkChunk` on the
+      // board expands into a WRITE_FAILED entry per task — telling a user who
+      // typed a 40-character label that twelve carriers had failed to write,
+      // and never that the label was too long. Only the ≤12-per-task limit
+      // behaved correctly, because it is enforced in `applyBulkLabel` where a
+      // result list exists to put it in.
+      //
+      // Before `ensureStarted`, so a refusal starts no watcher and writes
+      // nothing. The merged array is still validated by
+      // `TaskMetadataPatchSchema` on the way to the funnel; this is the earlier
+      // and more specific of the two, not a replacement for it.
+      const label = LabelSchema.safeParse(parsed.label);
+      if (!label.success) {
+        return {
+          results: taskIds.map((taskId) => ({
+            taskId,
+            ok: false,
+            error: {
+              code: 'INVALID_PARAMS' as const,
+              message:
+                label.error.issues[0]?.message ?? 'That label is not valid.',
+            },
+          })),
+        };
+      }
+
       // Nothing has been written yet, so throwing is the honest answer here and
       // nowhere after it.
       try {
@@ -934,7 +966,7 @@ export class TasksRpcHandlers {
             await this.applyBulkLabel(
               root,
               taskId,
-              parsed.label,
+              label.data,
               parsed.mode,
               written,
             ),

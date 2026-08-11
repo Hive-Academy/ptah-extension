@@ -37,10 +37,19 @@ export interface TaskBulkLabelPick {
  * ## The label field states no limits
  *
  * It has no `maxlength` and no client-side check on how many labels a task
- * already carries. Both limits live in `TaskMetadataPatchSchema` on the write
- * path; a second copy here would be a second enforcer to drift, and an
- * over-limit merge comes back as the boundary's own sentence per task, which is
- * the sentence the summary renders.
+ * already carries. Both limits live on the write path — `LabelSchema` for the
+ * label itself, `TaskMetadataPatchSchema` for how many a task may carry; a
+ * second copy here would be a second enforcer to drift, and an over-limit
+ * request comes back as the boundary's own sentence per task, which is the
+ * sentence the summary renders.
+ *
+ * That last clause is load-bearing and was, for a while, false: the ≤32 and
+ * no-newline rules sat on the `tasks:bulkUpdateLabel` request schema, where a
+ * failure is one generic throw rather than a result list, and the board turned
+ * it into a `WRITE_FAILED` on every selected task. `TasksRpcHandlers` now runs
+ * `LabelSchema` itself, past `parse`, so the refusal is per task and says what
+ * it is. Silently truncating here instead would be worse than either: it would
+ * write a label the user did not type.
  *
  * ## The word this bar does not use
  *

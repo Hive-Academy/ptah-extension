@@ -150,9 +150,24 @@ export const TasksBulkUpdateStatusParamsSchema = z.object({
  * Two enforcers of one number is broken in one direction (a client chunking
  * above the cap fails every call) and silently unbounded in the other.
  *
- * `label` is the SHARED {@link LabelSchema}, so a label that this method could
- * plant is exactly a label `tasks:updateMetadata` and `ptah_task_update` would
- * accept. Note what is NOT here: the per-task limit. `MAX_LABELS_PER_TASK`
+ * ## `label` is a bare `z.string()` here, and that is not a relaxed boundary
+ *
+ * The three label rules — ≤ {@link LabelSchema}'s 32 characters, no newline,
+ * not blank — still hold, and it is still `LabelSchema` that holds them. They
+ * are applied one line into the HANDLER instead of here, for the same reason
+ * `MAX_LABELS_PER_TASK` is: this method answers with a LIST, one entry per
+ * task, and `parse` cannot produce one. Every Zod failure at this boundary
+ * collapses to a single generic `INVALID_PARAMS` throw, which the board turns
+ * into a `WRITE_FAILED` entry for every task in the chunk — so a user who
+ * typed a 40-character label was told twelve carriers had failed to write and
+ * never told that the label was too long. Checking one line later makes the
+ * refusal say what it is, per task, in `LabelSchema`'s own words.
+ *
+ * Nothing here is trusted onto a path or into a file: the label is joined into
+ * the merged array and that array is validated by `TaskMetadataPatchSchema` —
+ * which contains `LabelSchema` — before any write.
+ *
+ * Note what is also NOT here: the per-task limit. `MAX_LABELS_PER_TASK`
  * constrains the MERGED array, which does not exist until the handler has read
  * the task's current labels, so it is enforced there — by running the merged
  * array through `TaskMetadataPatchSchema`, the one definition of that limit.
@@ -160,7 +175,7 @@ export const TasksBulkUpdateStatusParamsSchema = z.object({
 export const TasksBulkUpdateLabelParamsSchema = z.object({
   workspaceRoot,
   taskIds: z.array(taskIdRef).min(1).max(BULK_CHUNK_SIZE),
-  label: LabelSchema,
+  label: z.string(),
   mode: z.enum(['add', 'remove']),
 });
 

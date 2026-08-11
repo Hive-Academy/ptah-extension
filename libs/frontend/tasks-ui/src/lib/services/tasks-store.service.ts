@@ -1377,12 +1377,20 @@ export class TasksStore implements MessageHandler {
   /**
    * Ask to add `label` to, or remove it from, every selected task (FR-C5).
    *
-   * The label is passed through UNCHECKED. Its limits — no newline, ≤ 32
-   * characters, ≤ 12 per task — live in `TaskMetadataPatchSchema` on the write
-   * path and nowhere else, so an over-long label comes back as one
-   * `INVALID_PARAMS` entry per task carrying the boundary's own sentence, which
-   * is the sentence the user should read. A copy of the rule here would be a
-   * second enforcer to drift.
+   * The label is passed through UNCHECKED. Its limits — no newline, not blank,
+   * ≤ 32 characters, ≤ 12 per task — live in `LabelSchema` and
+   * `TaskMetadataPatchSchema` and nowhere else, so an over-long label comes
+   * back as one `INVALID_PARAMS` entry per task carrying the boundary's own
+   * sentence, which is the sentence the user should read. A copy of the rule
+   * here would be a second enforcer to drift.
+   *
+   * That per-task shape is a property of the HANDLER, not of the wire: three of
+   * the four limits used to sit on `tasks:bulkUpdateLabel`'s request schema,
+   * where every Zod failure collapses to one generic throw — and
+   * {@link callBulkChunk} expands a throw into a `WRITE_FAILED` entry per task.
+   * A 40-character label therefore reported twelve write failures and never the
+   * length. The handler now runs `LabelSchema` itself, one line past `parse`,
+   * so all four answer the same way.
    */
   public requestBulkLabel(label: string, mode: TasksBulkLabelMode): void {
     this.requestBulk({ kind: 'label', label, mode });

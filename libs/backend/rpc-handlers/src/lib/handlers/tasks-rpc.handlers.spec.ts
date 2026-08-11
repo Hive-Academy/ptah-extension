@@ -64,6 +64,7 @@ import {
   CARRIER_FILE,
   DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
+  MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
   MAX_SAVED_TASK_VIEWS,
   buildTaskGraph,
@@ -3502,21 +3503,76 @@ describe('tasks:bulkUpdateLabel — boundary', () => {
     expect(writer.updateMetadata).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['an unknown mode', { label: 'security', mode: 'toggle' }],
-    ['a blank label', { label: '   ', mode: 'add' }],
-    ['a label with a newline', { label: 'a\nb', mode: 'add' }],
-    ['an over-long label', { label: 'x'.repeat(33), mode: 'add' }],
-  ] as const)('rejects %s, writing nothing', async (_name, overrides) => {
+  it('rejects an unknown mode, writing nothing', async () => {
     const { rpc, writer } = buildSuite();
     await expect(
       getHandler(
         rpc,
         'tasks:bulkUpdateLabel',
-      )({ taskIds: ['TASK_2026_401'], ...overrides }),
+      )({ taskIds: ['TASK_2026_401'], label: 'security', mode: 'toggle' }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
     expect(writer.updateMetadata).not.toHaveBeenCalled();
   });
+
+  /**
+   * An illegal label is refused as a RESULT LIST, not as a throw.
+   *
+   * These three used to reach the caller as `parse`'s single generic
+   * "Invalid task request parameters." — and `callBulkChunk` on the board
+   * expands a throw into ONE WRITE_FAILED ENTRY PER TASK in the chunk. So
+   * selecting twelve tasks and typing a 40-character label produced a summary
+   * reading "0 task(s) got the label; 12 were refused", stamped with a
+   * write-failure code on twelve carriers nothing had tried to write, and with
+   * no mention of the one thing the user could act on. The ≤12-per-task limit
+   * already answered correctly, because it is enforced in `applyBulkLabel`
+   * where a result list exists to put it in; these are the other two thirds of
+   * the same contract.
+   *
+   * The asserted message is `LabelSchema`'s own, character for character.
+   * `TaskBulkBarComponent` states in its doc-block that the label field ships
+   * with NO `maxlength` precisely because the boundary's sentence comes back
+   * per task — this is what makes that true rather than aspirational.
+   */
+  it.each([
+    ['a blank label', '   ', 'a label may not be blank'],
+    ['a label with a newline', 'a\nb', 'a label may not contain a newline'],
+    [
+      'an over-long label',
+      'x'.repeat(MAX_LABEL_LENGTH + 1),
+      `a label may be at most ${MAX_LABEL_LENGTH} characters`,
+    ],
+  ] as const)(
+    'refuses %s per task, in the schema own words, writing nothing',
+    async (_name, label, message) => {
+      const { rpc, writer } = buildSuite();
+
+      const result = (await getHandler(
+        rpc,
+        'tasks:bulkUpdateLabel',
+      )({
+        taskIds: ['TASK_2026_401', 'TASK_2026_402'],
+        label,
+        mode: 'add',
+      })) as TasksBulkUpdateLabelResult;
+
+      // One entry per requested id (FR-C4.3), each carrying the code that
+      // describes what actually happened: the request was refused, nothing was
+      // written, and retrying it unchanged cannot help.
+      expect(result.results).toEqual([
+        {
+          taskId: 'TASK_2026_401',
+          ok: false,
+          error: { code: 'INVALID_PARAMS', message },
+        },
+        {
+          taskId: 'TASK_2026_402',
+          ok: false,
+          error: { code: 'INVALID_PARAMS', message },
+        },
+      ]);
+      expect(writer.updateMetadata).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(REJECTED_IDS)(
     'rejects %s among the taskIds, writing nothing',
