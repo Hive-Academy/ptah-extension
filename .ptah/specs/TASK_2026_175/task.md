@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_175
-status: backlog
+status: in_review
 type: BUGFIX
 title: Git watcher debounce starves under continuous file-system churn
 description: GitWatcherService uses plain re-arming setTimeout debounces with no max-wait. On a machine with ambient background churn (Nx daemon, editor autosave, other tooling) the timer never goes quiet, so git:status-update never fires and the file tree's git state goes stale indefinitely. Measured at 0 status invocations over 60s against the live monorepo. Add max-wait semantics so a coalesced burst still fires within a bounded window.

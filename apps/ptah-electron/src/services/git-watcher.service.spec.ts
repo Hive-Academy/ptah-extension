@@ -276,6 +276,181 @@ describe('GitWatcherService', () => {
   });
 
   // ===========================================================================
+  // MAX-WAIT CEILINGS (TASK_2026_175)
+  //
+  // A plain re-arming debounce starves: while events keep arriving inside the
+  // window the timer is cleared every time and the trailing edge never runs.
+  // Measured against the live monorepo the workspace channel produced 0
+  // `git:status-update` pushes across 60s despite 655 qualifying events.
+  //
+  // Each test below emits FASTER than the channel's debounce window for
+  // LONGER than its ceiling, and proves two things: nothing fires before the
+  // ceiling (the debounce window is untouched — TASK_2026_173 C1 AC2), and
+  // the push is forced once the ceiling is crossed.
+  // ===========================================================================
+
+  describe('max-wait ceilings under continuous churn', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
+      (svc as unknown as { workspacePath: string }).workspacePath =
+        'D:\\fake\\ws';
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+    });
+
+    /** Emit `count` events `gapMs` apart, advancing fake time between them. */
+    function churn(emit: () => void, count: number, gapMs: number): void {
+      for (let i = 0; i < count; i++) {
+        emit();
+        jest.advanceTimersByTime(gapMs);
+      }
+    }
+
+    function calls(type: string): unknown[][] {
+      return broadcast.mock.calls.filter(([t]) => t === type);
+    }
+
+    /** Let the `void fetchAndPush()` chain settle. */
+    async function flush(): Promise<void> {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    it('workspace git status fires within WORKSPACE_MAX_WAIT_MS (8000)', async () => {
+      const emit = () =>
+        (
+          svc as unknown as {
+            scheduleUpdate(ms: number, kind: GitChangeKind): void;
+          }
+        ).scheduleUpdate(2000, 'workspace');
+
+      // 500ms apart — a quarter of the debounce window, so the trailing edge
+      // is never reached by coalescing alone. Last emit lands at t=7500.
+      churn(emit, 16, 500);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(0);
+
+      // t=8000: the burst has now run for the full ceiling.
+      emit();
+      await flush();
+      expect(calls('git:status-update').length).toBeGreaterThanOrEqual(1);
+      const payload = calls(
+        'git:status-update',
+      )[0][1] as GitStatusUpdatePayload;
+      expect(payload.causes).toEqual(['workspace']);
+    });
+
+    it('file tree refresh fires within TREE_MAX_WAIT_MS (2000)', () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleTreeRefresh(): void }
+        ).scheduleTreeRefresh();
+
+      // 200ms apart, well inside the 500ms window. Last emit lands at t=1800.
+      churn(emit, 10, 200);
+      expect(calls('file:tree-changed')).toHaveLength(0);
+
+      emit(); // t=2000
+      expect(calls('file:tree-changed')).toHaveLength(1);
+    });
+
+    it('git-ops refresh fires within GIT_OPS_MAX_WAIT_MS (2000)', async () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleGitOpsRefresh(kind: GitChangeKind): void }
+        ).scheduleGitOpsRefresh('index');
+
+      churn(emit, 10, 200);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(0);
+      expect(calls('editor:reread-open-tabs')).toHaveLength(0);
+
+      emit(); // t=2000
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
+      expect(calls('editor:reread-open-tabs')).toHaveLength(1);
+    });
+
+    it('content change fires within CONTENT_CHANGE_MAX_WAIT_MS (2000)', () => {
+      const emit = () =>
+        (
+          svc as unknown as {
+            scheduleContentChange(root: string, name: string): void;
+          }
+        ).scheduleContentChange('D:\\fake\\ws', 'a.ts');
+
+      churn(emit, 10, 200);
+      expect(calls('file:content-changed')).toHaveLength(0);
+
+      emit(); // t=2000
+      expect(calls('file:content-changed')).toHaveLength(1);
+      expect(calls('file:content-changed')[0][1]).toEqual({
+        filePath: 'D:/fake/ws/a.ts',
+      });
+    });
+
+    it('content-change ceilings are tracked per file, not globally', () => {
+      const emit = (name: string) =>
+        (
+          svc as unknown as {
+            scheduleContentChange(root: string, name: string): void;
+          }
+        ).scheduleContentChange('D:\\fake\\ws', name);
+
+      // `a.ts` is rewritten continuously; `b.ts` is touched once near the end.
+      churn(() => emit('a.ts'), 10, 200);
+      emit('b.ts');
+      emit('a.ts'); // t=2000 — only a.ts has an expired burst
+      expect(calls('file:content-changed')).toHaveLength(1);
+      expect(calls('file:content-changed')[0][1]).toEqual({
+        filePath: 'D:/fake/ws/a.ts',
+      });
+
+      // b.ts still coalesces normally on its own 500ms window.
+      jest.advanceTimersByTime(500);
+      expect(calls('file:content-changed')).toHaveLength(2);
+      expect(calls('file:content-changed')[1][1]).toEqual({
+        filePath: 'D:/fake/ws/b.ts',
+      });
+    });
+
+    it('a forced fire starts a fresh burst rather than firing on every event', () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleTreeRefresh(): void }
+        ).scheduleTreeRefresh();
+
+      churn(emit, 10, 200);
+      emit(); // t=2000 — forced
+      expect(calls('file:tree-changed')).toHaveLength(1);
+
+      // The next event opens a new burst; it must NOT fire immediately.
+      jest.advanceTimersByTime(200);
+      emit();
+      expect(calls('file:tree-changed')).toHaveLength(1);
+
+      churn(emit, 10, 200);
+      emit();
+      expect(calls('file:tree-changed')).toHaveLength(2);
+    });
+
+    it('stop() clears the burst so a restarted watcher does not fire instantly', () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleTreeRefresh(): void }
+        ).scheduleTreeRefresh();
+
+      churn(emit, 10, 200);
+      svc.stop();
+      broadcast.mockClear();
+
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+      emit();
+      expect(calls('file:tree-changed')).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
   // FILTERING TESTS — exercise the real watcher callback function
   // ===========================================================================
 

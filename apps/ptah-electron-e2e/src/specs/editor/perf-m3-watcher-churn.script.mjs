@@ -17,9 +17,11 @@
  *     consumed by `GitWatcherService.isIgnoredWorkspaceEvent` /
  *     `watchWorkspaceRoot`)
  *   - Debounce: WORKSPACE_DEBOUNCE_MS = 2000ms, timer reset on every
- *     qualifying event. (git-watcher.service.ts:114, `scheduleUpdate`)
+ *     qualifying event, bounded by WORKSPACE_MAX_WAIT_MS = 8000ms so a burst
+ *     that never goes quiet still reaches its trailing edge.
+ *     (git-watcher.service.ts, `scheduleUpdate` / `burstExpired`)
  *   - The fetch itself: `git status --porcelain=v2 --branch`.
- *     (git-info.service.ts:54-55, `GitInfoService.getGitInfo`)
+ *     (git-info.service.ts, `GitInfoService.getGitInfo`)
  *
  * ⚠️ THE EXCLUSION LIST BELOW IS A HAND-MAINTAINED COPY. It cannot import the
  * shared constant: this file is plain `.mjs` executed by bare `node`, while
@@ -29,6 +31,9 @@
  * harness into the build graph and forfeit the "zero product-code change"
  * property that makes the M3 before/after numbers comparable.
  * **If you change `workspace-scan.constants.ts`, update `IGNORED_DIRS` below.**
+ * That is no longer only a request: `workspace-scan.constants.spec.ts` parses
+ * the literal out of this file and fails when the two sets diverge, so drift
+ * breaks the build rather than silently corrupting a later measurement.
  *
  * Workload: rather than shelling out a full multi-minute `nx build` (slow,
  * non-deterministic wall-clock, and this repo's dev build is already the
@@ -54,13 +59,15 @@ import fs from 'node:fs';
 const REPO_ROOT = path.resolve(process.argv[2] ?? process.cwd());
 const WINDOW_MS = Number(process.argv[3] ?? 60_000);
 const PROBE_REL_PATH = process.argv[4] ?? 'apps/ptah-electron-e2e/README.md';
-const WORKSPACE_DEBOUNCE_MS = 2_000; // git-watcher.service.ts:102
+const WORKSPACE_DEBOUNCE_MS = 2_000; // git-watcher.service.ts WORKSPACE_DEBOUNCE_MS
+const WORKSPACE_MAX_WAIT_MS = 8_000; // git-watcher.service.ts WORKSPACE_MAX_WAIT_MS
 const CACHE_WRITE_INTERVAL_MS = 2_200; // just above the debounce window
 const MID_WINDOW_PROBE_FILE = path.join(REPO_ROOT, PROBE_REL_PATH);
 
 let statusInvocations = 0;
 let statusTraceLines = 0;
 let debounceTimer = null;
+let burstStartedAt = null;
 let cacheWriteTimer = null;
 const invocationLog = [];
 let midWindowProbeFiredAt = null;
@@ -97,12 +104,29 @@ function runGitStatus(trigger) {
   });
 }
 
+/**
+ * Mirrors `GitWatcherService.scheduleUpdate` including its max-wait ceiling:
+ * the timestamp of the first event in the current burst is stamped, and once
+ * WORKSPACE_MAX_WAIT_MS has elapsed the trailing edge is forced instead of
+ * re-armed. Without this the measurement reports 0 invocations on any machine
+ * with ambient churn — starvation, not a quiet watcher.
+ */
 function scheduleUpdate(trigger) {
+  if (burstStartedAt === null) burstStartedAt = Date.now();
   if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
+
+  const fire = () => {
     debounceTimer = null;
+    burstStartedAt = null;
     runGitStatus(trigger);
-  }, WORKSPACE_DEBOUNCE_MS);
+  };
+
+  if (Date.now() - burstStartedAt >= WORKSPACE_MAX_WAIT_MS) {
+    fire();
+    return;
+  }
+
+  debounceTimer = setTimeout(fire, WORKSPACE_DEBOUNCE_MS);
 }
 
 /**
@@ -210,6 +234,7 @@ setTimeout(() => {
       repoRoot: REPO_ROOT,
       windowMs: WINDOW_MS,
       workspaceDebounceMs: WORKSPACE_DEBOUNCE_MS,
+      workspaceMaxWaitMs: WORKSPACE_MAX_WAIT_MS,
       cacheWriteIntervalMs: CACHE_WRITE_INTERVAL_MS,
       cacheWriteCount,
       qualifyingFsEvents: eventCount,
