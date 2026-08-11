@@ -49,6 +49,44 @@ const rectSchema = z.object({
 
 const cornerSchema = z.enum(['tl', 'tr', 'bl', 'br']);
 
+/** Glyph names drawn by `icons.tsx` — keep this list in step with `ICONS` there. */
+export const iconNameSchema = z.enum([
+  'sparkles',
+  'layers',
+  'agents',
+  'memory',
+  'wizard',
+  'terminal',
+  'shield',
+  'plug',
+  'branch',
+  'trending',
+  'runtimes',
+  'code',
+]);
+
+/** Authored scenes drawn by `graphics.tsx` — keep in step with `GRAPHICS` there. */
+export const graphicNameSchema = z.enum([
+  'building-this',
+  'open-source',
+  'the-name',
+  'agent-gap',
+  'encode-architecture',
+  'ships-with',
+  'install-flow',
+  'wizard-output',
+  'cli-both-ways',
+  'stack-grid',
+  'provider-switch',
+  'harness-layers',
+  'skills-checklist',
+  'wizard-phases',
+  'runtime-trio',
+  'agent-grid',
+  'memory-timeline',
+  'trajectory-skill',
+]);
+
 /** Fields shared by every beat. */
 const beatCommon = {
   at: anchorSchema,
@@ -80,6 +118,8 @@ export const beatSchema = z.discriminatedUnion('type', [
     ...beatCommon,
     text: z.string(),
     corner: cornerSchema.optional(),
+    /** Optional glyph drawn in the chip's badge. */
+    icon: iconNameSchema.optional(),
   }),
   // Stat callout card (big number + label).
   z.object({
@@ -88,6 +128,16 @@ export const beatSchema = z.discriminatedUnion('type', [
     value: z.string(),
     label: z.string(),
     corner: cornerSchema.optional(),
+    /** Optional glyph drawn above the number. */
+    icon: iconNameSchema.optional(),
+  }),
+  // Authored Remotion scene — no capture needed. `panel` uses the empty left
+  // third of the founder's framing; `full` covers the frame for a section break.
+  z.object({
+    type: z.literal('graphic'),
+    ...beatCommon,
+    name: graphicNameSchema,
+    layout: z.enum(['panel', 'full']).optional(),
   }),
   // B-roll cutaway (an existing showcase mp4), full-screen or PiP.
   z.object({

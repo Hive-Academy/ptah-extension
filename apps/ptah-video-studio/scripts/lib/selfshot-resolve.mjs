@@ -36,6 +36,42 @@ const LAYOUTS = [
   'screen-only',
 ];
 const EASES = ['ramp', 'smooth', 'cut'];
+/** Mirror of `iconNameSchema` in src/selfshot/manifest.ts (and `ICONS` in icons.tsx). */
+const ICON_NAMES = [
+  'sparkles',
+  'layers',
+  'agents',
+  'memory',
+  'wizard',
+  'terminal',
+  'shield',
+  'plug',
+  'branch',
+  'trending',
+  'runtimes',
+  'code',
+];
+/** Mirror of `graphicNameSchema` in src/selfshot/manifest.ts (and `GRAPHICS` in graphics.tsx). */
+const GRAPHIC_NAMES = [
+  'building-this',
+  'open-source',
+  'the-name',
+  'agent-gap',
+  'encode-architecture',
+  'ships-with',
+  'install-flow',
+  'wizard-output',
+  'cli-both-ways',
+  'stack-grid',
+  'provider-switch',
+  'harness-layers',
+  'skills-checklist',
+  'wizard-phases',
+  'runtime-trio',
+  'agent-grid',
+  'memory-timeline',
+  'trajectory-skill',
+];
 const MODES = ['talking-head', 'screen-demo', 'hybrid'];
 
 /** Normalize a token for matching: lowercase, strip surrounding punctuation. */
@@ -148,11 +184,17 @@ export function validateManifest(raw) {
       case 'keyword':
         if (typeof beat.text !== 'string') fail(`${at}.text must be a string.`);
         if (beat.corner !== undefined && !CORNERS.includes(beat.corner)) fail(`${at}.corner must be one of: ${CORNERS.join(', ')}.`);
+        if (beat.icon !== undefined && !ICON_NAMES.includes(beat.icon)) fail(`${at}.icon must be one of: ${ICON_NAMES.join(', ')}.`);
         break;
       case 'stat':
         if (typeof beat.value !== 'string') fail(`${at}.value must be a string.`);
         if (typeof beat.label !== 'string') fail(`${at}.label must be a string.`);
         if (beat.corner !== undefined && !CORNERS.includes(beat.corner)) fail(`${at}.corner must be one of: ${CORNERS.join(', ')}.`);
+        if (beat.icon !== undefined && !ICON_NAMES.includes(beat.icon)) fail(`${at}.icon must be one of: ${ICON_NAMES.join(', ')}.`);
+        break;
+      case 'graphic':
+        if (!GRAPHIC_NAMES.includes(beat.name)) fail(`${at}.name must be one of: ${GRAPHIC_NAMES.join(', ')}.`);
+        if (beat.layout !== undefined && !['panel', 'full'].includes(beat.layout)) fail(`${at}.layout must be "panel" or "full".`);
         break;
       case 'broll':
         if (typeof beat.src !== 'string') fail(`${at}.src must be a string (filename or scene slug).`);
@@ -240,10 +282,13 @@ export function resolveBeats(beats, words, opts = {}) {
         overlays.push({ type: 'lower-third', atMs, durationMs, title: beat.title, ...(beat.subtitle ? { subtitle: beat.subtitle } : {}) });
         break;
       case 'keyword':
-        overlays.push({ type: 'keyword', atMs, durationMs, text: beat.text, ...(beat.corner ? { corner: beat.corner } : {}) });
+        overlays.push({ type: 'keyword', atMs, durationMs, text: beat.text, ...(beat.corner ? { corner: beat.corner } : {}), ...(beat.icon ? { icon: beat.icon } : {}) });
         break;
       case 'stat':
-        overlays.push({ type: 'stat', atMs, durationMs, value: beat.value, label: beat.label, ...(beat.corner ? { corner: beat.corner } : {}) });
+        overlays.push({ type: 'stat', atMs, durationMs, value: beat.value, label: beat.label, ...(beat.corner ? { corner: beat.corner } : {}), ...(beat.icon ? { icon: beat.icon } : {}) });
+        break;
+      case 'graphic':
+        overlays.push({ type: 'graphic', atMs, durationMs, name: beat.name, layout: beat.layout ?? 'panel' });
         break;
       case 'broll':
         overlays.push({
