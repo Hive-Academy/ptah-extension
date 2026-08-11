@@ -44,7 +44,13 @@ NestJS 11 backend that issues and verifies Ptah licenses, manages subscriptions 
 
 ## Required Environment
 
-- `DATABASE_URL` (PostgreSQL)
+Source of truth: the **repo-root `.env`** (`cp .env.example .env` at the workspace
+root). `apps/ptah-license-server/.env` does not exist; the local `.env.example` is a
+partial template covering only the admin and marketing vars listed in it. `prisma.config.ts`
+loads the local path first, then the repo-root one, so real injected env (Docker
+`--env-file`, CI secrets) still wins over both.
+
+- `DATABASE_URL` (PostgreSQL) — **repo-root `.env` only**
 - `FRONTEND_URL` (defaults to `https://ptah.live`)
 - `PORT` (default 3000)
 - WorkOS, Paddle, Resend, Sentry secrets (see corresponding modules)
@@ -55,5 +61,6 @@ NestJS 11 backend that issues and verifies Ptah licenses, manages subscriptions 
 - Sentry instrument import (`./instrument`) must stay at the top of `main.ts` — any earlier import breaks monkey-patching.
 - New webhook routes that need raw bodies must register a scoped `bodyParser.raw` before the global `ValidationPipe`, AND be excluded from the global `api` prefix in `setGlobalPrefix`.
 - Per-endpoint throttling overrides the global default via `@Throttle`.
-- Prisma migrations: run `nx prisma:migrate ptah-license-server` for dev; `nx prisma:deploy` in CI.
+- Prisma migrations: run `nx prisma:migrate ptah-license-server` for dev; `nx prisma:deploy` in CI. Run Prisma from this directory — there is no root `prisma.config.ts`, so `npx prisma` at the workspace root picks up no config at all.
+- Prisma 7's CLI runs its own dotenvx pass over the cwd `.env` before `prisma.config.ts` is read. Since this directory has no `.env`, it permanently prints `◇ injected env (0) from .env`. That line is expected and is **not** a symptom — the config's own explicit loads happen after it.
 - Never log raw webhook bodies (they contain signing secrets and PII).

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_189
-status: in_progress
+status: done
 type: DEVOPS
 title: Guard-rail and setup docs for the prisma.config.ts env-path regression
 description: >-

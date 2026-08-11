@@ -194,3 +194,43 @@ The path bug is closed. These are not, and are why the carrier is open:
 - There is no `prisma.config.ts` at the workspace root, so running `npx prisma`
   from the repo root does not pick up a config at all — it is a different and
   equally unhelpful failure. Always run Prisma from `apps/ptah-license-server`.
+
+---
+
+## Close-out — 2026-08-11
+
+All four remaining items are done. Carrier moved to `done`.
+
+1. **Structural guard** — `apps/ptah-license-server/src/common/prisma-config-env.spec.ts`,
+   four invariants plus an anti-vacuity check, in the same dependency-free style as
+   `route-map.spec.ts`. It does NOT import `prisma.config.ts` (that would run
+   `dotenv.config()` and mutate the jest worker's `process.env` for every spec after
+   it); it reads the config as text and parses the dotenv files with `parse()`.
+   - RI-1 — the config loads the repo-root `.env`. This is the regression.
+   - RI-2 — every load happens before `defineConfig` reads `process.env`.
+   - RI-3 — a _present_ root `.env` supplies a non-empty `DATABASE_URL`. Conditional
+     by design: the rejected "throw on unset `DATABASE_URL`" option would break CI's
+     `prisma:generate`, which legitimately runs with no database.
+   - RI-4 — the app-local `.env.example` never claims to carry `DATABASE_URL`.
+
+   **Proven non-vacuous, not assumed.** The root load was temporarily deleted from
+   `prisma.config.ts` and the suite re-run: RI-1 failed and only RI-1 (1 failed,
+   4 passed). The file was restored (`git diff` clean).
+
+2. **Setup docs** — root `CLAUDE.md` § Setup now opens with `cp .env.example .env`
+   and carries a paragraph naming the repo-root `.env` as the `DATABASE_URL` source,
+   with the `Connection url is empty` symptom spelled out.
+   `apps/ptah-license-server/CLAUDE.md` § Required Environment now names the file and
+   documents the local-then-root precedence.
+
+3. **`.env.example`** — kept its name, but now leads with a `⚠️ PARTIAL TEMPLATE`
+   header stating it is not the app's full env, has no `DATABASE_URL`, and that
+   copying it will not make Prisma work.
+
+4. **dotenvx line** — explained under § Guidelines in the app CLAUDE.md: Prisma 7's
+   own pass over the cwd `.env` prints `◇ injected env (0) from .env` permanently and
+   is not a symptom. The same guideline notes Prisma must be run from the app
+   directory, since there is no root `prisma.config.ts`.
+
+**Gate**: `nx run-many -t test lint typecheck -p ptah-license-server --skip-nx-cache`
+— 6 suites, 168 tests, all green.

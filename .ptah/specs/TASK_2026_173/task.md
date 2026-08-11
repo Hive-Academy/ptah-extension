@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_173
-status: in_review
+status: done
 type: FEATURE
 title: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
 description: >-
@@ -19,10 +19,11 @@ description: >-
   MESSAGE_HANDLERS, split-pane saves clobbering each other) and Group D is UX
   plus the headline feature, hunk-level stage and revert, which is hard-blocked
   behind the Group A fixes because it writes to the user's git index.
-  Decomposed into 10 batches (0-9). Batches 0-3 have landed (accb485ed,
-  df2ab24fb, 61628f623, 3a73a037d) along with batch 4's B5 drag coalescing
-  (16da79d2f); batch 4's B3 tree-indicator work and batches 5-9, including the
-  D2 hunk write path, remain.
+  Decomposed into 10 batches (0-9), all landed. Closed 2026-08-11 with 10 of 10
+  DoD items met — the two that were unmet at the 2026-08-11 final verification
+  (D2 never exercised end-to-end in Electron, and the NFR-1 cross-project test
+  floor) were both discharged; see the close-out appended to
+  final-verification.md.
 assignee:
 depends_on: []
 executor:

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_172
-status: in_review
+status: done
 type: BUGFIX
 title: Provider auth follow-up — fix claude-cli misroute, Copilot logout, Ollama/Ollama Cloud gaps
 description: Fix the provider-auth defects surfaced by the 2026-08-02 TUI audit that were out of scope for the TUI batch because they change cross-platform behavior (libs/shared strategy resolution, Copilot logout) or add new affordances (Ollama Cloud key field, local endpoint defaults). Claude subscription (claude-cli), Copilot logout, Ollama, and Ollama Cloud must all work correctly on Electron, VS Code, CLI, and TUI.

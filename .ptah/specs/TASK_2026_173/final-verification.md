@@ -332,3 +332,63 @@ re-measured once `ptah-electron` and `rpc-handlers` are quiet.
 **Not filed, deliberately, and recorded here so it reads as a decision rather than an omission**: the
 `--check` dry-run retain/remove question (8A raised it, 8C ruled RETAIN) is closed, not open; and the
 pre-existing non-null-assertion lint warning in `getRemotes` is noise with no behaviour.
+
+---
+
+# Close-out addendum — 2026-08-11 (later same day)
+
+**Both previously-unmet DoD items are now MET. 10 of 10. Carrier moved to `done`.**
+
+Neither item was re-judged or argued down — each was re-run and the evidence is below.
+
+## Item 1 — `git:applyHunks` end-to-end in Electron: MET
+
+`TASK_2026_218` was discharged by commit `4a02e46b2`, which added
+`apps/ptah-electron-e2e/src/specs/editor/hunk-apply-real-rpc.spec.ts` plus the
+`git-scratch-repo` and `real-rpc-fixtures` support harness.
+
+**That commit's body does not claim a pass** — it records that the first run _hung_ on
+`~/.ptah` contention before the home-directory isolation was added. So the suite was
+re-run at close-out rather than taken on faith:
+
+```
+npx nx run ptah-electron-e2e:e2e --skip-nx-cache -- --grep "TASK_2026_218"
+→ 3 passed (49.2s), exit 0
+```
+
+All three tests, against a real Electron boot on a throwaway repository:
+
+| Test                                                         | What it proves                                                                               |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| stages one hunk from the toolbar, leaves the other two       | The click→RPC wiring works; `git diff --cached` read off disk contains that hunk and only it |
+| control: reaching the toolbar without staging                | **Causation** — a green positive is not ambient watcher/autosave behaviour                   |
+| control: bogus `snapshotToken` refused with `STALE_SNAPSHOT` | **Detection** — the write path discriminates rather than rubber-stamping well-shaped input   |
+
+The gap named in the original item — "a click in a running UI wires through to the RPC
+correctly" — is exactly what the positive test now asserts, on disk rather than on a
+renderer signal. `TASK_2026_221` and `TASK_2026_222` (both `depends_on: [TASK_2026_218]`)
+are unblocked and remain `backlog`.
+
+## Item 5 — NFR-1 cross-project test floor: MET
+
+The floor was never unestablishable in principle — it was blocked on `ptah-electron` being
+red and `rpc-handlers` being dirty **from concurrent out-of-scope sessions**. Those have
+since landed. Both suites re-run clean at `--skip-nx-cache`:
+
+| Suite           | Result                  | NFR-1 requirement    | Verdict |
+| --------------- | ----------------------- | -------------------- | ------- |
+| `ptah-electron` | 145 passed, 4 skipped   | ≥135 passed, ≤4 skip | ✅      |
+| `rpc-handlers`  | 1781 passed, 31 skipped | ≥1410 passed         | ✅      |
+| **Sum**         | **1926**                | never below 1545     | ✅      |
+
+### One unrelated failure, filed rather than absorbed
+
+`rpc-handlers` reports **1 failed**: `chat/session/chat-session-resume-activate.spec.ts`
+→ "TS-04 › reports activated:true when the session is already live", asserting
+`result.success` true, receiving false. It reproduces in isolation, so it is deterministic,
+not a suite-interaction flake.
+
+**Not attributable to TASK_2026_173** — checked, not assumed. That file appears in zero of
+this task's commits; its last touch is `d7101460b` (`feat(output-styles)`). This task never
+went near `chat/session`. NFR-1 counts passes against a floor and 1781 clears 1410 with the
+failure excluded, so the floor stands. The failure needs its own carrier.

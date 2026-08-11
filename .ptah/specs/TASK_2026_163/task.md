@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_163
-status: in_review
+status: done
 type: REFACTORING
 title: Purge premium feature gating (open-source move) + in-app Builders promotion
 description: Remove isPremium/FeatureGate gating from all local single-user features across the app, repoint subscription surfaces to Builders membership/support, and add a tasteful in-app community/training promotion card. Keep license server + auth infra as membership identity.

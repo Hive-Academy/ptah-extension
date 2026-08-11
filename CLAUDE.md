@@ -101,10 +101,18 @@ ptah-extension/
 ## Setup
 
 ```bash
+cp .env.example .env                 # DATABASE_URL lives here — repo root, not the app dir
 npm install                          # Triggers postinstall (electron native rebuild)
 npm run docker:db:start              # Postgres for license server
 npm run prisma:migrate:dev           # Prisma migrations
 ```
+
+**`DATABASE_URL` comes from the repo-root `.env`**, not from
+`apps/ptah-license-server/.env` (which does not exist — its `.env.example` is an
+admin/marketing subset with no `DATABASE_URL` in it). Skip the first line and every
+`prisma:*` script fails with `Error: Connection url is empty`, which reads like a
+dead database but is a missing env file. Pinned by
+`apps/ptah-license-server/src/common/prisma-config-env.spec.ts`.
 
 ## Development Commands
 
