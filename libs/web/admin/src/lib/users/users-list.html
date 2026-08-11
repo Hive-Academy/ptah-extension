@@ -3,7 +3,7 @@
   <header class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <h2 class="text-xl font-semibold">Users</h2>
-      <span class="text-sm text-base-content/60">({{ total() }} total)</span>
+      <span class="text-sm text-base-content-muted">({{ total() }} total)</span>
     </div>
 
     <div class="flex flex-wrap items-center gap-2">
@@ -88,7 +88,7 @@
     <div class="overflow-x-auto rounded-lg border border-hairline">
       <table class="table table-sm">
         <thead>
-          <tr class="text-xs font-medium uppercase tracking-wide text-base-content/60">
+          <tr class="text-xs font-medium uppercase tracking-wide text-base-content-muted">
             <th class="w-10">
               <input
                 type="checkbox"
@@ -135,7 +135,7 @@
                   }
                 </div>
               </td>
-              <td class="text-base-content/80">{{ displayName(row.user) }}</td>
+              <td class="text-base-content-muted">{{ displayName(row.user) }}</td>
 
               <!-- License: effective plan + status, expiry as the secondary line -->
               <td>
@@ -149,7 +149,7 @@
                     <span
                       class="text-[0.65rem] leading-tight"
                       [class.text-warning]="row.entitlement.expiringSoon"
-                      [class.text-base-content/40]="!row.entitlement.expiringSoon"
+                      [class.text-base-content-muted]="!row.entitlement.expiringSoon"
                     >
                       {{
                         lic.expiresAt
@@ -172,7 +172,7 @@
                     size="xs"
                   />
                   @if (row.entitlement.liveSubscription; as sub) {
-                    <span class="font-mono text-[0.65rem] leading-tight text-base-content/40">
+                    <span class="font-mono text-[0.65rem] leading-tight text-base-content-muted">
                       {{ sub.paddleSubscriptionId }}
                     </span>
                   }
@@ -186,7 +186,7 @@
                   size="xs"
                 />
               </td>
-              <td class="text-xs text-base-content/60">
+              <td class="text-xs text-base-content-muted">
                 {{
                   row.user.createdAt
                     ? (row.user.createdAt | date: 'medium')
@@ -201,7 +201,7 @@
 
     @if (totalPages() > 1) {
       <div class="flex items-center justify-end gap-3 text-sm">
-        <span class="text-base-content/60">Page {{ page() }} of {{ totalPages() }}</span>
+        <span class="text-base-content-muted">Page {{ page() }} of {{ totalPages() }}</span>
         <div class="join">
           <button
             type="button"

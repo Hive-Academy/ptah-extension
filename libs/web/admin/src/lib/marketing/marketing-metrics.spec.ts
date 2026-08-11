@@ -80,6 +80,6 @@ describe('rateColorClass', () => {
     expect(rateColorClass(99, 'delivery')).toBe('text-success');
     expect(rateColorClass(85, 'delivery')).toBe('text-warning');
     expect(rateColorClass(10, 'delivery')).toBe('text-error');
-    expect(rateColorClass(null, 'delivery')).toBe('text-base-content/40');
+    expect(rateColorClass(null, 'delivery')).toBe('text-base-content-muted');
   });
 });

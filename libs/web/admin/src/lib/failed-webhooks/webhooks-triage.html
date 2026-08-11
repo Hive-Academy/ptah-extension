@@ -4,11 +4,11 @@
     <div class="flex items-center gap-2">
       <lucide-angular
         [img]="WrenchIcon"
-        class="h-5 w-5 text-base-content/40"
+        class="h-5 w-5 text-base-content-muted"
         aria-hidden="true"
       />
       <h2 class="text-xl font-semibold">Failed Webhooks</h2>
-      <span class="text-sm text-base-content/60">({{ total() }} total)</span>
+      <span class="text-sm text-base-content-muted">({{ total() }} total)</span>
     </div>
 
     <input
@@ -66,7 +66,7 @@
   <div class="overflow-x-auto rounded-lg border border-hairline">
     <table class="table table-sm">
       <thead>
-        <tr class="text-xs font-medium uppercase tracking-wide text-base-content/60">
+        <tr class="text-xs font-medium uppercase tracking-wide text-base-content-muted">
           <th class="w-8"></th>
           <th>Event Type</th>
           <th>Error</th>
@@ -105,7 +105,7 @@
               </td>
               <td class="whitespace-nowrap font-medium">{{ row['eventType'] ?? '—' }}</td>
               <td>
-                <span class="block max-w-[280px] truncate text-base-content/60">
+                <span class="block max-w-[280px] truncate text-base-content-muted">
                   {{ truncate(row['errorMessage'], 280) }}
                 </span>
               </td>
@@ -126,7 +126,7 @@
                   }
                 </div>
               </td>
-              <td class="whitespace-nowrap text-base-content/60">
+              <td class="whitespace-nowrap text-base-content-muted">
                 @if (asDate(row['attemptedAt']); as d) {
                   {{ d | date: 'short' }}
                 } @else {
@@ -163,7 +163,7 @@
   <!-- Pagination -->
   @if (!isEmpty() && !loadError()) {
     <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
-      <div class="flex items-center gap-2 text-base-content/60">
+      <div class="flex items-center gap-2 text-base-content-muted">
         <span>Rows per page</span>
         <select
           class="select select-bordered select-xs"
@@ -178,7 +178,7 @@
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="tabular-nums text-base-content/60">
+        <span class="tabular-nums text-base-content-muted">
           Page {{ page() }} of {{ totalPages() }}
         </span>
         <div class="join">
@@ -214,11 +214,11 @@
         <!-- Metadata grid -->
         <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <div class="col-span-2 flex flex-col">
-            <dt class="text-xs uppercase text-base-content/40">Event ID</dt>
+            <dt class="text-xs uppercase text-base-content-muted">Event ID</dt>
             <dd class="break-all font-mono text-xs">{{ w['eventId'] ?? '—' }}</dd>
           </div>
           <div class="flex flex-col">
-            <dt class="text-xs uppercase text-base-content/40">Status</dt>
+            <dt class="text-xs uppercase text-base-content-muted">Status</dt>
             <dd>
               @if (isResolved(w)) {
                 <ptah-status-badge variant="success" label="Resolved" size="sm" />
@@ -228,11 +228,11 @@
             </dd>
           </div>
           <div class="flex flex-col">
-            <dt class="text-xs uppercase text-base-content/40">Retries</dt>
+            <dt class="text-xs uppercase text-base-content-muted">Retries</dt>
             <dd class="tabular-nums">{{ retryCount(w) }}</dd>
           </div>
           <div class="flex flex-col">
-            <dt class="text-xs uppercase text-base-content/40">Attempted</dt>
+            <dt class="text-xs uppercase text-base-content-muted">Attempted</dt>
             <dd>
               @if (asDate(w['attemptedAt']); as d) {
                 {{ d | date: 'medium' }}
@@ -242,7 +242,7 @@
             </dd>
           </div>
           <div class="flex flex-col">
-            <dt class="text-xs uppercase text-base-content/40">Resolved At</dt>
+            <dt class="text-xs uppercase text-base-content-muted">Resolved At</dt>
             <dd>
               @if (asDate(w['resolvedAt']); as d) {
                 {{ d | date: 'medium' }}
@@ -255,7 +255,7 @@
 
         <!-- Error message -->
         <div class="flex flex-col gap-1">
-          <span class="text-xs uppercase text-base-content/40">Error message</span>
+          <span class="text-xs uppercase text-base-content-muted">Error message</span>
           <p class="rounded-md bg-base-300 p-3 text-sm text-error">
             {{ w['errorMessage'] ?? 'No error message.' }}
           </p>
@@ -263,13 +263,13 @@
 
         <!-- Stack trace -->
         <div class="flex flex-col gap-1">
-          <span class="text-xs uppercase text-base-content/40">Stack trace</span>
+          <span class="text-xs uppercase text-base-content-muted">Stack trace</span>
           <pre class="max-h-64 overflow-auto rounded-md bg-base-300 p-3 font-mono text-xs">{{ selectedStackTrace() }}</pre>
         </div>
 
         <!-- Raw payload (collapsible, rendered as TEXT) -->
         <details class="rounded-md border border-hairline">
-          <summary class="cursor-pointer px-3 py-2 text-xs uppercase text-base-content/60">
+          <summary class="cursor-pointer px-3 py-2 text-xs uppercase text-base-content-muted">
             Raw payload
           </summary>
           <pre class="max-h-64 overflow-auto border-t border-hairline bg-base-300 p-3 font-mono text-xs">{{ prettyPayload() }}</pre>

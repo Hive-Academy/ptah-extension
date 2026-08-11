@@ -14,14 +14,14 @@
           [class.bg-primary]="step() >= 1"
           [class.text-base-100]="step() >= 1"
           [class.bg-base-300]="step() < 1"
-          [class.text-base-content/40]="step() < 1"
+          [class.text-base-content-muted]="step() < 1"
         >
           1
         </span>
         <span
           class="text-sm"
           [class.font-medium]="step() === 1"
-          [class.text-base-content/60]="step() !== 1"
+          [class.text-base-content-muted]="step() !== 1"
         >
           Review Impact
         </span>
@@ -33,14 +33,14 @@
           [class.bg-primary]="step() >= 2"
           [class.text-base-100]="step() >= 2"
           [class.bg-base-300]="step() < 2"
-          [class.text-base-content/40]="step() < 2"
+          [class.text-base-content-muted]="step() < 2"
         >
           2
         </span>
         <span
           class="text-sm"
           [class.font-medium]="step() === 2"
-          [class.text-base-content/60]="step() !== 2"
+          [class.text-base-content-muted]="step() !== 2"
         >
           Confirm
         </span>

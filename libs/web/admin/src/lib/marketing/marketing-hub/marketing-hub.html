@@ -4,7 +4,7 @@
     <div class="flex items-center gap-2">
       <lucide-angular
         [img]="MegaphoneIcon"
-        class="h-5 w-5 text-base-content/40"
+        class="h-5 w-5 text-base-content-muted"
         aria-hidden="true"
       />
       <h1 class="text-xl font-semibold text-base-content">Marketing</h1>
@@ -66,12 +66,12 @@
   <!-- Recent campaigns -->
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+      <span class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
         Recent Campaigns
       </span>
       <a
         routerLink="/admin/marketing-campaigns"
-        class="text-xs font-medium text-base-content/80 hover:text-base-content"
+        class="text-xs font-medium text-base-content-muted hover:text-base-content"
       >
         View all →
       </a>
@@ -121,12 +121,12 @@
                 <span [class]="row.bounce.colorClass">{{ row.bounce.text }} bounced</span>
                 <span [class]="row.complaint.colorClass">{{ row.complaint.text }} complaints</span>
               </div>
-              <span class="whitespace-nowrap text-xs text-base-content/40">
+              <span class="whitespace-nowrap text-xs text-base-content-muted">
                 {{ relative(row.createdAt) }}
               </span>
               <lucide-angular
                 [img]="ChevronRightIcon"
-                class="h-4 w-4 text-base-content/40"
+                class="h-4 w-4 text-base-content-muted"
                 aria-hidden="true"
               />
             </div>
@@ -140,7 +140,7 @@
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
     <!-- Audience -->
     <div class="flex flex-col gap-2">
-      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+      <span class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
         Audience
       </span>
       @if (segmentsLoading()) {
@@ -157,11 +157,11 @@
               [queryParams]="{ segment: card.key }"
               class="flex flex-col gap-0.5 rounded-md border border-hairline bg-base-200 p-3 transition-colors hover:border-base-content/20 hover:bg-base-300"
             >
-              <span class="text-xs font-medium text-base-content/80">{{ card.label }}</span>
+              <span class="text-xs font-medium text-base-content-muted">{{ card.label }}</span>
               <span class="text-lg font-semibold tabular-nums text-base-content">
                 {{ card.optedIn }} / {{ card.total }}
               </span>
-              <span class="text-xs text-base-content/60">opted-in</span>
+              <span class="text-xs text-base-content-muted">opted-in</span>
             </a>
           }
         </div>
@@ -171,13 +171,13 @@
     <!-- Templates -->
     <div class="flex flex-col gap-2">
       <div class="flex items-center justify-between">
-        <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+        <span class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
           Templates
         </span>
         <div class="flex items-center gap-3">
           <a
             routerLink="/admin/marketing-campaign-templates"
-            class="text-xs font-medium text-base-content/80 hover:text-base-content"
+            class="text-xs font-medium text-base-content-muted hover:text-base-content"
           >
             Manage templates →
           </a>
@@ -216,7 +216,7 @@
               class="flex items-center justify-between gap-3 rounded-md border border-hairline bg-base-200 p-3 transition-colors hover:border-base-content/20 hover:bg-base-300"
             >
               <span class="truncate text-sm font-medium">{{ tpl.name }}</span>
-              <span class="shrink-0 text-xs text-base-content/40">
+              <span class="shrink-0 text-xs text-base-content-muted">
                 {{ relative(tpl.updatedAt) }}
               </span>
             </a>

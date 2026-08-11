@@ -34,7 +34,7 @@
             [class.bg-primary]="currentStep() >= s.n"
             [class.text-base-100]="currentStep() >= s.n"
             [class.bg-base-300]="currentStep() < s.n"
-            [class.text-base-content/40]="currentStep() < s.n"
+            [class.text-base-content-muted]="currentStep() < s.n"
           >
             {{ s.n }}
           </span>
@@ -42,7 +42,7 @@
             class="text-sm"
             [class.font-medium]="currentStep() === s.n"
             [class.text-base-content]="currentStep() === s.n"
-            [class.text-base-content/60]="currentStep() !== s.n"
+            [class.text-base-content-muted]="currentStep() !== s.n"
           >
             {{ s.label }}
           </span>
@@ -123,7 +123,7 @@
               (ngModelChange)="userIdsRaw.set($event)"
               placeholder="UUIDs..."
             ></textarea>
-            <span class="text-xs text-base-content/60 mt-1">
+            <span class="text-xs text-base-content-muted mt-1">
               {{ parsedUserIds().length }} IDs detected
             </span>
           </div>
@@ -169,7 +169,7 @@
             />
           </div>
 
-          <div class="divider text-xs text-base-content/40">OR INLINE CONTENT</div>
+          <div class="divider text-xs text-base-content-muted">OR INLINE CONTENT</div>
 
           <div class="form-control w-full">
             <label
@@ -204,7 +204,7 @@
               (ngModelChange)="htmlBody.set($event)"
               placeholder="<html>...</html>"
             ></textarea>
-            <span class="text-xs text-base-content/60 mt-1">
+            <span class="text-xs text-base-content-muted mt-1">
               Variables: {{'{{firstName}}'}}, {{'{{email}}'}}, {{'{{unsubscribeUrl}}'}}
             </span>
           </div>
@@ -240,7 +240,7 @@
               }
               Send test to me
             </button>
-            <p class="text-xs text-base-content/40">
+            <p class="text-xs text-base-content-muted">
               Sends a real email to your account and creates a small campaign
               record named "{{ name() || 'Untitled' }} (test)".
             </p>
@@ -277,15 +277,15 @@
       <!-- Summary card -->
       <div class="bg-base-200 border border-hairline rounded-lg p-4 space-y-3">
         <div>
-          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Campaign</div>
+          <div class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Campaign</div>
           <div class="text-sm text-base-content">{{ name() || '—' }}</div>
         </div>
         <div>
-          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Audience</div>
+          <div class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Audience</div>
           <div class="text-sm text-base-content">{{ audienceSummary() }}</div>
         </div>
         <div>
-          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Content</div>
+          <div class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Content</div>
           <div class="text-sm text-base-content">{{ contentSummary() }}</div>
         </div>
 

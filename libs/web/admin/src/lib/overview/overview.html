@@ -2,7 +2,7 @@
   <header class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-xl font-semibold">Overview</h2>
     @if (stats(); as s) {
-      <span class="text-xs text-base-content/60">
+      <span class="text-xs text-base-content-muted">
         Updated {{ s.updatedAt | date: 'medium' }}
       </span>
     }
@@ -49,7 +49,7 @@
 
     <!-- Hero: Builders waitlist funnel -->
     <div>
-      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content-muted">
         Builders Waitlist
       </h3>
       <div class="rounded-lg border border-hairline bg-base-200 p-4 md:p-6">
@@ -66,7 +66,7 @@
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <div>
         <h3
-          class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60"
+          class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content-muted"
         >
           Members
         </h3>
@@ -94,7 +94,7 @@
       <div>
         <div class="mb-2 flex items-center justify-between gap-2">
           <h3
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/60"
+            class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
           >
             Cohorts
           </h3>
@@ -116,7 +116,7 @@
           </div>
         } @else {
           <div
-            class="rounded-lg border border-hairline bg-base-200 p-6 text-center text-sm text-base-content/60"
+            class="rounded-lg border border-hairline bg-base-200 p-6 text-center text-sm text-base-content-muted"
           >
             No cohorts yet.
           </div>

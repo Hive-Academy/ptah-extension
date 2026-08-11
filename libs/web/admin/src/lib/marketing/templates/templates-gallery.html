@@ -4,11 +4,11 @@
     <div class="flex items-center gap-2">
       <lucide-angular
         [img]="FileTextIcon"
-        class="h-5 w-5 text-base-content/40"
+        class="h-5 w-5 text-base-content-muted"
         aria-hidden="true"
       />
       <h2 class="text-xl font-semibold text-base-content">Email Templates</h2>
-      <span class="text-sm text-base-content/60">({{ total() }} total)</span>
+      <span class="text-sm text-base-content-muted">({{ total() }} total)</span>
     </div>
 
     <a
@@ -67,7 +67,7 @@
           <h3 class="truncate text-sm font-medium text-base-content" [title]="t.name">
             {{ t.name }}
           </h3>
-          <p class="truncate text-xs text-base-content/60" [title]="t.subject">
+          <p class="truncate text-xs text-base-content-muted" [title]="t.subject">
             {{ t.subject || '(no subject)' }}
           </p>
 
@@ -84,7 +84,7 @@
             </div>
           }
 
-          <span class="text-xs text-base-content/40">
+          <span class="text-xs text-base-content-muted">
             Updated {{ relativeUpdated(t) }}
           </span>
 
@@ -147,7 +147,7 @@
     <!-- Pagination -->
     @if (totalPages() > 1) {
       <div class="flex items-center justify-end gap-3 text-sm">
-        <span class="tabular-nums text-base-content/60">
+        <span class="tabular-nums text-base-content-muted">
           Page {{ page() }} of {{ totalPages() }}
         </span>
         <div class="join">

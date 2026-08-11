@@ -129,7 +129,7 @@ export class ApproveWaitlistModal {
         label: 'Not found',
         count: tally.not_found,
         hint: 'No waitlist row matched the id — it may have been deleted since the list loaded.',
-        tone: 'text-base-content/70',
+        tone: 'text-base-content-muted',
       },
       {
         key: 'failed' as const,

@@ -3,7 +3,7 @@
     <h1 class="text-2xl font-bold tracking-tight text-base-content">
       Community moderation
     </h1>
-    <p class="text-sm text-base-content/60">
+    <p class="text-sm text-base-content-muted">
       Pin, lock, move, remove and restore member threads. Every action here
       writes an audit entry.
     </p>
@@ -12,7 +12,7 @@
   <!-- Filters ------------------------------------------------------------ -->
   <div class="flex flex-wrap items-end gap-3">
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-base-content/60" for="moderation-category">
+      <label class="text-xs font-medium text-base-content-muted" for="moderation-category">
         Category
       </label>
       <select
@@ -32,7 +32,7 @@
     </div>
 
     <form class="flex flex-col gap-1" (submit)="applySearch($event)">
-      <label class="text-xs font-medium text-base-content/60" for="moderation-search">
+      <label class="text-xs font-medium text-base-content-muted" for="moderation-search">
         Search titles
       </label>
       <div class="flex items-center gap-2">
@@ -64,7 +64,7 @@
       Show deleted
     </label>
 
-    <p class="ml-auto font-mono text-xs text-base-content/60">
+    <p class="ml-auto font-mono text-xs text-base-content-muted">
       {{ total() }} threads
     </p>
   </div>
@@ -215,7 +215,7 @@
                 >
                   Restore
                 </button>
-                <span class="font-mono text-xs text-base-content/60">
+                <span class="font-mono text-xs text-base-content-muted">
                   deleted
                   <time [attr.datetime]="topic.deletedAt">
                     {{ topic.deletedAt | date: 'MMM d, y, HH:mm' }}
@@ -247,7 +247,7 @@
         >
           Previous
         </button>
-        <p class="font-mono text-xs text-base-content/60">Page {{ page() }}</p>
+        <p class="font-mono text-xs text-base-content-muted">Page {{ page() }}</p>
         <button
           type="button"
           class="btn btn-ghost btn-sm normal-case"
@@ -270,29 +270,29 @@
   @if (drawerTopic(); as topic) {
     <dl class="flex flex-col gap-3 text-sm">
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">Slug</dt>
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">Slug</dt>
         <dd class="font-mono text-base-content">{{ topic.slug }}</dd>
       </div>
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">
           Category
         </dt>
         <dd class="text-base-content">{{ topic.categoryName }}</dd>
       </div>
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">Author</dt>
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">Author</dt>
         <dd class="text-base-content">{{ topic.authorName ?? 'Unknown' }}</dd>
         <!--
           ⚠️ ADMIN-ONLY. `authorEmail` is the single field the member/admin
           contract split most exists to keep apart (NFR-S4). It must never
           appear on a member surface.
         -->
-        <dd class="font-mono text-xs text-base-content/60">
+        <dd class="font-mono text-xs text-base-content-muted">
           {{ topic.authorEmail ?? 'no account on file' }}
         </dd>
       </div>
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">State</dt>
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">State</dt>
         <dd class="flex flex-wrap items-center gap-2">
           <ptah-status-badge
             [variant]="deletedVariant(topic)"
@@ -311,13 +311,13 @@
         </dd>
       </div>
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">
           Replies
         </dt>
         <dd class="font-mono text-base-content">{{ topic.replyCount }}</dd>
       </div>
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">
           Created
         </dt>
         <dd class="font-mono text-base-content">
@@ -327,7 +327,7 @@
         </dd>
       </div>
       <div>
-        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+        <dt class="text-xs uppercase tracking-wide text-base-content-muted">
           Last post
         </dt>
         <dd class="font-mono text-base-content">
@@ -338,7 +338,7 @@
       </div>
       @if (topic.deletedAt) {
         <div>
-          <dt class="text-xs uppercase tracking-wide text-base-content/60">
+          <dt class="text-xs uppercase tracking-wide text-base-content-muted">
             Deleted
           </dt>
           <dd class="font-mono text-base-content">
@@ -347,7 +347,7 @@
             </time>
             by {{ topic.deletedBy ?? 'unknown' }}
           </dd>
-          <dd class="mt-1 text-xs text-base-content/60">
+          <dd class="mt-1 text-xs text-base-content-muted">
             Restore is available for at least 30 days from this timestamp (R8.5).
           </dd>
         </div>

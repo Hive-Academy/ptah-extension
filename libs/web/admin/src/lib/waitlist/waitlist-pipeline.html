@@ -3,24 +3,24 @@
   <header class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <h2 class="text-xl font-semibold">Waitlist Pipeline</h2>
-      <span class="text-sm text-base-content/60">({{ summaryTotal() }} total)</span>
+      <span class="text-sm text-base-content-muted">({{ summaryTotal() }} total)</span>
     </div>
 
     <div class="flex items-center gap-4 text-sm">
       <span class="flex items-center gap-1.5">
-        <span class="text-base-content/60">New</span>
+        <span class="text-base-content-muted">New</span>
         <span class="font-semibold tabular-nums">{{ summaryNew() }}</span>
       </span>
       <span class="flex items-center gap-1.5">
-        <span class="text-base-content/60">Invited</span>
+        <span class="text-base-content-muted">Invited</span>
         <span class="font-semibold tabular-nums">{{ summaryInvited() }}</span>
       </span>
       <span class="flex items-center gap-1.5">
-        <span class="text-base-content/60">Approved</span>
+        <span class="text-base-content-muted">Approved</span>
         <span class="font-semibold tabular-nums text-info">{{ summaryApproved() }}</span>
       </span>
       <span class="flex items-center gap-1.5">
-        <span class="text-base-content/60">Converted</span>
+        <span class="text-base-content-muted">Converted</span>
         <span class="font-semibold tabular-nums text-success">{{ summaryConverted() }}</span>
       </span>
     </div>
@@ -136,7 +136,7 @@
                 size="xs"
               />
             </div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-base-content-muted">
               Joined {{ row.createdAt ? (row.createdAt | date: 'medium') : '—' }}
             </div>
           </div>
@@ -155,7 +155,7 @@
                 </button>
               }
               @case ('invited') {
-                <span class="hidden text-xs text-base-content/60 sm:inline">
+                <span class="hidden text-xs text-base-content-muted sm:inline">
                   Invited {{ row.notifiedAt ? (row.notifiedAt | date: 'mediumDate') : '—' }}
                 </span>
                 <button
@@ -168,7 +168,7 @@
                 </button>
               }
               @case ('approved') {
-                <span class="hidden text-xs text-base-content/60 sm:inline">
+                <span class="hidden text-xs text-base-content-muted sm:inline">
                   Approved {{ row.approvedAt ? (row.approvedAt | date: 'mediumDate') : '—' }}
                 </span>
                 <a
@@ -181,7 +181,7 @@
                 </a>
               }
               @case ('converted') {
-                <span class="hidden text-xs text-base-content/60 sm:inline">
+                <span class="hidden text-xs text-base-content-muted sm:inline">
                   Converted {{ row.convertedAt ? (row.convertedAt | date: 'mediumDate') : '—' }}
                 </span>
                 <a
@@ -202,7 +202,7 @@
     <!-- Pagination -->
     @if (totalPages() > 1) {
       <div class="flex items-center justify-end gap-3 text-sm">
-        <span class="text-base-content/60">Page {{ page() }} of {{ totalPages() }}</span>
+        <span class="text-base-content-muted">Page {{ page() }} of {{ totalPages() }}</span>
         <div class="join">
           <button
             type="button"
