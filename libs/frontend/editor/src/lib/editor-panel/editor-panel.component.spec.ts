@@ -2793,3 +2793,206 @@ describe('EditorPanelComponent — closing the split (TASK_2026_212)', () => {
     expect(editor.setFocusedPane).toHaveBeenCalledWith('right');
   });
 });
+
+// ---------------------------------------------------------------------------
+// TASK_2026_214 — saying that the panes disagree.
+//
+// Cancel on the save-conflict dialog writes nothing and reconciles nothing, on
+// purpose: reconciling there would destroy the edits Cancel was pressed to
+// protect. So the panes are knowingly left holding different text, and the
+// only cue was the tab strip's dirty dot — which cannot tell "this pane has
+// unsaved edits" apart from "the other pane disagrees with what you are
+// looking at".
+//
+// The register proposed `hasUnabsorbedPeerEdit(splitFilePath(),
+// splitFileContent())` as the predicate. TASK_2026_213 — the commit before
+// this one — made `splitFileContent` a deliberately stale read surface, so
+// that expression is now false-positive by construction: it is true for the
+// whole mirror-debounce window after any keystroke in the other pane. The chip
+// is gated on a cancelled conflict instead, which is both the narrower thing
+// and the thing that was actually filed.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — diverged split panes (TASK_2026_214)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+  /**
+   * Backs the stubbed `hasUnabsorbedPeerEdit` with a SIGNAL.
+   *
+   * The chip is a `computed` over that predicate, and the real implementation
+   * reads `splitActive`, `splitFilePath`, `activeFilePath` and `openTabs` — so
+   * in production the chip re-evaluates whenever the tab record changes. A
+   * `mockReturnValue` has no signal behind it, so a spec built on one would
+   * assert that the chip never updates and would have passed against a
+   * component that could not clear it.
+   */
+  let peerEditUnabsorbed: ReturnType<typeof signal<boolean>>;
+
+  function tab(filePath: string, content: string, isDirty: boolean) {
+    return {
+      filePath,
+      fileName: filePath.split('/').pop(),
+      content,
+      isDirty,
+    };
+  }
+
+  function shareFileInBothPanes(): void {
+    editor.openTabs.set([tab('/ws/a.ts', 'peer edit', true)]);
+    editor.activeFilePath.set('/ws/a.ts');
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    fixture.detectChanges();
+  }
+
+  function chip(): HTMLElement | null {
+    return fixture.nativeElement.querySelector(
+      '[data-testid="split-pane-diverged"]',
+    );
+  }
+
+  function dialogButton(label: string): HTMLButtonElement | undefined {
+    return [
+      ...fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button',
+      ),
+    ].find((b) => b.textContent?.trim() === label);
+  }
+
+  /** Save from the split pane into a conflict, and answer the dialog. */
+  async function conflictThen(answer: 'Cancel' | 'Overwrite'): Promise<void> {
+    peerEditUnabsorbed.set(true);
+    const panes = fixture.debugElement.queryAll(
+      By.directive(StubCodeEditorComponent),
+    );
+    panes[1].componentInstance.fileSaved.emit({
+      filePath: '/ws/a.ts',
+      content: 'this pane text',
+    });
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(dialogButton(answer)).toBeTruthy();
+    dialogButton(answer)?.click();
+    await Promise.resolve();
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+    peerEditUnabsorbed = signal(false);
+    editor.hasUnabsorbedPeerEdit.mockImplementation(() => peerEditUnabsorbed());
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('(214-1) an ordinary split session says nothing about divergence', () => {
+    shareFileInBothPanes();
+
+    expect(chip()).toBeNull();
+  });
+
+  it('(214-2) the raw predicate alone is NOT enough — that is the false positive the register would have shipped', () => {
+    shareFileInBothPanes();
+    // True for the whole mirror-debounce window after any keystroke in the
+    // other pane, which is most of the time while someone is typing.
+    peerEditUnabsorbed.set(true);
+    fixture.detectChanges();
+
+    expect(chip()).toBeNull();
+  });
+
+  it('(214-3) Cancel leaves the panes marked as disagreeing', async () => {
+    shareFileInBothPanes();
+
+    await conflictThen('Cancel');
+
+    const badge = chip();
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent?.trim()).toBe('Diverged');
+    expect(badge?.getAttribute('role')).toBe('status');
+    // It says which way round the disagreement runs, since the dirty dot could
+    // not.
+    expect(badge?.getAttribute('title')).toContain('other pane');
+    // Cancel still wrote nothing.
+    expect(editor.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('(214-4) Overwrite resolves the question, so nothing is marked diverged', async () => {
+    shareFileInBothPanes();
+
+    await conflictThen('Overwrite');
+
+    expect(chip()).toBeNull();
+    expect(editor.saveFile).toHaveBeenCalledWith('/ws/a.ts', 'this pane text');
+  });
+
+  it('(214-5) clears itself once the panes reconcile — no explicit teardown to forget', async () => {
+    shareFileInBothPanes();
+    await conflictThen('Cancel');
+    expect(chip()).toBeTruthy();
+
+    // What a focus change does: both panes brought onto the tab record, so the
+    // save path would no longer prompt either.
+    peerEditUnabsorbed.set(false);
+    fixture.detectChanges();
+
+    expect(chip()).toBeNull();
+  });
+
+  it('(214-7) answering a LATER conflict with Overwrite clears an earlier Cancel', async () => {
+    shareFileInBothPanes();
+    await conflictThen('Cancel');
+    expect(chip()).toBeTruthy();
+
+    // The predicate is unchanged by Cancel, so the next save re-prompts — and
+    // this time the user overwrites. In production the tab record then goes
+    // clean and the predicate falls false on its own; the explicit clear is
+    // what makes that independent of the predicate.
+    await conflictThen('Overwrite');
+
+    expect(peerEditUnabsorbed()).toBe(true);
+    expect(chip()).toBeNull();
+  });
+
+  it('(214-6) does not follow the split pane to a different file', async () => {
+    shareFileInBothPanes();
+    await conflictThen('Cancel');
+    expect(chip()).toBeTruthy();
+
+    editor.splitFilePath.set('/ws/other.ts');
+    fixture.detectChanges();
+
+    expect(chip()).toBeNull();
+  });
+});

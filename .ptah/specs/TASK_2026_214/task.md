@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: FEATURE
 title: >-
   No dedicated affordance signals when split panes hold divergent content

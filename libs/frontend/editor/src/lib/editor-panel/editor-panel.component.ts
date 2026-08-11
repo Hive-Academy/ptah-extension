@@ -393,6 +393,27 @@ import type { FileTreeNode } from '../models/file-tree.model';
                     [attr.title]="editorService.splitFilePath()"
                     >{{ splitFileName() }}</span
                   >
+                  <!-- "These two panes disagree" (TASK_2026_214).
+
+                       Cancel on the save-conflict dialog deliberately writes
+                       nothing and reconciles nothing — reconciling there would
+                       destroy exactly the edits Cancel was pressed to protect.
+                       So the panes are knowingly left holding different text,
+                       and until now the only cue was the tab strip's dirty dot,
+                       which cannot tell "this pane has unsaved edits" apart
+                       from "the other pane disagrees with what you are looking
+                       at". role="status" rather than "alert": this is a
+                       standing condition the user just chose, not an event
+                       that should interrupt them. -->
+                  @if (splitPaneDiverged()) {
+                    <span
+                      class="badge badge-warning badge-sm ml-2 flex-shrink-0"
+                      role="status"
+                      data-testid="split-pane-diverged"
+                      title="The other pane holds unsaved edits to this file that this pane has not absorbed. Saving from either pane will ask again."
+                      >Diverged</span
+                    >
+                  }
                   <button
                     class="ml-auto p-0.5 rounded opacity-50 hover:opacity-100 hover:bg-base-content/10 transition-all"
                     aria-label="Close split pane"
@@ -1090,6 +1111,9 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   protected confirmSaveConflict(): void {
     const conflict = this.saveConflict();
     if (!conflict) return;
+    // Answering the question resolves the disagreement, so the record of a
+    // previous Cancel on this file stops meaning anything (TASK_2026_214).
+    this.cancelledConflict.set(null);
     this.closeSaveConflict();
     // The tab record OWNS content, so it has to end up holding what was
     // actually written — otherwise the text the user just chose to discard
@@ -1099,13 +1123,60 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * The save a Cancel walked away from, kept so the panes can SAY they
+   * disagree (TASK_2026_214).
+   *
+   * `content` is the text of the pane that tried to save — the side of the
+   * disagreement the tab record does not hold. Keeping it here rather than
+   * re-deriving the pane's live text is deliberate: TASK_2026_213 made
+   * `splitFileContent` a deliberately stale read surface, so it is no longer
+   * an answer to "what does the right pane actually show", and the register's
+   * proposed `hasUnabsorbedPeerEdit(splitFilePath(), splitFileContent())`
+   * would light the chip on every ordinary keystroke instead.
+   */
+  private readonly cancelledConflict = signal<{
+    filePath: string;
+    content: string;
+  } | null>(null);
+
+  /**
+   * Whether the split panes are knowingly holding different text.
+   *
+   * Gated on a cancelled conflict rather than on the raw predicate, because
+   * the raw predicate is also briefly true during ordinary typing — an edit in
+   * one pane reaches the tab record immediately and the other pane only after
+   * the mirror debounce, so a chip on the bare predicate would blink on every
+   * keystroke in the other pane. This says the narrower and more useful thing:
+   * you were asked, you chose to keep both versions, and nothing has
+   * reconciled them since.
+   *
+   * Self-clearing. It re-evaluates the same predicate the save path uses, so
+   * the moment a focus change reconciles the panes, or the tab record comes to
+   * hold the declined text, or the file goes clean, the chip goes away without
+   * anyone having to remember to clear it.
+   */
+  protected readonly splitPaneDiverged = computed(() => {
+    const cancelled = this.cancelledConflict();
+    if (!cancelled) return false;
+    if (this.editorService.splitFilePath() !== cancelled.filePath) return false;
+    return this.editorService.hasUnabsorbedPeerEdit(
+      cancelled.filePath,
+      cancelled.content,
+    );
+  });
+
+  /**
    * Abort the save. Nothing is written and no tab state changes: the other
    * pane's edits survive in the tab record and this pane keeps the text the
    * user declined to overwrite. Reconciling the two here would destroy exactly
    * the edits Cancel was pressed to protect; they converge on the next focus
    * change (C2 AC3).
+   *
+   * The one thing it does record is that this happened, so the split header can
+   * show it (TASK_2026_214).
    */
   protected cancelSaveConflict(): void {
+    this.cancelledConflict.set(this.saveConflict());
     this.closeSaveConflict();
   }
 
