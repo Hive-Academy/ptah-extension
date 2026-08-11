@@ -15,6 +15,9 @@ import {
   untracked,
   afterNextRender,
   ChangeDetectorRef,
+  TemplateRef,
+  ViewContainerRef,
+  type EmbeddedViewRef,
 } from '@angular/core';
 import type { LucideIconData } from 'lucide-angular';
 import {
@@ -529,6 +532,63 @@ const APPLY_FAILED_MESSAGE =
         </div>
       }
     </div>
+
+    <!--
+      D2 — the in-editor hunk action cluster (TASK_2026_221).
+
+      This template is NEVER rendered here. It is instantiated as an embedded
+      view and its root node is handed to Monaco as a CONTENT widget anchored at
+      the selected hunk's modifiedStart, so the buttons sit beside the lines
+      they act on instead of 500px away in the header. Content widget, not
+      overlay widget: an overlay widget is positioned against the editor's
+      viewport corners, and this has to track a line through scrolling and
+      re-layout.
+
+      Rendering it through Angular rather than as constructed DOM is what keeps
+      it a normal part of this component: the same signals drive it, the same
+      OnPush change detection updates it, the same handlers back it, and it
+      carries the component's style scoping attribute even though it lives in
+      DOM Monaco owns. Hand-built innerHTML would have needed its own event
+      wiring and its own copy of every guard in onHunkAction.
+
+      MOUSE affordance only, deliberately. Every button is tabindex="-1": the
+      roving-tabindex toolbar in the header is the keyboard path (AC14), and a
+      second tab stop that appears and disappears inside the editor as the
+      selection moves would make the tab order jump under the user. The buttons
+      keep real accessible names, so the cluster is still readable with a screen
+      reader's virtual cursor — it is simply not a second thing to tab through.
+    -->
+    <ng-template #hunkActionWidget>
+      <div
+        class="flex items-center gap-1 px-1 py-0.5 rounded-md shadow-lg bg-base-200 border border-base-content/20"
+        role="group"
+        data-testid="hunk-widget"
+        [attr.aria-label]="hunkWidgetLabel()"
+        (mousedown)="$event.stopPropagation()"
+      >
+        @for (action of hunkOperations(); track action) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs px-1.5 gap-1"
+            tabindex="-1"
+            [class.text-warning]="action === 'revert'"
+            [attr.data-testid]="'hunk-widget-' + action"
+            [attr.aria-disabled]="!canApply()"
+            [attr.aria-label]="hunkActionLabel(action)"
+            [attr.title]="hunkActionLabel(action)"
+            [class.opacity-40]="!canApply()"
+            (click)="onHunkAction(action)"
+          >
+            <lucide-angular
+              [img]="hunkActionIcon(action)"
+              class="w-3 h-3"
+              aria-hidden="true"
+            />
+            {{ hunkActionText(action) }}
+          </button>
+        }
+      </div>
+    </ng-template>
   `,
   styles: `
     :host {
@@ -549,30 +609,49 @@ const APPLY_FAILED_MESSAGE =
      * counterpart in the inline layout: Monaco renders one modified-side glyph
      * margin in both layouts, so the markers appear in each without a second
      * code path.
+     *
+     * The ink is currentColor — Monaco's own foreground for whichever theme is
+     * loaded — and NOT daisyUI's primary. This used to name --fallback-p with
+     * currentColor as its fallback, which looked like it asked for the primary
+     * and never did: daisyUI defines --fallback-p only inside an
+     * "@supports not (color: oklch(...))" block, so on every browser either
+     * host actually runs it was undefined and the fallback took over. Naming
+     * currentColor directly is what TASK_2026_222 measured in a real window,
+     * and it is also the right colour: the glyph margin belongs to Monaco's
+     * palette, so tracking the editor foreground is what keeps a marker legible
+     * in vs, vs-dark and hc-black alike.
      */
     :host ::ng-deep .ptah-hunk-glyph {
       cursor: pointer;
-      background-color: color-mix(
-        in srgb,
-        var(--fallback-p, currentColor) 55%,
-        transparent
-      );
+      background-color: color-mix(in srgb, currentColor 55%, transparent);
       width: 3px !important;
       margin-left: 4px;
     }
 
     :host ::ng-deep .ptah-hunk-glyph-selected {
-      background-color: var(--fallback-p, currentColor);
+      background-color: currentColor;
       width: 5px !important;
       margin-left: 3px;
     }
 
     :host ::ng-deep .ptah-hunk-line-selected {
-      background-color: color-mix(
-        in srgb,
-        var(--fallback-p, currentColor) 12%,
-        transparent
-      );
+      background-color: color-mix(in srgb, currentColor 12%, transparent);
+    }
+
+    /*
+     * The content widget's own wrapper (TASK_2026_221). Monaco absolutely
+     * positions this node; everything inside it is Angular's, so only the
+     * wrapper needs a rule — and it needs ng-deep because Monaco creates the
+     * wrapper itself when the widget is added.
+     *
+     * z-index sits above the view lines so the cluster is not painted under
+     * the diff's own decorations, and white-space: nowrap stops the buttons
+     * wrapping when the modified pane is narrow.
+     */
+    :host ::ng-deep .ptah-hunk-widget {
+      z-index: 10;
+      white-space: nowrap;
+      font-size: 11px;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -582,6 +661,7 @@ export class DiffViewComponent implements OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly loader = inject(MonacoLoaderService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly viewContainer = inject(ViewContainerRef);
 
   /**
    * Max number of cached model PAIRS (two models each) retained before LRU
@@ -641,6 +721,8 @@ export class DiffViewComponent implements OnDestroy {
 
   private readonly hunkToolbarButtons =
     viewChildren<ElementRef<HTMLButtonElement>>('hunkToolbarButton');
+  private readonly hunkActionWidget =
+    viewChild<TemplateRef<unknown>>('hunkActionWidget');
   private readonly revertCancel =
     viewChild<ElementRef<HTMLButtonElement>>('revertCancel');
   private readonly revertConfirm =
@@ -662,6 +744,14 @@ export class DiffViewComponent implements OnDestroy {
     null;
   /** Glyph-margin mouse binding, disposed with the component. */
   private glyphClickBinding: monaco.IDisposable | null = null;
+  /** Angular view backing the in-editor action cluster (TASK_2026_221). */
+  private hunkWidgetView: EmbeddedViewRef<unknown> | null = null;
+  /** The node handed to Monaco; the embedded view's roots live inside it. */
+  private hunkWidgetHostNode: HTMLElement | null = null;
+  /** Monaco content widget hosting that view, or null while nothing is selected. */
+  private hunkWidget: monaco.editor.IContentWidget | null = null;
+  /** The line the widget is currently anchored at; drives layout vs re-add. */
+  private hunkWidgetLine = 0;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private destroyed = false;
@@ -900,6 +990,18 @@ export class DiffViewComponent implements OnDestroy {
   );
 
   /**
+   * Accessible name for the in-editor cluster (TASK_2026_221).
+   *
+   * Distinct wording from the header toolbar's, because the two are genuinely
+   * different things in the same document: one is the full navigate-and-act
+   * group, the other is an action cluster pinned to one hunk. Two groups
+   * sharing a name would make a screen-reader's landmark list ambiguous.
+   */
+  protected readonly hunkWidgetLabel = computed(
+    () => `Actions for ${this.hunkPositionLabel().toLowerCase()}`,
+  );
+
+  /**
    * Whether an action button would do anything if pressed.
    *
    * Nothing is selected until the user selects it: the toolbar deliberately
@@ -985,6 +1087,7 @@ export class DiffViewComponent implements OnDestroy {
       this.hunks();
       this.selectedHunk();
       this.renderHunkDecorations();
+      this.syncHunkWidget();
     });
 
     // A stale apply error outliving the diff it described would read as a
@@ -1009,6 +1112,10 @@ export class DiffViewComponent implements OnDestroy {
     this.destroyed = true;
     this.glyphClickBinding?.dispose();
     this.glyphClickBinding = null;
+    this.removeHunkWidget();
+    this.hunkWidgetView?.destroy();
+    this.hunkWidgetView = null;
+    this.hunkWidgetHostNode = null;
     this.hunkDecorations?.clear();
     this.hunkDecorations = null;
     this.resizeObserver?.disconnect();
@@ -1065,9 +1172,20 @@ export class DiffViewComponent implements OnDestroy {
         this.themeObserver = new MutationObserver(() => {
           monacoApi.editor.setTheme(this.detectMonacoTheme());
         });
+        const themeAttributes = [
+          'data-vscode-theme-kind',
+          'data-theme',
+          'data-theme-mode',
+        ];
+        // Two targets, one observer: the VS Code host writes its kind onto
+        // <body>, ThemeService writes daisyUI's onto <html>.
         this.themeObserver.observe(document.body, {
           attributes: true,
-          attributeFilter: ['data-vscode-theme-kind', 'data-theme'],
+          attributeFilter: themeAttributes,
+        });
+        this.themeObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: themeAttributes,
         });
       }
     });
@@ -1388,6 +1506,109 @@ export class DiffViewComponent implements OnDestroy {
     });
   }
 
+  /**
+   * Keep the in-editor action cluster on the selected hunk (TASK_2026_221).
+   *
+   * Added and REMOVED rather than left in place with a null position. Monaco's
+   * documented behaviour for a content widget whose `getPosition()` returns
+   * null is to park it off screen, not to unmount it — which would leave a
+   * cluster of buttons in the accessibility tree describing a hunk that is no
+   * longer selected. Removing it is the only way to say "there is nothing
+   * here" without qualification.
+   *
+   * The embedded view is created once and reused across every reposition: its
+   * content is signal-driven, so Angular updates it in place, and re-creating
+   * it per selection would churn a DOM node Monaco holds a reference to.
+   */
+  private syncHunkWidget(): void {
+    const api = this.monacoApi;
+    const editor = this.editor;
+    const template = this.hunkActionWidget();
+    if (!api || !editor || !template) return;
+
+    const selected = this.hunkActionsAvailable() ? this.selectedHunk() : null;
+    const modified = editor.getModifiedEditor();
+    const model = modified.getModel();
+    if (!selected || !model) {
+      this.removeHunkWidget();
+      return;
+    }
+    const { startLine } = hunkLineRange(selected, model.getLineCount());
+
+    if (this.hunkWidget) {
+      // Same widget, new anchor line. `getPosition` closes over
+      // `hunkWidgetLine`, so updating the field and asking Monaco to re-layout
+      // is the whole move — removing and re-adding would drop the DOM node
+      // Monaco already holds and make the cluster flicker on every step.
+      this.hunkWidgetLine = startLine;
+      this.ngZone.runOutsideAngular(() =>
+        modified.layoutContentWidget(
+          this.hunkWidget as monaco.editor.IContentWidget,
+        ),
+      );
+      return;
+    }
+
+    const host = this.hunkWidgetHost();
+    this.hunkWidgetLine = startLine;
+    const preference = api.editor.ContentWidgetPositionPreference;
+    const widgetId = `ptah.hunkActions.${this.instanceId}`;
+    const widget: monaco.editor.IContentWidget = {
+      getId: () => widgetId,
+      getDomNode: () => host,
+      getPosition: () => ({
+        position: { lineNumber: this.hunkWidgetLine, column: 1 },
+        // ABOVE first: the widget is anchored at modifiedStart, and rendering
+        // it below that line would cover the first line of the very hunk the
+        // user is deciding about.
+        preference: [preference.ABOVE, preference.BELOW],
+      }),
+    };
+    this.hunkWidget = widget;
+    this.ngZone.runOutsideAngular(() => modified.addContentWidget(widget));
+  }
+
+  /**
+   * The DOM node Monaco is handed, created once per component.
+   *
+   * The embedded view is instantiated at this component's own anchor and its
+   * root nodes are then MOVED into this host. The view stays attached to the
+   * change-detection tree — only its nodes relocate — which is exactly why
+   * this is an embedded view and not constructed DOM: signals keep driving it
+   * and the component's style scoping attribute travels with the nodes into
+   * DOM Angular does not otherwise reach.
+   */
+  private hunkWidgetHost(): HTMLElement {
+    const existing = this.hunkWidgetHostNode;
+    if (existing) return existing;
+
+    const template = this.hunkActionWidget();
+    const host = document.createElement('div');
+    host.className = 'ptah-hunk-widget';
+    if (template) {
+      const view = this.viewContainer.createEmbeddedView(template);
+      this.hunkWidgetView = view;
+      view.detectChanges();
+      for (const node of view.rootNodes as Node[]) host.appendChild(node);
+    }
+    this.hunkWidgetHostNode = host;
+    return host;
+  }
+
+  private removeHunkWidget(): void {
+    const widget = this.hunkWidget;
+    this.hunkWidget = null;
+    this.hunkWidgetLine = 0;
+    if (!widget) return;
+    try {
+      this.editor?.getModifiedEditor().removeContentWidget(widget);
+    } catch {
+      // Monaco throws if the editor was already disposed; the widget is gone
+      // either way and this runs on the teardown path.
+      void 0;
+    }
+  }
+
   /** Scroll a newly selected hunk into view (AC14 — see it before acting). */
   private revealHunk(index: number): void {
     const editor = this.editor;
@@ -1639,18 +1860,44 @@ export class DiffViewComponent implements OnDestroy {
    * Detect the appropriate Monaco theme based on the host environment:
    * 1. `data-vscode-theme-kind` (VS Code webview): `vscode-light` -> `vs`,
    *    `vscode-high-contrast` -> `hc-black`, `vscode-dark` -> `vs-dark`.
-   * 2. `data-theme` (DaisyUI fallback): `light` -> `vs`, anything else -> `vs-dark`.
+   * 2. `data-theme-mode` / `data-theme` (daisyUI): `light` -> `vs`, anything
+   *    else -> `vs-dark`.
    * Returns `'vs-dark'` as the default and SSR-safe value when document is not available.
+   *
+   * BOTH `<html>` and `<body>` are read, and that is load-bearing rather than
+   * defensive. `ThemeService` writes `data-theme` and `data-theme-mode` to
+   * `document.documentElement`; VS Code writes `data-vscode-theme-kind` to
+   * `document.body`. Reading only `<body>` — which is what this did until
+   * TASK_2026_222 put a real window in front of a human — left the daisyUI
+   * branch unreachable in every host, so Electron pinned the diff editor to
+   * `vs-dark` no matter which theme the app was wearing.
+   *
+   * `data-theme-mode` is preferred over `data-theme` because it is the coarse
+   * light/dark marker `ThemeService` maintains for exactly this purpose: of the
+   * 34 daisyUI themes only one is literally named `light`, so matching on the
+   * theme NAME would send `cupcake`, `winter` and `anubis-light` to a dark
+   * editor.
    */
   private detectMonacoTheme(): string {
     if (typeof document === 'undefined') return 'vs-dark';
+    const root = document.documentElement;
 
-    const vscodeKind = document.body.getAttribute('data-vscode-theme-kind');
+    const vscodeKind =
+      document.body.getAttribute('data-vscode-theme-kind') ??
+      root.getAttribute('data-vscode-theme-kind');
     if (vscodeKind === 'vscode-light') return 'vs';
     if (vscodeKind === 'vscode-high-contrast') return 'hc-black';
     if (vscodeKind === 'vscode-dark') return 'vs-dark';
 
-    const dataTheme = document.body.getAttribute('data-theme');
+    const mode =
+      root.getAttribute('data-theme-mode') ??
+      document.body.getAttribute('data-theme-mode');
+    if (mode === 'light') return 'vs';
+    if (mode === 'dark') return 'vs-dark';
+
+    const dataTheme =
+      root.getAttribute('data-theme') ??
+      document.body.getAttribute('data-theme');
     if (dataTheme === 'light') return 'vs';
 
     return 'vs-dark';

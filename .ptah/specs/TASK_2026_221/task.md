@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: FEATURE
 title: >-
   No in-editor floating hunk action widget -- mouse ergonomics only, flagged

@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Nobody has ever SEEN the glyph-margin hunk markers -- visual claim

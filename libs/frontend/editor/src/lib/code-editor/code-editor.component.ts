@@ -379,9 +379,18 @@ export class CodeEditorComponent {
         this.themeObserver = new MutationObserver(() => {
           monacoApi.editor.setTheme(this.detectMonacoTheme());
         });
+        const themeAttributes = [
+          'data-vscode-theme-kind',
+          'data-theme',
+          'data-theme-mode',
+        ];
         this.themeObserver.observe(document.body, {
           attributes: true,
-          attributeFilter: ['data-vscode-theme-kind', 'data-theme'],
+          attributeFilter: themeAttributes,
+        });
+        this.themeObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: themeAttributes,
         });
       }
     });
@@ -627,16 +636,33 @@ export class CodeEditorComponent {
   /**
    * Detect the Monaco theme from the host environment, mirroring
    * {@link DiffViewComponent} so both surfaces stay visually consistent.
+   *
+   * Reads `<html>` as well as `<body>` for the same reason the diff view does:
+   * `ThemeService` writes daisyUI's `data-theme` / `data-theme-mode` to
+   * `document.documentElement`, so a `<body>`-only read never sees them. Kept
+   * identical to the diff view's copy deliberately — a code editor and the diff
+   * beside it disagreeing about light or dark is worse than either being wrong.
    */
   private detectMonacoTheme(): string {
     if (typeof document === 'undefined') return 'vs-dark';
+    const root = document.documentElement;
 
-    const vscodeKind = document.body.getAttribute('data-vscode-theme-kind');
+    const vscodeKind =
+      document.body.getAttribute('data-vscode-theme-kind') ??
+      root.getAttribute('data-vscode-theme-kind');
     if (vscodeKind === 'vscode-light') return 'vs';
     if (vscodeKind === 'vscode-high-contrast') return 'hc-black';
     if (vscodeKind === 'vscode-dark') return 'vs-dark';
 
-    const dataTheme = document.body.getAttribute('data-theme');
+    const mode =
+      root.getAttribute('data-theme-mode') ??
+      document.body.getAttribute('data-theme-mode');
+    if (mode === 'light') return 'vs';
+    if (mode === 'dark') return 'vs-dark';
+
+    const dataTheme =
+      root.getAttribute('data-theme') ??
+      document.body.getAttribute('data-theme');
     if (dataTheme === 'light') return 'vs';
 
     return 'vs-dark';

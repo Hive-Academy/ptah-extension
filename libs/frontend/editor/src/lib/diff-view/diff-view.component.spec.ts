@@ -115,9 +115,19 @@ function setDataTheme(value: string | null): void {
   }
 }
 
+/** Write the two attributes `ThemeService` puts on `<html>`, as it writes them. */
+function setRootTheme(theme: string | null, mode: string | null): void {
+  const root = document.documentElement;
+  if (theme !== null) root.setAttribute('data-theme', theme);
+  else root.removeAttribute('data-theme');
+  if (mode !== null) root.setAttribute('data-theme-mode', mode);
+  else root.removeAttribute('data-theme-mode');
+}
+
 function cleanBodyAttributes(): void {
   document.body.removeAttribute('data-vscode-theme-kind');
   document.body.removeAttribute('data-theme');
+  setRootTheme(null, null);
 }
 
 // ===========================================================================
@@ -200,6 +210,54 @@ describe('DiffViewComponent', () => {
 
       // vscode-light wins over data-theme=dark
       expect(theme).toBe('vs');
+    });
+
+    // ------------------------------------------------------------------
+    // TASK_2026_222 — the daisyUI branch reads <html>, which is where
+    // ThemeService writes. Reading only <body> made it unreachable in every
+    // host, so Electron rendered a dark diff editor inside a light app.
+    // ------------------------------------------------------------------
+
+    it('returns "vs" for data-theme-mode="light" on <html> (the Electron path)', async () => {
+      const { component } = await createFixture();
+      setVscodeThemeKind(null);
+      setRootTheme('anubis-light', 'light');
+
+      const theme = (component['detectMonacoTheme'] as () => string)();
+
+      expect(theme).toBe('vs');
+    });
+
+    it('returns "vs-dark" for data-theme-mode="dark" on <html>', async () => {
+      const { component } = await createFixture();
+      setVscodeThemeKind(null);
+      setRootTheme('anubis', 'dark');
+
+      const theme = (component['detectMonacoTheme'] as () => string)();
+
+      expect(theme).toBe('vs-dark');
+    });
+
+    it('uses the mode marker, not the theme NAME — a light theme not called "light" still gets "vs"', async () => {
+      const { component } = await createFixture();
+      setVscodeThemeKind(null);
+      // `cupcake` is one of 33 daisyUI themes whose name says nothing about its
+      // lightness; matching on the name alone would send it to a dark editor.
+      setRootTheme('cupcake', 'light');
+
+      const theme = (component['detectMonacoTheme'] as () => string)();
+
+      expect(theme).toBe('vs');
+    });
+
+    it('still prefers the VS Code kind over the daisyUI attributes on <html>', async () => {
+      const { component } = await createFixture();
+      setVscodeThemeKind('vscode-high-contrast');
+      setRootTheme('anubis-light', 'light');
+
+      const theme = (component['detectMonacoTheme'] as () => string)();
+
+      expect(theme).toBe('hc-black');
     });
   });
 
@@ -473,17 +531,35 @@ interface FakeDecorationsCollection {
   clear(): void;
 }
 
+/**
+ * Only the slice of monaco.editor.IContentWidget the component supplies
+ * (TASK_2026_221) — an id, the DOM node, and the anchor.
+ */
+interface FakeContentWidget {
+  getId(): string;
+  getDomNode(): HTMLElement;
+  getPosition(): {
+    position: { lineNumber: number; column: number };
+    preference: number[];
+  } | null;
+}
+
 /** The modified-side code editor a diff editor exposes (D2 lives on this one). */
 interface FakeCodeEditor {
   collections: FakeDecorationsCollection[];
   revealed: number[];
   mouseListeners: ((event: FakeMouseEvent) => void)[];
+  contentWidgets: FakeContentWidget[];
+  layoutedWidgets: number;
   getModel(): FakeModel | null;
   createDecorationsCollection(
     decorations: FakeDecoration[],
   ): FakeDecorationsCollection;
   revealLineInCenterIfOutsideViewport(line: number): void;
   onMouseDown(listener: (event: FakeMouseEvent) => void): { dispose(): void };
+  addContentWidget(widget: FakeContentWidget): void;
+  layoutContentWidget(widget: FakeContentWidget): void;
+  removeContentWidget(widget: FakeContentWidget): void;
 }
 
 interface FakeMouseEvent {
@@ -547,6 +623,7 @@ function makeFakeMonaco() {
       },
       setTheme: jest.fn(),
       MouseTargetType: { GUTTER_GLYPH_MARGIN },
+      ContentWidgetPositionPreference: { EXACT: 0, ABOVE: 1, BELOW: 2 },
       createDiffEditor: (
         _container: unknown,
         createOptions: Record<string, unknown> = {},
@@ -596,6 +673,19 @@ function makeFakeMonaco() {
                   );
                 },
               };
+            },
+            contentWidgets: [],
+            layoutedWidgets: 0,
+            addContentWidget(widget: FakeContentWidget) {
+              this.contentWidgets.push(widget);
+            },
+            layoutContentWidget(_widget: FakeContentWidget) {
+              this.layoutedWidgets++;
+            },
+            removeContentWidget(widget: FakeContentWidget) {
+              this.contentWidgets = this.contentWidgets.filter(
+                (w) => w !== widget,
+              );
             },
           },
           getModifiedEditor() {
@@ -1108,6 +1198,160 @@ describe('DiffViewComponent — hunk affordances (D2)', () => {
 
       const collection = monaco.diffEditors[0].modifiedEditor.collections[0];
       expect(collection.current[0].range.endLineNumber).toBe(20);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_221 — the in-editor action cluster
+  // -------------------------------------------------------------------------
+
+  describe('in-editor hunk action widget (TASK_2026_221)', () => {
+    it('adds no content widget until a hunk is selected', async () => {
+      // Nothing is selected on open, deliberately: a cluster floating over an
+      // arbitrary hunk would suggest one was already armed.
+      const { monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      expect(monaco.diffEditors[0].modifiedEditor.contentWidgets).toHaveLength(
+        0,
+      );
+    });
+
+    it('anchors the widget at the selected hunk modifiedStart, preferring ABOVE', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+
+      const widgets = monaco.diffEditors[0].modifiedEditor.contentWidgets;
+      expect(widgets).toHaveLength(1);
+      const position = widgets[0].getPosition();
+      // THREE_HUNKS[0] starts at modified line 2.
+      expect(position?.position.lineNumber).toBe(2);
+      // ABOVE first — rendering below modifiedStart would cover the hunk's own
+      // first line, which is the line the user is deciding about.
+      expect(position?.preference[0]).toBe(
+        monaco.api.editor.ContentWidgetPositionPreference.ABOVE,
+      );
+    });
+
+    it('re-anchors the SAME widget when the selection steps, rather than churning the node', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+      const modified = monaco.diffEditors[0].modifiedEditor;
+
+      click(fixture, 'hunk-next');
+      const node = modified.contentWidgets[0].getDomNode();
+
+      click(fixture, 'hunk-next');
+
+      expect(modified.contentWidgets).toHaveLength(1);
+      expect(modified.contentWidgets[0].getDomNode()).toBe(node);
+      expect(modified.layoutedWidgets).toBeGreaterThan(0);
+      expect(
+        modified.contentWidgets[0].getPosition()?.position.lineNumber,
+      ).toBe(8);
+    });
+
+    it('renders the comparison-appropriate actions through Angular, not innerHTML', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+
+      const node = monaco.diffEditors[0].modifiedEditor.contentWidgets[0]
+        .getDomNode()
+        .querySelector('[data-testid="hunk-widget"]');
+      expect(node).not.toBeNull();
+      // A worktree diff defines stage and revert; unstage belongs to a staged
+      // one and is not rendered as a button that would round-trip to
+      // INVALID_OPERATION.
+      expect(
+        node?.querySelector('[data-testid="hunk-widget-stage"]'),
+      ).not.toBeNull();
+      expect(
+        node?.querySelector('[data-testid="hunk-widget-revert"]'),
+      ).not.toBeNull();
+      expect(
+        node?.querySelector('[data-testid="hunk-widget-unstage"]'),
+      ).toBeNull();
+    });
+
+    it('keeps every widget button out of the tab order — the header toolbar is the keyboard path (AC14)', async () => {
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), jest.fn());
+
+      click(fixture, 'hunk-next');
+
+      const buttons = Array.from(
+        monaco.diffEditors[0].modifiedEditor.contentWidgets[0]
+          .getDomNode()
+          .querySelectorAll('button'),
+      );
+      expect(buttons.length).toBeGreaterThan(0);
+      for (const button of buttons) {
+        expect(button.getAttribute('tabindex')).toBe('-1');
+        // Still named, so the cluster is readable with a virtual cursor even
+        // though it is not a second tab stop.
+        expect(button.getAttribute('aria-label')).toBeTruthy();
+      }
+    });
+
+    it('stages through the widget button with the token the selection was made against', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      const stage = monaco.diffEditors[0].modifiedEditor.contentWidgets[0]
+        .getDomNode()
+        .querySelector<HTMLButtonElement>('[data-testid="hunk-widget-stage"]');
+      stage?.click();
+
+      expect(apply).toHaveBeenCalledWith({
+        key: 'diff:worktree:src/index.ts',
+        operation: 'stage',
+        hunkIndices: [0],
+        snapshotToken: 'tok-1',
+      });
+    });
+
+    it('routes the widget Discard through the SAME confirmation dialog, writing nothing on the first click (AC5)', async () => {
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), apply);
+
+      click(fixture, 'hunk-next');
+      monaco.diffEditors[0].modifiedEditor.contentWidgets[0]
+        .getDomNode()
+        .querySelector<HTMLButtonElement>('[data-testid="hunk-widget-revert"]')
+        ?.click();
+      fixture.detectChanges();
+
+      expect(apply).not.toHaveBeenCalled();
+      expect(query(fixture, 'hunk-revert-dialog')).not.toBeNull();
+    });
+
+    it('REMOVES the widget once the selection is gone, rather than parking it off screen', async () => {
+      // Monaco parks a widget whose getPosition returns null; that would leave
+      // a cluster in the accessibility tree describing a hunk nobody selected.
+      const apply = jest.fn().mockResolvedValue({ success: true });
+      const { fixture, monaco } = await createLiveFixture(hunkTab(), apply);
+      const modified = monaco.diffEditors[0].modifiedEditor;
+
+      click(fixture, 'hunk-next');
+      expect(modified.contentWidgets).toHaveLength(1);
+
+      // A successful apply clears the selection.
+      modified.contentWidgets[0]
+        .getDomNode()
+        .querySelector<HTMLButtonElement>('[data-testid="hunk-widget-stage"]')
+        ?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(modified.contentWidgets).toHaveLength(0);
+    });
+
+    it('offers no widget on a surface with no git behind it', async () => {
+      const { monaco } = await createLiveFixture(hunkTab(), null);
+
+      expect(monaco.diffEditors[0].modifiedEditor.contentWidgets).toHaveLength(
+        0,
+      );
     });
   });
 
