@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: DOCUMENTATION
 title: >-
   Pre-existing B4 AC4 asymmetry between explicit-rootPath enumeration and

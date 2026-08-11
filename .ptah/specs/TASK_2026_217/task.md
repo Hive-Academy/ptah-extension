@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Flaky perf assertion in CI -- "perf M2 scaling -- directory indicator
