@@ -324,9 +324,19 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           <div
             class="flex flex-col items-center justify-center flex-1 text-center gap-3 p-6"
           >
+            <!-- Decorative and redundant with the sentence below it, so it is
+                 hidden from the accessibility tree and exempt from the
+                 text-contrast gate — the same call the filtered-empty glyph
+                 below makes, and now the same attribute backing it. The
+                 no-alpha ratchet records BOTH glyphs in this file as
+                 decorative exceptions; only one of the two carried the
+                 attribute, so the exemption did not actually apply here, and
+                 the ratchet could not tell because it keys on the class string
+                 and a count. -->
             <lucide-angular
               [img]="ClipboardListIcon"
               class="w-12 h-12 text-base-content/20"
+              aria-hidden="true"
             />
             <div class="flex flex-col gap-1">
               <p class="text-sm font-medium text-base-content">

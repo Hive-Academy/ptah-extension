@@ -71,8 +71,10 @@ const DECORATIVE_EXCEPTIONS: ReadonlyMap<
   ReadonlyMap<string, number>
 > = new Map([
   [
-    // Two large empty-state glyphs. Neither conveys anything the adjacent
-    // sentence does not.
+    // Two large empty-state glyphs, BOTH `aria-hidden="true"`, each redundant
+    // with the sentence directly beneath it. Held to that premise by the
+    // dedicated test at the bottom of this file — see it for why the premise
+    // needed a test rather than a comment.
     'tasks-ui/src/lib/components/tasks-view.component.ts',
     new Map([['text-base-content/20', 2]]),
   ],
@@ -123,6 +125,36 @@ function stripComments(source: string): string {
     .replace(/^\s*\/\/.*$/gm, '')
     .replace(/<!--[\s\S]*?-->/g, '');
 }
+
+/**
+ * The element a hit sits on: back to the nearest `<`, forward to the next `>`.
+ *
+ * Crude on purpose. It runs over comment-stripped source and only ever has to
+ * answer one question — does the tag carrying this class also carry
+ * `aria-hidden` — for self-closing `<lucide-angular ... />` and `<span ...>`
+ * elements, which is every site it is pointed at.
+ */
+function elementAround(source: string, at: number): string {
+  const open = source.lastIndexOf('<', at);
+  const close = source.indexOf('>', at);
+  if (open === -1 || close === -1) return '';
+  return source.slice(open, close + 1);
+}
+
+/**
+ * Exception entries whose recorded justification IS the attribute, mapped to
+ * how many sites must carry it.
+ *
+ * Deliberately not every entry. The other exceptions rest on the second half
+ * of the decorative test — a standalone glyph whose meaning is already carried
+ * by the text beside it — and asserting an attribute they never claimed would
+ * be a different rule, applied to files this claim is not about. Pairing each
+ * assertion with the justification that was actually written down is the same
+ * discipline the exception map itself uses.
+ */
+const ARIA_HIDDEN_PREMISE: ReadonlyMap<string, number> = new Map([
+  ['tasks-ui/src/lib/components/tasks-view.component.ts', 2],
+]);
 
 const relativeTo = (root: string, file: string): string =>
   file
@@ -237,6 +269,49 @@ describe('libs/frontend does not use opacity-modified base-content for text', ()
       '<i class="text-base-content/20"></i><p class="text-base-content/40">t</p>';
 
     expect(offendersIn(relative, sample)).toEqual(['text-base-content/40 x1']);
+  });
+
+  it('holds the aria-hidden exceptions to the premise they were granted on', () => {
+    // The premise had already rotted. The two `tasks-view.component.ts` glyphs
+    // were recorded together as decorative, and only the filter-empty one
+    // carried `aria-hidden="true"` — the "No tasks on the board" glyph did not,
+    // so it was NOT ignorable by assistive technology and the WCAG 1.4.3
+    // decorative exemption did not cover it. The ratchet passed anyway, because
+    // it keys on the class string and a count and can see neither.
+    //
+    // Asserting the attribute is what stops that happening again silently: an
+    // exception granted for being hidden now fails the moment it stops being
+    // hidden, in the same run that would otherwise wave it through.
+    const missing: Record<string, number> = {};
+
+    for (const [relative, expected] of ARIA_HIDDEN_PREMISE) {
+      const source = stripComments(
+        readFileSync(join(SWEPT_ROOT, relative), 'utf8'),
+      );
+      let hidden = 0;
+      for (const match of source.matchAll(BANNED)) {
+        if (elementAround(source, match.index).includes('aria-hidden')) {
+          hidden += 1;
+        }
+      }
+      if (hidden !== expected) missing[relative] = hidden;
+    }
+
+    expect(missing).toEqual({});
+  });
+
+  it('would notice a decorative exception that stopped being aria-hidden', () => {
+    // Proves the walk above can fail. Without this, a broken `elementAround`
+    // that returned '' for everything would report zero hidden sites and the
+    // test would go green for the wrong reason on an empty map.
+    const source = '<i class="text-base-content/20"></i>';
+
+    expect(elementAround(source, source.indexOf('text-base'))).toBe(
+      '<i class="text-base-content/20">',
+    );
+    expect(elementAround(source, source.indexOf('text-base'))).not.toContain(
+      'aria-hidden',
+    );
   });
 
   it('records every decorative exception as still present and still exempt', () => {
