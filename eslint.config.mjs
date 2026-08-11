@@ -56,6 +56,18 @@ export default [
       'apps/ptah-video-studio/.whisper/**',
       'apps/ptah-video-studio/out/**',
       'apps/ptah-video-studio/.remotion/**',
+      // Transient developer scratch. Mutation-testing a fix means copying a
+      // source file, stubbing it out, running the spec and restoring it, and
+      // scratch render/bundle harnesses land beside the code they drive. Both
+      // exist for seconds to minutes inside one working tree — but the
+      // pre-commit hook runs `nx affected --target=lint` across the WHOLE
+      // workspace, so anyone else committing during that window inherits
+      // thousands of errors from a file that is about to be deleted and that
+      // is none of their business. Their finished commit dies for it. These
+      // two patterns close that window; neither is ever a committed source
+      // file.
+      '**/*.bak',
+      '**/tmp-*.{mjs,cjs,js,jsx,ts,tsx}',
     ],
   },
   {
