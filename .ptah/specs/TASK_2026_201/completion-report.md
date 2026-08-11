@@ -7,6 +7,10 @@
 **Role**: team-leader, MODE 3 — final verification and close-out.
 **Carrier status at close**: TASK_2026_201 `in_review`, TASK_2026_202 `in_review`.
 **Neither task is `done`, and §4 says exactly why.**
+**Superseded by §7** (2026-08-11 merge-back): all three of §4's blockers were
+closed against the real database and both carriers are now `done`. Read §4 for
+what was open, then §7 for what actually happened — including the one C1
+decision the database falsified.
 
 ---
 
