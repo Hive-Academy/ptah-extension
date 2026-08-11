@@ -52,33 +52,14 @@
         }
       }
 
-      @if (s.supportsEarlyAdopterApprove && id()) {
-        @if (record(); as rec) {
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="btn btn-primary btn-outline btn-sm"
-              (click)="compLicenseModal()?.open()"
-            >
-              Approve (grant Builders)
-            </button>
-          </div>
-
-          <app-issue-comp-license-modal
-            [email]="$any(rec).email"
-            (issued)="onEarlyAdopterApproved()"
-          />
-        }
-      }
+      <!--
+        There is deliberately NO "Approve (grant Builders)" action here.
+        TASK_2026_201 removed it: it issued a complimentary licence with no
+        cohort assignment — the half-approved state the founding-cohort flow
+        exists to prevent. Waitlist rows are approved from
+        /admin/waitlist, which grants the licence AND the cohort together.
+      -->
     </header>
-
-    @if (earlyAdopterApprovedAt()) {
-      <div class="toast toast-end z-50">
-        <div class="alert alert-success">
-          <span>Early Adopter approved — Builders license granted.</span>
-        </div>
-      </div>
-    }
 
     @if (loading() && !record()) {
       <!-- First-load skeleton: card-shaped placeholder (design spec §7.5). -->

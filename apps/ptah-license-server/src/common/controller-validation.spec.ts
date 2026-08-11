@@ -268,8 +268,111 @@ const EXCLUDED: ReadonlyArray<{
  * (the others: a query string's length is bounded by the server's URL limit
  * rather than by `@ArrayMaxSize`, and every proxy in the path logs it).
  * `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 78 -> 80, TASK_2026_202 Batch 3 (C4 cohort scheduling) ────────────────
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 80`.
+ *
+ * **+2, AND BOTH ARE WHOLE-OBJECT BODIES.** Two routes are added to the
+ * EXISTING `AdminCourseModulesController` — no new controller, so
+ * `ALL_CONTROLLERS` and the census are untouched:
+ *
+ *   courses/AdminCourseModulesController.previewSchedule
+ *       `@Body(dtoPipe(PreviewModuleScheduleDto))`                          +1
+ *   courses/AdminCourseModulesController.applySchedule
+ *       `@Body(dtoPipe(ApplyModuleScheduleDto))`                            +1
+ *                                                                          ---
+ *                                              72 + 2 = 74 whole-object
+ *                                                       74 + 6 = 80 total
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND THAT IS ONCE MORE THE
+ * LOAD-BEARING HALF (RISK-I). The obvious alternative shape for the preview is
+ * `POST .../schedule/preview?courseId=…` — one `@Query('courseId')`. That would
+ * make the total read 80 against a named count of 7 and the arithmetic here
+ * would not close. It is also rejected on its own merits: the preview must
+ * accept the SAME payload class as the apply or the two drift, and a drifted
+ * preview silently stops describing the apply it is supposed to rehearse.
+ *
+ * ⚠️ THE TWO DTOs ARE A CLASS AND ITS SUBCLASS (`ApplyModuleScheduleDto extends
+ * PreviewModuleScheduleDto`), which is deliberate and is what makes each route
+ * reject the other's payload — but it means the two `expectedType`s are NOT
+ * interchangeable. `admin-course-modules.controller.spec.ts` asserts each
+ * handler binds its own, in both directions, because this file can only see
+ * that SOME `ValidationPipe` with SOME `expectedType` is bound.
+ * `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 80 -> 79, TASK_2026_201 (founding cohort: the invite path is deleted) ──
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 79`.
+ *
+ * **−1, AND IT IS A DELETION RATHER THAN AN ADDITION — THE FIRST ONE THIS
+ * LEDGER HAS RECORDED SINCE TASK_2026_177 P1b.** One route is removed, with the
+ * whole controller that carried it:
+ *
+ *   admin/AdminWaitlistController.inviteWaitlist
+ *       `@Body(dtoPipe(InviteWaitlistDto))`                                 −1
+ *                                                                          ---
+ *                                              74 − 1 = 73 whole-object
+ *                                                       73 + 6 = 79 total
+ *
+ * `POST v1/admin/waitlist/invite` sent the PAID founding-discount invite wave.
+ * TASK_2026_201 replaces the whole flow with a FREE grant, and context.md C2
+ * settles that the endpoint is DELETED rather than repointed — so the route,
+ * `InviteWaitlistDto`, `WaitlistService.inviteBatch` and the controller class
+ * all go together. `ALL_CONTROLLERS` and the census DO move here (unlike the
+ * two entries above): `route-map.spec.ts` refuses to keep a controller that
+ * contributes zero routes, so the class could not be left behind as an empty
+ * shell awaiting its replacement.
+ *
+ * ⚠️ THIS NUMBER GOES BACK TO 80 IN THE SAME TASK, AND THAT IS THE INTENDED
+ * END STATE — do not read 79 as the new floor and do not "restore" it by hand.
+ * `POST v1/admin/waitlist/approve` binds `@Body(dtoPipe(ApproveWaitlistDto))`
+ * for +1 when the approve endpoint lands. The ids travel in a `@Body()` there
+ * for the same reason they do on the bulk mark-read route above: a
+ * `@Query('ids')` would make the total read 80 against a named count of 7 and
+ * the arithmetic would not close.
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6. The deleted handler bound
+ * one whole-object `@Body` and no named primitive, so the carve-out is
+ * untouched. `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 79 -> 80, TASK_2026_201 (founding cohort: the approve grant lands) ─────
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 80`.
+ *
+ * **+1, AND IT IS THE RETURN THE ENTRY ABOVE PREDICTED** — the same task's
+ * approve batch, closing the −1 it opened. Net effect of TASK_2026_201 on this
+ * constant is therefore ZERO (80 → 79 → 80); the two entries are kept separate
+ * because they landed as separate commits and each had to be green alone:
+ *
+ *   admin/AdminWaitlistController.approveWaitlist
+ *       `@Body(dtoPipe(ApproveWaitlistDto))`                                 +1
+ *                                                                          ---
+ *                                              73 + 1 = 74 whole-object
+ *                                                       74 + 6 = 80 total
+ *
+ * `POST v1/admin/waitlist/approve` grants FREE founding access — a 1-year
+ * `builders` complimentary licence, a `founding` cohort placement and one
+ * welcome email per id. It is NOT the deleted invite route renamed: different
+ * DTO, different response, opposite commercial meaning. `ALL_CONTROLLERS` and
+ * the census move again, in the opposite direction: a NEW
+ * `AdminWaitlistController` class carries this route, so
+ * `controller-registry.ts` regains an `admin/AdminWaitlistController` entry.
+ *
+ * ⚠️ THIS BINDING IS THE MOST CONSEQUENTIAL ONE IN THE FILE, AND THAT IS NOT
+ * RHETORIC. On every other route an unbound `@Body` degrades input hygiene. On
+ * this one, `ApproveWaitlistDto`'s `@ArrayMaxSize(50)` is the ONLY bound on how
+ * many licences one request issues and how many emails it sends — unbind the
+ * pipe and a single POST can grant an unbounded number of paid-tier licences.
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND ONCE MORE THAT IS THE
+ * LOAD-BEARING HALF (RISK-I). The obvious alternative shape is
+ * `POST .../approve?ids=a,b,c` — one `@Query('ids') ids: string`. That would
+ * make the total read 80 against a named count of 7 and the arithmetic here
+ * would not close. It is also rejected on its own merits, for the same three
+ * reasons as the bulk mark-read route: a query string's length is bounded by
+ * the server's URL limit rather than by `@ArrayMaxSize`, every proxy in the
+ * path logs it, and a comma-split string cannot carry per-element validation.
+ * `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 78;
+const MIN_TOTAL_PAYLOAD_PARAMS = 80;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

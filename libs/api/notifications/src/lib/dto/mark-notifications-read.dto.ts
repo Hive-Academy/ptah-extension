@@ -47,8 +47,8 @@ import {
  *
  * `@MaxLength(64, { each: true })` — notification ids are cuids, not uuids, so
  * they are validated as bounded strings rather than with `@IsUUID` (the same
- * call `InviteWaitlistDto` makes for waitlist keys). Without it, 50 ids of a
- * megabyte each satisfy the array cap.
+ * call every cuid-keyed admin DTO in this server makes). Without it, 50 ids of
+ * a megabyte each satisfy the array cap.
  *
  * `@MinLength(1, { each: true })` — `""` is not an id under any encoding.
  *

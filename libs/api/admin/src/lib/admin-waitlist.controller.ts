@@ -14,17 +14,25 @@ import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { dtoPipe } from '@ptah-api/core';
-import { InviteWaitlistDto } from './admin.dto';
-import { WaitlistService } from '@ptah-api/marketing';
-import { AuditLogService } from '@ptah-api/audit';
+import { ApproveWaitlistDto } from './admin.dto';
+import { WaitlistApprovalService } from './waitlist-approval/waitlist-approval.service';
+import type { WaitlistApprovalResponse } from './waitlist-approval/waitlist-approval.types';
 
 /**
- * AdminWaitlistController — the founding early-adopter invite wave
- * (TASK_2026_170 R2).
+ * AdminWaitlistController — approve waitlist rows to the founding cohort
+ * (TASK_2026_201 R1, R8).
  *
- * Mounted at `/api/v1/admin/waitlist/*` — path UNCHANGED by the R2 split; only
- * the owning class changed. Guard chain: `JwtAuthGuard` → `AdminGuard` at CLASS
- * level.
+ * Mounted at `/api/v1/admin/waitlist/*`. Guard chain: `JwtAuthGuard` →
+ * `AdminGuard` at CLASS level, i.e. a DASHBOARD route authenticated by an
+ * admin's session cookie.
+ *
+ * ⚠️ THIS CLASS REPLACES A DELETED ONE OF THE SAME NAME, AND THE PATH IS THE
+ * ONLY THING THEY SHARE. The previous `AdminWaitlistController` owned
+ * `POST /waitlist/invite`, the PAID founding-discount invite wave. TASK_2026_201
+ * deletes that flow outright rather than repointing it (context.md C2) — the
+ * route, its DTO, its service method and its mail template are all gone — and
+ * `POST /waitlist/approve` grants FREE access instead. Nothing here is a
+ * rename of anything there.
  *
  * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
  * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
@@ -34,10 +42,10 @@ import { AuditLogService } from '@ptah-api/audit';
  * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
  * build if a binding is dropped.
  *
- * The stakes here are outbound mail volume: `InviteWaitlistDto`'s `@Max(1000)`
- * on `batchSize` and `@ArrayMaxSize(1000)` on `ids` are the only bound on how
- * many founding-invite emails one request can send, and neither had ever
- * executed before this binding.
+ * The stakes here are GRANTS as well as outbound mail, and `@ArrayMaxSize(50)`
+ * on `ApproveWaitlistDto.ids` is the only bound on both: each id in the array
+ * becomes a free 1-year Builders licence, a founding-cohort placement and one
+ * welcome email. Unbind the pipe and that cap stops existing.
  */
 @Controller('v1/admin/waitlist')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -45,64 +53,57 @@ export class AdminWaitlistController {
   private readonly logger = new Logger(AdminWaitlistController.name);
 
   constructor(
-    @Inject(WaitlistService) private readonly waitlist: WaitlistService,
-    @Inject(AuditLogService) private readonly auditLog: AuditLogService,
+    @Inject(WaitlistApprovalService)
+    private readonly approval: WaitlistApprovalService,
   ) {}
 
   /**
-   * POST /waitlist/invite — send the founding early-adopter invite wave.
+   * POST /waitlist/approve — approve N waitlist rows to the founding cohort.
    *
-   * Body: `{ ids?: string[]; batchSize?: number }` — `ids` wins, else the N
-   * oldest un-notified rows. Sends the founding-discount email per row and
-   * stamps `notifiedAt`; already-notified rows are skipped. Records one
-   * `waitlist.invite` AdminAuditLog row per wave (best-effort — the invites
-   * have already been sent, so an audit failure must not fail the request).
+   * Body: `{ ids: string[] }` (1..50 waitlist row ids). Per row, in one
+   * transaction: claim the row, find-or-create the user, issue a free 1-year
+   * `builders` complimentary licence, assign the `founding` cohort, stamp
+   * `approvedAt`, write the `waitlist.approve` audit row. After commit: one
+   * welcome email carrying the licence key.
    *
-   * Guard chain: `JwtAuthGuard` → `AdminGuard` (class-level) → `AdminThrottlerGuard`
-   * (per-admin-email bucket). Throttle: 10/minute.
+   * ⚠️ ALWAYS `200` ONCE THE BODY VALIDATES AND THE COHORT RESOLVES. Per-row
+   * failures are reported as per-row outcomes (`approved`, `already_approved`,
+   * `already_paid`, `not_found`, `failed`), never as an HTTP status: a 4xx/5xx
+   * for one bad id in a batch of 50 would tell the admin nothing about the
+   * other 49, all of which committed (R1.6, R2.4). The one exception is an
+   * unprovisioned `founding` group, which throws a sanitized 500 BEFORE any row
+   * is touched, so no licence is issued for any of them (R1.5).
+   *
+   * ⚠️ NO `AuditLogService` HERE. The `waitlist.approve` row is written INSIDE
+   * the service's per-row transaction (PRE-6) so it commits and rolls back with
+   * the grant. Writing it from the controller would put it outside every
+   * transaction and produce audit rows for grants that rolled back.
+   *
+   * Guard chain: `JwtAuthGuard` → `AdminGuard` (class-level) →
+   * `AdminThrottlerGuard` (per-admin-email bucket). Throttle: 10/minute,
+   * matching the invite wave this replaces. The batch cap lives in the DTO, not
+   * the throttle, precisely so a 25-row cohort cannot trip a per-request limit
+   * halfway through and strand itself half-approved (R8).
    */
-  @Post('invite')
+  @Post('approve')
   @HttpCode(200)
   @UseGuards(AdminThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  async inviteWaitlist(
+  async approveWaitlist(
     @Req() req: Request,
-    @Body(dtoPipe(InviteWaitlistDto)) body: InviteWaitlistDto,
-  ): Promise<{ invited: number; skipped: number }> {
+    @Body(dtoPipe(ApproveWaitlistDto)) body: ApproveWaitlistDto,
+  ): Promise<WaitlistApprovalResponse> {
     const actorEmail = req.user?.email ?? 'unknown';
     const userAgent = req.headers['user-agent'];
 
-    const result = await this.waitlist.inviteBatch({
-      ids: body.ids,
-      batchSize: body.batchSize,
-    });
-
     this.logger.log(
-      `Admin waitlist invite wave: actor=${actorEmail} invited=${result.invited} skipped=${result.skipped}`,
+      `Admin POST waitlist approve: actor=${actorEmail} rows=${body.ids.length}`,
     );
 
-    try {
-      await this.auditLog.write({
-        actorEmail,
-        action: 'waitlist.invite',
-        targetType: 'Waitlist',
-        metadata: {
-          invited: result.invited,
-          skipped: result.skipped,
-          invitedIds: result.invitedIds,
-          requestedIds: body.ids ?? null,
-          batchSize: body.batchSize ?? null,
-        },
-        ipAddress: req.ip,
-        userAgent: typeof userAgent === 'string' ? userAgent : undefined,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(
-        `Failed to write waitlist.invite audit log: ${message}`,
-      );
-    }
-
-    return { invited: result.invited, skipped: result.skipped };
+    return this.approval.approve(body.ids, {
+      email: actorEmail,
+      ip: req.ip,
+      userAgent: typeof userAgent === 'string' ? userAgent : undefined,
+    });
   }
 }

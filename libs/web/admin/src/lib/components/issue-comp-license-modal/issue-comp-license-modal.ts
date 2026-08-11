@@ -38,44 +38,37 @@ export interface LicenseRecipientOption {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class IssueCompLicenseModalComponent {
-  /**
-   * Target user id — the user-detail path. Optional so the modal can also be
-   * opened from a waitlist row (which has no user id) via {@link email}.
-   */
+  /** Target user id — the user-detail path. */
   public readonly userId = input<string>('');
   /** Display email for the user-detail path. */
   public readonly userEmail = input<string>('');
   /**
-   * Target email — the Early Adopter approval path (opened from a waitlist
-   * row). When set, the request is sent as `{ email }` and defaults are
-   * pre-filled (1-year duration, "Early adopter approval" reason).
-   */
-  public readonly email = input<string>('');
-  /**
    * Entry-point contract (design spec §6.3):
-   *   - `'bound'`  (default): the recipient is fixed via `userId`/`email` —
-   *     the original Users-detail and Waitlist-approve behavior, UNCHANGED.
+   *   - `'bound'`  (default): the recipient is fixed via `userId` — the
+   *     Users-detail path, UNCHANGED.
    *   - `'search'`: no recipient is bound; the modal renders a type-ahead
    *     combobox so an admin can pick any user (Licenses-list issuance).
+   *
+   * ⚠️ THERE IS NO EMAIL-TARGETED WAITLIST MODE. It was retired in
+   * TASK_2026_201: that branch issued a complimentary licence with NO cohort
+   * assignment, which is exactly the half-approved state the founding-cohort
+   * approve flow exists to prevent. Approving a waitlist row now goes through
+   * `POST /admin/waitlist/approve` (see `ApproveWaitlistModal`), which owns
+   * duration, reason and cohort placement together. Do not re-add an `email`
+   * input here to "conveniently" grant a waitlist row from the admin panel.
    */
   public readonly mode = input<'bound' | 'search'>('bound');
   public issued = output<IssueComplimentaryLicenseResponse>();
 
   private adminApi = inject(AdminApiService);
 
-  /** True when opened from a waitlist row (email-targeted). */
-  public readonly isWaitlistMode = computed(
-    () => this.email().trim().length > 0,
-  );
-
   /**
    * True when the modal must resolve its own recipient. Only when `mode` is
-   * `'search'` AND no recipient is bound — a bound `userId`/`email` always wins
-   * so existing call sites are never forced into the combobox.
+   * `'search'` AND no recipient is bound — a bound `userId` always wins so
+   * existing call sites are never forced into the combobox.
    */
   public readonly isSearchMode = computed(
-    () =>
-      this.mode() === 'search' && !this.userId().trim() && !this.email().trim(),
+    () => this.mode() === 'search' && !this.userId().trim(),
   );
 
   // --- Search-mode recipient combobox ---
@@ -110,11 +103,7 @@ export class IssueCompLicenseModalComponent {
 
   /** Email shown in the header/success copy, whichever path opened the modal. */
   public readonly displayEmail = computed(
-    () =>
-      this.email().trim() ||
-      this.userEmail() ||
-      this.selectedRecipient()?.email ||
-      '',
+    () => this.userEmail() || this.selectedRecipient()?.email || '',
   );
 
   public readonly isOpen = signal(false);
@@ -153,12 +142,13 @@ export class IssueCompLicenseModalComponent {
     this.isOpen.set(true);
     this.error.set(null);
     this.result.set(null);
-    // Early Adopter approvals default to a 1-year grant with a stock reason;
-    // the user-detail path keeps the original 30-day / blank-reason defaults.
-    const waitlist = this.isWaitlistMode();
-    this.durationPreset.set(waitlist ? '1y' : '30d');
+    // The original 30-day / blank-reason defaults, unconditionally. The
+    // 1-year "Early adopter approval" pre-fill went with the retired
+    // waitlist mode — founding-cohort grants are made by the approve
+    // endpoint, which sets its own duration and reason.
+    this.durationPreset.set('30d');
     this.customExpiresAt.set('');
-    this.reason.set(waitlist ? 'Early adopter approval' : '');
+    this.reason.set('');
     this.sendEmail.set(true);
     this.stackOnTopOfPaid.set(false);
     this.isLoading.set(false);
@@ -195,12 +185,11 @@ export class IssueCompLicenseModalComponent {
     this.isLoading.set(true);
     this.error.set(null);
 
-    const emailTarget = this.email().trim();
     const searchRecipient = this.isSearchMode()
       ? this.selectedRecipient()
       : null;
     const boundUserId = this.userId().trim();
-    // Target precedence: search-mode picked user → bound email → bound userId.
+    // Target precedence: search-mode picked user → bound userId.
     //
     // The final branch OMITS `userId` when it is empty rather than sending
     // `{ userId: '' }`. The modal defaults to `mode: 'bound'`, and
@@ -216,11 +205,9 @@ export class IssueCompLicenseModalComponent {
     const target: Pick<IssueComplimentaryLicenseRequest, 'userId' | 'email'> =
       searchRecipient
         ? { userId: searchRecipient.id }
-        : emailTarget
-          ? { email: emailTarget }
-          : boundUserId
-            ? { userId: boundUserId }
-            : {};
+        : boundUserId
+          ? { userId: boundUserId }
+          : {};
 
     const body: IssueComplimentaryLicenseRequest = {
       ...target,

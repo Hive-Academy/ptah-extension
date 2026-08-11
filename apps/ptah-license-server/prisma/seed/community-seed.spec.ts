@@ -415,7 +415,7 @@ const seed = (client: SeedPrismaClient, exportPath: string, refresh = false) =>
 
 describe('community seed — MG-1', () => {
   describe('assertion 1: the census (MG-1.6)', () => {
-    it('the export holds exactly 4 categories, 17 topics and 19 posts', () => {
+    it('the export holds exactly 4 categories, 19 topics and 21 posts', () => {
       const data = readDiscourseExport(EXPORT_PATH);
       expect(data.categories).toHaveLength(EXPECTED_CATEGORY_COUNT);
       expect(data.topics).toHaveLength(EXPECTED_TOPIC_COUNT);
@@ -424,8 +424,8 @@ describe('community seed — MG-1', () => {
       );
     });
 
-    it('the 17 source topics split into 8 curriculum + 9 imported, with no overlap', () => {
-      expect(CURRICULUM_TOPIC_IDS).toHaveLength(8);
+    it('the 19 source topics split into 10 curriculum + 9 imported, with no overlap', () => {
+      expect(CURRICULUM_TOPIC_IDS).toHaveLength(10);
       expect(IMPORTED_TOPIC_IDS).toHaveLength(9);
       expect(CURRICULUM_TOPIC_IDS.length + IMPORTED_TOPIC_IDS.length).toBe(
         EXPECTED_TOPIC_COUNT,
@@ -462,7 +462,7 @@ describe('community seed — MG-1', () => {
       expect(db.posts.size).toBe(10);
     });
 
-    it('carries 18 non-empty source bodies, which is one fewer than the post count', () => {
+    it('carries 20 non-empty source bodies, which is one fewer than the post count', () => {
       const data = readDiscourseExport(EXPORT_PATH);
       const nonEmpty = data.topics.reduce(
         (n, t) => n + t.posts.filter((p) => p.raw.length > 0).length,
@@ -504,7 +504,7 @@ describe('community seed — MG-1', () => {
      * ⚠️ THIS TEST EXISTS BECAUSE THE ONE ABOVE IS VACUOUS AGAINST THE MOST
      * LIKELY TRANSFORMS, AND THAT WAS PROVEN, NOT ASSUMED. Adding `.trim()` to
      * the mapper leaves all 37 other assertions green: not one of the export's
-     * 18 non-empty bodies has leading or trailing whitespace, and none contains
+     * 20 non-empty bodies has leading or trailing whitespace, and none contains
      * a CR. A byte comparison against a corpus that happens to be invariant
      * under a transform cannot detect that transform — the same shape as Batch
      * 6's trigram `EXPLAIN`, which was vacuous at 0 rows.
@@ -845,7 +845,7 @@ describe('community seed — MG-1', () => {
       }
     });
 
-    it('reports every source username as unmatched, counting all 19 source posts', async () => {
+    it('reports every source username as unmatched, counting all 21 source posts', async () => {
       const db = createRecordingPrisma();
       const { summary } = await seed(db.client, EXPORT_PATH);
       expect(summary.unmatchedUsernames).toEqual([
@@ -985,7 +985,7 @@ describe('community seed — MG-1', () => {
       const { topics } = buildTopicRows(readDiscourseExport(EXPORT_PATH));
       for (const topic of topics) {
         expect(CURRICULUM_TOPIC_IDS).not.toContain(topic.sourceId);
-        expect(topic.slug).not.toMatch(/^week-\d/);
+        expect(topic.slug).not.toMatch(/^day-\d/);
       }
     });
   });
@@ -995,13 +995,13 @@ describe('community seed — MG-1', () => {
   // =========================================================================
 
   describe('curriculum course — counts and the consumed split (MG-1.5)', () => {
-    it('writes 1 course, 8 modules and 8 lessons against the recording double', async () => {
+    it('writes 1 course, 10 modules and 10 lessons against the recording double', async () => {
       const db = createRecordingPrisma();
       const result = await seed(db.client, EXPORT_PATH);
 
       expect(result.courses).toEqual({ created: 1, updated: 0 });
-      expect(result.modules).toEqual({ created: 8, updated: 0 });
-      expect(result.lessons).toEqual({ created: 8, updated: 0 });
+      expect(result.modules).toEqual({ created: 10, updated: 0 });
+      expect(result.lessons).toEqual({ created: 10, updated: 0 });
       expect(db.courses.size).toBe(1);
       expect(db.modules.size).toBe(CURRICULUM_TOPIC_IDS.length);
       expect(db.lessons.size).toBe(CURRICULUM_TOPIC_IDS.length);
@@ -1021,23 +1021,27 @@ describe('community seed — MG-1', () => {
       const lessonTitles = [...db.lessons.values()].map((l) => l.title);
 
       // Every curriculum id contributed exactly one lesson, titled with its
-      // SOURCE topic title — the "Week N build thread — " prefix retained (§7.3).
+      // SOURCE topic title — the "Day N build thread — " prefix retained (§7.3).
       for (const id of CURRICULUM_TOPIC_IDS) {
         expect(lessonTitles).toContain(titleById.get(id));
       }
       expect(lessonTitles).toHaveLength(CURRICULUM_TOPIC_IDS.length);
       for (const title of lessonTitles) {
-        expect(title).toMatch(/^Week \d build thread — /);
+        // 🔴 FR-SLUG-3: `\d{1,2}`, NOT `\d`. Titles are UNPADDED ("Day 1" …
+        // "Day 10"), so a single `\d` silently excludes exactly one of the ten
+        // and the other nine make the failure read as a data defect. The
+        // tripwire below pins that.
+        expect(title).toMatch(/^Day \d{1,2} build thread — /);
       }
 
       // And the community half still refuses them, which now means something
       // stronger than before: not "dropped", but "written in the other shape".
       for (const topic of db.topics.values()) {
-        expect(topic.slug).not.toMatch(/^week-\d/);
+        expect(topic.slug).not.toMatch(/^day-\d/);
       }
     });
 
-    it('lays the modules out sparsely at 100…800, one lesson each at 100', async () => {
+    it('lays the modules out sparsely at 100…1000, one lesson each at 100', async () => {
       const db = createRecordingPrisma();
       await seed(db.client, EXPORT_PATH);
 
@@ -1045,24 +1049,29 @@ describe('community seed — MG-1', () => {
         (a, b) => a.sortOrder - b.sortOrder,
       );
       expect(ordered.map((m) => m.slug)).toEqual([
-        'week-1',
-        'week-2',
-        'week-3',
-        'week-4',
-        'week-5',
-        'week-6',
-        'week-7',
-        'week-8',
+        'day-01',
+        'day-02',
+        'day-03',
+        'day-04',
+        'day-05',
+        'day-06',
+        'day-07',
+        'day-08',
+        'day-09',
+        'day-10',
       ]);
       expect(ordered.map((m) => m.sortOrder)).toEqual([
-        100, 200, 300, 400, 500, 600, 700, 800,
+        100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
       ]);
       // R8.8: sparse, so one later insert does not force a full renumber.
       expect(SORT_ORDER_STEP).toBe(100);
       for (const lesson of db.lessons.values()) {
         expect(lesson.sortOrder).toBe(100);
         // §7.3: the lesson slug equals its module slug.
-        expect(lesson.slug).toMatch(/^week-[1-8]$/);
+        // 🔴 FR-SLUG-3: slugs are PADDED, so this takes the explicit
+        // alternation rather than a quantifier — `/^day-\d{1,2}$/` would also
+        // admit an unpadded `day-1` that this seed must never emit.
+        expect(lesson.slug).toMatch(/^day-(0[1-9]|10)$/);
       }
       const modulesById = new Map(
         [...db.modules.values()].map((m) => [m.id, m]),
@@ -1096,26 +1105,150 @@ describe('community seed — MG-1', () => {
       ).toEqual(['some-other-cohort']);
     });
 
-    it('takes the module titles from MG-1.5, not from the topic titles', () => {
+    /**
+     * 🔴 THE ANTI-VACUITY WITNESS, RE-FOUNDED — AND IT IS NOW A WEAKER
+     * PROPERTY THAN THE ONE IT REPLACES. SAY SO RATHER THAN LET THE NEXT
+     * REVIEWER DISCOVER IT.
+     *
+     * The old witness (TASK_2026_177) leaned on a genuine divergence: source
+     * topic 21 said "Week 7 build thread — Hardening — tests, policies,
+     * observability" while the module table said only "Hardening". No
+     * derivation from the source title could produce the table's answer, so
+     * the table was PROVABLY editorial.
+     *
+     * TASK_2026_202's FR-TITLE-1 removes that divergence BY DESIGN: every
+     * source title is now exactly `Day ${n} build thread — ${MODULE_TITLES[n-1]}`.
+     * Deleting this test along with the defect it witnessed would quietly lose
+     * the guard (R4), so it is re-founded on the divergence that survives for
+     * all ten — the PREFIX ASYMMETRY. The lesson title keeps the
+     * `Day N build thread — ` prefix (`map-course.ts` lesson row) and the
+     * module title never carries it.
+     *
+     * ⚠️ WHAT THIS NO LONGER PROVES. After FR-TITLE-1 a derivation
+     * `source.title.slice('Day N build thread — '.length)` WOULD produce the
+     * right module titles, so the surviving property is only the weaker "a
+     * module title is not a COPY of its source title". The compensating
+     * control is FR-TITLE-2 (`map-course.ts` `buildCourseRows`): the two
+     * halves are still authored in two separate files and their AGREEMENT is
+     * now a build failure rather than a hope — see the mismatch abort in
+     * "curriculum course — the aborts" below. That guard, not this test, is
+     * what keeps the table honest now.
+     */
+    it('takes the module titles from the table, and a module title is never its lesson title', () => {
       const data = readDiscourseExport(EXPORT_PATH);
       const { modules } = buildCourseRows(data, DEFAULT_COHORT_KEY);
       expect(modules.map((m) => m.title)).toEqual([...MODULE_TITLES]);
 
-      // 🔴 The anti-vacuity case. Source topic 21 is titled "Week 7 build
-      // thread — Hardening — tests, policies, observability" while MG-1.5's
-      // module title is "Hardening". A derivation from the topic title would
-      // produce the longer string, so this pair proves the table is editorial
-      // rather than computed.
-      const week7 = modules.find((m) => m.slug === 'week-7');
-      expect(week7?.title).toBe('Hardening');
-      expect(week7?.lesson.title).toContain('tests, policies, observability');
-      expect(week7?.lesson.title).not.toBe(week7?.title);
+      expect(modules).toHaveLength(10);
+      modules.forEach((m, i) => {
+        expect(m.lesson.title).not.toBe(m.title);
+        expect(m.lesson.title).toBe(`Day ${i + 1} build thread — ${m.title}`);
+        expect(m.title).not.toMatch(/^Day \d{1,2} build thread/);
+      });
+    });
+
+    /**
+     * 🔴 R1 — THE ONE-DIGIT REGEX TRAP, ASSERTED RATHER THAN REMEMBERED.
+     *
+     * The pre-TASK_2026_202 assertion was `/^Week \d build thread — /`. The
+     * mechanical rename to `/^Day \d build thread — /` passes EIGHT of the ten
+     * titles and fails only "Day 10", so the report reads as one bad row in the
+     * export rather than as a wrong quantifier — which is why R1 is rated the
+     * single most likely way this change ships broken.
+     *
+     * FR-SLUG-3 is the rule this test pins: titles are UNPADDED so any regex
+     * against a title takes `\d{1,2}`; slugs are PADDED so any regex against a
+     * slug takes the explicit `(0[1-9]|10)` alternation.
+     */
+    it('Day 10 is covered by the title regex — the one-digit form is NOT', () => {
+      const data = readDiscourseExport(EXPORT_PATH);
+      const { modules } = buildCourseRows(data, DEFAULT_COHORT_KEY);
+      const dayTen = modules[9];
+
+      expect(dayTen?.lesson.title).toMatch(/^Day \d{1,2} build thread — /);
+      // 🔴 THE TRIPWIRE. If someone re-narrows the quantifier, this fails and
+      // names the quantifier instead of the data.
+      expect(dayTen?.lesson.title).not.toMatch(/^Day \d build thread — /);
+      expect(dayTen?.slug).toBe('day-10');
+
+      // …and the unpadded SLUG form is a prefix trap, which is why FR-SLUG-1
+      // pads: `day-1` is a prefix of both `day-1` and `day-10`, so under the
+      // unpadded scheme a startsWith filter matches two modules.
+      expect('day-1'.startsWith('day-1') && 'day-10'.startsWith('day-1')).toBe(
+        true,
+      );
+      // Padded, every prefix picks out exactly one of the ten this seed emits.
+      expect(modules.filter((m) => m.slug.startsWith('day-01'))).toHaveLength(
+        1,
+      );
+      expect(modules.filter((m) => m.slug.startsWith('day-1'))).toHaveLength(1);
+    });
+
+    /**
+     * FR-TITLE-1, pinned against HAND-WRITTEN LITERALS.
+     *
+     * ⚠️ `curriculumTopicTitle()` is exported, and this test deliberately does
+     * NOT call it. A spec whose only oracle is the same function the mapper
+     * calls cannot detect a wrong prefix — both halves would move together and
+     * the assertion would stay green. Day 1 and Day 10 are the two anchors: the
+     * first day, and the only two-digit one.
+     */
+    it('titles the Day 1 and Day 10 lessons exactly, checked against literals not the helper', () => {
+      const data = readDiscourseExport(EXPORT_PATH);
+      const { modules } = buildCourseRows(data, DEFAULT_COHORT_KEY);
+
+      expect(modules[0]?.lesson.title).toBe(
+        'Day 1 build thread — The workspace — monorepo, boundaries, first green CI',
+      );
+      expect(modules[9]?.lesson.title).toBe(
+        'Day 10 build thread — Publish, fail, retry — and launch',
+      );
+    });
+
+    it('emits module slugs that conform to the forum slug character set — verified, not assumed', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const slugs = [...db.modules.values()].map((m) => m.slug);
+      expect(slugs).toHaveLength(10);
+      for (const slug of slugs) {
+        // FR-SLUG-1 says VERIFY the generated form against the character set
+        // `libs/api/forum/src/lib/common/slug.ts` emits, not assume a literal
+        // built by hand happens to satisfy it.
+        expect(slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+        expect(slug).toMatch(/^day-(0[1-9]|10)$/);
+      }
+      expect(new Set(slugs).size).toBe(10);
+
+      // The lesson slug equals its module slug, so it inherits both properties.
+      for (const lesson of db.lessons.values()) {
+        expect(lesson.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+      }
+    });
+
+    it('the ten curriculum export slugs are well formed and unique across all 19', () => {
+      const data = readDiscourseExport(EXPORT_PATH);
+      const curriculum = data.topics.filter((t) =>
+        CURRICULUM_TOPIC_IDS.includes(t.id),
+      );
+      expect(curriculum).toHaveLength(CURRICULUM_TOPIC_IDS.length);
+      for (const topic of curriculum) {
+        expect(topic.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+        expect(topic.slug).toMatch(/^day-(0[1-9]|10)-build-thread-/);
+      }
+
+      // The schema already enforces uniqueness across the whole export; assert
+      // it here as well so a collision names the offending slug instead of
+      // reporting a count that is one short.
+      const all = data.topics.map((t) => t.slug);
+      expect(all).toHaveLength(EXPECTED_TOPIC_COUNT);
+      expect(all.filter((s, i) => all.indexOf(s) !== i)).toEqual([]);
     });
 
     it('leaves youtubeVideoId AND videoDurationSeconds null ⇒ manual completion only', async () => {
       const db = createRecordingPrisma();
       await seed(db.client, EXPORT_PATH);
-      expect(db.lessons.size).toBe(8);
+      expect(db.lessons.size).toBe(10);
       for (const lesson of db.lessons.values()) {
         expect(lesson.youtubeVideoId).toBeNull();
         // ⚠️ ASSUMPTION-8: the 90% rule keys on the DURATION, not on the id, so
@@ -1145,7 +1278,7 @@ describe('community seed — MG-1', () => {
       const lessonWrites = db
         .writes()
         .filter((c) => c.model === 'lesson' && c.verb === 'create');
-      expect(lessonWrites).toHaveLength(8);
+      expect(lessonWrites).toHaveLength(10);
       for (const call of lessonWrites) {
         expect(call.args['data']).toHaveProperty('createdAt');
         expect(
@@ -1159,13 +1292,14 @@ describe('community seed — MG-1', () => {
       await seed(db.client, EXPORT_PATH);
 
       // The course and the modules are new editorial objects assembled in
-      // 2026-08 from eight threads written across three weeks; giving them a
+      // 2026-08 from ten sessions authored in one editorial pass; giving them a
       // source instant would be a fabricated claim about when the curriculum was
       // authored. They fall through to @default(now()).
       const structural = db
         .writes()
         .filter((c) => c.model === 'course' || c.model === 'courseModule');
-      expect(structural).toHaveLength(9);
+      // 1 course + 10 modules.
+      expect(structural).toHaveLength(11);
       for (const call of structural) {
         expect(call.args['data']).not.toHaveProperty('createdAt');
       }
@@ -1202,11 +1336,11 @@ describe('community seed — MG-1', () => {
       const second = await seed(db.client, EXPORT_PATH);
 
       expect(second.courses).toEqual({ created: 0, updated: 1 });
-      expect(second.modules).toEqual({ created: 0, updated: 8 });
-      expect(second.lessons).toEqual({ created: 0, updated: 8 });
+      expect(second.modules).toEqual({ created: 0, updated: 10 });
+      expect(second.lessons).toEqual({ created: 0, updated: 10 });
       expect(db.courses.size).toBe(1);
-      expect(db.modules.size).toBe(8);
-      expect(db.lessons.size).toBe(8);
+      expect(db.modules.size).toBe(10);
+      expect(db.lessons.size).toBe(10);
     });
 
     it('zero creates on ALL SIX entity lines, which is the exit gate itself', async () => {
@@ -1348,7 +1482,7 @@ describe('community seed — MG-1', () => {
      * 🔴 THE ASSERTION ABOVE IS VACUOUS AGAINST THE MOST LIKELY TRANSFORMS AND
      * THIS ONE IS NOT. Batch 8's Finding 6: adding `.trim()` to the post mapper
      * left all 37 assertions green, because not one export body has leading or
-     * trailing whitespace or a CR. The eight curriculum bodies are no different
+     * trailing whitespace or a CR. The ten curriculum bodies are no different
      * — every one begins with `**` and ends with `.`. A byte comparison against
      * a corpus that happens to be invariant under a transform detects nothing.
      *
@@ -1379,8 +1513,11 @@ describe('community seed — MG-1', () => {
       const db = createRecordingPrisma();
       await seed(db.client, path);
 
+      // 🔴 TWO occurrences of the slug in one template literal — the map key is
+      // `${moduleId}#${lessonSlug}`. A rename that moves only the first leaves
+      // `stored` undefined and the failure points at the fixture, not the key.
       const stored = db.lessons.get(
-        `${[...db.modules.values()].find((m) => m.slug === 'week-1')?.id}#week-1`,
+        `${[...db.modules.values()].find((m) => m.slug === 'day-01')?.id}#day-01`,
       );
       expect(stored).toBeDefined();
       expect(Buffer.from(stored?.bodyMarkdown ?? '', 'utf8')).toEqual(
@@ -1414,8 +1551,8 @@ describe('community seed — MG-1', () => {
       });
 
       const db = createRecordingPrisma();
-      // The FIRST control to fire is the export census: 17 non-empty bodies
-      // where EXPECTED_NON_EMPTY_BODY_POSTS demands 18.
+      // The FIRST control to fire is the export census: 19 non-empty bodies
+      // where EXPECTED_NON_EMPTY_BODY_POSTS demands 20.
       await expect(seed(db.client, path)).rejects.toBeInstanceOf(
         ExportValidationError,
       );
@@ -1426,7 +1563,7 @@ describe('community seed — MG-1', () => {
       // Two mutations, and the second exists only to get past the census so the
       // mapper's own guard is the thing under test: blank a curriculum body AND
       // fill the one legitimately-empty community reply, keeping the non-empty
-      // total at 18. Without this the mapper guard would never be reached and
+      // total at 20. Without this the mapper guard would never be reached and
       // "a blank lesson aborts" would be asserted only against the schema.
       const targetId = CURRICULUM_TOPIC_IDS[3] as number;
       const path = fixtureFromExport('empty-lesson-compensated', (parsed) => {
@@ -1456,6 +1593,46 @@ describe('community seed — MG-1', () => {
       // nothing is even read.
       expect(db.writes()).toEqual([]);
       expect(db.calls.filter((c) => c.verb === 'open')).toEqual([]);
+    });
+
+    /**
+     * 🔴 FR-TITLE-2 — THE COMPENSATING CONTROL FOR THE WEAKENED ANTI-VACUITY
+     * WITNESS ABOVE.
+     *
+     * The export title and `MODULE_TITLES` are authored in two different files
+     * and their AGREEMENT is the check. Before TASK_2026_202 a divergence
+     * (source topic 21's "Hardening") sat in the tree unnoticed for months and
+     * was recorded as a comment; it is now a build failure. This is the test
+     * that proves the guard fires, and that it fires BEFORE `$transaction`
+     * opens — so a mismatch writes nothing and reads nothing.
+     */
+    it('aborts when an export title and MODULE_TITLES disagree, writing and reading nothing', async () => {
+      const targetId = CURRICULUM_TOPIC_IDS[6] as number;
+      const path = fixtureFromExport('title-mismatch', (parsed) => {
+        const p = parsed as unknown as {
+          topics: { id: number; title: string }[];
+        };
+        const topic = p.topics.find((t) => t.id === targetId);
+        if (!topic) throw new Error('fixture shape changed');
+        // The exact historical defect, restored on purpose: the descriptive
+        // half truncated to a single word while the table says otherwise.
+        topic.title = 'Day 7 build thread — Hardening';
+      });
+
+      const db = createRecordingPrisma();
+      await expect(seed(db.client, path)).rejects.toBeInstanceOf(
+        CourseMappingError,
+      );
+      await expect(seed(db.client, path)).rejects.toThrow(
+        new RegExp(`Curriculum topic ${targetId} is titled`),
+      );
+      // Mapping happens before the transaction opens: nothing written, nothing
+      // read, no transaction even started.
+      expect(db.writes()).toEqual([]);
+      expect(db.calls.filter((c) => c.verb === 'open')).toEqual([]);
+      expect(db.courses.size).toBe(0);
+      expect(db.modules.size).toBe(0);
+      expect(db.lessons.size).toBe(0);
     });
 
     it('the cohort abort writes NO course either — not a member-visibility downgrade', async () => {
@@ -1522,10 +1699,11 @@ describe('community seed — MG-1', () => {
     it('creates no User row while writing the curriculum', async () => {
       const db = createRecordingPrisma();
       // The poisoned `user` delegate throws on any property access, so the run
-      // resolving at all is the assertion — now with 17 more writes to do it in.
+      // resolving at all is the assertion — now with 21 more writes to do it in
+      // (1 course + 10 modules + 10 lessons).
       await expect(seed(db.client, EXPORT_PATH)).resolves.toBeDefined();
       expect(db.calls.some((c) => c.model === 'user')).toBe(false);
-      expect(db.lessons.size).toBe(8);
+      expect(db.lessons.size).toBe(10);
       for (const course of db.courses.values()) {
         expect(course.createdBy).toBeNull();
       }
@@ -1540,8 +1718,10 @@ describe('community seed — MG-1', () => {
         `source topics ${EXPECTED_TOPIC_COUNT} = ${CURRICULUM_TOPIC_IDS.length} curriculum + ` +
           `${IMPORTED_TOPIC_IDS.length} topics OK`,
       );
-      // 🔴 19 = 10 written + 1 skipped + 8 curriculum, NOT the plan's 11 + 8.
-      // The 11th post is the empty small-action marker Batch 8 skips.
+      // 🔴 21 = 10 written + 1 skipped + 10 curriculum, NOT the plan's 11 + 10.
+      // The 11th post is the empty small-action marker Batch 8 skips. The
+      // `10 written` and `1 skipped` literals are the FORUM half and did not
+      // move under TASK_2026_202 — only the curriculum term went 8 → 10.
       expect(summary.assertions[1]).toBe(
         `source posts ${EXPECTED_POST_COUNT} = 10 written + 1 skipped (empty source body) + ` +
           `${CURRICULUM_TOPIC_IDS.length} curriculum bodies OK`,
@@ -1562,7 +1742,7 @@ describe('community seed — MG-1', () => {
       expect(text).toContain('lessons:');
     });
 
-    it("reports 18 bodies imported — the export's non-empty total, now fully written", async () => {
+    it("reports 20 bodies imported — the export's non-empty total, now fully written", async () => {
       const db = createRecordingPrisma();
       const { summary } = await seed(db.client, EXPORT_PATH);
       expect(summary.bodies.imported).toBe(EXPECTED_NON_EMPTY_BODY_POSTS);

@@ -13,7 +13,11 @@
       </span>
       <span class="flex items-center gap-1.5">
         <span class="text-base-content/60">Invited</span>
-        <span class="font-semibold tabular-nums text-info">{{ summaryInvited() }}</span>
+        <span class="font-semibold tabular-nums">{{ summaryInvited() }}</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="text-base-content/60">Approved</span>
+        <span class="font-semibold tabular-nums text-info">{{ summaryApproved() }}</span>
       </span>
       <span class="flex items-center gap-1.5">
         <span class="text-base-content/60">Converted</span>
@@ -38,34 +42,22 @@
     }
   </div>
 
-  <!-- New-tab bulk actions: persistent quick invite + contextual toolbar -->
-  @if (tab() === 'new') {
-    <div class="flex flex-col gap-2">
-      <div class="flex justify-end">
-        <button
-          type="button"
-          class="btn btn-outline btn-sm"
-          (click)="onInviteOldest()"
-        >
-          <lucide-angular [img]="UserPlusIcon" class="h-4 w-4" aria-hidden="true" />
-          Invite oldest {{ quickInviteBatch }}
-        </button>
-      </div>
-
-      <ptah-selection-toolbar
-        [count]="selectedIds().length"
-        itemNoun="row"
-        (cleared)="clearSelection()"
+  <!-- Bulk approve — offered on New AND Invited -->
+  @if (approvableTab()) {
+    <ptah-selection-toolbar
+      [count]="selectedIds().length"
+      itemNoun="row"
+      (cleared)="clearSelection()"
+    >
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        (click)="onApproveSelected()"
       >
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          (click)="onSendFoundingInvites()"
-        >
-          Send Founding Invites
-        </button>
-      </ptah-selection-toolbar>
-    </div>
+        <lucide-angular [img]="BadgeCheckIcon" class="h-4 w-4" aria-hidden="true" />
+        Approve to Founding Cohort
+      </button>
+    </ptah-selection-toolbar>
   }
 
   <!-- Body -->
@@ -86,11 +78,18 @@
         <ptah-empty-state
           [icon]="PartyPopperIcon"
           message="Nobody's waiting — you're caught up"
-          hint="New signups will appear here for you to invite."
+          hint="New signups will appear here for you to approve."
         />
       }
       @case ('invited') {
         <ptah-empty-state [icon]="MailCheckIcon" message="No pending invites" />
+      }
+      @case ('approved') {
+        <ptah-empty-state
+          [icon]="BadgeCheckIcon"
+          message="Nobody approved yet"
+          hint="Approve rows from New or Invited to grant free Builders access."
+        />
       }
       @case ('converted') {
         <ptah-empty-state [icon]="SparklesIcon" message="No conversions yet" />
@@ -105,7 +104,7 @@
         <li
           class="flex items-center gap-3 rounded-md border border-hairline bg-base-200 px-3 py-2.5"
         >
-          @if (tab() === 'new') {
+          @if (approvableTab()) {
             <input
               type="checkbox"
               class="checkbox checkbox-sm checkbox-primary shrink-0"
@@ -125,13 +124,17 @@
                   size="xs"
                 />
               }
-              @if (tab() === 'all') {
-                <ptah-status-badge
-                  [variant]="stageVariant(row)"
-                  [label]="stageLabel(row)"
-                  size="xs"
-                />
-              }
+              <!--
+                Stage chip on EVERY tab, not only "All". A single `field:value`
+                filter cannot express "not notified AND not approved", so a row
+                approved without ever being invited shows under both New and
+                Approved — the chip is what makes that overlap self-explaining.
+              -->
+              <ptah-status-badge
+                [variant]="stageVariant(row)"
+                [label]="stageLabel(row)"
+                size="xs"
+              />
             </div>
             <div class="text-xs text-base-content/60">
               Joined {{ row.createdAt ? (row.createdAt | date: 'medium') : '—' }}
@@ -141,6 +144,16 @@
           <!-- Per-tab right-side action -->
           <div class="flex shrink-0 items-center gap-3">
             @switch (tab()) {
+              @case ('new') {
+                <button
+                  type="button"
+                  class="btn btn-outline btn-primary btn-xs"
+                  (click)="onApproveRow(row)"
+                >
+                  <lucide-angular [img]="KeyRoundIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                  Approve
+                </button>
+              }
               @case ('invited') {
                 <span class="hidden text-xs text-base-content/60 sm:inline">
                   Invited {{ row.notifiedAt ? (row.notifiedAt | date: 'mediumDate') : '—' }}
@@ -148,11 +161,24 @@
                 <button
                   type="button"
                   class="btn btn-outline btn-primary btn-xs"
-                  (click)="onApprove(row)"
+                  (click)="onApproveRow(row)"
                 >
                   <lucide-angular [img]="KeyRoundIcon" class="h-3.5 w-3.5" aria-hidden="true" />
-                  Approve → Builders
+                  Approve
                 </button>
+              }
+              @case ('approved') {
+                <span class="hidden text-xs text-base-content/60 sm:inline">
+                  Approved {{ row.approvedAt ? (row.approvedAt | date: 'mediumDate') : '—' }}
+                </span>
+                <a
+                  class="link link-hover flex items-center gap-1 text-xs text-info"
+                  [routerLink]="['/admin', 'users']"
+                  [queryParams]="{ search: row.email }"
+                >
+                  View license
+                  <lucide-angular [img]="ArrowRightIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
               }
               @case ('converted') {
                 <span class="hidden text-xs text-base-content/60 sm:inline">
@@ -199,32 +225,26 @@
     }
   }
 
-  <!-- Founding-invite modal (selected rows or oldest-N, mode chosen by recipients) -->
-  <ptah-admin-waitlist-invite-modal
-    [open]="waitlistInviteOpen()"
-    [selectedIds]="inviteRecipients()"
-    (closeModal)="onInviteClose()"
-    (submitted)="onInviteSent($event)"
+  <!-- The single confirmation path for both per-row and bulk approve -->
+  <ptah-admin-approve-waitlist-modal
+    [open]="approveOpen()"
+    [ids]="approveIds()"
+    (closeModal)="onApproveClose()"
+    (submitted)="onApproveDone($event)"
   />
 
-  <!-- Approve → Builders modal (bound to the row email) -->
-  <app-issue-comp-license-modal
-    [email]="approveEmail()"
-    (issued)="onApproved()"
-  />
-
-  @if (inviteToast(); as t) {
+  @if (approveToast(); as t) {
     <div class="toast toast-end z-50">
-      <div class="alert alert-success">
-        <span>Invited {{ t.invited }}, skipped {{ t.skipped }}.</span>
-      </div>
-    </div>
-  }
-
-  @if (approvedAt()) {
-    <div class="toast toast-end z-50">
-      <div class="alert alert-success">
-        <span>Builders license granted — the waitlist row will update shortly.</span>
+      <div
+        class="alert"
+        [class.alert-success]="t.tally.failed === 0"
+        [class.alert-warning]="t.tally.failed > 0"
+      >
+        <span>
+          Approved {{ t.tally.approved }} of {{ t.requested }} · already approved
+          {{ t.tally.already_approved }} · already paid {{ t.tally.already_paid }} ·
+          not found {{ t.tally.not_found }} · failed {{ t.tally.failed }}.
+        </span>
       </div>
     </div>
   }

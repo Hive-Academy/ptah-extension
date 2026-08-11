@@ -161,4 +161,6 @@ export type {
   AdminCourse,
   AdminCourseModule,
   AdminLesson,
+  AdminModuleSchedule,
+  AdminModuleScheduleEntry,
 } from './lib/admin/admin-course.contract';

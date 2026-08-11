@@ -73,7 +73,16 @@ export interface DeleteUserActor {
 export interface AdminStatsResponse {
   waitlist: {
     total: number;
+    /** Rows sent the WITHDRAWN paid invite. Historical — nothing writes it. */
     notified: number;
+    /**
+     * TASK_2026_201 R4.5 — rows granted FREE founding access (`approvedAt`
+     * non-null). A separate fact from `converted`, and that separation is the
+     * whole point of the column: a gift is not a conversion, and counting one
+     * as the other silently inflates the paid funnel the day checkout opens.
+     */
+    approved: number;
+    /** Rows that PAID. Written by the Paddle fan-out only. */
     converted: number;
     last7Days: number;
   };
@@ -319,9 +328,15 @@ export class AdminService {
   /**
    * Aggregate the founding-launch dashboard stats (`GET /v1/admin/stats`).
    *
-   * All six counts run in a single `$transaction([...])` round trip:
-   *   - waitlist total / notified / converted / last-7-day signups
+   * Every count runs in a single `$transaction([...])` round trip:
+   *   - waitlist total / notified / approved / converted / last-7-day signups
    *   - active `builders` and `community` license members
+   *   - the "needs attention" work-queue aggregates
+   *
+   * ⚠️ ONE AGGREGATE PER STAGE, NEVER A QUERY PER ROW (NFR-Performance). The
+   * `approved` stage is a single `count` with a `{ not: null }` predicate — the
+   * same shape as `notified` and `converted` beside it — not a scan of the
+   * approval results.
    */
   async getStats(): Promise<AdminStatsResponse> {
     const since = new Date(Date.now() - SEVEN_DAYS_MS);
@@ -329,6 +344,7 @@ export class AdminService {
     const [
       total,
       notified,
+      approved,
       converted,
       last7Days,
       builders,
@@ -339,6 +355,7 @@ export class AdminService {
     ] = await this.prisma.$transaction([
       this.prisma.waitlist.count(),
       this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
+      this.prisma.waitlist.count({ where: { approvedAt: { not: null } } }),
       this.prisma.waitlist.count({ where: { convertedAt: { not: null } } }),
       this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
       this.prisma.license.count({
@@ -353,7 +370,7 @@ export class AdminService {
     ]);
 
     return {
-      waitlist: { total, notified, converted, last7Days },
+      waitlist: { total, notified, approved, converted, last7Days },
       members: { builders, community },
       attention: {
         // No notifiedAt timestamp yet = not-yet-invited; total minus notified.

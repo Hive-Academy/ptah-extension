@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@ptah-api/core';
 import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '@ptah-api/audit';
@@ -258,6 +262,162 @@ describe('MemberGroupsService', () => {
       await service.assignDefaultGroup('user-1');
 
       expect(prisma.memberGroupAssignment.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requireGroupByKey (TASK_2026_201 R1.5)', () => {
+    it('resolves the cohort by its stable key', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({
+        id: 'grp-founding',
+        key: 'founding',
+        name: 'Founding Members',
+      });
+      const { service } = build(prisma);
+
+      const group = await service.requireGroupByKey('founding');
+
+      expect(group).toEqual({
+        id: 'grp-founding',
+        key: 'founding',
+        name: 'Founding Members',
+      });
+      expect(prisma.memberGroup.findUnique).toHaveBeenCalledWith({
+        where: { key: 'founding' },
+        select: { id: true, key: true, name: true },
+      });
+    });
+
+    it('THROWS when the key is absent — it must never fall back to isDefault', async () => {
+      // The regression this guards: a fallback would resolve to whichever group
+      // happens to be default and silently retarget every founding approval
+      // into it. The default group IS available on this mock (findFirst is
+      // wired below) precisely so that a fallback implementation would pass —
+      // which is why the assertion is that findFirst was never consulted.
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue(null);
+      prisma.memberGroup.findFirst.mockResolvedValue({
+        id: 'grp-default',
+        key: 'general',
+        name: 'General',
+      });
+      const { service } = build(prisma);
+
+      await expect(
+        service.requireGroupByKey('founding'),
+      ).rejects.toBeInstanceOf(InternalServerErrorException);
+      expect(prisma.memberGroup.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('carries a stable code and leaks no Prisma or key-existence detail', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue(null);
+      const { service } = build(prisma);
+
+      const error = await service
+        .requireGroupByKey('founding')
+        .then(() => null)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(InternalServerErrorException);
+      const body = (error as InternalServerErrorException).getResponse();
+      expect(body).toEqual({
+        code: 'COHORT_NOT_CONFIGURED',
+        message:
+          'The member cohort for this action is not configured. Please contact support.',
+      });
+      // The client is never told which key was missing.
+      expect(JSON.stringify(body)).not.toContain('founding');
+    });
+  });
+
+  describe('assignInTx (TASK_2026_201 R5.3)', () => {
+    it('reports created: true on a first assignment and upserts on the tx handle', async () => {
+      const prisma = createMockPrisma();
+      const tx = createMockPrisma();
+      tx.memberGroupAssignment.findUnique.mockResolvedValue(null);
+      const { service } = build(prisma);
+
+      const result = await service.assignInTx(
+        tx as unknown as Prisma.TransactionClient,
+        { userId: 'user-1', groupId: 'grp-founding', source: 'admin' },
+      );
+
+      expect(result).toEqual({ created: true });
+      expect(tx.memberGroupAssignment.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_groupId: { userId: 'user-1', groupId: 'grp-founding' },
+        },
+        create: {
+          userId: 'user-1',
+          groupId: 'grp-founding',
+          source: 'admin',
+        },
+        update: {},
+      });
+      // Every write must go through the caller's transaction, or a rollback
+      // would leave the assignment behind (R2.1).
+      expect(prisma.memberGroupAssignment.upsert).not.toHaveBeenCalled();
+      expect(prisma.memberGroupAssignment.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('reports created: false on a repeat and keeps the original assignedAt', async () => {
+      const prisma = createMockPrisma();
+      const tx = createMockPrisma();
+      tx.memberGroupAssignment.findUnique.mockResolvedValue({ id: 'assign-1' });
+      const { service } = build(prisma);
+
+      const result = await service.assignInTx(
+        tx as unknown as Prisma.TransactionClient,
+        { userId: 'user-1', groupId: 'grp-founding', source: 'admin' },
+      );
+
+      expect(result).toEqual({ created: false });
+      // `update: {}` is what keeps a re-assign from dragging assignedAt forward.
+      expect(tx.memberGroupAssignment.upsert.mock.calls[0][0].update).toEqual(
+        {},
+      );
+    });
+
+    it('never surfaces a P2002 — it does not use create + catch inside a transaction', async () => {
+      // A `create` inside an open transaction that raises P2002 aborts the
+      // whole transaction (25P02), so tolerating the race by catching it is not
+      // possible here. Assert the shape directly: create is never called.
+      const prisma = createMockPrisma();
+      const tx = createMockPrisma();
+      tx.memberGroupAssignment.findUnique.mockResolvedValue(null);
+      tx.memberGroupAssignment.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+      const { service } = build(prisma);
+
+      await expect(
+        service.assignInTx(tx as unknown as Prisma.TransactionClient, {
+          userId: 'user-1',
+          groupId: 'grp-founding',
+          source: 'admin',
+        }),
+      ).resolves.toEqual({ created: true });
+
+      expect(tx.memberGroupAssignment.create).not.toHaveBeenCalled();
+    });
+
+    it('writes no audit row — the caller audits the whole approval once', async () => {
+      const prisma = createMockPrisma();
+      const tx = createMockPrisma();
+      tx.memberGroupAssignment.findUnique.mockResolvedValue(null);
+      const { service, audit } = build(prisma);
+
+      await service.assignInTx(tx as unknown as Prisma.TransactionClient, {
+        userId: 'user-1',
+        groupId: 'grp-founding',
+        source: 'admin',
+      });
+
+      expect(audit.write).not.toHaveBeenCalled();
     });
   });
 

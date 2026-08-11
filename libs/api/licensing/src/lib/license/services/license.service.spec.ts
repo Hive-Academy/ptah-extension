@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { LicenseService, AdminActor } from './license.service';
-import { PrismaService } from '@ptah-api/core';
+import { Prisma, PrismaService } from '@ptah-api/core';
 import { EventsService } from '../../events/events.service';
 import { AuditLogService } from '@ptah-api/audit';
 import { EmailService } from '@ptah-api/email';
@@ -88,7 +88,7 @@ describe('LicenseService.createComplimentaryLicense', () => {
       sendLicenseKey: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<EmailService>;
     waitlist = {
-      markConverted: jest.fn().mockResolvedValue(undefined),
+      markApproved: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<WaitlistService>;
 
     prisma.user.findUnique.mockResolvedValue(TEST_USER);
@@ -431,37 +431,342 @@ describe('LicenseService.createComplimentaryLicense', () => {
   });
 
   // ===========================================================================
-  // Waitlist conversion stamping (best-effort, never fails the grant)
+  // Waitlist APPROVAL stamping (best-effort, never fails the grant)
+  //
+  // TASK_2026_201 R4.3: a gift is not a conversion. This path stamps
+  // `approvedAt` via `markApproved`; `convertedAt` is left to the Paddle
+  // provisioning fan-out, which is now its only writer.
   // ===========================================================================
 
-  describe('waitlist conversion', () => {
-    it('stamps the waitlist lead converted with the resolved user email after persist', async () => {
+  describe('waitlist approval stamping', () => {
+    it('stamps the waitlist lead APPROVED with the resolved user email after persist', async () => {
       await service.createComplimentaryLicense(
         makeDto({ userId: undefined, email: 'gift-recipient@example.com' }),
         ACTOR,
       );
 
-      expect(waitlist.markConverted).toHaveBeenCalledTimes(1);
-      expect(waitlist.markConverted).toHaveBeenCalledWith(
+      expect(waitlist.markApproved).toHaveBeenCalledTimes(1);
+      expect(waitlist.markApproved).toHaveBeenCalledWith(
         'gift-recipient@example.com',
       );
     });
 
-    it('stamps conversion on the userId path too (idempotent no-op if not on waitlist)', async () => {
+    it('stamps approval on the userId path too (idempotent no-op if not on waitlist)', async () => {
       await service.createComplimentaryLicense(makeDto(), ACTOR);
 
-      expect(waitlist.markConverted).toHaveBeenCalledWith(
+      expect(waitlist.markApproved).toHaveBeenCalledWith(
         'gift-recipient@example.com',
       );
     });
 
-    it('swallows a markConverted failure — the persisted grant is still returned', async () => {
-      waitlist.markConverted.mockRejectedValueOnce(new Error('db down'));
+    it('R4.3 — never stamps convertedAt: markConverted is not called on this path', async () => {
+      const markConverted = jest.fn();
+      (waitlist as unknown as { markConverted: jest.Mock }).markConverted =
+        markConverted;
+
+      await service.createComplimentaryLicense(makeDto(), ACTOR);
+
+      expect(markConverted).not.toHaveBeenCalled();
+      expect(waitlist.markApproved).toHaveBeenCalledTimes(1);
+    });
+
+    it('swallows a markApproved failure — the persisted grant is still returned', async () => {
+      waitlist.markApproved.mockRejectedValueOnce(new Error('db down'));
 
       const result = await service.createComplimentaryLicense(makeDto(), ACTOR);
 
       expect(result.license.id).toBe('license-1');
       expect(result.warning).toBeUndefined();
+    });
+  });
+
+  // ===========================================================================
+  // TASK_2026_201 R2 mechanism (b) — the tx-aware core and the whole-transaction
+  // retry that must stay OUTSIDE it.
+  // ===========================================================================
+
+  describe('issueComplimentaryLicenseTx (the tx-aware core)', () => {
+    /**
+     * A transaction handle that is a DIFFERENT object from the base client.
+     * The suite's shared `$transaction` mock passes `prisma` itself as `tx`
+     * (by design — it keeps the pre-existing `prisma.license.*` assertions
+     * binding), so identity alone cannot prove a read went through `tx`.
+     * Calling the core directly with a distinct handle can.
+     */
+    function createTxHandle() {
+      return {
+        user: { findUnique: jest.fn(), create: jest.fn() },
+        license: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest
+            .fn()
+            .mockImplementation(({ data }) =>
+              Promise.resolve({ id: 'license-tx-1', ...data }),
+            ),
+        },
+      };
+    }
+
+    function coreParams(
+      overrides: Record<string, unknown> = {},
+    ): Parameters<LicenseService['issueComplimentaryLicenseTx']>[1] {
+      return {
+        user: TEST_USER,
+        plan: 'builders',
+        durationPreset: '1y',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+        createdBy: ACTOR.email,
+        actor: ACTOR,
+        reason: 'Founding cohort approval (waitlist)',
+        ...overrides,
+      } as Parameters<LicenseService['issueComplimentaryLicenseTx']>[1];
+    }
+
+    it('reads the conflict guard through the tx handle, never through this.prisma', async () => {
+      const tx = createTxHandle();
+
+      await service.issueComplimentaryLicenseTx(
+        tx as unknown as Parameters<
+          LicenseService['issueComplimentaryLicenseTx']
+        >[0],
+        coreParams(),
+      );
+
+      expect(tx.license.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            userId: USER_ID,
+            status: 'active',
+            source: { not: 'complimentary' },
+          }),
+        }),
+      );
+      // The TOCTOU window this closes: the guard used to read the base client
+      // while the create ran on the transaction.
+      expect(prisma.license.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('writes the audit row and the licence through the SAME tx handle', async () => {
+      const tx = createTxHandle();
+
+      const license = await service.issueComplimentaryLicenseTx(
+        tx as unknown as Parameters<
+          LicenseService['issueComplimentaryLicenseTx']
+        >[0],
+        coreParams(),
+      );
+
+      expect(auditLog.write).toHaveBeenCalledTimes(1);
+      const writeArg = auditLog.write.mock.calls[0][0];
+      expect(writeArg.tx).toBe(tx);
+      expect(writeArg.action).toBe('license.complimentary.issue');
+      expect(writeArg.targetType).toBe('License');
+      expect(writeArg.metadata).toMatchObject({
+        userId: USER_ID,
+        userEmail: 'gift-recipient@example.com',
+        durationPreset: '1y',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        reason: 'Founding cohort approval (waitlist)',
+        plan: 'builders',
+        stacked: false,
+      });
+
+      expect(tx.license.create).toHaveBeenCalledTimes(1);
+      expect(prisma.license.create).not.toHaveBeenCalled();
+      const createArg = tx.license.create.mock.calls[0][0];
+      expect(createArg.data.source).toBe('complimentary');
+      expect(createArg.data.licenseKey).toMatch(/^ptah_lic_[0-9a-f]{64}$/);
+      expect(createArg.data.createdBy).toBe(ACTOR.email);
+      expect(license.id).toBe('license-tx-1');
+    });
+
+    it('never opens a transaction, sends no email and stamps no waitlist row', async () => {
+      const tx = createTxHandle();
+
+      await service.issueComplimentaryLicenseTx(
+        tx as unknown as Parameters<
+          LicenseService['issueComplimentaryLicenseTx']
+        >[0],
+        coreParams(),
+      );
+
+      // Structural suppression: the core has no mail side effect to suppress.
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(emailService.sendLicenseKey).not.toHaveBeenCalled();
+      expect(waitlist.markApproved).not.toHaveBeenCalled();
+    });
+
+    it('throws 409 EXISTING_ACTIVE_LICENSE from the tx-side guard, before any write', async () => {
+      const tx = createTxHandle();
+      tx.license.findFirst.mockResolvedValueOnce({
+        id: 'existing-paid',
+        plan: 'builders',
+        source: 'paddle',
+        expiresAt: new Date(),
+        createdAt: new Date(),
+      });
+
+      await expect(
+        service.issueComplimentaryLicenseTx(
+          tx as unknown as Parameters<
+            LicenseService['issueComplimentaryLicenseTx']
+          >[0],
+          coreParams(),
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(auditLog.write).not.toHaveBeenCalled();
+      expect(tx.license.create).not.toHaveBeenCalled();
+    });
+
+    it('skips the guard entirely when stackOnTopOfPaid is true', async () => {
+      const tx = createTxHandle();
+
+      await service.issueComplimentaryLicenseTx(
+        tx as unknown as Parameters<
+          LicenseService['issueComplimentaryLicenseTx']
+        >[0],
+        coreParams({ stackOnTopOfPaid: true }),
+      );
+
+      expect(tx.license.findFirst).not.toHaveBeenCalled();
+      expect(auditLog.write.mock.calls[0][0].metadata).toMatchObject({
+        stacked: true,
+      });
+    });
+  });
+
+  describe('withLicenseKeyRetry (the retry owns the WHOLE transaction)', () => {
+    function p2002(): Prisma.PrismaClientKnownRequestError {
+      return new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint failed on the fields: (`license_key`)',
+        { code: 'P2002', clientVersion: 'test' },
+      );
+    }
+
+    it('R5.6 — re-enters the whole transaction on P2002 and produces exactly one licence', async () => {
+      prisma.license.create
+        .mockRejectedValueOnce(p2002())
+        .mockImplementationOnce(({ data }) =>
+          Promise.resolve({ id: 'license-retry-1', ...data }),
+        );
+
+      const result = await service.createComplimentaryLicense(makeDto(), ACTOR);
+
+      // The retry re-entered `$transaction` rather than re-issuing a statement
+      // into the aborted first transaction (PostgreSQL 25P02).
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+      expect(prisma.license.create).toHaveBeenCalledTimes(2);
+
+      // Exactly one licence survived, and the retry used a FRESH key.
+      expect(result.license.id).toBe('license-retry-1');
+      const firstKey = prisma.license.create.mock.calls[0][0].data.licenseKey;
+      const secondKey = prisma.license.create.mock.calls[1][0].data.licenseKey;
+      expect(firstKey).not.toBe(secondKey);
+
+      // One committed grant ⇒ one outbound stamp, not one per attempt.
+      expect(waitlist.markApproved).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up after 3 attempts and rethrows the P2002', async () => {
+      prisma.license.create.mockRejectedValue(p2002());
+
+      await expect(
+        service.createComplimentaryLicense(makeDto(), ACTOR),
+      ).rejects.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+      expect(waitlist.markApproved).not.toHaveBeenCalled();
+      expect(emailService.sendLicenseKey).not.toHaveBeenCalled();
+    });
+
+    it('does NOT retry a non-P2002 failure — one attempt, error propagates', async () => {
+      prisma.license.create.mockRejectedValue(new Error('connection reset'));
+
+      await expect(
+        service.createComplimentaryLicense(makeDto(), ACTOR),
+      ).rejects.toThrow('connection reset');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry the 409 conflict raised inside the transaction', async () => {
+      prisma.license.findFirst.mockResolvedValueOnce({
+        id: 'existing-paid',
+        plan: 'builders',
+        source: 'paddle',
+        expiresAt: new Date(),
+        createdAt: new Date(),
+      });
+
+      await expect(
+        service.createComplimentaryLicense(makeDto(), ACTOR),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.license.create).not.toHaveBeenCalled();
+    });
+
+    it('passes a resolving fn straight through without opening anything', async () => {
+      const fn = jest.fn().mockResolvedValue('ok');
+      await expect(service.withLicenseKeyRetry(fn)).resolves.toBe('ok');
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ===========================================================================
+  // findOrCreateUserByEmail — public + tx-aware since TASK_2026_201
+  // ===========================================================================
+
+  describe('findOrCreateUserByEmail', () => {
+    it('reports created: false for an existing user and never calls create', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(TEST_USER);
+
+      const result = await service.findOrCreateUserByEmail(
+        'Gift-Recipient@Example.com',
+      );
+
+      expect(result).toEqual({ user: TEST_USER, created: false });
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'gift-recipient@example.com' },
+      });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('reports created: true when it had to create the user (R7 userWasCreated)', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      prisma.user.create.mockResolvedValueOnce(TEST_USER);
+
+      const result = await service.findOrCreateUserByEmail('new@example.com');
+
+      expect(result).toEqual({ user: TEST_USER, created: true });
+    });
+
+    it('runs both the read and the create on a supplied tx client', async () => {
+      const tx = {
+        user: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue(TEST_USER),
+        },
+      };
+
+      const result = await service.findOrCreateUserByEmail(
+        'IN-TX@Example.com',
+        tx as unknown as Parameters<
+          LicenseService['findOrCreateUserByEmail']
+        >[1],
+      );
+
+      expect(result.created).toBe(true);
+      expect(tx.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'in-tx@example.com' },
+      });
+      expect(tx.user.create).toHaveBeenCalledWith({
+        data: { email: 'in-tx@example.com' },
+      });
+      // A rollback must be able to remove a user this call created.
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(prisma.user.create).not.toHaveBeenCalled();
     });
   });
 });

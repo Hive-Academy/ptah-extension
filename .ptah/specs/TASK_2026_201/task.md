@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_201
-status: in_progress
+status: in_review
 type: FEATURE
 title: >-
   Founding cohort free access — approve a waitlist row to a complimentary

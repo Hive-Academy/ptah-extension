@@ -134,6 +134,77 @@ export interface AdminCourseModule {
 }
 
 /**
+ * ONE module's computed release slot — C4.
+ *
+ * Every live module of the course appears, whether or not its date moves, so an
+ * admin can see the WHOLE resulting schedule rather than only the diff.
+ */
+export interface AdminModuleScheduleEntry {
+  moduleId: string;
+  slug: string;
+  title: string;
+  sortOrder: number;
+  /** 1-based position in `DETERMINISTIC_ORDER_BY` — the order members read. */
+  day: number;
+  /** `Mon`…`Fri`. Never `Sat` or `Sun` — weekends are skipped, not shifted. */
+  weekday: string;
+  /** `YYYY-MM-DD`, in the request's `timeZone`. */
+  localDate: string;
+  /** ISO 8601 instant that will be / was written to `releaseAt`. */
+  releaseAt: string;
+  /**
+   * What the row carries TODAY, or `null` for an unscheduled module.
+   *
+   * 🔴 THE POINT OF THE PREVIEW. A module carrying a manual date set through
+   * `PATCH /v1/admin/course-modules/:id` shows up here with `changed: true`, so
+   * the admin sees exactly which hand edits are about to be overwritten BEFORE
+   * he applies.
+   */
+  currentReleaseAt: string | null;
+  /** `currentReleaseAt !== releaseAt`. Only these rows are written. */
+  changed: boolean;
+}
+
+/**
+ * A whole cohort schedule — the response of BOTH
+ * `POST /v1/admin/course-modules/schedule/preview` and
+ * `POST /v1/admin/course-modules/schedule`.
+ *
+ * 🔴 ONE TYPE FOR BOTH ROUTES, DISTINGUISHED BY `applied`. A preview that
+ * returned a different shape from the apply would not be a REHEARSAL, and the
+ * rehearsal is the entire guard against the failure this action is designed
+ * against — a mis-typed start date silently shifting ten member-visible dates.
+ * Two shapes would drift the first time either changed, and the drift would be
+ * invisible until an admin trusted a preview that no longer described the
+ * apply.
+ */
+export interface AdminModuleSchedule {
+  courseId: string;
+  courseSlug: string;
+  /** The IANA zone the dates are local to. Echoed back, never inferred. */
+  timeZone: string;
+  /** `YYYY-MM-DD` — Day 1's local date, as supplied. */
+  startDate: string;
+  /** `HH:mm` — the local wall-clock release time, as supplied. */
+  timeOfDay: string;
+  /** Live modules in the course. `confirmModuleCount` must equal this. */
+  moduleCount: number;
+  /**
+   * The LAST module's local date, `YYYY-MM-DD`.
+   *
+   * 🔴 THE VALUE `confirmLastReleaseDate` MUST ECHO. It cannot be supplied
+   * correctly without having read a preview or done the weekday arithmetic by
+   * hand — and every plausible mis-typing of the start date moves it.
+   */
+  lastReleaseDate: string;
+  /** How many entries have `changed: true`. A second identical apply reports 0. */
+  changedCount: number;
+  entries: AdminModuleScheduleEntry[];
+  /** `false` from `/preview`, `true` from `/schedule`. */
+  applied: boolean;
+}
+
+/**
  * A lesson as an admin sees it — `POST /v1/admin/lessons`,
  * `PATCH/DELETE .../:id`, `PATCH .../reorder`,
  * `POST .../refresh-metadata`, `POST .../:id/refresh-metadata`.

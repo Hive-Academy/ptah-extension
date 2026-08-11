@@ -8,3 +8,5 @@ export * from './lib/admin.dto';
 export * from './lib/admin.module';
 export * from './lib/admin.service';
 export * from './lib/dto/delete-user.dto';
+export * from './lib/waitlist-approval/waitlist-approval.service';
+export * from './lib/waitlist-approval/waitlist-approval.types';

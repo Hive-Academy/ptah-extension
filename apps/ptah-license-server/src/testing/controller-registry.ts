@@ -245,6 +245,17 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     file: 'libs/api/admin/src/lib/admin-users.controller.ts',
     controller: AdminUsersController,
   },
+  // ⚠️ THIS ENTRY WAS DELETED AND HAS NOW RETURNED, AND THE CLASS BEHIND IT IS
+  // NOT THE ONE THAT LEFT. TASK_2026_201 first removed
+  // `admin/AdminWaitlistController` outright: its only route was
+  // `POST v1/admin/waitlist/invite`, the paid founding-invite wave, deleted
+  // rather than repointed (context.md C2) — and a controller with zero routes
+  // is not a legal resting state here, because `route-map.spec.ts`'s barren-
+  // controller assertion requires every registered controller to contribute at
+  // least one route. So the class, its module registration and this entry went
+  // together. The same task's approve batch then created a NEW class at the
+  // same path and the same name, owning `POST v1/admin/waitlist/approve` — a
+  // free grant, sharing nothing with the invite wave but the URL prefix.
   {
     label: 'admin/AdminWaitlistController',
     file: 'libs/api/admin/src/lib/admin-waitlist.controller.ts',

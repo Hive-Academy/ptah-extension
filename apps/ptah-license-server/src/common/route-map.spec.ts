@@ -248,6 +248,56 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * fourth below (132 + 5): 1 member pack + 4 member notification. NO admin route
  * was added — R10 is a member-owned inbox with no admin surface (RK-1), and the
  * pack `memberVisible` toggle rides the EXISTING `PATCH v1/admin/packs/:id`.
+ * **139** since TASK_2026_202 Batch 3 added the 2 C4 cohort-scheduling routes
+ * (137 + 2): `POST v1/admin/course-modules/schedule/preview` and
+ * `POST v1/admin/course-modules/schedule`, both on the EXISTING
+ * `AdminCourseModulesController` and both inserted in the P3 curriculum block
+ * below. That block therefore reads 29 rather than 27; the P3 heading comment
+ * records the split. NO new controller, so the controller census and all three
+ * prefix ledgers are untouched.
+ * **138** since TASK_2026_201 deleted `POST v1/admin/waitlist/invite` (139 - 1),
+ * the paid founding-invite wave — removed outright, not repointed
+ * (context.md C2). This one DOES move the controller census: the route was the
+ * only one on `AdminWaitlistController`, and a zero-route controller fails the
+ * barren-controller assertion below, so the class, its `AdminModule`
+ * registration and its `controller-registry.ts` entry were deleted with it.
+ * The replacement `POST v1/admin/waitlist/approve` is not registered yet — it
+ * arrives with the approve endpoint in a later batch of the same task, which
+ * takes this back to 139 and restores an `admin/AdminWaitlistController`-shaped
+ * census entry.
+ * **140** since TASK_2026_201's approve batch registered that replacement:
+ * `POST v1/admin/waitlist/approve`, which grants FREE founding access. It is
+ * NOT the invite route under a new name — different request shape, different
+ * response shape, opposite commercial meaning — and it is listed in the same
+ * alphabetical slot only because the URL prefix is the same. This entry
+ * restores the controller census too: a NEW `AdminWaitlistController` carries
+ * it, so `ALL_CONTROLLERS` regains an `admin/AdminWaitlistController` line and
+ * the barren-controller assertion closes on it.
+ *
+ * ⚠️ 140 IS COUNTED FROM THE ARRAY, NOT DERIVED AS `138 + 1` — AND THAT IS THE
+ * WHOLE DIFFERENCE. Counting the literals in `EXPECTED_ROUTES` gives 140 (140
+ * entries, 140 unique, no duplicates). Adding one to the previous prose figure
+ * would have given 139, and 139 is what a first pass at this entry said.
+ *
+ * ⚠️ THIS CLOSES AN INHERITED OFF-BY-ONE, FORWARD ONLY. The prose figure was
+ * already running one LOW before this task touched the file: at the task's
+ * first commit — and at its parent, so the drift predates the task entirely —
+ * the array held 138 against a prose figure of 137, and the same +1 gap
+ * survived every entry above. Each of those entries recorded its DELTA
+ * correctly; only the running absolute was short. So the deltas above are
+ * right, their totals are one low, and the figure is corrected HERE rather
+ * than by retro-editing them: those entries were accurate statements about a
+ * then-miscounted array, and rewriting them would erase the record of when the
+ * drift existed and how long it went unnoticed — which is the only evidence
+ * that the ⚠️ below is a rule worth keeping. Do NOT "tidy" the earlier numbers
+ * to make the sequence read continuously. It is discontinuous because the
+ * count was wrong, and the discontinuity is the finding.
+ *
+ * ⚠️ NO ASSERTION MOVED WHEN THIS NUMBER DID, AND THAT IS EXACTLY WHY IT COULD
+ * DRIFT. The exact-count test reads `EXPECTED_ROUTES.length`, so it is immune
+ * to the prose being wrong; the suite was green at 137, at 138 and at 140
+ * alike. Nothing mechanical protects this figure — only the re-derivation the
+ * next paragraph demands.
  *
  * ⚠️ THE PROSE TOTAL IS RE-DERIVED IN EVERY BATCH THAT MOVES IT, and the note
  * above about it having read 68 against an actual 64 is why: this number is the
@@ -315,9 +365,11 @@ const EXPECTED_ROUTES: readonly string[] = [
   // answer"), so a retried request converges instead of double-toggling.
   'PUT v1/members/community/posts/:id/reactions/:type',
   'PUT v1/members/community/topics/:id/accepted-answer',
-  // ── TASK_2026_177 P3, the course curriculum: 27 routes ───────────────────
-  // 18 admin across THREE controllers at three disjoint literal depth-3
-  // prefixes, and 9 member across two disjoint literal depth-3 prefixes.
+  // ── TASK_2026_177 P3, the course curriculum: 27 routes, PLUS the 2 added
+  //    by TASK_2026_202 C4 below = 29 in this block ─────────────────────────
+  // 18 admin (20 with C4) across THREE controllers at three disjoint literal
+  // depth-3 prefixes, and 9 member across two disjoint literal depth-3
+  // prefixes.
   //
   // 🔴 `v1/admin/course-modules` IS A SIBLING OF `v1/admin/courses`, NOT A CHILD
   // OF IT (RISK-N). The nested form `v1/admin/courses/modules` WOULD be a proper
@@ -354,6 +406,23 @@ const EXPECTED_ROUTES: readonly string[] = [
   'PATCH v1/admin/lessons/reorder',
   'PATCH v1/members/lesson-comments/:id',
   'POST v1/admin/course-modules',
+  // ── TASK_2026_202 C4: cohort scheduling, preview then apply ──────────────
+  // TWO routes on the EXISTING `AdminCourseModulesController` — no new
+  // controller, so `ALL_CONTROLLERS`, `PREFIX_EXCEPTIONS`, `KNOWN_PREFIX_DEBT`
+  // and `KNOWN_CONTESTED` are all untouched.
+  //
+  // ⚠️ THEY DO NOT UNIFY WITH EACH OTHER (five literal segments against four)
+  // and neither contests `POST v1/admin/course-modules` (four against three),
+  // so RI-2 has nothing to arbitrate and RI-3 gains no obligation. `…/preview`
+  // is declared first in the controller anyway, at zero cost, mirroring the
+  // `POST v1/admin/lessons/refresh-metadata` note below.
+  //
+  // ⚠️ AND THE PREVIEW IS A `POST` RATHER THAN A `GET` DELIBERATELY. It must
+  // accept the SAME input shape as the apply — a `GET` forces a second,
+  // query-shaped DTO and the two would drift, at which point the preview would
+  // stop describing the apply and the confirm-echo guard would be worthless.
+  'POST v1/admin/course-modules/schedule',
+  'POST v1/admin/course-modules/schedule/preview',
   'POST v1/admin/courses',
   'POST v1/admin/courses/:id/restore',
   'POST v1/admin/lessons',
@@ -518,7 +587,17 @@ const EXPECTED_ROUTES: readonly string[] = [
   // byte-identical on the wire and produced no diff at all.
   'POST v1/admin/sessions/:eventId/invitations',
   'POST v1/admin/users/bulk-email',
-  'POST v1/admin/waitlist/invite',
+  // ⚠️ `POST v1/admin/waitlist/invite` USED TO SIT IN THIS SLOT and is NOT a
+  // renamed ancestor of the line below. TASK_2026_201 deleted the invite route
+  // with the whole `AdminWaitlistController` — the paid founding-invite wave,
+  // removed outright rather than repointed (context.md C2) — and then, in the
+  // same task, created a new controller of the same name owning the FREE
+  // approve grant that replaces the flow. Two different routes, two different
+  // request shapes, one URL prefix. Recorded rather than silently swapped,
+  // because a bare edit in this ledger is indistinguishable from a route that
+  // went missing by accident, which is the one thing this file exists to make
+  // impossible.
+  'POST v1/admin/waitlist/approve',
   'POST v1/auth/login/email',
   'POST v1/auth/logout',
   'POST v1/auth/magic-link',

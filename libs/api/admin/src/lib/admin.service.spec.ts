@@ -396,6 +396,8 @@ describe('AdminService.getStats', () => {
   function build(counts: {
     total: number;
     notified: number;
+    /** TASK_2026_201 R4.5 — free founding grants (`approvedAt` non-null). */
+    approved: number;
     converted: number;
     last7Days: number;
     builders: number;
@@ -415,10 +417,16 @@ describe('AdminService.getStats', () => {
         .fn()
         .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
     };
-    // Call order matches getStats(): total, notified, converted, last7Days.
+    // Call order matches getStats(): total, notified, approved, converted,
+    // last7Days. ⚠️ `approved` sits BETWEEN notified and converted, mirroring
+    // the funnel order in the service. These are positional `Once` mocks, so a
+    // stage inserted in the service without a matching insert here silently
+    // shifts every later count — which is why the assertions below check the
+    // `where` clauses too, not just the numbers.
     prisma.waitlist.count
       .mockResolvedValueOnce(counts.total)
       .mockResolvedValueOnce(counts.notified)
+      .mockResolvedValueOnce(counts.approved)
       .mockResolvedValueOnce(counts.converted)
       .mockResolvedValueOnce(counts.last7Days);
     // Then builders, community.
@@ -449,6 +457,7 @@ describe('AdminService.getStats', () => {
     const { service } = build({
       total: 42,
       notified: 10,
+      approved: 8,
       converted: 3,
       last7Days: 7,
       builders: 5,
@@ -460,6 +469,7 @@ describe('AdminService.getStats', () => {
     expect(stats.waitlist).toEqual({
       total: 42,
       notified: 10,
+      approved: 8,
       converted: 3,
       last7Days: 7,
     });
@@ -468,10 +478,40 @@ describe('AdminService.getStats', () => {
     expect(new Date(stats.updatedAt).toISOString()).toBe(stats.updatedAt);
   });
 
+  it('counts the free-grant stage as ONE aggregate, disjoint from converted', async () => {
+    // TASK_2026_201 R4.5. Two properties, and the second is the reason the
+    // column exists: `approved` is its own `count` (not a scan, not derived
+    // from `converted`), and the two predicates address DIFFERENT columns —
+    // a free grant must never register as a paid conversion.
+    const { service, prisma } = build({
+      total: 100,
+      notified: 40,
+      approved: 30,
+      converted: 7,
+      last7Days: 5,
+      builders: 9,
+      community: 60,
+    });
+
+    const stats = await service.getStats();
+
+    expect(stats.waitlist.approved).toBe(30);
+    expect(stats.waitlist.converted).toBe(7);
+    expect(prisma.waitlist.count).toHaveBeenCalledWith({
+      where: { approvedAt: { not: null } },
+    });
+    expect(prisma.waitlist.count).toHaveBeenCalledWith({
+      where: { convertedAt: { not: null } },
+    });
+    // One aggregate per stage — five waitlist counts, never one per row.
+    expect(prisma.waitlist.count).toHaveBeenCalledTimes(5);
+  });
+
   it('surfaces the attention block from cheap count queries', async () => {
     const { service, prisma } = build({
       total: 40,
       notified: 25,
+      approved: 12,
       converted: 5,
       last7Days: 3,
       builders: 5,
@@ -537,6 +577,7 @@ describe('AdminService.getStats', () => {
     const { service } = build({
       total: 0,
       notified: 0,
+      approved: 0,
       converted: 0,
       last7Days: 0,
       builders: 0,
@@ -552,6 +593,7 @@ describe('AdminService.getStats', () => {
     const { service, prisma } = build({
       total: 1,
       notified: 0,
+      approved: 0,
       converted: 0,
       last7Days: 1,
       builders: 0,
@@ -566,11 +608,20 @@ describe('AdminService.getStats', () => {
     expect(prisma.license.count).toHaveBeenCalledWith({
       where: { plan: 'community', status: 'active' },
     });
-    // last7Days uses a gte Date lower bound roughly 7 days back.
-    const last7DaysCall = prisma.waitlist.count.mock.calls[3][0] as {
-      where: { createdAt: { gte: Date } };
-    };
-    const gte = last7DaysCall.where.createdAt.gte;
+    // last7Days uses a gte Date lower bound roughly 7 days back. Located by
+    // PREDICATE rather than by index: the index moved from 3 to 4 when
+    // TASK_2026_201 inserted the `approved` stage into the funnel, and an
+    // index-keyed lookup would have silently started asserting against a
+    // different count instead of failing.
+    const last7DaysCall = (
+      prisma.waitlist.count.mock.calls as [
+        { where?: { createdAt?: { gte?: Date } } },
+      ][]
+    )
+      .map(([arg]) => arg)
+      .find((arg) => arg?.where?.createdAt?.gte instanceof Date);
+    const gte = last7DaysCall?.where?.createdAt?.gte as Date;
+    expect(gte).toBeInstanceOf(Date);
     const deltaMs = Date.now() - gte.getTime();
     expect(deltaMs).toBeGreaterThan(6.9 * 24 * 60 * 60 * 1000);
     expect(deltaMs).toBeLessThan(7.1 * 24 * 60 * 60 * 1000);

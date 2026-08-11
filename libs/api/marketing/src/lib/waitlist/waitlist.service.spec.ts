@@ -1,6 +1,32 @@
 import { EmailService } from '@ptah-api/email';
-import { PrismaService } from '@ptah-api/core';
+import { Prisma, PrismaService } from '@ptah-api/core';
 import { WaitlistService } from './waitlist.service';
+
+/**
+ * The `tx` handle `claimForApproval` runs on. Deliberately separate from
+ * `mockPrisma`: the claim MUST go through the caller's transaction, never the
+ * base client, so keeping the two mocks distinct makes a regression that reaches
+ * for `this.prisma` fail loudly instead of passing on a shared spy.
+ */
+interface MockTx {
+  waitlist: {
+    findUnique: jest.Mock;
+    updateMany: jest.Mock;
+  };
+}
+
+function createMockTx(): MockTx {
+  return {
+    waitlist: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+  };
+}
+
+function asTx(tx: MockTx): Prisma.TransactionClient {
+  return tx as unknown as Prisma.TransactionClient;
+}
 
 describe('WaitlistService', () => {
   let service: WaitlistService;
@@ -8,14 +34,11 @@ describe('WaitlistService', () => {
     waitlist: {
       findUnique: jest.Mock;
       create: jest.Mock;
-      findMany: jest.Mock;
-      update: jest.Mock;
       updateMany: jest.Mock;
     };
   };
   let mockEmail: {
     sendWaitlistConfirmation: jest.Mock;
-    sendFoundingInvite: jest.Mock;
   };
 
   beforeEach(() => {
@@ -23,14 +46,11 @@ describe('WaitlistService', () => {
       waitlist: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: 'wl-1' }),
-        findMany: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockResolvedValue({ id: 'wl-1' }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     mockEmail = {
       sendWaitlistConfirmation: jest.fn().mockResolvedValue(undefined),
-      sendFoundingInvite: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new WaitlistService(
@@ -123,72 +143,157 @@ describe('WaitlistService', () => {
     });
   });
 
-  describe('inviteBatch', () => {
-    it('invites the N oldest un-notified rows when only batchSize is given', async () => {
-      mockPrisma.waitlist.findMany.mockResolvedValue([
-        { id: 'a', email: 'a@x.com', notifiedAt: null },
-        { id: 'b', email: 'b@x.com', notifiedAt: null },
-      ]);
+  describe('markApproved', () => {
+    it('stamps approvedAt on the matching un-approved row (lowercased)', async () => {
+      mockPrisma.waitlist.updateMany.mockResolvedValue({ count: 1 });
 
-      const result = await service.inviteBatch({ batchSize: 2 });
+      await service.markApproved('  Gifted@Example.COM ');
 
-      expect(mockPrisma.waitlist.findMany).toHaveBeenCalledWith({
-        where: { notifiedAt: null },
-        orderBy: { createdAt: 'asc' },
-        take: 2,
-        select: { id: true, email: true, notifiedAt: true },
+      expect(mockPrisma.waitlist.updateMany).toHaveBeenCalledWith({
+        where: { email: 'gifted@example.com', approvedAt: null },
+        data: { approvedAt: expect.any(Date) },
       });
-      expect(mockEmail.sendFoundingInvite).toHaveBeenCalledTimes(2);
-      expect(mockPrisma.waitlist.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('never moves an existing stamp — the approvedAt: null guard is the whole point (R4.6)', async () => {
+      // An already-stamped row matches nothing, so the update reports count 0
+      // and the caller sees a clean no-op rather than a moved timestamp.
+      mockPrisma.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.markApproved('already@example.com'),
+      ).resolves.toBeUndefined();
+
+      expect(mockPrisma.waitlist.updateMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.waitlist.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ approvedAt: null }),
+        }),
+      );
+    });
+
+    it('is a no-op (does not throw) for an unknown email', async () => {
+      mockPrisma.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.markApproved('nobody@example.com'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('does NOT touch convertedAt — a gift is not a conversion (R4.3)', async () => {
+      await service.markApproved('gift@example.com');
+
+      const [call] = mockPrisma.waitlist.updateMany.mock.calls;
+      expect(call[0].data).not.toHaveProperty('convertedAt');
+      expect(call[0].where).not.toHaveProperty('convertedAt');
+    });
+  });
+
+  describe('claimForApproval', () => {
+    it('claims an un-approved row through the CALLER transaction and returns the row', async () => {
+      const tx = createMockTx();
+      tx.waitlist.findUnique.mockResolvedValue({
+        id: 'wl-1',
+        email: 'lead@example.com',
+        notifiedAt: null,
+        approvedAt: null,
+      });
+      tx.waitlist.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.claimForApproval(asTx(tx), 'wl-1');
+
       expect(result).toEqual({
-        invited: 2,
-        skipped: 0,
-        invitedIds: ['a', 'b'],
+        outcome: 'claimed',
+        row: {
+          id: 'wl-1',
+          email: 'lead@example.com',
+          notifiedAt: null,
+          approvedAt: null,
+        },
       });
+      expect(tx.waitlist.findUnique).toHaveBeenCalledWith({
+        where: { id: 'wl-1' },
+        select: { id: true, email: true, notifiedAt: true, approvedAt: true },
+      });
+      // The exact conditional claim of R5 — id AND approvedAt IS NULL.
+      expect(tx.waitlist.updateMany).toHaveBeenCalledWith({
+        where: { id: 'wl-1', approvedAt: null },
+        data: { approvedAt: expect.any(Date) },
+      });
+      // R5.5: the claim is a transaction write. Nothing may reach the base
+      // client, or a rollback could not release it.
+      expect(mockPrisma.waitlist.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.waitlist.updateMany).not.toHaveBeenCalled();
     });
 
-    it('lets ids override batchSize and skips already-notified rows', async () => {
-      mockPrisma.waitlist.findMany.mockResolvedValue([
-        { id: 'a', email: 'a@x.com', notifiedAt: null },
-        { id: 'b', email: 'b@x.com', notifiedAt: new Date('2026-01-01') },
-      ]);
+    it('reports already_approved when the conditional claim matches nothing', async () => {
+      const tx = createMockTx();
+      tx.waitlist.findUnique.mockResolvedValue({
+        id: 'wl-2',
+        email: 'done@example.com',
+        notifiedAt: null,
+        approvedAt: new Date('2026-08-01'),
+      });
+      tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
 
-      const result = await service.inviteBatch({
-        ids: ['a', 'b'],
-        batchSize: 99,
-      });
+      const result = await service.claimForApproval(asTx(tx), 'wl-2');
 
-      expect(mockPrisma.waitlist.findMany).toHaveBeenCalledWith({
-        where: { id: { in: ['a', 'b'] } },
-        select: { id: true, email: true, notifiedAt: true },
-      });
-      // Only the un-notified row is emailed + stamped; the notified one is skipped.
-      expect(mockEmail.sendFoundingInvite).toHaveBeenCalledTimes(1);
-      expect(mockEmail.sendFoundingInvite).toHaveBeenCalledWith({
-        email: 'a@x.com',
-      });
-      expect(mockPrisma.waitlist.update).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ invited: 1, skipped: 1, invitedIds: ['a'] });
+      expect(result.outcome).toBe('already_approved');
+      expect(result).toHaveProperty('row.email', 'done@example.com');
     });
 
-    it('does NOT stamp notifiedAt when the invite email fails (retry-safe)', async () => {
-      mockPrisma.waitlist.findMany.mockResolvedValue([
-        { id: 'a', email: 'a@x.com', notifiedAt: null },
-        { id: 'b', email: 'b@x.com', notifiedAt: null },
-      ]);
-      mockEmail.sendFoundingInvite
-        .mockRejectedValueOnce(new Error('Resend down'))
-        .mockResolvedValueOnce(undefined);
+    it('reports not_found without attempting a write', async () => {
+      const tx = createMockTx();
+      tx.waitlist.findUnique.mockResolvedValue(null);
 
-      const result = await service.inviteBatch({ batchSize: 2 });
+      const result = await service.claimForApproval(asTx(tx), 'ghost');
 
-      // 'a' failed → not stamped, not invited; 'b' succeeded → stamped, invited.
-      expect(mockPrisma.waitlist.update).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.waitlist.update).toHaveBeenCalledWith({
-        where: { id: 'b' },
-        data: { notifiedAt: expect.any(Date) },
+      expect(result).toEqual({ outcome: 'not_found' });
+      expect(tx.waitlist.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('lets exactly ONE of two claimers win the same row (R5.2)', async () => {
+      // One shared row, one shared claim counter — the shape a real
+      // Read-Committed row lock produces: the loser re-evaluates
+      // `approved_at IS NULL` after the winner commits and gets count 0.
+      const tx = createMockTx();
+      const row = {
+        id: 'wl-3',
+        email: 'race@example.com',
+        notifiedAt: null,
+        approvedAt: null,
+      };
+      tx.waitlist.findUnique.mockResolvedValue(row);
+      tx.waitlist.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValue({ count: 0 });
+
+      const first = await service.claimForApproval(asTx(tx), 'wl-3');
+      const second = await service.claimForApproval(asTx(tx), 'wl-3');
+
+      expect(first.outcome).toBe('claimed');
+      expect(second.outcome).toBe('already_approved');
+    });
+
+    it('surfaces the advisory read even on already_approved, so the caller can still name the row', async () => {
+      // The findUnique is advisory: it exists ONLY to tell not_found from
+      // already_approved. A racer that stamps between the read and the update
+      // leaves `row.approvedAt` null here — which is exactly why `outcome`, not
+      // `row.approvedAt`, is the truth.
+      const tx = createMockTx();
+      tx.waitlist.findUnique.mockResolvedValue({
+        id: 'wl-4',
+        email: 'raced@example.com',
+        notifiedAt: new Date('2026-07-01'),
+        approvedAt: null,
       });
-      expect(result).toEqual({ invited: 1, skipped: 0, invitedIds: ['b'] });
+      tx.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await service.claimForApproval(asTx(tx), 'wl-4');
+
+      expect(result.outcome).toBe('already_approved');
+      expect(result).toHaveProperty('row.approvedAt', null);
+      expect(result).toHaveProperty('row.notifiedAt', new Date('2026-07-01'));
     });
   });
 });
