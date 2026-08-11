@@ -46,11 +46,11 @@ import { HubSectionCard } from './hub-section-card';
         </h3>
 
         @if (learning.nextLesson; as lesson) {
-          <p class="mt-1 text-sm text-base-content/60">
+          <p class="mt-1 text-sm text-base-content-muted">
             {{ lesson.moduleTitle }} · {{ lesson.title }}
           </p>
         } @else {
-          <p class="mt-1 text-sm text-base-content/60">
+          <p class="mt-1 text-sm text-base-content-muted">
             You have completed every lesson in this course.
           </p>
         }
@@ -82,7 +82,7 @@ import { HubSectionCard } from './hub-section-card';
           </div>
 
           <p
-            class="mt-2 flex items-center justify-between font-mono text-xs text-base-content/60"
+            class="mt-2 flex items-center justify-between font-mono text-xs text-base-content-muted"
           >
             <span>{{ learning.percent }}% complete</span>
             <span>
@@ -94,7 +94,7 @@ import { HubSectionCard } from './hub-section-card';
 
         @if (learning.locked) {
           <p
-            class="mt-4 flex items-start gap-2 rounded-lg border border-hairline bg-base-100 p-3 text-sm text-base-content/60"
+            class="mt-4 flex items-start gap-2 rounded-lg border border-hairline bg-base-100 p-3 text-sm text-base-content-muted"
           >
             <lucide-angular
               [img]="LockIcon"

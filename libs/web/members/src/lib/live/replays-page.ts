@@ -103,7 +103,7 @@ const EMPTY_PAGE: Paged<LiveFeedItem> = {
         >
           Replays
         </h1>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           Recordings of past sessions.
           <a
             class="link link-hover font-medium text-base-content"
@@ -155,10 +155,10 @@ const EMPTY_PAGE: Paged<LiveFeedItem> = {
               >
                 <lucide-angular
                   [img]="CloudOffIcon"
-                  class="mt-0.5 h-5 w-5 shrink-0 text-base-content/60"
+                  class="mt-0.5 h-5 w-5 shrink-0 text-base-content-muted"
                   aria-hidden="true"
                 />
-                <p class="text-sm text-base-content/60">
+                <p class="text-sm text-base-content-muted">
                   This archive may be incomplete while the session calendar is
                   out of reach. Nothing has been removed.
                 </p>
@@ -234,7 +234,7 @@ const EMPTY_PAGE: Paged<LiveFeedItem> = {
                 </button>
 
                 <p
-                  class="font-mono text-xs text-base-content/60"
+                  class="font-mono text-xs text-base-content-muted"
                   aria-live="polite"
                 >
                   {{ rangeLabel() }}

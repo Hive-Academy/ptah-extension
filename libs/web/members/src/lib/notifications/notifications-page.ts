@@ -76,7 +76,7 @@ import { MemberNotificationsStore } from '../state/member-notifications.store';
         >
           Notifications
         </h1>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           Replies to your threads and answers to your questions, newest first.
         </p>
       </header>
@@ -196,7 +196,7 @@ import { MemberNotificationsStore } from '../state/member-notifications.store';
                   </span>
 
                   @if (item.actorName; as actor) {
-                    <span class="text-xs text-base-content/60">
+                    <span class="text-xs text-base-content-muted">
                       from {{ actor }}
                     </span>
                   }
@@ -208,7 +208,7 @@ import { MemberNotificationsStore } from '../state/member-notifications.store';
                       in it shows as characters, which is the point.
                     -->
                     <span
-                      class="line-clamp-2 text-sm text-base-content/80"
+                      class="line-clamp-2 text-sm text-base-content-muted"
                       [attr.data-body-preview]="item.id"
                     >
                       {{ preview }}
@@ -220,7 +220,7 @@ import { MemberNotificationsStore } from '../state/member-notifications.store';
           </ul>
 
           @if (pageLabel(); as label) {
-            <p class="mt-4 text-xs text-base-content/60" data-page-label>
+            <p class="mt-4 text-xs text-base-content-muted" data-page-label>
               {{ label }}
             </p>
           }

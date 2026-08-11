@@ -63,7 +63,7 @@ import { PacksCard } from './sections/packs-card';
               class="h-2 w-2 rounded-full bg-primary"
               aria-hidden="true"
             ></span>
-            <span class="text-base-content/60">Membership status:</span>
+            <span class="text-base-content-muted">Membership status:</span>
             @for (cohort of data.member.cohorts; track cohort.key) {
               <span class="badge badge-primary badge-sm font-mono">
                 {{ cohort.name }}
@@ -120,7 +120,7 @@ import { PacksCard } from './sections/packs-card';
         <h1 class="mt-3 text-lg font-semibold text-base-content">
           We couldn't load your hub
         </h1>
-        <p class="mt-1 text-sm text-base-content/60">{{ message }}</p>
+        <p class="mt-1 text-sm text-base-content-muted">{{ message }}</p>
         <button
           type="button"
           class="btn btn-primary btn-sm mt-4"

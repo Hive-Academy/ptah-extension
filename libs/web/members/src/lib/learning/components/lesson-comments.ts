@@ -121,7 +121,7 @@ export interface LessonCommentSubmission {
       >
         <lucide-angular
           [img]="MessageIcon"
-          class="h-5 w-5 text-base-content/60"
+          class="h-5 w-5 text-base-content-muted"
           aria-hidden="true"
         />
         {{ heading() }}
@@ -141,7 +141,7 @@ export interface LessonCommentSubmission {
           [attr.data-comment-id]="row.comment.id"
         >
           <div
-            class="mb-2 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+            class="mb-2 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
           >
             <span>{{ row.author }}</span>
             <span aria-hidden="true">·</span>
@@ -159,7 +159,7 @@ export interface LessonCommentSubmission {
 
           @if (row.comment.deleted) {
             <p
-              class="flex items-center gap-2 text-sm italic text-base-content/60"
+              class="flex items-center gap-2 text-sm italic text-base-content-muted"
             >
               <lucide-angular
                 [img]="Trash2Icon"
@@ -216,7 +216,7 @@ export interface LessonCommentSubmission {
           }
         </article>
       } @empty {
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           No questions on this lesson yet — ask the first one.
         </p>
       }

@@ -54,7 +54,8 @@ import { LockedModuleNotice } from './locked-module-notice';
  * ⚠️ NOT COLOUR-ALONE. Completion is a filled check ICON plus a `<span
  * class="sr-only">`; a locked module is a padlock plus the notice's sentence.
  *
- * NFR-U3: every muted string is `text-base-content/60` or stronger.
+ * NFR-U3: every muted string is `text-base-content-muted` — the per-theme
+ * token, never an alpha tier.
  */
 @Component({
   selector: 'ptah-module-outline',
@@ -76,23 +77,25 @@ import { LockedModuleNotice } from './locked-module-notice';
               @if (module.summary.locked) {
                 <lucide-angular
                   [img]="LockIcon"
-                  class="h-4 w-4 shrink-0 text-base-content/60"
+                  class="h-4 w-4 shrink-0 text-base-content-muted"
                   aria-hidden="true"
                 />
                 <span class="sr-only">Locked module.</span>
               }
-              <span class="font-mono text-xs uppercase text-base-content/60">
+              <span class="font-mono text-xs uppercase text-base-content-muted">
                 Module {{ index + 1 }}
               </span>
               {{ module.summary.title }}
             </h3>
-            <p class="font-mono text-xs text-base-content/60">
+            <p class="font-mono text-xs text-base-content-muted">
               {{ module.completedLabel }}
             </p>
           </div>
 
           @if (module.summary.description; as description) {
-            <p class="mt-1 text-sm text-base-content/60">{{ description }}</p>
+            <p class="mt-1 text-sm text-base-content-muted">
+              {{ description }}
+            </p>
           }
 
           @if (module.summary.locked && module.summary.lockReason; as reason) {
@@ -118,7 +121,7 @@ import { LockedModuleNotice } from './locked-module-notice';
                     has already explained.
                   -->
                   <span
-                    class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-base-content/60"
+                    class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-base-content-muted"
                   >
                     <lucide-angular
                       [img]="LockIcon"
@@ -150,7 +153,7 @@ import { LockedModuleNotice } from './locked-module-notice';
                     } @else {
                       <lucide-angular
                         [img]="CircleIcon"
-                        class="h-4 w-4 shrink-0 text-base-content/60"
+                        class="h-4 w-4 shrink-0 text-base-content-muted"
                         aria-hidden="true"
                       />
                     }
@@ -162,7 +165,7 @@ import { LockedModuleNotice } from './locked-module-notice';
                         (ASSUMPTION-8) and a 0:00 chip there would be a lie.
                         (No backticks in an inline-template comment — B7 F-8.)
                       -->
-                      <span class="font-mono text-xs text-base-content/60">
+                      <span class="font-mono text-xs text-base-content-muted">
                         {{ runtime(lesson) }}
                       </span>
                     }
@@ -181,7 +184,7 @@ import { LockedModuleNotice } from './locked-module-notice';
           </ul>
         </li>
       } @empty {
-        <li class="text-sm text-base-content/60">
+        <li class="text-sm text-base-content-muted">
           This course has no modules yet.
         </li>
       }

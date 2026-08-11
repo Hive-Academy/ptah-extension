@@ -100,8 +100,9 @@ no second mechanism, no `class="dark"`, no document-level side effect.
 `base-100` / `base-200` / `base-300`; every boundary is `border-hairline`;
 hover/active is `bg-surface-high`. **`base-300` is a fill and is never a
 border** — at 1.05:1 against a `base-200` card it is invisible. Load-bearing
-muted text uses `text-base-content/60` or stronger; `/40` measures 3.18:1 and
-fails WCAG AA for body text.
+muted text uses the `text-base-content-muted` token, whose value is chosen per
+theme by `--bcm`; `/40` measures 3.18:1 and `/60` measures 4.42:1 on
+`operator-member-light`, so both fail WCAG AA for body text.
 
 `eslint.config.mjs` in this lib enforces all of that, plus `OnPush` on every
 component.

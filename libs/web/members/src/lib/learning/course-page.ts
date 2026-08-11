@@ -76,7 +76,7 @@ import { describeLoadFailure } from './courses-page';
   template: `
     <div class="flex flex-col gap-6">
       <a
-        class="inline-flex w-fit items-center gap-1 text-sm text-base-content/60 transition-colors hover:text-base-content"
+        class="inline-flex w-fit items-center gap-1 text-sm text-base-content-muted transition-colors hover:text-base-content"
         routerLink="/members/courses"
       >
         <lucide-angular
@@ -95,7 +95,9 @@ import { describeLoadFailure } from './courses-page';
             >
               {{ detail.title }}
             </h1>
-            <p class="text-sm text-base-content/60">{{ detail.description }}</p>
+            <p class="text-sm text-base-content-muted">
+              {{ detail.description }}
+            </p>
           </div>
 
           <div
@@ -170,7 +172,7 @@ import { describeLoadFailure } from './courses-page';
           <h1 class="mt-3 text-lg font-semibold text-base-content">
             {{ errorHeading() }}
           </h1>
-          <p class="mt-1 text-sm text-base-content/60">{{ message }}</p>
+          <p class="mt-1 text-sm text-base-content-muted">{{ message }}</p>
           @if (retryable()) {
             <button
               type="button"

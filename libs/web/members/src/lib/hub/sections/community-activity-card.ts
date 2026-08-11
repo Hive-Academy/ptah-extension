@@ -72,7 +72,7 @@ import { HubSectionCard } from './hub-section-card';
               </span>
 
               <span
-                class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+                class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
               >
                 <lucide-angular
                   [img]="MessageSquareIcon"

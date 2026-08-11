@@ -128,7 +128,7 @@ const STATUS_PRESENTATION: Record<
         >
           Request a session
         </h1>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           Ask for one-to-one time on a topic. We review every request and reply
           with a confirmed time and a video link.
         </p>
@@ -161,7 +161,7 @@ const STATUS_PRESENTATION: Record<
             }
           </select>
           @if (selectedTopic(); as chosen) {
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-base-content-muted">
               {{ chosen.description }}
             </p>
           }
@@ -183,7 +183,7 @@ const STATUS_PRESENTATION: Record<
             [value]="notes()"
             (input)="onNotesInput($event)"
           ></textarea>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-base-content-muted">
             {{ notes().length }} / {{ maxNotesLength }}
           </p>
         </div>
@@ -261,7 +261,7 @@ const STATUS_PRESENTATION: Record<
                     <h3 class="text-base font-semibold text-base-content">
                       {{ topicTitle(request.sessionTopicId) }}
                     </h3>
-                    <p class="font-mono text-xs text-base-content/60">
+                    <p class="font-mono text-xs text-base-content-muted">
                       Requested
                       <time [attr.datetime]="request.createdAt">{{
                         request.createdAt | date: 'MMM d, y'
@@ -346,7 +346,7 @@ const STATUS_PRESENTATION: Record<
         }
 
         @if (listNotice(); as message) {
-          <p class="text-sm text-base-content/60" role="status">
+          <p class="text-sm text-base-content-muted" role="status">
             {{ message }}
           </p>
         }
@@ -360,13 +360,13 @@ const STATUS_PRESENTATION: Record<
         @if (detail(); as request) {
           <dl class="flex flex-col gap-4 text-sm">
             <div class="flex flex-col gap-1">
-              <dt class="text-base-content/60">Topic</dt>
+              <dt class="text-base-content-muted">Topic</dt>
               <dd class="text-base-content">
                 {{ topicTitle(request.sessionTopicId) }}
               </dd>
             </div>
             <div class="flex flex-col gap-1">
-              <dt class="text-base-content/60">Status</dt>
+              <dt class="text-base-content-muted">Status</dt>
               <dd>
                 <ptah-status-badge
                   [variant]="statusVariant(request.status)"
@@ -375,7 +375,7 @@ const STATUS_PRESENTATION: Record<
               </dd>
             </div>
             <div class="flex flex-col gap-1">
-              <dt class="text-base-content/60">Requested</dt>
+              <dt class="text-base-content-muted">Requested</dt>
               <dd class="font-mono text-base-content">
                 <time [attr.datetime]="request.createdAt">{{
                   request.createdAt | date: 'MMM d, y · HH:mm'
@@ -384,7 +384,7 @@ const STATUS_PRESENTATION: Record<
             </div>
             @if (request.scheduledAt; as when) {
               <div class="flex flex-col gap-1">
-                <dt class="text-base-content/60">Scheduled for</dt>
+                <dt class="text-base-content-muted">Scheduled for</dt>
                 <dd class="font-mono text-base-content">
                   <time [attr.datetime]="when">{{
                     when | date: 'EEEE, d MMMM y · HH:mm'
@@ -394,7 +394,7 @@ const STATUS_PRESENTATION: Record<
             }
             @if (request.additionalNotes; as notes) {
               <div class="flex flex-col gap-1">
-                <dt class="text-base-content/60">Your notes</dt>
+                <dt class="text-base-content-muted">Your notes</dt>
                 <dd class="whitespace-pre-wrap text-base-content">
                   {{ notes }}
                 </dd>
@@ -402,7 +402,7 @@ const STATUS_PRESENTATION: Record<
             }
             @if (request.declineReason; as reason) {
               <div class="flex flex-col gap-1">
-                <dt class="text-base-content/60">Reply from the team</dt>
+                <dt class="text-base-content-muted">Reply from the team</dt>
                 <dd class="whitespace-pre-wrap text-base-content">
                   {{ reason }}
                 </dd>

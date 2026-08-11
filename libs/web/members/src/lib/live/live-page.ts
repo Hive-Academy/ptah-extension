@@ -116,7 +116,7 @@ interface SessionDay {
         >
           Sessions
         </h1>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           Everything on the schedule, in one place.
           <a
             class="link link-hover font-medium text-base-content"
@@ -173,7 +173,7 @@ interface SessionDay {
               >
                 <lucide-angular
                   [img]="CloudOffIcon"
-                  class="mt-0.5 h-5 w-5 shrink-0 text-base-content/60"
+                  class="mt-0.5 h-5 w-5 shrink-0 text-base-content-muted"
                   aria-hidden="true"
                 />
                 <div class="flex flex-col gap-1">
@@ -184,7 +184,7 @@ interface SessionDay {
                         : 'We could not read the session calendar just now.'
                     }}
                   </p>
-                  <p class="text-sm text-base-content/60">
+                  <p class="text-sm text-base-content-muted">
                     Nothing has been cancelled. Scheduled sessions will reappear
                     here as soon as the calendar responds, and anything already
                     listed is up to date.
@@ -224,7 +224,7 @@ interface SessionDay {
                       server sent, never a local-clock reparse.
                     -->
                     <h2
-                      class="border-b border-hairline pb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-base-content/60"
+                      class="border-b border-hairline pb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
                     >
                       <time [attr.datetime]="day.key">{{
                         day.startsAt | date: 'EEEE, d MMMM y'

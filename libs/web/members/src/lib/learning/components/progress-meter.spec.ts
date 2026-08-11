@@ -180,10 +180,12 @@ describe('ProgressMeter (R2.3.5, RISK-O, NFR-U2, NFR-U3)', () => {
       expect(html).not.toMatch(/\bamber-\d{2,3}\b/);
     });
 
-    it('muted text is base-content/60 or stronger (NFR-U3 floor)', () => {
-      expect(html).toContain('text-base-content/60');
-      expect(html).not.toContain('text-base-content/40');
-      expect(html).not.toContain('text-base-content/50');
+    it('muted text is the per-theme token, not any alpha (NFR-U3 floor)', () => {
+      // NFR-U3's floor used to be "/60 or stronger". `/60` measures 4.42:1 on
+      // `operator-member-light`, so the floor is now the token whose value is
+      // chosen per theme by `--bcm`.
+      expect(html).toContain('text-base-content-muted');
+      expect(html).not.toMatch(/text-base-content\/\d+/);
     });
   });
 

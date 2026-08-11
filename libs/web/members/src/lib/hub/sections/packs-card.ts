@@ -48,7 +48,7 @@ import { HubSectionCard } from './hub-section-card';
                 <p class="truncate text-sm font-semibold text-base-content">
                   {{ pack.title }}
                 </p>
-                <p class="mt-0.5 line-clamp-2 text-xs text-base-content/60">
+                <p class="mt-0.5 line-clamp-2 text-xs text-base-content-muted">
                   {{ pack.description }}
                 </p>
               </div>
@@ -78,7 +78,7 @@ import { HubSectionCard } from './hub-section-card';
             }
 
             @if (pack.accessNote; as note) {
-              <p class="mt-2 text-xs text-base-content/60">{{ note }}</p>
+              <p class="mt-2 text-xs text-base-content-muted">{{ note }}</p>
             }
           </li>
         }

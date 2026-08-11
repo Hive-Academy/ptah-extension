@@ -107,7 +107,7 @@ import { MemberCommunityApiService } from '../services/member-community-api.serv
           >
             My threads
           </h1>
-          <p class="mt-1 text-sm text-base-content/60">
+          <p class="mt-1 text-sm text-base-content-muted">
             Threads you started, newest activity first.
           </p>
         </div>
@@ -219,7 +219,7 @@ import { MemberCommunityApiService } from '../services/member-community-api.serv
               >
                 Previous
               </button>
-              <p class="font-mono text-xs text-base-content/60">
+              <p class="font-mono text-xs text-base-content-muted">
                 {{ pageLabel() }}
               </p>
               <button

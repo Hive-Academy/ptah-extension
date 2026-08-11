@@ -56,7 +56,7 @@ const MAX_BODY_LENGTH = 10_000;
       (submit)="submit($event)"
     >
       @if (replyingTo(); as name) {
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Replying to <span class="font-semibold">{{ name }}</span>
         </p>
       }
@@ -102,7 +102,7 @@ const MAX_BODY_LENGTH = 10_000;
       }
 
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Markdown supported. {{ body().length }} / {{ maxLength }}
         </p>
         <div class="flex items-center gap-2">

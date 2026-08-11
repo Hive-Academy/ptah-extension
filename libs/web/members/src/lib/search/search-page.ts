@@ -82,7 +82,7 @@ const MIN_QUERY_LENGTH = 2;
         >
           Search
         </h1>
-        <p class="mt-1 text-sm text-base-content/60">
+        <p class="mt-1 text-sm text-base-content-muted">
           Threads, replies and — from phase 3 — course lessons.
         </p>
       </header>
@@ -92,7 +92,7 @@ const MIN_QUERY_LENGTH = 2;
         <div class="relative min-w-0 flex-1">
           <lucide-angular
             [img]="SearchIcon"
-            class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/60"
+            class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content-muted"
             aria-hidden="true"
           />
           <input
@@ -146,7 +146,7 @@ const MIN_QUERY_LENGTH = 2;
           <section class="flex flex-col gap-3" aria-labelledby="search-topics">
             <h2
               id="search-topics"
-              class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-base-content/60"
+              class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-base-content-muted"
             >
               <lucide-angular
                 [img]="MessagesSquareIcon"
@@ -157,7 +157,7 @@ const MIN_QUERY_LENGTH = 2;
             </h2>
 
             @if (found.topics.items.length === 0) {
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-base-content-muted">
                 No thread titles matched.
               </p>
             } @else {
@@ -184,7 +184,7 @@ const MIN_QUERY_LENGTH = 2;
                         }
                       </p>
                       <p
-                        class="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+                        class="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
                       >
                         <span>{{ hit.authorName ?? 'Unknown' }}</span>
                         <span aria-hidden="true">·</span>
@@ -207,7 +207,7 @@ const MIN_QUERY_LENGTH = 2;
           <section class="flex flex-col gap-3" aria-labelledby="search-posts">
             <h2
               id="search-posts"
-              class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-base-content/60"
+              class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-base-content-muted"
             >
               <lucide-angular
                 [img]="MessageSquareIcon"
@@ -218,7 +218,7 @@ const MIN_QUERY_LENGTH = 2;
             </h2>
 
             @if (found.posts.items.length === 0) {
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-base-content-muted">
                 No post bodies matched.
               </p>
             } @else {
@@ -237,7 +237,7 @@ const MIN_QUERY_LENGTH = 2;
                       <p class="text-sm font-semibold text-base-content">
                         {{ hit.topicTitle }}
                       </p>
-                      <p class="mt-1 text-sm text-base-content/60">
+                      <p class="mt-1 text-sm text-base-content-muted">
                         @for (
                           segment of hit.bodyExcerpt | highlightText;
                           track $index
@@ -248,7 +248,7 @@ const MIN_QUERY_LENGTH = 2;
                         }
                       </p>
                       <p
-                        class="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+                        class="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
                       >
                         <span>{{ hit.authorName ?? 'Unknown' }}</span>
                         <span aria-hidden="true">·</span>
@@ -269,7 +269,7 @@ const MIN_QUERY_LENGTH = 2;
           <section class="flex flex-col gap-3" aria-labelledby="search-lessons">
             <h2
               id="search-lessons"
-              class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-base-content/60"
+              class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-base-content-muted"
             >
               <lucide-angular
                 [img]="GraduationCapIcon"
@@ -303,7 +303,7 @@ const MIN_QUERY_LENGTH = 2;
                         }}</span>
                       }
                     </p>
-                    <p class="mt-1 font-mono text-xs text-base-content/60">
+                    <p class="mt-1 font-mono text-xs text-base-content-muted">
                       {{ hit.courseTitle }} · {{ hit.moduleTitle }}
                     </p>
                   </li>

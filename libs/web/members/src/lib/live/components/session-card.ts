@@ -56,10 +56,10 @@ import { formatDuration } from '../../services/member-live-api.service';
  *
  * ── NFR-U2 / NFR-U3 ───────────────────────────────────────────────────────
  * `base-200` surface, `border-hairline` boundary, `bg-surface-high` hover.
- * Title at full `base-content`; metadata at `text-base-content/60`, which
- * `docs/design-system/panel-theme-spec.md` §2 measures as the muted-text token
- * that passes WCAG AA. **`/40` appears nowhere** — §2 measures it at 3.18:1 and
- * rules it out for anything a member has to read.
+ * Title at full `base-content`; metadata at `text-base-content-muted`, whose
+ * value is chosen per theme by `--bcm` rather than by an alpha modifier.
+ * **No alpha tier appears here** — `/40` measures 3.18:1 and `/60` measures
+ * 4.42:1 on `operator-member-light`, so neither clears WCAG AA everywhere.
  */
 @Component({
   selector: 'ptah-session-card',
@@ -97,7 +97,7 @@ import { formatDuration } from '../../services/member-live-api.service';
       </div>
 
       <p
-        class="flex flex-wrap items-center gap-2 font-mono text-sm text-base-content/60"
+        class="flex flex-wrap items-center gap-2 font-mono text-sm text-base-content-muted"
       >
         <lucide-angular
           [img]="isReplay() ? PlayIcon : CalendarClockIcon"
@@ -166,7 +166,7 @@ import { formatDuration } from '../../services/member-live-api.service';
             yet. The sentence is next-session-card.ts's, reused verbatim so
             the hub and the feed say the same thing about the same situation.
           -->
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-base-content-muted">
             The join link is published by the host closer to the start time.
           </p>
         }

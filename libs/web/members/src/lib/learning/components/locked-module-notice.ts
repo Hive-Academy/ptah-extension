@@ -65,14 +65,14 @@ import type { LockReason } from '@ptah-contracts/community';
       -->
       <lucide-angular
         [img]="LockIcon"
-        class="mt-0.5 h-5 w-5 shrink-0 text-base-content/60"
+        class="mt-0.5 h-5 w-5 shrink-0 text-base-content-muted"
         aria-hidden="true"
       />
       <div class="flex flex-col gap-1">
         <p class="text-sm font-semibold text-base-content">
           {{ heading() }}
         </p>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           @if (reason() === 'not_released' && unlocksAt(); as iso) {
             Unlocks on
             <time [attr.datetime]="iso" class="font-medium text-base-content">

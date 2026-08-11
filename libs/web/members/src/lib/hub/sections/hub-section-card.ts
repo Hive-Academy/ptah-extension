@@ -53,7 +53,7 @@ import type { HubSectionStatus } from '@ptah-contracts/community';
       >
         <h2
           [id]="headingId()"
-          class="text-[11px] font-semibold uppercase tracking-wider text-base-content/60"
+          class="text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
         >
           {{ title() }}
         </h2>

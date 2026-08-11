@@ -71,7 +71,7 @@ import { ProgressMeter } from './components/progress-meter';
         >
           Courses
         </h1>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           The cohort curriculum, in the order it is meant to be taken.
         </p>
       </header>
@@ -136,7 +136,7 @@ import { ProgressMeter } from './components/progress-meter';
                   <h2 class="text-base font-semibold text-base-content">
                     {{ course.title }}
                   </h2>
-                  <p class="flex-1 text-sm text-base-content/60">
+                  <p class="flex-1 text-sm text-base-content-muted">
                     {{ course.description }}
                   </p>
                   <!--

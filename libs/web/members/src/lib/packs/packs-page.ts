@@ -96,7 +96,7 @@ import {
         >
           Packs
         </h1>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-base-content-muted">
           Starter repositories published to Builders members. Access is
           administered on GitHub.
         </p>
@@ -156,7 +156,7 @@ import {
                   {{ pack.title }}
                 </h2>
 
-                <p class="text-sm text-base-content/60">
+                <p class="text-sm text-base-content-muted">
                   {{ pack.description }}
                 </p>
 
@@ -186,7 +186,7 @@ import {
                   no note takes the one shared default sentence.
                 -->
                 <p
-                  class="mt-auto flex items-start gap-2 rounded-lg bg-base-100 p-3 text-sm text-base-content/80"
+                  class="mt-auto flex items-start gap-2 rounded-lg bg-base-100 p-3 text-sm text-base-content-muted"
                   [attr.data-access-note]="pack.slug"
                 >
                   <lucide-angular

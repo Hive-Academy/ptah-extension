@@ -40,8 +40,8 @@ import {
  * not a defensive nicety — and `0/0` would render `NaN%` on a live surface.
  *
  * ⚠️ NFR-U3 — the label and the percentage are LOAD-BEARING TEXT and use
- * `text-base-content/60` or stronger. `/40` measures 3.18:1 and fails WCAG AA
- * for body text.
+ * the `text-base-content-muted` token. `/40` measures 3.18:1 and `/60` measures
+ * 4.42:1 on `operator-member-light`; no single alpha passes on every theme.
  *
  * ⚠️ NFR-U2 — `base-300` is the track FILL and `border-hairline` is the only
  * boundary vocabulary. There is no `border-base-300` here; at 1.036:1 against a

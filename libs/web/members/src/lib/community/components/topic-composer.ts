@@ -107,7 +107,7 @@ export interface TopicDraft {
           [value]="title()"
           (input)="onTitleInput($event)"
         />
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           {{ minTitleLength }}-{{ maxTitleLength }} characters.
         </p>
       </div>
@@ -149,7 +149,7 @@ export interface TopicDraft {
             (input)="onBodyInput($event)"
           ></textarea>
         }
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Markdown supported. {{ body().length }} / {{ maxBodyLength }}
         </p>
       </div>

@@ -43,8 +43,9 @@ import {
  * also kept its own optimistic copy would give one post two sources of truth,
  * and they would disagree the moment a request failed.
  *
- * NFR-U3: the count sits at `text-base-content/60`, not `/40` — `/40` measures
- * 3.18:1 and fails WCAG AA for body text, and this number is load-bearing.
+ * NFR-U3: the count sits on `text-base-content-muted`, not on an alpha tier —
+ * `/40` measures 3.18:1 and `/60` measures 4.42:1 on `operator-member-light`,
+ * and this number is load-bearing.
  */
 @Component({
   selector: 'ptah-reaction-bar',
@@ -74,7 +75,7 @@ import {
           />
           <span>{{ reaction.label }}</span>
           @if (reaction.count > 0) {
-            <span class="font-mono text-base-content/60">
+            <span class="font-mono text-base-content-muted">
               {{ reaction.count }}
             </span>
           }

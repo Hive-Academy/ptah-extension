@@ -114,7 +114,7 @@ interface ThreadRowModel {
   template: `
     <div class="flex flex-col gap-6">
       <a
-        class="inline-flex w-fit items-center gap-1 text-sm text-base-content/60 transition-colors hover:text-base-content"
+        class="inline-flex w-fit items-center gap-1 text-sm text-base-content-muted transition-colors hover:text-base-content"
         routerLink="/members/community"
       >
         <lucide-angular
@@ -139,7 +139,7 @@ interface ThreadRowModel {
               @if (thread.locked) {
                 <lucide-angular
                   [img]="LockIcon"
-                  class="h-4 w-4 text-base-content/60"
+                  class="h-4 w-4 text-base-content-muted"
                   aria-label="Locked"
                 />
               }
@@ -151,7 +151,7 @@ interface ThreadRowModel {
               {{ thread.title }}
             </h1>
             <p
-              class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+              class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
             >
               <span>{{ thread.authorName ?? 'Unknown' }}</span>
               <span aria-hidden="true">·</span>
@@ -176,7 +176,7 @@ interface ThreadRowModel {
             >
               @if (opening.deleted) {
                 <p
-                  class="flex items-center gap-2 text-sm italic text-base-content/60"
+                  class="flex items-center gap-2 text-sm italic text-base-content-muted"
                 >
                   <lucide-angular
                     [img]="Trash2Icon"
@@ -213,7 +213,7 @@ interface ThreadRowModel {
             >
               <div class="mb-3 flex flex-wrap items-center gap-2">
                 <ptah-accepted-answer-badge [hoisted]="true" />
-                <span class="font-mono text-xs text-base-content/60">
+                <span class="font-mono text-xs text-base-content-muted">
                   {{ accepted.authorName ?? 'Unknown' }}
                 </span>
               </div>
@@ -226,7 +226,7 @@ interface ThreadRowModel {
 
           <section aria-label="Replies" class="flex flex-col gap-3">
             <h2
-              class="text-sm font-semibold uppercase tracking-wide text-base-content/60"
+              class="text-sm font-semibold uppercase tracking-wide text-base-content-muted"
             >
               {{ replyHeading() }}
             </h2>
@@ -245,7 +245,7 @@ interface ThreadRowModel {
                 [attr.data-post-number]="row.post.postNumber"
               >
                 <div
-                  class="mb-2 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+                  class="mb-2 flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
                 >
                   <span>{{ row.post.authorName ?? 'Unknown' }}</span>
                   <span aria-hidden="true">·</span>
@@ -263,7 +263,7 @@ interface ThreadRowModel {
 
                 @if (row.post.deleted) {
                   <p
-                    class="flex items-center gap-2 text-sm italic text-base-content/60"
+                    class="flex items-center gap-2 text-sm italic text-base-content-muted"
                   >
                     <lucide-angular
                       [img]="Trash2Icon"
@@ -310,7 +310,7 @@ interface ThreadRowModel {
                 }
               </div>
             } @empty {
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-base-content-muted">
                 No replies yet — be the first.
               </p>
             }
@@ -329,7 +329,7 @@ interface ThreadRowModel {
               >
                 Previous
               </button>
-              <p class="font-mono text-xs text-base-content/60">
+              <p class="font-mono text-xs text-base-content-muted">
                 Page {{ thread.posts.page }}
               </p>
               <button
@@ -345,7 +345,7 @@ interface ThreadRowModel {
 
           @if (thread.locked) {
             <p
-              class="rounded-xl border border-hairline bg-base-200 p-4 text-sm text-base-content/60"
+              class="rounded-xl border border-hairline bg-base-200 p-4 text-sm text-base-content-muted"
               role="status"
             >
               This thread is locked. Existing replies stay readable, but no new
@@ -373,7 +373,7 @@ interface ThreadRowModel {
           <h1 class="mt-3 text-lg font-semibold text-base-content">
             {{ errorHeading() }}
           </h1>
-          <p class="mt-1 text-sm text-base-content/60">{{ message }}</p>
+          <p class="mt-1 text-sm text-base-content-muted">{{ message }}</p>
           <a
             class="btn btn-primary btn-sm mt-4 normal-case"
             routerLink="/members/community"

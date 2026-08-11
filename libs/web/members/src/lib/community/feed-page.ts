@@ -88,7 +88,7 @@ import { UnreadPill } from './components/unread-pill';
           >
             Community
           </h1>
-          <p class="mt-1 text-sm text-base-content/60">
+          <p class="mt-1 text-sm text-base-content-muted">
             Ask, answer and share what you are building.
           </p>
         </div>
@@ -146,7 +146,7 @@ import { UnreadPill } from './components/unread-pill';
                       {{ category.name }}
                     </span>
                     <span class="flex items-center gap-1">
-                      <span class="font-mono text-xs text-base-content/60">
+                      <span class="font-mono text-xs text-base-content-muted">
                         {{ category.topicCount }}
                       </span>
                       @if (category.visibility !== 'member') {
@@ -262,7 +262,7 @@ import { UnreadPill } from './components/unread-pill';
                 >
                   Previous
                 </button>
-                <p class="font-mono text-xs text-base-content/60">
+                <p class="font-mono text-xs text-base-content-muted">
                   {{ pageLabel() }}
                 </p>
                 <button

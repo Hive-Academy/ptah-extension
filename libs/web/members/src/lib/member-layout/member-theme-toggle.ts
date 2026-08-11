@@ -51,7 +51,7 @@ import { MemberThemeService } from '../services/member-theme.service';
   template: `
     <button
       type="button"
-      class="btn btn-sm gap-2 border border-hairline bg-base-200 font-medium text-base-content/80 hover:bg-surface-high hover:text-base-content"
+      class="btn btn-sm gap-2 border border-hairline bg-base-200 font-medium text-base-content-muted hover:bg-surface-high hover:text-base-content"
       [attr.aria-label]="theme.toggleLabel()"
       [title]="theme.toggleLabel()"
       (click)="theme.toggle()"

@@ -63,7 +63,7 @@ const BANNED_DESIGN_TOKENS = [
     id: 'material-3',
     pattern: String.raw`\b(?:surface-container(?:-(?:lowest|low|highest|high))?|surface-variant|on-(?:surface|background|primary|secondary|tertiary|error)(?:-(?:variant|fixed|fixed-variant))?|outline-variant|(?:primary|secondary|tertiary|error)-container|inverse-(?:surface|primary|on-surface))\b`,
     message:
-      'Material-3 token name. These are Stitch export vocabulary, not tokens this workspace defines — they compile to nothing and render as no colour at all. panel-theme-spec.md maps every one of them onto the daisyUI system: surface-container-low -> base-200, surface-container -> base-300, surface-container-high(est) -> surface-high, on-surface -> base-content, on-surface-variant -> text-base-content/60, outline-variant -> border-hairline.',
+      'Material-3 token name. These are Stitch export vocabulary, not tokens this workspace defines — they compile to nothing and render as no colour at all. panel-theme-spec.md maps every one of them onto the daisyUI system: surface-container-low -> base-200, surface-container -> base-300, surface-container-high(est) -> surface-high, on-surface -> base-content, on-surface-variant -> text-base-content-muted, outline-variant -> border-hairline.',
   },
   {
     id: 'border-base-300',

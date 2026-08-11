@@ -511,8 +511,13 @@ describe('PacksPage (R5.1, R5.5, R5.7, RISK-AQ, NFR-U)', () => {
 
       const scanned = textBearingElements();
       expect(scanned.length).toBeGreaterThan(3);
+      // Was `base-content/60` until the muted tier became a per-theme token:
+      // `/60` composites to 4.42:1 on `operator-member-light` and fails AA
+      // there, so muted TEXT now reads `--bcm` via `text-base-content-muted`.
+      // The decorative `EmptyState` glyph still carries `/40` — which is why
+      // the assertion above stays scoped to text-bearing elements.
       expect(
-        scanned.some((el) => el.className.includes('base-content/60')),
+        scanned.some((el) => el.className.includes('base-content-muted')),
       ).toBe(true);
     });
 

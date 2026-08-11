@@ -47,7 +47,7 @@ import {
         <h1 class="text-2xl font-bold tracking-tight text-base-content">
           Account
         </h1>
-        <p class="mt-1 text-sm text-base-content/60">
+        <p class="mt-1 text-sm text-base-content-muted">
           Your Ptah Builders membership and panel preferences.
         </p>
       </header>
@@ -58,26 +58,28 @@ import {
       >
         <h2
           id="account-identity"
-          class="border-b border-hairline px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-base-content/60"
+          class="border-b border-hairline px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
         >
           Identity
         </h2>
         <dl class="flex flex-col gap-3 p-4">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <dt class="text-sm text-base-content/60">Email</dt>
+            <dt class="text-sm text-base-content-muted">Email</dt>
             <dd class="font-mono text-sm text-base-content">
               {{ email() ?? 'Not available' }}
             </dd>
           </div>
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <dt class="text-sm text-base-content/60">Cohorts</dt>
+            <dt class="text-sm text-base-content-muted">Cohorts</dt>
             <dd class="flex flex-wrap justify-end gap-1">
               @for (cohort of cohorts(); track cohort.key) {
                 <span class="badge badge-primary badge-sm">
                   {{ cohort.name }}
                 </span>
               } @empty {
-                <span class="badge badge-ghost badge-sm text-base-content/80">
+                <span
+                  class="badge badge-ghost badge-sm text-base-content-muted"
+                >
                   No cohort assigned
                 </span>
               }
@@ -85,10 +87,10 @@ import {
           </div>
           @if (isAdmin()) {
             <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <dt class="text-sm text-base-content/60">Staff</dt>
+              <dt class="text-sm text-base-content-muted">Staff</dt>
               <dd>
                 <span
-                  class="badge badge-outline badge-sm gap-1 text-base-content/80"
+                  class="badge badge-outline badge-sm gap-1 text-base-content-muted"
                 >
                   <lucide-angular
                     [img]="ShieldCheckIcon"
@@ -124,14 +126,14 @@ import {
       >
         <h2
           id="account-appearance"
-          class="border-b border-hairline px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-base-content/60"
+          class="border-b border-hairline px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
         >
           Appearance
         </h2>
         <div class="flex flex-wrap items-center justify-between gap-3 p-4">
           <div>
             <p class="text-sm text-base-content">Panel theme</p>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-base-content-muted">
               Saved on this device only.
             </p>
           </div>
@@ -174,12 +176,12 @@ import {
       >
         <h2
           id="account-billing"
-          class="border-b border-hairline px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-base-content/60"
+          class="border-b border-hairline px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
         >
           Billing and profile
         </h2>
         <div class="flex flex-wrap items-center justify-between gap-3 p-4">
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-base-content-muted">
             Subscription, invoices and profile details are managed in one place.
           </p>
           <a href="/profile" class="btn btn-sm gap-2">
@@ -196,7 +198,7 @@ import {
       <div class="flex justify-end">
         <button
           type="button"
-          class="btn btn-ghost btn-sm gap-2 text-base-content/80"
+          class="btn btn-ghost btn-sm gap-2 text-base-content-muted"
           [disabled]="signingOut()"
           (click)="signOut()"
         >

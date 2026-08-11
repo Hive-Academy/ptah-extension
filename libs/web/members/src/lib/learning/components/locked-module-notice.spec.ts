@@ -234,10 +234,10 @@ describe('LockedModuleNotice (R2.4.1, R2.4.2, R2.4.5)', () => {
       expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
 
-    it('NFR-U3 — muted text is base-content/60 or stronger', () => {
+    it('NFR-U3 — muted text is the per-theme token, not any alpha', () => {
       const html = (fixture.nativeElement as HTMLElement).innerHTML;
-      expect(html).toContain('text-base-content/60');
-      expect(html).not.toContain('text-base-content/40');
+      expect(html).toContain('text-base-content-muted');
+      expect(html).not.toMatch(/text-base-content\/\d+/);
     });
   });
 });

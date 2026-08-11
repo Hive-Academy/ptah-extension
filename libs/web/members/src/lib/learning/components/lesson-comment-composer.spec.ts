@@ -287,9 +287,9 @@ describe('LessonCommentComposer (R2.5.1, A-8, NFR-S2)', () => {
       const fixture = render();
       const html = (fixture.nativeElement as HTMLElement).innerHTML;
       expect(html).toContain('border-hairline');
-      expect(html).toContain('text-base-content/60');
+      expect(html).toContain('text-base-content-muted');
       expect(html).not.toContain(BORDER_FILL_MISUSE);
-      expect(html).not.toContain('text-base-content/40');
+      expect(html).not.toMatch(/text-base-content\/\d+/);
       expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
   });

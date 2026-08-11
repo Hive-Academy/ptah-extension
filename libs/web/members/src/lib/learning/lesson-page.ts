@@ -147,7 +147,7 @@ type LessonView =
   template: `
     <div class="flex flex-col gap-6">
       <a
-        class="inline-flex w-fit items-center gap-1 text-sm text-base-content/60 transition-colors hover:text-base-content"
+        class="inline-flex w-fit items-center gap-1 text-sm text-base-content-muted transition-colors hover:text-base-content"
         [routerLink]="['/members/courses', courseSlug()]"
       >
         <lucide-angular
@@ -181,7 +181,7 @@ type LessonView =
                     {{ detail.title }}
                   </h1>
                   <p
-                    class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+                    class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
                   >
                     @if (runtimeLabel(); as runtime) {
                       <span>{{ runtime }}</span>
@@ -327,7 +327,7 @@ type LessonView =
             <h1 class="mt-3 text-lg font-semibold text-base-content">
               {{ errorHeading() }}
             </h1>
-            <p class="mt-1 text-sm text-base-content/60">
+            <p class="mt-1 text-sm text-base-content-muted">
               {{ errorMessage() }}
             </p>
             @if (errorRetryable()) {

@@ -68,7 +68,7 @@ import type { HubSection, HubSessionSummary } from '@ptah-contracts/community';
         </h2>
 
         <p
-          class="mt-2 flex flex-wrap items-center gap-2 font-mono text-sm text-base-content/60"
+          class="mt-2 flex flex-wrap items-center gap-2 font-mono text-sm text-base-content-muted"
         >
           <lucide-angular
             [img]="CalendarClockIcon"
@@ -106,7 +106,7 @@ import type { HubSection, HubSessionSummary } from '@ptah-contracts/community';
               assumes the product is broken, not that the host has not opened
               the room yet.
             -->
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-base-content-muted">
               The join link is published by the host closer to the start time.
             </p>
           }
