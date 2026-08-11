@@ -138,8 +138,19 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
                 (openFile)="fileClicked.emit($event)"
               />
             }
+            <!-- role="listitem" is load-bearing, not decoration. This div is a
+                 CHILD of the role="list" region above, and the list role
+                 declares listitem as its required owned role — so a plain
+                 <div> here is a CRITICAL aria-required-children violation,
+                 live on the most common state there is (most working trees
+                 have nothing staged). It now reads as "list, 1 item, No staged
+                 changes" rather than as an unowned orphan. Same at the Changes
+                 section below; the two must not drift (TASK_2026_211). -->
             @if (stagedFiles().length === 0) {
-              <div class="px-3 py-2 text-[10px] opacity-40 text-center">
+              <div
+                role="listitem"
+                class="px-3 py-2 text-[10px] opacity-40 text-center"
+              >
                 No staged changes
               </div>
             }
@@ -198,8 +209,13 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
                 (openFile)="fileClicked.emit($event)"
               />
             }
+            <!-- role="listitem" for the same reason as the staged empty state
+                 above — see that comment (TASK_2026_211). -->
             @if (unstagedFiles().length === 0) {
-              <div class="px-3 py-2 text-[10px] opacity-40 text-center">
+              <div
+                role="listitem"
+                class="px-3 py-2 text-[10px] opacity-40 text-center"
+              >
                 No changes
               </div>
             }

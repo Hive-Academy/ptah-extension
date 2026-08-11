@@ -296,6 +296,119 @@ describe('SourceControlPanelComponent — header controls are siblings, not nest
     expect(unstagedToggle().className).toContain('uppercase');
   });
 
+  // -- TASK_2026_211: empty-state list ownership ------------------------------
+
+  /**
+   * Every element child of a `role="list"` that the accessibility tree does
+   * NOT resolve to a `listitem`.
+   *
+   * The walk descends through `role="presentation"` / `role="none"` hosts and
+   * nothing else, which is exactly how an owned-element check resolves this
+   * panel's markup: `<ptah-source-control-file>` carries `role="presentation"`
+   * on its host precisely so the `role="listitem"` div inside it is owned by
+   * the list. Anything else — notably a bare `<div>`, whose implicit role is
+   * `generic` — is an unowned child and a critical `aria-required-children`
+   * violation.
+   */
+  function unownedChildren(list: HTMLElement): HTMLElement[] {
+    const offenders: HTMLElement[] = [];
+    const visit = (parent: Element): void => {
+      for (const child of Array.from(parent.children) as HTMLElement[]) {
+        const role = child.getAttribute('role');
+        if (role === 'listitem') continue;
+        if (role === 'presentation' || role === 'none') {
+          visit(child);
+          continue;
+        }
+        offenders.push(child);
+      }
+    };
+    visit(list);
+    return offenders;
+  }
+
+  const lists = () =>
+    Array.from(
+      fixture.nativeElement.querySelectorAll('[role="list"]'),
+    ) as HTMLElement[];
+
+  it('detects an unowned child — the checker above is not vacuous (TASK_2026_211)', () => {
+    // Without this, every assertion below would still pass if `unownedChildren`
+    // silently returned []. Re-creates the exact defect shape: a bare <div>
+    // dropped straight into the list region.
+    const [staged] = lists();
+    const bare = document.createElement('div');
+    bare.textContent = 'No staged changes';
+    staged.appendChild(bare);
+
+    expect(unownedChildren(staged)).toEqual([bare]);
+
+    staged.removeChild(bare);
+    expect(unownedChildren(staged)).toEqual([]);
+  });
+
+  it('owns the empty-state message of BOTH sections as a listitem (TASK_2026_211)', () => {
+    fixture.componentInstance.files.set([]);
+    fixture.detectChanges();
+
+    const regions = lists();
+    expect(regions.length).toBe(2);
+
+    for (const region of regions) {
+      // The section is empty, so the empty-state message is the only child —
+      // and it must be the list's own item, not an orphan inside it.
+      expect(unownedChildren(region)).toEqual([]);
+      expect(region.children.length).toBe(1);
+      expect(region.children[0].getAttribute('role')).toBe('listitem');
+    }
+
+    expect(regions.map((r) => (r.textContent ?? '').trim())).toEqual([
+      'No staged changes',
+      'No changes',
+    ]);
+  });
+
+  it('keeps both empty-state messages visually unchanged (TASK_2026_211)', () => {
+    fixture.componentInstance.files.set([]);
+    fixture.detectChanges();
+
+    for (const region of lists()) {
+      const message = region.children[0] as HTMLElement;
+      // role= is the whole change; the presentation must not have moved.
+      for (const cls of [
+        'px-3',
+        'py-2',
+        'text-[10px]',
+        'opacity-40',
+        'text-center',
+      ]) {
+        expect(message.className).toContain(cls);
+      }
+    }
+  });
+
+  it('owns every child in the half-empty and populated states too (TASK_2026_211)', () => {
+    // Populated on both sides (the fixture default) — the state Batch 6's own
+    // axe run used, which is why it never saw the defect.
+    for (const region of lists()) {
+      expect(unownedChildren(region)).toEqual([]);
+    }
+
+    // One side empty, one side populated — the mixed case neither the
+    // populated run nor a both-empty run would cover.
+    fixture.componentInstance.files.set([
+      { path: 'src/b.ts', status: 'A', staged: false } as GitFileStatus,
+    ]);
+    fixture.detectChanges();
+
+    const regions = lists();
+    expect(regions.length).toBe(2);
+    expect(unownedChildren(regions[0])).toEqual([]);
+    expect(regions[0].children[0].getAttribute('role')).toBe('listitem');
+    expect((regions[0].textContent ?? '').trim()).toBe('No staged changes');
+    expect(unownedChildren(regions[1])).toEqual([]);
+  });
+
   it('hides each bulk action when its section is empty (AC6)', () => {
     fixture.componentInstance.files.set([
       { path: 'src/b.ts', status: 'A', staged: false } as GitFileStatus,
