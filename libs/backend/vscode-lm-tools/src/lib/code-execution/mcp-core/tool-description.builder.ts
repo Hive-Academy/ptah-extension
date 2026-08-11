@@ -1235,7 +1235,11 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
 
 /**
  * Build the ptah_harness_search_mcp_registry tool definition
- * Search the official MCP server registry
+ *
+ * Searches the three catalogue sources. The description deliberately tells the
+ * agent what this tool CANNOT see — vendors that host their own remote MCP
+ * endpoint are usually absent from all three — and points it at web search as
+ * the fallback, so the user is never asked to paste an official URL by hand.
  */
 export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
   return {
@@ -1251,7 +1255,25 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
       'technology or vendor keywords (e.g., "github", "postgresql", "autodesk") ' +
       'for best results. Pair with ptah_harness_list_installed_mcp to see which ' +
       'servers are already configured before adding more, and install a chosen ' +
-      'server with ptah_harness_install_mcp_server.',
+      'server with ptah_harness_install_mcp_server.\n\n' +
+      'COVERAGE LIMIT — these three sources are catalogues of PUBLISHED ' +
+      'packages. A vendor that hosts its own remote MCP endpoint is usually in ' +
+      'NONE of them (Apollo, HubSpot, Zernio, Sentry, Notion and Linear all ' +
+      'return nothing here). So when the user names a specific product and this ' +
+      'tool returns no relevant hit, do NOT conclude the server does not exist ' +
+      'and do NOT ask the user for a link. Fall back to ptah_web_search — query ' +
+      'the vendor\'s own documentation (e.g. "<vendor> MCP server endpoint ' +
+      'docs") and the official Claude connectors directory at ' +
+      'claude.com/connectors, which lists vendor-hosted remote servers. Remote ' +
+      'servers need only their HTTPS endpoint URL: Ptah connects them via OAuth ' +
+      'with dynamic client registration (RFC 9728 / 8414 / 7591), so no API key ' +
+      'or manual client setup is required.\n\n' +
+      "TRUST RULE — only accept an endpoint URL published on the vendor's own " +
+      'domain or in the official connectors directory. Never connect a URL ' +
+      'scraped from a blog, forum or third-party listicle: OAuth dynamic client ' +
+      "registration would hand that server the user's real credentials. If you " +
+      'cannot confirm the endpoint from an authoritative source, say so and ' +
+      'stop rather than guessing a URL.',
     inputSchema: {
       type: 'object',
       properties: {
