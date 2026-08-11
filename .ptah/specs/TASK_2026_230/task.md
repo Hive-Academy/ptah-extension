@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_230
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   hunk-apply-real-rpc "bogus snapshot token" negative control fails on an

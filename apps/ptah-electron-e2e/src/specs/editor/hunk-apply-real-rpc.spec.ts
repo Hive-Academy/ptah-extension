@@ -28,6 +28,18 @@ const FILE_NAME = THREE_HUNK_FILE.split('/').pop() as string;
 const CONTROL_HOLD_MS = 6_000;
 
 /**
+ * Budget for the stale-snapshot refusal round trip (TASK_2026_230).
+ *
+ * Stated rather than inherited. `RpcBridge.sendRpc` defaults to 10s, which is
+ * a transport default; this call re-derives the snapshot by running `git diff`
+ * before it can refuse, and against a warm backend that measured 2.2-4.4s. 30s
+ * is roughly 7x the observed cost — wide enough that machine load cannot turn
+ * a correct refusal red, narrow enough that a genuinely stuck guard still
+ * fails this test well inside its 180s budget rather than hanging it.
+ */
+const REFUSAL_TIMEOUT_MS = 30_000;
+
+/**
  * Poll the repo's index until `predicate` holds. The apply is asynchronous
  * across an IPC round trip and a `git apply` child process, so the spec waits
  * on the observable end state rather than on a renderer signal — a renderer
@@ -180,6 +192,15 @@ test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
    * This is what makes the positive test's `success` meaningful: it shows the
    * write path discriminates rather than rubber-stamps, so a pass reflects a
    * real apply and not a handler that answers OK to anything shaped right.
+   *
+   * TASK_2026_230: this case used to fail on `[RpcBridge] sendRpc timed out
+   * after 10000ms` rather than on either assertion below, which said nothing
+   * about the guard. The guard was never at fault. Two start-up costs were
+   * landing on this call — the boot backlog on the main-process event loop,
+   * and the first `git` spawn in a fresh app process — and together they
+   * exceeded the bridge's 10s transport default. `real-rpc-fixtures` now
+   * absorbs both before the test body runs, and the budget below is stated for
+   * what this call actually does. See `REFUSAL_TIMEOUT_MS`.
    */
   test('control: a bogus snapshot token is refused and stages nothing', async ({
     rpcBridge,
@@ -187,20 +208,24 @@ test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
   }) => {
     expect(repo.stagedDiff()).toBe('');
 
-    const response = (await rpcBridge.sendRpc('rpc', {
-      type: 'rpc:call',
-      payload: {
-        method: 'git:applyHunks',
-        params: {
-          workspaceRoot: repo.root,
-          path: THREE_HUNK_FILE,
-          comparison: 'worktree',
-          operation: 'stage',
-          hunkIndices: [0],
-          snapshotToken: 'not-a-snapshot-this-token-was-never-issued',
+    const response = (await rpcBridge.sendRpc(
+      'rpc',
+      {
+        type: 'rpc:call',
+        payload: {
+          method: 'git:applyHunks',
+          params: {
+            workspaceRoot: repo.root,
+            path: THREE_HUNK_FILE,
+            comparison: 'worktree',
+            operation: 'stage',
+            hunkIndices: [0],
+            snapshotToken: 'not-a-snapshot-this-token-was-never-issued',
+          },
         },
       },
-    })) as { data?: { success?: boolean; code?: string } };
+      REFUSAL_TIMEOUT_MS,
+    )) as { data?: { success?: boolean; code?: string } };
 
     expect(response.data?.success).toBe(false);
     expect(response.data?.code).toBe('STALE_SNAPSHOT');
