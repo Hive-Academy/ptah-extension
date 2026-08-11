@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_232
-status: backlog
+status: in_review
 type: RESEARCH
 title: >-
   The stale-content symptom TASK_2026_222 observed still has no cause after

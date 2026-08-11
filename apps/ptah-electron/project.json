@@ -221,7 +221,6 @@
     "copy-renderer": {
       "executor": "nx:run-commands",
       "dependsOn": ["ptah-extension-webview:build"],
-      "cache": true,
       "outputs": ["{workspaceRoot}/dist/apps/ptah-electron/renderer"],
       "options": {
         "command": "node apps/ptah-electron/scripts/copy-renderer.js"

@@ -94,3 +94,153 @@ contains the edit.
 Outcome 3 is a real result. Do not manufacture a story to avoid it. The
 failure mode this whole thread has been about is a plausible explanation
 displacing a verified one.
+
+---
+
+# 2026-08-11 — Reproduced. Nx skips restoring cache-hit outputs and replays the log.
+
+Outcome 1: reproduced and explained, with a fix landed. Two independent
+findings; the second is the cause, the first invalidates the evidence the
+original diagnosis rested on.
+
+## Finding A — mtime is not a freshness signal anywhere in this pipeline
+
+Both writers into `dist/apps/ptah-electron/renderer/` preserve the source
+file's mtime on Windows, so a renderer file's timestamp is **inherited from
+its source**, never stamped at copy time:
+
+- `fs.copyFileSync` — what `copy-renderer.js` uses. Node maps it to
+  `CopyFileExW`, which copies the last-write time. Measured:
+  `src 2026-08-01T01:26:00Z -> dest 2026-08-01T01:26:00Z` at wall-clock
+  `2026-08-11T14:08:00Z`.
+- Nx's native `copy` — what cache restoration uses
+  (`node_modules/nx/src/tasks-runner/cache.js` `copyFilesFromCache`). Same
+  measurement, same result.
+
+Confirmed on real artifacts: after a `copy-renderer-dev` run, the same chunk
+in source and renderer was identical **to the nanosecond** —
+`2026-08-11 17:15:06.587282100` in both. Not "close"; the same value.
+
+Consequence: "`dist/apps/ptah-electron/renderer/` held chunks timestamped
+before the edit" is fully consistent with a copy that ran correctly seconds
+earlier from an Nx-cache-restored source. It was the primary evidence for
+"stale" in TASK_2026_222 and for the `01:26` observation in TASK_2026_226, and
+it cannot carry that inference. Do not diagnose this pipeline by timestamp.
+
+## Finding B — the cause: `local-cache-kept-existing`
+
+`node_modules/nx/src/tasks-runner/task-orchestrator.js` `applyCachedResult`
+restores a cache hit's outputs **only if** `shouldCopyOutputsFromCache` is
+true, which delegates to the daemon's `outputsHashesMatch`. That is not a
+content hash. Per `node_modules/nx/src/daemon/server/outputs-tracking.js` it
+is an in-memory `recordedHashes[outputPath] = taskHash` map in the daemon
+process, invalidated only by the outputs file-watcher, and
+`processFileChangesInOutputs` **ignores any change event arriving within
+2000 ms of the record** (`now - timestamps[output] > 2000`). When the map
+still says "matches", Nx skips the copy entirely and replays the cached
+terminal output verbatim.
+
+Reproduced live on this Nx 22.6.5, in an isolated probe workspace with a
+target of exactly `copy-renderer`'s shape (`cache: true` + `outputs`). After
+externally overwriting the output directory, a re-run printed:
+
+    > nx run probe:copy  [existing outputs match the cache, left as is]
+    > node apps/probe/scripts/copy.js
+    [copy] Cleaned old out directory
+    [copy] Copied D:\tmp\nxprobe\apps\probe\src -> D:\tmp\nxprobe\out
+    [copy] Done
+    NX   Successfully ran target copy for project probe
+
+`out/chunk.js` still read `CORRUPT` while the source read `MTIME-PROOF-v3`.
+None of those three `[copy]` lines happened. This maps onto every element of
+the TASK_2026_222 report: both commands report success; the destination keeps
+pre-edit content and pre-edit timestamps; the source is fresh; and running
+`node apps/ptah-electron/scripts/copy-renderer.js` directly fixes it
+instantly, because that bypasses Nx and therefore always really runs.
+
+It is nondeterministic — the same corruption invalidated _correctly_ on two
+earlier attempts in the same session — because it is a watcher-timing race
+around that 2000 ms window. That matches a symptom that resisted three rebuild
+cycles and then vanished.
+
+## Relationship to the two prior tasks
+
+Neither prior task was wrong; both were looking at a different mechanism.
+
+- TASK_2026_226 reproduced the symptom via a **missing hash input** (no graph
+  edge, so a `libs/frontend/**` edit never entered the hash). `RI-1` closes
+  that. Finding B fires when the hash is entirely **correct**, so RI-1 does
+  not touch it.
+- TASK*2026_229 correctly showed the webview's cache invalidates on edits.
+  Finding B needs no failed invalidation — it needs an \_unchanged* hash plus
+  an external write to the output directory.
+
+The elimination list in this carrier was accurate; the gap it described was
+real. What both tasks missed is that Nx has a code path where a cache hit
+produces **no output write at all**, which is a third thing beyond "fresh
+content" and "stale restored content".
+
+Also relevant: TASK*2026_226 added `cache: true` to `copy-renderer` (it was
+scaffolding for its own repro and stayed in the final diff). At TASK_2026_222
+this target was uncacheable, so Finding B was not reachable \_for
+`copy-renderer`* then — it was reachable for the upstream, always-cacheable
+`ptah-extension-webview:build`, whose kept-as-is output the copy would then
+faithfully propagate. On HEAD before this task it was reachable for both.
+
+## Angles closed
+
+- **The copy script (angle 1).** Audited. No timestamp, mtime or size skip; it
+  `rmSync`s the destination and does a full recursive copy every time. It
+  cannot silently no-op. One real, unrelated hole worth recording: in
+  `copyRecursive`, a `readdirSync` failure with `ENOENT`/`ENOTDIR` is warned
+  and **skipped**, so if the source tree is rewritten mid-walk the copy can be
+  partial and still `exit 0`. Not the cause here; left as-is (it exists to
+  survive broken symlinks) but it should not grow.
+- **Nx output restoration (angle 2).** This was the right neighbourhood, but
+  the failure is the _absence_ of restoration, not a late one.
+- **Ordering under the pre-`fe70fd689` sibling `dependsOn` (angle 3).** Not
+  needed; Finding B needs no race between the two writers.
+- **Environment / filesystem granularity (angle 4).** Not granularity — but
+  the Windows `CopyFileExW` mtime semantics in Finding A are why the
+  timestamps looked the way they did.
+
+## Fix landed
+
+Removed `cache: true` from `copy-renderer` in
+`apps/ptah-electron/project.json`. A target whose entire job is "make this
+directory match" must not be allowed to skip on an unverified belief about
+that directory.
+
+TASK_2026_226's stated reason for caching it — that the alternative makes
+"every e2e run pay a full copy every time" — is obsolete: TASK_2026_229 moved
+`e2e`/`showcase`/`e2e:nightly` onto `copy-renderer-dev`, which is uncacheable
+and pays the full copy anyway. Plain `copy-renderer`'s only remaining consumer
+is `package`, where one file copy is noise against `electron-builder`. So the
+saving was ~zero and the exposure included **shipping whatever happened to be
+in the renderer directory into a packaged app**.
+
+`renderer-cache-key.spec.ts`: RI-2 inverted (now asserts NOT cacheable) with
+the mechanism documented in the header. Proved non-vacuous by reinstating
+`cache: true` and watching only RI-2 fail (1 failed / 14 passed), then
+restoring (15/15). RI-1 kept — the graph edge is still correct and still
+matters for `nx affected`.
+
+## Verdict for other lanes
+
+`nx copy-renderer-dev ptah-electron` **can be trusted**. It is not cacheable
+(no `cache` field, no `outputs`, and this workspace defines no
+`cacheableOperations` fallback), so `isCacheableTask` is false and it always
+executes both of its commands. Verified live across three cycles with markers
+in `libs/frontend/dashboard`: ALPHA landed, BRAVO replaced it with zero ALPHA
+residue, ALPHA came back on revert — each time in development configuration
+(101 `.map` files).
+
+Residual risk, unchanged: `ptah-extension-webview:build` is still cacheable
+with `outputs`, so Finding B still applies to
+`dist/apps/ptah-extension-webview/` if something outside Nx writes there.
+Nothing routinely does. Left alone deliberately — that build is expensive and
+caching it is correct.
+
+If this recurs: the tell is the dim `[existing outputs match the cache, left
+as is]` annotation on the `> nx run` line. It scrolls past above the replayed
+script output and is easy to miss. Do not diagnose by timestamp (Finding A).

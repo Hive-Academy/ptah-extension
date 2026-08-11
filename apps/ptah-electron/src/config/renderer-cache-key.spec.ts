@@ -86,6 +86,47 @@ import { resolve } from 'path';
  * verify — worse than the bug this task fixes. RI-5/RI-6 pin that `build-dev`
  * stays exactly as it is so nobody "fixes" it into that trap.
  *
+ * TASK_2026_232 ADDENDUM — WHY RI-2 IS NOW INVERTED.
+ * TASK_2026_226 reproduced the TASK_2026_222 symptom via a MISSING HASH INPUT
+ * (no graph edge, so a `libs/frontend/**` edit never entered copy-renderer's
+ * hash, so Nx replayed a stale cache entry). RI-1 closes that. TASK_2026_232
+ * found a SECOND, independent mechanism with the same signature, which RI-1
+ * does not touch, because it fires when the hash is entirely CORRECT:
+ *
+ *   `node_modules/nx/src/tasks-runner/task-orchestrator.js` `applyCachedResult`
+ *   only restores a cache hit's outputs when
+ *   `shouldCopyOutputsFromCache(outputs, hash)` is true, which delegates to the
+ *   daemon's `outputsHashesMatch`. That is NOT a content hash — see
+ *   `node_modules/nx/src/daemon/server/outputs-tracking.js`: it is an
+ *   in-memory `recordedHashes[outputPath] = taskHash` map in the daemon
+ *   process, invalidated only by the outputs file-watcher, and
+ *   `processFileChangesInOutputs` IGNORES any change event arriving within
+ *   2000 ms of the record (`now - timestamps[output] > 2000`). When the map
+ *   still says "matches", Nx skips the copy and replays the cached terminal
+ *   output verbatim.
+ *
+ * Reproduced live (TASK_2026_232) in an isolated probe workspace on this same
+ * Nx 22.6.5, with a target of exactly this shape (`cache: true` + `outputs`):
+ * after externally overwriting the output directory, `nx copy probe` printed
+ *
+ *   > nx run probe:copy  [existing outputs match the cache, left as is]
+ *   [copy] Cleaned old out directory
+ *   [copy] Copied ...\src -> ...\out
+ *   [copy] Done
+ *   NX   Successfully ran target copy for project probe
+ *
+ * while the output directory still held the externally-written content and
+ * none of those three log lines had actually happened. That is the
+ * TASK_2026_222 symptom exactly, including why running the script directly
+ * fixed it instantly (bypasses Nx, so it always really runs). It is
+ * nondeterministic — the same corruption invalidated correctly on two earlier
+ * attempts — because it is a watcher-timing race.
+ *
+ * On HEAD this exposed `nx package`, and any lane sharing
+ * `dist/apps/ptah-electron/renderer` with another that writes it via
+ * `copy-renderer-dev`. Removing `cache: true` restores the "always slow,
+ * never stale" state TASK_2026_226 itself described as safe.
+ *
  * A comment cannot fail a build. This can.
  *
  * Deliberately dependency-free — pure JSON parse of `project.json`, no Nx
@@ -158,12 +199,27 @@ describe('apps/ptah-electron/project.json renderer cache key', () => {
     );
   });
 
-  // RI-2 — CACHING MUST STAY ON. `"cache": false` (or leaving it unset, which
-  // behaves identically per `isCacheableTask`) "fixes" staleness by making
-  // every e2e run pay a full copy every time. That is the wrong answer this
-  // task explicitly rejected.
-  it('RI-2: copy-renderer has caching explicitly enabled', () => {
-    expect(config.targets['copy-renderer'].cache).toBe(true);
+  // RI-2 — CACHING MUST STAY OFF. REVERSED BY TASK_2026_232; read the
+  // "TASK_2026_232 ADDENDUM" in the file header before flipping this back.
+  //
+  // TASK_2026_226 turned caching ON here and pinned it, arguing that the
+  // alternative made "every e2e run pay a full copy every time". That
+  // justification no longer holds: TASK_2026_229 moved e2e/showcase/
+  // e2e:nightly onto `copy-renderer-dev` (RI-11/12/13 below), which is
+  // uncacheable and pays the full copy every time regardless. Plain
+  // `copy-renderer`'s only remaining consumer is `package` — a rare, heavy
+  // operation where one file copy is noise.
+  //
+  // Against that ~zero saving, `cache: true` buys a real correctness hole:
+  // on a cache hit Nx consults the daemon's in-memory outputs-tracking map
+  // and, if it believes the directory is untouched, SKIPS restoration
+  // entirely while replaying the cached terminal output verbatim (status
+  // `local-cache-kept-existing`, rendered as "existing outputs match the
+  // cache, left as is"). A target whose entire job is "make this directory
+  // match" must never be allowed to skip on a belief about the directory
+  // that it did not verify.
+  it('RI-2: copy-renderer is NOT marked cacheable', () => {
+    expect(config.targets['copy-renderer'].cache).not.toBe(true);
   });
 
   // RI-3 — ONE MECHANISM, NOT TWO. The fix is the implicit project-graph edge
