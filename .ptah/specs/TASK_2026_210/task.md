@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: BUGFIX
 title: >-
   aria-required-children ownership violation on role="tablist" -- INTRODUCED
