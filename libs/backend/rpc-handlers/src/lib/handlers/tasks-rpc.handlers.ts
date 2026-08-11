@@ -18,7 +18,9 @@
  *
  * Every method:
  *   1. Zod-parses params (tasks-rpc.schema.ts) → RpcUserError('INVALID_PARAMS').
- *   2. Resolves + normalizes the workspace root (param ?? active workspace).
+ *   2. Resolves + normalizes the workspace root (param ?? active workspace) and
+ *      gates a caller-SUPPLIED root through `isAuthorizedWorkspace` →
+ *      RpcUserError('UNAUTHORIZED_WORKSPACE'). See `resolveRoot`.
  *   3. Warms the index lazily (`index.ensureStarted`).
  *   4. Delegates to the index / writer / registry generator.
  *   5. Sanitizes failures — never forwards raw fs error messages (which carry
@@ -109,6 +111,7 @@ import {
   TasksGetViewsParamsSchema,
   TasksSaveViewsParamsSchema,
 } from './tasks-rpc.schema';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 
 /**
  * Last path segment, for either separator.
@@ -1238,11 +1241,46 @@ export class TasksRpcHandlers {
   /**
    * Resolve + normalize the workspace root. Throws a typed user error rather
    * than leaking when no workspace is open.
+   *
+   * ## The namespace-wide workspace guard
+   *
+   * EVERY `tasks:*` method routes its root through here, so this one check is
+   * the whole namespace's boundary. That is deliberate: the reachable
+   * primitives are privileged in three different ways and a per-method guard
+   * would have to be remembered fourteen times.
+   *
+   *   - `index.ensureStarted(root)` starts a recursive file watcher on the root
+   *     and can create `<root>/.ptah/specs/README.md`.
+   *   - `writer.updateStatus` / `updateMetadata` / `adopt` rewrite the
+   *     frontmatter of existing `<root>/.ptah/specs/TASK_YYYY_NNN/task.md`, and
+   *     `bulkUpdateLabel` does so up to `BULK_CHUNK_SIZE` times per call.
+   *   - `tasks:board` / `tasks:get` READ an arbitrary directory's specs tree
+   *     and return its contents to the caller.
+   *
+   * Only a caller-SUPPLIED root is checked. The implicit
+   * `workspace.getWorkspaceRoot()` fallback is authorized by construction —
+   * it IS the open folder — and gating it would fail closed on any host whose
+   * provider reports a root without enumerating folders. This is the same
+   * shape `SetupRpcHandlers` and `MemoryRpcHandlers` use.
+   *
+   * Note that `isAuthorizedWorkspace` admits paths INSIDE an open folder, not
+   * just the folder itself, so `<workspace>/sub` resolves to a specs tree under
+   * `<workspace>/sub`. That stays within the trust boundary the host already
+   * granted and keeps this check identical to every other one in the lib.
    */
   private resolveRoot(requested: string | undefined): string {
     const root = requested ?? this.workspace.getWorkspaceRoot();
     if (!root) {
       throw new RpcUserError('No workspace folder open.', 'WORKSPACE_NOT_OPEN');
+    }
+    if (
+      requested !== undefined &&
+      !isAuthorizedWorkspace(requested, this.workspace)
+    ) {
+      throw new RpcUserError(
+        'Access denied: workspace path is not an open folder.',
+        'UNAUTHORIZED_WORKSPACE',
+      );
     }
     return normalizeWorkspaceRoot(root);
   }

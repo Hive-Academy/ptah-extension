@@ -351,11 +351,18 @@ describe('tasks:list', () => {
     });
   });
 
+  // Segment case is deliberately NOT varied here. `normalizeWorkspaceRoot`
+  // lower-cases only the drive letter, while the `resolveRoot` guard's
+  // `isPathWithinRoots` folds case on win32 ONLY — so a `D:\Workspace` request
+  // against a `D:\workspace` folder is authorized on Windows and rejected on
+  // the Linux CI runner. Drive-letter case + trailing separator still prove
+  // normalization ran; segment-case behaviour is pinned by
+  // `normalize-workspace-root.spec.ts`.
   it('normalizes the workspace root before warming + delegating', async () => {
     const { rpc, index } = buildSuite();
     const handler = getHandler(rpc, 'tasks:list');
-    await handler({ workspaceRoot: 'D:\\Workspace\\' });
-    const expected = normalizeWorkspaceRoot('D:\\Workspace\\');
+    await handler({ workspaceRoot: 'D:\\workspace\\' });
+    const expected = normalizeWorkspaceRoot('D:\\workspace\\');
     expect(index.ensureStarted).toHaveBeenCalledWith(expected);
     expect(index.list).toHaveBeenCalledWith(
       expected,
@@ -3528,4 +3535,134 @@ describe('tasks:bulkUpdateLabel — boundary', () => {
       expect(writer.updateMetadata).not.toHaveBeenCalled();
     },
   );
+});
+
+// ── The namespace-wide workspace guard ───────────────────────────────────────
+//
+// `resolveRoot` is the ONE place a `tasks:*` root becomes a filesystem path, so
+// the guard lives there and this block asserts it namespace-wide rather than
+// method-by-method. A new `tasks:*` method that forgets the guard cannot exist:
+// it either routes through `resolveRoot` (and is covered by the sweep below,
+// which is driven off `TasksRpcHandlers.METHODS`) or it fails the "every method
+// is exercised" assertion.
+describe('tasks:* workspace authorization', () => {
+  const OUTSIDE = 'D:\\somewhere-else';
+
+  /**
+   * Schema-valid params for every method in `METHODS`, minus `workspaceRoot`.
+   *
+   * Required because `parse()` runs BEFORE `resolveRoot`, so a sweep with empty
+   * params would prove only that Zod rejects them. Keyed by method name and
+   * asserted exhaustive against `METHODS` below, so adding a method to the
+   * namespace without adding its params here fails HERE rather than silently
+   * shrinking the sweep.
+   */
+  const VALID_PARAMS: Record<string, Record<string, unknown>> = {
+    'tasks:list': {},
+    'tasks:get': { taskId: 'TASK_2026_401' },
+    'tasks:create': { title: 'T', type: 'BUGFIX' },
+    'tasks:updateStatus': { taskId: 'TASK_2026_401', status: 'done' },
+    'tasks:updateMetadata': {
+      taskId: 'TASK_2026_401',
+      patch: { labels: ['security'] },
+    },
+    'tasks:bulkUpdateStatus': {
+      taskIds: ['TASK_2026_401'],
+      status: 'done',
+    },
+    'tasks:bulkUpdateLabel': {
+      taskIds: ['TASK_2026_401'],
+      label: 'security',
+      mode: 'add',
+    },
+    'tasks:generateRegistry': {},
+    'tasks:board': {},
+    'tasks:reindex': {},
+    'tasks:adopt': {
+      folderName: 'TASK_2026_401',
+      title: 'T',
+      type: 'BUGFIX',
+      status: 'done',
+    },
+    'tasks:doctorPlan': {},
+    'tasks:getViews': {},
+    'tasks:saveViews': { views: [] },
+  };
+
+  it('has sweep params for every method in METHODS', () => {
+    expect(Object.keys(VALID_PARAMS).sort()).toEqual(
+      [...TasksRpcHandlers.METHODS].sort(),
+    );
+  });
+
+  it.each([...TasksRpcHandlers.METHODS])(
+    '%s rejects a workspaceRoot outside every open folder',
+    async (method) => {
+      const { rpc } = buildSuite();
+      const handler = getHandler(rpc, method);
+      await expect(
+        handler({ ...VALID_PARAMS[method], workspaceRoot: OUTSIDE }),
+      ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    },
+  );
+
+  it('rejects before warming the index or writing anything', async () => {
+    const { rpc, index, writer, registry, doctor } = buildSuite();
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:bulkUpdateLabel',
+      )({
+        taskIds: ['TASK_2026_401', 'TASK_2026_402'],
+        label: 'security',
+        mode: 'add',
+        workspaceRoot: OUTSIDE,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(index.ensureStarted).not.toHaveBeenCalled();
+    expect(index.reindex).not.toHaveBeenCalled();
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+    expect(registry.generate).not.toHaveBeenCalled();
+    expect(doctor.plan).not.toHaveBeenCalled();
+  });
+
+  it('admits the implicit root when no workspaceRoot is supplied', async () => {
+    const { rpc, index } = buildSuite();
+    await expect(getHandler(rpc, 'tasks:board')({})).resolves.toBeDefined();
+    expect(index.ensureStarted).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+    );
+  });
+
+  it('admits the open folder itself', async () => {
+    const { rpc, index } = buildSuite();
+    await expect(
+      getHandler(rpc, 'tasks:board')({ workspaceRoot: 'D:\\workspace' }),
+    ).resolves.toBeDefined();
+    expect(index.ensureStarted).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+    );
+  });
+
+  // The CLI/TUI transport is a real non-webview caller: `ptah spec *` passes
+  // `workspaceRoot: globals.cwd`, and `with-engine.ts` hands that SAME value to
+  // `CliWorkspaceProvider` as its single folder. So the CLI's explicit root is
+  // always the authorized folder or a descendant of it — this pins the second
+  // case, which is what `ptah spec` run from a subdirectory produces.
+  it('admits a path inside the open folder (CLI cwd case)', async () => {
+    const { rpc, index } = buildSuite();
+    await expect(
+      getHandler(rpc, 'tasks:board')({ workspaceRoot: 'D:\\workspace\\apps' }),
+    ).resolves.toBeDefined();
+    expect(index.ensureStarted).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace\\apps'),
+    );
+  });
+
+  it('rejects a sibling folder that shares a name prefix', async () => {
+    const { rpc } = buildSuite();
+    await expect(
+      getHandler(rpc, 'tasks:board')({ workspaceRoot: 'D:\\workspace-evil' }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+  });
 });
