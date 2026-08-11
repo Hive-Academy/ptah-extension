@@ -1,6 +1,6 @@
 # Vendor Panel — the reusable spine
 
-Every Tribunal move (Council, Forge, Race) runs on this loop:
+Every Tribunal move (Council, Forge, Race, Relay, Crucible) runs on this loop:
 
 ```
 discover → select (family spread) → announce → fan-out spawn → poll → read → [cross-examine] → synthesize
@@ -35,24 +35,26 @@ A **panelist** is a distinct `(transport, addressing, tier)` tuple, chosen for m
 ```
 Panelist := {
   id:        "P1" | "P2" | ...        # stable anonymized label (assigned by panel order)
-  label:     human name, e.g. "Z.AI GLM-5.2"
-  family:    "codex" | "copilot" | "cursor" | "<providerName>"   # the diversity axis
+  label:     human name, taken from the ptah_agent_list row
+  family:    the CLI's name, or the ptah-cli entry's providerName   # the diversity axis
   spawnArgs: one of
-     { cli: "codex" }                                   # OpenAI GPT family (no resume — respawn on timeout)
-     { cli: "copilot", model?: "claude-sonnet-4.6" }    # GitHub / Claude+GPT family
-     { cli: "cursor" }                                  # Cursor CLI family (env-dependent install)
-     { ptahCliId: "pc-...", modelTier: "opus" }         # a specific ptah-cli provider family
-     { ptahCliId: "pc-...", model: "glm-5.2" }          # an explicit raw model on that provider
+     { cli: "<value from the live ptah_agent_spawn enum>", model?: "<id>" }   # an installed system CLI
+     { ptahCliId: "pc-...", modelTier: "opus" }                               # a configured provider, tier-resolved
+     { ptahCliId: "pc-...", model: "<id>" }                                   # an explicit raw model on that provider
 }
 ```
 
-> For panels **you** assemble (conversational trigger, §2), panelists addressed by `ptahCliId` use `modelTier: 'opus'` and let the provider's tier mappings resolve the concrete model (e.g. Moonshot → `kimi-k2.7-code`, Z.AI → `glm-5.2`) — don't hardcode a model id, so new models flow in through the registry. For panels defined in the **Tribunal UI** (§0), spawn args may instead carry a raw `model` per lane; pass it through unchanged.
+> **The vendor list is discovered, never hardcoded.** New CLI adapters ship between releases and every machine has a different set of providers configured, so the authoritative list is whatever `ptah_agent_list` returns right now — plus the live `cli` enum on the `ptah_agent_spawn` tool schema. Any vendor named anywhere in these references is an illustration, not a roster. A family that is installed/available joins automatically; one that is not is simply absent, and neither case needs a doc change.
+>
+> Claude is not privileged and not excluded: where the user has configured a Claude provider it appears as an ordinary ptah-cli entry and is addressed by its `ptahCliId` like any other lane.
+
+> For panels **you** assemble (conversational trigger, §2), panelists addressed by `ptahCliId` use `modelTier: 'opus'` and let the provider's tier mappings resolve the concrete model — don't hardcode a model id, so new models flow in through the registry. For panels defined in the **Tribunal UI** (§0), spawn args may instead carry a raw `model` per lane; pass it through unchanged. Resume support differs per adapter — check `ptah_agent_status` for a `CLI Session ID` rather than assuming.
 
 ## 2. Selection algorithm (deterministic family spread)
 
 1. Call `ptah_agent_list`.
 2. Keep entries with `installed: true` (CLIs) / `available` (ptah-cli).
-3. **Bucket by family** — native CLIs `codex`, `copilot`, `cursor`; then ptah-cli entries by `providerName` (`Moonshot`, `Z.AI`, `Ollama Cloud`, `OpenRouter`, …). The panel is **data-driven**: a family joins automatically wherever its entry reports installed, so `cursor` participates on machines where it is active and is simply absent elsewhere.
+3. **Bucket by family** — each system CLI is its own family (its `cli` value); each ptah-cli entry is its own family (its `providerName`). Take the families from the response, not from a list in this document. The panel is **data-driven**: a family joins automatically wherever its entry reports installed/available, and is simply absent elsewhere — that is what lets new adapters and newly configured providers participate with no edit here.
 4. Take **one** panelist per family, ordered by `preferredRank`. ptah-cli entries carry their `ptahCliId` + `modelTier: 'opus'`.
 5. Cap to the concurrency budget (default **3**; Council may widen with user consent — no worktrees, so cheap to grow).
 6. Assign stable labels `P1..Pn` in panel order.
@@ -82,8 +84,7 @@ ptah_agent_read({ agentId })   # capture full output, tag with Pk
 
 **Failure / timeout handling:**
 
-- `ptah-cli` and `copilot` support resume — re-spawn with `resume_session_id` (the `cliSessionId` from `ptah_agent_status`).
-- `codex` is ephemeral (no resume) — respawn fresh.
+- **Resume support is per-adapter — test for it, don't memorize it.** Call `ptah_agent_status`: if it reports a `CLI Session ID`, re-spawn with `resume_session_id` set to it and the lane continues from where it left off. If it reports none, that adapter is ephemeral — respawn fresh with the context restated in the prompt.
 - A panelist that fails twice is dropped from the panel with a note in the verdict; never block the whole tribunal on one vendor.
 
 ## 4. Deterministic anonymization (the cross-examination round)

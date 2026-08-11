@@ -41,7 +41,7 @@ Announce the attempts and cost, get the go-ahead (this writes code and may commi
 
 ### Step 2 — Isolated parallel attempts
 
-One worktree per attempt (forge.md §2): `ptah_git_worktree_add({ branch: "tribunal/race/<slug>/<attempt>", createBranch: true })`, spawn each with the same self-contained task + the rubric + `workingDirectory` set to its worktree. Poll and read each; resume where supported, respawn codex, drop an attempt that fails twice.
+One worktree per attempt (forge.md §2): `ptah_git_worktree_add({ branch: "tribunal/race/<slug>/<attempt>", createBranch: true })`, spawn each with the same self-contained task + the rubric + `workingDirectory` set to its worktree. Poll and read each; resume where `ptah_agent_status` reports a `CLI Session ID` and respawn where it does not, dropping an attempt that fails twice.
 
 ### Step 3 — Score against the rubric
 

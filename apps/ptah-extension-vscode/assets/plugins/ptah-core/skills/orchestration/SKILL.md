@@ -310,16 +310,16 @@ Tier 2: Team-Leader (Advisory only — NEVER spawns)
 
 ### Quick Reference
 
-| Aspect                 | Detail                                                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)                                                                     |
-| **Sole spawner**       | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents                                                |
-| **Team-leader role**   | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch                                              |
-| **Available agents**   | ptah-cli, codex, copilot (user-configured)                                                                           |
-| **Concurrency limit**  | Max 3 CLI agents simultaneously                                                                                      |
-| **Selection priority** | ptah-cli > codex > copilot                                                                                           |
-| **Decision authority** | Team-leader recommends; orchestrator executes the recommendation                                                     |
-| **Quality ownership**  | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
+| Aspect                 | Detail                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)                                                                           |
+| **Sole spawner**       | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents                                                      |
+| **Team-leader role**   | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch                                                    |
+| **Available agents**   | **Discovered** via `ptah_agent_list` — never assumed. Adapters and configured providers differ per release and per machine |
+| **Concurrency limit**  | Max 3 CLI agents simultaneously                                                                                            |
+| **Selection**          | By task fit (cheap+fast for bulk, strong reasoning for analysis, different family for review) — not a fixed ranking        |
+| **Decision authority** | Team-leader recommends; orchestrator executes the recommendation                                                           |
+| **Quality ownership**  | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit       |
 
 ### Executor Recommendation Heuristics (Applied by Team-Leader in tasks.md)
 
@@ -349,10 +349,11 @@ independently-executable sub-tasks to speed up your work.
 
 **How to delegate:**
 
-1. Spawn: `ptah_agent_spawn { task: "...", cli: "codex", taskFolder: "...", files: [...] }`
-2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
-3. Read: `ptah_agent_read { agentId: "..." }`
-4. Use the results in your deliverable
+1. Discover: `ptah_agent_list {}` — the returned rows are the ONLY spawnable agents; never assume a vendor
+2. Spawn: `ptah_agent_spawn { task: "...", cli: "<an installed cli>" | ptahCliId: "<a listed id>", taskFolder: "...", files: [...] }`
+3. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
+4. Read: `ptah_agent_read { agentId: "..." }`
+5. Use the results in your deliverable
 
 **How to resume a timed-out/failed agent:**
 
@@ -366,6 +367,9 @@ independently-executable sub-tasks to speed up your work.
 - CLI agents have NO shared context — include ALL necessary info in the task prompt
 - CLI agents should NOT commit to git
 - YOU own the quality — review CLI agent output before incorporating
+- **Verified delegation**: CLI-written code that will ship gets reviewed by a DIFFERENT vendor
+  family (or line by line by you) before you absorb it. Never let a CLI review its own work.
+  Feed defects back to the original executor, cap at 2 revise rounds, then finish it yourself.
 - Delegate grunt work, keep synthesis and decisions to yourself
 - When a CLI agent times out or fails, **resume it** instead of re-spawning from scratch
 
@@ -375,7 +379,7 @@ independently-executable sub-tasks to speed up your work.
 
 **Note**: The team-leader does NOT receive this injection block — it is strictly advisory and is forbidden from spawning sub-agents or CLI agents. Its recommendations live in `tasks.md` under `Recommended Executor` / `Execution Mode` per batch.
 
-See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
+See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference, including the **Verified Delegation** rule. For a high-stakes change where the acceptance bar can be written down in advance, escalate to the `tribunal` skill's **Crucible** move — a cheap executor lane looped against a strong judge lane from another vendor family, gated on a frozen rubric.
 
 ---
 

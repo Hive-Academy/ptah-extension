@@ -24,10 +24,42 @@ Tier 3: CLI agents (Junior Helpers)
   ├── Spawned by sub-agents via MCP tools (ptah_agent_spawn)
   ├── Handle focused, independently-executable sub-tasks
   ├── No shared context — fully self-contained prompts
-  └── Available: ptah-cli, codex, copilot (user-configured)
+  └── Which ones exist is DISCOVERED via ptah_agent_list — never assumed
 ```
 
 **Key Principle**: Sub-agents delegate grunt work downward, but retain ownership of synthesis, decisions, and quality.
+
+---
+
+## Verified Delegation: never absorb unreviewed CLI code
+
+Tier-3 output is **junior labor, not evidence**. Research summaries and file surveys can be read and used directly. But any CLI-produced artifact that becomes **shipped code** — an implementation, a refactor, a test file, a config that runs — must clear an independent check before the sub-agent absorbs it.
+
+### The rule
+
+| CLI output kind                        | Before absorbing it                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------------------- |
+| Research, surveys, summaries, analysis | Sub-agent spot-checks the claims against the codebase. No second lane needed.       |
+| Scaffolding, boilerplate, test stubs   | Sub-agent reads it in full. It owns the result either way.                          |
+| **Implementation code that will ship** | **A different vendor family reviews it, or the sub-agent reviews it line by line.** |
+
+"Different vendor family" means `codex` reviewing `copilot`'s work, or a ptah-cli provider reviewing `codex`'s — never the same CLI reviewing itself. A lane grading its own output produces agreement, not verification.
+
+### Bounded revision, not an open loop
+
+When the review comes back with defects:
+
+1. Feed the defect list back to the **original** executor (resume via `resume_session_id` where supported — see [Session Resume](#session-resume-continuing-interrupted-agents)).
+2. Re-review.
+3. **Cap at 2 revise rounds.** If it has not converged by then, the sub-agent takes the work in-house and finishes it directly. Do not keep paying for rounds that are not shrinking the defect list.
+
+Every round is 2 paid calls. Announce the cap before starting.
+
+### When the review bar is worth writing down
+
+For a high-stakes change where the acceptance criteria can be stated in advance, use the `tribunal` skill's **Crucible** move rather than an ad-hoc review round — it adds a frozen rubric, a strict defect contract (`file:line` evidence required), a mentor note that stops the executor repeating the same class of error, a regression stop, and a build-verified `PASS`. Orchestration's rule above is the lightweight version of the same idea; Crucible is the full protocol.
+
+**A CLI lane's `PASS`, however it is phrased, is never proof.** The typecheck, tests, and lint are. Run them before the sub-agent reports done.
 
 ---
 
@@ -41,19 +73,19 @@ Before delegating, sub-agents (or the orchestrator) must discover what CLI agent
 ptah_agent_list {}
 ```
 
-**Response format**:
+**Response shape** — a markdown table, one row per spawnable agent:
 
-```json
-{
-  "agents": [
-    { "id": "agent-123", "cli": "codex", "status": "running", "task": "..." },
-    { "id": "agent-456", "cli": "ptah-cli", "status": "completed", "task": "..." }
-  ],
-  "available_clis": ["ptah-cli", "codex", "copilot"]
-}
+```
+| Agent        | Type     | Status        | Capabilities                                       |
+| ------------ | -------- | ------------- | -------------------------------------------------- |
+| cursor       | cli      | not installed | steer: no                                          |
+| ollama cloud | ptah-cli | available     | provider: Ollama Cloud, ptahCliId: pc-d8f4e156-…   |
+| claude fable | ptah-cli | available     | provider: Claude (Subscription), ptahCliId: pc-76…  |
 ```
 
-The `available_clis` field tells sub-agents which CLI agents the user has configured and can be spawned.
+Read it as: **`Type: cli` + `installed`** → spawn with `{ cli: '<Agent>' }`. **`Type: ptah-cli` + `available`** → spawn with `{ ptahCliId: '<the id in Capabilities>' }`.
+
+The rows above are one machine's output at one moment — **yours will differ**. Skip any row whose status is not installed/available. There is no dedicated provider column: the `provider:` token inside the Capabilities cell is the vendor family for cross-family review purposes, and a Claude provider is an ordinary row here, not a special case.
 
 ---
 
@@ -72,14 +104,22 @@ ptah_agent_spawn {
 
 **Parameters**:
 
-| Parameter    | Required | Description                                                 |
-| ------------ | -------- | ----------------------------------------------------------- |
-| `task`       | Yes      | Self-contained task prompt (see Task Prompt Template below) |
-| `cli`        | Yes      | CLI agent to use: ptah-cli, codex, copilot                  |
-| `taskFolder` | No       | Folder for agent to write results                           |
-| `files`      | No       | Files/globs the agent should focus on                       |
+| Parameter           | Required | Description                                                                                   |
+| ------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `task`              | **Yes**  | Self-contained task prompt (see Task Prompt Template below). **The only required parameter**  |
+| `cli`               | No       | A system CLI to use — one of the live enum on the tool schema. Omit for the user's default    |
+| `ptahCliId`         | No       | A configured ptah-cli provider agent, from `ptah_agent_list`. **Takes precedence over `cli`** |
+| `model`             | No       | Raw model id override. Overrides a ptah-cli lane's tier mapping                               |
+| `modelTier`         | No       | `opus` \| `sonnet` \| `haiku` — resolved through the provider's tier mappings. ptah-cli only  |
+| `resume_session_id` | No       | Continue a prior session — the `CLI Session ID` from `ptah_agent_status`                      |
+| `workingDirectory`  | No       | Must be inside the workspace. Defaults to workspace root                                      |
+| `taskFolder`        | No       | Folder for agent to write results                                                             |
+| `files`             | No       | Files/globs the agent should focus on                                                         |
+| `timeout`           | No       | Milliseconds; default and max 3600000 (1hr)                                                   |
 
-**Returns**: `{ agentId: "agent-789" }`
+`cli` and `ptahCliId` are the two **alternative addressing schemes** — see [CLI Agent Selection](#cli-agent-selection). `ptah-cli` is not a `cli` value; ptah-cli providers are reached only via `ptahCliId`.
+
+**Returns**: the new `agentId`, plus a `CLI Session ID` when the adapter reports one.
 
 ### Step 2: Poll Status
 
@@ -213,6 +253,7 @@ CLI agent output comes as unstructured text from stdout. Sub-agents should:
 ```
 1. Collect all CLI agent results
 2. Review each result for quality and accuracy
+   → if the result is shipped code, apply Verified Delegation (different-family review)
 3. Discard or re-run any low-quality results
 4. Merge relevant findings into sub-agent's own deliverable
 5. Add sub-agent's own analysis and synthesis on top
@@ -265,9 +306,9 @@ The requested CLI agent is not configured or not available.
 
 **Action**:
 
-- Check `ptah_agent_list` for available alternatives
-- Fall back to the CLI agent selection priority: ptah-cli > codex > copilot
-- If no CLI agents available, complete the sub-task manually
+- Check `ptah_agent_list` for available alternatives, and pick a substitute by task fit — see [CLI Agent Selection](#cli-agent-selection)
+- If the user named that specific agent, say which one is missing rather than substituting silently
+- If no CLI agents are available at all, complete the sub-task manually
 
 ### Concurrency Limit Reached
 
@@ -363,21 +404,31 @@ ptah_agent_spawn {
 - The `resume_session_id` is the **CLI Session ID** from `ptah_agent_status`, NOT the Ptah `agentId`
 - When resuming, use a continuation prompt (e.g., "Continue the previous task") — the original task is already in the session context
 - The resumed agent gets a new `agentId` but loads the old session's conversation history
-- Supported by: **ptah-cli**, **copilot**. Codex does not support resume (ephemeral sessions).
+- **Which adapters support resume is discovered, not memorized** — if `ptah_agent_status` reports a `CLI Session ID`, that lane can be resumed. If it reports none, respawn fresh with the context restated in the prompt.
 
 ---
 
-## CLI Agent Selection Priority
+## CLI Agent Selection
 
-When multiple CLI agents are available, prefer in this order:
+**The available agents are discovered, never assumed.** New CLI adapters ship between releases and every user configures a different set of providers, so `ptah_agent_list` is the only authoritative list — and the live `cli` enum on the `ptah_agent_spawn` schema is the only authoritative set of `cli` values. Do not carry a vendor list in your head from a previous run.
 
-| Priority | CLI Agent | Strengths                         |
-| -------- | --------- | --------------------------------- |
-| 1        | ptah-cli  | Best integration, project-aware   |
-| 2        | codex     | Strong at code generation         |
-| 3        | copilot   | General purpose, widely available |
+Two kinds of entry come back:
 
-Sub-agents should select based on availability and task fit. The priority order is a default — specific tasks may warrant a different choice.
+| Entry type | Address it with                                      | Model selection                                                                                   |
+| ---------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `cli`      | `{ cli: '<value>' }` for entries marked installed    | Optional `model: '<id>'`; omit for the user's default                                             |
+| `ptah-cli` | `{ ptahCliId: '<id>' }` for entries marked available | `modelTier: 'opus' \| 'sonnet' \| 'haiku'`, or a raw `model: '<id>'` to override the tier mapping |
+
+Choose on **task fit**, not on a fixed ranking:
+
+| Sub-task shape                                  | Pick a lane that is…                                          |
+| ----------------------------------------------- | ------------------------------------------------------------- |
+| Bulk scaffolding, boilerplate, repetitive edits | Cheap and fast — this is throughput work                      |
+| Analysis or design-sensitive work               | Strong reasoning (`modelTier: 'opus'` or the CLI's top model) |
+| Reviewing another lane's code                   | A **different family** than the one that wrote it             |
+| Anything needing resume after a timeout         | One that reports a `CLI Session ID` in `ptah_agent_status`    |
+
+If the user names a specific agent, use it. If a named agent is not in the discovery response, say which one and ask — do not substitute silently.
 
 ---
 
@@ -546,3 +597,4 @@ CLI agents should NOT be used for:
 - **strategies.md**: CLI delegation opportunities per strategy phase
 - **team-leader-modes.md**: Advisory executor recommendations that the orchestrator executes (team-leader never spawns)
 - **checkpoints.md**: Checkpoint 0.1 (CLI Agent Discovery) template
+- **`tribunal` skill → references/crucible.md**: the full executor/judge protocol (frozen rubric, defect contract, mentor note, round cap) when Verified Delegation's lightweight rule is not enough

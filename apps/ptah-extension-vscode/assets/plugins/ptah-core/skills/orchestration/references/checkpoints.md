@@ -91,8 +91,8 @@ When CLI delegation is enabled or auto, add to context.md:
 ## CLI Agent Delegation
 
 **Mode**: [enabled|disabled|auto]
-**Available Agents**: [list from ptah_agent_list]
-**Selection Priority**: ptah-cli > codex > copilot
+**Available Agents**: [the rows returned by ptah_agent_list, verbatim]
+**Selection**: by task fit — see cli-agent-delegation.md § CLI Agent Selection
 ```
 
 ---
