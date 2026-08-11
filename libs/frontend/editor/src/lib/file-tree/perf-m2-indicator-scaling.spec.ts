@@ -32,6 +32,12 @@
  * Only the shipped strategy is asserted on — the reference figure is logged as
  * context and never gates the build.
  *
+ * Each workload is sampled TRIALS times, interleaved with the other, and
+ * reduced by MINIMUM. That is the TASK_2026_217 fix, and the reasoning is on
+ * those three constants below: the assertion is a quotient of two
+ * sub-millisecond timings, which one sample each cannot measure steadily
+ * enough to be worth failing a build over.
+ *
  * `rpcCall` is mocked at the module boundary (same pattern as
  * git-status.service.spec.ts); only `GitStatusService` is real.
  */
@@ -60,8 +66,69 @@ const CHANGED_DIR_COUNT = 50;
 /** Untouched directories — the reference scan's worst case, and the common case. */
 const UNCHANGED_DIR_COUNT = 50;
 const DIR_NODE_COUNT = CHANGED_DIR_COUNT + UNCHANGED_DIR_COUNT;
-/** Passes per measurement, so one pass's noise does not dominate. */
+/**
+ * Lookups per timed sample. Deliberately UNCHANGED at 50 by TASK_2026_217,
+ * after raising it was tried and rejected: at 400 the same loop measured
+ * 0.373ms where 50 measured 0.889ms — eight times the work in less than half
+ * the time, i.e. V8 hoisting a `has` on a set it can prove never changes. A
+ * bigger sample here does not buy a steadier one, it buys a meaningless one,
+ * and it would silently turn this probe into a test that cannot fail. Holding
+ * the workload also keeps these figures comparable with the ones recorded in
+ * TASK_2026_173's measurements.md.
+ */
 const REPETITIONS = 50;
+
+/**
+ * Independent samples per workload, taken INTERLEAVED (small, large, small,
+ * large, ...) rather than in two blocks, so a machine that gets slower partway
+ * through the run does not land entirely on the large workload and manufacture
+ * growth that is not there.
+ *
+ * This, not the threshold, is the TASK_2026_217 fix. The assertion divides one
+ * sub-millisecond measurement by another, so a single GC pause or scheduler
+ * slice in either one moves the QUOTIENT by an order of magnitude. Measured
+ * over 12 consecutive local runs each way, on an idle machine:
+ *
+ *   one sample per workload   shipped growth 0.65x - 2.25x   (threshold is 3)
+ *   min of 7, interleaved     shipped growth 0.94x - 1.22x
+ *
+ * The CI failure that opened TASK_2026_217 reported 23.89x from the left-hand
+ * column. Note what the right-hand column costs: nothing but seven passes.
+ */
+const TRIALS = 7;
+
+/**
+ * Each workload is summarised by its MINIMUM sample, not its mean or median.
+ * Timing noise is strictly additive — a sample can be delayed by a GC pause
+ * but can never finish faster than the work takes — so across several samples
+ * the minimum is the best available estimate of the true cost, and the one
+ * least sensitive to how loaded the machine is.
+ *
+ * It also fixed the number this file exists to REPORT, not just the one it
+ * asserts. A single sample put the reference scan's growth at 1.37x-4.67x for
+ * a 10x workload; the minimum puts it at 6.0x-12.2x. A linear scan over 10x
+ * the keys must cost about 10x, so the old figure was understating the very
+ * growth this probe was written to show — the same noise, read as evidence.
+ */
+const summarise = (samples: readonly number[]): number => Math.min(...samples);
+
+/**
+ * A sample below this is dominated by timer resolution rather than by work,
+ * and a ratio built from it means nothing.
+ *
+ * Calibrated against what the minimum sample actually measures here: ~0.038ms
+ * for 5,000 lookups, i.e. ~8ns each, which is a believable optimised
+ * `Set.has`. (The FIRST sample costs ~0.889ms for the same work — that is the
+ * unoptimised figure recorded in measurements.md, and the reason the samples
+ * below are reduced by minimum rather than averaged.) The floor sits well
+ * under that so a healthy run clears it, and above what a collapsed workload
+ * can reach: at REPETITIONS = 1 the same probe measures 0.005-0.014ms across
+ * three runs, i.e. mostly the cost of the timer call itself. So shrinking the
+ * workload, or an engine optimising the loop away entirely as raising
+ * REPETITIONS to 400 did, fails loudly here rather than quietly restoring the
+ * flake — or replacing it with a test that cannot fail.
+ */
+const MIN_MEANINGFUL_SAMPLE_MS = 0.02;
 /**
  * Untimed passes run before every timed loop. Without these the FIRST
  * measurement runs interpreted and the second runs JIT-optimized, which alone
@@ -75,8 +142,14 @@ const LARGE_FILE_COUNT = 3000;
 /**
  * Growth allowance for the shipped strategy when the changed-file count grows
  * 10x. A genuinely constant-time lookup lands near 1x; anything multiplicative
- * lands near 10x. 3x leaves generous room for allocator and cache noise on a
- * loaded machine while still failing a reintroduced scan.
+ * lands near 10x.
+ *
+ * The number is unchanged by TASK_2026_217, but its justification is now true
+ * rather than hopeful: 3x was always described as leaving "generous room for
+ * noise", and against a single sample it did not — noise alone reached 2.25x
+ * locally and 23.89x in CI. Against the minimum of TRIALS interleaved samples
+ * the observed range is 0.94x-1.22x, so 3x is finally the generous margin it
+ * was documented to be, and a reintroduced scan still lands near 10x.
  */
 const MAX_SHIPPED_GROWTH_FACTOR = 3;
 
@@ -185,12 +258,15 @@ describe('perf M2 scaling — directory indicator lookup (B3 AC2)', () => {
   });
 
   /**
-   * Load `fileCount` changed files, then time both lookup strategies over the
-   * same DIR_NODE_COUNT directories. The set and map are materialized (and the
-   * set build separately timed) BEFORE the loops, so the per-node figures are
-   * lookup cost only.
+   * ONE sample: load `fileCount` changed files, then time both lookup
+   * strategies over the same DIR_NODE_COUNT directories. The set and map are
+   * materialized (and the set build separately timed) BEFORE the loops, so the
+   * per-node figures are lookup cost only.
+   *
+   * Called TRIALS times per workload — see `summarise` for why the samples are
+   * reduced by minimum.
    */
-  function measure(fileCount: number): {
+  function sample(fileCount: number): {
     buildMs: number;
     shippedMs: number;
     referenceMs: number;
@@ -246,34 +322,70 @@ describe('perf M2 scaling — directory indicator lookup (B3 AC2)', () => {
   }
 
   it('stays flat as changed files grow 10x, where the pre-B3 scan grows with them', () => {
-    const small = measure(SMALL_FILE_COUNT);
-    const large = measure(LARGE_FILE_COUNT);
+    const small: number[] = [];
+    const large: number[] = [];
+    const smallReference: number[] = [];
+    const largeReference: number[] = [];
+    let smallBuildMs = 0;
+    let largeBuildMs = 0;
 
-    // Exactly the changed half is marked, at both workloads (B3 AC3, both
-    // directions, over the same data the timings came from).
-    expect(small.marked).toBe(CHANGED_DIR_COUNT * REPETITIONS);
-    expect(large.marked).toBe(CHANGED_DIR_COUNT * REPETITIONS);
+    for (let trial = 0; trial < TRIALS; trial++) {
+      const s = sample(SMALL_FILE_COUNT);
+      const l = sample(LARGE_FILE_COUNT);
 
-    const shippedGrowth = large.shippedMs / small.shippedMs;
-    const referenceGrowth = large.referenceMs / small.referenceMs;
+      // Exactly the changed half is marked, at both workloads, on every trial
+      // (B3 AC3, both directions, over the same data the timings came from).
+      expect(s.marked).toBe(CHANGED_DIR_COUNT * REPETITIONS);
+      expect(l.marked).toBe(CHANGED_DIR_COUNT * REPETITIONS);
+
+      small.push(s.shippedMs);
+      large.push(l.shippedMs);
+      smallReference.push(s.referenceMs);
+      largeReference.push(l.referenceMs);
+      smallBuildMs = s.buildMs;
+      largeBuildMs = l.buildMs;
+    }
+
+    const smallMs = summarise(small);
+    const largeMs = summarise(large);
+    const shippedGrowth = largeMs / smallMs;
+    const referenceGrowth =
+      summarise(largeReference) / summarise(smallReference);
+
+    const format = (samples: readonly number[]): string =>
+      samples.map((ms) => ms.toFixed(2)).join(' ');
 
     console.log(
       `[perf-m2-scaling] ${DIR_NODE_COUNT} dirs (${CHANGED_DIR_COUNT} changed / ` +
-        `${UNCHANGED_DIR_COUNT} untouched) x ${REPETITIONS} passes\n` +
-        `  ${SMALL_FILE_COUNT} files: shipped=${small.shippedMs.toFixed(
+        `${UNCHANGED_DIR_COUNT} untouched) x ${REPETITIONS} lookups x ` +
+        `${TRIALS} trials, reduced by min
+` +
+        `  ${SMALL_FILE_COUNT} files: shipped=${smallMs.toFixed(
           3,
-        )}ms reference=${small.referenceMs.toFixed(
+        )}ms reference=${summarise(smallReference).toFixed(
           3,
-        )}ms setBuild=${small.buildMs.toFixed(3)}ms\n` +
-        `  ${LARGE_FILE_COUNT} files: shipped=${large.shippedMs.toFixed(
+        )}ms setBuild=${smallBuildMs.toFixed(3)}ms
+` +
+        `  ${LARGE_FILE_COUNT} files: shipped=${largeMs.toFixed(
           3,
-        )}ms reference=${large.referenceMs.toFixed(
+        )}ms reference=${summarise(largeReference).toFixed(
           3,
-        )}ms setBuild=${large.buildMs.toFixed(3)}ms\n` +
+        )}ms setBuild=${largeBuildMs.toFixed(3)}ms
+` +
         `  growth on 10x files: shipped=${shippedGrowth.toFixed(
           2,
-        )}x reference=${referenceGrowth.toFixed(2)}x`,
+        )}x reference=${referenceGrowth.toFixed(2)}x
+` +
+        `  shipped samples (ms): small=[${format(small)}] large=[${format(
+          large,
+        )}]`,
     );
+
+    // The ratio is only worth asserting on if the samples it divides are
+    // measurements rather than timer granularity. This is the guard on the
+    // flake itself, not on the code under test.
+    expect(smallMs).toBeGreaterThan(MIN_MEANINGFUL_SAMPLE_MS);
+    expect(largeMs).toBeGreaterThan(MIN_MEANINGFUL_SAMPLE_MS);
 
     // The B3 claim: the (directories x changed files) term is gone.
     expect(shippedGrowth).toBeLessThan(MAX_SHIPPED_GROWTH_FACTOR);
