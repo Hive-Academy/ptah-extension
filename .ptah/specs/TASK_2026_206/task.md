@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   editor:searchInFiles and editor:listAllFiles glob exclusion lists have

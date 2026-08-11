@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Directory rows in Source Control resolve to a generic "unknown" error

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_226
-status: in_review
+status: done
 type: DEVOPS
 title: >-
   Electron e2e silently tests a stale renderer -- libs/frontend changes never

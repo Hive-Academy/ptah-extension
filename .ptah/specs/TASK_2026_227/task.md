@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_227
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Hunk revert confirmation dialog is unclickable by mouse in Electron -- canvas

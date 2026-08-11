@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_229
-status: in_review
+status: done
 type: DEVOPS
 title: >-
   copy-renderer builds the webview in production while build-dev builds it in

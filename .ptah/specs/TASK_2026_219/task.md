@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Pre-write offset guard in applyHunks does not call restoreAfterFailedApply,

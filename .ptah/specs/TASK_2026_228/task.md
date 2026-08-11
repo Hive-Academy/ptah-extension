@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_228
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   thothActiveTab and marketplaceActiveProvider are still global while the view
