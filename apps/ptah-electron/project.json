@@ -213,8 +213,7 @@
           "nx build-main ptah-electron --configuration=development",
           "nx build-preload ptah-electron",
           "nx build-embedder-worker ptah-electron",
-          "nx build-voice-worker ptah-electron",
-          "nx build ptah-extension-webview --configuration=development"
+          "nx build-voice-worker ptah-electron"
         ],
         "parallel": false
       }
@@ -226,6 +225,16 @@
       "outputs": ["{workspaceRoot}/dist/apps/ptah-electron/renderer"],
       "options": {
         "command": "node apps/ptah-electron/scripts/copy-renderer.js"
+      }
+    },
+    "copy-renderer-dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build ptah-extension-webview --configuration=development",
+          "node apps/ptah-electron/scripts/copy-renderer.js"
+        ],
+        "parallel": false
       }
     },
     "rebuild-native": {
@@ -243,7 +252,7 @@
           "nx build-voice-worker ptah-electron",
           "nx build-dev ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
-          "nx copy-renderer ptah-electron",
+          "nx copy-renderer-dev ptah-electron",
           "node apps/ptah-electron/scripts/launch.js"
         ],
         "parallel": false

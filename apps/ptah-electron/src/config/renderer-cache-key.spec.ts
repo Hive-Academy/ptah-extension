@@ -2,7 +2,48 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 /**
- * THE COPY-RENDERER CACHE KEY AS AN EXECUTABLE ARTEFACT (TASK_2026_226).
+ * THE COPY-RENDERER CACHE KEY AS AN EXECUTABLE ARTEFACT (TASK_2026_226,
+ * extended by TASK_2026_229).
+ *
+ * TASK_2026_229 ADDENDUM.
+ * TASK_2026_226 made `copy-renderer` cache-correct, but left its
+ * `dependsOn: ["ptah-extension-webview:build"]` unpinned -- which resolves
+ * to the webview's `defaultConfiguration` (production), always, regardless
+ * of caller. `build-dev` built the SAME webview app in `development` config
+ * as an internal, ungraphed shell-out. Proven live and reproducible
+ * (TASK_2026_229): running the exact sequence `.github/workflows/
+ * electron-e2e.yml` used --  bare `nx run ptah-electron:build-dev` then bare
+ * `nx run ptah-electron:copy-renderer` -- silently replaced a correct
+ * development bundle (unminified, sourcemapped) with a production one
+ * (minified, no sourcemaps) in `dist/apps/ptah-electron/renderer`, with no
+ * error, no warning, and (confirmed by deliberately seeding a genuine
+ * pre-edit production cache entry and then editing source) NOT because of
+ * any Nx cache misbehavior -- production's own cache correctly invalidated
+ * on the edit every time this was tried. The bug is a deterministic
+ * configuration mismatch, not a cache bug and not fundamentally a race,
+ * though `apps/ptah-electron-e2e/project.json`'s `e2e`/`showcase`/
+ * `e2e:nightly` targets additionally re-trigger both as unordered sibling
+ * `dependsOn` entries, which layers a real race on top for that path.
+ *
+ * Nx has no mechanism to pin a configuration on a `dependsOn` edge
+ * (`TargetDependencyConfig` has no `configuration` field; a 3-segment
+ * `"project:target:configuration"` dependsOn string does not parse as one --
+ * confirmed against `node_modules/nx/src/config/workspace-json-project-json.d.ts`
+ * and `readProjectAndTargetFromTargetString` in
+ * `node_modules/nx/src/tasks-runner/utils.js`). So `copy-renderer` cannot be
+ * made to correctly serve both `package` (wants production) and
+ * `e2e`/`showcase`/`e2e:nightly` (want development) by itself.
+ *
+ * Fix: a second, explicit target, `copy-renderer-dev`, hardcodes
+ * `--configuration=development` on its own `nx build` shell-out and runs the
+ * copy script after it via `parallel: false` -- no `dependsOn`-based
+ * configuration inference, no sibling-ordering race. `build-dev` no longer
+ * builds the webview at all (that responsibility moved entirely to
+ * `copy-renderer-dev`), removing the duplicate, uncoordinated second trigger
+ * that made two builds of the same directory possible in the first place.
+ * `copy-renderer` (plain) is untouched and still the sole `package`
+ * dependency -- RI-1 through RI-6 below still pin it exactly as TASK_2026_226
+ * left it.
  *
  * WHY THIS TEST EXISTS.
  * `apps/ptah-electron/project.json` had no `implicitDependencies`, so
@@ -53,12 +94,27 @@ import { resolve } from 'path';
  */
 
 const PROJECT_JSON_PATH = resolve(__dirname, '..', '..', 'project.json');
+const E2E_PROJECT_JSON_PATH = resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'ptah-electron-e2e',
+  'project.json',
+);
+
+interface NxRunCommandsOptions {
+  command?: string;
+  commands?: string[];
+  parallel?: boolean;
+}
 
 interface NxTargetConfig {
   cache?: boolean;
   inputs?: unknown;
   outputs?: unknown;
   dependsOn?: string[];
+  options?: NxRunCommandsOptions;
 }
 
 interface NxProjectConfig {
@@ -66,8 +122,24 @@ interface NxProjectConfig {
   targets: Record<string, NxTargetConfig>;
 }
 
+interface NxDependsOnEntry {
+  target: string;
+  projects?: string[];
+}
+
+interface NxE2eTargetConfig {
+  dependsOn?: NxDependsOnEntry[];
+}
+
+interface NxE2eProjectConfig {
+  targets: Record<string, NxE2eTargetConfig>;
+}
+
 const raw = readFileSync(PROJECT_JSON_PATH, 'utf8');
 const config = JSON.parse(raw) as NxProjectConfig;
+
+const e2eRaw = readFileSync(E2E_PROJECT_JSON_PATH, 'utf8');
+const e2eConfig = JSON.parse(e2eRaw) as NxE2eProjectConfig;
 
 describe('apps/ptah-electron/project.json renderer cache key', () => {
   // Anti-vacuity: if project.json stops parsing or loses its target map, every
@@ -123,4 +195,82 @@ describe('apps/ptah-electron/project.json renderer cache key', () => {
   it('RI-6: build-dev declares no outputs (the reason RI-5 must hold)', () => {
     expect(config.targets['build-dev'].outputs).toBeUndefined();
   });
+
+  // RI-7 -- THE DUPLICATE TRIGGER IS GONE. build-dev's development webview
+  // build was the second, ungraphed place the webview could be rebuilt --
+  // removing it is what makes `copy-renderer-dev` the single authority.
+  // If a `nx build ptah-extension-webview` (or `nx run
+  // ptah-extension-webview:build`) shell-out ever creeps back into
+  // build-dev's commands, this fails.
+  it('RI-7: build-dev no longer builds ptah-extension-webview itself', () => {
+    const commands = config.targets['build-dev'].options?.commands ?? [];
+    expect(commands.some((c) => c.includes('ptah-extension-webview'))).toBe(
+      false,
+    );
+  });
+
+  // RI-8 -- copy-renderer-dev exists and hardcodes development. This is the
+  // caller-facing half of the fix: no `dependsOn`-based configuration
+  // inference (Nx has none to offer -- see file header), so the
+  // configuration must be a literal flag on its own `nx build` shell-out.
+  it('RI-8: copy-renderer-dev exists and builds the webview in development config', () => {
+    const commands = config.targets['copy-renderer-dev']?.options?.commands;
+    expect(commands).toBeDefined();
+    expect(
+      (commands ?? []).some(
+        (c) =>
+          c.includes('ptah-extension-webview') &&
+          c.includes('--configuration=development'),
+      ),
+    ).toBe(true);
+  });
+
+  // RI-9 -- ORDERING WITHOUT A GRAPH EDGE. copy-renderer-dev cannot rely on
+  // `dependsOn` (that's how the original race happened); parallel:false is
+  // the actual guarantee that the webview dev build completes before the
+  // copy script runs.
+  it('RI-9: copy-renderer-dev runs its commands sequentially, webview build before the copy script', () => {
+    const options = config.targets['copy-renderer-dev']?.options;
+    expect(options?.parallel).toBe(false);
+    const commands = options?.commands ?? [];
+    const buildIdx = commands.findIndex((c) =>
+      c.includes('ptah-extension-webview'),
+    );
+    const copyIdx = commands.findIndex((c) => c.includes('copy-renderer.js'));
+    expect(buildIdx).toBeGreaterThanOrEqual(0);
+    expect(copyIdx).toBeGreaterThan(buildIdx);
+  });
+
+  // RI-10 -- copy-renderer-dev must NOT be cache:true. Same trap RI-5 guards
+  // on build-dev: its first step is an ungraphed `nx build` shell-out with
+  // no `outputs` declared on THIS wrapper target, so a cache hit here would
+  // skip that shell-out with nothing correct to restore.
+  it('RI-10: copy-renderer-dev is not marked cacheable', () => {
+    expect(config.targets['copy-renderer-dev']?.cache).not.toBe(true);
+  });
+});
+
+describe('apps/ptah-electron-e2e/project.json dev renderer wiring (TASK_2026_229)', () => {
+  // Anti-vacuity.
+  it('anti-vacuity: e2e project.json parses and declares the three dev-build targets', () => {
+    expect(e2eConfig.targets).toBeDefined();
+    expect(e2eConfig.targets['e2e']).toBeDefined();
+    expect(e2eConfig.targets['showcase']).toBeDefined();
+    expect(e2eConfig.targets['e2e:nightly']).toBeDefined();
+  });
+
+  // RI-11/12/13 -- each of the three e2e-family targets must depend on
+  // copy-renderer-dev, not plain copy-renderer. Plain copy-renderer always
+  // resolves ptah-extension-webview:build to production (its dependsOn is
+  // unpinned and Nx has no per-edge configuration override) -- pointing
+  // these targets back at it silently reintroduces TASK_2026_229's bug.
+  it.each(['e2e', 'showcase', 'e2e:nightly'])(
+    'RI: %s depends on ptah-electron:copy-renderer-dev, not plain copy-renderer',
+    (targetName) => {
+      const dependsOn = e2eConfig.targets[targetName].dependsOn ?? [];
+      const targets = dependsOn.map((d) => d.target);
+      expect(targets).toContain('copy-renderer-dev');
+      expect(targets).not.toContain('copy-renderer');
+    },
+  );
 });

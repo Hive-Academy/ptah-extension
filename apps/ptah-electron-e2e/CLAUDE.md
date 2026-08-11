@@ -17,7 +17,7 @@ Playwright end-to-end tests for the built Electron app. Launches the actual `dis
 
 ## Build & Run
 
-- `nx run ptah-electron-e2e:e2e` — `dependsOn` `ptah-electron:build-dev` and `ptah-electron:copy-renderer`, then `npx playwright test`.
+- `nx run ptah-electron-e2e:e2e` — `dependsOn` `ptah-electron:build-dev` and `ptah-electron:copy-renderer-dev` (development-configured; the plain `copy-renderer` target always resolves production and is used only by `package` — TASK_2026_229), then `npx playwright test`.
 - `nx run ptah-electron-e2e:e2e:nightly` — same prep, filtered by `@nightly` tag.
 - `implicitDependencies: ['ptah-electron']` in `project.json`.
 
