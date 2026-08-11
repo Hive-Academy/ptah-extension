@@ -75,6 +75,7 @@ const TAB_ID = '22222222-2222-4222-8222-222222222222';
 function makeService(params: {
   isSessionActive?: jest.Mock;
   resumeSession?: jest.Mock;
+  isStreaming?: jest.Mock;
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -110,8 +111,14 @@ function makeService(params: {
   const codeExecutionMcp = {
     getPort: jest.fn().mockReturnValue(0),
   };
+  // `isStreaming` is load-bearing, not filler: `hasLiveSessionStream` treats a
+  // session as live only when the adapter reports it active AND the broadcaster
+  // reports an attached stream (5cff0927a). Omitting it makes the call
+  // `undefined` and the resulting TypeError surfaces as `success:false` from the
+  // outer catch — which is exactly how this spec broke.
   const streamBroadcaster = {
     streamEventsToWebview: jest.fn(),
+    isStreaming: params.isStreaming ?? jest.fn().mockReturnValue(false),
   };
 
   return new ChatSessionService(
@@ -191,8 +198,12 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
   });
 
   it('reports activated:true when the session is already live (no autoResume needed)', async () => {
+    // "Already live" means registered AND streaming. Active-but-not-streaming is
+    // a different case with its own behaviour — the record is treated as a
+    // corpse, torn down, and resumed for real — so both mocks are set here.
     const svc = makeService({
       isSessionActive: jest.fn().mockReturnValue(true),
+      isStreaming: jest.fn().mockReturnValue(true),
     });
 
     const params: ChatResumeParams = {

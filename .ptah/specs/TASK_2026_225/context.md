@@ -78,3 +78,82 @@ encodes "a session that is already live needs no autoResume and should report
 `resumeSession` returns on the already-live path, the spec is stale and should be
 updated with that reasoning recorded. If it did not, the service regressed. Do not
 "fix" this by relaxing the assertion until that question is answered.
+
+---
+
+## Resolution — 2026-08-11
+
+**The spec was stale. The service is correct. Fixed by completing the mock.**
+
+### The lead in "Attribution" above was wrong
+
+That section named `d7101460b` (`feat(output-styles)`) as the first place to look,
+on the strength of it being the file's most recent touch. It was not the cause.
+`git log -S "hasLiveSessionStream"` names the real one:
+
+```
+5cff0927a fix(chat): stop follow-up turns hanging on a session whose stream already died
+```
+
+"Most recently touched" and "what broke it" are different questions. The `-S` pickaxe
+over the symbol in the _service_ answered it immediately; the log over the _spec_ never
+could have.
+
+### Root cause
+
+`5cff0927a` introduced `hasLiveSessionStream` (`chat-session.service.ts:933`):
+
+```ts
+private hasLiveSessionStream(sessionId: SessionId, tabId: string): boolean {
+  if (!this.sdkAdapter.isSessionActive(sessionId)) return false;
+  return (
+    this.streamBroadcaster.isStreaming(sessionId as string) ||
+    this.streamBroadcaster.isStreaming(tabId)
+  );
+}
+```
+
+The spec's `streamBroadcaster` mock only ever defined `streamEventsToWebview`. So
+`this.streamBroadcaster.isStreaming` was `undefined`, calling it threw a TypeError, and
+`resumeSession`'s outer catch turned that into `{ success: false, error: … }`.
+
+That is why the failure landed on `expect(result.success).toBe(true)` — the FIRST
+assertion — and why `activated` was never reached. It also explains why only this one
+of the file's three tests failed: the other two pass `isSessionActive: false`, which
+returns at the guard clause above before the missing method is ever touched. The
+mock gap was invisible until a test drove the active path.
+
+### Fix
+
+`chat-session-resume-activate.spec.ts` — added `isStreaming` to the broadcaster mock,
+parameterised through `makeService` and defaulting to `false`, then set to `true` in the
+already-live test. The default matters: active-but-not-streaming is a genuinely different
+branch (the record is treated as a corpse, torn down via `endSession`, and resumed for
+real), so defaulting to `true` would have quietly mislabelled the other two tests.
+
+No production code changed. The service behaviour `5cff0927a` introduced is deliberate
+and is left exactly as it is.
+
+### The worker leak was a separate thing
+
+The carrier suspected the "worker process has failed to exit gracefully" warning might
+share a cause. It does not. Run alone with `--detectOpenHandles`:
+
+```
+npx jest --runTestsByPath src/lib/chat/session/chat-session-resume-activate.spec.ts --detectOpenHandles
+→ 3 passed, no warning, no handles reported
+```
+
+The warning belongs to some other spec in the full-suite run. Not pursued here; this
+carrier's scope was the failing assertion.
+
+### Verification
+
+| Command                                         | Result                                    |
+| ----------------------------------------------- | ----------------------------------------- |
+| `nx test rpc-handlers --skip-nx-cache`          | **74/74 suites, 1782 passed**, 31 skipped |
+| single spec, `--detectOpenHandles`              | 3 passed, clean                           |
+| `nx run-many -t lint typecheck -p rpc-handlers` | green                                     |
+
+Suite went from 1781 passed / 1 failed to 1782 passed / 0 failed — the delta is exactly
+the one test, with nothing else disturbed.

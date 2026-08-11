@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_225
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   chat-session-resume-activate TS-04 fails — resumeSession reports success:false
