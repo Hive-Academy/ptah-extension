@@ -55,17 +55,17 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         <h1 class="text-base font-semibold mb-1 text-center">
           Let's Personalize Your Ptah Experience
         </h1>
-        <p class="text-xs text-base-content/60 mb-4 text-center">
+        <p class="text-xs text-base-content-muted mb-4 text-center">
           Analyze your existing codebase and generate tailored AI agents for
           your tech stack
         </p>
 
         <div class="animate-fadeIn">
-          <p class="text-xs text-base-content/70 mb-2 text-center">
+          <p class="text-xs text-base-content-muted mb-2 text-center">
             We'll scan your project structure, detect your tech stack, and
             generate intelligent agents tailored to your codebase.
           </p>
-          <p class="text-xs text-base-content/60 mb-4 text-center">
+          <p class="text-xs text-base-content-muted mb-4 text-center">
             <span class="font-semibold">Estimated time:</span> 2-4 minutes
           </p>
 
@@ -82,7 +82,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 </div>
                 <div>
                   <h3 class="font-medium text-xs">Deep Analysis</h3>
-                  <p class="text-xs text-base-content/60">4-phase AI scan</p>
+                  <p class="text-xs text-base-content-muted">4-phase AI scan</p>
                 </div>
               </div>
             </div>
@@ -98,7 +98,9 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 </div>
                 <div>
                   <h3 class="font-medium text-xs">Smart Agents</h3>
-                  <p class="text-xs text-base-content/60">13 agent templates</p>
+                  <p class="text-xs text-base-content-muted">
+                    13 agent templates
+                  </p>
                 </div>
               </div>
             </div>
@@ -114,7 +116,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 </div>
                 <div>
                   <h3 class="font-medium text-xs">Quick Setup</h3>
-                  <p class="text-xs text-base-content/60">Under 5 minutes</p>
+                  <p class="text-xs text-base-content-muted">Under 5 minutes</p>
                 </div>
               </div>
             </div>
@@ -130,7 +132,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 </div>
                 <div>
                   <h3 class="font-medium text-xs">Project-Specific</h3>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-base-content-muted">
                     Matched to your stack
                   </p>
                 </div>
@@ -143,7 +145,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             <div class="max-w-sm mx-auto mb-4 text-left">
               <label
                 for="wizard-model-select"
-                class="text-xs font-semibold text-base-content/70 mb-1.5 block"
+                class="text-xs font-semibold text-base-content-muted mb-1.5 block"
               >
                 Analysis model
               </label>
@@ -167,7 +169,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                   class="mt-2 rounded-md border border-base-300 bg-base-200/40 px-3 py-2"
                 >
                   @if (info.description) {
-                    <p class="text-xs text-base-content/70">
+                    <p class="text-xs text-base-content-muted">
                       {{ info.description }}
                     </p>
                   }
@@ -202,23 +204,23 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           @if (isLoadingAnalyses()) {
             <div class="flex items-center justify-center gap-2">
               <span class="loading loading-spinner loading-xs"></span>
-              <span class="text-xs text-base-content/50"
+              <span class="text-xs text-base-content-muted"
                 >Loading previous analyses...</span
               >
             </div>
           } @else if (savedAnalyses().length > 0) {
             <div class="text-left">
-              <div class="divider text-xs text-base-content/40 my-3">
+              <div class="divider text-xs text-base-content-muted my-3">
                 OR LOAD PREVIOUS ANALYSIS
               </div>
 
               <div class="flex items-center gap-2 mb-3">
                 <lucide-angular
                   [img]="FolderOpenIcon"
-                  class="w-4 h-4 text-base-content/60"
+                  class="w-4 h-4 text-base-content-muted"
                   aria-hidden="true"
                 />
-                <h3 class="text-xs font-semibold text-base-content/70">
+                <h3 class="text-xs font-semibold text-base-content-muted">
                   Previous Analyses
                 </h3>
               </div>
@@ -242,7 +244,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                           }
                         </div>
                         <div
-                          class="flex items-center gap-3 text-xs text-base-content/50"
+                          class="flex items-center gap-3 text-xs text-base-content-muted"
                         >
                           <span class="flex items-center gap-1">
                             <lucide-angular

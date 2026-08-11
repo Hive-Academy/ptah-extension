@@ -49,7 +49,7 @@ interface WizardStep {
             <span
               class="hidden text-xs sm:inline"
               [class.text-base-content]="stepIndex() >= step.index"
-              [class.text-base-content/40]="stepIndex() < step.index"
+              [class.text-base-content-muted]="stepIndex() < step.index"
             >
               {{ step.label }}
             </span>

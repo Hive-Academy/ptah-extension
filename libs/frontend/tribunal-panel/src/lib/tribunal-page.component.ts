@@ -52,7 +52,7 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
         >
           <span class="text-sm font-semibold text-base-content">Tribunal</span>
           <span
-            class="rounded-full bg-base-300 px-2 py-0.5 text-[10px] uppercase tracking-wide text-base-content/70"
+            class="rounded-full bg-base-300 px-2 py-0.5 text-[10px] uppercase tracking-wide text-base-content-muted"
           >
             {{ tribunalState.move() }}
           </span>
@@ -80,13 +80,13 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
               data-testid="tribunal-panelist-bar"
             >
               <span
-                class="text-xs font-semibold uppercase tracking-wide text-base-content/60"
+                class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
               >
                 Panelists
               </span>
               <button
                 type="button"
-                class="btn btn-ghost btn-xs btn-square ml-auto shrink-0 text-base-content/60"
+                class="btn btn-ghost btn-xs btn-square ml-auto shrink-0 text-base-content-muted"
                 [attr.aria-pressed]="locked()"
                 [title]="
                   locked()
@@ -135,7 +135,7 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
                           [tribunalSessionId]="tribunalSessionId() ?? ''"
                         />
                       } @else {
-                        <div class="p-3 text-xs text-base-content/50">
+                        <div class="p-3 text-xs text-base-content-muted">
                           {{ tileLabel(tile) }}
                         </div>
                       }

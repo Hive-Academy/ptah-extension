@@ -260,7 +260,7 @@ export class FileTreeNodeComponent {
       case '??':
         return 'text-info';
       default:
-        return 'text-base-content/50';
+        return 'text-base-content-muted';
     }
   });
 

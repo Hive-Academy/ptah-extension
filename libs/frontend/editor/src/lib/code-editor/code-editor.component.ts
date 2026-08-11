@@ -117,7 +117,7 @@ type MonacoApi = typeof monaco;
       @if (vimModeService.enabled() && isFocused() && filePath()) {
         <div
           #vimStatusBar
-          class="h-6 bg-base-300 border-t border-base-content/10 text-xs px-2 flex items-center font-mono text-base-content/70 flex-shrink-0"
+          class="h-6 bg-base-300 border-t border-base-content/10 text-xs px-2 flex items-center font-mono text-base-content-muted flex-shrink-0"
           aria-label="Vim status"
         ></div>
       }

@@ -57,7 +57,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
           [class]="
             activeTab() === 'explorer'
               ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
           "
           (click)="activeTab.set('explorer')"
         >
@@ -72,7 +72,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
           [class]="
             activeTab() === 'source-control'
               ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
           "
           (click)="activeTab.set('source-control')"
         >
@@ -92,7 +92,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
           [class]="
             activeTab() === 'search'
               ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+              : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
           "
           (click)="activeTab.set('search')"
         >

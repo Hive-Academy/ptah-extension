@@ -50,7 +50,9 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
       <div class="max-w-6xl mx-auto">
         <div class="mb-4">
           <h2 class="text-lg font-bold mb-2">Generating Your Configuration</h2>
-          <p class="text-base-content/70">Creating customized agent files...</p>
+          <p class="text-base-content-muted">
+            Creating customized agent files...
+          </p>
         </div>
 
         <!-- Empty/initializing state (full-width, no grid) -->
@@ -84,7 +86,7 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                 <h3 class="text-xl font-semibold mb-2">
                   Initializing Generation
                 </h3>
-                <p class="text-base-content/60">
+                <p class="text-base-content-muted">
                   Please wait while we prepare your configuration files...
                 </p>
               </div>
@@ -139,7 +141,7 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                       aria-label="Overall generation progress"
                     ></progress>
                     <div
-                      class="flex justify-between text-sm text-base-content/60 mt-2"
+                      class="flex justify-between text-sm text-base-content-muted mt-2"
                     >
                       <span
                         >{{ completedCount() }} of {{ totalCount() }} items
@@ -162,7 +164,7 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                     >
                       <span class="badge badge-primary badge-lg">🤖</span>
                       Agent Files
-                      <span class="text-sm text-base-content/60 font-normal">
+                      <span class="text-sm text-base-content-muted font-normal">
                         ({{ getCompletedCountByType('agent') }}/{{
                           agentItems().length
                         }})
@@ -223,7 +225,8 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                                         [value]="item.progress"
                                         max="100"
                                       ></progress>
-                                      <span class="text-xs text-base-content/60"
+                                      <span
+                                        class="text-xs text-base-content-muted"
                                         >{{ item.progress }}%</span
                                       >
                                     </div>

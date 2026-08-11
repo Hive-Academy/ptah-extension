@@ -29,7 +29,7 @@ import type { VendorLane } from '../types/tribunal-ui.types';
           [sessionId]="tribunalSessionId()"
         />
       } @else {
-        <p class="px-3 py-4 text-center text-xs text-base-content/40">
+        <p class="px-3 py-4 text-center text-xs text-base-content-muted">
           Awaiting {{ lane().displayName }}…
         </p>
       }

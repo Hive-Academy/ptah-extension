@@ -36,7 +36,7 @@ import {
         </div>
         <div>
           <h2 class="text-sm font-semibold text-base-content">Ptah Skills</h2>
-          <p class="text-xs text-base-content/50 mt-1 leading-relaxed">
+          <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
             Enhance your sessions with specialized skills for orchestration,
             frontend patterns, backend architecture, and more.
           </p>

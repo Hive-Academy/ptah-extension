@@ -69,7 +69,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
         </span>
         <lucide-angular
           [img]="isExpanded() ? ChevronUpIcon : ChevronDownIcon"
-          class="w-4 h-4 text-base-content/60"
+          class="w-4 h-4 text-base-content-muted"
           aria-hidden="true"
         />
       </button>

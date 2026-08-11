@@ -55,7 +55,7 @@ import { TribunalStateService } from '../services/tribunal-state.service';
           <span
             class="flex items-center gap-1 rounded-full bg-base-200/60 px-1.5 py-0.5 text-[10px] font-medium"
             [class.text-info]="hasRunningAgents()"
-            [class.text-base-content/50]="!hasRunningAgents()"
+            [class.text-base-content-muted]="!hasRunningAgents()"
             [attr.title]="agentSummary()"
             data-testid="tribunal-conductor-agent-badge"
           >
@@ -69,7 +69,7 @@ import { TribunalStateService } from '../services/tribunal-state.service';
           </span>
         }
         <span
-          class="ml-auto flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-base-content/60"
+          class="ml-auto flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-base-content-muted"
         >
           <span
             class="h-2 w-2 rounded-full"
@@ -83,7 +83,7 @@ import { TribunalStateService } from '../services/tribunal-state.service';
         </span>
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square text-base-content/60"
+          class="btn btn-ghost btn-xs btn-square text-base-content-muted"
           [title]="
             isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
           "
@@ -109,7 +109,7 @@ import { TribunalStateService } from '../services/tribunal-state.service';
         </div>
       } @else {
         <p
-          class="px-3 py-3 text-xs text-base-content/50"
+          class="px-3 py-3 text-xs text-base-content-muted"
           data-testid="tribunal-conductor-empty"
         >
           Waiting for the conductor to convene the panel…

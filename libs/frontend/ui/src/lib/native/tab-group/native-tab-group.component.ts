@@ -181,13 +181,13 @@ export class NativeTabGroupComponent {
   protected tabClasses(tab: NativeTab): string {
     return tab.id === this.activeTabId()
       ? 'border-primary text-base-content font-medium'
-      : 'border-transparent text-base-content/60 hover:text-base-content';
+      : 'border-transparent text-base-content-muted hover:text-base-content';
   }
 
   protected badgeClasses(tab: NativeTab): string {
     return tab.id === this.activeTabId()
       ? 'bg-primary/20 text-primary'
-      : 'bg-base-300/60 text-base-content/60';
+      : 'bg-base-300/60 text-base-content-muted';
   }
 
   protected select(tab: NativeTab): void {

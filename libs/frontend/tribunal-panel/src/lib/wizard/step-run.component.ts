@@ -29,7 +29,7 @@ import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
         <h3 class="text-base font-semibold text-base-content">
           Ready to convene
         </h3>
-        <p class="max-w-sm text-sm text-base-content/55">
+        <p class="max-w-sm text-sm text-base-content-muted">
           {{ lanes().length }} vendor(s) will join the {{ move() }}. The page
           switches to the live grid — type your objective in the conductor chat
           to start the run.

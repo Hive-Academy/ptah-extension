@@ -23,7 +23,7 @@ interface MoveCard {
     <div class="flex flex-col gap-4" data-testid="tribunal-step-pick-move">
       <header class="flex flex-col gap-1">
         <h3 class="text-base font-semibold text-base-content">Pick a move</h3>
-        <p class="text-sm text-base-content/55">
+        <p class="text-sm text-base-content-muted">
           Choose how the panel of vendors should work together.
         </p>
       </header>
@@ -55,12 +55,12 @@ interface MoveCard {
               }}</span>
               @if (!card.enabled) {
                 <span
-                  class="rounded-full bg-base-300 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-base-content/50"
+                  class="rounded-full bg-base-300 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-base-content-muted"
                   >Coming soon</span
                 >
               }
             </span>
-            <span class="text-xs text-base-content/55">{{
+            <span class="text-xs text-base-content-muted">{{
               card.description
             }}</span>
           </button>

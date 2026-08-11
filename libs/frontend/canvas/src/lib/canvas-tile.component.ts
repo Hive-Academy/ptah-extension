@@ -75,7 +75,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           (click)="$event.stopPropagation()"
         />
         <button
-          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-base-content"
+          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-base-content"
           (click)="onToggleViewMode($event)"
           [title]="
             isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
@@ -87,7 +87,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           />
         </button>
         <button
-          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
+          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-error"
           (click)="onClose($event)"
           aria-label="Close tile"
           title="Close tile"

@@ -49,7 +49,7 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
             <span class="font-medium text-base-content truncate">
               {{ agent.displayName || agent.cli }}
             </span>
-            <span class="text-base-content/40 truncate flex-1">
+            <span class="text-base-content-muted truncate flex-1">
               {{ agent.task | slice: 0 : 40
               }}{{ agent.task.length > 40 ? '...' : '' }}
             </span>
@@ -108,7 +108,7 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
         </div>
       } @empty {
         <div
-          class="flex items-center justify-center h-12 text-[10px] text-base-content/40"
+          class="flex items-center justify-center h-12 text-[10px] text-base-content-muted"
         >
           No agents
         </div>

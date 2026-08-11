@@ -80,7 +80,7 @@ interface UserBubble {
             class="w-8 h-8 animate-spin text-primary mx-auto"
             aria-hidden="true"
           />
-          <p class="mt-3 text-sm text-base-content/60">
+          <p class="mt-3 text-sm text-base-content-muted">
             Initializing AI Team Builder...
           </p>
         </div>
@@ -103,7 +103,7 @@ interface UserBubble {
             {{ headerTitle() }}
           </h1>
           @if (state.configSummary() !== 'No configuration yet') {
-            <span class="text-xs text-base-content/40 hidden sm:inline">
+            <span class="text-xs text-base-content-muted hidden sm:inline">
               {{ state.configSummary() }}
             </span>
           }
@@ -167,7 +167,7 @@ interface UserBubble {
                 <h2 class="text-lg font-semibold text-base-content mb-2">
                   Describe your AI team
                 </h2>
-                <p class="text-sm text-base-content/50 max-w-md">
+                <p class="text-sm text-base-content-muted max-w-md">
                   Tell me what you're building and I'll plan it with you, then
                   configure the agents, skills, prompts, and MCP servers for
                   your workspace.
@@ -200,7 +200,7 @@ interface UserBubble {
               <div class="flex justify-start">
                 <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-base-200">
                   <span
-                    class="loading loading-dots loading-sm text-base-content/50"
+                    class="loading loading-dots loading-sm text-base-content-muted"
                   ></span>
                 </div>
               </div>
@@ -332,7 +332,7 @@ interface UserBubble {
             >
               Discard unsaved changes?
             </h2>
-            <p class="text-sm text-base-content/70 mb-4">
+            <p class="text-sm text-base-content-muted mb-4">
               You have an in-progress AI team configuration. Closing now will
               reset it.
             </p>

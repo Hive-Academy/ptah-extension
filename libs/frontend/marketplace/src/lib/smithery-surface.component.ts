@@ -129,7 +129,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
               <h3 class="text-sm font-semibold text-base-content">
                 Connect Smithery
               </h3>
-              <p class="text-[11px] text-base-content/50">
+              <p class="text-[11px] text-base-content-muted">
                 Enter a Smithery API key to browse and install hosted MCP
                 servers.
               </p>
@@ -165,7 +165,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
               }
             </button>
           </form>
-          <p class="text-[10px] text-base-content/30 text-center">
+          <p class="text-[10px] text-base-content-muted text-center">
             Your key is stored encrypted by Ptah and never leaves your machine.
           </p>
         </div>
@@ -174,7 +174,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
         <div class="relative">
           <lucide-angular
             [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40"
+            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
             aria-hidden="true"
           />
           <input
@@ -229,12 +229,12 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
             }
           } @else {
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               {{ listHeading() }}
             </div>
             @if (servers().length === 0) {
-              <div class="text-xs text-base-content/50 text-center py-4">
+              <div class="text-xs text-base-content-muted text-center py-4">
                 {{ emptyMessage() }}
               </div>
             }
@@ -261,7 +261,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                         aria-hidden="true"
                       >
                         <span
-                          class="text-sm font-semibold text-base-content/60"
+                          class="text-sm font-semibold text-base-content-muted"
                         >
                           {{ avatarLetter(server) }}
                         </span>
@@ -324,7 +324,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                         }
                       </div>
                       <div
-                        class="flex items-center gap-1 text-[10px] text-base-content/40 font-mono mt-0.5 truncate"
+                        class="flex items-center gap-1 text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
                       >
                         <span class="truncate">{{ server.name }}</span>
                         @if (hasUseCount(server)) {
@@ -338,7 +338,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                         }
                       </div>
                       <p
-                        class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                        class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
                       >
                         {{ server.description || 'No description available' }}
                       </p>
@@ -407,7 +407,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                           } @else {
                             @if (activeConfigSchema(); as schema) {
                               <div
-                                class="text-[10px] text-base-content/50 uppercase tracking-wide font-medium"
+                                class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
                               >
                                 Configuration
                               </div>
@@ -419,7 +419,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                               />
                             } @else {
                               <div
-                                class="text-[11px] text-base-content/50 py-1"
+                                class="text-[11px] text-base-content-muted py-1"
                               >
                                 No configuration required — one-click setup.
                               </div>
@@ -433,7 +433,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                             @switch (setupPhase()) {
                               @case ('validating') {
                                 <div
-                                  class="text-[11px] text-base-content/60 flex items-center gap-1.5"
+                                  class="text-[11px] text-base-content-muted flex items-center gap-1.5"
                                   aria-live="polite"
                                 >
                                   <span
@@ -444,7 +444,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                               }
                               @case ('installing') {
                                 <div
-                                  class="text-[11px] text-base-content/60 flex items-center gap-1.5"
+                                  class="text-[11px] text-base-content-muted flex items-center gap-1.5"
                                   aria-live="polite"
                                 >
                                   <span
@@ -520,7 +520,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
           }
         </div>
 
-        <div class="text-[10px] text-base-content/30 text-center pt-1">
+        <div class="text-[10px] text-base-content-muted text-center pt-1">
           Powered by
           <a
             href="https://smithery.ai"

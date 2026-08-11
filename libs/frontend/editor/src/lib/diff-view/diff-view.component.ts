@@ -406,7 +406,7 @@ const APPLY_FAILED_MESSAGE =
 
         @if (loadState() === 'loading') {
           <div
-            class="absolute inset-0 flex items-center justify-center text-sm text-base-content/60 pointer-events-none"
+            class="absolute inset-0 flex items-center justify-center text-sm text-base-content-muted pointer-events-none"
           >
             <span class="loading loading-spinner loading-sm mr-2"></span>
             Loading diff editor…
@@ -416,7 +416,7 @@ const APPLY_FAILED_MESSAGE =
             class="absolute inset-0 flex flex-col items-center justify-center p-4 text-sm text-error gap-2"
           >
             <span class="font-medium">Failed to load diff editor</span>
-            <span class="text-xs text-base-content/60 max-w-md text-center">
+            <span class="text-xs text-base-content-muted max-w-md text-center">
               {{ loadError() }}
             </span>
           </div>
@@ -443,7 +443,7 @@ const APPLY_FAILED_MESSAGE =
             }}</span>
             @if (gitErrorDetail(); as detail) {
               <span
-                class="text-xs text-base-content/60 max-w-md text-center break-all"
+                class="text-xs text-base-content-muted max-w-md text-center break-all"
                 >{{ detail }}</span
               >
             }
@@ -458,7 +458,7 @@ const APPLY_FAILED_MESSAGE =
           </div>
         } @else if (isBinary()) {
           <div
-            class="absolute inset-0 flex items-center justify-center p-4 bg-base-100 text-sm text-base-content/60"
+            class="absolute inset-0 flex items-center justify-center p-4 bg-base-100 text-sm text-base-content-muted"
             data-testid="diff-binary-overlay"
           >
             Binary file — diff not shown
@@ -524,7 +524,7 @@ const APPLY_FAILED_MESSAGE =
             </h3>
             <p
               id="ptah-hunk-revert-desc"
-              class="py-3 text-sm text-base-content/70"
+              class="py-3 text-sm text-base-content-muted"
             >
               {{ revertDialogDescription() }}
             </p>
