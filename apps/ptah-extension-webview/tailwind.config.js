@@ -9,6 +9,27 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        /**
+         * `base-content-muted` — the secondary tier of the text ladder.
+         *
+         * TASK_2026_183 removed `text-base-content/40|50|60|80` because no
+         * single alpha is correct on every theme: composited in sRGB, anubis
+         * `/40` is 3.31:1 and the built-in daisyUI `dark` fails even at `/60`
+         * (3.45:1) because its base-content is only 7.03:1 at FULL opacity.
+         * Hierarchy therefore has to come from a value chosen per theme, which
+         * is what `--bcm` is. Values are computed, not eyeballed — see the
+         * ratio table in TASK_2026_186 and `src/app/base-content-muted.spec.ts`,
+         * which recomputes every theme from the literal theme source and fails
+         * if any drops below 4.5:1.
+         *
+         * The `var(--bc)` fallback is deliberate and load-bearing: a theme that
+         * has no measured `--bcm` renders at full base-content contrast. An
+         * unhandled theme therefore degrades to "not visually muted", never to
+         * "fails contrast".
+         */
+        'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Menlo', 'monospace'],
@@ -72,6 +93,9 @@ module.exports = {
           'base-200': '#1a1a20',
           'base-300': '#242430',
           'base-content': '#e8e6e1',
+          // Secondary text tier. 40% toward base-100 in OKLCH → 5.29:1. See
+          // the `colors` block above and base-content-muted.spec.ts.
+          '--bcm': '63.048152% 0.00745 23.427972',
 
           // SEMANTIC COLORS
           info: '#3b82f6',
@@ -128,6 +152,9 @@ module.exports = {
           'base-200': 'oklch(93.982% 0.007 61.449)', // Slightly darker cream
           'base-300': 'oklch(91.586% 0.006 53.44)', // Card/panel background
           'base-content': 'oklch(23.574% 0.066 313.189)', // Dark purple-gray text
+          // Secondary text tier. 40% toward base-100 in OKLCH → 5.01:1. See
+          // the `colors` block above and base-content-muted.spec.ts.
+          '--bcm': '53.2596% 0.0412 354.4634',
 
           // SEMANTIC COLORS (cupcake exact match)
           info: 'oklch(68% 0.169 237.323)',

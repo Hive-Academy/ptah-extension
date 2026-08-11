@@ -111,7 +111,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
 
         @if (store.totalCount() > 0) {
           <span
-            class="text-xs text-base-content tabular-nums"
+            class="text-xs text-base-content-muted tabular-nums"
             title="Board totals — active = In Progress + In Review"
           >
             {{ store.totalCount() }} total ·
@@ -335,7 +335,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                   No tasks on the board
                 }
               </p>
-              <p class="text-xs text-base-content max-w-xs">
+              <p class="text-xs text-base-content-muted max-w-xs">
                 Create a task to generate a
                 <span class="font-mono">task.md</span> with valid frontmatter —
                 it becomes the first card on the board.
@@ -375,7 +375,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                   <p class="text-sm font-medium text-base-content">
                     No tasks match the current filter
                   </p>
-                  <p class="text-xs text-base-content max-w-xs">
+                  <p class="text-xs text-base-content-muted max-w-xs">
                     All {{ store.totalIndexed() }} indexed task(s) are still on
                     the board — the active filter is hiding every one of them.
                     Remove a chip above, or clear the filter.
@@ -531,7 +531,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         <h2 class="text-sm font-semibold">
           {{ store.excludedCount() }} folder(s) skipped
         </h2>
-        <p class="text-xs text-base-content">
+        <p class="text-xs text-base-content-muted">
           These sub-folders of
           <span class="font-mono">{{ specRoot }}</span> exist on disk but never
           reach the board.
@@ -559,7 +559,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                 </span>
               </div>
               <p
-                class="text-xs text-base-content"
+                class="text-xs text-base-content-muted"
                 data-testid="tasks-excluded-reason"
               >
                 {{ folder.reasonLabel }}
@@ -569,7 +569,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         </ul>
       } @else if (store.excludedNamesUnavailable()) {
         <p
-          class="text-xs text-base-content"
+          class="text-xs text-base-content-muted"
           data-testid="tasks-excluded-unnamed"
         >
           This host reported {{ store.excludedCount() }} skipped folder(s) but
@@ -577,7 +577,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           predates the named-exclusion contract and must be updated.
         </p>
       } @else {
-        <p class="text-xs text-base-content">
+        <p class="text-xs text-base-content-muted">
           Nothing is being skipped — every task folder on disk is on the board.
         </p>
       }

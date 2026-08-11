@@ -44,7 +44,7 @@ import { TaskRelationsComponent } from './task-relations.component';
       <header
         class="flex items-center justify-between gap-2 px-3 py-2 border-b border-base-content/10"
       >
-        <span class="text-xs font-mono text-base-content/50 truncate">
+        <span class="text-xs font-mono text-base-content-muted truncate">
           {{ detail()?.id }}
         </span>
         <button
@@ -68,7 +68,7 @@ import { TaskRelationsComponent } from './task-relations.component';
               {{ task.title }}
             </h2>
             @if (task.description) {
-              <p class="text-xs text-base-content/60 leading-snug">
+              <p class="text-xs text-base-content-muted leading-snug">
                 {{ task.description }}
               </p>
             }
@@ -76,27 +76,27 @@ import { TaskRelationsComponent } from './task-relations.component';
 
           <!-- Frontmatter facts -->
           <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <dt class="text-base-content/50">Status</dt>
+            <dt class="text-base-content-muted">Status</dt>
             <dd>
               <span class="badge badge-xs" [class]="statusBadge()">
                 {{ statusLabel() }}
               </span>
             </dd>
-            <dt class="text-base-content/50">Type</dt>
+            <dt class="text-base-content-muted">Type</dt>
             <dd>{{ task.type ?? '—' }}</dd>
             @if (task.estimate; as estimate) {
-              <dt class="text-base-content/50">Estimate</dt>
+              <dt class="text-base-content-muted">Estimate</dt>
               <dd data-testid="task-detail-estimate">
                 {{ estimate }} — {{ estimateLabel() }}
               </dd>
             }
             @if (task.executor) {
-              <dt class="text-base-content/50">Executor</dt>
+              <dt class="text-base-content-muted">Executor</dt>
               <dd>{{ task.executor }}</dd>
             }
-            <dt class="text-base-content/50">Created</dt>
+            <dt class="text-base-content-muted">Created</dt>
             <dd>{{ task.created ?? '—' }}</dd>
-            <dt class="text-base-content/50">Updated</dt>
+            <dt class="text-base-content-muted">Updated</dt>
             <dd>{{ task.updated ?? '—' }}</dd>
           </dl>
 
@@ -104,7 +104,7 @@ import { TaskRelationsComponent } from './task-relations.component';
                author typed them (NFR-4 / NFR-13). -->
           @if (task.labels.length > 0) {
             <div class="flex flex-col gap-1" data-testid="task-detail-labels">
-              <span class="text-xs text-base-content/50">Labels</span>
+              <span class="text-xs text-base-content-muted">Labels</span>
               <div class="flex flex-wrap gap-1">
                 @for (label of task.labels; track $index) {
                   <span
@@ -137,7 +137,7 @@ import { TaskRelationsComponent } from './task-relations.component';
                and screen-reader announced with no JavaScript at all. -->
           <details class="text-xs" data-testid="task-detail-editor">
             <summary
-              class="cursor-pointer select-none text-base-content/60 hover:text-base-content"
+              class="cursor-pointer select-none text-base-content-muted hover:text-base-content"
             >
               Edit metadata
             </summary>
@@ -186,7 +186,7 @@ import { TaskRelationsComponent } from './task-relations.component';
                stage ran; a missing Review/Tests row on a Done task is the gap
                the board can't otherwise surface. -->
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-base-content/50">Workflow</span>
+            <span class="text-xs text-base-content-muted">Workflow</span>
             <div class="flex flex-col gap-0.5">
               @for (stage of workflowArtifacts(); track stage.label) {
                 @if (stage.present) {
@@ -201,13 +201,13 @@ import { TaskRelationsComponent } from './task-relations.component';
                       class="w-3 h-3 text-success shrink-0"
                     />
                     <span>{{ stage.label }}</span>
-                    <span class="font-mono text-base-content/40 truncate">{{
+                    <span class="font-mono text-base-content-muted truncate">{{
                       stage.file
                     }}</span>
                   </button>
                 } @else {
                   <div
-                    class="flex items-center gap-1.5 text-xs text-base-content/30"
+                    class="flex items-center gap-1.5 text-xs text-base-content-muted"
                     [title]="stage.file + ' not generated'"
                   >
                     <lucide-angular
@@ -225,7 +225,7 @@ import { TaskRelationsComponent } from './task-relations.component';
           <!-- Artifacts — every filename present on disk in the task folder.
                Click to open in the editor (file:open). -->
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-base-content/50">
+            <span class="text-xs text-base-content-muted">
               Files ({{ task.artifacts.length }})
             </span>
             @if (task.artifacts.length > 0) {
@@ -242,7 +242,7 @@ import { TaskRelationsComponent } from './task-relations.component';
                 }
               </div>
             } @else {
-              <span class="text-[11px] text-base-content/30 italic">
+              <span class="text-[11px] text-base-content-muted italic">
                 No files in this task folder yet
               </span>
             }
@@ -256,7 +256,7 @@ import { TaskRelationsComponent } from './task-relations.component';
         </div>
       } @else {
         <div
-          class="flex flex-1 items-center justify-center text-sm text-base-content/40"
+          class="flex flex-1 items-center justify-center text-sm text-base-content-muted"
         >
           Task not found
         </div>

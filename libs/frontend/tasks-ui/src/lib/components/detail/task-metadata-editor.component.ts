@@ -68,7 +68,10 @@ import type { TaskMetadataWrite } from './task-metadata-write';
     <div class="flex flex-col gap-3" data-testid="task-metadata-editor">
       <!-- Labels ------------------------------------------------------------->
       <div class="flex flex-col gap-1">
-        <span class="text-xs text-base-content/50" id="task-label-editor-label">
+        <span
+          class="text-xs text-base-content-muted"
+          id="task-label-editor-label"
+        >
           Labels
         </span>
 
@@ -138,7 +141,7 @@ import type { TaskMetadataWrite } from './task-metadata-write';
 
       <!-- Estimate ----------------------------------------------------------->
       <label class="flex flex-col gap-1">
-        <span class="text-xs text-base-content/50">Estimate</span>
+        <span class="text-xs text-base-content-muted">Estimate</span>
         <!-- Selection is expressed per-option rather than as [value] on the
              select: the options come from an @for, whose embedded views are
              created AFTER the host element's own bindings run, so a [value]
@@ -173,7 +176,7 @@ import type { TaskMetadataWrite } from './task-metadata-write';
       <!-- Parent ------------------------------------------------------------->
       <div class="flex flex-col gap-1">
         <span
-          class="text-xs text-base-content/50"
+          class="text-xs text-base-content-muted"
           id="task-parent-editor-label"
         >
           Parent

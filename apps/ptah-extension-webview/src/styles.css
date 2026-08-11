@@ -119,6 +119,71 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --ptah-gold-soft: oklch(58% 0.132 75 / 0.14);
 }
 
+/* ============================================================================
+   `--bcm` / base-content-muted — SECONDARY TEXT TIER, PER THEME (TASK_2026_186)
+   ============================================================================
+
+   `anubis` and `anubis-light` get their `--bcm` from tailwind.config.js, where
+   they are defined. The other 32 daisyUI themes are compiled into the deferred
+   `theme-extra.css` from node_modules and cannot be edited there, so their
+   measured values live here. This sheet is always loaded, so the property is
+   set whichever way the deferred sheet arrives.
+
+   WHY A TOKEN AND NOT `text-base-content/60`
+   TASK_2026_183 removed the alpha ladder because no single alpha is correct
+   everywhere. Composited in sRGB, `/60` is 5.94:1 on anubis but 3.45:1 on the
+   built-in `dark` theme — because `dark`'s base-content is only 7.03:1 at FULL
+   opacity. There is no alpha that passes on both.
+
+   HOW THESE VALUES WERE CHOSEN
+   Each is base-content interpolated toward that theme's own base-100 in OKLCH,
+   by the largest fraction (capped at 40%) that still measures >= 5.0:1 — the
+   4.5:1 gate plus headroom. Themes with little headroom get little muting;
+   `aqua` gets none at all (its base-content is only 4.73:1 to begin with), which
+   is the correct answer rather than a failure.
+
+   DO NOT hand-edit these. Every value here is re-measured by
+   apps/ptah-extension-webview/src/app/base-content-muted.spec.ts, which reads
+   the literal theme sources — including daisyUI's own auto-generation of an
+   absent `base-content` — and fails if any theme drops below 4.5:1 or if a
+   theme in the picker has no value at all. To ADD a theme, compute its value
+   with the rule above (largest OKLCH mix toward base-100, capped at 40%, that
+   still measures >= 5.0:1) and let the spec confirm it. A theme missing from
+   this list is safe but unmuted: the utility falls back to `var(--bc)`.
+   ============================================================================ */
+[data-theme='acid'] { --bcm: 51.22539% 0 0; }
+[data-theme='aqua'] { --bcm: 89.751922% 0.025508 261.181674; }
+[data-theme='autumn'] { --bcm: 49.823638% 0 0; }
+[data-theme='black'] { --bcm: 58.480355% 0 0; }
+[data-theme='bumblebee'] { --bcm: 52% 0 0; }
+[data-theme='business'] { --bcm: 64.809638% 0 0; }
+[data-theme='cmyk'] { --bcm: 52% 0 0; }
+[data-theme='coffee'] { --bcm: 63.427702% 0.080513 59.85516; }
+[data-theme='corporate'] { --bcm: 53.433944% 0.018783 310.843373; }
+[data-theme='cupcake'] { --bcm: 53.259778% 0.041413 354.463901; }
+[data-theme='cyberpunk'] { --bcm: 49.1452% 0.09308 104.32; }
+[data-theme='dark'] { --bcm: 65.537861% 0.020546 262.216118; }
+[data-theme='dim'] { --bcm: 70.06154% 0.029339 233.121306; }
+[data-theme='dracula'] { --bcm: 70.177757% 0.013589 174.930522; }
+[data-theme='emerald'] { --bcm: 54.430434% 0.022665 291.44056; }
+[data-theme='fantasy'] { --bcm: 54.416259% 0.018687 294.86753; }
+[data-theme='forest'] { --bcm: 61.573653% 0.003925 17.911531; }
+[data-theme='garden'] { --bcm: 47.357784% 0.001864 17.270898; }
+[data-theme='halloween'] { --bcm: 65.111648% 0 0; }
+[data-theme='lemonade'] { --bcm: 51.3292% 0.0104 123.72; }
+[data-theme='light'] { --bcm: 54.416259% 0.018687 294.86753; }
+[data-theme='lofi'] { --bcm: 40% 0 0; }
+[data-theme='luxury'] { --bcm: 60.728735% 0.094705 40.211377; }
+[data-theme='night'] { --bcm: 62.507497% 0.018845 265.754875; }
+[data-theme='nord'] { --bcm: 50.944833% 0.018369 263.163395; }
+[data-theme='pastel'] { --bcm: 52% 0 0; }
+[data-theme='retro'] { --bcm: 48.662535% 0.015873 31.132774; }
+[data-theme='sunset'] { --bcm: 63.174474% 0.037278 243.196345; }
+[data-theme='synthwave'] { --bcm: 67.490532% 0.037693 295.949172; }
+[data-theme='valentine'] { --bcm: 51.274741% 0.067882 357.901888; }
+[data-theme='winter'] { --bcm: 54.458679% 0.042228 278.361426; }
+[data-theme='wireframe'] { --bcm: 52% 0 0; }
+
 /* Light theme overrides for glass morphism and decorative elements */
 [data-theme='anubis-light'] {
   /* Glass Morphism - Light mode (subtle warm cream overlay) */

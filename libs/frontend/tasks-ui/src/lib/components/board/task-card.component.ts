@@ -134,7 +134,9 @@ export interface TaskSelectionToggle {
             [title]="selectAriaLabel()"
             (click)="onCheckboxClick($event)"
           />
-          <span class="text-[10px] font-mono text-base-content truncate flex-1">
+          <span
+            class="text-[10px] font-mono text-base-content-muted truncate flex-1"
+          >
             {{ task().id }}
           </span>
           <!-- A write for THIS card is in flight (FR-C4.11). Per-card rather
@@ -237,12 +239,12 @@ export interface TaskSelectionToggle {
           >
             <lucide-angular
               [img]="CornerLeftUpIcon"
-              class="w-2.5 h-2.5 shrink-0 text-base-content"
+              class="w-2.5 h-2.5 shrink-0 text-base-content-muted"
             />
             @if (crumb.navigable) {
               <button
                 type="button"
-                class="text-[10px] font-mono text-base-content hover:text-primary hover:underline truncate"
+                class="text-[10px] font-mono text-base-content-muted hover:text-primary hover:underline truncate"
                 [attr.tabindex]="rovingTabIndex()"
                 [attr.aria-label]="'Open parent task ' + crumb.id"
                 [title]="'Open parent task ' + crumb.id"
@@ -252,7 +254,7 @@ export interface TaskSelectionToggle {
               </button>
             } @else {
               <span
-                class="text-[10px] font-mono text-base-content truncate"
+                class="text-[10px] font-mono text-base-content-muted truncate"
                 [title]="crumb.reason"
               >
                 {{ crumb.id }}
@@ -429,7 +431,7 @@ export interface TaskSelectionToggle {
           <!-- Isolation hint (F-D1): the agent isolates its own implementation
                work in a worktree inside the workspace — the host creates nothing. -->
           @if (isolate()) {
-            <p class="text-[10px] leading-tight text-base-content mt-0.5">
+            <p class="text-[10px] leading-tight text-base-content-muted mt-0.5">
               The agent isolates implementation in a dedicated git worktree,
               keeping changes off the main working tree until reviewed.
             </p>
