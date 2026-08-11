@@ -15,7 +15,6 @@ import { combineLatest, debounceTime, of, startWith, switchMap } from 'rxjs';
 import {
   AdminApiService,
   AdminBulkEmailResponse,
-  AdminInviteWaitlistResponse,
   AdminListQuery,
   AdminListResponse,
   AdminModelKey,
@@ -27,7 +26,6 @@ import {
   DataTablePageEvent,
   DataTableSortEvent,
 } from '../components/data-table/data-table';
-import { WaitlistInviteModal } from '../components/waitlist-invite-modal/waitlist-invite-modal';
 
 /**
  * AdminList — generic list page for any admin model.
@@ -39,14 +37,19 @@ import { WaitlistInviteModal } from '../components/waitlist-invite-modal/waitlis
  *
  * Bulk-email hook: when the model's `AdminModelSpec.supportsBulkEmail === true`
  * the list renders the "Email Selected" button, tracks selection via the
- * DataTable, and emits `bulkEmailRequested(userIds)`. The modal itself is
- * created in Batch 5 — this component just exposes the hook.
+ * DataTable, and emits `bulkEmailRequested(userIds)`.
+ *
+ * ⚠️ THE WAITLIST BULK ACTION IS NOT HERE. This generic list once also hosted
+ * the paid founding-invite send; TASK_2026_201 deleted that flow outright.
+ * Waitlist approval lives on the bespoke `/admin/waitlist` pipeline, which
+ * needs the stage tabs and per-row context this generic table has no notion
+ * of. Bulk email is now the ONLY bulk action this component knows about.
  */
 @Component({
   selector: 'ptah-admin-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DataTable, BulkEmailModal, WaitlistInviteModal],
+  imports: [DataTable, BulkEmailModal],
   templateUrl: './admin-list.html',
   styleUrls: ['./admin-list.css'],
 })
@@ -84,7 +87,7 @@ export class AdminList {
   /** Raw search input (not debounced — the stream debounces it). */
   protected readonly search = signal<string>('');
 
-  /** Tracks the row selection for models with `supportsBulkEmail` or `supportsWaitlistInvite`. */
+  /** Tracks the row selection for models with `supportsBulkEmail`. */
   protected readonly selectedIds = signal<readonly string[]>([]);
 
   /** Whether the bulk-email modal is open. */
@@ -95,23 +98,13 @@ export class AdminList {
     null,
   );
 
-  /** Whether the waitlist founding-invite modal is open. */
-  protected readonly waitlistInviteOpen = signal<boolean>(false);
-
-  /** Most recent founding-invite result — drives the success toast. */
-  protected readonly waitlistInviteToast =
-    signal<AdminInviteWaitlistResponse | null>(null);
-
-  /** Bumped after a server-side mutation (e.g. waitlist invite) to force a re-fetch of the current page. */
-  private readonly refreshTick = signal<number>(0);
-
   /** Debounced search observable for use inside the list fetch chain. */
   private readonly search$ = toObservable(this.search).pipe(
     startWith(this.search()),
     debounceTime(300),
   );
 
-  /** Streams model + page + pageSize + sort + search + refresh tick → list API call. */
+  /** Streams model + page + pageSize + sort + search → list API call. */
   private readonly response$ = combineLatest([
     toObservable(this.modelKey),
     toObservable(this.page),
@@ -119,7 +112,6 @@ export class AdminList {
     toObservable(this.sortBy),
     toObservable(this.sortOrder),
     this.search$,
-    toObservable(this.refreshTick),
   ]).pipe(
     switchMap(([key, page, pageSize, sortBy, sortOrder, search]) => {
       if (!key) return of<AdminListResponse | null>(null);
@@ -162,8 +154,6 @@ export class AdminList {
         this.selectedIds.set([]);
         this.bulkEmailOpen.set(false);
         this.bulkEmailToast.set(null);
-        this.waitlistInviteOpen.set(false);
-        this.waitlistInviteToast.set(null);
         this.table()?.clearSelection();
       });
     });
@@ -241,34 +231,4 @@ export class AdminList {
     }, 6000);
   }
 
-  /** Opens the waitlist founding-invite modal. */
-  protected onWaitlistInviteClick(): void {
-    this.waitlistInviteToast.set(null);
-    this.waitlistInviteOpen.set(true);
-  }
-
-  /** User dismissed the invite modal (X / Cancel / backdrop). */
-  protected onWaitlistInviteClose(): void {
-    this.waitlistInviteOpen.set(false);
-  }
-
-  /**
-   * Modal reported a successful invite send. Show a toast, clear the table
-   * selection, and refresh the current page so notifiedAt/status chips
-   * reflect the just-sent invites.
-   */
-  protected onWaitlistInviteSent(result: AdminInviteWaitlistResponse): void {
-    this.waitlistInviteToast.set(result);
-    this.selectedIds.set([]);
-    this.table()?.clearSelection();
-    this.refreshTick.update((v) => v + 1);
-    setTimeout(() => {
-      this.waitlistInviteOpen.set(false);
-    }, 1200);
-    setTimeout(() => {
-      if (this.waitlistInviteToast() === result) {
-        this.waitlistInviteToast.set(null);
-      }
-    }, 6000);
-  }
 }

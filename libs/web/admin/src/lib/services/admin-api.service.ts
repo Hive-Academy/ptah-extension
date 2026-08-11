@@ -49,10 +49,15 @@ export interface AdminBulkEmailRequest {
 /**
  * Body for `POST /api/v1/admin/licenses/complimentary`.
  *
- * Target the recipient by EITHER `userId` (user-detail path) OR `email`
- * (Early Adopter approval from a waitlist row, which has no `userId`). Both
- * are optional at the type level; the server enforces that exactly one is
- * supplied and resolves/creates the user from the email when needed.
+ * Target the recipient by EITHER `userId` OR `email`. Both are optional at the
+ * type level; the server enforces that exactly one is supplied and
+ * resolves/creates the user from the email when needed.
+ *
+ * ⚠️ THE ADMIN UI ONLY EVER SENDS `userId`. `email` remains on the wire
+ * contract because the server accepts it, but the waitlist path that used it
+ * was retired in TASK_2026_201 — approving a waitlist row goes through
+ * `approveWaitlist` below, which grants the cohort placement too. A comp
+ * licence by email alone leaves the half-approved state that flow prevents.
  */
 export interface IssueComplimentaryLicenseRequest {
   userId?: string;
@@ -88,13 +93,21 @@ export interface SendCampaignRequest {
 }
 
 /**
- * POST /api/v1/admin/waitlist/invite — `ids` wins over `batchSize` when both
- * are provided (server semantics per the founding-invite contract); at least
- * one MUST be supplied.
+ * Hard cap on one approve request, mirroring `@ArrayMaxSize(50)` on the server
+ * DTO (`libs/api/admin/src/lib/admin.dto.ts` `ApproveWaitlistDto.ids`). Each id
+ * becomes a free licence, a cohort placement and one outbound email, so the
+ * cap is the only bound on both — the UI enforces it up front rather than
+ * letting a 60-row selection come back as an opaque 400.
  */
-export interface AdminInviteWaitlistRequest {
-  ids?: string[];
-  batchSize?: number;
+export const ADMIN_APPROVE_WAITLIST_MAX_IDS = 50;
+
+/**
+ * POST /api/v1/admin/waitlist/approve — approve N waitlist rows to the
+ * founding cohort. 1..{@link ADMIN_APPROVE_WAITLIST_MAX_IDS} waitlist row ids;
+ * there is no "oldest N" mode — every approval is an explicit list of rows.
+ */
+export interface AdminApproveWaitlistRequest {
+  ids: string[];
 }
 
 /**
@@ -254,16 +267,82 @@ const sendCampaignResponseSchema = z.object({
 export type SendCampaignResponse = z.infer<typeof sendCampaignResponseSchema>;
 
 /**
- * Response for `POST /api/v1/admin/waitlist/invite` — the founding-invite
- * send. `skipped` counts rows already notified (or, in `ids` mode, ids that
- * did not resolve to an un-notified waitlist row).
+ * Every outcome one waitlist row can reach — the client mirror of
+ * `WAITLIST_APPROVAL_OUTCOMES` in `libs/api/admin/.../waitlist-approval.types.ts`.
+ *
+ * The enum is CLOSED on purpose: a new server-side outcome fails this schema
+ * loudly at the boundary instead of silently vanishing from the admin's tally.
  */
-const adminInviteWaitlistResponseSchema = z.object({
-  invited: z.number(),
-  skipped: z.number(),
+export const ADMIN_APPROVE_WAITLIST_OUTCOMES = [
+  'approved',
+  'already_approved',
+  'already_paid',
+  'not_found',
+  'failed',
+] as const;
+
+const adminApproveWaitlistOutcomeSchema = z.enum(
+  ADMIN_APPROVE_WAITLIST_OUTCOMES,
+);
+export type AdminApproveWaitlistOutcome = z.infer<
+  typeof adminApproveWaitlistOutcomeSchema
+>;
+
+/**
+ * One requested id's result. `email` is null ONLY for `not_found`; `licenseId`
+ * is present iff `outcome === 'approved'`.
+ *
+ * ⚠️ NO LICENCE KEY IS EVER PRESENT HERE — `licenseId` is the row's primary
+ * key. The member's credential travels only in the welcome email, so nothing
+ * in this schema may be widened to carry it.
+ */
+const adminApproveWaitlistRowSchema = z.object({
+  id: z.string(),
+  email: z.string().nullable(),
+  outcome: adminApproveWaitlistOutcomeSchema,
+  licenseId: z.string().optional(),
+  /** Whether the row had been sent the withdrawn paid invite. Reported only. */
+  wasNotified: z.boolean().optional(),
+  /** The grant COMMITTED but the welcome mail did not go out. Code only. */
+  warning: z.object({ code: z.literal('APPROVAL_EMAIL_FAILED') }).optional(),
+  /** The row rolled back. Code only — never a raw provider message. */
+  error: z.object({ code: z.literal('GRANT_FAILED') }).optional(),
 });
-export type AdminInviteWaitlistResponse = z.infer<
-  typeof adminInviteWaitlistResponseSchema
+export type AdminApproveWaitlistRow = z.infer<
+  typeof adminApproveWaitlistRowSchema
+>;
+
+/**
+ * Response for `POST /api/v1/admin/waitlist/approve`.
+ *
+ * Always HTTP 200 once the body validated and the cohort resolved — per-row
+ * failures live in `results`, not in the status. `tally` always carries all
+ * five keys (zeros included), so the UI renders a fixed summary without
+ * null-checking each outcome.
+ */
+/**
+ * One count per outcome. Every key is REQUIRED — the server documents that it
+ * always emits all five with zeros present, so a missing key means the
+ * contract drifted and the boundary should say so rather than render a blank.
+ */
+const adminApproveWaitlistTallySchema = z.object({
+  approved: z.number(),
+  already_approved: z.number(),
+  already_paid: z.number(),
+  not_found: z.number(),
+  failed: z.number(),
+});
+export type AdminApproveWaitlistTally = z.infer<
+  typeof adminApproveWaitlistTallySchema
+>;
+
+const adminApproveWaitlistResponseSchema = z.object({
+  requested: z.number(),
+  tally: adminApproveWaitlistTallySchema,
+  results: z.array(adminApproveWaitlistRowSchema),
+});
+export type AdminApproveWaitlistResponse = z.infer<
+  typeof adminApproveWaitlistResponseSchema
 >;
 
 const adminStatsWaitlistSchema = z.object({
@@ -271,6 +350,12 @@ const adminStatsWaitlistSchema = z.object({
   notified: z.number(),
   converted: z.number(),
   last7Days: z.number(),
+  /**
+   * Rows with `approvedAt` set. OPTIONAL following the `attention` precedent
+   * below: a brief server/client deploy skew must not break the whole stats
+   * call and blank the Overview.
+   */
+  approved: z.number().optional(),
 });
 
 const adminStatsMembersSchema = z.object({
@@ -526,18 +611,25 @@ export class AdminApiService {
   }
 
   /**
-   * Sends the founding-invite email (checkout links carrying the discount
-   * env IDs) to explicit waitlist ids, or the N oldest un-notified rows when
-   * `batchSize` is used instead. `ids` wins when both are supplied.
+   * Approves waitlist rows into the founding cohort: per row, a free 1-year
+   * complimentary `builders` licence, placement in the `Founding Members`
+   * cohort, an `approvedAt` stamp and one welcome email.
+   *
+   * Answers 200 with a per-row outcome list even when individual rows fail —
+   * callers MUST read `tally`/`results` rather than treating a resolved
+   * observable as "all approved".
    */
-  public inviteWaitlist(
-    body: AdminInviteWaitlistRequest,
-  ): Observable<AdminInviteWaitlistResponse> {
+  public approveWaitlist(
+    body: AdminApproveWaitlistRequest,
+  ): Observable<AdminApproveWaitlistResponse> {
     return this.http
-      .post<unknown>(`${this.base}/waitlist/invite`, body)
+      .post<unknown>(`${this.base}/waitlist/approve`, body)
       .pipe(
         map(
-          validate(adminInviteWaitlistResponseSchema, 'POST /waitlist/invite'),
+          validate(
+            adminApproveWaitlistResponseSchema,
+            'POST /waitlist/approve',
+          ),
         ),
       );
   }

@@ -69,16 +69,18 @@ export interface AdminModelSpec {
   fields: FieldSpec[];
   /** Placeholder for the list-view search box. */
   searchPlaceholder: string;
-  /** Enables the "Email Selected" bulk action on the list view. */
-  supportsBulkEmail?: boolean;
-  /** Enables the "Send founding invites" bulk action on the list view. */
-  supportsWaitlistInvite?: boolean;
   /**
-   * Enables the "Approve (grant Builders)" action on the detail view — issues
-   * a complimentary Builders license to the row's email (Early Adopter
-   * approval). Waitlist rows only.
+   * Enables the "Email Selected" bulk action on the list view — and, with it,
+   * row selection. It is the ONLY bulk action the generic list offers.
+   *
+   * ⚠️ TWO WAITLIST FLAGS USED TO LIVE HERE and TASK_2026_201 deleted both:
+   * one drove the withdrawn paid founding invite on this list; the other put an
+   * "Approve (grant Builders)" button on the waitlist detail page that issued a
+   * licence with NO cohort assignment — the half-approved state the
+   * founding-cohort flow exists to prevent. Waitlist approval now lives only on
+   * `/admin/waitlist`. Do not reintroduce either flag to add a shortcut here.
    */
-  supportsEarlyAdopterApprove?: boolean;
+  supportsBulkEmail?: boolean;
 }
 
 export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
@@ -557,8 +559,6 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
     key: 'waitlist',
     label: 'Waitlist',
     readOnly: false,
-    supportsWaitlistInvite: true,
-    supportsEarlyAdopterApprove: true,
     searchPlaceholder: 'Search email, source…',
     fields: [
       { key: 'id', label: 'ID', type: 'string', listColumn: false },
@@ -576,6 +576,18 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         type: 'datetime',
         listColumn: true,
         editable: true,
+      },
+      /**
+       * Deliberately NOT `editable`. Hand-stamping `approvedAt` would fake a
+       * grant: no licence, no cohort placement, no welcome email — and the
+       * approve endpoint's claim would then skip the row as already approved.
+       * Approval is only ever made by `POST /admin/waitlist/approve`.
+       */
+      {
+        key: 'approvedAt',
+        label: 'Approved',
+        type: 'datetime',
+        listColumn: true,
       },
       {
         key: 'convertedAt',
