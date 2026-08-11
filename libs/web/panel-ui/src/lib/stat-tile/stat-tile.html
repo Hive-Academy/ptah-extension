@@ -16,13 +16,13 @@
 
 <ng-template #body>
   <div class="flex items-center justify-between gap-2">
-    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+    <span class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
       {{ label() }}
     </span>
     @if (link()) {
       <lucide-angular
         [img]="ChevronRightIcon"
-        class="h-4 w-4 shrink-0 text-base-content/40 transition-transform group-hover:translate-x-0.5"
+        class="h-4 w-4 shrink-0 text-base-content-muted transition-transform group-hover:translate-x-0.5"
         aria-hidden="true"
       />
     }

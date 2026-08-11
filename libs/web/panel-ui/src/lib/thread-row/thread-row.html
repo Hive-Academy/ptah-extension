@@ -10,7 +10,7 @@
     @if (locked()) {
       <lucide-angular
         [img]="LockIcon"
-        class="mt-0.5 h-4 w-4 shrink-0 text-base-content/60"
+        class="mt-0.5 h-4 w-4 shrink-0 text-base-content-muted"
         aria-label="Locked"
       />
     }
@@ -38,7 +38,7 @@
   </div>
 
   <div
-    class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+    class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content-muted"
   >
     <span>{{ authorLabel() }}</span>
     <span aria-hidden="true">·</span>

@@ -44,7 +44,7 @@
         }
       </div>
 
-      <div class="flex items-center gap-2 text-sm text-base-content/70">
+      <div class="flex items-center gap-2 text-sm text-base-content-muted">
         <ng-content select="[panelTopBar]" />
       </div>
     </header>
@@ -84,14 +84,14 @@
               [attr.aria-expanded]="!isCollapsed(group.label)"
             >
               <span
-                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-base-content/60"
+                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-base-content-muted"
               >
                 {{ group.label }}
               </span>
               @if (hasSecondary(group)) {
                 <lucide-angular
                   [img]="ChevronDownIcon"
-                  class="h-3.5 w-3.5 shrink-0 text-base-content/40 transition-transform"
+                  class="h-3.5 w-3.5 shrink-0 text-base-content-muted transition-transform"
                   [class.-rotate-90]="isCollapsed(group.label)"
                   aria-hidden="true"
                 />
@@ -134,7 +134,7 @@
         [routerLink]="item.route"
         [routerLinkActive]="primaryActiveClass"
         [routerLinkActiveOptions]="{ exact: !!item.exact }"
-        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-base-content/80 transition-colors hover:bg-surface-high hover:text-base-content"
+        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-base-content-muted transition-colors hover:bg-surface-high hover:text-base-content"
       >
         @if (item.icon) {
           <lucide-angular
@@ -151,7 +151,7 @@
         }
         @if (item.readOnly) {
           <span
-            class="badge badge-ghost badge-xs text-base-content/60"
+            class="badge badge-ghost badge-xs text-base-content-muted"
             title="Read-only"
           >
             ro
@@ -165,7 +165,7 @@
         [routerLink]="item.route"
         [routerLinkActive]="secondaryActiveClass"
         [routerLinkActiveOptions]="{ exact: !!item.exact }"
-        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-base-content/60 transition-colors hover:bg-surface-high hover:text-base-content/80"
+        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-base-content-muted transition-colors hover:bg-surface-high hover:text-base-content"
       >
         <span>{{ item.label }}</span>
         @if (item.badgeCount) {
@@ -175,7 +175,7 @@
         }
         @if (item.readOnly) {
           <span
-            class="badge badge-ghost badge-xs text-base-content/60"
+            class="badge badge-ghost badge-xs text-base-content-muted"
             title="Read-only"
           >
             ro

@@ -34,8 +34,15 @@ const LOW_CONTRAST_TEXT = ['text', 'base-content/40'].join('-');
  *
  * `panel-theme-spec.md` §2 rules `base-content/40` legal ONLY for glanceable
  * metadata. The DECORATIVE ICON keeps it — it is `aria-hidden` and carries no
- * information the message does not. A hint is a sentence a member is meant to
- * read, so it takes `/60`, which §2 measures as passing.
+ * information the message does not.
+ *
+ * ⚠️ THE HINT NO LONGER TAKES `/60` EITHER. B13 closed F-1 by moving it from
+ * `/40` to `/60`; `/60` then measured **4.42:1 on `operator-member-light`** in
+ * the first light-theme axe pass this repository ever ran — a fix that was
+ * correct in the theme it was measured in and insufficient in the other one.
+ * Text now takes `text-base-content-muted`, whose value is chosen per theme by
+ * `--bcm` in `apps/ptah-landing-page/tailwind.config.js` and re-measured by
+ * `apps/ptah-landing-page/src/app/base-content-muted.spec.ts`.
  */
 @Component({
   standalone: true,
@@ -85,7 +92,7 @@ describe('EmptyState', () => {
     );
   });
 
-  it('🔴 renders the hint at /60, never /40 — it is body text and WCAG AA applies', () => {
+  it('🔴 renders the hint on the muted TOKEN, never an alpha — it is body text and WCAG AA applies', () => {
     const fixture = render((host) => {
       host.hint = 'A sentence a member is meant to read.';
     });
@@ -95,8 +102,10 @@ describe('EmptyState', () => {
     );
     const hint = paragraphs[paragraphs.length - 1];
 
-    expect(hint.className).toContain('text-base-content/60');
-    expect(hint.className).not.toContain('text-base-content/40');
+    expect(hint.className).toContain('text-base-content-muted');
+    // Any alpha, not just `/40`. `/60` was the previous answer here and it is
+    // the one that measures 4.42:1 on `operator-member-light`.
+    expect(hint.className).not.toMatch(/text-base-content\/\d+/);
   });
 
   it('🔴 keeps /40 off every TEXT-BEARING ELEMENT, while the decorative icon may keep it', () => {
