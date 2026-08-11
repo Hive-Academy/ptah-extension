@@ -2,8 +2,17 @@
 
 echo "🔍 Running pre-commit checks..."
 
-# Run lint-staged
-npx lint-staged --no-stash --concurrent false
+# Run lint-staged.
+#
+# --concurrent false is load-bearing: see .lintstagedrc.mjs — it stops
+# lint-staged spawning parallel nx processes that OOM.
+#
+# Do NOT add --no-stash back (TASK_2026_224). In lint-staged 16 it implies
+# --no-hide-partially-staged, so tasks run against the full working tree and the
+# post-task `git add` stages whatever is on disk — silently committing unstaged
+# edits alongside the staged ones. The default path hides unstaged changes,
+# formats only what is staged, and restores the rest.
+npx lint-staged --concurrent false
 
 # Check if orchestration skill files were changed
 SKILL_FILES_CHANGED=$(git diff --cached --name-only | grep -E "^\.claude/skills/" || true)
@@ -38,3 +47,5 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "✅ Pre-commit checks passed!"
+
+# PROBE-UNSTAGED-MARKER-224
