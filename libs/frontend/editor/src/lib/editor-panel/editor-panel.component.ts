@@ -583,11 +583,21 @@ import type { FileTreeNode } from '../models/file-tree.model';
            showModal() adds a route that never passes through a keydown listener
            at all, so binding (cancel) is the only way to see every dismissal.
            The three controls tab in their natural order inside the UA's own
-           containment, so there is nothing to trap by hand. -->
+           containment, so there is nothing to trap by hand.
+
+           role="dialog" is EXPLICIT even though a modal dialog element already
+           has that implicit role, because axe's aria-dialog-name rule matches
+           on the attribute rather than on the computed role. Without it that
+           rule never runs here at all, so the accessible name of this dialog
+           was outside the gate while its two siblings — which carry
+           role="alertdialog" — were inside it. "dialog" rather than
+           "alertdialog": naming a file is neither destructive nor a demand for
+           immediate attention. -->
       @if (inputDialogTitle()) {
         <dialog
           #inputDialog
           class="modal"
+          role="dialog"
           aria-modal="true"
           aria-labelledby="ptah-name-input-title"
           data-testid="name-input-dialog"
