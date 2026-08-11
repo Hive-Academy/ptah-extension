@@ -4,6 +4,7 @@
   "projectType": "application",
   "sourceRoot": "apps/ptah-electron/src",
   "tags": ["scope:electron", "type:app"],
+  "implicitDependencies": ["ptah-extension-webview"],
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
@@ -221,6 +222,7 @@
     "copy-renderer": {
       "executor": "nx:run-commands",
       "dependsOn": ["ptah-extension-webview:build"],
+      "cache": true,
       "outputs": ["{workspaceRoot}/dist/apps/ptah-electron/renderer"],
       "options": {
         "command": "node apps/ptah-electron/scripts/copy-renderer.js"
