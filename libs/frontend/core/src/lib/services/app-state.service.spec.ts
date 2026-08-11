@@ -15,6 +15,10 @@
  *   - `handleInitialData` / `handleError` aggregated updates.
  *   - `getStateSnapshot` returns a synchronous snapshot.
  *   - Layout mode persistence (setLayoutMode writes localStorage; toggle flips).
+ *   - Per-workspace view partitioning: `switchWorkspace` /
+ *     `removeWorkspaceState` swap and drop `currentView` + `openViews` slices,
+ *     and the bootstrap sentinel slice migrates onto the first real workspace
+ *     (TASK_2026_195).
  *   - Canvas session request signal-bridge methods.
  *
  * Note: `initializeState` runs in the constructor, so each spec sets up
@@ -349,6 +353,128 @@ describe('AppStateManager', () => {
       expect(service.layoutMode()).toBe('single');
       service.toggleLayoutMode();
       expect(service.layoutMode()).toBe('grid');
+    });
+  });
+
+  describe('per-workspace view partitioning (TASK_2026_195)', () => {
+    it('migrates the bootstrap slice onto the first real workspace so initialView survives', () => {
+      setupGlobals({ ptahConfig: { initialView: 'tribunal' } });
+      const service = createService();
+      expect(service.currentView()).toBe('tribunal');
+
+      // The initial workspace:switch RPC settles after the shell has rendered.
+      service.switchWorkspace('/ws/a');
+
+      expect(service.currentView()).toBe('tribunal');
+      expect(service.openViews()).toEqual(
+        expect.arrayContaining(['chat', 'tribunal']),
+      );
+    });
+
+    it('does NOT carry the previous workspace view onto a never-visited workspace', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tribunal');
+      expect(service.currentView()).toBe('tribunal');
+
+      service.switchWorkspace('/ws/b');
+
+      expect(service.currentView()).toBe('chat');
+      expect(service.openViews()).toEqual(['chat']);
+    });
+
+    it('restores each workspace view on return (A→B→A)', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tribunal');
+      service.switchWorkspace('/ws/b');
+      service.setCurrentView('tasks');
+
+      expect(service.currentView()).toBe('tasks');
+
+      service.switchWorkspace('/ws/a');
+      expect(service.currentView()).toBe('tribunal');
+
+      service.switchWorkspace('/ws/b');
+      expect(service.currentView()).toBe('tasks');
+    });
+
+    it('partitions openViews, so a view opened in A is not open in B', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('settings');
+      service.setCurrentView('analytics');
+      expect(service.openViews()).toEqual(
+        expect.arrayContaining(['chat', 'settings', 'analytics']),
+      );
+
+      service.switchWorkspace('/ws/b');
+      expect(service.openViews()).toEqual(['chat']);
+
+      service.switchWorkspace('/ws/a');
+      expect(service.openViews()).toEqual(
+        expect.arrayContaining(['chat', 'settings', 'analytics']),
+      );
+    });
+
+    it('closeView only affects the active workspace slice', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('analytics');
+      service.switchWorkspace('/ws/b');
+      service.setCurrentView('analytics');
+
+      service.closeView('analytics');
+      expect(service.currentView()).toBe('chat');
+      expect(service.openViews()).not.toContain('analytics');
+
+      service.switchWorkspace('/ws/a');
+      expect(service.currentView()).toBe('analytics');
+    });
+
+    it('removeWorkspaceState drops the slice so a re-added workspace opens on chat', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tasks');
+      service.switchWorkspace('/ws/b');
+
+      service.removeWorkspaceState('/ws/a');
+      service.switchWorkspace('/ws/a');
+
+      expect(service.currentView()).toBe('chat');
+      expect(service.openViews()).toEqual(['chat']);
+    });
+
+    it('switching to the already-active workspace is a no-op', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tasks');
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.currentView()).toBe('tasks');
+    });
+
+    it('a blocked view switch does not seed a slice for the active workspace', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setLoading(true);
+      service.setCurrentView('tasks');
+
+      expect(service.currentView()).toBe('chat');
+      service.setLoading(false);
+      service.switchWorkspace('/ws/b');
+      expect(service.currentView()).toBe('chat');
+    });
+
+    it('leaves layoutMode global — Electron pins it to grid and VS Code never switches workspaces', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setLayoutMode('single');
+
+      service.switchWorkspace('/ws/b');
+
+      expect(service.layoutMode()).toBe('single');
     });
   });
 

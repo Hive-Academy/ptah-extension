@@ -10,6 +10,10 @@
  *   - Editor-service resolution fails gracefully when the lazy chunk is absent
  *     (the dynamic import() throws in test env because the alias is not
  *     registered in the module resolver â€” we swallow and continue).
+ *   - switchWorkspace swaps AppStateManager's view slice, so the previous
+ *     workspace's view does not survive the switch (TASK_2026_195).
+ *   - The captured switchGeneration is re-checked after the awaited editor
+ *     resolution, so a superseded switch cannot apply last (TASK_2026_195).
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -20,6 +24,7 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentDiscoveryFacade,
+  AppStateManager,
   AuthStateService,
   CommandDiscoveryFacade,
   EffortStateService,
@@ -72,8 +77,27 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
   } as TabState;
 }
 
+/**
+ * Structural view of a lazily-resolved editor service, mirroring the private
+ * `WorkspaceAwareService` interface in the service under test.
+ */
+interface EditorServiceStub {
+  switchWorkspace: jest.Mock<void, [string]>;
+  removeWorkspaceState: jest.Mock<void, [string]>;
+}
+
+/**
+ * Handle onto the one private the stale-generation specs need: the awaited
+ * editor-chunk resolution is the only suspension point in `switchWorkspace`,
+ * so it is the only place a superseded switch can regain control.
+ */
+interface CoordinatorInternals {
+  resolveEditorServices(): Promise<EditorServiceStub[]>;
+}
+
 describe('WorkspaceCoordinatorService', () => {
   let service: WorkspaceCoordinatorService;
+  let appState: AppStateManager;
   let tabManager: jest.Mocked<TabManagerSlice>;
   let sessionLoader: jest.Mocked<SessionLoaderSlice>;
   let confirmDialog: jest.Mocked<ConfirmSlice>;
@@ -153,15 +177,30 @@ describe('WorkspaceCoordinatorService', () => {
         { provide: AuthStateService, useValue: authState },
         { provide: ModelStateService, useValue: modelState },
         { provide: EffortStateService, useValue: effortState },
+        AppStateManager,
       ],
     });
     service = TestBed.inject(WorkspaceCoordinatorService);
+
+    // AppStateManager is exercised for real (it has no collaborators — only
+    // `window` and `localStorage`) so these specs assert the view actually
+    // swaps, not merely that a method was called. The spy wraps rather than
+    // replaces it, purely to record fan-out position.
+    appState = TestBed.inject(AppStateManager);
+    const realAppStateSwitch = appState.switchWorkspace.bind(appState);
+    jest
+      .spyOn(appState, 'switchWorkspace')
+      .mockImplementation((path: string) => {
+        fanOutOrder.push('appState');
+        realAppStateSwitch(path);
+      });
   });
 
   afterEach(() => {
     consoleWarn.mockRestore();
     consoleError.mockRestore();
     TestBed.resetTestingModule();
+    localStorage.clear();
   });
 
   describe('switchWorkspace', () => {
@@ -195,6 +234,9 @@ describe('WorkspaceCoordinatorService', () => {
         'filePicker',
         'agentDiscovery',
         'commandDiscovery',
+        // Last on purpose: the visible surface only flips once the tab,
+        // session and picker state behind it is already the new workspace's.
+        'appState',
       ]);
     });
 
@@ -319,6 +361,111 @@ describe('WorkspaceCoordinatorService', () => {
       // or throws â€” either way the service must swallow and resolve.
       await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/x');
+    });
+  });
+
+  describe('view state does not survive a workspace switch (TASK_2026_195)', () => {
+    it("replaces the previous workspace's view instead of leaving it on screen", async () => {
+      await service.switchWorkspace('D:/repo/A');
+      appState.setCurrentView('tribunal');
+      expect(appState.currentView()).toBe('tribunal');
+
+      await service.switchWorkspace('D:/repo/B');
+
+      // The reported symptom: B used to render A's tribunal surface, backed by
+      // B's (empty) tribunal slice.
+      expect(appState.currentView()).toBe('chat');
+      expect(appState.openViews()).toEqual(['chat']);
+    });
+
+    it('restores each workspace view on return (A→B→A)', async () => {
+      await service.switchWorkspace('D:/repo/A');
+      appState.setCurrentView('tribunal');
+      await service.switchWorkspace('D:/repo/B');
+      appState.setCurrentView('tasks');
+      await service.switchWorkspace('D:/repo/A');
+
+      expect(appState.currentView()).toBe('tribunal');
+
+      await service.switchWorkspace('D:/repo/B');
+      expect(appState.currentView()).toBe('tasks');
+    });
+
+    it('drops the view slice of a workspace that is closed', async () => {
+      await service.switchWorkspace('D:/repo/A');
+      appState.setCurrentView('tasks');
+      await service.switchWorkspace('D:/repo/B');
+
+      await service.removeWorkspaceState('D:/repo/A');
+      await service.switchWorkspace('D:/repo/A');
+
+      expect(appState.currentView()).toBe('chat');
+    });
+  });
+
+  describe('stale-generation guard on the editor fan-out (TASK_2026_195)', () => {
+    let editorService: EditorServiceStub;
+    let releaseResolution: Array<() => void>;
+
+    beforeEach(() => {
+      editorService = {
+        switchWorkspace: jest.fn(),
+        removeWorkspaceState: jest.fn(),
+      };
+      releaseResolution = [];
+      const internals = service as unknown as CoordinatorInternals;
+      jest.spyOn(internals, 'resolveEditorServices').mockImplementation(
+        () =>
+          new Promise<EditorServiceStub[]>((resolve) => {
+            releaseResolution.push(() => resolve([editorService]));
+          }),
+      );
+    });
+
+    it('does not apply a superseded switch to the editor services when it resolves last', async () => {
+      void service.switchWorkspace('D:/repo/A'); // generation 1
+      void service.switchWorkspace('D:/repo/B'); // generation 2 (current)
+
+      // B's editor chunk resolves first and applies.
+      releaseResolution[1]();
+      await flushMicrotasks();
+      expect(editorService.switchWorkspace).toHaveBeenCalledTimes(1);
+      expect(editorService.switchWorkspace).toHaveBeenCalledWith('D:/repo/B');
+
+      // A's resolution lands afterwards. Without the generation re-check it
+      // would apply LAST and strand the editor on the workspace the user
+      // already navigated away from.
+      releaseResolution[0]();
+      await flushMicrotasks();
+      expect(editorService.switchWorkspace).toHaveBeenCalledTimes(1);
+      expect(editorService.switchWorkspace).not.toHaveBeenCalledWith(
+        'D:/repo/A',
+      );
+    });
+
+    it("skips the superseded switch's provider refresh too (the newer switch owns it)", async () => {
+      void service.switchWorkspace('D:/repo/A'); // generation 1
+      void service.switchWorkspace('D:/repo/B'); // generation 2 (current)
+
+      releaseResolution[1]();
+      await flushMicrotasks();
+      releaseResolution[0]();
+      await flushMicrotasks();
+
+      // Only generation 2 got past the guard, so only one refresh was fired.
+      expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(1);
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies the switch normally when no newer switch supersedes it', async () => {
+      const pending = service.switchWorkspace('D:/repo/solo');
+      releaseResolution[0]();
+      await pending;
+
+      expect(editorService.switchWorkspace).toHaveBeenCalledTimes(1);
+      expect(editorService.switchWorkspace).toHaveBeenCalledWith(
+        'D:/repo/solo',
+      );
     });
   });
 

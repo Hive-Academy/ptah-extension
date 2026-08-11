@@ -1,6 +1,7 @@
 import { Injectable, inject, Injector } from '@angular/core';
 import {
   AgentDiscoveryFacade,
+  AppStateManager,
   AuthStateService,
   CommandDiscoveryFacade,
   EffortStateService,
@@ -30,7 +31,8 @@ interface WorkspaceAwareService {
  * SessionLoaderService (session cache), FilePickerService (`@` picker file
  * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
  * command caches), EditorService (editor), GitStatusService /
- * GitBranchesService (git state), TerminalService (terminal state), and
+ * GitBranchesService (git state), TerminalService (terminal state),
+ * AppStateManager (which view/layout surface is on screen) and
  * ConfirmationDialogService.
  *
  * Editor services (EditorService, GitStatusService, GitBranchesService,
@@ -53,6 +55,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly authState = inject(AuthStateService);
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
+  private readonly appState = inject(AppStateManager);
 
   /**
    * Cached references to editor services, resolved on first use.
@@ -63,12 +66,13 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
 
   /**
    * Monotonic switch counter. Incremented on every {@link switchWorkspace}
-   * call and captured by the detached provider-state refresh so a slower,
-   * older switch's auth/model/effort round-trips cannot clobber the state of a
-   * newer switch that has since superseded it (rapid A→B→A). Mirrors the
-   * stale-response guards already used in `GitStatusService.fetchGitInfo`
-   * (`workspaceAtFetchTime`) and `EditorWorkspaceHelper.loadFileTree`
-   * (request-id).
+   * call and re-checked after each `await` in that call — the editor-service
+   * resolution and the detached provider-state refresh — so a slower, older
+   * switch cannot apply its editor workspace or its auth/model/effort
+   * round-trips over a newer switch that has since superseded it (rapid
+   * A→B→A). Mirrors the stale-response guards already used in
+   * `GitStatusService.fetchGitInfo` (`workspaceAtFetchTime`) and
+   * `EditorWorkspaceHelper.loadFileTree` (request-id).
    */
   private switchGeneration = 0;
 
@@ -119,14 +123,28 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     // `/` picker: agents + commands. `clearCache()` is these facades' full
     // invalidation entry point (it bumps their generation and resets
     // `_isLoading`), so there is no separate switch method to call.
+    //
+    // `appState` swaps the view pointer (`currentView` / `openViews`) onto the
+    // new workspace's slice and goes LAST, so the surface only flips once the
+    // tab, session and picker state behind it is already the new workspace's.
+    // Without it the shell keeps rendering the previous workspace's view —
+    // tribunal, say — now backed by the new workspace's (empty) slice, which is
+    // the symptom this task was filed for.
     this.tabManager.switchWorkspace(newPath);
     this.sessionLoader.switchWorkspace(newPath);
     this.filePicker.switchWorkspace(newPath);
     this.agentDiscovery.clearCache();
     this.commandDiscovery.clearCache();
+    this.appState.switchWorkspace(newPath);
 
     try {
       const services = await this.resolveEditorServices();
+      // The editor chunk resolution above is the one `await` in this method, so
+      // it is the one place a superseded switch can regain control after a
+      // newer one has already applied. Dropping the stale continuation here
+      // also skips its `refreshWorkspaceProviderState` below, which is correct:
+      // the newer switch dispatched its own refresh under a newer generation.
+      if (generation !== this.switchGeneration) return;
       for (const svc of services) {
         svc.switchWorkspace(newPath);
       }
@@ -198,6 +216,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   async removeWorkspaceState(workspacePath: string): Promise<void> {
     this.tabManager.removeWorkspaceState(workspacePath);
     this.sessionLoader.removeWorkspaceCache(workspacePath);
+    this.appState.removeWorkspaceState(workspacePath);
 
     try {
       const services = await this.resolveEditorServices();
