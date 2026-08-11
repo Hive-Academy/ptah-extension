@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_198
-status: backlog
+status: in_review
 type: FEATURE
 title: TUI visual + interaction overhaul — adopt the Claude Code / Copilot CLI design language
 description: >-

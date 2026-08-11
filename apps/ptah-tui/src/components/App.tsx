@@ -28,7 +28,10 @@ import { PermissionPrompt } from './common/PermissionPrompt.js';
 import type { PermissionDecision } from './common/PermissionPrompt.js';
 import { UserQuestionPrompt } from './common/UserQuestionPrompt.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
+import { HelpOverlay } from './overlays/HelpOverlay.js';
 import { ModelSelector } from './overlays/ModelSelector.js';
+import { QUIT_CONFIRM_WINDOW_MS } from '../lib/keymap.js';
+import { applyEscape } from '../lib/escape-target.js';
 import { ThothPanel } from './thoth/ThothPanel.js';
 import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
 import { useAgentConfig } from '../hooks/use-agent-config.js';
@@ -73,10 +76,16 @@ function AppShell({
     resolveInitialView(authReady),
   );
   const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [agentPanelVisible, setAgentPanelVisible] = useState(true);
+  // Closed by default. It was open by default, and for the overwhelming
+  // majority of runs its entire contribution was the words "No active agents"
+  // occupying a fifth of the terminal for the whole session.
+  const [agentPanelVisible, setAgentPanelVisible] = useState(false);
   const [modalStack, setModalStack] = useState<React.ReactNode[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [hasConversation, setHasConversation] = useState(false);
   const [overlayActive, setOverlayActive] = useState(false);
+  const [quitArmed, setQuitArmed] = useState(false);
+  const quitTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ctrl+K opens the palette from the shell, but the command machinery
   // (`useCommands`) is owned by ChatPanel, which holds the chat callbacks the
@@ -100,6 +109,23 @@ function AppShell({
 
   const handleSwitchView = useCallback((view: 'chat' | 'settings') => {
     setActiveView(view);
+  }, []);
+
+  const dismissTopModal = useCallback(() => {
+    setModalStack((prev) => prev.slice(0, -1));
+  }, []);
+
+  const handleHelp = useCallback(() => {
+    setModalStack((prev) => [
+      ...prev,
+      <HelpOverlay key={`help-${Date.now()}`} onDismiss={dismissTopModal} />,
+    ]);
+  }, [dismissTopModal]);
+
+  useEffect(() => {
+    return () => {
+      if (quitTimerRef.current !== null) clearTimeout(quitTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -164,11 +190,9 @@ function AppShell({
 
   useInput(
     (input, key) => {
-      if (key.ctrl && input === 'q') {
-        handleQuit();
-        return;
-      }
-
+      // Ctrl+Q is gone: it is XON in every terminal's default flow control, so
+      // on the terminals that swallow it the advertised quit key simply did
+      // nothing. Quitting is Ctrl+C twice or `/quit`, both in the keymap.
       if (key.ctrl && input === 'b') {
         setAgentPanelVisible((prev) => !prev);
       }
@@ -228,11 +252,49 @@ function AppShell({
         ]);
       }
 
-      if (key.escape) {
-        // Escape returns to the chat surface AND drops the sessions sidebar,
-        // which otherwise kept the composer blurred with no obvious way back.
-        setActiveView('chat');
-        setSidebarVisible(false);
+      if (key.ctrl && input === 'c') {
+        // Ink is rendered with `exitOnCtrlC: false`, so this is the only Ctrl+C
+        // handler. One press arms, a second within the window quits; anything
+        // else disarms. A single stray Ctrl+C can no longer end the session.
+        if (quitArmed) {
+          if (quitTimerRef.current !== null) clearTimeout(quitTimerRef.current);
+          handleQuit();
+          return;
+        }
+        setQuitArmed(true);
+        quitTimerRef.current = setTimeout(() => {
+          setQuitArmed(false);
+          quitTimerRef.current = null;
+        }, QUIT_CONFIRM_WINDOW_MS);
+        return;
+      }
+
+      if (quitArmed) {
+        setQuitArmed(false);
+        if (quitTimerRef.current !== null) {
+          clearTimeout(quitTimerRef.current);
+          quitTimerRef.current = null;
+        }
+      }
+
+      if (key.escape && !isStreaming) {
+        // Exactly ONE surface per press, topmost first, so repeated presses
+        // walk deterministically back to the chat. See `lib/escape-target.ts`.
+        //
+        // Gated on `!isStreaming` because the keymap declares Esc-interrupt
+        // (`when: 'streaming'`) and Esc-cancel (`when: 'idle'`) as two
+        // phase-disjoint bindings on one key — that is what lets the conflict
+        // spec pass. Ungated, an Escape during a turn with a panel open would
+        // fire both: stop the stream AND close the panel, which is the
+        // two-things-per-press behaviour this task set out to remove.
+        const next = applyEscape({
+          view: activeView,
+          sidebarVisible,
+          agentPanelVisible,
+        });
+        setActiveView(next.view);
+        setSidebarVisible(next.sidebarVisible);
+        setAgentPanelVisible(next.agentPanelVisible);
       }
     },
     {
@@ -246,20 +308,19 @@ function AppShell({
 
   return (
     <ErrorBoundary>
-      {!authReady && (
-        <Box paddingX={1} marginBottom={0}>
-          <Text color="yellow">
-            Agent not ready
-            {authError ? ` — ${authError}` : ''}. Press Ctrl+S → Authentication
-            to configure a provider.
-          </Text>
-        </Box>
-      )}
+      {/*
+        The "Agent not ready" banner is gone from here: it duplicated the
+        welcome screen's provider line, and `resolveInitialView` already opens
+        Settings → Authentication when auth is missing, so the banner was
+        telling you to press Ctrl+S while you were already looking at the panel
+        it would have taken you to.
+      */}
       <Layout
         sidebarVisible={sidebarVisible}
         agentPanelVisible={agentPanelVisible}
-        activeView={layoutView}
+        activeView={activeView}
         isStreaming={isStreaming}
+        hasConversation={hasConversation}
         modalActive={modalActive || overlayActive}
         fallbackModel={agentConfig.model}
       >
@@ -292,12 +353,22 @@ function AppShell({
               onSettings={() => setActiveView('settings')}
               onSessions={() => setSidebarVisible((prev) => !prev)}
               onQuit={handleQuit}
+              onHelp={handleHelp}
+              onConversationChange={setHasConversation}
               agentConfig={agentConfig}
               authReady={authReady}
+              authError={authError}
             />
           )}
         </MainPanel>
       </Layout>
+      {quitArmed && (
+        <Box paddingX={1}>
+          <Text color="yellow">
+            Press Ctrl+C again to quit — any other key cancels.
+          </Text>
+        </Box>
+      )}
       <ModalOverlay visible={modalStack.length > 0}>{topModal}</ModalOverlay>
     </ErrorBoundary>
   );

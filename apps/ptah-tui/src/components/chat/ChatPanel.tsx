@@ -23,6 +23,7 @@ import { AgentConfigBar } from './AgentConfigBar.js';
 import { CommandOverlay } from '../overlays/CommandOverlay.js';
 import { FilePickerOverlay } from '../overlays/FilePickerOverlay.js';
 import type { UseAgentConfigResult } from '../../hooks/use-agent-config.js';
+import { shouldOpenHelp } from '../../lib/keymap.js';
 
 interface ChatPanelProps {
   modalActive?: boolean;
@@ -36,8 +37,12 @@ interface ChatPanelProps {
   onSettings?: () => void;
   onSessions?: () => void;
   onQuit?: () => void;
+  onHelp?: () => void;
   agentConfig?: UseAgentConfigResult;
   authReady?: boolean;
+  authError?: string;
+  /** Reports transcript emptiness up so the status line can derive its label. */
+  onConversationChange?: (hasConversation: boolean) => void;
 }
 
 export function ChatPanel({
@@ -49,8 +54,11 @@ export function ChatPanel({
   onSettings,
   onSessions,
   onQuit,
+  onHelp,
   agentConfig,
   authReady = false,
+  authError,
+  onConversationChange,
 }: ChatPanelProps): React.JSX.Element {
   // `workspacePath` comes from the context, not a prop: it was previously an
   // optional prop that no caller ever passed, so every chat session started
@@ -71,6 +79,13 @@ export function ChatPanel({
   useEffect(() => {
     onStreamingChange?.(isStreaming);
   }, [isStreaming, onStreamingChange]);
+
+  // The status line derives its session label from this rather than from the
+  // once-at-mount `sessions` array, which is what used to read "No session"
+  // halfway through a conversation.
+  useEffect(() => {
+    onConversationChange?.(messages.length > 0);
+  }, [messages.length, onConversationChange]);
 
   // Latest-callback refs so the unmount cleanup below can run exactly once
   // without capturing stale props or re-firing on every render.
@@ -139,6 +154,16 @@ export function ChatPanel({
 
   const handleInputChange = useCallback(
     (value: string): void => {
+      // `?` on its own opens the shortcut help and clears the composer, so the
+      // help is reachable without a Ctrl-chord — terminals intercept those
+      // inconsistently, which is what made the old keymap feel broken. Any
+      // longer string containing `?` is just a message.
+      if (shouldOpenHelp(value)) {
+        setInputValue('');
+        onHelp?.();
+        return;
+      }
+
       setInputValue(value);
 
       if (value.startsWith('/')) {
@@ -168,7 +193,7 @@ export function ChatPanel({
         onOverlayActiveChange?.(false);
       }
     },
-    [overlayType, onOverlayActiveChange, filePicker],
+    [overlayType, onOverlayActiveChange, filePicker, onHelp],
   );
 
   const handleCommandSelect = useCallback(
@@ -247,7 +272,13 @@ export function ChatPanel({
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <MessageList messages={messages} isStreaming={isStreaming} />
+      <MessageList
+        messages={messages}
+        isStreaming={isStreaming}
+        authReady={authReady}
+        authError={authError}
+        model={agentConfig?.model ?? null}
+      />
       {isCommandOverlay && (
         <CommandOverlay
           query={overlayQuery}
@@ -275,7 +306,6 @@ export function ChatPanel({
       )}
       {agentConfig && (
         <AgentConfigBar
-          model={agentConfig.model}
           effort={agentConfig.effort}
           permissionLevel={agentConfig.permissionLevel}
           autopilotEnabled={agentConfig.autopilotEnabled}

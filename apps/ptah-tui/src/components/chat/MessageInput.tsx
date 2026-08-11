@@ -3,7 +3,8 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
 import { useTheme } from '../../hooks/use-theme.js';
-import { Spinner } from '../atoms/index.js';
+import { BORDER_STYLE, GLYPHS } from '../../lib/glyphs.js';
+import { StreamActivity } from './StreamActivity.js';
 import {
   isComposerFocused,
   shouldComposerSubmit,
@@ -101,26 +102,29 @@ export function MessageInput({
 
   return (
     <Box
-      borderStyle="round"
-      borderColor={isStreaming ? theme.status.warning : theme.ui.border}
+      borderStyle={BORDER_STYLE}
+      borderColor={
+        isStreaming
+          ? theme.status.warning
+          : inputFocused
+            ? theme.ui.borderActive
+            : theme.ui.borderSubtle
+      }
       paddingX={1}
-      marginX={0}
+      flexShrink={0}
     >
       {isStreaming ? (
-        <Box gap={1}>
-          <Spinner label="Streaming..." />
-          <Text dimColor>(Escape to stop)</Text>
-        </Box>
+        <StreamActivity />
       ) : (
         <Box flexGrow={1}>
-          <Text color={theme.ui.brand} bold>
-            {'❯ '}
+          <Text color={theme.ui.accent} bold>
+            {`${GLYPHS.prompt} `}
           </Text>
           <TextInput
             value={currentValue}
             onChange={handleChange}
             onSubmit={handleSubmit}
-            placeholder="Send a message..."
+            placeholder="Ask, or / for commands, @ for files, ? for keys"
             focus={inputFocused}
           />
         </Box>
