@@ -41,6 +41,34 @@ module.exports = {
         // `hairline` is its own token so borders stay legible independent
         // of whatever the surface ladder does next.
         hairline: 'var(--border-hairline)',
+        /**
+         * `base-content-muted` — the secondary tier of the text ladder.
+         *
+         * Mirrors `apps/ptah-extension-webview/tailwind.config.js`. This app
+         * has its OWN daisyUI config and shares nothing with the webview's, so
+         * the token has to be registered here too — and it must be, because
+         * `libs/frontend/markdown` and `libs/frontend/chat` are compiled
+         * through THIS config as well as the webview's.
+         *
+         * Why a token and not `text-base-content/NN`: composited in sRGB
+         * against each theme's own `base-100`, `/40` fails on all four operator
+         * themes (2.47:1 - 3.33:1), `/50` fails on `operator-admin` and
+         * `operator-member` (4.35:1), and `/60` measures **4.41:1 on
+         * `operator-member-light`** — the live AA failure TASK_2026_177 Batch
+         * 15B found in the first light-theme axe pass this repo ever ran. There
+         * is no single alpha that passes on every theme; the value has to be
+         * chosen per theme, which is what `--bcm` is.
+         *
+         * The `var(--bc)` fallback is deliberate and load-bearing: a theme with
+         * no measured `--bcm` renders at FULL base-content contrast. An
+         * unhandled theme degrades to "not visually muted", never to "fails
+         * contrast".
+         *
+         * Values are recomputed from the literal theme colours by
+         * `src/app/base-content-muted.spec.ts`, which fails if any drops below
+         * 4.5:1 or if a theme declared here has no value.
+         */
+        'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
@@ -103,6 +131,10 @@ module.exports = {
           'base-200': '#0e1015',
           'base-300': '#171a21',
           'base-content': '#e9ebef',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.46:1. See the `colors` block above and
+          // base-content-muted.spec.ts, which re-measures it.
+          '--bcm': '61.980067% 0.006234 266.580599',
           info: '#38bdf8',
           'info-content': '#08090c',
           success: '#34d399',
@@ -164,6 +196,10 @@ module.exports = {
           'base-200': '#151c27',
           'base-300': '#19202c',
           'base-content': '#dce2f3',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.15:1. See the `colors` block above and
+          // base-content-muted.spec.ts, which re-measures it.
+          '--bcm': '62.365194% 0.024670 264.797474',
           info: '#38bdf8',
           'info-content': '#08090c',
           success: '#34d399',
@@ -212,6 +248,10 @@ module.exports = {
           'base-200': '#151c27',
           'base-300': '#19202c',
           'base-content': '#dce2f3',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.15:1. Same ladder as `operator-admin`; kept duplicated
+          // rather than shared so the member shell can diverge later.
+          '--bcm': '62.365194% 0.024670 264.797474',
           info: '#38bdf8',
           'info-content': '#08090c',
           success: '#34d399',
@@ -262,6 +302,11 @@ module.exports = {
           'base-200': '#ffffff',
           'base-300': '#f2f0ec',
           'base-content': '#1a1c22',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.06:1. This is the theme with the actual defect —
+          // `text-base-content/60` composites to 4.41:1 here, BELOW the 4.5:1
+          // AA gate, across the whole shared panel nav. See the `colors` block.
+          '--bcm': '52.912219% 0.008359 340.327631',
           info: '#38bdf8',
           'info-content': '#08090c',
           success: '#34d399',
