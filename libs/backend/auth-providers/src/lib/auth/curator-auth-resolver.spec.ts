@@ -297,6 +297,156 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
     expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
     expect(env['ANTHROPIC_BASE_URL']).toBeUndefined();
   });
+
+  // ── The nine tier-METADATA vars (the other half of TASK_2026_159) ──────────
+  //
+  // 159 stripped the three `_MODEL` vars and left the nine `_NAME` /
+  // `_DESCRIPTION` / `_SUPPORTED_CAPABILITIES` vars that
+  // `ProviderModelsService.applyTierMetadata` writes for the CHAT provider.
+  // `_SUPPORTED_CAPABILITIES` is an SDK ALLOWLIST, so leaving it in place let
+  // the chat provider's capability list gate the curator provider's features.
+  const TIER_METADATA_KEYS = [
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  ] as const;
+
+  /** Ambient env carrying a chat-provider value on every stripped key. */
+  function chatAmbientEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {
+      ...ORIGINAL_ENV,
+      ANTHROPIC_API_KEY: 'chat-key',
+      ANTHROPIC_AUTH_TOKEN: 'chat-token',
+      ANTHROPIC_BASE_URL: 'http://chat-proxy',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'chat-opus',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'chat-sonnet',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'chat-haiku',
+    };
+    for (const key of TIER_METADATA_KEYS) env[key] = `chat-${key}`;
+    return env;
+  }
+
+  it("strips the chat provider's nine tier-metadata vars", () => {
+    process.env = chatAmbientEnv();
+    const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
+    const env = resolver.buildCuratorEnv({}) as Record<
+      string,
+      string | undefined
+    >;
+
+    for (const key of TIER_METADATA_KEYS) {
+      expect([key, env[key]]).toEqual([key, undefined]);
+    }
+  });
+
+  it("strips the chat provider's _SUPPORTED_CAPABILITIES allowlist", () => {
+    process.env = chatAmbientEnv();
+    const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
+    const env = resolver.buildCuratorEnv({
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'curator-haiku',
+    }) as Record<string, string | undefined>;
+
+    // The curator's OWN tier value survives; the chat provider's allowlist for
+    // that same tier does not ride along with it.
+    expect(env['ANTHROPIC_DEFAULT_HAIKU_MODEL']).toBe('curator-haiku');
+    expect(
+      env['ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES'],
+    ).toBeUndefined();
+  });
+
+  // ── The `undefined`-PRESENCE contract ─────────────────────────────────────
+  //
+  // The strip only survives `sdk-query-runner.service.ts`'s
+  // `{ ...process.env, ...buildTierEnvDefaults(authEnv), ...authEnv }` because
+  // every stripped key is an own enumerable property whose value is
+  // `undefined`, and that last spread therefore blanks the ambient value. If a
+  // future refactor drops undefined-valued keys from this return — a JSON
+  // round-trip, `Object.fromEntries(...filter(Boolean))`, a Zod `.parse()`, a
+  // `structuredClone` across IPC — the key vanishes from the spread and the
+  // chat provider's `process.env` value survives untouched.
+  //
+  // `toBeUndefined()` CANNOT catch that: it passes for an absent key too.
+  // These two tests use `hasOwnProperty` and the re-spread itself.
+  describe('the undefined-presence contract', () => {
+    it('keeps every stripped key PRESENT with an undefined value', () => {
+      process.env = chatAmbientEnv();
+      const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
+      const env = resolver.buildCuratorEnv({}) as Record<
+        string,
+        string | undefined
+      >;
+
+      const stripped = [
+        'ANTHROPIC_API_KEY',
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_BASE_URL',
+        'ANTHROPIC_DEFAULT_OPUS_MODEL',
+        'ANTHROPIC_DEFAULT_SONNET_MODEL',
+        'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+        ...TIER_METADATA_KEYS,
+      ];
+
+      for (const key of stripped) {
+        expect([
+          key,
+          Object.prototype.hasOwnProperty.call(env, key),
+          env[key],
+        ]).toEqual([key, true, undefined]);
+      }
+    });
+
+    it('survives a later re-spread of ambient process.env', () => {
+      process.env = chatAmbientEnv();
+      const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
+      const curatorEnv = resolver.buildCuratorEnv({}) as Record<
+        string,
+        string | undefined
+      >;
+
+      // Exactly the shape `sdk-query-runner.service.ts` builds: the FULL
+      // ambient env re-spread first, the curator env last.
+      const subprocessEnv: Record<string, string | undefined> = {
+        ...process.env,
+        ...curatorEnv,
+      };
+
+      expect(subprocessEnv['ANTHROPIC_API_KEY']).toBeUndefined();
+      expect(subprocessEnv['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+      for (const key of TIER_METADATA_KEYS) {
+        expect([key, subprocessEnv[key]]).toEqual([key, undefined]);
+      }
+    });
+
+    it('a filtered copy does NOT survive it — this is what the contract guards', () => {
+      process.env = chatAmbientEnv();
+      const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
+      const curatorEnv = resolver.buildCuratorEnv({}) as Record<
+        string,
+        string | undefined
+      >;
+
+      // The refactor the comment at `buildCuratorEnv` warns about, applied
+      // here so the failure mode is demonstrated rather than only described.
+      const filtered = Object.fromEntries(
+        Object.entries(curatorEnv).filter(([, value]) => value !== undefined),
+      );
+      const subprocessEnv: Record<string, string | undefined> = {
+        ...process.env,
+        ...filtered,
+      };
+
+      expect(subprocessEnv['ANTHROPIC_API_KEY']).toBe('chat-key');
+      expect(
+        subprocessEnv['ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES'],
+      ).toBe('chat-ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES');
+    });
+  });
 });
 
 describe('CuratorAuthResolver — curator tier mapping (TASK_2026_159)', () => {
