@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: in_review
 type: REFACTORING
 title: >-
   closeSplit's stopPropagation() is the last live leftover stopPropagation

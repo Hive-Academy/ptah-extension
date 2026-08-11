@@ -214,6 +214,8 @@ class StubQuickOpenComponent {
 function makeEditorServiceStub() {
   const activeFilePath = signal<string | undefined>(undefined);
   const isLoading = signal(false);
+  const splitActive = signal(false);
+  const focusedPane = signal<'left' | 'right'>('left');
   return {
     isLoading,
     activeFilePath,
@@ -222,8 +224,15 @@ function makeEditorServiceStub() {
     activeDiffTab: signal<unknown>(null),
     isActiveFileImage: signal(false),
     openTabs: signal<unknown[]>([]),
-    splitActive: signal(false),
-    focusedPane: signal<'left' | 'right'>('left'),
+    splitActive,
+    focusedPane,
+    // Faithful to EditorDiffSplitHelper.closeSplit, whose LAST act is
+    // `focusedPane.set('left')` — the ordering TASK_2026_212 turns on. A
+    // jest.fn() that changed nothing would have made those specs vacuous.
+    closeSplit: jest.fn(() => {
+      splitActive.set(false);
+      focusedPane.set('left');
+    }),
     splitFilePath: signal<string | undefined>(undefined),
     splitFileContent: signal(''),
     terminalVisible: signal(false),
@@ -271,6 +280,7 @@ function makeEditorServiceStub() {
     updateTabContent: jest.Mock;
     updateSplitContent: jest.Mock;
     setFocusedPane: jest.Mock;
+    closeSplit: jest.Mock;
     hasUnabsorbedPeerEdit: jest.Mock;
     deleteItem: jest.Mock;
     createFile: jest.Mock;
@@ -2646,5 +2656,140 @@ describe('EditorPanelComponent — file-ops dialogs live in the top layer (TASK_
     // in the middle of correcting.
     expect(input.value).toBe('   ');
     expect(showModalSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_212 — closing the split without cancelling the click.
+//
+// `closeSplit` used to call `stopPropagation()`. The register that filed this
+// read it as a leftover on the grounds that the close button is a SIBLING of
+// the pane container, the way the tab-strip close button is a sibling of the
+// tab button (D1 AC5). It is not: it is a descendant, two levels inside the
+// header bar, and the pane container carries `(click)="onPaneClick('right')"`.
+//
+// So the prescribed one-line deletion was a regression. `closeSplit` on the
+// helper ends with `focusedPane.set('left')`, and the click that closed the
+// split then bubbled on to `onPaneClick('right')` and put it back — a right
+// pane marked focused with no right pane, and a reconcile pass run for it.
+// The suppression is gone and the invariant is stated on the receiver instead,
+// which also covers routes a stopPropagation on this one handler never could.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — closing the split (TASK_2026_212)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+
+  function closeButton(): HTMLButtonElement {
+    const button = fixture.nativeElement.querySelector<HTMLButtonElement>(
+      '[aria-label="Close split pane"]',
+    );
+    expect(button).toBeTruthy();
+    return button as HTMLButtonElement;
+  }
+
+  function rightPaneContainer(): HTMLElement {
+    // The element that carries the pane-focus handlers: the close button's
+    // grandparent. Asserted rather than assumed — the whole task turns on this
+    // containment, and a future de-nesting should fail here loudly.
+    const container = closeButton().parentElement?.parentElement;
+    expect(container).toBeTruthy();
+    return container as HTMLElement;
+  }
+
+  function openSplit(): void {
+    editor.splitActive.set(true);
+    editor.splitFilePath.set('/ws/a.ts');
+    editor.focusedPane.set('right');
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('(212-1) the close button is INSIDE the pane container that handles pane focus', () => {
+    openSplit();
+
+    // The premise the register got wrong, pinned so it cannot rot silently.
+    expect(rightPaneContainer().contains(closeButton())).toBe(true);
+  });
+
+  it('(212-2) the click is allowed to propagate — nothing is cancelled any more', () => {
+    openSplit();
+
+    let reachedContainer = false;
+    rightPaneContainer().addEventListener('click', () => {
+      reachedContainer = true;
+    });
+
+    closeButton().dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+
+    expect(editor.closeSplit).toHaveBeenCalledTimes(1);
+    expect(reachedContainer).toBe(true);
+  });
+
+  it('(212-3) closing does not leave a focused right pane behind', () => {
+    openSplit();
+    expect(editor.focusedPane()).toBe('right');
+
+    closeButton().dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+
+    // closeSplit set it to 'left'; the click that bubbled afterwards must not
+    // have put it back.
+    expect(editor.splitActive()).toBe(false);
+    expect(editor.focusedPane()).toBe('left');
+    expect(editor.setFocusedPane).not.toHaveBeenCalledWith('right');
+  });
+
+  it('(212-4) an ordinary click in the right pane still focuses it', () => {
+    openSplit();
+    editor.focusedPane.set('left');
+
+    rightPaneContainer().dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+
+    // The guard is about a pane that does not exist, not about suppressing the
+    // handler generally.
+    expect(editor.setFocusedPane).toHaveBeenCalledWith('right');
   });
 });

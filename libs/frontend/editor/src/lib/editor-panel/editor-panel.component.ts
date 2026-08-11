@@ -397,7 +397,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
                     class="ml-auto p-0.5 rounded opacity-50 hover:opacity-100 hover:bg-base-content/10 transition-all"
                     aria-label="Close split pane"
                     title="Close split pane"
-                    (click)="closeSplit($event)"
+                    (click)="closeSplit()"
                   >
                     <lucide-angular [img]="XIcon" class="w-3 h-3" />
                   </button>
@@ -852,11 +852,27 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Close the split pane. Stops event propagation to prevent the click
-   * from triggering pane focus change.
+   * Close the split pane.
+   *
+   * Takes no event and suppresses nothing (TASK_2026_212). It used to call
+   * `stopPropagation()`, and the register that filed this read that as an
+   * obvious leftover on the grounds that the close button is a sibling of the
+   * pane container. It is not — it is a DESCENDANT of it, two levels down
+   * inside the header bar, and that container carries
+   * `(click)="onPaneClick('right')"`. Deleting the suppression on its own
+   * would have left the click bubbling to `onPaneClick` AFTER this ran, and
+   * since `EditorDiffSplitHelper.closeSplit` ends by setting `focusedPane` to
+   * 'left', the stray bubble put it straight back to 'right' — a right pane
+   * marked focused with no right pane in existence, plus a pointless
+   * reconcile pass over both panes.
+   *
+   * So the suppression is gone and the invariant it was standing in for is
+   * written down instead, on the receiving end: see {@link onPaneClick}. That
+   * is the D1 AC5 shape — isolation stated as a rule rather than enforced by
+   * cancelling an event — and unlike a `stopPropagation()` it also covers any
+   * other route to the same bad state.
    */
-  protected closeSplit(event: MouseEvent): void {
-    event.stopPropagation();
+  protected closeSplit(): void {
     this.editorService.closeSplit();
   }
 
@@ -875,8 +891,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * `focusin` bubbles (unlike `focus`), so focus landing anywhere inside a
    * pane — Monaco's hidden textarea included — retargets that pane. The two
    * containers are siblings, so neither pane's focusin can reach the other.
+   *
+   * The right pane cannot be focused when there is no right pane
+   * (TASK_2026_212). The close button sits INSIDE the right pane container, so
+   * closing the split raises a click that reaches this handler after the split
+   * is already gone; without this guard it would re-mark a pane that no longer
+   * exists as the focused one and run a reconcile pass for it. This replaces a
+   * `stopPropagation()` on the close handler — a rule about which states are
+   * reachable, rather than a cancelled event that only covered the one route.
    */
   protected onPaneClick(pane: 'left' | 'right'): void {
+    if (pane === 'right' && !this.editorService.splitActive()) return;
     this.editorService.setFocusedPane(pane);
   }
 
