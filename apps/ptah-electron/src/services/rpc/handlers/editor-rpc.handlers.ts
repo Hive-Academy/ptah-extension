@@ -70,6 +70,19 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Directory-exclusion glob handed to `findFiles` by `editor:searchInFiles`
+ * and `editor:listAllFiles`, derived from `TREE_HIDDEN_DIRS` instead of
+ * written out by hand.
+ *
+ * The two hand-written literals this replaces named 5 of the shared set's 11
+ * members, so search and quick-open surfaced matches from `.hg`, `.svn`,
+ * `.DS_Store`, `.Trash`, `.tmp` and `.temp` that the file tree itself hides.
+ * Deriving the pattern means a name added to `TREE_HIDDEN_DIRS` reaches both
+ * methods without a third manual edit, so the drift cannot recur.
+ */
+export const EXCLUDED_DIRS_GLOB = `**/{${[...TREE_HIDDEN_DIRS].join(',')}}/**`;
+
 /** File extensions considered binary (skip during text search). */
 const BINARY_EXTENSIONS = new Set([
   '.png',
@@ -484,7 +497,7 @@ export class EditorRpcHandlers {
         }
 
         try {
-          const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
+          const excludePattern = [EXCLUDED_DIRS_GLOB];
           const filePaths = await this.fs.findFiles(
             wsRoot.replace(/\\/g, '/') + '/**/*',
             excludePattern,
@@ -733,7 +746,7 @@ export class EditorRpcHandlers {
       }
 
       try {
-        const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
+        const excludePattern = [EXCLUDED_DIRS_GLOB];
         const filePaths = await this.fs.findFiles(
           wsRoot.replace(/\\/g, '/') + '/**/*',
           excludePattern,
