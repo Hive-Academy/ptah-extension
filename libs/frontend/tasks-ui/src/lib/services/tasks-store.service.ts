@@ -33,6 +33,7 @@ import {
   type TaskStatus,
   type TaskType,
   type TasksBoardResult,
+  type TasksBulkLabelMode,
   type TasksBulkResultItem,
   type TasksChangedNotification,
   type TasksCreateParams,
@@ -201,6 +202,31 @@ export const BULK_CONFIRM_THRESHOLD = 10;
 type BulkErrorCode = NonNullable<TasksBulkResultItem['error']>['code'];
 
 /**
+ * WHAT a bulk run is doing — the one description every stage of the run reads.
+ *
+ * ## A discriminated union, not two parallel fields
+ *
+ * The obvious alternative is a `status?: TaskStatus` beside a `label?: string`
+ * on {@link BulkProgress} and {@link BulkSummary}. That shape can express two
+ * states this feature has no meaning for — both set, and neither set — and the
+ * moment it can, every reader has to decide what to do about them, separately.
+ * The same refusal {@link TaskBulkOutcome} makes for the board's two still-
+ * selected groups: one signal that cannot disagree with itself, rather than two
+ * that can.
+ *
+ * It is also what keeps ONE run method, ONE chunk call and ONE settle: the only
+ * place `kind` is inspected is the line that picks which RPC to issue and the
+ * sentences that describe it.
+ */
+export type BulkOperation =
+  | { readonly kind: 'status'; readonly status: TaskStatus }
+  | {
+      readonly kind: 'label';
+      readonly label: string;
+      readonly mode: TasksBulkLabelMode;
+    };
+
+/**
  * A bulk run currently in flight.
  *
  * `done` counts tasks the client has ISSUED a write for and received an answer
@@ -209,8 +235,8 @@ type BulkErrorCode = NonNullable<TasksBulkResultItem['error']>['code'];
  * list are we", and the summary answers "what happened".
  */
 export interface BulkProgress {
-  /** The status every task in this run is being moved to. */
-  readonly status: TaskStatus;
+  /** What every task in this run is having done to it. */
+  readonly operation: BulkOperation;
   readonly done: number;
   readonly total: number;
   /**
@@ -279,8 +305,8 @@ export type TaskBulkOutcome = 'failed' | 'untouched';
  * a list nobody can act on.
  */
 export interface BulkSummary {
-  /** The status the run was moving tasks to. */
-  readonly status: TaskStatus;
+  /** What the run was doing to each task. */
+  readonly operation: BulkOperation;
   /** How many tasks the user had selected when the run started. */
   readonly requested: number;
   /**
@@ -290,6 +316,25 @@ export interface BulkSummary {
    */
   readonly attempted: number;
   readonly succeeded: number;
+  /**
+   * How many of {@link succeeded} needed no write at all — the task already
+   * carried the label being added, or already lacked the one being removed.
+   *
+   * ## A SUB-COUNT of `succeeded`, not a fourth group
+   *
+   * A no-op is a success: the task ends in the state the user asked for, its
+   * `updated` stamp is untouched because nothing was written, and it leaves the
+   * selection like any other success. Counting it anywhere else would break the
+   * three-group invariant below — and putting it in `untouched` would be the
+   * worse of the two mistakes, because that group means "the run never reached
+   * this task", which is the opposite of what happened.
+   *
+   * It is carried separately only so the summary can avoid the false sentence
+   * "10 tasks got the label" for a run where 8 of them already had it. Always
+   * `0` for a status run: `tasks:bulkUpdateStatus` never sets `noop`, on
+   * purpose (see `TasksBulkResultItem.noop`).
+   */
+  readonly noop: number;
   readonly failures: readonly BulkFailure[];
   /**
    * The tasks the run never reached. Empty unless {@link cancelled}.
@@ -297,7 +342,8 @@ export interface BulkSummary {
    * `succeeded + failures.length + untouched.length === requested` is the
    * invariant that makes this summary complete: every task the user selected is
    * accounted for in exactly one of the three, so no id can go missing from the
-   * report of what happened to it.
+   * report of what happened to it. {@link noop} sits INSIDE `succeeded` and is
+   * deliberately absent from that sum.
    */
   readonly untouched: readonly BulkUntouched[];
   readonly cancelled: boolean;
@@ -460,11 +506,15 @@ export class TasksStore implements MessageHandler {
    * through the same confirmation as one launched from the bulk bar. Two
    * surfaces each deciding "is this selection big enough to ask about" is two
    * copies of one rule, and the copy that drifts is the one that writes 120
-   * carriers without asking. Both surfaces call
-   * {@link TasksStore.requestBulkStatus}; this signal is where that one
+   * carriers without asking. Every surface calls {@link TasksStore.requestBulk}
+   * (through {@link TasksStore.requestBulkStatus} or
+   * {@link TasksStore.requestBulkLabel}); this signal is where that one
    * decision is recorded, and the bar renders whatever it holds.
+   *
+   * It holds the whole {@link BulkOperation}, so a label run passes the same
+   * gate as a status run rather than acquiring a second route into the loop.
    */
-  private readonly _bulkRequest = signal<TaskStatus | null>(null);
+  private readonly _bulkRequest = signal<BulkOperation | null>(null);
 
   /**
    * A `tasks:changed` push arrived while a bulk run was suppressing them.
@@ -862,7 +912,8 @@ export class TasksStore implements MessageHandler {
    *
    * ## The second of the two fronts holding the bulk path to ≤ 1 reload (R5)
    *
-   * A bulk run issues several `tasks:bulkUpdateStatus` calls, and EACH ONE ends
+   * A bulk run issues several `tasks:bulkUpdateStatus` (or
+   * `tasks:bulkUpdateLabel`) calls, and EACH ONE ends
    * with the backend rebuilding the index and broadcasting `tasks:changed`
    * (`TasksRpcHandlers.rebuildAfterBulk`). Those pushes land here while the run
    * is still going. Left alone, every one of them re-enters `loadBoard` — so a
@@ -1293,33 +1344,55 @@ export class TasksStore implements MessageHandler {
   }
 
   // -------------------------------------------------------------------------
-  // Bulk status (FR-C4)
+  // Bulk status and labels (FR-C4 / FR-C5)
   // -------------------------------------------------------------------------
 
   /**
-   * Ask to move every selected task to `status` — the ONE entry point.
+   * Ask to apply one {@link BulkOperation} to every selected task — the ONE
+   * entry point into a run.
    *
-   * Both the bulk bar's picker and the command palette's bulk entries call
-   * this, which is what makes FR-C6.7 ("palette bulk actions route through the
-   * same confirmation") structural rather than a promise. Above
+   * The bulk bar's status picker, its label controls, the summary's Retry and
+   * the command palette's bulk entries all arrive here, which is what makes
+   * FR-C6.7 ("palette bulk actions route through the same confirmation")
+   * structural rather than a promise — and what makes labels inherit the gate
+   * instead of acquiring a second, similar one. Above
    * {@link BULK_CONFIRM_THRESHOLD} it records a pending request and writes
    * nothing; at or below it, it runs.
    */
-  public requestBulkStatus(status: TaskStatus): void {
+  public requestBulk(operation: BulkOperation): void {
     if (this._selection().size === 0) return;
     if (this._bulk() !== null) return;
     if (this._selection().size > BULK_CONFIRM_THRESHOLD) {
-      this._bulkRequest.set(status);
+      this._bulkRequest.set(operation);
       return;
     }
-    void this.bulkUpdateStatus(status);
+    void this.runBulk(operation);
+  }
+
+  /** Ask to move every selected task to `status` (FR-C4). */
+  public requestBulkStatus(status: TaskStatus): void {
+    this.requestBulk({ kind: 'status', status });
+  }
+
+  /**
+   * Ask to add `label` to, or remove it from, every selected task (FR-C5).
+   *
+   * The label is passed through UNCHECKED. Its limits — no newline, ≤ 32
+   * characters, ≤ 12 per task — live in `TaskMetadataPatchSchema` on the write
+   * path and nowhere else, so an over-long label comes back as one
+   * `INVALID_PARAMS` entry per task carrying the boundary's own sentence, which
+   * is the sentence the user should read. A copy of the rule here would be a
+   * second enforcer to drift.
+   */
+  public requestBulkLabel(label: string, mode: TasksBulkLabelMode): void {
+    this.requestBulk({ kind: 'label', label, mode });
   }
 
   /** Run the pending request (the user said yes). */
   public confirmBulkRequest(): void {
-    const status = this._bulkRequest();
-    if (status === null) return;
-    void this.bulkUpdateStatus(status);
+    const operation = this._bulkRequest();
+    if (operation === null) return;
+    void this.runBulk(operation);
   }
 
   /** Discard the pending request. The selection is left exactly as it was. */
@@ -1350,8 +1423,8 @@ export class TasksStore implements MessageHandler {
   }
 
   /**
-   * Move every selected task to one status, in chunks, cancellably, with
-   * EXACTLY ONE board reload for the whole run (FR-C4 / R5).
+   * Apply one {@link BulkOperation} to every selected task, in chunks,
+   * cancellably, with EXACTLY ONE board reload for the whole run (FR-C4 / R5).
    *
    * ## Partial failure is the outcome, not the error path
    *
@@ -1387,8 +1460,16 @@ export class TasksStore implements MessageHandler {
    * REPORTED rather than prevented: the writer's pre-write re-read refuses, and
    * the entry comes back `TASK_CONFLICT` with `currentStatus`, which is the
    * actionable answer.
+   *
+   * ## ONE run method for both operations
+   *
+   * Status and labels differ in exactly one line of this method — which RPC
+   * {@link callBulkChunk} issues. Everything the run is actually about (the
+   * chunking, the cancel check between chunks, the pending set, the one
+   * reload, the push suppression, the three-group settle) is identical, and a
+   * second copy of it would be a second place for any of those to be wrong.
    */
-  public async bulkUpdateStatus(status: TaskStatus): Promise<void> {
+  public async runBulk(operation: BulkOperation): Promise<void> {
     if (this._bulk() !== null) return;
     const ids = [...this._selection()];
     if (ids.length === 0) return;
@@ -1397,7 +1478,7 @@ export class TasksStore implements MessageHandler {
     this._bulkSummary.set(null);
     this._error.set(null);
     this.missedPush = false;
-    this._bulk.set({ status, done: 0, total: ids.length, cancelled: false });
+    this._bulk.set({ operation, done: 0, total: ids.length, cancelled: false });
 
     /**
      * Outcomes keyed by the SAME case-folded key the RPC boundary dedupes on
@@ -1419,7 +1500,7 @@ export class TasksStore implements MessageHandler {
         this._pending.set(new Set(chunk));
         attempted += chunk.length;
 
-        for (const item of await this.callBulkChunk(chunk, status)) {
+        for (const item of await this.callBulkChunk(chunk, operation)) {
           outcomes.set(item.taskId.toLowerCase(), item);
         }
 
@@ -1434,7 +1515,7 @@ export class TasksStore implements MessageHandler {
       const cancelled = this._bulk()?.cancelled === true;
       this._bulk.set(null);
       this._bulkSummary.set(
-        this.settleBulk(ids, status, outcomes, attempted, cancelled),
+        this.settleBulk(ids, operation, outcomes, attempted, cancelled),
       );
       await this.reconcileAfterBulk(ids);
     }
@@ -1450,11 +1531,21 @@ export class TasksStore implements MessageHandler {
    * carrying the transport's own sentence. Those entries are failures, so the
    * tasks stay selected and stay retryable, which is exactly right: nothing is
    * known to have been written.
+   *
+   * The transport sentence names what the run was doing, because it is read
+   * beside a list of task ids and "Failed to update task statuses." under a
+   * label run is a false description of the write that did not happen.
+   *
+   * This is the ONLY place `operation.kind` decides anything on the write path.
    */
   private async callBulkChunk(
     chunk: readonly string[],
-    status: TaskStatus,
+    operation: BulkOperation,
   ): Promise<readonly TasksBulkResultItem[]> {
+    const fallback =
+      operation.kind === 'status'
+        ? 'Failed to update task statuses.'
+        : 'Failed to update task labels.';
     const failAll = (message: string): TasksBulkResultItem[] =>
       chunk.map((taskId) => ({
         taskId,
@@ -1463,13 +1554,21 @@ export class TasksStore implements MessageHandler {
       }));
 
     try {
-      const result = await this.rpc.call('tasks:bulkUpdateStatus', {
-        taskIds: [...chunk],
-        status,
-        ...this.workspaceParam(),
-      });
+      const result =
+        operation.kind === 'status'
+          ? await this.rpc.call('tasks:bulkUpdateStatus', {
+              taskIds: [...chunk],
+              status: operation.status,
+              ...this.workspaceParam(),
+            })
+          : await this.rpc.call('tasks:bulkUpdateLabel', {
+              taskIds: [...chunk],
+              label: operation.label,
+              mode: operation.mode,
+              ...this.workspaceParam(),
+            });
       if (!(result.isSuccess() && result.data)) {
-        return failAll(result.error ?? 'Failed to update task statuses.');
+        return failAll(result.error ?? fallback);
       }
       // The payload crossed the host bridge with no schema on it — the same
       // unvalidated boundary `withRelationArrays` guards on the board path. A
@@ -1480,11 +1579,7 @@ export class TasksStore implements MessageHandler {
       }
       return results;
     } catch (error: unknown) {
-      return failAll(
-        error instanceof Error
-          ? error.message
-          : 'Failed to update task statuses.',
-      );
+      return failAll(error instanceof Error ? error.message : fallback);
     }
   }
 
@@ -1503,10 +1598,20 @@ export class TasksStore implements MessageHandler {
    * That third group is why `attempted` is carried separately from `requested`;
    * it is also what makes Retry after a cancel resume the run rather than
    * re-issue the part that already landed.
+   *
+   * ## And a no-op is NOT a fourth group
+   *
+   * `noop: true` comes back with `ok: true` — the task is already in the state
+   * the user asked for and nothing was written. It is counted in `succeeded`,
+   * it leaves the selection like every other success, and {@link
+   * BulkSummary.noop} records how many of the successes it accounted for so the
+   * summary can say so without inventing writes. Routing it to `untouched`
+   * instead would state the opposite of what happened: that group means the run
+   * never reached the task.
    */
   private settleBulk(
     ids: readonly string[],
-    status: TaskStatus,
+    operation: BulkOperation,
     outcomes: ReadonlyMap<string, TasksBulkResultItem>,
     attempted: number,
     cancelled: boolean,
@@ -1518,6 +1623,7 @@ export class TasksStore implements MessageHandler {
     const failures: BulkFailure[] = [];
     const untouched: BulkUntouched[] = [];
     let succeeded = 0;
+    let noop = 0;
 
     for (const taskId of ids) {
       const item = outcomes.get(taskId.toLowerCase());
@@ -1530,6 +1636,9 @@ export class TasksStore implements MessageHandler {
       }
       if (item.ok) {
         succeeded += 1;
+        // A sub-count of the line above, deliberately not an `else`: the task
+        // succeeded AND wrote nothing, and both facts are reported.
+        if (item.noop === true) noop += 1;
         continue;
       }
       nextSelection.add(taskId);
@@ -1546,10 +1655,11 @@ export class TasksStore implements MessageHandler {
 
     this._selection.set(nextSelection);
     return {
-      status,
+      operation,
       requested: ids.length,
       attempted,
       succeeded,
+      noop,
       failures,
       untouched,
       cancelled,

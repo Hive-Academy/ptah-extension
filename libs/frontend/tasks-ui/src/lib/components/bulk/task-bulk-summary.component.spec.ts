@@ -1,14 +1,30 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { TaskBulkSummaryComponent } from './task-bulk-summary.component';
 import { TaskBulkBarComponent } from './task-bulk-bar.component';
-import type { BulkSummary } from '../../services/tasks-store.service';
+import type {
+  BulkOperation,
+  BulkSummary,
+} from '../../services/tasks-store.service';
+import type { TasksBulkLabelMode, TaskStatus } from '@ptah-extension/shared';
+
+const moveTo = (status: TaskStatus): BulkOperation => ({
+  kind: 'status',
+  status,
+});
+
+const labelOp = (label: string, mode: TasksBulkLabelMode): BulkOperation => ({
+  kind: 'label',
+  label,
+  mode,
+});
 
 function summary(overrides: Partial<BulkSummary> = {}): BulkSummary {
   return {
-    status: 'done',
+    operation: moveTo('done'),
     requested: 3,
     attempted: 3,
     succeeded: 3,
+    noop: 0,
     failures: [],
     untouched: [],
     cancelled: false,
@@ -121,7 +137,7 @@ describe('TaskBulkSummaryComponent', () => {
 
     const fixture = await render(
       summary({
-        status: 'in_review',
+        operation: moveTo('in_review'),
         succeeded: 0,
         failures: [
           {
@@ -133,15 +149,171 @@ describe('TaskBulkSummaryComponent', () => {
         ],
       }),
     );
-    const emitted: string[] = [];
-    fixture.componentInstance.retry.subscribe((status) => emitted.push(status));
+    const emitted: BulkOperation[] = [];
+    fixture.componentInstance.retry.subscribe((operation) =>
+      emitted.push(operation),
+    );
     (
       (fixture.nativeElement as HTMLElement).querySelector(
         '[data-testid="task-bulk-summary-retry"]',
       ) as HTMLButtonElement
     ).click();
 
-    expect(emitted).toEqual(['in_review']);
+    expect(emitted).toEqual([{ kind: 'status', status: 'in_review' }]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Label runs (FR-C5) — the no-op is the whole difficulty
+  // -------------------------------------------------------------------------
+
+  /**
+   * THE sentence this task exists to prevent.
+   *
+   * Ten tasks were asked for and all ten now carry the label, but eight already
+   * did: two files were written. A headline built off `succeeded` would say
+   * "10 task(s) got the label", which is wrong about disk in the direction that
+   * makes a user believe an edit landed — and it would be wrong silently, since
+   * every count in the summary would still add up.
+   */
+  it('reports what a label run WROTE, not how many tasks ended up carrying the label', async () => {
+    const fixture = await render(
+      summary({
+        operation: labelOp('licensing', 'add'),
+        requested: 10,
+        attempted: 10,
+        succeeded: 10,
+        noop: 8,
+      }),
+    );
+    const host = fixture.nativeElement as HTMLElement;
+
+    const headline = host.querySelector(
+      '[data-testid="task-bulk-summary-headline"]',
+    )?.textContent;
+    expect(headline).toContain('2 task(s) got the label "licensing"');
+    expect(headline).not.toContain('10 task(s) got the label');
+
+    // …and the eight are stated as their own fact, with their own hook.
+    expect(
+      host.querySelector('[data-testid="task-bulk-summary-noop"]')?.textContent,
+    ).toContain('8 already carried "licensing", so nothing was written');
+  });
+
+  it('says a removal did not carry the label, rather than already carried it', async () => {
+    const fixture = await render(
+      summary({
+        operation: labelOp('licensing', 'remove'),
+        requested: 5,
+        attempted: 5,
+        succeeded: 5,
+        noop: 3,
+      }),
+    );
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(
+      host.querySelector('[data-testid="task-bulk-summary-headline"]')
+        ?.textContent,
+    ).toContain('2 task(s) had the label "licensing" removed');
+    expect(
+      host.querySelector('[data-testid="task-bulk-summary-noop"]')?.textContent,
+    ).toContain('3 did not carry "licensing"');
+  });
+
+  /**
+   * The control for both of the above: a run where every success wrote states
+   * nothing about no-ops. Without this, "the no-op sentence appears" is also
+   * satisfied by a panel that always shows it.
+   */
+  it('renders no no-op sentence for a run where every success wrote', async () => {
+    const fixture = await render(
+      summary({
+        operation: labelOp('licensing', 'add'),
+        requested: 3,
+        attempted: 3,
+        succeeded: 3,
+        noop: 0,
+      }),
+    );
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(
+      host.querySelector('[data-testid="task-bulk-summary-noop"]'),
+    ).toBeNull();
+    expect(
+      host.querySelector('[data-testid="task-bulk-summary-headline"]')
+        ?.textContent,
+    ).toContain('3 task(s) got the label "licensing"');
+  });
+
+  /**
+   * The label limits live in `TaskMetadataPatchSchema`, on the write path. This
+   * panel restates none of them and prints what the boundary said, exactly.
+   */
+  it('renders the backend refusal sentence verbatim', async () => {
+    const sentence = 'A task may carry at most 12 labels.';
+    const fixture = await render(
+      summary({
+        operation: labelOp('a-thirteenth-label', 'add'),
+        requested: 1,
+        attempted: 1,
+        succeeded: 0,
+        failures: [
+          {
+            taskId: 'TASK_2026_001',
+            title: 'Title TASK_2026_001',
+            code: 'INVALID_PARAMS',
+            message: sentence,
+          },
+        ],
+      }),
+    );
+
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-failure-message"]',
+      )?.textContent,
+    ).toContain(sentence);
+  });
+
+  /**
+   * Retry re-emits the WHOLE operation, label and direction included.
+   *
+   * A retry that emitted only "there was a label run" would have to guess both
+   * on the way back in, and the guess that reads best — add — is the one that
+   * silently reverses a removal.
+   */
+  it('re-emits the whole label operation from Retry', async () => {
+    const fixture = await render(
+      summary({
+        operation: labelOp('licensing', 'remove'),
+        requested: 1,
+        attempted: 1,
+        succeeded: 0,
+        failures: [
+          {
+            taskId: 'TASK_2026_001',
+            title: null,
+            code: 'WRITE_FAILED',
+            message: 'the write was refused',
+          },
+        ],
+      }),
+    );
+    const emitted: BulkOperation[] = [];
+    fixture.componentInstance.retry.subscribe((operation) =>
+      emitted.push(operation),
+    );
+
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-summary-retry"]',
+      ) as HTMLButtonElement
+    ).click();
+
+    expect(emitted).toEqual([
+      { kind: 'label', label: 'licensing', mode: 'remove' },
+    ]);
   });
 
   /**
@@ -329,11 +501,60 @@ describe('TaskBulkSummaryComponent', () => {
       }
     });
 
+    /**
+     * The same sweep over the LABEL states this task added.
+     *
+     * A ratchet that only covers what existed when it was written stops being a
+     * ratchet the moment anything is added beside it: the reassuring word would
+     * simply be typed into the new sentence instead. The label confirmation is
+     * the likeliest place for it, for exactly the reason the status one was.
+     */
+    it('appear nowhere in a label summary that reports no-ops', async () => {
+      const fixture = await render(
+        summary({
+          operation: labelOp('licensing', 'add'),
+          requested: 10,
+          attempted: 10,
+          succeeded: 9,
+          noop: 8,
+          failures: [
+            {
+              taskId: 'TASK_2026_001',
+              title: 'Title TASK_2026_001',
+              code: 'INVALID_PARAMS',
+              message: 'A task may carry at most 12 labels.',
+            },
+          ],
+        }),
+      );
+
+      const swept = sweep(fixture.nativeElement as HTMLElement);
+      for (const word of BANNED) {
+        expect(swept).not.toContain(word);
+      }
+    });
+
     it.each([
       ['idle', { count: 42, requested: null, progress: null }],
       [
         'awaiting confirmation',
-        { count: 42, requested: 'done' as const, progress: null },
+        { count: 42, requested: moveTo('done'), progress: null },
+      ],
+      [
+        'awaiting confirmation of a label add',
+        {
+          count: 42,
+          requested: labelOp('licensing', 'add'),
+          progress: null,
+        },
+      ],
+      [
+        'awaiting confirmation of a label removal',
+        {
+          count: 42,
+          requested: labelOp('licensing', 'remove'),
+          progress: null,
+        },
       ],
       [
         'running',
@@ -341,7 +562,33 @@ describe('TaskBulkSummaryComponent', () => {
           count: 42,
           requested: null,
           progress: {
-            status: 'done' as const,
+            operation: moveTo('done'),
+            done: 20,
+            total: 42,
+            cancelled: false,
+          },
+        },
+      ],
+      [
+        'running a label add',
+        {
+          count: 42,
+          requested: null,
+          progress: {
+            operation: labelOp('licensing', 'add'),
+            done: 20,
+            total: 42,
+            cancelled: false,
+          },
+        },
+      ],
+      [
+        'running a label removal',
+        {
+          count: 42,
+          requested: null,
+          progress: {
+            operation: labelOp('licensing', 'remove'),
             done: 20,
             total: 42,
             cancelled: false,
@@ -394,7 +641,10 @@ describe('TaskBulkBarComponent', () => {
    * rather than on an aria-label that a sighted user never meets.
    */
   it('names the count AND the target status in the confirmation', async () => {
-    const fixture = await renderBar({ count: 42, requested: 'in_review' });
+    const fixture = await renderBar({
+      count: 42,
+      requested: moveTo('in_review'),
+    });
 
     const prompt = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="task-bulk-confirm"]',
@@ -421,7 +671,7 @@ describe('TaskBulkBarComponent', () => {
    * ratios for the replacement live in the component's own docblock.
    */
   it('does not commit the bulk write through a btn-primary control', async () => {
-    const fixture = await renderBar({ count: 42, requested: 'done' });
+    const fixture = await renderBar({ count: 42, requested: moveTo('done') });
 
     const confirm = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="task-bulk-confirm-run"]',
@@ -442,7 +692,7 @@ describe('TaskBulkBarComponent', () => {
    * it is a prompt the user is told about and then has to go find.
    */
   it('encloses both confirmation buttons inside the alertdialog', async () => {
-    const fixture = await renderBar({ count: 42, requested: 'done' });
+    const fixture = await renderBar({ count: 42, requested: moveTo('done') });
     const dialog = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="task-bulk-confirm"]',
     );
@@ -459,7 +709,12 @@ describe('TaskBulkBarComponent', () => {
   it('shows progress as done over total while a run is in flight', async () => {
     const fixture = await renderBar({
       count: 42,
-      progress: { status: 'done', done: 7, total: 12, cancelled: false },
+      progress: {
+        operation: moveTo('done'),
+        done: 7,
+        total: 12,
+        cancelled: false,
+      },
     });
 
     expect(
@@ -478,6 +733,189 @@ describe('TaskBulkBarComponent', () => {
       )?.textContent,
     ).toContain('9 of them hidden by the filter');
   });
+
+  // -------------------------------------------------------------------------
+  // The label control (FR-C5)
+  // -------------------------------------------------------------------------
+
+  /** The label field, and the two picks it can produce. */
+  function labelField(
+    fixture: ComponentFixture<TaskBulkBarComponent>,
+  ): HTMLInputElement {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="task-bulk-label-input"]',
+    ) as HTMLInputElement;
+  }
+
+  /**
+   * Record BOTH outputs. A label control wired to `statusPicked` — or one that
+   * fires both — is a defect an assertion counting only `labelPicked` cannot
+   * see.
+   */
+  function watch(fixture: ComponentFixture<TaskBulkBarComponent>): {
+    labels: unknown[];
+    statuses: unknown[];
+  } {
+    const labels: unknown[] = [];
+    const statuses: unknown[] = [];
+    fixture.componentInstance.labelPicked.subscribe((pick) =>
+      labels.push(pick),
+    );
+    fixture.componentInstance.statusPicked.subscribe((status) =>
+      statuses.push(status),
+    );
+    return { labels, statuses };
+  }
+
+  it('emits the trimmed label with mode add, and clears the field', async () => {
+    const fixture = await renderBar({ count: 4 });
+    const seen = watch(fixture);
+    const field = labelField(fixture);
+    field.value = '  licensing  ';
+
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-label-add"]',
+      ) as HTMLButtonElement
+    ).click();
+
+    expect(seen.labels).toEqual([{ label: 'licensing', mode: 'add' }]);
+    expect(seen.statuses).toEqual([]);
+    // Cleared, for the same reason the status picker resets: the control is a
+    // verb, and a populated field reads as a property of the selection.
+    expect(field.value).toBe('');
+  });
+
+  it('emits mode remove from the Remove control', async () => {
+    const fixture = await renderBar({ count: 4 });
+    const seen = watch(fixture);
+    labelField(fixture).value = 'licensing';
+
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-label-remove"]',
+      ) as HTMLButtonElement
+    ).click();
+
+    expect(seen.labels).toEqual([{ label: 'licensing', mode: 'remove' }]);
+    expect(seen.statuses).toEqual([]);
+  });
+
+  /**
+   * THE KEYBOARD PATH, driven as a keyboard.
+   *
+   * Nothing is clicked here. A test that reached the same emission through
+   * `.click()` on the Add button would pass against a bar whose field ignores
+   * Enter entirely — which is a control that is unusable without a mouse for
+   * its most common action.
+   */
+  it('adds the label when Enter is pressed in the field, with no click anywhere', async () => {
+    const fixture = await renderBar({ count: 4 });
+    const seen = watch(fixture);
+    const field = labelField(fixture);
+    const clicks: string[] = [];
+    for (const button of Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+    )) {
+      button.addEventListener('click', () =>
+        clicks.push(button.getAttribute('data-testid') ?? ''),
+      );
+    }
+    field.value = 'licensing';
+
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    fixture.detectChanges();
+
+    expect(seen.labels).toEqual([{ label: 'licensing', mode: 'add' }]);
+    expect(seen.statuses).toEqual([]);
+    expect(clicks).toEqual([]);
+    expect(field.value).toBe('');
+  });
+
+  /**
+   * An empty field is not a request. Nothing is emitted and the field is left
+   * exactly as the user left it — including the whitespace they typed, which
+   * clearing would make look like an action had been taken.
+   */
+  it('emits nothing for a whitespace-only field', async () => {
+    const fixture = await renderBar({ count: 4 });
+    const seen = watch(fixture);
+    const field = labelField(fixture);
+    field.value = '   ';
+
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-label-add"]',
+      ) as HTMLButtonElement
+    ).click();
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+
+    expect(seen.labels).toEqual([]);
+    expect(seen.statuses).toEqual([]);
+    expect(field.value).toBe('   ');
+  });
+
+  /**
+   * The confirmation over a label run names the label, the direction AND the
+   * count — the three facts that decide whether this is the action meant.
+   */
+  it.each([
+    [
+      'add',
+      labelOp('licensing', 'add'),
+      'Add the label "licensing" to 42 task(s)?',
+      'Add "licensing" to 42',
+    ],
+    [
+      'remove',
+      labelOp('licensing', 'remove'),
+      'Remove the label "licensing" from 42 task(s)?',
+      'Remove "licensing" from 42',
+    ],
+  ])(
+    'names the label, the direction and the count in the confirmation (%s)',
+    async (_mode, operation, prompt, action) => {
+      const fixture = await renderBar({ count: 42, requested: operation });
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(
+        host.querySelector('[data-testid="task-bulk-confirm"]')?.textContent,
+      ).toContain(prompt);
+      expect(
+        host.querySelector('[data-testid="task-bulk-confirm-run"]')
+          ?.textContent,
+      ).toContain(action);
+    },
+  );
+
+  it.each([
+    ['add', labelOp('licensing', 'add'), 'Adding the label "licensing"'],
+    [
+      'remove',
+      labelOp('licensing', 'remove'),
+      'Removing the label "licensing"',
+    ],
+  ])(
+    'says which label a running label run is applying (%s)',
+    async (_mode, operation, expected) => {
+      const fixture = await renderBar({
+        count: 42,
+        progress: { operation, done: 7, total: 12, cancelled: false },
+      });
+
+      const progress = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-progress"]',
+      )?.textContent;
+      expect(progress).toContain(expected);
+      expect(progress).toContain('7 / 12');
+      // It does not describe a label run as a status move.
+      expect(progress).not.toContain('Moving to');
+    },
+  );
 
   /**
    * A control whose only possible effect is nothing must not be offered — the

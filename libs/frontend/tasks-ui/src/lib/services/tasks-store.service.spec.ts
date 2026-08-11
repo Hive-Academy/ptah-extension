@@ -1812,7 +1812,7 @@ describe('TasksStore — selection and bulk status', () => {
   // -------------------------------------------------------------------------
   // The chunked loop, and the ≤ 1 reload it is held to (Task 12.3 / R5)
   // -------------------------------------------------------------------------
-  describe('bulkUpdateStatus', () => {
+  describe('runBulk — status', () => {
     /**
      * THE assertion of this batch (R5 / FR-C4.10).
      *
@@ -1846,7 +1846,7 @@ describe('TasksStore — selection and bulk status', () => {
       });
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect(bulkCalls()).toHaveLength(3);
       expect(boardCalls().length).toBeLessThanOrEqual(1);
@@ -1859,7 +1859,7 @@ describe('TasksStore — selection and bulk status', () => {
       store.selectAllMatching();
       installBulkMock(makeBoard({ backlog: fifty }));
 
-      await store.bulkUpdateStatus('in_review');
+      await store.runBulk({ kind: 'status', status: 'in_review' });
 
       const sizes = bulkCalls().map(
         (call) => (call[1] as { taskIds: string[] }).taskIds.length,
@@ -1894,7 +1894,7 @@ describe('TasksStore — selection and bulk status', () => {
           : { taskId, ok: true },
       );
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect([...store.selection()].sort()).toEqual([
         'TASK_2026_001',
@@ -1920,7 +1920,7 @@ describe('TasksStore — selection and bulk status', () => {
         currentStatus: 'blocked',
       }));
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       const failure = store.bulkSummary()?.failures[0];
       expect(failure?.currentStatus).toBe('blocked');
@@ -1940,7 +1940,7 @@ describe('TasksStore — selection and bulk status', () => {
       }));
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect(bulkCalls()).toHaveLength(1);
     });
@@ -1972,7 +1972,7 @@ describe('TasksStore — selection and bulk status', () => {
       });
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect(bulkCalls()).toHaveLength(1);
       const summary = store.bulkSummary();
@@ -2027,7 +2027,7 @@ describe('TasksStore — selection and bulk status', () => {
         return result;
       });
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       const outcomes = store.lastRunOutcomes();
       expect(outcomes.get('TASK_2026_005')).toBe('failed');
@@ -2047,7 +2047,7 @@ describe('TasksStore — selection and bulk status', () => {
         error: { code: 'WRITE_FAILED', message: 'the write was refused' },
       }));
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
       expect(store.lastRunOutcomes().size).toBe(2);
 
       store.clearBulkSummary();
@@ -2069,7 +2069,7 @@ describe('TasksStore — selection and bulk status', () => {
           : Promise.resolve(ok(makeBoard({ backlog: tasks(3) }))),
       );
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       const summary = store.bulkSummary();
       expect(summary?.failures).toHaveLength(3);
@@ -2086,8 +2086,8 @@ describe('TasksStore — selection and bulk status', () => {
       installBulkMock(makeBoard({ backlog: twenty }));
       rpcCall.mockClear();
 
-      const first = store.bulkUpdateStatus('done');
-      await store.bulkUpdateStatus('blocked');
+      const first = store.runBulk({ kind: 'status', status: 'done' });
+      await store.runBulk({ kind: 'status', status: 'blocked' });
       await first;
 
       expect(bulkCalls()).toHaveLength(1);
@@ -2140,7 +2140,7 @@ describe('TasksStore — selection and bulk status', () => {
       });
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       // Measured INSIDE the run, before the finally's own reload — so a
       // reload that merely arrives late cannot be mistaken for suppression.
@@ -2187,7 +2187,7 @@ describe('TasksStore — selection and bulk status', () => {
       });
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect(boardCallsDuringRun).toBe(0);
       expect(boardCalls().length).toBeLessThanOrEqual(1);
@@ -2244,7 +2244,7 @@ describe('TasksStore — selection and bulk status', () => {
       });
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect(
         rpcCall.mock.calls.filter((call) => call[0] === 'tasks:get'),
@@ -2261,7 +2261,7 @@ describe('TasksStore — selection and bulk status', () => {
       installBulkMock(makeBoard({ backlog: five }));
       rpcCall.mockClear();
 
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
 
       expect(
         rpcCall.mock.calls.filter((call) => call[0] === 'tasks:get'),
@@ -2301,7 +2301,7 @@ describe('TasksStore — selection and bulk status', () => {
       store.requestBulkStatus('done');
       await Promise.resolve();
 
-      expect(store.bulkRequest()).toBe('done');
+      expect(store.bulkRequest()).toEqual({ kind: 'status', status: 'done' });
       expect(bulkCalls()).toEqual([]);
 
       store.confirmBulkRequest();
@@ -2323,6 +2323,419 @@ describe('TasksStore — selection and bulk status', () => {
       expect(store.bulkRequest()).toBeNull();
       expect(bulkCalls()).toEqual([]);
       expect(store.selectionCount()).toBe(BULK_CONFIRM_THRESHOLD + 1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Bulk LABELS (FR-C5) — the same machinery, a different operation
+  //
+  // Every test here has a second half naming the RPC that must NOT have been
+  // issued. A label run that quietly went through `tasks:bulkUpdateStatus`
+  // would satisfy "one call per chunk" and would write the wrong thing to every
+  // carrier in the selection.
+  // -------------------------------------------------------------------------
+  describe('runBulk — labels (FR-C5)', () => {
+    const labelCalls = (): unknown[][] =>
+      rpcCall.mock.calls.filter((call) => call[0] === 'tasks:bulkUpdateLabel');
+
+    /** The params of every `tasks:bulkUpdateLabel` call, in order. */
+    const labelParams = (): Array<{
+      taskIds: string[];
+      label: string;
+      mode: string;
+    }> =>
+      labelCalls().map(
+        (call) => call[1] as { taskIds: string[]; label: string; mode: string },
+      );
+
+    const add = (label: string) =>
+      ({ kind: 'label', label, mode: 'add' }) as const;
+    const remove = (label: string) =>
+      ({ kind: 'label', label, mode: 'remove' }) as const;
+
+    /** As `installBulkMock`, but answering the LABEL method. */
+    function installLabelMock(
+      payload: TasksBoardResult,
+      outcome: (taskId: string) => TasksBulkResultItem = (taskId) => ({
+        taskId,
+        ok: true,
+      }),
+    ): void {
+      rpcCall.mockImplementation(
+        (method: string, params: { taskIds?: string[] }) => {
+          if (method === 'tasks:bulkUpdateLabel') {
+            return Promise.resolve(
+              ok({ results: (params.taskIds ?? []).map(outcome) }),
+            );
+          }
+          return Promise.resolve(ok(payload));
+        },
+      );
+    }
+
+    /** Load `count` tasks, select them all, and arm the label mock. */
+    async function selectAll(
+      count: number,
+      outcome?: (taskId: string) => TasksBulkResultItem,
+    ): Promise<void> {
+      const board = makeBoard({ backlog: tasks(count) });
+      rpcCall.mockResolvedValue(ok(board));
+      await store.loadBoard();
+      store.selectAllMatching();
+      expect(store.selectionCount()).toBe(count);
+      installLabelMock(board, outcome);
+      rpcCall.mockClear();
+    }
+
+    /** `succeeded + failures + untouched === requested`, stated directly. */
+    function expectThreeGroupsComplete(): void {
+      const summary = store.bulkSummary();
+      expect(summary).not.toBeNull();
+      expect(
+        (summary?.succeeded ?? 0) +
+          (summary?.failures.length ?? 0) +
+          (summary?.untouched.length ?? 0),
+      ).toBe(summary?.requested);
+    }
+
+    /**
+     * The chunking, on the method this task added.
+     *
+     * Fifty ids is three chunks at BULK_CHUNK_SIZE = 20 — deliberately more
+     * than one, because a single-chunk fixture cannot tell a loop that chunks
+     * from one that sends the whole selection in one call.
+     */
+    it('chunks a label add at BULK_CHUNK_SIZE and sends label and mode on every chunk', async () => {
+      await selectAll(50);
+
+      await store.runBulk(add('licensing'));
+
+      expect(labelParams().map((params) => params.taskIds.length)).toEqual([
+        BULK_CHUNK_SIZE,
+        BULK_CHUNK_SIZE,
+        10,
+      ]);
+      for (const params of labelParams()) {
+        expect(params.label).toBe('licensing');
+        expect(params.mode).toBe('add');
+      }
+      // Every requested id reached the wire exactly once, in selection order.
+      expect(labelParams().flatMap((params) => params.taskIds)).toEqual([
+        ...store.allTasks().map((task) => task.id),
+      ]);
+      // …and the STATUS method was never touched. Without this half, a run
+      // that wrote statuses instead would pass every assertion above.
+      expect(bulkCalls()).toEqual([]);
+    });
+
+    it('sends mode remove for a removal, and nothing else', async () => {
+      await selectAll(3);
+
+      await store.runBulk(remove('licensing'));
+
+      expect(labelParams()).toHaveLength(1);
+      expect(labelParams()[0].mode).toBe('remove');
+      expect(labelParams()[0].label).toBe('licensing');
+      expect(bulkCalls()).toEqual([]);
+    });
+
+    /**
+     * FR-C5.2 — a no-op is a SUCCESS that wrote nothing.
+     *
+     * The task already carried the label, so it ends in the state the user
+     * asked for: it counts in `succeeded`, it leaves the selection like any
+     * other success, and it is NOT in `untouched` — that group means the run
+     * never reached the task, which is the opposite of what happened here.
+     *
+     * The fixture mixes both kinds on purpose. An all-noop or all-write run
+     * cannot tell `noop` counting from `succeeded` counting.
+     */
+    it('counts a no-op inside succeeded, records it separately, and deselects the task', async () => {
+      await selectAll(4, (taskId) =>
+        taskId === 'TASK_2026_000' || taskId === 'TASK_2026_001'
+          ? { taskId, ok: true, noop: true }
+          : { taskId, ok: true },
+      );
+
+      await store.runBulk(add('licensing'));
+
+      const summary = store.bulkSummary();
+      expect(summary?.succeeded).toBe(4);
+      expect(summary?.noop).toBe(2);
+      // The two discriminating negatives: not a failure, and not the third
+      // group. Either would satisfy "4 tasks were accounted for".
+      expect(summary?.failures).toEqual([]);
+      expect(summary?.untouched).toEqual([]);
+      // A success deselects, whether or not it wrote.
+      expect(store.selectionCount()).toBe(0);
+      expect(store.lastRunOutcomes().has('TASK_2026_000')).toBe(false);
+      expectThreeGroupsComplete();
+    });
+
+    /** A status run has no producer for `noop`, so it always reports zero. */
+    it('reports noop as zero for a status run', async () => {
+      const board = makeBoard({ backlog: tasks(3) });
+      rpcCall.mockResolvedValue(ok(board));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(board);
+
+      await store.runBulk({ kind: 'status', status: 'done' });
+
+      expect(store.bulkSummary()?.succeeded).toBe(3);
+      expect(store.bulkSummary()?.noop).toBe(0);
+      expectThreeGroupsComplete();
+    });
+
+    // -----------------------------------------------------------------------
+    // The three-group invariant, at the three fixtures that can break it
+    // differently. A no-op misfiled into `untouched` breaks the third; a
+    // cancel that reported un-attempted ids as failures breaks the second.
+    // -----------------------------------------------------------------------
+    it('accounts for every requested task exactly once — clean run', async () => {
+      await selectAll(25, (taskId) =>
+        taskId === 'TASK_2026_007'
+          ? {
+              taskId,
+              ok: false,
+              error: { code: 'WRITE_FAILED', message: 'the write was refused' },
+            }
+          : { taskId, ok: true },
+      );
+
+      await store.runBulk(add('licensing'));
+
+      const summary = store.bulkSummary();
+      expect(summary?.requested).toBe(25);
+      expect(summary?.succeeded).toBe(24);
+      expect(summary?.failures).toHaveLength(1);
+      expect(summary?.untouched).toEqual([]);
+      expectThreeGroupsComplete();
+    });
+
+    it('accounts for every requested task exactly once — cancelled run', async () => {
+      await selectAll(40, (taskId) =>
+        taskId === 'TASK_2026_003'
+          ? {
+              taskId,
+              ok: false,
+              error: { code: 'WRITE_FAILED', message: 'the write was refused' },
+            }
+          : { taskId, ok: true, noop: taskId === 'TASK_2026_004' },
+      );
+      const inner = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateLabel') store.cancelBulk();
+        return result;
+      });
+
+      await store.runBulk(add('licensing'));
+
+      const summary = store.bulkSummary();
+      expect(summary?.cancelled).toBe(true);
+      expect(summary?.requested).toBe(40);
+      expect(summary?.attempted).toBe(BULK_CHUNK_SIZE);
+      expect(summary?.succeeded).toBe(BULK_CHUNK_SIZE - 1);
+      expect(summary?.noop).toBe(1);
+      expect(summary?.failures).toHaveLength(1);
+      expect(summary?.untouched).toHaveLength(20);
+      // The no-op is inside `succeeded`, so it must NOT also be in the sum.
+      expectThreeGroupsComplete();
+    });
+
+    it('accounts for every requested task exactly once — all-noop run', async () => {
+      await selectAll(30, (taskId) => ({ taskId, ok: true, noop: true }));
+
+      await store.runBulk(add('licensing'));
+
+      const summary = store.bulkSummary();
+      expect(summary?.requested).toBe(30);
+      expect(summary?.succeeded).toBe(30);
+      expect(summary?.noop).toBe(30);
+      expect(summary?.failures).toEqual([]);
+      expect(summary?.untouched).toEqual([]);
+      expect(store.selectionCount()).toBe(0);
+      expectThreeGroupsComplete();
+    });
+
+    /**
+     * FR-C4.9 on the label path — un-attempted is neither succeeded nor failed.
+     *
+     * Cancel fires from inside the first chunk's response, so the second chunk
+     * is never issued. The twenty that were written leave the selection; the
+     * twenty that were never asked stay in it, and the ids are checked so a
+     * run that stopped somewhere else cannot pass.
+     */
+    it('stops between chunks, leaving un-attempted label tasks selected and uncounted', async () => {
+      await selectAll(40);
+      const inner = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateLabel') store.cancelBulk();
+        return result;
+      });
+
+      await store.runBulk(add('licensing'));
+
+      expect(labelCalls()).toHaveLength(1);
+      const summary = store.bulkSummary();
+      expect(summary?.succeeded).toBe(BULK_CHUNK_SIZE);
+      expect(summary?.failures).toEqual([]);
+      expect(summary?.untouched.map((entry) => entry.taskId)).toEqual(
+        tasks(40)
+          .slice(BULK_CHUNK_SIZE)
+          .map((task) => task.id),
+      );
+      expect([...store.selection()].sort()).toEqual(
+        tasks(40)
+          .slice(BULK_CHUNK_SIZE)
+          .map((task) => task.id),
+      );
+      expect(store.lastRunOutcomes().get('TASK_2026_020')).toBe('untouched');
+      expectThreeGroupsComplete();
+    });
+
+    /**
+     * FR-C6.7 — the label controls do not get their own consent path.
+     *
+     * Both halves of the threshold are asserted, because "labels ask first" is
+     * also satisfied by a store that asks about everything.
+     */
+    it(`runs a label add immediately at exactly ${BULK_CONFIRM_THRESHOLD}`, async () => {
+      await selectAll(BULK_CONFIRM_THRESHOLD);
+
+      store.requestBulkLabel('licensing', 'add');
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toBeNull();
+      expect(labelCalls().length).toBeGreaterThan(0);
+    });
+
+    it(`asks first for a label add at ${BULK_CONFIRM_THRESHOLD + 1}, and writes nothing until confirmed`, async () => {
+      await selectAll(BULK_CONFIRM_THRESHOLD + 1);
+
+      store.requestBulkLabel('licensing', 'remove');
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toEqual({
+        kind: 'label',
+        label: 'licensing',
+        mode: 'remove',
+      });
+      // NOTHING was written — on either method.
+      expect(labelCalls()).toEqual([]);
+      expect(bulkCalls()).toEqual([]);
+
+      store.confirmBulkRequest();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toBeNull();
+      expect(labelParams()).toHaveLength(1);
+      expect(labelParams()[0].mode).toBe('remove');
+      expect(labelParams()[0].label).toBe('licensing');
+      expect(bulkCalls()).toEqual([]);
+    });
+
+    /**
+     * R5 on the label path, both fronts at once: the loop issues no reload, and
+     * the `tasks:changed` the backend broadcasts after every chunk is dropped
+     * while the run is in flight.
+     *
+     * The during-run count is measured INSIDE the run, so a reload that merely
+     * arrives late cannot be mistaken for suppression, and the final count is
+     * asserted as EXACTLY one rather than "at most" — the run owes one.
+     */
+    it('issues exactly ONE tasks:board call for a 50-task label run that is pushed after every chunk', async () => {
+      await selectAll(50);
+      const inner = rpcCall.getMockImplementation();
+      let boardCallsDuringRun = -1;
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateLabel') {
+          store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+          await Promise.resolve();
+          await Promise.resolve();
+          boardCallsDuringRun = boardCalls().length;
+        }
+        return result;
+      });
+
+      await store.runBulk(add('licensing'));
+
+      expect(labelCalls()).toHaveLength(3);
+      expect(boardCallsDuringRun).toBe(0);
+      expect(boardCalls()).toHaveLength(1);
+    });
+
+    /**
+     * The label limits live in `TaskMetadataPatchSchema`, on the backend. This
+     * side states none of them and renders whatever the boundary said.
+     *
+     * The assertion is on the EXACT sentence, so a client that substituted its
+     * own wording — however similar — fails here.
+     */
+    it('carries an INVALID_PARAMS refusal through with the backend sentence verbatim', async () => {
+      const sentence = 'A task may carry at most 12 labels.';
+      await selectAll(2, (taskId) => ({
+        taskId,
+        ok: false,
+        error: { code: 'INVALID_PARAMS', message: sentence },
+      }));
+
+      await store.runBulk(add('a-thirteenth-label'));
+
+      const summary = store.bulkSummary();
+      expect(summary?.failures).toHaveLength(2);
+      expect(summary?.failures[0].code).toBe('INVALID_PARAMS');
+      expect(summary?.failures[0].message).toBe(sentence);
+      expect(summary?.succeeded).toBe(0);
+      // Refusals stay selected so Retry has something to aim at (FR-C4.6).
+      expect(store.selectionCount()).toBe(2);
+      expectThreeGroupsComplete();
+    });
+
+    /**
+     * A transport failure is not an answer about any one task, and its sentence
+     * must describe the run that failed — "Failed to update task statuses."
+     * under a label run is a false description of the write that did not
+     * happen.
+     */
+    it('expands a transport failure into one label-shaped failure per requested id', async () => {
+      const board = makeBoard({ backlog: tasks(3) });
+      rpcCall.mockResolvedValue(ok(board));
+      await store.loadBoard();
+      store.selectAllMatching();
+      rpcCall.mockImplementation((method: string) =>
+        method === 'tasks:bulkUpdateLabel'
+          ? Promise.resolve({
+              success: false,
+              isSuccess: () => false,
+              error: undefined,
+            })
+          : Promise.resolve(ok(board)),
+      );
+
+      await store.runBulk(add('licensing'));
+
+      const summary = store.bulkSummary();
+      expect(summary?.failures).toHaveLength(3);
+      expect(summary?.failures[0].code).toBe('WRITE_FAILED');
+      expect(summary?.failures[0].message).toBe(
+        'Failed to update task labels.',
+      );
+      expect(store.selectionCount()).toBe(3);
+      expectThreeGroupsComplete();
     });
   });
 });

@@ -8,6 +8,8 @@
  *   - tasks:create           - create a new TASK_YYYY_NNN folder + task.md
  *   - tasks:updateStatus     - byte-preserving status transition
  *   - tasks:bulkUpdateStatus - N independent status writes, one result each
+ *   - tasks:bulkUpdateLabel  - add/remove ONE label across N tasks; no-ops are
+ *                              reported as successes that issued no write
  *   - tasks:generateRegistry - (re)write the derived registry.md
  *   - tasks:board            - all six status columns
  *   - tasks:reindex          - full rebuild of the derived index
@@ -43,13 +45,18 @@ import {
   type TaskDoctorService,
   type DoctorAction,
   type RegistryGeneratorService,
+  type UpdateMetadataResult,
 } from '@ptah-extension/task-specs';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { TasksSettings } from '@ptah-extension/settings-core';
-import { SavedTaskViewSchema } from '@ptah-extension/shared/schemas';
+import {
+  SavedTaskViewSchema,
+  TaskMetadataPatchSchema,
+} from '@ptah-extension/shared/schemas';
 import {
   MAX_SAVED_TASK_VIEWS,
   TASK_STATUSES,
+  labelKey,
   type RpcMethodName,
   type SavedTaskView,
   type TaskSpecSummary,
@@ -67,6 +74,9 @@ import {
   type TasksBulkResultItem,
   type TasksBulkUpdateStatusParams,
   type TasksBulkUpdateStatusResult,
+  type TasksBulkLabelMode,
+  type TasksBulkUpdateLabelParams,
+  type TasksBulkUpdateLabelResult,
   type TasksGenerateRegistryParams,
   type TasksGenerateRegistryResult,
   type TasksBoardParams,
@@ -90,6 +100,7 @@ import {
   TasksUpdateStatusParamsSchema,
   TasksUpdateMetadataParamsSchema,
   TasksBulkUpdateStatusParamsSchema,
+  TasksBulkUpdateLabelParamsSchema,
   TasksGenerateRegistryParamsSchema,
   TasksBoardParamsSchema,
   TasksReindexParamsSchema,
@@ -193,6 +204,44 @@ function dedupeTaskIds(taskIds: readonly string[]): string[] {
   return unique;
 }
 
+/**
+ * The next `labels` array after adding or removing one label.
+ *
+ * ## The case-sensitivity rule, stated once and used by BOTH directions
+ *
+ * Labels MATCH through the shared {@link labelKey} — `trim().toLowerCase()` —
+ * and are STORED as the author typed them. That is the rule the whole feature
+ * already runs on: `TaskSpecSummary.labels` documents it, `buildTaskGraph`
+ * folds the completion union by it, and the chip colour hashes it, so
+ * `Licensing` and `licensing ` are one label everywhere a user can see.
+ *
+ * Both halves of this function use that one key, which is what makes the pair
+ * coherent: `add` treats a task carrying `Licensing` as already carrying
+ * `licensing` and does nothing, and `remove` of `licensing` drops `Licensing`.
+ * Splitting them — an exact-match presence test with a folded removal, or the
+ * reverse — is how "add then remove" stops being a round trip: the add would
+ * plant a second casing the remove then takes both of, or the remove would miss
+ * the very label the add refused to duplicate.
+ *
+ * `add` appends the caller's text at the END, preserving existing order.
+ * `remove` drops EVERY case-insensitive match, so a carrier hand-authored with
+ * both `Licensing` and `licensing` is cleaned in one pass rather than needing
+ * two calls that each look like a no-op to the user.
+ */
+function nextLabels(
+  current: readonly string[],
+  label: string,
+  mode: TasksBulkLabelMode,
+): string[] {
+  const key = labelKey(label);
+  if (mode === 'remove') {
+    return current.filter((existing) => labelKey(existing) !== key);
+  }
+  return current.some((existing) => labelKey(existing) === key)
+    ? [...current]
+    : [...current, label];
+}
+
 @injectable()
 export class TasksRpcHandlers {
   /** RPC methods owned by this handler (SHARED_HANDLERS coverage invariant). */
@@ -203,6 +252,7 @@ export class TasksRpcHandlers {
     'tasks:updateStatus',
     'tasks:updateMetadata',
     'tasks:bulkUpdateStatus',
+    'tasks:bulkUpdateLabel',
     'tasks:generateRegistry',
     'tasks:board',
     'tasks:reindex',
@@ -243,6 +293,7 @@ export class TasksRpcHandlers {
     this.registerUpdateStatus();
     this.registerUpdateMetadata();
     this.registerBulkUpdateStatus();
+    this.registerBulkUpdateLabel();
     this.registerGenerateRegistry();
     this.registerBoard();
     this.registerReindex();
@@ -832,6 +883,211 @@ export class TasksRpcHandlers {
         error: { code: 'WRITE_FAILED', message: sanitized.message },
       };
     }
+  }
+
+  /**
+   * `tasks:bulkUpdateLabel` — add or remove ONE label across a set (FR-C5).
+   *
+   * Structurally identical to {@link registerBulkUpdateStatus}, and
+   * deliberately so: dedupe first, `ensureStarted` is the only thing allowed to
+   * throw (nothing is written yet), every failure from the loop onward becomes
+   * a result ENTRY, every write carries `deferNotify: true`, and exactly one
+   * index rebuild happens in a `finally` — and none at all when nothing was
+   * written.
+   *
+   * The one behaviour this method has that the status method does not is
+   * {@link TasksBulkResultItem.noop}. It can afford it because its write is a
+   * read-modify-write anyway (see {@link applyBulkLabel}); the status path
+   * cannot, and does not.
+   */
+  private registerBulkUpdateLabel(): void {
+    this.rpcHandler.registerMethod<
+      TasksBulkUpdateLabelParams,
+      TasksBulkUpdateLabelResult
+    >('tasks:bulkUpdateLabel', async (params) => {
+      const parsed = this.parse(TasksBulkUpdateLabelParamsSchema, params);
+      const root = this.resolveRoot(parsed.workspaceRoot);
+      const taskIds = dedupeTaskIds(parsed.taskIds);
+
+      // Nothing has been written yet, so throwing is the honest answer here and
+      // nowhere after it.
+      try {
+        await this.index.ensureStarted(root);
+      } catch (error: unknown) {
+        throw this.sanitize(
+          error,
+          'tasks:bulkUpdateLabel',
+          'Failed to update task labels.',
+        );
+      }
+
+      const results: TasksBulkResultItem[] = [];
+      /** Folders whose bytes actually changed — drives the single rebuild. */
+      const written: string[] = [];
+
+      try {
+        for (const taskId of taskIds) {
+          results.push(
+            await this.applyBulkLabel(
+              root,
+              taskId,
+              parsed.label,
+              parsed.mode,
+              written,
+            ),
+          );
+        }
+
+        return { results };
+      } finally {
+        // A no-op run writes nothing, so it must also rebuild nothing — an
+        // empty rebuild is a full rescan of every folder bought for no change.
+        if (written.length > 0) {
+          await this.rebuildAfterBulk(root, written[0]);
+        }
+      }
+    });
+  }
+
+  /**
+   * One task's label change inside a bulk loop. **This method does not throw**,
+   * for exactly the reasons {@link applyBulkStatus} does not.
+   *
+   * ## Why this one reads before it writes, and the status path does not
+   *
+   * `labels` is a FULL REPLACEMENT on the write funnel. "Add `licensing`"
+   * therefore cannot be expressed as a patch without first knowing the array
+   * being added to, so the pre-read is forced by the write shape rather than
+   * chosen. Two things follow from having it:
+   *
+   *  - the no-op case becomes decidable (step 3), which is what finally gives
+   *    `TasksBulkResultItem.noop` a producer; and
+   *  - the read is STALE by construction, which is what `expectLabels` on the
+   *    writer exists to catch. Without it, a third party changing this task's
+   *    labels between our read and the writer's read would have their change
+   *    silently overwritten by our full-replacement array.
+   *
+   * ## `currentStatus` is deliberately NOT set here
+   *
+   * `applyBulkStatus` enriches a conflict with the status now on disk because
+   * the user asked to change the STATUS and "changed to what?" has an answer
+   * they can act on. This method's user asked about labels; reporting a status
+   * they neither sent nor asked about answers a question nobody posed, and the
+   * field is typed and documented as the STATUS the carrier holds, so
+   * repurposing it would make it mean two things. The board reloads on
+   * conflict and shows the real labels anyway.
+   *
+   * @param written appended to when this task's bytes actually changed.
+   */
+  private async applyBulkLabel(
+    root: string,
+    taskId: string,
+    label: string,
+    mode: TasksBulkLabelMode,
+    written: string[],
+  ): Promise<TasksBulkResultItem> {
+    try {
+      const detail = await this.index.getDetail(root, taskId);
+
+      // `getDetail` collapses THREE situations into `null`: no carrier, a
+      // carrier that no longer parses, and a read that failed outright. The
+      // writer distinguishes the first two (`TASK_NOT_FOUND` vs
+      // `TASK_EXCLUDED`) and refuses without writing in every one of them, so
+      // the accurate answer is to let it say which — guessing `TASK_NOT_FOUND`
+      // here would tell a user their broken task does not exist.
+      //
+      // `expectLabels: []` is what makes delegating safe rather than a hole: if
+      // the carrier raced into existence between the read above and the
+      // writer's own read, a labelled one is refused as a conflict instead of
+      // being overwritten by this probe.
+      if (!detail) {
+        return this.toBulkEntry(
+          taskId,
+          await this.writer.updateMetadata(
+            root,
+            taskId,
+            { labels: mode === 'add' ? [label] : [] },
+            { deferNotify: true, expectLabels: [] },
+          ),
+          written,
+        );
+      }
+
+      const current = detail.labels;
+      const next = nextLabels(current, label, mode);
+
+      // `next` is `current` plus one element, or `current` minus zero or more,
+      // so equal lengths means nothing changed. Reported as a SUCCESS that
+      // issued no write: the task already carries the state the caller asked
+      // for, and rewriting it would refresh `updated` on a gitignored file to
+      // record a change that did not happen.
+      if (next.length === current.length) {
+        return { taskId, ok: true, noop: true };
+      }
+
+      // The MERGED array is validated by the one definition of the label
+      // limits. `MAX_LABELS_PER_TASK` constrains what a task ends up carrying,
+      // which is knowable only here — the request schema saw one label and had
+      // nothing to count. Restating the cap in this file would be the second
+      // enforcer of one number that the request schema already refuses to be.
+      const validated = TaskMetadataPatchSchema.safeParse({ labels: next });
+      if (!validated.success) {
+        return {
+          taskId,
+          ok: false,
+          error: {
+            code: 'INVALID_PARAMS',
+            // Zod's own message, so the limit is NAMED once, where it is
+            // defined. A generic "invalid parameters" would leave a user who
+            // just hit the twelfth label with nothing to act on.
+            message:
+              validated.error.issues[0]?.message ??
+              'The resulting labels are invalid.',
+          },
+        };
+      }
+
+      return this.toBulkEntry(
+        taskId,
+        await this.writer.updateMetadata(
+          root,
+          taskId,
+          { labels: next },
+          { deferNotify: true, expectLabels: current },
+        ),
+        written,
+      );
+    } catch (error: unknown) {
+      const sanitized = this.sanitize(
+        error,
+        'tasks:bulkUpdateLabel',
+        `Failed to update '${taskId}'.`,
+      );
+      return {
+        taskId,
+        ok: false,
+        error: { code: 'WRITE_FAILED', message: sanitized.message },
+      };
+    }
+  }
+
+  /**
+   * Project a write-funnel result onto its bulk entry, recording the write.
+   *
+   * `written` is appended to ONLY on success, which is what keeps the single
+   * post-bulk rebuild honest: a run of pure refusals — or pure no-ops — leaves
+   * it empty and buys no rescan at all.
+   */
+  private toBulkEntry(
+    taskId: string,
+    result: UpdateMetadataResult,
+    written: string[],
+  ): TasksBulkResultItem {
+    if (result.success) {
+      written.push(taskId);
+      return { taskId, ok: true };
+    }
+    return { taskId, ok: false, error: result.error };
   }
 
   /**

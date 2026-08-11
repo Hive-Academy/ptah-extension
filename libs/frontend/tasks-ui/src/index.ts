@@ -67,6 +67,7 @@ export {
 export type {
   ApplyMetadataOptions,
   BulkFailure,
+  BulkOperation,
   BulkProgress,
   BulkSummary,
   BulkUntouched,

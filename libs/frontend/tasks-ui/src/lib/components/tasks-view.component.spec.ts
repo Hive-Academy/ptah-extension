@@ -19,6 +19,7 @@ import { TaskViewsService } from '../services/task-views.service';
 import { TasksViewComponent } from './tasks-view.component';
 import type { TaskPaletteAction } from './palette/palette-entries';
 import { TaskBulkBarComponent } from './bulk/task-bulk-bar.component';
+import { TaskBulkSummaryComponent } from './bulk/task-bulk-summary.component';
 
 function task(
   id: string,
@@ -1183,6 +1184,9 @@ describe('TasksViewComponent', () => {
         requestBulkStatus: jest
           .spyOn(store, 'requestBulkStatus')
           .mockImplementation(() => undefined),
+        requestBulkLabel: jest
+          .spyOn(store, 'requestBulkLabel')
+          .mockImplementation(() => undefined),
         confirmBulkRequest: jest
           .spyOn(store, 'confirmBulkRequest')
           .mockImplementation(() => undefined),
@@ -1202,6 +1206,10 @@ describe('TasksViewComponent', () => {
 
       const emissions: Array<[() => void, keyof typeof spies]> = [
         [() => bar.statusPicked.emit('done'), 'requestBulkStatus'],
+        [
+          () => bar.labelPicked.emit({ label: 'licensing', mode: 'add' }),
+          'requestBulkLabel',
+        ],
         [() => bar.confirmRequest.emit(), 'confirmBulkRequest'],
         [() => bar.cancelRequest.emit(), 'cancelBulkRequest'],
         [() => bar.cancelRun.emit(), 'cancelBulk'],
@@ -1232,6 +1240,70 @@ describe('TasksViewComponent', () => {
       bar.statusPicked.emit('in_review');
       fixture.detectChanges();
       expect(spies.requestBulkStatus).toHaveBeenCalledWith('in_review');
+
+      // The label pick carries TWO values, and the binding unpacks them. A
+      // binding that swapped or dropped `mode` would still have satisfied the
+      // call-counting above — and "add" where "remove" was meant writes the
+      // label onto every selected carrier instead of taking it off.
+      for (const spy of Object.values(spies)) spy.mockClear();
+      bar.labelPicked.emit({ label: 'licensing', mode: 'remove' });
+      fixture.detectChanges();
+      expect(spies.requestBulkLabel).toHaveBeenCalledWith(
+        'licensing',
+        'remove',
+      );
+    });
+
+    /**
+     * The summary's Retry reaches the ONE entry point with the whole operation.
+     *
+     * Bound to `requestBulkStatus` — the shape it had before labels existed —
+     * this would not compile for a label operation; bound to `runBulk` it would
+     * compile fine and skip the confirmation on a 40-task retry. Only
+     * `requestBulk` is both.
+     */
+    it('routes the summary Retry through the confirming entry point', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      store.toggleSelection('TASK_2026_200');
+      fixture.detectChanges();
+
+      rpcCall.mockImplementation((method: string, params: unknown) => {
+        if (method === 'tasks:bulkUpdateLabel') {
+          const ids = (params as { taskIds: string[] }).taskIds;
+          return Promise.resolve(
+            ok({
+              results: ids.map((taskId) => ({
+                taskId,
+                ok: false,
+                error: { code: 'WRITE_FAILED', message: 'the write failed' },
+              })),
+            }),
+          );
+        }
+        return Promise.resolve(ok(populated));
+      });
+      await store.runBulk({
+        kind: 'label',
+        label: 'licensing',
+        mode: 'remove',
+      });
+      fixture.detectChanges();
+
+      const requestBulk = jest
+        .spyOn(store, 'requestBulk')
+        .mockImplementation(() => undefined);
+      const summary = fixture.debugElement.query(
+        By.directive(TaskBulkSummaryComponent),
+      ).componentInstance as TaskBulkSummaryComponent;
+      summary.retry.emit({ kind: 'label', label: 'licensing', mode: 'remove' });
+      fixture.detectChanges();
+
+      expect(requestBulk).toHaveBeenCalledWith({
+        kind: 'label',
+        label: 'licensing',
+        mode: 'remove',
+      });
     });
 
     /**
@@ -1274,14 +1346,14 @@ describe('TasksViewComponent', () => {
         return Promise.resolve(ok(many));
       });
       store.selectAllMatching();
-      await store.bulkUpdateStatus('done');
+      await store.runBulk({ kind: 'status', status: 'done' });
       fixture.detectChanges();
       expect(panel()).not.toBeNull();
 
       // A retry over 11 tasks needs confirming — the old summary steps aside.
       store.requestBulkStatus('done');
       fixture.detectChanges();
-      expect(store.bulkRequest()).toBe('done');
+      expect(store.bulkRequest()).toEqual({ kind: 'status', status: 'done' });
       expect(panel()).toBeNull();
 
       // Declining brings it back rather than having destroyed it.
@@ -1328,7 +1400,7 @@ describe('TasksViewComponent', () => {
       entry.onPaletteRun({ kind: 'bulkSetStatus', status: 'done' });
       fixture.detectChanges();
 
-      expect(store.bulkRequest()).toBe('done');
+      expect(store.bulkRequest()).toEqual({ kind: 'status', status: 'done' });
       expect(
         rpcCall.mock.calls.filter(
           (call) => call[0] === 'tasks:bulkUpdateStatus',

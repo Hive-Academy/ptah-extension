@@ -534,6 +534,239 @@ describe('updateMetadata — the conflict domain is the whole file', () => {
 });
 
 // ---------------------------------------------------------------------------
+// expectLabels — the precondition the pre-write re-read cannot express
+// ---------------------------------------------------------------------------
+
+/**
+ * A bulk label add is a read-modify-write whose READ happens in the caller.
+ *
+ * The pre-write re-read guarded above compares this call's own snapshot against
+ * a re-read taken moments later, so it catches a third party writing inside the
+ * WRITER's window. It is structurally blind to one who wrote inside the
+ * CALLER's — by the time the writer reads, that change is already part of `raw`
+ * and both reads agree. `expectLabels` is the only thing between that window
+ * and a full-replacement array silently discarding somebody else's label.
+ *
+ * Every test below therefore states the precondition as a caller would: as the
+ * labels the caller BELIEVED were there, not as the ones on disk.
+ */
+describe('updateMetadata — expectLabels', () => {
+  const LABELLED = (): string =>
+    renderTaskMd({
+      id: TASK_A,
+      title: 'Labels under test',
+      type: 'FEATURE',
+      status: 'backlog',
+      labels: ['licensing', 'needs:design'],
+      now: '2026-08-04T00:00:00.000Z',
+    });
+
+  it('writes when the caller believed exactly what is on disk', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['licensing', 'needs:design', 'security'] },
+      { expectLabels: ['licensing', 'needs:design'] },
+    );
+
+    expect(result.success).toBe(true);
+    expect(summaryOf(TASK_A, readBack(fs, TASK_A)).labels).toEqual([
+      'licensing',
+      'needs:design',
+      'security',
+    ]);
+  });
+
+  it('writes when the caller believed the same SET in a different order', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+
+    // Label order is authored, not meaningful. A caller that reordered while
+    // computing its new array has discarded nothing, so refusing here would be
+    // conflict noise with no loss behind it.
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['licensing', 'needs:design', 'security'] },
+      { expectLabels: ['needs:design', 'licensing'] },
+    );
+
+    expect(result.success).toBe(true);
+    expect(summaryOf(TASK_A, readBack(fs, TASK_A)).labels).toHaveLength(3);
+  });
+
+  it('refuses with TASK_CONFLICT when the disk carries a label the caller did not know about', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+    const before = readBack(fs, TASK_A);
+
+    // The caller read this task before somebody added `needs:design`. Its
+    // full-replacement array would delete that label without ever mentioning
+    // it — the pre-write re-read cannot see this, because nothing changes
+    // during the writer's own window.
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['licensing', 'security'] },
+      { expectLabels: ['licensing'] },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('TASK_CONFLICT');
+    expect(result.error.message).toContain(TASK_A);
+    // Nothing was written — byte-identical, `updated:` included.
+    expect(readBack(fs, TASK_A)).toBe(before);
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses when a label the caller believed in has been REMOVED on disk', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['licensing', 'needs:design', 'urgent', 'security'] },
+      { expectLabels: ['licensing', 'needs:design', 'urgent'] },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('TASK_CONFLICT');
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Matching elsewhere in the label feature folds case (`labelKey`). This check
+   * deliberately does NOT: a third party who recased `Licensing` to
+   * `licensing` changed the bytes that this caller's full-replacement array is
+   * about to overwrite, and folding that away would be the precondition
+   * declining to notice the one thing it exists to notice.
+   */
+  it('is case-SENSITIVE, unlike label matching', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['licensing', 'needs:design', 'security'] },
+      { expectLabels: ['Licensing', 'needs:design'] },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('TASK_CONFLICT');
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('accepts [] against a task that carries no labels', async () => {
+    const bare = renderTaskMd({
+      id: TASK_A,
+      title: 'No labels',
+      type: 'FEATURE',
+      status: 'backlog',
+      now: '2026-08-04T00:00:00.000Z',
+    });
+    const { fs, writer } = await seed([[TASK_A, bare]]);
+
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['security'] },
+      { expectLabels: [] },
+    );
+
+    expect(result.success).toBe(true);
+    expect(summaryOf(TASK_A, readBack(fs, TASK_A)).labels).toEqual([
+      'security',
+    ]);
+  });
+
+  it('is checked BEFORE the write, on a patch that touches other fields too', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+    const before = readBack(fs, TASK_A);
+
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { status: 'done', labels: ['licensing'] },
+      { expectLabels: ['something-else'] },
+    );
+
+    expect(result.success).toBe(false);
+    // The refusal covers the WHOLE patch — the status change did not sneak
+    // through beside the refused label change.
+    expect(readBack(fs, TASK_A)).toBe(before);
+    expect(summaryOf(TASK_A, readBack(fs, TASK_A)).status).toBe('backlog');
+  });
+
+  it('is ABSENT by default — every pre-existing caller is unaffected', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+
+    // No `expectLabels`, and a labels array that shares nothing with disk. The
+    // documented full-replacement behaviour must be untouched.
+    const result = await writer.updateMetadata(WORKSPACE, TASK_A, {
+      labels: ['security'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(summaryOf(TASK_A, readBack(fs, TASK_A)).labels).toEqual([
+      'security',
+    ]);
+  });
+
+  it('does not fire on a patch that names no labels at all', async () => {
+    const { fs, writer } = await seed([[TASK_A, LABELLED()]]);
+
+    // A status-only patch carrying a stale `expectLabels` still refuses,
+    // because the precondition is about the FILE the caller read, not about
+    // which keys the patch happens to name. The control is the opposite case:
+    // a matching precondition on a non-label patch must write normally.
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { status: 'done' },
+      { expectLabels: ['licensing', 'needs:design'] },
+    );
+
+    expect(result.success).toBe(true);
+    expect(summaryOf(TASK_A, readBack(fs, TASK_A)).status).toBe('done');
+  });
+
+  it('reports a MISSING task as TASK_NOT_FOUND rather than a conflict', async () => {
+    const { writer } = await seed([[TASK_A, LABELLED()]]);
+
+    // Ordering matters: a precondition checked before the existence guard would
+    // tell a caller its labels are stale on a task that does not exist.
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_B,
+      { labels: ['security'] },
+      { expectLabels: [] },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('TASK_NOT_FOUND');
+  });
+
+  it('reports an UNPARSEABLE carrier as TASK_EXCLUDED rather than a conflict', async () => {
+    const { writer } = await seed([[TASK_A, 'not a carrier at all\n']]);
+
+    const result = await writer.updateMetadata(
+      WORKSPACE,
+      TASK_A,
+      { labels: ['security'] },
+      { expectLabels: [] },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('TASK_EXCLUDED');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // deferNotify — bulk callers get ONE rescan, not N
 // ---------------------------------------------------------------------------
 

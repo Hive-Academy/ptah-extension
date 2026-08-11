@@ -284,6 +284,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           [requested]="store.bulkRequest()"
           [progress]="store.bulk()"
           (statusPicked)="store.requestBulkStatus($event)"
+          (labelPicked)="store.requestBulkLabel($event.label, $event.mode)"
           (confirmRequest)="store.confirmBulkRequest()"
           (cancelRequest)="store.cancelBulkRequest()"
           (cancelRun)="store.cancelBulk()"
@@ -307,7 +308,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
       @if (bulkSummaryVisible(); as summary) {
         <ptah-task-bulk-summary
           [summary]="summary"
-          (retry)="store.requestBulkStatus($event)"
+          (retry)="store.requestBulk($event)"
           (dismissed)="store.clearBulkSummary()"
         />
       }

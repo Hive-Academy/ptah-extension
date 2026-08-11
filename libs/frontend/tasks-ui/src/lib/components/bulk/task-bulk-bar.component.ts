@@ -6,19 +6,41 @@ import {
   output,
 } from '@angular/core';
 import { CheckSquare, LucideAngularModule, X } from 'lucide-angular';
-import { TASK_STATUSES, type TaskStatus } from '@ptah-extension/shared';
+import {
+  TASK_STATUSES,
+  type TaskStatus,
+  type TasksBulkLabelMode,
+} from '@ptah-extension/shared';
 import { TASK_STATUS_LABELS } from '../../task-presentation';
-import type { BulkProgress } from '../../services/tasks-store.service';
+import type {
+  BulkOperation,
+  BulkProgress,
+} from '../../services/tasks-store.service';
+
+/** What the label field emits: the trimmed label and which way to apply it. */
+export interface TaskBulkLabelPick {
+  readonly label: string;
+  readonly mode: TasksBulkLabelMode;
+}
 
 /**
- * The bulk action bar (FR-C4.2, FR-C4.9, FR-C4.12).
+ * The bulk action bar (FR-C4.2, FR-C4.9, FR-C4.12, FR-C5).
  *
  * Presentational and stateless: it renders whichever of three mutually
  * exclusive states its inputs describe — idle with a selection, awaiting
  * confirmation, or running — and emits the user's intent. Every decision about
- * WHEN a confirmation is required lives in `TasksStore.requestBulkStatus`, and
- * this component cannot bypass it, which is what makes the palette and the
- * picker share one confirmation rather than two similar ones (FR-C6.7).
+ * WHEN a confirmation is required lives in `TasksStore.requestBulk`, and this
+ * component cannot bypass it, which is what makes the palette, the status
+ * picker and the label field share one confirmation rather than three similar
+ * ones (FR-C6.7).
+ *
+ * ## The label field states no limits
+ *
+ * It has no `maxlength` and no client-side check on how many labels a task
+ * already carries. Both limits live in `TaskMetadataPatchSchema` on the write
+ * path; a second copy here would be a second enforcer to drift, and an
+ * over-limit merge comes back as the boundary's own sentence per task, which is
+ * the sentence the summary renders.
  *
  * ## The word this bar does not use
  *
@@ -60,8 +82,7 @@ import type { BulkProgress } from '../../services/tasks-store.service';
           data-testid="task-bulk-progress"
         >
           <span class="loading loading-spinner loading-xs"></span>
-          Moving to {{ statusLabel(run.status) }} — {{ run.done }} /
-          {{ run.total }}
+          {{ runningLabel(run.operation) }} — {{ run.done }} / {{ run.total }}
         </span>
 
         <div class="flex-1"></div>
@@ -142,7 +163,7 @@ import type { BulkProgress } from '../../services/tasks-store.service';
             data-testid="task-bulk-confirm-run"
             (click)="confirmRequest.emit()"
           >
-            Move {{ count() }} to {{ statusLabel(target) }}
+            {{ confirmAction(target) }}
           </button>
         </div>
       } @else {
@@ -198,6 +219,47 @@ import type { BulkProgress } from '../../services/tasks-store.service';
           </select>
         </label>
 
+        <!-- LABEL add / remove (FR-C5). Two verbs over ONE field, because the
+             field answers "which label" and the buttons answer "which way" —
+             and both answers are needed before anything can be written.
+
+             Enter in the field runs Add. A text field beside two buttons has no
+             default action of its own, and a user who types a label and presses
+             Enter has unambiguously asked for the common one; leaving Enter
+             inert makes the whole control mouse-only for the frequent case. It
+             is the same act as pressing Add, so it goes through the same
+             method rather than a parallel one. -->
+        <label class="flex items-center gap-1.5">
+          <span>Label</span>
+          <input
+            #labelField
+            type="text"
+            class="input input-bordered input-xs w-32"
+            data-testid="task-bulk-label-input"
+            aria-label="A label to add to or remove from the selected tasks"
+            placeholder="label"
+            (keydown.enter)="pickLabel(labelField, 'add')"
+          />
+        </label>
+
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          data-testid="task-bulk-label-add"
+          (click)="pickLabel(labelField, 'add')"
+        >
+          Add to {{ count() }}
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          data-testid="task-bulk-label-remove"
+          (click)="pickLabel(labelField, 'remove')"
+        >
+          Remove from {{ count() }}
+        </button>
+
         <button
           type="button"
           class="btn btn-ghost btn-xs btn-square"
@@ -219,13 +281,15 @@ export class TaskBulkBarComponent {
   public readonly hiddenCount = input(0);
   /** How many tasks the active filter matches, for "select all N matching". */
   public readonly matchedCount = input(0);
-  /** A move awaiting confirmation, or `null` (FR-C4.12). */
-  public readonly requested = input<TaskStatus | null>(null);
+  /** An operation awaiting confirmation, or `null` (FR-C4.12). */
+  public readonly requested = input<BulkOperation | null>(null);
   /** The run in flight, or `null`. */
   public readonly progress = input<BulkProgress | null>(null);
 
   /** The user picked a target status. May or may not need confirming. */
   public readonly statusPicked = output<TaskStatus>();
+  /** The user asked to add or remove a label. Same confirmation gate. */
+  public readonly labelPicked = output<TaskBulkLabelPick>();
   public readonly confirmRequest = output<void>();
   public readonly cancelRequest = output<void>();
   public readonly cancelRun = output<void>();
@@ -252,11 +316,48 @@ export class TaskBulkBarComponent {
   }
 
   /**
-   * The confirmation sentence. It states the count and the target status, and
-   * it does not state that they move together — because they do not.
+   * The confirmation sentence. It states the count and WHAT is about to happen
+   * to each of them, and it does not state that they move together — because
+   * they do not.
+   *
+   * The label variants name the label itself, for the same reason the status
+   * variant names the target: a prompt that said "Change 42 tasks?" is one
+   * people learn to click through, and a mistyped label is exactly the mistake
+   * this dialog is the last chance to catch.
    */
-  protected confirmPrompt(status: TaskStatus): string {
-    return `Move ${this.count()} task(s) to ${this.statusLabel(status)}?`;
+  protected confirmPrompt(operation: BulkOperation): string {
+    const count = this.count();
+    if (operation.kind === 'status') {
+      return `Move ${count} task(s) to ${this.statusLabel(operation.status)}?`;
+    }
+    return operation.mode === 'add'
+      ? `Add the label "${operation.label}" to ${count} task(s)?`
+      : `Remove the label "${operation.label}" from ${count} task(s)?`;
+  }
+
+  /** The commit button's own words — the same act, in the imperative. */
+  protected confirmAction(operation: BulkOperation): string {
+    const count = this.count();
+    if (operation.kind === 'status') {
+      return `Move ${count} to ${this.statusLabel(operation.status)}`;
+    }
+    return operation.mode === 'add'
+      ? `Add "${operation.label}" to ${count}`
+      : `Remove "${operation.label}" from ${count}`;
+  }
+
+  /**
+   * What the progress line says the run is doing. Present tense, because it is
+   * still happening, and it names the label so a user who started two runs in a
+   * row can tell which one they are watching.
+   */
+  protected runningLabel(operation: BulkOperation): string {
+    if (operation.kind === 'status') {
+      return `Moving to ${this.statusLabel(operation.status)}`;
+    }
+    return operation.mode === 'add'
+      ? `Adding the label "${operation.label}"`
+      : `Removing the label "${operation.label}"`;
   }
 
   /**
@@ -274,5 +375,25 @@ export class TaskBulkBarComponent {
     const status = TASK_STATUSES.find((candidate) => candidate === value);
     if (status === undefined) return;
     this.statusPicked.emit(status);
+  }
+
+  /**
+   * Read the label off the field, emit it, and clear the field.
+   *
+   * Trimmed, and an empty field does nothing at all — no emit, and the field is
+   * left as the user left it. Surrounding whitespace is invisible, so a label
+   * that differed from an existing one only by a trailing space would look
+   * identical on every card while matching nothing.
+   *
+   * Cleared on success for the same reason the status `<select>` is reset: the
+   * control is a verb. Left populated it reads as a property of the selection,
+   * and the next Add would silently re-apply a label the user has stopped
+   * looking at.
+   */
+  protected pickLabel(field: HTMLInputElement, mode: TasksBulkLabelMode): void {
+    const label = field.value.trim();
+    if (label.length === 0) return;
+    field.value = '';
+    this.labelPicked.emit({ label, mode });
   }
 }

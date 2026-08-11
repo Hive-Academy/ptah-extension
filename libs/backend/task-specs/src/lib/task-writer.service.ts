@@ -110,6 +110,22 @@ export type AdoptFolderResult =
  */
 const MAX_CREATE_ATTEMPTS = 5;
 
+/**
+ * Multiset equality over two label arrays, ignoring order.
+ *
+ * Sorted COPIES: sorting either argument in place would mutate the parser's
+ * `TaskSpecSummary` or the caller's own array as a side effect of a comparison.
+ */
+function sameLabelMultiset(
+  a: readonly string[],
+  b: readonly string[],
+): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((value, index) => value === right[index]);
+}
+
 /** True for the `EEXIST` rejection `createDirectoryExclusive` promises. */
 function isAlreadyExists(error: unknown): boolean {
   return (
@@ -484,12 +500,38 @@ export class TaskWriterService {
    * `null` (`estimate`, `parent`) and `[]` (`labels`, `duplicates`,
    * `relatesTo`) both mean REMOVE THE KEY. `dependsOn: []` is the documented
    * exception — it is still written as `[]`.
+   *
+   * ## `opts.expectLabels` — the precondition the re-read cannot express
+   *
+   * A bulk label ADD is unavoidably a read-modify-write. `labels` is a full
+   * replacement, so a caller wanting to add one element must first read the
+   * array it is adding to. That read happens in the CALLER, before this method
+   * is even entered.
+   *
+   * The pre-write re-read below does not cover that gap. It compares this
+   * call's OWN snapshot (`raw`) against a re-read taken moments later, so it
+   * detects a third party who wrote between the WRITER's read and the WRITER's
+   * write. It cannot detect one who wrote between the CALLER's read and the
+   * writer's read — by then their change is already part of `raw`, both reads
+   * agree, and the write lands cleanly. What it discards is silent: the
+   * caller's array was computed from a snapshot that predates the other
+   * writer's label change, so replacing `labels` wholesale drops it.
+   *
+   * `expectLabels` closes exactly that window, for exactly that field. The
+   * caller states which labels it believed the task carried; this method
+   * compares that against the labels it parsed from its own read and REFUSES
+   * with `TASK_CONFLICT` when they differ, writing nothing.
+   *
+   * Deliberately narrow. It is not a general optimistic-concurrency token: it
+   * guards the one field whose write shape forces a caller-side read, and it
+   * is `undefined` for every pre-existing caller, which therefore behaves
+   * exactly as before.
    */
   async updateMetadata(
     workspaceRoot: string,
     taskId: string,
     input: UpdateMetadataInput,
-    opts?: { deferNotify?: boolean },
+    opts?: { deferNotify?: boolean; expectLabels?: readonly string[] },
   ): Promise<UpdateMetadataResult> {
     // `taskId` is joined onto the spec root two lines into
     // `applyFrontmatterPatch`. Every boundary above this one already rejects a
@@ -568,6 +610,7 @@ export class TaskWriterService {
       patch,
       remove,
       opts?.deferNotify === true,
+      opts?.expectLabels,
     );
   }
 
@@ -583,6 +626,10 @@ export class TaskWriterService {
    * @param deferNotify skip the per-write index notification. Bulk callers set
    *   it so N writes cause ONE rescan and ONE `tasks:changed` broadcast instead
    *   of N of each; they are then responsible for notifying once at the end.
+   * @param expectLabels the labels the CALLER believed this task carried when
+   *   it computed its patch. `undefined` disables the check entirely (the
+   *   pre-existing behaviour). See {@link updateMetadata} for why the pre-write
+   *   re-read below cannot substitute for it.
    */
   private async applyFrontmatterPatch(
     root: string,
@@ -590,6 +637,7 @@ export class TaskWriterService {
     patch: Partial<TaskFrontmatter>,
     remove: readonly string[],
     deferNotify: boolean,
+    expectLabels: readonly string[] | undefined,
   ): Promise<UpdateMetadataResult> {
     const carrier = path.join(root, '.ptah', 'specs', taskId, CARRIER_FILE);
 
@@ -623,6 +671,38 @@ export class TaskWriterService {
         error: {
           code: 'TASK_EXCLUDED',
           message: `Task '${taskId}' has invalid frontmatter and cannot be mutated.`,
+        },
+      };
+    }
+
+    // The caller-side precondition (see `updateMetadata`). Compared against the
+    // labels parsed from OUR OWN read, which is the only snapshot that can be
+    // shown to predate the write we are about to issue.
+    //
+    // `parsed.task.labels` is always an array — absent, malformed and empty all
+    // collapse to `[]` in the parser — so there is nothing to null-coalesce.
+    //
+    // Order-insensitive: label order is authored, not meaningful, and a caller
+    // that reordered while adding has still discarded nothing. String
+    // comparison is EXACT, unlike label MATCHING elsewhere: a third party who
+    // recased `Licensing` to `licensing` did change the bytes this caller's
+    // full-replacement array would overwrite, and folding that away would be
+    // this check declining to notice the one thing it exists to notice.
+    if (
+      expectLabels !== undefined &&
+      !sameLabelMultiset(parsed.task.labels, expectLabels)
+    ) {
+      this.logger.warn(
+        '[task-specs] carrier label precondition failed — write refused',
+        {
+          taskId,
+        },
+      );
+      return {
+        success: false,
+        error: {
+          code: 'TASK_CONFLICT',
+          message: `Task '${taskId}' had its labels changed on disk before the update; nothing was written. Reload and try again.`,
         },
       };
     }

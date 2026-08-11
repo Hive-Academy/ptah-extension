@@ -51,6 +51,7 @@ import {
   TaskDoctorService,
   TaskWriterService as TaskWriterServiceClass,
   NoOpTaskIndexNotifier,
+  parseTaskFile,
   updateFrontmatter,
   type ITaskIndexStore,
   type TaskWriterService,
@@ -63,6 +64,7 @@ import {
   CARRIER_FILE,
   DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
+  MAX_LABELS_PER_TASK,
   MAX_SAVED_TASK_VIEWS,
   buildTaskGraph,
   filterTasks,
@@ -75,6 +77,7 @@ import type {
   TaskSpecSummary,
   TasksAdoptResult,
   TasksBulkUpdateStatusResult,
+  TasksBulkUpdateLabelResult,
   TasksDoctorPlanResult,
   TasksGetViewsResult,
   TasksListResult,
@@ -302,7 +305,7 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 13 tasks:* methods', () => {
+  it('owns exactly the 14 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
@@ -310,6 +313,7 @@ describe('TasksRpcHandlers.METHODS', () => {
       'tasks:updateStatus',
       'tasks:updateMetadata',
       'tasks:bulkUpdateStatus',
+      'tasks:bulkUpdateLabel',
       'tasks:generateRegistry',
       'tasks:board',
       'tasks:reindex',
@@ -2675,6 +2679,852 @@ describe('tasks:bulkUpdateStatus — boundary', () => {
       ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
       // The whole call is refused — a bad entry does not get nineteen writes
       // issued around it.
+      expect(writer.updateMetadata).not.toHaveBeenCalled();
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// tasks:bulkUpdateLabel (FR-C5) — the method that gives `noop` a producer
+// ---------------------------------------------------------------------------
+
+/**
+ * Label bulk fixture: a REAL `TaskWriterService` over a mock filesystem, with
+ * the real `TaskIndexService` as its notifier.
+ *
+ * Not a mocked writer, for the same reason the status bulk block is not: every
+ * claim here is about something that happens BELOW the handler — that a no-op
+ * leaves the carrier's bytes alone, that removing the last label removes the
+ * KEY rather than writing `labels: []`, that `expectLabels` refuses a write the
+ * whole-file re-read provably cannot refuse, and that `deferNotify` keeps the
+ * funnel quiet enough for one rebuild to suffice. A `jest.fn()` writer would
+ * satisfy every one of them by construction.
+ */
+const LABEL_ROOT = normalizeWorkspaceRoot('D:\\label-workspace');
+/** Fixed so a restamped `updated:` is visible as a byte difference. */
+const LABEL_SEED_NOW = '2026-08-04T00:00:00.000Z';
+
+interface LabelSeed {
+  readonly id: string;
+  readonly labels?: readonly string[];
+  /** Seed raw bytes instead of a rendered carrier (for the excluded case). */
+  readonly raw?: string;
+}
+
+function labelCarrierPath(taskId: string): string {
+  return path.join(LABEL_ROOT, '.ptah', 'specs', taskId, CARRIER_FILE);
+}
+
+function readLabelCarrier(fs: MockFileSystemProvider, taskId: string): string {
+  const bytes = fs.__state.files.get(labelCarrierPath(taskId));
+  if (!bytes) throw new Error(`no carrier on disk for ${taskId}`);
+  return new TextDecoder().decode(bytes as Uint8Array);
+}
+
+/**
+ * The labels ON DISK, read through the real parser.
+ *
+ * Deliberately not a regex over the raw text: `renderTaskMd` emits a YAML block
+ * list while `updateFrontmatter` re-serializes through `gray-matter`, so the two
+ * can differ in quoting and layout. A regex tuned to one of them would quietly
+ * report `[]` for the other and turn a wrong-labels failure into a passing test.
+ */
+function labelsOf(fs: MockFileSystemProvider, taskId: string): string[] {
+  const parsed = parseTaskFile(taskId, readLabelCarrier(fs, taskId));
+  if (parsed.kind !== 'task') {
+    throw new Error(`carrier excluded: ${parsed.excluded.reason}`);
+  }
+  return parsed.task.labels;
+}
+
+/**
+ * The `updated:` stamp's VALUE, independent of how it is quoted.
+ *
+ * `renderTaskMd` double-quotes an ISO timestamp (it contains colons, so it is
+ * not a plain-safe YAML scalar) while `gray-matter` re-serializes it its own
+ * way. Comparing the raw line would therefore fail on a quoting difference that
+ * no reader can see, and — worse — could be "fixed" by loosening it to a
+ * substring match that no longer notices a REFRESHED stamp, which is the only
+ * thing it is here to notice.
+ */
+function updatedStampOf(raw: string): string {
+  const match = /^updated:\s*(.*)$/m.exec(raw);
+  if (!match) throw new Error('carrier has no updated: line');
+  return match[1].trim().replace(/^['"]|['"]$/g, '');
+}
+
+interface LabelSuite {
+  rpc: MockRpcHandler;
+  fs: MockFileSystemProvider;
+  index: TaskIndexService;
+  writer: TaskWriterServiceClass;
+  applyFolderChange: jest.SpyInstance;
+  updateMetadata: jest.SpyInstance;
+  dispose: () => void;
+}
+
+async function buildLabelSuite(
+  seeds: readonly LabelSeed[],
+): Promise<LabelSuite> {
+  const logger = createMockLogger();
+  const rpc = createMockRpcHandler();
+  const workspace = createMockWorkspaceProvider({ folders: [LABEL_ROOT] });
+  workspace.getWorkspaceRoot.mockReturnValue(LABEL_ROOT);
+
+  const fs = createMockFileSystemProvider();
+  for (const seed of seeds) {
+    await fs.writeFile(
+      labelCarrierPath(seed.id),
+      seed.raw ??
+        renderTaskMd({
+          id: seed.id,
+          title: `Label member ${seed.id}`,
+          type: 'FEATURE',
+          status: 'backlog',
+          labels: seed.labels,
+          now: LABEL_SEED_NOW,
+        }),
+    );
+    fs.__state.directories.add(
+      path.join(LABEL_ROOT, '.ptah', 'specs', seed.id).replace(/\\/g, '/'),
+    );
+  }
+  fs.__state.directories.add(
+    path.join(LABEL_ROOT, '.ptah', 'specs').replace(/\\/g, '/'),
+  );
+
+  const scanner = new TaskScannerService(fs, logger as unknown as Logger);
+  const store = new InMemoryTaskIndexStore(
+    createMockLogger() as unknown as Logger,
+  );
+  const index = new TaskIndexService(
+    logger as unknown as Logger,
+    fs,
+    scanner,
+    store,
+  );
+  // The SAME index is the writer's notifier, exactly as `register.ts` wires it.
+  // A `NoOpTaskIndexNotifier` here would make the "exactly one rebuild"
+  // assertion pass whether or not the handler passes `deferNotify`.
+  const writer = new TaskWriterServiceClass(
+    fs,
+    logger as unknown as Logger,
+    index,
+  );
+
+  const handlers = new TasksRpcHandlers(
+    logger as unknown as Logger,
+    rpc as unknown as RpcHandler,
+    {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    } as unknown as WebviewManager,
+    workspace as unknown as IWorkspaceProvider,
+    index,
+    writer,
+    { generate: jest.fn() } as unknown as RegistryGeneratorService,
+    { plan: jest.fn() } as unknown as TaskDoctorService,
+    createMockTasksSettings() as unknown as TasksSettings,
+  );
+  handlers.register();
+
+  // Warm the index BEFORE any test arms an interceptor, so the initial scan's
+  // reads belong to the scanner's window rather than the writer's.
+  await index.ensureStarted(LABEL_ROOT);
+  fs.writeFile.mockClear();
+
+  return {
+    rpc,
+    fs,
+    index,
+    writer,
+    applyFolderChange: jest.spyOn(index, 'applyFolderChange'),
+    updateMetadata: jest.spyOn(writer, 'updateMetadata'),
+    dispose: () => index.dispose(),
+  };
+}
+
+async function callLabel(
+  suite: LabelSuite,
+  mode: 'add' | 'remove',
+  label: string,
+  taskIds: readonly string[],
+): Promise<TasksBulkUpdateLabelResult> {
+  return (await getHandler(
+    suite.rpc,
+    'tasks:bulkUpdateLabel',
+  )({
+    taskIds: [...taskIds],
+    label,
+    mode,
+  })) as TasksBulkUpdateLabelResult;
+}
+
+/**
+ * Fire an external whole-file write as a side effect of the FIRST read of
+ * `taskId` after arming.
+ *
+ * That first read is the HANDLER's `getDetail`, so the external write lands
+ * between the handler's read and the writer's — the exact window the writer's
+ * pre-write re-read cannot see, because by the time the writer reads, the other
+ * writer's bytes are already in its own snapshot and its re-read agrees.
+ * `expectLabels` is the only thing standing between that window and a silent
+ * overwrite.
+ */
+function armExternalLabelWrite(
+  fs: MockFileSystemProvider,
+  taskId: string,
+  external: string,
+): () => number {
+  const carrier = labelCarrierPath(taskId);
+  const readFile = fs.readFile.getMockImplementation() as (
+    p: string,
+  ) => Promise<string>;
+  const writeFile = fs.writeFile.getMockImplementation() as (
+    p: string,
+    content: string,
+  ) => Promise<void>;
+
+  let armed = true;
+  let fired = 0;
+  fs.readFile.mockImplementation(async (p: string): Promise<string> => {
+    const content = await readFile(p);
+    if (p === carrier && armed) {
+      armed = false;
+      fired++;
+      await writeFile(carrier, external);
+    }
+    return content;
+  });
+  return () => fired;
+}
+
+describe('tasks:bulkUpdateLabel — add', () => {
+  it('adds the label to a task that lacks it and reports a plain success', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_401',
+      ]);
+
+      // Whole-shape equality: `noop` must be ABSENT, not merely falsy. An
+      // implementation that set `noop: false` on every success would pass a
+      // `toBeFalsy` assertion and make the field meaningless.
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_401', ok: true }]);
+      // Appended at the END — existing order is preserved.
+      expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual([
+        'licensing',
+        'security',
+      ]);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * The whole point of `noop`, and the assertion that makes it mean something.
+   *
+   * A "success" that quietly rewrote the carrier would be indistinguishable
+   * from this one on `ok` alone. The byte comparison is what separates them:
+   * `updateMetadata` refreshes `updated` on EVERY write, so a write that landed
+   * here shows up as a changed `updated:` line even though the label set is
+   * identical — a modification stamp recording a change that did not happen, on
+   * a gitignored file with no undo.
+   */
+  it('reports a task that ALREADY carries the label as a no-op and leaves its bytes untouched', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing', 'security'] },
+    ]);
+    const before = readLabelCarrier(suite.fs, 'TASK_2026_401');
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_401', ok: true, noop: true },
+      ]);
+      // Byte-identical — including the `updated:` stamp, asserted separately so
+      // a failure names the actual defect rather than dumping the whole file.
+      const after = readLabelCarrier(suite.fs, 'TASK_2026_401');
+      expect(updatedStampOf(after)).toBe(LABEL_SEED_NOW);
+      expect(after).toBe(before);
+      // No write was even attempted. Without this, a writer that wrote
+      // byte-identical content would pass the comparison above.
+      expect(suite.fs.writeFile).not.toHaveBeenCalled();
+      expect(suite.updateMetadata).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * Labels match through the shared `labelKey` (`trim().toLowerCase()`), so a
+   * differently-cased label is the SAME label. Adding it must not plant a
+   * second casing.
+   */
+  it('treats a differently-cased label as already present', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['Licensing'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'add', 'licensing', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_401', ok: true, noop: true },
+      ]);
+      // The AUTHORED casing survives — matching is folded, storage is not.
+      expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual(['Licensing']);
+    } finally {
+      suite.dispose();
+    }
+  });
+});
+
+describe('tasks:bulkUpdateLabel — remove', () => {
+  it('removes a label that is present', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing', 'security'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'remove', 'licensing', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_401', ok: true }]);
+      expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual(['security']);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('reports removing a label the task does NOT carry as a no-op', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing'] },
+    ]);
+    const before = readLabelCarrier(suite.fs, 'TASK_2026_401');
+    try {
+      const result = await callLabel(suite, 'remove', 'security', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_401', ok: true, noop: true },
+      ]);
+      expect(readLabelCarrier(suite.fs, 'TASK_2026_401')).toBe(before);
+      expect(suite.fs.writeFile).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /** The removal test folds case exactly as the presence test does. */
+  it('removes a differently-cased match', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['Licensing', 'security'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'remove', 'LICENSING', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_401', ok: true }]);
+      expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual(['security']);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * `[]` means REMOVE THE KEY on the write funnel, and that is the intended
+   * outcome here rather than an edge to guard against.
+   *
+   * Asserted on the rendered TEXT: a `labels: []` line on disk parses back as
+   * `[]` and would satisfy any value-only assertion while leaving a line the
+   * author never wrote in a file the author owns.
+   */
+  it('removing the only label removes the labels: key entirely', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'remove', 'licensing', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_401', ok: true }]);
+      expect(readLabelCarrier(suite.fs, 'TASK_2026_401')).not.toContain(
+        'labels:',
+      );
+    } finally {
+      suite.dispose();
+    }
+  });
+});
+
+describe('tasks:bulkUpdateLabel — the limits live in TaskMetadataPatchSchema', () => {
+  /**
+   * The per-task cap constrains the MERGED array, which does not exist until
+   * the handler has read the task's current labels — the request schema saw one
+   * label and had nothing to count. So the enforcement has to happen in the
+   * handler, and it happens by running the merged array through the ONE
+   * definition of the limit rather than restating `12` there.
+   */
+  it('refuses a merged array over MAX_LABELS_PER_TASK with the schema’s own message', async () => {
+    const full = Array.from(
+      { length: MAX_LABELS_PER_TASK },
+      (_v, i) => `label-${i}`,
+    );
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: full },
+    ]);
+    const before = readLabelCarrier(suite.fs, 'TASK_2026_401');
+    try {
+      const result = await callLabel(suite, 'add', 'one-too-many', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results).toEqual([
+        {
+          taskId: 'TASK_2026_401',
+          ok: false,
+          error: {
+            code: 'INVALID_PARAMS',
+            // The limit is NAMED, from where it is defined. A generic "invalid
+            // parameters" leaves a user who just hit the cap nothing to act on.
+            message: `a task may carry at most ${MAX_LABELS_PER_TASK} labels`,
+          },
+        },
+      ]);
+      // Refused BEFORE the funnel — the writer was never asked.
+      expect(suite.updateMetadata).not.toHaveBeenCalled();
+      expect(readLabelCarrier(suite.fs, 'TASK_2026_401')).toBe(before);
+      expect(suite.applyFolderChange).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('a task already AT the cap can still have a label removed', async () => {
+    const full = Array.from(
+      { length: MAX_LABELS_PER_TASK },
+      (_v, i) => `label-${i}`,
+    );
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: full },
+    ]);
+    try {
+      const result = await callLabel(suite, 'remove', 'label-0', [
+        'TASK_2026_401',
+      ]);
+
+      // The control for the test above: without it, an implementation that
+      // refused every write once a task reached the cap would look correct.
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_401', ok: true }]);
+      expect(labelsOf(suite.fs, 'TASK_2026_401')).toHaveLength(
+        MAX_LABELS_PER_TASK - 1,
+      );
+    } finally {
+      suite.dispose();
+    }
+  });
+});
+
+describe('tasks:bulkUpdateLabel — tasks the writer refuses', () => {
+  it('reports a task with no carrier on disk as TASK_NOT_FOUND', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_999',
+      ]);
+
+      expect(result.results).toEqual([
+        {
+          taskId: 'TASK_2026_999',
+          ok: false,
+          error: {
+            code: 'TASK_NOT_FOUND',
+            message: expect.stringContaining('TASK_2026_999'),
+          },
+        },
+      ]);
+      expect(suite.applyFolderChange).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * `index.getDetail` collapses "no carrier" and "carrier that no longer
+   * parses" into the same `null`, so a handler that answered `TASK_NOT_FOUND`
+   * from that `null` would tell a user their BROKEN task does not exist.
+   *
+   * Delegating the null case to the writer is what keeps the two apart, and
+   * this is the test that proves the distinction survives.
+   */
+  it('reports an unparseable carrier as TASK_EXCLUDED, not TASK_NOT_FOUND', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_402', raw: 'no frontmatter here at all\n' },
+    ]);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_402',
+      ]);
+
+      expect(result.results).toEqual([
+        {
+          taskId: 'TASK_2026_402',
+          ok: false,
+          error: {
+            code: 'TASK_EXCLUDED',
+            message: expect.stringContaining('TASK_2026_402'),
+          },
+        },
+      ]);
+      expect(suite.fs.writeFile).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * THE reason `expectLabels` exists.
+   *
+   * The external write lands between the HANDLER's read and the WRITER's read.
+   * The writer's own pre-write re-read cannot possibly catch it: by the time
+   * the writer reads, the other writer's bytes ARE its snapshot, and its
+   * re-read agrees with that snapshot. Without the precondition this call
+   * writes `['security']` over the external writer's `['licensing',
+   * 'urgent']` and reports `ok: true` — a silent discard with no undo.
+   */
+  it('refuses with TASK_CONFLICT when the labels changed between the read and the write', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing'] },
+    ]);
+    const external = updateFrontmatter(
+      readLabelCarrier(suite.fs, 'TASK_2026_401'),
+      { labels: ['licensing', 'urgent'] },
+    );
+    const fired = armExternalLabelWrite(suite.fs, 'TASK_2026_401', external);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_401',
+      ]);
+
+      // The interleaving really happened — otherwise everything below is
+      // vacuous, which is exactly how a concurrency test passes proving nothing.
+      expect(fired()).toBe(1);
+      expect(result.results).toEqual([
+        {
+          taskId: 'TASK_2026_401',
+          ok: false,
+          error: {
+            code: 'TASK_CONFLICT',
+            message: expect.stringContaining('TASK_2026_401'),
+          },
+        },
+      ]);
+      // The other writer's labels survive intact, and OURS is nowhere on disk.
+      expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual([
+        'licensing',
+        'urgent',
+      ]);
+      expect(readLabelCarrier(suite.fs, 'TASK_2026_401')).toBe(external);
+      expect(suite.applyFolderChange).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * `currentStatus` enriches a STATUS conflict, because that user asked to
+   * change the status and "changed to what?" has an answer. This user asked
+   * about labels; a status they never mentioned is not that answer, and the
+   * field is typed and documented as the status the carrier holds.
+   */
+  it('does not enrich a label conflict with currentStatus', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['licensing'] },
+    ]);
+    const external = updateFrontmatter(
+      readLabelCarrier(suite.fs, 'TASK_2026_401'),
+      { labels: ['licensing', 'urgent'] },
+    );
+    armExternalLabelWrite(suite.fs, 'TASK_2026_401', external);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_401',
+      ]);
+
+      expect(result.results[0]).not.toHaveProperty('currentStatus');
+    } finally {
+      suite.dispose();
+    }
+  });
+});
+
+describe('tasks:bulkUpdateLabel — the result list and the single rebuild', () => {
+  const FIVE: readonly LabelSeed[] = [
+    { id: 'TASK_2026_401', labels: ['licensing'] },
+    { id: 'TASK_2026_402' },
+    { id: 'TASK_2026_403', labels: ['security'] },
+    { id: 'TASK_2026_404' },
+    { id: 'TASK_2026_405', labels: ['licensing', 'security'] },
+  ];
+
+  it('returns one entry per requested id, in request order, mixing writes and no-ops', async () => {
+    const suite = await buildLabelSuite(FIVE);
+    try {
+      // Reversed request order, so a handler that iterated the seed order (or
+      // any sorted order) produces a visibly different list.
+      const requested = [
+        'TASK_2026_405',
+        'TASK_2026_404',
+        'TASK_2026_403',
+        'TASK_2026_402',
+        'TASK_2026_401',
+      ];
+      const result = await callLabel(suite, 'add', 'security', requested);
+
+      expect(result.results).toEqual([
+        // already carries `security`
+        { taskId: 'TASK_2026_405', ok: true, noop: true },
+        { taskId: 'TASK_2026_404', ok: true },
+        { taskId: 'TASK_2026_403', ok: true, noop: true },
+        { taskId: 'TASK_2026_402', ok: true },
+        { taskId: 'TASK_2026_401', ok: true },
+      ]);
+      expect(result.results.map((entry) => entry.taskId)).toEqual(requested);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('collapses a repeated id to ONE entry and ONE write', async () => {
+    const suite = await buildLabelSuite(FIVE);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_401',
+        'TASK_2026_401',
+        'TASK_2026_402',
+      ]);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_401', ok: true },
+        { taskId: 'TASK_2026_402', ok: true },
+      ]);
+      expect(suite.updateMetadata).toHaveBeenCalledTimes(2);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('issues exactly ONE index rebuild for the whole call', async () => {
+    const suite = await buildLabelSuite(FIVE);
+    try {
+      await callLabel(
+        suite,
+        'add',
+        'security',
+        FIVE.map((seed) => seed.id),
+      );
+
+      // Not "at most one" — exactly one. Three carriers changed, so zero would
+      // leave the board stale, and dropping `deferNotify` would make it four.
+      expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('passes deferNotify AND expectLabels on every write', async () => {
+    const suite = await buildLabelSuite(FIVE);
+    try {
+      await callLabel(
+        suite,
+        'add',
+        'security',
+        FIVE.map((seed) => seed.id),
+      );
+
+      // Three writes — the two tasks that already carry `security` are no-ops
+      // and never reach the funnel at all.
+      expect(suite.updateMetadata).toHaveBeenCalledTimes(3);
+      for (const call of suite.updateMetadata.mock.calls) {
+        expect(call[3]).toEqual({
+          deferNotify: true,
+          expectLabels: expect.any(Array),
+        });
+      }
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * The case the `written.length > 0` guard exists for, reached through the
+   * door only this method has: every task was already in the requested state.
+   * A rebuild here is a full rescan of every folder bought for no change.
+   */
+  it('rebuilds NOTHING when every task was a no-op', async () => {
+    const suite = await buildLabelSuite([
+      { id: 'TASK_2026_401', labels: ['security'] },
+      { id: 'TASK_2026_403', labels: ['security', 'licensing'] },
+    ]);
+    try {
+      const result = await callLabel(suite, 'add', 'security', [
+        'TASK_2026_401',
+        'TASK_2026_403',
+      ]);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_401', ok: true, noop: true },
+        { taskId: 'TASK_2026_403', ok: true, noop: true },
+      ]);
+      expect(suite.applyFolderChange).not.toHaveBeenCalled();
+      expect(suite.fs.writeFile).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * An UNEXPECTED throw must not convert a complete result list into an
+   * exception. Placed at item 4 of 5, so three writes have landed before it and
+   * one task follows it.
+   */
+  it('preserves landed writes when the funnel throws mid-loop, and still rebuilds once', async () => {
+    const suite = await buildLabelSuite(FIVE);
+    // Bound off the PROTOTYPE, not off the instance: `suite.updateMetadata` is
+    // already a spy on the instance, so binding that would make this
+    // implementation call itself forever.
+    const passthrough = TaskWriterServiceClass.prototype.updateMetadata.bind(
+      suite.writer,
+    );
+    suite.updateMetadata.mockImplementation((async (
+      ...args: Parameters<typeof passthrough>
+    ) => {
+      if (args[1] === 'TASK_2026_404') {
+        throw new Error('EBUSY: D:\\secrets\\TASK_2026_404\\task.md locked');
+      }
+      return passthrough(...args);
+    }) as typeof passthrough);
+    try {
+      const result = await callLabel(suite, 'add', 'urgent', [
+        'TASK_2026_401',
+        'TASK_2026_402',
+        'TASK_2026_403',
+        'TASK_2026_404',
+        'TASK_2026_405',
+      ]);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_401', ok: true },
+        { taskId: 'TASK_2026_402', ok: true },
+        { taskId: 'TASK_2026_403', ok: true },
+        {
+          taskId: 'TASK_2026_404',
+          ok: false,
+          error: { code: 'WRITE_FAILED', message: expect.any(String) },
+        },
+        // The loop carried on past the unexpected fault.
+        { taskId: 'TASK_2026_405', ok: true },
+      ]);
+      // R4.4 — the thrown message carried an absolute path; the wire must not.
+      const failed = result.results.find((entry) => !entry.ok);
+      expect(failed?.error?.message).not.toContain('D:\\secrets');
+      expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+});
+
+describe('tasks:bulkUpdateLabel — boundary', () => {
+  it('rejects a selection larger than BULK_CHUNK_SIZE', async () => {
+    const { rpc, writer } = buildSuite();
+    const tooMany = Array.from(
+      { length: BULK_CHUNK_SIZE + 1 },
+      (_v, i) => `TASK_2026_${200 + i}`,
+    );
+
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:bulkUpdateLabel',
+      )({ taskIds: tooMany, label: 'security', mode: 'add' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+
+  it('accepts a selection of exactly BULK_CHUNK_SIZE', async () => {
+    // The other half of the boundary: without it, a schema that capped at 19 —
+    // or at 0 — would satisfy the rejection test above.
+    const suite = await buildLabelSuite(
+      Array.from({ length: BULK_CHUNK_SIZE }, (_v, i) => ({
+        id: `TASK_2026_5${String(i).padStart(2, '0')}`,
+      })),
+    );
+    try {
+      const ids = Array.from(
+        { length: BULK_CHUNK_SIZE },
+        (_v, i) => `TASK_2026_5${String(i).padStart(2, '0')}`,
+      );
+      const result = await callLabel(suite, 'add', 'security', ids);
+
+      expect(result.results).toHaveLength(BULK_CHUNK_SIZE);
+      expect(result.results.every((entry) => entry.ok)).toBe(true);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('rejects an empty selection', async () => {
+    const { rpc, writer } = buildSuite();
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:bulkUpdateLabel',
+      )({ taskIds: [], label: 'security', mode: 'add' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an unknown mode', { label: 'security', mode: 'toggle' }],
+    ['a blank label', { label: '   ', mode: 'add' }],
+    ['a label with a newline', { label: 'a\nb', mode: 'add' }],
+    ['an over-long label', { label: 'x'.repeat(33), mode: 'add' }],
+  ] as const)('rejects %s, writing nothing', async (_name, overrides) => {
+    const { rpc, writer } = buildSuite();
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:bulkUpdateLabel',
+      )({ taskIds: ['TASK_2026_401'], ...overrides }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+
+  it.each(REJECTED_IDS)(
+    'rejects %s among the taskIds, writing nothing',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:bulkUpdateLabel',
+        )({
+          taskIds: ['TASK_2026_401', value],
+          label: 'security',
+          mode: 'add',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
       expect(writer.updateMetadata).not.toHaveBeenCalled();
     },
   );

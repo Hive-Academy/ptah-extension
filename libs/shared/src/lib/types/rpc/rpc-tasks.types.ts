@@ -181,12 +181,23 @@ export interface TasksBulkResultItem {
    * A no-op is a SUCCESS (`ok: true`) that issued no write, so it must not be
    * counted as a failure and must not refresh the carrier's `updated` stamp.
    *
-   * Set by the bulk LABEL path (FR-C5.2: adding a label to a task that already
-   * carries it). The bulk STATUS path deliberately never sets it: deciding
-   * "already in that status" would need a read taken before the write, and a
-   * stale one would turn a write the user asked for into a silent skip — the
-   * precise failure FR-C4 exists to make impossible. Status writes therefore
-   * always go through the funnel and are reported on what the funnel did.
+   * Produced by `tasks:bulkUpdateLabel` (FR-C5.2), and only there: adding a
+   * label a task already carries, or removing one it does not, changes nothing,
+   * so that task is reported as a success that issued no write at all.
+   *
+   * That path can afford the pre-read this decision needs because its write is
+   * a read-modify-write anyway — `labels` is a full replacement, so the current
+   * array has to be read before the next one can be computed. The read is not
+   * an extra cost the no-op test introduced, and the staleness it could
+   * otherwise introduce is closed by the writer's `expectLabels` precondition,
+   * which refuses with `TASK_CONFLICT` rather than writing from a stale
+   * snapshot.
+   *
+   * The bulk STATUS path deliberately never sets it: a status write needs no
+   * pre-read, so deciding "already in that status" would ADD one, and a stale
+   * one would turn a write the user asked for into a silent skip — the precise
+   * failure FR-C4 exists to make impossible. Status writes therefore always go
+   * through the funnel and are reported on what the funnel did.
    */
   noop?: boolean;
   /**
@@ -244,6 +255,47 @@ export interface TasksBulkUpdateStatusParams extends TasksWorkspaceScopedParams 
  * still true.
  */
 export interface TasksBulkUpdateStatusResult {
+  results: TasksBulkResultItem[];
+}
+
+/** Add the label to every named task, or remove it from every named task. */
+export type TasksBulkLabelMode = 'add' | 'remove';
+
+/**
+ * `tasks:bulkUpdateLabel` — add or remove ONE label across a set of tasks
+ * (FR-C5).
+ *
+ * ## One label per call, not a set
+ *
+ * `labels` is a full replacement on the write funnel, so applying a label to N
+ * tasks is N read-modify-writes against N different current arrays. One label
+ * and one mode keeps each of those a single, describable act — "add
+ * `licensing` to these twelve" — which is also the only shape a per-task result
+ * entry can honestly report on. A call carrying several labels in both
+ * directions would produce entries that say `ok: true` without saying which of
+ * the requested changes actually landed.
+ *
+ * ## Same cap, same reason as `tasks:bulkUpdateStatus`
+ *
+ * `taskIds` is capped at {@link BULK_CHUNK_SIZE} and the client chunks against
+ * the same constant, so cancellation stays chunk-granular here too.
+ */
+export interface TasksBulkUpdateLabelParams extends TasksWorkspaceScopedParams {
+  taskIds: string[];
+  label: string;
+  mode: TasksBulkLabelMode;
+}
+
+/**
+ * One entry per requested id, in request order — the same shape
+ * `tasks:bulkUpdateStatus` returns, and deliberately not a narrower one.
+ *
+ * This is the method that gives {@link TasksBulkResultItem.noop} a producer: a
+ * task that already carries the label (or already lacks it) comes back
+ * `ok: true, noop: true` with no write issued and its `updated` stamp
+ * untouched.
+ */
+export interface TasksBulkUpdateLabelResult {
   results: TasksBulkResultItem[];
 }
 

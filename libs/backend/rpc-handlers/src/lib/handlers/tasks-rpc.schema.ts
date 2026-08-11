@@ -140,6 +140,30 @@ export const TasksBulkUpdateStatusParamsSchema = z.object({
   status: statusEnum,
 });
 
+/**
+ * `tasks:bulkUpdateLabel` — add or remove ONE label across a set of tasks
+ * (FR-C5).
+ *
+ * Shares `taskIds` verbatim with {@link TasksBulkUpdateStatusParamsSchema}: the
+ * same per-element `taskIdRef` guard, the same `.min(1)`, and the same
+ * `BULK_CHUNK_SIZE` cap IMPORTED from the shared types rather than restated.
+ * Two enforcers of one number is broken in one direction (a client chunking
+ * above the cap fails every call) and silently unbounded in the other.
+ *
+ * `label` is the SHARED {@link LabelSchema}, so a label that this method could
+ * plant is exactly a label `tasks:updateMetadata` and `ptah_task_update` would
+ * accept. Note what is NOT here: the per-task limit. `MAX_LABELS_PER_TASK`
+ * constrains the MERGED array, which does not exist until the handler has read
+ * the task's current labels, so it is enforced there — by running the merged
+ * array through `TaskMetadataPatchSchema`, the one definition of that limit.
+ */
+export const TasksBulkUpdateLabelParamsSchema = z.object({
+  workspaceRoot,
+  taskIds: z.array(taskIdRef).min(1).max(BULK_CHUNK_SIZE),
+  label: LabelSchema,
+  mode: z.enum(['add', 'remove']),
+});
+
 export const TasksGenerateRegistryParamsSchema = z.object({
   workspaceRoot,
 });
@@ -230,6 +254,9 @@ export type TasksUpdateMetadataParamsParsed = z.infer<
 >;
 export type TasksBulkUpdateStatusParamsParsed = z.infer<
   typeof TasksBulkUpdateStatusParamsSchema
+>;
+export type TasksBulkUpdateLabelParamsParsed = z.infer<
+  typeof TasksBulkUpdateLabelParamsSchema
 >;
 export type TasksSaveViewsParamsParsed = z.infer<
   typeof TasksSaveViewsParamsSchema
