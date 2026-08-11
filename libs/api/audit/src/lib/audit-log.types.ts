@@ -20,7 +20,40 @@ export type AdminAuditAction =
   | 'circle.member.remove'
   | 'sessions.attendee.add'
   | 'sessions.attendee.remove'
+  // ⚠️ HISTORICAL — NO WRITER REMAINS AFTER TASK_2026_201. The paid
+  // founding-invite wave (`POST v1/admin/waitlist/invite`,
+  // `AdminWaitlistController.inviteWaitlist`, `WaitlistService.inviteBatch`)
+  // was DELETED outright rather than repointed (context.md C2). The value stays
+  // in the union because `admin_audit_log` ROWS carrying it exist and a read of
+  // the table must still type-check against this union. Do not add a writer.
   | 'waitlist.invite'
+  // TASK_2026_201 R7 — approve a waitlist row to the founding cohort: a free
+  // `builders` licence + a `founding` cohort assignment + the `approvedAt`
+  // stamp, all in one transaction.
+  //
+  // ⚠️ WHY THIS IS NOT `license.complimentary.issue`. That action answers "who
+  // gifted a licence" and nothing more: it targets a `License`, so it cannot
+  // name the WAITLIST ROW the grant came from, and its metadata has no place to
+  // record the COHORT the person was placed in. Neither fact is recoverable by
+  // joining — the licence carries no waitlist id and the cohort assignment
+  // carries no actor. So "who let this person into the founding cohort for
+  // free, and when" is a question only this row can answer, which is exactly
+  // R7's argument. A grant that reuses the licence core legitimately writes
+  // BOTH rows; they answer two different questions and neither is redundant.
+  //
+  // ⚠️ WRITTEN INSIDE THE ROW'S OWN `$transaction` VIA `WriteAuditLogParams.tx`
+  // (PRE-6), with NO `try/catch` around it. That is a deliberate divergence
+  // from the deleted `waitlist.invite` writer, which swallowed audit failures
+  // *because the invite mail had already gone out*. Here nothing has gone out
+  // when the audit runs — the welcome mail is post-commit — so an audit failure
+  // must roll the whole grant back rather than leave an unrecorded one (R2.2).
+  //
+  // ⚠️ SKIPPED ROWS WRITE NOTHING (R7.3). `already_approved`, `already_paid`
+  // and `not_found` are non-events; a log of non-events buries the events.
+  //
+  // ⚠️ THE LICENCE KEY NEVER APPEARS IN THIS METADATA (R7.4). `licenseId` does;
+  // the key travels only in the member's email.
+  | 'waitlist.approve'
   | 'group.create'
   | 'group.update'
   | 'group.assign'

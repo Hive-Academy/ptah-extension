@@ -265,6 +265,39 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * arrives with the approve endpoint in a later batch of the same task, which
  * takes this back to 139 and restores an `admin/AdminWaitlistController`-shaped
  * census entry.
+ * **140** since TASK_2026_201's approve batch registered that replacement:
+ * `POST v1/admin/waitlist/approve`, which grants FREE founding access. It is
+ * NOT the invite route under a new name — different request shape, different
+ * response shape, opposite commercial meaning — and it is listed in the same
+ * alphabetical slot only because the URL prefix is the same. This entry
+ * restores the controller census too: a NEW `AdminWaitlistController` carries
+ * it, so `ALL_CONTROLLERS` regains an `admin/AdminWaitlistController` line and
+ * the barren-controller assertion closes on it.
+ *
+ * ⚠️ 140 IS COUNTED FROM THE ARRAY, NOT DERIVED AS `138 + 1` — AND THAT IS THE
+ * WHOLE DIFFERENCE. Counting the literals in `EXPECTED_ROUTES` gives 140 (140
+ * entries, 140 unique, no duplicates). Adding one to the previous prose figure
+ * would have given 139, and 139 is what a first pass at this entry said.
+ *
+ * ⚠️ THIS CLOSES AN INHERITED OFF-BY-ONE, FORWARD ONLY. The prose figure was
+ * already running one LOW before this task touched the file: at the task's
+ * first commit — and at its parent, so the drift predates the task entirely —
+ * the array held 138 against a prose figure of 137, and the same +1 gap
+ * survived every entry above. Each of those entries recorded its DELTA
+ * correctly; only the running absolute was short. So the deltas above are
+ * right, their totals are one low, and the figure is corrected HERE rather
+ * than by retro-editing them: those entries were accurate statements about a
+ * then-miscounted array, and rewriting them would erase the record of when the
+ * drift existed and how long it went unnoticed — which is the only evidence
+ * that the ⚠️ below is a rule worth keeping. Do NOT "tidy" the earlier numbers
+ * to make the sequence read continuously. It is discontinuous because the
+ * count was wrong, and the discontinuity is the finding.
+ *
+ * ⚠️ NO ASSERTION MOVED WHEN THIS NUMBER DID, AND THAT IS EXACTLY WHY IT COULD
+ * DRIFT. The exact-count test reads `EXPECTED_ROUTES.length`, so it is immune
+ * to the prose being wrong; the suite was green at 137, at 138 and at 140
+ * alike. Nothing mechanical protects this figure — only the re-derivation the
+ * next paragraph demands.
  *
  * ⚠️ THE PROSE TOTAL IS RE-DERIVED IN EVERY BATCH THAT MOVES IT, and the note
  * above about it having read 68 against an actual 64 is why: this number is the
@@ -554,15 +587,17 @@ const EXPECTED_ROUTES: readonly string[] = [
   // byte-identical on the wire and produced no diff at all.
   'POST v1/admin/sessions/:eventId/invitations',
   'POST v1/admin/users/bulk-email',
-  // 🔴 `POST v1/admin/waitlist/invite` USED TO SIT HERE, between
-  // `users/bulk-email` and `auth/login/email`. TASK_2026_201 deleted it with
-  // the whole `AdminWaitlistController` — the paid founding-invite wave is
-  // removed outright, not repointed (context.md C2). Its replacement,
-  // `POST v1/admin/waitlist/approve`, is NOT registered yet: it lands with the
-  // approve endpoint in a later batch of the same task and will take this slot
-  // back. Recorded rather than silently dropped, because a bare deletion in
-  // this ledger is indistinguishable from a route that went missing by
-  // accident — which is the one thing this file exists to make impossible.
+  // ⚠️ `POST v1/admin/waitlist/invite` USED TO SIT IN THIS SLOT and is NOT a
+  // renamed ancestor of the line below. TASK_2026_201 deleted the invite route
+  // with the whole `AdminWaitlistController` — the paid founding-invite wave,
+  // removed outright rather than repointed (context.md C2) — and then, in the
+  // same task, created a new controller of the same name owning the FREE
+  // approve grant that replaces the flow. Two different routes, two different
+  // request shapes, one URL prefix. Recorded rather than silently swapped,
+  // because a bare edit in this ledger is indistinguishable from a route that
+  // went missing by accident, which is the one thing this file exists to make
+  // impossible.
+  'POST v1/admin/waitlist/approve',
   'POST v1/auth/login/email',
   'POST v1/auth/logout',
   'POST v1/auth/magic-link',

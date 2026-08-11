@@ -6,6 +6,7 @@ import { AdminLicensesController } from '@ptah-api/admin';
 import { AdminRecordsController } from '@ptah-api/admin';
 import { AdminStatsController } from '@ptah-api/admin';
 import { AdminUsersController } from '@ptah-api/admin';
+import { AdminWaitlistController } from '@ptah-api/admin';
 import { AuthController } from '@ptah-api/licensing';
 import { ContactController } from '@ptah-api/marketing';
 import { EventsController } from '@ptah-api/licensing';
@@ -244,16 +245,22 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     file: 'libs/api/admin/src/lib/admin-users.controller.ts',
     controller: AdminUsersController,
   },
-  // 🔴 `admin/AdminWaitlistController` USED TO SIT HERE and was removed by
-  // TASK_2026_201: its only route was `POST v1/admin/waitlist/invite`, the paid
-  // founding-invite wave, which that task DELETES outright rather than
-  // repointing (context.md C2). A controller class with zero routes is not a
-  // legal resting state for this registry — `route-map.spec.ts`'s barren-
+  // ⚠️ THIS ENTRY WAS DELETED AND HAS NOW RETURNED, AND THE CLASS BEHIND IT IS
+  // NOT THE ONE THAT LEFT. TASK_2026_201 first removed
+  // `admin/AdminWaitlistController` outright: its only route was
+  // `POST v1/admin/waitlist/invite`, the paid founding-invite wave, deleted
+  // rather than repointed (context.md C2) — and a controller with zero routes
+  // is not a legal resting state here, because `route-map.spec.ts`'s barren-
   // controller assertion requires every registered controller to contribute at
-  // least one route — so the class, its module registration and this entry go
-  // together or not at all. The replacement `POST v1/admin/waitlist/approve`
-  // arrives on a new controller in the same task's approve-endpoint batch, at
-  // which point an `admin/AdminWaitlistController`-shaped entry returns here.
+  // least one route. So the class, its module registration and this entry went
+  // together. The same task's approve batch then created a NEW class at the
+  // same path and the same name, owning `POST v1/admin/waitlist/approve` — a
+  // free grant, sharing nothing with the invite wave but the URL prefix.
+  {
+    label: 'admin/AdminWaitlistController',
+    file: 'libs/api/admin/src/lib/admin-waitlist.controller.ts',
+    controller: AdminWaitlistController,
+  },
   {
     label: 'app/auth/AuthController',
     file: 'libs/api/licensing/src/lib/auth-endpoints/auth.controller.ts',

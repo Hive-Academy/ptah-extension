@@ -351,18 +351,36 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
       'source',
       'createdAt',
       'notifiedAt',
+      'approvedAt',
       'convertedAt',
     ],
     searchFields: ['email', 'source'],
-    sortableFields: ['createdAt', 'notifiedAt', 'convertedAt', 'source'],
+    sortableFields: [
+      'createdAt',
+      'notifiedAt',
+      'approvedAt',
+      'convertedAt',
+      'source',
+    ],
     filterableFields: {
-      // Waitlist has no literal `status` column — lifecycle is two nullable
+      // Waitlist has no literal `status` column — lifecycle is three nullable
       // timestamps. Expose them as virtual booleans so the pipeline tabs map
       // cleanly: New = notified:false, Invited = notified:true,
-      // Converted = converted:true.
+      // Approved = approved:true, Converted = converted:true.
       notified: { type: 'datePresence', column: 'notifiedAt' },
+      approved: { type: 'datePresence', column: 'approvedAt' },
       converted: { type: 'datePresence', column: 'convertedAt' },
     },
+    // ⚠️ `approvedAt` IS DELIBERATELY NOT EDITABLE (TASK_2026_201 R5).
+    // `notifiedAt` and `convertedAt` are records of things that happened
+    // elsewhere (a mail went out; Paddle took money), so hand-correcting them
+    // fixes bookkeeping. `approvedAt` is not a record — it IS the idempotency
+    // claim (`UPDATE … WHERE approved_at IS NULL`). An admin stamping it by
+    // hand would fake a grant that has no licence, no cohort placement and no
+    // audit row, AND would then make the real approval report
+    // `already_approved` forever. Clearing it by hand is equally unnecessary: a
+    // rolled-back attempt already leaves the column null and the row
+    // re-approvable (R5.5).
     editableFields: ['notifiedAt', 'convertedAt'],
     readOnly: false,
     defaultSortBy: 'createdAt',

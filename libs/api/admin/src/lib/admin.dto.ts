@@ -125,3 +125,38 @@ export class BulkEmailDto {
   @MaxLength(50000)
   html!: string;
 }
+
+/**
+ * Body DTO for `POST /api/v1/admin/waitlist/approve` — approve waitlist rows to
+ * the founding cohort (TASK_2026_201 R1, R8).
+ *
+ * ⚠️ THIS CLASS IS THE ONLY BOUND ON HOW MANY GRANTS AND HOW MANY OUTBOUND
+ * EMAILS ONE REQUEST CAN PRODUCE. `@ArrayMaxSize(50)` is that bound; the route
+ * throttle (10/min per admin) multiplies with it to an effective ceiling of 500
+ * grants and 500 emails per minute per admin. None of these decorators executes
+ * unless the handler binds `@Body(dtoPipe(ApproveWaitlistDto))` — see the
+ * controller docblock.
+ *
+ * ⚠️ `@IsString` + `@MaxLength(64)`, NOT `@IsUUID`. `Waitlist.id` is a Prisma
+ * `cuid`, not a UUID, so a UUID validator would reject every legitimate id. The
+ * length cap is what keeps an unbounded string out of a Prisma `where`.
+ *
+ * ⚠️ `ids` IS REQUIRED — no `@IsOptionalNotNull`. An absent, empty or
+ * over-length `ids` must be a 400 BEFORE any write (R1.4, R8.3), and an
+ * optional array would instead reach the service as `undefined` and approve
+ * nothing while reporting success.
+ *
+ * ⚠️ DURATION IS NOT A FIELD, AND MUST NOT BECOME ONE. The grant is always
+ * `1y` (context.md C3): the cohort runs two weeks, so a `30d` preset would
+ * expire roughly two weeks after it ends and yank the course and the forum
+ * archive away exactly when goodwill matters. A client-supplied preset would
+ * make that regression one dropdown away.
+ */
+export class ApproveWaitlistDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  ids!: string[];
+}

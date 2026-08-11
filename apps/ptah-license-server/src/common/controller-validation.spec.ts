@@ -333,8 +333,46 @@ const EXCLUDED: ReadonlyArray<{
  * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6. The deleted handler bound
  * one whole-object `@Body` and no named primitive, so the carve-out is
  * untouched. `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 79 -> 80, TASK_2026_201 (founding cohort: the approve grant lands) ─────
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 80`.
+ *
+ * **+1, AND IT IS THE RETURN THE ENTRY ABOVE PREDICTED** — the same task's
+ * approve batch, closing the −1 it opened. Net effect of TASK_2026_201 on this
+ * constant is therefore ZERO (80 → 79 → 80); the two entries are kept separate
+ * because they landed as separate commits and each had to be green alone:
+ *
+ *   admin/AdminWaitlistController.approveWaitlist
+ *       `@Body(dtoPipe(ApproveWaitlistDto))`                                 +1
+ *                                                                          ---
+ *                                              73 + 1 = 74 whole-object
+ *                                                       74 + 6 = 80 total
+ *
+ * `POST v1/admin/waitlist/approve` grants FREE founding access — a 1-year
+ * `builders` complimentary licence, a `founding` cohort placement and one
+ * welcome email per id. It is NOT the deleted invite route renamed: different
+ * DTO, different response, opposite commercial meaning. `ALL_CONTROLLERS` and
+ * the census move again, in the opposite direction: a NEW
+ * `AdminWaitlistController` class carries this route, so
+ * `controller-registry.ts` regains an `admin/AdminWaitlistController` entry.
+ *
+ * ⚠️ THIS BINDING IS THE MOST CONSEQUENTIAL ONE IN THE FILE, AND THAT IS NOT
+ * RHETORIC. On every other route an unbound `@Body` degrades input hygiene. On
+ * this one, `ApproveWaitlistDto`'s `@ArrayMaxSize(50)` is the ONLY bound on how
+ * many licences one request issues and how many emails it sends — unbind the
+ * pipe and a single POST can grant an unbounded number of paid-tier licences.
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND ONCE MORE THAT IS THE
+ * LOAD-BEARING HALF (RISK-I). The obvious alternative shape is
+ * `POST .../approve?ids=a,b,c` — one `@Query('ids') ids: string`. That would
+ * make the total read 80 against a named count of 7 and the arithmetic here
+ * would not close. It is also rejected on its own merits, for the same three
+ * reasons as the bulk mark-read route: a query string's length is bounded by
+ * the server's URL limit rather than by `@ArrayMaxSize`, every proxy in the
+ * path logs it, and a comma-split string cannot carry per-element validation.
+ * `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 79;
+const MIN_TOTAL_PAYLOAD_PARAMS = 80;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a
