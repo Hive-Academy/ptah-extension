@@ -1,4 +1,5 @@
 import { test, expect } from '../../support/fixtures';
+import { gitDiffFileMock } from '../../support/git-diff-mock';
 
 /**
  * M1 performance harness — diff-tab re-display latency (B0, TASK_2026_173).
@@ -92,64 +93,6 @@ const MODIFIED_CONTENT = makeContent(
   'export const line250 = 250; // worktree',
 );
 
-/** Unified-diff context lines either side of a change, as git emits by default. */
-const DIFF_CONTEXT = 3;
-
-/**
- * The `patch` / `hunks` pair for the one-line change above (TASK_2026_231).
- *
- * Derived from the same two content strings the mock serves rather than
- * hard-coded, so the patch cannot drift away from the text it describes the
- * way the mock as a whole drifted away from `GitDiffFileResult`.
- */
-function singleLineChangeDiff(): {
-  patch: string;
-  hunks: {
-    index: number;
-    originalStart: number;
-    originalLines: number;
-    modifiedStart: number;
-    modifiedLines: number;
-    header: string;
-  }[];
-} {
-  const original = ORIGINAL_CONTENT.split('\n');
-  const modified = MODIFIED_CONTENT.split('\n');
-  const start = CHANGED_LINE - DIFF_CONTEXT;
-  const span = DIFF_CONTEXT * 2 + 1;
-  const header = `@@ -${start},${span} +${start},${span} @@`;
-
-  const body: string[] = [];
-  for (let i = start; i < CHANGED_LINE; i++) body.push(` ${original[i - 1]}`);
-  body.push(`-${original[CHANGED_LINE - 1]}`);
-  body.push(`+${modified[CHANGED_LINE - 1]}`);
-  for (let i = CHANGED_LINE + 1; i < start + span; i++) {
-    body.push(` ${original[i - 1]}`);
-  }
-
-  return {
-    patch:
-      [
-        'diff --git a/src/big-file.ts b/src/big-file.ts',
-        'index 1111111..2222222 100644',
-        '--- a/src/big-file.ts',
-        '+++ b/src/big-file.ts',
-        header,
-        ...body,
-      ].join('\n') + '\n',
-    hunks: [
-      {
-        index: 0,
-        originalStart: start,
-        originalLines: span,
-        modifiedStart: start,
-        modifiedLines: span,
-        header,
-      },
-    ],
-  };
-}
-
 function fileTree(): { tree: unknown[] } {
   return {
     tree: [{ name: 'big-file.ts', type: 'file', path: MAIN_TS_PATH }],
@@ -179,19 +122,20 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
       // The single round-trip openDiff now makes (editor-diff-split.ts).
       // Mirrors the real `M unstaged` row of the SS2.2 side-resolution table:
       // original <- index, modified <- worktree.
-      'git:diffFile': {
+      // `patch` and `hunks` are REQUIRED by `GitDiffFileResult` and were once
+      // missing here — see the TASK_2026_231 note in the file header. The
+      // derivation that fixed it now lives in `git-diff-mock.ts`, shared with
+      // the OTHER spec that had drifted the same way and typed as
+      // `GitDiffFileResult` so the drift cannot recur silently. Its output for
+      // these two content strings is byte-identical to the local function it
+      // replaces, so the M1 numbers below stay comparable.
+      'git:diffFile': gitDiffFileMock({
         path: 'src/big-file.ts',
-        originalPath: 'src/big-file.ts',
         comparison: 'worktree',
-        original: { outcome: 'content', content: ORIGINAL_CONTENT },
-        modified: { outcome: 'content', content: MODIFIED_CONTENT },
-        originalRef: { kind: 'index' },
-        modifiedRef: { kind: 'worktree' },
-        // `patch` and `hunks` are REQUIRED by `GitDiffFileResult` and were
-        // missing here — see the TASK_2026_231 note in the file header.
-        ...singleLineChangeDiff(),
+        original: ORIGINAL_CONTENT,
+        modified: MODIFIED_CONTENT,
         snapshotToken: 'm1-harness-token',
-      },
+      }),
     });
 
     await ui.goto('editor');

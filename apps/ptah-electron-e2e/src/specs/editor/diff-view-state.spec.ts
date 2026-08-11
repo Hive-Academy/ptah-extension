@@ -1,4 +1,5 @@
 import { test, expect } from '../../support/fixtures';
+import { gitDiffFileMock } from '../../support/git-diff-mock';
 
 /**
  * Diff editor lifecycle — EMPIRICAL verification in Electron (TASK_2026_173,
@@ -115,16 +116,23 @@ test.describe('diff editor lifecycle (B1 AC1/AC3/AC4)', () => {
         path: MAIN_TS_PATH,
         filePath: MAIN_TS_PATH,
       },
-      'git:diffFile': {
+      // Built through the contract-typed factory, NOT hand-written. The inline
+      // literal that used to sit here omitted `patch` and `hunks` — both
+      // REQUIRED by `GitDiffFileResult` — which is the same drift TASK_2026_231
+      // found in the perf M1 harness, and it cost this spec the same way: the
+      // diff tab button never reached the DOM and the wait below timed out.
+      // Confirmed by an A/B probe over this exact flow: with the literal the
+      // tab strip ended at "Switch to big-file.ts" and the renderer logged six
+      // `Angular Error: TypeError: Cannot read properties of undefined
+      // (reading 'length')`; with a valid payload the diff tab appeared and
+      // those errors were gone. See `git-diff-mock.ts` for the mechanism.
+      'git:diffFile': gitDiffFileMock({
         path: 'src/big-file.ts',
-        originalPath: 'src/big-file.ts',
         comparison: 'worktree',
-        original: { outcome: 'content', content: ORIGINAL_CONTENT },
-        modified: { outcome: 'content', content: MODIFIED_CONTENT },
-        originalRef: { kind: 'index' },
-        modifiedRef: { kind: 'worktree' },
+        original: ORIGINAL_CONTENT,
+        modified: MODIFIED_CONTENT,
         snapshotToken: 'view-state-probe',
-      },
+      }),
     });
 
     await ui.goto('editor');
