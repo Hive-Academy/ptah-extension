@@ -166,3 +166,91 @@ describe('parseMarkdown blocks', () => {
     expect(parseMarkdown('\n\n  \n')).toEqual([]);
   });
 });
+
+describe('terminal control sanitisation', () => {
+  // Built with fromCharCode rather than written as literal bytes, so the
+  // sequences survive copy/paste and are legible to a reader of this file.
+  const ESC = String.fromCharCode(0x1b);
+  const BEL = String.fromCharCode(0x07);
+  const CSI_RED = ESC + '[31m';
+  // A real OSC 52 clipboard write: on emulators that honour it (iTerm2, kitty,
+  // recent xterm, tmux with set-clipboard on) this sets the user's system
+  // clipboard from within a printed string.
+  const OSC_52_CLIPBOARD_WRITE = ESC + ']52;c;SGVsbG8=' + BEL;
+
+  it('strips CSI sequences from inline text', () => {
+    const text = spansToPlainText(parseInline('before ' + CSI_RED + 'after'));
+
+    expect(text).toBe('before after');
+    expect(text).not.toContain(ESC);
+    expect(text).not.toContain('[31m');
+  });
+
+  it('strips an OSC 52 clipboard write from inline text', () => {
+    const text = spansToPlainText(
+      parseInline('hello ' + OSC_52_CLIPBOARD_WRITE + 'world'),
+    );
+
+    expect(text).toBe('hello world');
+    expect(text).not.toContain(ESC);
+    expect(text).not.toContain('52;c;');
+  });
+
+  it('strips control sequences from fenced code lines, which never reach parseInline', () => {
+    // Code block content is pushed to `lines` verbatim and rendered by
+    // `highlightLine`, bypassing InlineSpan entirely — so a strip that only
+    // covered spans would leave this whole path exposed.
+    const blocks = parseMarkdown(
+      [
+        '```sh',
+        'echo ' + CSI_RED + 'pwned' + OSC_52_CLIPBOARD_WRITE,
+        '```',
+      ].join('\n'),
+    );
+
+    const code = blocks.find((block) => block.kind === 'code');
+    expect(code).toBeDefined();
+    const lines = code?.kind === 'code' ? code.lines : [];
+    expect(lines).toEqual(['echo pwned']);
+    expect(lines.join('')).not.toContain(ESC);
+  });
+
+  it('strips a bare carriage return, which overwrites the current line', () => {
+    // CR on its own returns the cursor to column zero, so a model can repaint
+    // a line it already emitted. It is a C0 control like TAB and LF, but
+    // unlike those two the parser does not need it.
+    expect(spansToPlainText(parseInline('ab\rc'))).toBe('abc');
+  });
+
+  it('strips C1 controls, the single-byte equivalents of ESC sequences', () => {
+    // U+009B is CSI and U+009D is OSC in their 8-bit forms.
+    const csi8 = String.fromCharCode(0x9b);
+    const osc8 = String.fromCharCode(0x9d);
+    expect(spansToPlainText(parseInline('a' + csi8 + '31mb'))).toBe('a31mb');
+    expect(spansToPlainText(parseInline('a' + osc8 + '52;cb'))).toBe('a52;cb');
+  });
+
+  it('keeps tab and newline, which the block structure depends on', () => {
+    // Both are C0 controls, and stripping them blindly would flatten every
+    // list and merge every block. Tab feeds `depthFromIndent`; newline is what
+    // the parser splits on.
+    const blocks = parseMarkdown('# title\n\n\t- nested');
+
+    expect(kinds(blocks)).toEqual(['heading', 'list-item']);
+    const item = blocks[1];
+    expect(item?.kind === 'list-item' ? item.depth : -1).toBe(1);
+  });
+
+  it('leaves ordinary prose and punctuation untouched', () => {
+    const source = 'Costs $5 - see `a_b`, 100% of "cases" (really).';
+    expect(spansToPlainText(parseInline(source))).toBe(
+      'Costs $5 - see a_b, 100% of "cases" (really).',
+    );
+  });
+
+  it('does not let an unterminated OSC leak into the transcript mid-stream', () => {
+    // A streaming turn can be cut inside a sequence; the fragment must still
+    // not reach the terminal.
+    expect(spansToPlainText(parseInline('x' + ESC + ']52;c;SGVsbG'))).toBe('x');
+  });
+});

@@ -54,6 +54,139 @@ const UNORDERED_RE = /^(\s*)[-*+]\s+(.*)$/;
 const ORDERED_RE = /^(\s*)(\d{1,9})[.)]\s+(.*)$/;
 const QUOTE_RE = /^\s*>\s?(.*)$/;
 
+/*
+ * Terminal control stripping.
+ *
+ * This parser's input is ASSISTANT-GENERATED, and a model can be induced to
+ * emit raw escape sequences by anything it reads - a file, a web page, a tool
+ * result. Ink's `<Text>` does not filter them, so whatever survives here is
+ * written to the user's terminal and interpreted by the emulator: screen and
+ * cursor manipulation, a rewritten window title, and on emulators that honour
+ * OSC 52 (iTerm2, kitty, recent xterm, tmux with set-clipboard on) a write to
+ * the system clipboard.
+ *
+ * The strip lives in the parser rather than at the render boundary in
+ * `components/chat/Markdown.tsx` because that boundary is not a single
+ * chokepoint: fenced code content never becomes an `InlineSpan` at all. It is
+ * pushed to `lines` verbatim and rendered through `highlightLine`, so
+ * sanitising spans alone would leave a fenced block - the easiest thing in the
+ * world for a model to emit - fully exposed. Sanitising the input on the way in
+ * covers every block kind, every span, and link hrefs, in one place.
+ *
+ * Written as a scanner over character codes rather than as regexes full of
+ * escapes: it keeps literal control bytes out of this file entirely, and it
+ * handles the sequence that a streaming turn cut in half, which is the case a
+ * regex alternation gets wrong most often.
+ *
+ * Not a defence against a malicious local user, who owns the terminal anyway.
+ * It is a defence against injected content reaching the emulator unread.
+ */
+
+const ESC = 0x1b;
+const BEL = 0x07;
+/** The `\` of `ESC \`, the 7-bit string terminator. */
+const ST_TAIL = 0x5c;
+const CSI_INTRODUCER = 0x5b; // '['
+const OSC_INTRODUCER = 0x5d; // ']'
+
+/**
+ * True for control characters that must never reach the emulator.
+ *
+ * TAB (0x09) and LF (0x0a) are deliberately spared: this parser is line-based
+ * and splits on LF, and `depthFromIndent` reads TAB as indentation, so
+ * stripping either would flatten every list and merge every block - it would
+ * destroy the structure this module exists to produce. CR (0x0d) is NOT spared:
+ * on its own it returns the cursor to column zero, which is a line-overwrite
+ * primitive, and nothing here needs it.
+ *
+ * The 0x80-0x9f range is C1, where a single byte means what a two-byte ESC
+ * sequence means in 7-bit form - 0x9b is CSI and 0x9d is OSC.
+ */
+function isStrippableControl(code: number): boolean {
+  if (code === 0x09 || code === 0x0a) return false;
+  return code < 0x20 || code === 0x7f || (code >= 0x80 && code <= 0x9f);
+}
+
+/**
+ * Index just past the escape sequence beginning at `start`, where
+ * `text.charCodeAt(start)` is ESC.
+ *
+ * An unterminated sequence consumes the rest of the input on purpose. Half an
+ * OSC is still an OSC to a real terminal, so emitting the tail as visible text
+ * would be worse than dropping it.
+ */
+function endOfEscapeSequence(text: string, start: number): number {
+  const introducer = text.charCodeAt(start + 1);
+
+  if (introducer === CSI_INTRODUCER) {
+    let i = start + 2;
+    // Parameter bytes, then intermediate bytes, then one final byte.
+    while (
+      i < text.length &&
+      text.charCodeAt(i) >= 0x30 &&
+      text.charCodeAt(i) <= 0x3f
+    ) {
+      i += 1;
+    }
+    while (
+      i < text.length &&
+      text.charCodeAt(i) >= 0x20 &&
+      text.charCodeAt(i) <= 0x2f
+    ) {
+      i += 1;
+    }
+    return i < text.length ? i + 1 : i;
+  }
+
+  if (introducer === OSC_INTRODUCER) {
+    let i = start + 2;
+    while (i < text.length) {
+      const code = text.charCodeAt(i);
+      if (code === BEL) return i + 1;
+      if (code === ESC && text.charCodeAt(i + 1) === ST_TAIL) return i + 2;
+      i += 1;
+    }
+    return i;
+  }
+
+  // Any other escape: ESC plus at most one more character.
+  return Number.isNaN(introducer) ? start + 1 : start + 2;
+}
+
+/** Cheap pre-scan so clean text - almost every frame - allocates nothing. */
+function hasControlCharacters(text: string): boolean {
+  for (let i = 0; i < text.length; i += 1) {
+    if (isStrippableControl(text.charCodeAt(i))) return true;
+  }
+  return false;
+}
+
+/**
+ * Remove terminal control sequences and stray control characters, preserving
+ * TAB and LF. Total and idempotent: every input produces a string, and running
+ * it twice changes nothing.
+ */
+export function stripTerminalControls(text: string): string {
+  if (!hasControlCharacters(text)) return text;
+
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (code === ESC) {
+      i = endOfEscapeSequence(text, i);
+      continue;
+    }
+    if (isStrippableControl(code)) {
+      i += 1;
+      continue;
+    }
+    out += text.charAt(i);
+    i += 1;
+  }
+  return out;
+}
+
 /** Two leading spaces per nesting level, matching CommonMark's loosest reading. */
 function depthFromIndent(indent: string): number {
   const width = indent.replace(/\t/g, '  ').length;
@@ -62,7 +195,9 @@ function depthFromIndent(indent: string): number {
 
 export function parseMarkdown(text: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
-  const lines = text.split('\n');
+  // The one chokepoint. Everything downstream - spans, code-block lines, link
+  // hrefs - is derived from these lines, so nothing reaches Ink unsanitised.
+  const lines = stripTerminalControls(text).split('\n');
 
   let paragraph: string[] = [];
 
@@ -191,7 +326,11 @@ const LINK_RE = /^\[([^\]]*)\]\(([^)\s]+)\)/;
  * the rest of the line — that is the whole point of being streaming-safe. Code
  * spans win over emphasis, so `**` inside backticks stays literal.
  */
-export function parseInline(text: string): InlineSpan[] {
+export function parseInline(rawText: string): InlineSpan[] {
+  // `parseMarkdown` has already sanitised everything it passes here, so this is
+  // defence in depth for direct callers. The strip is idempotent and returns
+  // clean input unchanged, so the second pass costs a scan and no allocation.
+  const text = stripTerminalControls(rawText);
   const spans: InlineSpan[] = [];
   let buffer = '';
 
