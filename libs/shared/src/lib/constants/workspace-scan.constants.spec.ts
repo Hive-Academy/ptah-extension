@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   TREE_HIDDEN_DIRS,
   WATCH_IGNORED_DIRS,
@@ -131,6 +133,60 @@ describe('workspace-scan.constants', () => {
       for (const name of LEGACY_HIDDEN_SKIP) {
         expect(name.startsWith('.')).toBe(true);
       }
+    });
+  });
+
+  /**
+   * TASK_2026_207. The M3 perf harness
+   * (`apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`)
+   * hand-maintains its own `IGNORED_DIRS` copy of `WATCH_IGNORED_DIRS`. The
+   * copy is justified — the harness is plain `.mjs` run by bare `node`, and
+   * importing this TypeScript module would drag it into the build graph and
+   * forfeit the "zero product-code change" property that makes the M3
+   * before/after numbers comparable — but until now its only safeguard was a
+   * comment asking the next editor to remember.
+   *
+   * This reads the harness as TEXT and parses the literal out, so the guard
+   * costs the harness nothing at run time while making the comment's promise
+   * an enforced invariant. Drift here corrupts a future measurement, never
+   * production behaviour, which is exactly why it would otherwise go
+   * unnoticed until someone trusted a bad number.
+   */
+  describe('M3 perf harness IGNORED_DIRS copy', () => {
+    const HARNESS_PATH = path.resolve(
+      __dirname,
+      '../../../../..',
+      'apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs',
+    );
+
+    /** Names inside the harness's `const IGNORED_DIRS = new Set([...])`. */
+    function harnessIgnoredDirs(): string[] {
+      const source = fs.readFileSync(HARNESS_PATH, 'utf8');
+      const literal = source.match(
+        /const IGNORED_DIRS = new Set\(\[([\s\S]*?)\]\)/,
+      );
+      if (!literal) {
+        throw new Error(
+          `Could not find "const IGNORED_DIRS = new Set([...])" in ${HARNESS_PATH}. ` +
+            'If the harness was restructured, update this guard — do not delete it.',
+        );
+      }
+      return [...literal[1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    }
+
+    it('the harness file is where this guard expects it', () => {
+      expect(fs.existsSync(HARNESS_PATH)).toBe(true);
+    });
+
+    it('mirrors WATCH_IGNORED_DIRS exactly', () => {
+      expect(harnessIgnoredDirs().sort()).toEqual(
+        [...WATCH_IGNORED_DIRS].sort(),
+      );
+    });
+
+    it('lists each name once', () => {
+      const names = harnessIgnoredDirs();
+      expect(new Set(names).size).toBe(names.length);
     });
   });
 
