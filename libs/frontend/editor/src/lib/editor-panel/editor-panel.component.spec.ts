@@ -38,6 +38,32 @@ import { EditorTabsHelper } from '../services/editor/editor-tabs';
 import type { EditorInternalState } from '../services/editor/editor-internal-state';
 import { diffTabKey } from '../services/editor/editor-tab.types';
 
+/**
+ * jsdom implements no HTMLDialogElement methods, so the save-conflict dialog's
+ * showModal()/close() would throw the moment it opens (TASK_2026_227).
+ *
+ * The stub reflects the `open` attribute, which is all these specs observe. It
+ * cannot stand in for the top layer — jsdom has no layout or hit-testing, which
+ * is why the paint-order defect this dialog now carries a fix for was invisible
+ * here and had to be caught in a live Electron host.
+ */
+beforeAll(() => {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function showModal(
+      this: HTMLDialogElement,
+    ) {
+      this.setAttribute('open', '');
+    } as HTMLDialogElement['showModal'];
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      this.removeAttribute('open');
+    } as HTMLDialogElement['close'];
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Stub child components (match selectors + bound inputs/outputs)
 // ---------------------------------------------------------------------------

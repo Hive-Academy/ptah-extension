@@ -482,22 +482,43 @@ const APPLY_FAILED_MESSAGE =
         this dialog exists because content is about to be destroyed, so an
         accidental click-out must not resolve it.
 
+        A native dialog element opened with showModal(), NOT a positioned div
+        (TASK_2026_227). z-index is only ever resolved among the siblings of the
+        nearest ancestor that establishes a stacking context, and this component
+        sits inside two of them — the editor panel's own isolation:isolate
+        wrapper (editor-panel.component.ts, added so Monaco could not swallow
+        the terminal resize handle) and the gridstack tile that hosts the panel
+        in the Electron layout. No number written here can climb out of either,
+        so the canvas panel painted over the dialog and its empty-state text
+        took the clicks on both buttons: a destructive-action confirmation that
+        a mouse user could not answer. showModal() puts the element in the
+        browser's TOP LAYER, which is painted after the whole document and is
+        therefore outside every stacking context by construction rather than by
+        out-bidding one. daisyUI expects exactly this shape: the modal[open]
+        rule is what reveals it, so modal-open is gone, and the scrim moves from
+        the wrapper's own background to the modal::backdrop pseudo-element. The
+        modal-backdrop child stays inert and aria-hidden — a form with
+        method="dialog" there is daisyUI's click-to-close idiom, and that is
+        precisely what must not exist here.
+
         The pending selection carries its OWN snapshot token. The dialog is
         precisely the window in which a revalidation can land, and when one does
         the coordinator refuses the request without an RPC rather than reverting
         a renumbered hunk.
       -->
       @if (pendingRevert()) {
-        <div class="modal modal-open z-50">
-          <div
-            class="modal-box max-w-sm"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="ptah-hunk-revert-title"
-            aria-describedby="ptah-hunk-revert-desc"
-            data-testid="hunk-revert-dialog"
-            (keydown)="onRevertDialogKeydown($event)"
-          >
+        <dialog
+          #revertDialog
+          class="modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="ptah-hunk-revert-title"
+          aria-describedby="ptah-hunk-revert-desc"
+          data-testid="hunk-revert-dialog"
+          (cancel)="onRevertDialogCancel($event)"
+          (keydown)="onRevertDialogKeydown($event)"
+        >
+          <div class="modal-box max-w-sm">
             <h3 id="ptah-hunk-revert-title" class="font-bold text-base">
               Discard this hunk?
             </h3>
@@ -529,7 +550,7 @@ const APPLY_FAILED_MESSAGE =
             </div>
           </div>
           <div class="modal-backdrop" aria-hidden="true"></div>
-        </div>
+        </dialog>
       }
     </div>
 
@@ -723,6 +744,8 @@ export class DiffViewComponent implements OnDestroy {
     viewChildren<ElementRef<HTMLButtonElement>>('hunkToolbarButton');
   private readonly hunkActionWidget =
     viewChild<TemplateRef<unknown>>('hunkActionWidget');
+  private readonly revertDialog =
+    viewChild<ElementRef<HTMLDialogElement>>('revertDialog');
   private readonly revertCancel =
     viewChild<ElementRef<HTMLButtonElement>>('revertCancel');
   private readonly revertConfirm =
@@ -1092,18 +1115,30 @@ export class DiffViewComponent implements OnDestroy {
 
     // A stale apply error outliving the diff it described would read as a
     // complaint about the diff now on screen.
+    //
+    // The dialog goes through the SAME close path the buttons use, not a bare
+    // `pendingRevert.set(null)`. The tab can change without a click — a file
+    // opened over RPC does it — and a `<dialog>` that `@if` unmounts while it
+    // is still `open` never runs its close steps: it leaves the top layer by
+    // the removal rule instead, so focus is never handed back and lands on
+    // `<body>`. Making this the same dismissal keeps "closed before unmounted"
+    // an invariant of the component rather than of how it was dismissed.
     effect(() => {
       this.tabKey();
       untracked(() => {
         this.applyError.set(null);
-        this.pendingRevert.set(null);
+        if (this.pendingRevert()) this.closeRevertDialog();
       });
     });
 
-    // Move focus to the non-destructive choice when the revert dialog opens;
-    // without this it opens with focus still on the toolbar behind it.
+    // Promote the dialog into the top layer, then move focus to the
+    // non-destructive choice. showModal() already focuses the first focusable
+    // descendant, which happens to be Cancel; focusing it explicitly is what
+    // makes that a guarantee of this component rather than of the button order.
     effect(() => {
       if (!this.pendingRevert()) return;
+      const dialog = this.revertDialog()?.nativeElement;
+      if (dialog && !dialog.open) dialog.showModal();
       this.revertCancel()?.nativeElement.focus();
     });
   }
@@ -1700,6 +1735,13 @@ export class DiffViewComponent implements OnDestroy {
   }
 
   private closeRevertDialog(): void {
+    // Leave the top layer explicitly, before `@if` unmounts the node. Removing
+    // an element that is still `open` skips its close steps, and the focus
+    // restore below has to be the LAST word on focus — close() returns it to
+    // whatever showModal() remembered, which is not necessarily the control
+    // that raised this.
+    const dialog = this.revertDialog()?.nativeElement;
+    if (dialog?.open) dialog.close();
     this.pendingRevert.set(null);
     const target = this.revertReturnFocus;
     this.revertReturnFocus = null;
@@ -1727,6 +1769,22 @@ export class DiffViewComponent implements OnDestroy {
     if (!cancel || !confirm) return;
     event.preventDefault();
     (document.activeElement === cancel ? confirm : cancel).focus();
+  }
+
+  /**
+   * Escape as the browser's own close request, not as a keydown.
+   *
+   * `showModal()` hands the UA a second route to Escape that does not pass
+   * through the handler above: it would close the element while `pendingRevert`
+   * stayed set and `revertReturnFocus` stayed unrestored, leaving a component
+   * that believes a dialog is open and a user looking at none. Cancelling the
+   * default and calling the SAME `cancelRevert()` the button calls keeps one
+   * close path however Escape arrives, and keeps Escape meaning Cancel — the
+   * non-destructive choice — rather than meaning the UA's bare `close()`.
+   */
+  protected onRevertDialogCancel(event: Event): void {
+    event.preventDefault();
+    this.cancelRevert();
   }
 
   /**

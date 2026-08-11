@@ -40,6 +40,33 @@ import type {
 } from '../services/editor/editor-tab.types';
 import { diffTabKey } from '../services/editor/editor-tab.types';
 
+/**
+ * jsdom implements no HTMLDialogElement methods, so the revert dialog's
+ * showModal()/close() would throw the moment it opens (TASK_2026_227).
+ *
+ * The stub reflects the `open` attribute, which is all these specs observe.
+ * What it CANNOT stand in for is the top layer itself — jsdom has no layout,
+ * no compositing and no hit-testing, which is exactly why the bug this dialog
+ * now carries a fix for was invisible here and had to be caught by
+ * `apps/ptah-electron-e2e/src/specs/editor/hunk-revert-top-layer.spec.ts`.
+ */
+beforeAll(() => {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function showModal(
+      this: HTMLDialogElement,
+    ) {
+      this.setAttribute('open', '');
+    } as HTMLDialogElement['showModal'];
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      this.removeAttribute('open');
+    } as HTMLDialogElement['close'];
+  }
+});
+
 // ---------------------------------------------------------------------------
 // detectMonacoTheme is private; access via component instance using index type.
 // ---------------------------------------------------------------------------

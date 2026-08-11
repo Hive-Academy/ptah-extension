@@ -529,17 +529,29 @@ import type { FileTreeNode } from '../models/file-tree.model';
            two-way toggle between them, which is cheaper and easier to verify
            than a general trap, and it adds no tab stop of its own (the handler
            sits on the labelled container and catches the buttons' bubbled
-           keydown, so the container is never itself focusable). -->
+           keydown, so the container is never itself focusable).
+
+           A native dialog element opened with showModal(), for the reason
+           spelled out in diff-view.component.ts (TASK_2026_227): this panel is
+           mounted inside a gridstack tile in the Electron layout, and the
+           isolation:isolate wrapper further up this same template is a stacking
+           context too, so no z-index written here can paint above either. The
+           top layer is outside every stacking context by construction. Escape
+           still maps to Cancel through _panelKeydown; the (cancel) binding
+           covers the close request showModal() adds, which does not pass
+           through a keydown listener at all. -->
       @if (saveConflict()) {
-        <div class="modal modal-open z-50">
-          <div
-            class="modal-box max-w-sm"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="ptah-save-conflict-title"
-            aria-describedby="ptah-save-conflict-desc"
-            (keydown)="onSaveConflictKeydown($event)"
-          >
+        <dialog
+          #saveConflictDialog
+          class="modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="ptah-save-conflict-title"
+          aria-describedby="ptah-save-conflict-desc"
+          (cancel)="onSaveConflictCancel($event)"
+          (keydown)="onSaveConflictKeydown($event)"
+        >
+          <div class="modal-box max-w-sm">
             <h3 id="ptah-save-conflict-title" class="font-bold text-base">
               This file was also edited in the other pane
             </h3>
@@ -569,7 +581,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
             </div>
           </div>
           <div class="modal-backdrop" aria-hidden="true"></div>
-        </div>
+        </dialog>
       }
 
       <!-- Quick Open file picker (Ctrl+P / Cmd+P) -->
@@ -658,6 +670,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     content: string;
   } | null>(null);
 
+  private readonly saveConflictDialog =
+    viewChild<ElementRef<HTMLDialogElement>>('saveConflictDialog');
   private readonly saveConflictCancel =
     viewChild<ElementRef<HTMLButtonElement>>('saveConflictCancel');
   private readonly saveConflictOverwrite = viewChild<
@@ -673,12 +687,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private saveConflictReturnFocus: HTMLElement | null = null;
 
   /**
-   * Move focus to Cancel when the conflict dialog opens: it is the
-   * non-destructive choice, and without this the dialog would open with focus
-   * still inside the editor that raised it.
+   * Promote the conflict dialog into the top layer, then move focus to Cancel:
+   * it is the non-destructive choice, and without this the dialog would open
+   * with focus still inside the editor that raised it.
    */
   private readonly _saveConflictFocus = effect(() => {
     if (!this.saveConflict()) return;
+    const dialog = this.saveConflictDialog()?.nativeElement;
+    if (dialog && !dialog.open) dialog.showModal();
     this.saveConflictCancel()?.nativeElement.focus();
   });
 
@@ -911,10 +927,29 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   /** Close the dialog and return focus to whatever raised it. */
   private closeSaveConflict(): void {
+    // Leave the top layer before `@if` unmounts the node: an element removed
+    // while still `open` skips its close steps. The focus restore stays last —
+    // close() hands focus back to whatever showModal() remembered, which is not
+    // necessarily the pane that raised this.
+    const dialog = this.saveConflictDialog()?.nativeElement;
+    if (dialog?.open) dialog.close();
     this.saveConflict.set(null);
     const target = this.saveConflictReturnFocus;
     this.saveConflictReturnFocus = null;
     if (target?.isConnected) target.focus();
+  }
+
+  /**
+   * Escape as the browser's own close request.
+   *
+   * `_panelKeydown` already maps Escape to Cancel, but `showModal()` adds a
+   * second route that does not pass through a keydown listener at all. Left to
+   * the UA it would close the element with `saveConflict` still set and focus
+   * unrestored. Routed here it is the same Cancel as the button.
+   */
+  protected onSaveConflictCancel(event: Event): void {
+    event.preventDefault();
+    this.cancelSaveConflict();
   }
 
   private async persistSave(filePath: string, content: string): Promise<void> {

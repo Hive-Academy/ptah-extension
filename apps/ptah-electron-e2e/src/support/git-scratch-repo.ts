@@ -73,6 +73,19 @@ export function createScratchRepo(): ScratchRepo {
 
   git('init');
 
+  // Persist the line-ending rule into the repo, because `-c` only reaches the
+  // processes THIS file spawns. The app spawns its own — `GitInfoService`
+  // shells out to `git apply -R -` for a hunk revert — and those inherit the
+  // machine's global config instead. On a Windows box with the common
+  // `core.autocrlf=true`, that one write converts the whole file to CRLF while
+  // `write()` above put LF on disk and `worktreeDiff()` reads back under
+  // `autocrlf=false`: every line reads as changed and three hunks collapse
+  // into one 120-line hunk. The bug is not in the revert, which restores
+  // exactly the right text; it is that only half the processes touching this
+  // repo were hearing the setting. Writing it to `.git/config` is what makes
+  // the promise in the comment above true for the app as well as the spec.
+  git('config', 'core.autocrlf', 'false');
+
   return {
     root,
     git,
