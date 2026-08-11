@@ -122,6 +122,44 @@ part 2 is needed.
 - Add a regression test asserting the container clips, so the next time someone
   positions a child here the guard is already in place.
 
+## Outcome — 2026-08-11: symptom resolved, cause NOT attributed
+
+The user re-tested from a clean `electron:serve` and both symptoms are gone. The
+carrier is closed on that, but **the fix is not attributed and the root cause
+above is not supported by measurement.** Recorded so nobody reads this record as
+confirmed.
+
+What was committed (`7c9d65587`): `overflow-hidden isolate` on the editor content
+region plus a mutation-checked unit guard. Filed as latent-hazard hardening.
+
+Why it is not credited as the fix — measured in a real Electron window on a build
+with the clip **reverted**, terminal open, no diff:
+
+- the terminal panel moved 200 px to 290 px on a 90 px drag;
+- `document.elementFromPoint` at the separator's own centre returned the
+  separator, not a Monaco node;
+- the clamp resolved to 417 px against a 695 px host, nowhere near binding.
+
+So the unfixed build measured as working. Two Electron guards written to prove
+the clip mattered both passed with it reverted and were deleted rather than kept
+as false coverage.
+
+Three candidates remain, undistinguished:
+
+1. a stale renderer — `copy-renderer` pins chunk hashes unless `watch-renderer`
+   runs, which the root CLAUDE.md calls out explicitly;
+2. the clip;
+3. other work that landed on the branch in the same window (`db9807897`,
+   `1066d07fa`, in-flight `chat` / `workspace-intelligence` changes).
+
+**The "Root cause" section above should be treated as disproven, not proven.** It
+blames the diff overlay; the user reproduced the fault with no diff open, and the
+overlay does not win the hit test either way. Anyone reopening this should start
+from the measurements here, not from that analysis.
+
+Part 2 of the proposed fix (diff-editor `automaticLayout` parity) was NOT done and
+is not justified by any current evidence.
+
 ## Relationship to TASK_2026_187
 
 None causally. Surfaced during that task's Batch 1 manual gate, and Batch 1 was
