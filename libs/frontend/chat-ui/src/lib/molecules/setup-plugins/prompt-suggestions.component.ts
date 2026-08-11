@@ -121,7 +121,7 @@ interface PromptItem {
               }}</span>
               @if (prompt.description) {
                 <span
-                  class="block text-[10px] text-base-content/40 mt-0.5 group-hover:text-primary/50"
+                  class="block text-[10px] text-base-content-muted mt-0.5 group-hover:text-primary/50"
                 >
                   {{ prompt.description }}
                 </span>

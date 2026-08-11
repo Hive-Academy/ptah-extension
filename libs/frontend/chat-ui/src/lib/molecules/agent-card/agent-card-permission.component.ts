@@ -23,7 +23,7 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
     >
       <div class="flex items-center gap-2 mb-1.5">
         <span class="badge badge-sm badge-warning">Permission</span>
-        <span class="text-[10px] text-base-content/60">
+        <span class="text-[10px] text-base-content-muted">
           {{ permission().description }}
         </span>
       </div>
@@ -35,7 +35,7 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
         </code>
         @if (permission().toolArgs) {
           <span
-            class="text-[10px] text-base-content/40 font-mono truncate max-w-[200px]"
+            class="text-[10px] text-base-content-muted font-mono truncate max-w-[200px]"
           >
             {{ permission().toolArgs }}
           </span>

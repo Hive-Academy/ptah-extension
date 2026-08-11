@@ -52,7 +52,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
             [class.text-warning]="autopilotState.enabled()"
           />
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+            class="text-xs font-semibold text-base-content-muted uppercase tracking-wide"
           >
             Autopilot Mode
           </span>
@@ -81,7 +81,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
                 >
                   <div class="flex flex-col flex-1 min-w-0">
                     <span class="font-medium text-xs">{{ level.name }}</span>
-                    <span class="text-[11px] text-base-content/50">{{
+                    <span class="text-[11px] text-base-content-muted">{{
                       level.description
                     }}</span>
                   </div>
@@ -135,13 +135,13 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
           } @else {
             <!-- Active State -->
             <div class="px-2 py-1 mb-2">
-              <p class="text-xs text-base-content/70">
+              <p class="text-xs text-base-content-muted">
                 Current mode:
                 <span class="font-medium">{{
                   autopilotState.statusText()
                 }}</span>
               </p>
-              <p class="text-[11px] text-base-content/50 mt-1">
+              <p class="text-[11px] text-base-content-muted mt-1">
                 Claude is automatically approving actions based on your
                 permission level.
               </p>

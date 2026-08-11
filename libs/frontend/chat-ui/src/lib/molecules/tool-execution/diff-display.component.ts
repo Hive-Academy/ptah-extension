@@ -33,7 +33,7 @@ import type { EditToolInput } from '@ptah-extension/shared';
     <div class="mt-1.5">
       <!-- Header with file path and replacement count -->
       <div
-        class="flex items-center gap-2 text-[10px] text-base-content/60 mb-1"
+        class="flex items-center gap-2 text-[10px] text-base-content-muted mb-1"
       >
         <lucide-angular [img]="FileEditIcon" class="w-3 h-3" />
         <ptah-file-path-link [fullPath]="filePath()" />

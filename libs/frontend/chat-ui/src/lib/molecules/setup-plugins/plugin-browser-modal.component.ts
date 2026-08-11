@@ -104,7 +104,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
             </div>
             <div>
               <span class="block font-bold text-lg">Configure Ptah Skills</span>
-              <span class="block text-sm text-base-content/60">
+              <span class="block text-sm text-base-content-muted">
                 Select plugins to enhance your AI sessions
               </span>
             </div>
@@ -127,7 +127,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
                 class="loading loading-spinner loading-md text-primary"
               ></span>
             </div>
-            <span class="block text-sm text-base-content/60 text-center">
+            <span class="block text-sm text-base-content-muted text-center">
               Loading available plugins...
             </span>
           </div>
@@ -148,7 +148,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
           <div class="relative mb-4">
             <lucide-angular
               [img]="SearchIcon"
-              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40"
+              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content-muted"
               aria-hidden="true"
             />
             <input
@@ -171,7 +171,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
               <div>
                 <!-- Category header -->
                 <span
-                  class="block text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+                  class="block text-xs font-semibold uppercase tracking-wider text-base-content-muted mb-2"
                 >
                   {{ group.label }}
                 </span>
@@ -231,7 +231,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
                             }
                           </div>
                           <span
-                            class="block text-xs text-base-content/60 mt-0.5 leading-relaxed"
+                            class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
                           >
                             {{ plugin.description }}
                           </span>
@@ -333,7 +333,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
                                   >{{ skill.displayName }}</span
                                 >
                                 <span
-                                  class="text-xs text-base-content/50 truncate"
+                                  class="text-xs text-base-content-muted truncate"
                                   >{{ skill.description }}</span
                                 >
                               </label>
@@ -346,7 +346,7 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
                 </div>
               </div>
             } @empty {
-              <div class="text-center py-6 text-base-content/50">
+              <div class="text-center py-6 text-base-content-muted">
                 <span class="block text-sm">
                   @if (searchQuery()) {
                     No plugins match your search.
@@ -360,11 +360,11 @@ function isHarnessPlugin(plugin: PluginInfo): boolean {
 
           <!-- Footer -->
           <div class="modal-action mt-4 pt-3 border-t border-base-300">
-            <span class="text-xs text-base-content/50 flex-1">
+            <span class="text-xs text-base-content-muted flex-1">
               {{ selectedIds().size }} of
               {{ availablePlugins().length }} selected
               @if (disabledSkillIds().size > 0) {
-                <span class="text-base-content/40">
+                <span class="text-base-content-muted">
                   &middot; {{ disabledSkillIds().size }} skill{{
                     disabledSkillIds().size !== 1 ? 's' : ''
                   }}

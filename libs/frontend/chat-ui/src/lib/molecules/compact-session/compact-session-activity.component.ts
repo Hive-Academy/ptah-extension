@@ -223,12 +223,12 @@ type FeedEntry =
                     class="w-2 h-2 rounded-full flex-shrink-0"
                     [style.background-color]="getAgentColor(entry.agentType)"
                   ></span>
-                  <span class="font-semibold text-base-content/80 text-xs">{{
+                  <span class="font-semibold text-base-content-muted text-xs">{{
                     entry.name
                   }}</span>
                   @if (entry.description) {
                     <span
-                      class="truncate text-base-content/40 text-[10px]"
+                      class="truncate text-base-content-muted text-[10px]"
                       [title]="entry.description"
                     >
                       — {{ entry.description }}
@@ -236,7 +236,7 @@ type FeedEntry =
                   }
                   @if (entry.toolCount) {
                     <span
-                      class="ml-auto text-[9px] font-mono text-base-content/30 flex-shrink-0"
+                      class="ml-auto text-[9px] font-mono text-base-content-muted flex-shrink-0"
                     >
                       {{ entry.toolCount }} tool{{
                         entry.toolCount !== 1 ? 's' : ''
@@ -246,14 +246,14 @@ type FeedEntry =
                 </div>
                 @if (entry.textContent) {
                   <div
-                    class="text-xs text-base-content/60 leading-relaxed line-clamp-6 pl-5 compact-markdown"
+                    class="text-xs text-base-content-muted leading-relaxed line-clamp-6 pl-5 compact-markdown"
                   >
                     <markdown [data]="entry.textContent" />
                   </div>
                 }
                 @if (entry.cost || entry.duration || entry.tokenUsage) {
                   <div
-                    class="flex items-center gap-1.5 pl-5 text-[9px] font-mono text-base-content/30"
+                    class="flex items-center gap-1.5 pl-5 text-[9px] font-mono text-base-content-muted"
                   >
                     @if (entry.tokenUsage) {
                       <span
@@ -290,7 +290,7 @@ type FeedEntry =
                   }
                   <button
                     type="button"
-                    class="flex items-center gap-1.5 py-0.5 text-[10px] font-mono text-base-content/40 hover:text-base-content/70 transition-colors cursor-pointer"
+                    class="flex items-center gap-1.5 py-0.5 text-[10px] font-mono text-base-content-muted hover:text-base-content transition-colors cursor-pointer"
                     (click)="toggleToolGroup($index)"
                   >
                     <lucide-angular
@@ -363,11 +363,11 @@ type FeedEntry =
             @case ('text') {
               <div class="group relative py-1.5">
                 <div
-                  class="text-xs text-base-content/70 leading-relaxed compact-markdown"
+                  class="text-xs text-base-content-muted leading-relaxed compact-markdown"
                 >
                   <markdown [data]="entry.textContent" />
                   @if (entry.isStreaming && isSessionStreaming()) {
-                    <ptah-typing-cursor colorClass="text-base-content/40" />
+                    <ptah-typing-cursor colorClass="text-base-content-muted" />
                   }
                 </div>
                 <button
@@ -404,7 +404,7 @@ type FeedEntry =
         }
       } @else {
         <div
-          class="flex-1 flex items-center justify-center text-xs text-base-content/25 italic"
+          class="flex-1 flex items-center justify-center text-xs text-base-content-muted italic"
         >
           Waiting for activity...
         </div>

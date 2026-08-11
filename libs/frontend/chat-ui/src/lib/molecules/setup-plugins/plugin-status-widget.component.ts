@@ -102,11 +102,11 @@ function countEnabledPlugins(
             <div>
               <h4 class="text-xs font-medium leading-tight">Plugins</h4>
               @if (pluginCount() > 0) {
-                <p class="text-[10px] text-base-content/60 leading-tight">
+                <p class="text-[10px] text-base-content-muted leading-tight">
                   {{ pluginCount() }}/{{ totalAvailable() }} enabled
                 </p>
               } @else {
-                <p class="text-[10px] text-base-content/60 leading-tight">
+                <p class="text-[10px] text-base-content-muted leading-tight">
                   Not configured
                 </p>
               }

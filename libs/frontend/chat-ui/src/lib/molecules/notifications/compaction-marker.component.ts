@@ -15,10 +15,10 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
   template: `
     <!-- Compact inline chip -->
     <div
-      class="inline-flex items-center gap-1.5 my-2 px-2 py-0.5 rounded-full border border-base-300 bg-base-200/40 text-xs text-base-content/70 max-w-full"
+      class="inline-flex items-center gap-1.5 my-2 px-2 py-0.5 rounded-full border border-base-300 bg-base-200/40 text-xs text-base-content-muted max-w-full"
     >
       <lucide-angular [img]="ArchiveIcon" class="w-3 h-3 flex-shrink-0" />
-      <span class="font-medium text-base-content/90">Context compacted</span>
+      <span class="font-medium text-base-content-muted">Context compacted</span>
       @if (tokenLine(); as line) {
         <span class="opacity-60 truncate">· {{ line }}</span>
       }
@@ -61,7 +61,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
           </div>
 
           @if (tokenLine(); as line) {
-            <p class="text-xs text-base-content/60 mb-3">{{ line }}</p>
+            <p class="text-xs text-base-content-muted mb-3">{{ line }}</p>
           }
 
           <div class="flex-1 overflow-y-auto text-sm pr-1">

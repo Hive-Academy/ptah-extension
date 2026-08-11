@@ -22,7 +22,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
     @if (displayText()) {
       <div class="px-3 py-1.5 border-b border-base-content/10">
         <p
-          class="text-xs text-base-content/60 italic line-clamp-2 leading-relaxed"
+          class="text-xs text-base-content-muted italic line-clamp-2 leading-relaxed"
         >
           " {{ displayText() }} "
         </p>

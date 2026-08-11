@@ -26,7 +26,7 @@ describe('ToolIconComponent', () => {
       ['Grep', 'text-secondary'],
       ['Edit', 'text-accent'],
       ['Glob', 'text-info'],
-      ['Unknown', 'text-base-content/60'],
+      ['Unknown', 'text-base-content-muted'],
     ];
     for (const [tool, klass] of cases) {
       const fixture = render(tool);

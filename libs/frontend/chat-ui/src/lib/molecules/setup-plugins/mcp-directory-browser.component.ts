@@ -83,7 +83,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
         <div class="relative">
           <lucide-angular
             [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40"
+            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
             aria-hidden="true"
           />
           <input
@@ -123,12 +123,12 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
             }
           } @else {
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               {{ searchQuery() ? 'Search Results' : 'Popular Servers' }}
             </div>
             @if (displayServers().length === 0) {
-              <div class="text-xs text-base-content/50 text-center py-4">
+              <div class="text-xs text-base-content-muted text-center py-4">
                 {{
                   searchQuery()
                     ? 'No servers found for "' + searchQuery() + '"'
@@ -168,13 +168,13 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
                         }
                       </div>
                       <p
-                        class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                        class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
                       >
                         {{ server.description || 'No description available' }}
                       </p>
                       @if (server.repository?.id) {
                         <span
-                          class="text-[10px] text-base-content/40 font-mono"
+                          class="text-[10px] text-base-content-muted font-mono"
                           >{{ server.repository?.id }}</span
                         >
                       }
@@ -214,7 +214,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
                         } @else if (suggestedConfig()) {
                           <!-- Config Preview -->
                           <div
-                            class="text-[10px] text-base-content/50 uppercase tracking-wide font-medium"
+                            class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
                           >
                             Configuration
                           </div>
@@ -229,7 +229,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
 
                           <!-- Target Selection -->
                           <div
-                            class="text-[10px] text-base-content/50 uppercase tracking-wide font-medium"
+                            class="text-[10px] text-base-content-muted uppercase tracking-wide font-medium"
                           >
                             Install to
                           </div>
@@ -277,7 +277,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
                           </button>
                         } @else {
                           <div
-                            class="text-xs text-base-content/50 text-center py-2"
+                            class="text-xs text-base-content-muted text-center py-2"
                           >
                             Could not auto-detect configuration for this server.
                           </div>
@@ -299,7 +299,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
             <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
           }
         } @else if (installedGroups().length === 0) {
-          <div class="text-xs text-base-content/50 text-center py-6">
+          <div class="text-xs text-base-content-muted text-center py-6">
             <p class="mb-1">No MCP servers installed yet</p>
             <button
               class="btn btn-ghost btn-xs"
@@ -329,7 +329,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
                       group.servers[0].config.type
                     }}</span>
                     @if (group.servers[0].managedByPtah) {
-                      <span class="text-[9px] text-base-content/40"
+                      <span class="text-[9px] text-base-content-muted"
                         >managed by Ptah</span
                       >
                     }
@@ -355,7 +355,7 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
       }
 
       <!-- MCP Registry attribution -->
-      <div class="text-[10px] text-base-content/30 text-center pt-1">
+      <div class="text-[10px] text-base-content-muted text-center pt-1">
         Powered by the
         <a
           href="https://registry.modelcontextprotocol.io"

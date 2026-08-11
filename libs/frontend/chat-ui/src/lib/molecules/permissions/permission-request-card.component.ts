@@ -68,7 +68,7 @@ import {
         />
 
         <!-- Title -->
-        <span class="font-semibold text-base-content/80">Permission</span>
+        <span class="font-semibold text-base-content-muted">Permission</span>
 
         <!-- Tool badge with icon - Use DaisyUI badge classes for theme consistency -->
         <span
@@ -82,7 +82,7 @@ import {
 
         <!-- Description inline - compact -->
         <span
-          class="text-base-content/60 truncate flex-1 font-mono text-[10px]"
+          class="text-base-content-muted truncate flex-1 font-mono text-[10px]"
           [title]="getFormattedDescriptionPlain()"
         >
           {{ getFormattedDescriptionPlain() }}
