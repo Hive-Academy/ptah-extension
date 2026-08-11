@@ -1,8 +1,68 @@
 import crossSpawn from 'cross-spawn';
 import { spawn } from 'child_process';
+import which from 'which';
 
 export const DEFAULT_GIT_TIMEOUT_MS = 10_000;
 export const WORKTREE_GIT_TIMEOUT_MS = 300_000;
+
+/**
+ * Absolute path to the `git` executable, resolved at most once per process.
+ *
+ * `undefined` — not resolved yet. `null` — resolution ran and found nothing.
+ * The two are distinct so a failed lookup is not retried on every call, which
+ * would reintroduce exactly the cost this cache exists to remove.
+ */
+let resolvedGitBinary: string | null | undefined;
+
+/**
+ * The command handed to {@link crossSpawn} for every git invocation.
+ *
+ * Passing the bare name `'git'` makes cross-spawn re-resolve it through
+ * `which.sync` on EVERY spawn — a synchronous walk of each PATH entry against
+ * each PATHEXT, run on the Electron main thread. Handing it an already
+ * resolved absolute path collapses that walk to a single stat.
+ *
+ * The win is in SYNCHRONOUS main-thread time, which is the part that stalls
+ * the event loop. Interleaved A/B on Windows (40 spawns per arm, 3 runs) put
+ * the mean synchronous cost of one spawn at 89.6/80.5/108.4 ms for the bare
+ * name against 46.9/42.0/81.0 ms for the absolute path — roughly 30-40 ms
+ * saved per spawn. Medians are noisier than means here; one run of three had
+ * a slightly worse median, so treat this as a consistent modest reduction and
+ * not a step change.
+ *
+ * It is NOT a fix for the multi-second latency on the first diff after launch.
+ * That is dominated by the editor fanning out ~10 concurrent git subprocesses
+ * at renderer startup, which inflates each process's own run time by an order
+ * of magnitude; bounding that concurrency is a separate, unmade change.
+ *
+ * An absolute path also pins cross-spawn to its fast path: `parseNonShell`
+ * only rewrites the invocation to `cmd.exe /d /s /c` when resolution FAILS, so
+ * a resolved `git.exe` can never silently degrade into a shell hop.
+ *
+ * When git is genuinely absent the bare name is returned unchanged, so the
+ * caller still gets cross-spawn's usual ENOENT rather than a novel error from
+ * this helper.
+ */
+function gitCommand(): string {
+  if (resolvedGitBinary === undefined) {
+    try {
+      resolvedGitBinary = which.sync('git', { nothrow: true });
+    } catch {
+      // `nothrow` covers "not found"; this guards a PATH that cannot be read
+      // at all. Either way the bare name is the correct fallback.
+      resolvedGitBinary = null;
+    }
+  }
+  return resolvedGitBinary ?? 'git';
+}
+
+/**
+ * Drop the memoized git path. Exists for tests, which need to observe
+ * resolution happening exactly once across calls.
+ */
+export function resetResolvedGitBinaryForTests(): void {
+  resolvedGitBinary = undefined;
+}
 
 /**
  * Environment forced on every git invocation.
@@ -85,7 +145,7 @@ export function execGitBuffer(
 ): Promise<ExecGitBufferResult> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
-    const child = crossSpawn('git', args, {
+    const child = crossSpawn(gitCommand(), args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...GIT_DETERMINISTIC_ENV, ...options?.env },

@@ -29,7 +29,19 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockSpawn(...args),
 }));
 
-import { execGit, execGitBuffer } from './exec-git';
+// `which` is mocked too: exec-git resolves the git binary through it, and the
+// suite must not depend on a git installation being present or on where it is.
+const mockWhichSync = jest.fn();
+jest.mock('which', () => ({
+  __esModule: true,
+  default: { sync: (...args: unknown[]) => mockWhichSync(...args) },
+}));
+
+import {
+  execGit,
+  execGitBuffer,
+  resetResolvedGitBinaryForTests,
+} from './exec-git';
 
 // ---------------------------------------------------------------------------
 // Fake child process. Emits the supplied stdout/stderr chunks then closes.
@@ -90,6 +102,17 @@ function makeFakeChild(opts: {
 }
 
 const WS = '/fake/workspace';
+
+/** What the mocked `which` resolves `git` to unless a test says otherwise. */
+const GIT_ABS = '/usr/bin/git';
+
+beforeEach(() => {
+  resetResolvedGitBinaryForTests();
+  // Full reset (not clear): several specs install a throwing or null-returning
+  // implementation, and it must not leak into the next spec's default.
+  mockWhichSync.mockReset();
+  mockWhichSync.mockReturnValue(GIT_ABS);
+});
 
 describe('execGit', () => {
   beforeEach(() => {
@@ -277,5 +300,66 @@ describe('execGitBuffer', () => {
     const result = await execGitBuffer(['show', 'HEAD:x.ts'], WS);
 
     expect(result.stdout.byteLength).toBe(6);
+  });
+});
+
+// ===========================================================================
+// Git binary resolution — follow-up to TASK_2026_230.
+//
+// Passing the bare name `git` makes cross-spawn re-run `which.sync` on every
+// spawn, synchronously, on the Electron main thread. Resolving once and
+// spawning the absolute path cut the mean synchronous cost of a spawn from
+// ~80-108 ms to ~42-81 ms in an interleaved A/B on Windows. These specs pin
+// the resolution to once per process; without them the memo can be dropped
+// (or the bare name reinstated) with no test noticing.
+// ===========================================================================
+describe('git binary resolution', () => {
+  beforeEach(() => {
+    // Call counts, not just implementations: these specs assert on
+    // `mock.calls[0]`, which would otherwise be a previous spec's spawn.
+    jest.clearAllMocks();
+    mockSpawn.mockImplementation(() => makeFakeChild({}));
+  });
+
+  it('resolves the git binary once and reuses it across calls', async () => {
+    await execGit(['status'], WS);
+    await execGit(['rev-parse', '--is-inside-work-tree'], WS);
+    await execGitBuffer(['show', 'HEAD:a.ts'], WS);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(3);
+    expect(mockWhichSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('spawns the resolved absolute path rather than the bare name', async () => {
+    await execGit(['status'], WS);
+
+    expect(mockSpawn.mock.calls[0][0]).toBe(GIT_ABS);
+  });
+
+  it('falls back to the bare name when git is not on PATH', async () => {
+    mockWhichSync.mockReturnValue(null);
+
+    await execGit(['status'], WS);
+
+    expect(mockSpawn.mock.calls[0][0]).toBe('git');
+  });
+
+  it('does not retry resolution after a failed lookup', async () => {
+    mockWhichSync.mockReturnValue(null);
+
+    await execGit(['status'], WS);
+    await execGit(['status'], WS);
+
+    expect(mockWhichSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the bare name when PATH cannot be read at all', async () => {
+    mockWhichSync.mockImplementation(() => {
+      throw new Error('EACCES');
+    });
+
+    await execGit(['status'], WS);
+
+    expect(mockSpawn.mock.calls[0][0]).toBe('git');
   });
 });
