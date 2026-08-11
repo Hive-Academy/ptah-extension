@@ -101,7 +101,7 @@ import { isValidEmail } from './utils/auth-validation.utils';
               <h2 class="text-2xl font-bold text-base-content">
                 Account Created Successfully!
               </h2>
-              <div class="flex flex-col gap-3 text-base-content/70">
+              <div class="flex flex-col gap-3 text-base-content-muted">
                 <p>
                   You're in — the <strong>Ptah extension</strong> is free and
                   open source and already works fully in VS Code. There's
@@ -113,7 +113,7 @@ import { isValidEmail } from './utils/auth-validation.utils';
                   emailed you an account key that looks like:
                 </p>
                 <code
-                  class="bg-base-200 px-4 py-2 rounded-lg text-sm font-mono text-base-content/80"
+                  class="bg-base-200 px-4 py-2 rounded-lg text-sm font-mono text-base-content-muted"
                 >
                   ptah_lic_...
                 </code>
@@ -122,11 +122,11 @@ import { isValidEmail } from './utils/auth-validation.utils';
                   Ptah Builders, that same key is what marks your membership.
                 </p>
               </div>
-              <div class="divider text-xs text-base-content/40">
+              <div class="divider text-xs text-base-content-muted">
                 What's next?
               </div>
               <ol
-                class="text-left text-sm text-base-content/70 space-y-2 w-full max-w-xs"
+                class="text-left text-sm text-base-content-muted space-y-2 w-full max-w-xs"
               >
                 <li class="flex gap-2">
                   <span
@@ -157,7 +157,7 @@ import { isValidEmail } from './utils/auth-validation.utils';
               </ol>
               <a
                 routerLink="/profile"
-                class="btn btn-ghost btn-sm text-base-content/60 mt-4"
+                class="btn btn-ghost btn-sm text-base-content-muted mt-4"
               >
                 Or continue to your profile →
               </a>
