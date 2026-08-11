@@ -63,11 +63,16 @@ export default [
       // pre-commit hook runs `nx affected --target=lint` across the WHOLE
       // workspace, so anyone else committing during that window inherits
       // thousands of errors from a file that is about to be deleted and that
-      // is none of their business. Their finished commit dies for it. These
-      // two patterns close that window; neither is ever a committed source
-      // file.
+      // is none of their business. Their finished commit dies for it.
+      //
+      // The scratch pattern is anchored to an explicit `tmp-scratch-` marker
+      // rather than a bare `tmp-` prefix. `tmp-` is a plausible name for real
+      // code and it already collided: it silently un-linted the tracked
+      // apps/ptah-cli/tests/e2e/_harness/tmp-home.ts, whose containment check
+      // is exactly the kind of logic that must stay under lint. Name a scratch
+      // harness `tmp-scratch-*` and it is ignored; anything else is source.
       '**/*.bak',
-      '**/tmp-*.{mjs,cjs,js,jsx,ts,tsx}',
+      '**/tmp-scratch-*.{mjs,cjs,js,jsx,ts,tsx}',
     ],
   },
   {

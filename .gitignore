@@ -194,3 +194,12 @@ skills-lock.json
 apps/coverage/**
 
 libs/frontend/webview-e2e-harness/test-results/**
+
+# Developer scratch, matching the eslint `ignores` in eslint.config.mjs.
+# Mutation-testing a fix copies a source file to `.bak`, stubs it out, runs the
+# spec and restores it; scratch render/bundle harnesses land beside the code
+# they drive. Ignoring them here makes "never a committed source file"
+# structural rather than a convention someone has to remember — the eslint half
+# alone once silently un-linted a tracked file that merely started with `tmp-`.
+*.bak
+tmp-scratch-*
