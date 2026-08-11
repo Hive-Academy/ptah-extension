@@ -31,6 +31,33 @@ import { test, expect } from '../../support/fixtures';
  *      modified editor's rendered `.view-line` count first stabilizes across
  *      two animation frames.
  *
+ * TASK_2026_231 — why this spec used to fail before the click ever mattered.
+ *
+ * The mocked `git:diffFile` payload had drifted from `GitDiffFileResult`: it
+ * was written before the hunk work added `patch` and `hunks`, and never gained
+ * them. Both are REQUIRED fields, so a real backend always sends them and only
+ * a mock can leave them out. `DiffViewComponent.hunkActionsAvailable`
+ * (`diff-view.component.ts:961`) reads `d.hunks.length` unguarded, so the
+ * missing array threw `TypeError: Cannot read properties of undefined
+ * (reading 'length')` inside change detection. That aborts the render pass:
+ * the diff tab was added to `openTabs` but its tab button never reached the
+ * DOM, and the spec then waited out its 30s budget on
+ * `[aria-label="Switch to big-file.ts (working tree)"]`.
+ *
+ * Diagnosed by sampling the tab strip across the click — it never showed the
+ * diff tab at any point, so nothing was removing it — and by capturing the
+ * renderer console, which carried the TypeError. This was spec drift, not an
+ * app defect: the app was fed a payload its own contract forbids.
+ *
+ * Two consequences worth knowing. It was intermittent, not constant, because
+ * `hunkActionsAvailable` short-circuits on several earlier conditions and only
+ * reaches `.length` on some interleavings — which is why running this spec
+ * after its neighbours could hide it. And now that the payload carries a real
+ * hunk, the diff surface under measurement includes the hunk affordances
+ * (glyph markers, toolbar) that ship today, so the numbers below are NOT
+ * comparable with the figure recorded in `measurements.md` against the
+ * hunkless payload.
+ *
  * Timing mechanism: a `MutationObserver` on `document.body` (the diff view's
  * host does not exist until the click resolves, so it cannot be the observer
  * target at setup time) drives an eager recheck; a self-scheduling
@@ -55,11 +82,73 @@ function makeContent(changedLine: number, changedValue: string): string {
   return lines.join('\n') + '\n';
 }
 
-const ORIGINAL_CONTENT = makeContent(250, 'export const line250 = -1; // HEAD');
+const CHANGED_LINE = 250;
+const ORIGINAL_CONTENT = makeContent(
+  CHANGED_LINE,
+  'export const line250 = -1; // HEAD',
+);
 const MODIFIED_CONTENT = makeContent(
-  250,
+  CHANGED_LINE,
   'export const line250 = 250; // worktree',
 );
+
+/** Unified-diff context lines either side of a change, as git emits by default. */
+const DIFF_CONTEXT = 3;
+
+/**
+ * The `patch` / `hunks` pair for the one-line change above (TASK_2026_231).
+ *
+ * Derived from the same two content strings the mock serves rather than
+ * hard-coded, so the patch cannot drift away from the text it describes the
+ * way the mock as a whole drifted away from `GitDiffFileResult`.
+ */
+function singleLineChangeDiff(): {
+  patch: string;
+  hunks: {
+    index: number;
+    originalStart: number;
+    originalLines: number;
+    modifiedStart: number;
+    modifiedLines: number;
+    header: string;
+  }[];
+} {
+  const original = ORIGINAL_CONTENT.split('\n');
+  const modified = MODIFIED_CONTENT.split('\n');
+  const start = CHANGED_LINE - DIFF_CONTEXT;
+  const span = DIFF_CONTEXT * 2 + 1;
+  const header = `@@ -${start},${span} +${start},${span} @@`;
+
+  const body: string[] = [];
+  for (let i = start; i < CHANGED_LINE; i++) body.push(` ${original[i - 1]}`);
+  body.push(`-${original[CHANGED_LINE - 1]}`);
+  body.push(`+${modified[CHANGED_LINE - 1]}`);
+  for (let i = CHANGED_LINE + 1; i < start + span; i++) {
+    body.push(` ${original[i - 1]}`);
+  }
+
+  return {
+    patch:
+      [
+        'diff --git a/src/big-file.ts b/src/big-file.ts',
+        'index 1111111..2222222 100644',
+        '--- a/src/big-file.ts',
+        '+++ b/src/big-file.ts',
+        header,
+        ...body,
+      ].join('\n') + '\n',
+    hunks: [
+      {
+        index: 0,
+        originalStart: start,
+        originalLines: span,
+        modifiedStart: start,
+        modifiedLines: span,
+        header,
+      },
+    ],
+  };
+}
 
 function fileTree(): { tree: unknown[] } {
   return {
@@ -98,6 +187,9 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
         modified: { outcome: 'content', content: MODIFIED_CONTENT },
         originalRef: { kind: 'index' },
         modifiedRef: { kind: 'worktree' },
+        // `patch` and `hunks` are REQUIRED by `GitDiffFileResult` and were
+        // missing here — see the TASK_2026_231 note in the file header.
+        ...singleLineChangeDiff(),
         snapshotToken: 'm1-harness-token',
       },
     });

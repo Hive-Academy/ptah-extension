@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_231
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   perf-m1-diff-redisplay spec fails waiting for a diff tab that never opens
