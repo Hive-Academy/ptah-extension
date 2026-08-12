@@ -146,14 +146,28 @@ export {
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
+  getAllAnthropicProviders,
   getProviderBaseUrl,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
+  setCustomProviderEntries,
+  clearCustomProviderEntries,
+  getCustomProviderEntries,
+  getCustomProviderEntry,
+  isCustomProviderId,
+  customEntryToAnthropicProvider,
+  CustomProviderEntrySchema,
+  CustomProviderEntriesSchema,
+  CUSTOM_PROVIDER_LANES,
 } from '@ptah-extension/shared';
 export type {
   AnthropicProvider,
   AnthropicProviderId,
   ProviderStaticModel,
+  CustomProviderEntry,
+  CustomProviderLane,
+  CustomProviderPricing,
+  SetCustomProviderEntriesResult,
 } from '@ptah-extension/shared';
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 export {
