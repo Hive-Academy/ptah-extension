@@ -185,6 +185,21 @@ export class ChatStreamController {
   }
 
   dispose(): void {
+    // Ctrl+S or Ctrl+T mid-turn unmounts the panel and disposes this
+    // controller. Detaching the listeners alone left the *backend* turn
+    // running: the footer dropped "esc interrupt" along with the panel, so the
+    // turn kept generating and billing with nothing left that could stop it.
+    // Fire-and-forget on purpose — dispose is sync, and a React cleanup that
+    // awaited a round trip would hold the unmount open.
+    if (this.isStreaming) {
+      void this.abortInFlightTurn();
+      this.isStreaming = false;
+      this.streamingMessageId = null;
+      this.inFlight = false;
+      // No `finalizeStreaming()` here: it ends in `emit()`, and emitting into
+      // a component that is already unmounting is a state update on a dead
+      // tree. The listeners come off two lines below regardless.
+    }
     this.pushAdapter.off('chat:chunk', this.onChunk);
     this.pushAdapter.off('chat:complete', this.onComplete);
     this.pushAdapter.off('chat:error', this.onError);
@@ -253,13 +268,18 @@ export class ChatStreamController {
   }
 
   async stop(): Promise<void> {
+    await this.abortInFlightTurn();
+    this.finalizeStreaming();
+  }
+
+  /** The abort round trip alone, so `dispose` can issue it without emitting. */
+  private async abortInFlightTurn(): Promise<void> {
     const abortId = this.sessionId ?? this.tabId;
     try {
       await this.transport.call('chat:abort', { sessionId: abortId });
     } catch {
       // best effort — backend may have already stopped
     }
-    this.finalizeStreaming();
   }
 
   addSystemMessage(text: string): void {

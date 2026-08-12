@@ -1,6 +1,7 @@
 import {
   KEYMAP,
   MAX_FOOTER_HINTS,
+  findControlCodeAliases,
   findDuplicateIds,
   findKeymapConflicts,
   getFooterHints,
@@ -17,6 +18,31 @@ describe('keymap registry', () => {
 
   it('has no duplicate binding ids', () => {
     expect(findDuplicateIds()).toEqual([]);
+  });
+
+  it('claims no chord the terminal reports as a different key', () => {
+    // `agent.model` was Ctrl+M for as long as it existed. Ctrl+M is carriage
+    // return, so Ink delivered `{name:'return'}` and the model selector could
+    // never open — pressing the advertised chord sent the message instead.
+    expect(findControlCodeAliases()).toEqual([]);
+  });
+
+  it('detects an aliased chord when one is introduced', () => {
+    const aliased: KeyBinding[] = [
+      {
+        id: 'a',
+        keys: 'Ctrl+M',
+        hint: '^M',
+        description: 'a',
+        scope: 'global',
+        group: 'app',
+      },
+    ];
+    expect(findControlCodeAliases(aliased)).toEqual([
+      { keys: 'Ctrl+M', id: 'a', aliasOf: 'Enter (carriage return)' },
+    ]);
+    // The chord-string check cannot see it — that is why this one exists.
+    expect(findKeymapConflicts(aliased)).toEqual([]);
   });
 
   it('detects a conflict when one is introduced', () => {

@@ -18,6 +18,10 @@ import {
   useSessionContext,
 } from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';
+import {
+  EscapeClaimProvider,
+  useEscapeClaimed,
+} from '../context/EscapeClaimContext.js';
 import { FocusProvider } from '../hooks/use-focus-manager.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
 import { Layout } from './layout/Layout.js';
@@ -71,6 +75,7 @@ function AppShell({
   const { exit } = useApp();
   const { setActiveSession } = useSessionContext();
   const agentConfig = useAgentConfig();
+  const escapeClaimed = useEscapeClaimed();
 
   const [activeView, setActiveView] = useState<ActiveView>(() =>
     resolveInitialView(authReady),
@@ -239,7 +244,9 @@ function AppShell({
         ]);
       }
 
-      if (key.ctrl && input === 'm') {
+      // 'o', not 'm': Ctrl+M is carriage return, so this branch could never be
+      // reached and pressing it sent the message instead. See `keymap.ts`.
+      if (key.ctrl && input === 'o') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
@@ -277,7 +284,11 @@ function AppShell({
         }
       }
 
-      if (key.escape && !isStreaming) {
+      // `escapeClaimed` covers the surfaces that bind Escape without being a
+      // modal or an overlay — the sidebar's delete confirm and the settings
+      // auth configurator. Both used to cancel *and* have this handler close
+      // the panel underneath them, two surfaces for one press.
+      if (key.escape && !isStreaming && !escapeClaimed) {
         // Exactly ONE surface per press, topmost first, so repeated presses
         // walk deterministically back to the chat. See `lib/escape-target.ts`.
         //
@@ -403,14 +414,20 @@ export function App({
             workspacePath={workspacePath}
           >
             <ModeProvider>
-              <AppShell
-                pushAdapter={pushAdapter}
-                fireAndForget={fireAndForget}
-                authReady={authReady}
-                authError={authError}
-                thothLifecycle={thothLifecycle}
-                onQuit={onQuit}
-              />
+              {/*
+                Above AppShell because AppShell is the *consumer*: it reads the
+                claim to decide whether an Escape press is its own.
+              */}
+              <EscapeClaimProvider>
+                <AppShell
+                  pushAdapter={pushAdapter}
+                  fireAndForget={fireAndForget}
+                  authReady={authReady}
+                  authError={authError}
+                  thothLifecycle={thothLifecycle}
+                  onQuit={onQuit}
+                />
+              </EscapeClaimProvider>
             </ModeProvider>
           </SessionProvider>
         </FocusProvider>

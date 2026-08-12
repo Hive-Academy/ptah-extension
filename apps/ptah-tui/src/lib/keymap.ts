@@ -178,8 +178,12 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'agent.model',
-    keys: 'Ctrl+M',
-    hint: '^M',
+    // Not Ctrl+M. Ctrl+M *is* carriage return, so Ink resolves it to
+    // `{name:'return'}` and the handler's `input === 'm'` can never be true —
+    // the binding was advertised in `?` and did nothing but send the message.
+    // See `findControlCodeAliases`, which now fails the spec on that class.
+    keys: 'Ctrl+O',
+    hint: '^O',
     description: 'Switch the active model',
     footerLabel: 'model',
     scope: 'global',
@@ -287,6 +291,51 @@ export function findKeymapConflicts(
   }
 
   return conflicts;
+}
+
+/**
+ * Control chords a terminal cannot deliver as themselves.
+ *
+ * A `Ctrl+<letter>` chord is just the ASCII control code for that letter, and
+ * five of them are already spoken for by keys that have their own name. Ctrl+M
+ * and Enter are the *same byte*, so a terminal cannot tell you which one was
+ * pressed and Ink reports the named key: `{name:'return', ctrl:false}`. Any
+ * handler testing `key.ctrl && input === 'm'` is therefore dead code that the
+ * help overlay still advertises.
+ *
+ * `findKeymapConflicts` cannot see this — it compares chord strings, and
+ * "Ctrl+M" and "Enter" are different strings for one byte.
+ */
+const CONTROL_CODE_ALIASES: Readonly<Record<string, string>> = {
+  'Ctrl+I': 'Tab',
+  'Ctrl+J': 'Enter (line feed)',
+  'Ctrl+M': 'Enter (carriage return)',
+  'Ctrl+H': 'Backspace',
+  'Ctrl+[': 'Esc',
+};
+
+export interface KeymapAlias {
+  readonly keys: string;
+  readonly id: string;
+  /** The key the terminal actually reports instead. */
+  readonly aliasOf: string;
+}
+
+/**
+ * Bindings claiming a chord the terminal reports as some other key. A binding
+ * here is unreachable by definition — it is advertised and cannot fire.
+ */
+export function findControlCodeAliases(
+  bindings: readonly KeyBinding[] = KEYMAP,
+): KeymapAlias[] {
+  const aliases: KeymapAlias[] = [];
+  for (const binding of bindings) {
+    const aliasOf = CONTROL_CODE_ALIASES[binding.keys];
+    if (aliasOf !== undefined) {
+      aliases.push({ keys: binding.keys, id: binding.id, aliasOf });
+    }
+  }
+  return aliases;
 }
 
 export function findDuplicateIds(

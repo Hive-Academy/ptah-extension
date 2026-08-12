@@ -8,6 +8,7 @@ import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
 import { useLoginProgress } from '../../hooks/use-login-progress.js';
 import type { LoginProgress } from '../../hooks/use-login-progress.js';
 import { useTuiContext } from '../../context/TuiContext.js';
+import { useEscapeClaim } from '../../context/EscapeClaimContext.js';
 import { Badge, KeyHint, Spinner } from '../atoms/index.js';
 import { ListItem } from '../molecules/index.js';
 import type { BadgeVariant } from '../atoms/index.js';
@@ -1126,6 +1127,14 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   useEffect(() => {
     setProviderIndex(browseNav.activeIndex);
   }, [browseNav.activeIndex]);
+
+  // Mirrors the guard on the handler below exactly. Escape backs out of the
+  // provider configurator and nothing else — before the claim it also reached
+  // the AppShell handler, which left Settings in the same press.
+  useEscapeClaim(
+    'settings.auth-configuring',
+    configuring && !editingKey && !saving && !copilotLoggingIn,
+  );
 
   useInput(
     (input, key) => {
