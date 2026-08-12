@@ -22,15 +22,33 @@
  *                                    `provider.tiers`.
  *   tier clear --model            — Calls `provider:clearModelTier`. Emits
  *                                    `provider.tier.cleared`.
+ *   custom list                   — Calls `provider:listCustomEntries`. Emits
+ *                                    `provider.custom.entries` (redacted).
+ *   custom add <id>               — Calls `provider:addCustomEntry`. Emits
+ *                                    `provider.custom.added`.
+ *   custom update <id>            — Calls `provider:updateCustomEntry`. Emits
+ *                                    `provider.custom.updated`.
+ *   custom remove <id>            — Calls `provider:removeCustomEntry`. Emits
+ *                                    `provider.custom.removed`.
+ *   custom test <id>              — Calls `provider:testCustomEntry`. Emits
+ *                                    `provider.custom.test`.
  *
  * Every sub-command boots `withEngine({ mode: 'full' })` so the LLM and
  * provider RPC handlers are registered. No DI mocking in production code —
  * tests inject collaborators via `ProviderExecuteHooks`.
  */
 
+import * as clack from '@clack/prompts';
+
 import type {
+  CustomProviderEntry,
+  CustomProviderLane,
   LlmGetProviderStatusEntry,
   LlmGetProviderStatusResponse,
+} from '@ptah-extension/shared';
+import {
+  CUSTOM_PROVIDER_LANES,
+  CustomProviderEntrySchema,
 } from '@ptah-extension/shared';
 
 import { withEngine } from '@ptah-extension/cli-engine';
@@ -50,12 +68,14 @@ export type ProviderSubcommand =
   | 'models'
   | 'tier'
   | 'base-url'
-  | 'ollama';
+  | 'ollama'
+  | 'custom';
 
 /**
  * Action argument for nested sub-commands (`default get/set`, `models list`,
  * `tier set/get/clear`, `base-url set/get/clear`, `ollama
- * set-endpoint/get-endpoint/clear-endpoint`).
+ * set-endpoint/get-endpoint/clear-endpoint`, `custom
+ * list/add/update/remove/test`).
  */
 export type ProviderAction =
   | 'get'
@@ -64,7 +84,11 @@ export type ProviderAction =
   | 'clear'
   | 'set-endpoint'
   | 'get-endpoint'
-  | 'clear-endpoint';
+  | 'clear-endpoint'
+  | 'add'
+  | 'update'
+  | 'remove'
+  | 'test';
 
 /** Tier slot accepted by `provider:setModelTier` / `provider:clearModelTier`. */
 export type ProviderTier = 'sonnet' | 'opus' | 'haiku' | string;
@@ -87,12 +111,51 @@ export interface ProviderOptions {
    * value is persisted after the API key write succeeds.
    */
   baseUrl?: string;
+
+  // -- `provider custom add|update` fields ----------------------------------
+  // All arrive as strings from commander. Numeric and enum coercion happens in
+  // `resolveCustomAddInput` / `resolveCustomUpdateChanges`, never at the flag
+  // layer, so a bad value fails with a usage message instead of a Zod error
+  // surfacing from the RPC boundary.
+
+  /** Display name for a custom entry. */
+  name?: string;
+  /**
+   * Wire lane the endpoint speaks. ALWAYS explicit — never inferred from the
+   * URL, because the lane decides whether the local translation proxy runs and
+   * a wrong guess fails at the first tool call, not at save time.
+   */
+  lane?: string;
+  /** Optional `/v1/models`-style discovery endpoint. */
+  modelsEndpoint?: string;
+  /** Optional expected key prefix, shown as an input hint. */
+  keyPrefix?: string;
+  /** Optional "where do I get a key" URL. */
+  helpUrl?: string;
+  /** Which env var carries the key (`ANTHROPIC_AUTH_TOKEN` by default). */
+  authEnvVar?: string;
+  /** Tier → model mapping. All three or none. */
+  tierSonnet?: string;
+  tierOpus?: string;
+  tierHaiku?: string;
+  /** Optional manual per-1M-token rates. Both or neither. */
+  inputPrice?: string;
+  outputPrice?: string;
 }
 
 /** Stderr stream contract — narrowed for testability. */
 export interface ProviderStderrLike {
   write(chunk: string): boolean;
 }
+
+/**
+ * The @clack surface `provider custom add` uses. Mirrors `init.ts` so both
+ * interactive commands are stubbed the same way in tests.
+ */
+export type ProviderClackLike = Pick<
+  typeof clack,
+  'intro' | 'outro' | 'text' | 'password' | 'select' | 'isCancel' | 'cancel'
+>;
 
 /** Optional collaborators — tests inject; production omits. */
 export interface ProviderExecuteHooks {
@@ -102,6 +165,10 @@ export interface ProviderExecuteHooks {
   formatter?: Formatter;
   /** Override the engine bootstrapper. Tests pass a stub returning scripted ctx. */
   withEngine?: typeof withEngine;
+  /** Override the prompt surface used by `custom add` on a TTY. */
+  clack?: ProviderClackLike;
+  /** Override interactivity detection (tests force either mode). */
+  isInteractive?: (globals: GlobalOptions) => boolean;
 }
 
 /**
@@ -138,6 +205,8 @@ export async function execute(
         return await runBaseUrl(opts, formatter, globals, stderr, engine);
       case 'ollama':
         return await runOllama(opts, formatter, globals, stderr, engine);
+      case 'custom':
+        return await runCustom(opts, formatter, globals, stderr, engine, hooks);
       default:
         stderr.write(
           `ptah provider: unknown sub-command '${String(opts.subcommand)}'\n`,
@@ -671,6 +740,479 @@ async function runTier(
   }
   stderr.write(
     `ptah provider tier: unknown action '${String(action)}' (expected set|get|clear)\n`,
+  );
+  return ExitCode.UsageError;
+}
+
+// ---------------------------------------------------------------------------
+// `provider custom …` — user-defined provider entries
+// ---------------------------------------------------------------------------
+
+/** Exit code for a prompt the user cancelled (SIGINT convention, as `init`). */
+const CUSTOM_CANCEL_EXIT_CODE = 130;
+
+/**
+ * Machine mode never prompts. `--json`, `--quiet` and a non-TTY stdout all mean
+ * "a script is driving this", and a script that hits a prompt hangs forever —
+ * so in that mode a missing required flag is a usage error instead.
+ */
+function defaultIsInteractive(globals: GlobalOptions): boolean {
+  if (globals.json === true) return false;
+  if (globals.quiet === true) return false;
+  return process.stdout.isTTY === true;
+}
+
+function trimOrUndefined(value: string | undefined): string | undefined {
+  const trimmed = (value ?? '').trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Partial custom-entry mutation accepted by `provider:updateCustomEntry`. */
+interface CustomEntryChanges {
+  name?: string;
+  baseUrl?: string;
+  lane?: CustomProviderLane;
+  keyPrefix?: string;
+  helpUrl?: string;
+  authEnvVar?: 'ANTHROPIC_AUTH_TOKEN' | 'ANTHROPIC_API_KEY';
+  modelsEndpoint?: string | null;
+  defaultTiers?: { sonnet: string; opus: string; haiku: string } | null;
+  pricing?: { inputPerMillion: number; outputPerMillion: number } | null;
+}
+
+type ParseResult<T> = { ok: true; value: T } | { ok: false; message: string };
+
+/**
+ * The lane is an explicit, constrained flag — never derived from the URL.
+ * `lane` decides whether the OpenAI→Anthropic translation proxy runs, and a
+ * URL-shape guess is wrong often enough that the failure would surface as a
+ * broken first tool call rather than a rejected save.
+ */
+function parseLane(
+  raw: string | undefined,
+): ParseResult<CustomProviderLane | undefined> {
+  const value = trimOrUndefined(raw);
+  if (value === undefined) return { ok: true, value: undefined };
+  const match = CUSTOM_PROVIDER_LANES.find((lane) => lane === value);
+  if (!match) {
+    return {
+      ok: false,
+      message: `--lane must be one of ${CUSTOM_PROVIDER_LANES.join('|')} (got '${value}')`,
+    };
+  }
+  return { ok: true, value: match };
+}
+
+const AUTH_ENV_VARS = ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'] as const;
+
+function parseAuthEnvVar(
+  raw: string | undefined,
+): ParseResult<(typeof AUTH_ENV_VARS)[number] | undefined> {
+  const value = trimOrUndefined(raw);
+  if (value === undefined) return { ok: true, value: undefined };
+  const match = AUTH_ENV_VARS.find((name) => name === value);
+  if (!match) {
+    return {
+      ok: false,
+      message: `--auth-env-var must be one of ${AUTH_ENV_VARS.join('|')} (got '${value}')`,
+    };
+  }
+  return { ok: true, value: match };
+}
+
+/** Tier mapping is all-three-or-none — a partial map cannot resolve a tier. */
+function parseTiers(
+  opts: ProviderOptions,
+): ParseResult<{ sonnet: string; opus: string; haiku: string } | undefined> {
+  const sonnet = trimOrUndefined(opts.tierSonnet);
+  const opus = trimOrUndefined(opts.tierOpus);
+  const haiku = trimOrUndefined(opts.tierHaiku);
+  const supplied = [sonnet, opus, haiku].filter(
+    (value) => value !== undefined,
+  ).length;
+  if (supplied === 0) return { ok: true, value: undefined };
+  if (supplied !== 3 || !sonnet || !opus || !haiku) {
+    return {
+      ok: false,
+      message:
+        '--tier-sonnet, --tier-opus and --tier-haiku must be supplied together',
+    };
+  }
+  return { ok: true, value: { sonnet, opus, haiku } };
+}
+
+/** Manual per-1M rates are both-or-neither; absent means "cost unavailable". */
+function parsePricing(
+  opts: ProviderOptions,
+): ParseResult<
+  { inputPerMillion: number; outputPerMillion: number } | undefined
+> {
+  const input = trimOrUndefined(opts.inputPrice);
+  const output = trimOrUndefined(opts.outputPrice);
+  if (input === undefined && output === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (input === undefined || output === undefined) {
+    return {
+      ok: false,
+      message: '--input-price and --output-price must be supplied together',
+    };
+  }
+  const inputPerMillion = Number(input);
+  const outputPerMillion = Number(output);
+  if (!Number.isFinite(inputPerMillion) || inputPerMillion < 0) {
+    return {
+      ok: false,
+      message: `--input-price must be a non-negative number (got '${input}')`,
+    };
+  }
+  if (!Number.isFinite(outputPerMillion) || outputPerMillion < 0) {
+    return {
+      ok: false,
+      message: `--output-price must be a non-negative number (got '${output}')`,
+    };
+  }
+  return { ok: true, value: { inputPerMillion, outputPerMillion } };
+}
+
+/** Flatten Zod issues into one line the terminal can show without wrapping. */
+function formatEntryIssues(
+  issues: ReadonlyArray<{
+    readonly path: ReadonlyArray<PropertyKey>;
+    readonly message: string;
+  }>,
+): string {
+  return issues
+    .map((issue) => `${issue.path.join('.') || 'entry'}: ${issue.message}`)
+    .join('; ');
+}
+
+type CustomAddInput =
+  | { kind: 'ok'; entry: CustomProviderEntry; apiKey?: string }
+  | { kind: 'usage'; message: string }
+  | { kind: 'cancelled' };
+
+/**
+ * Resolve the full field set for `provider custom add`.
+ *
+ * Flags always win. On a TTY the four required fields (id, name, base URL,
+ * lane) and the API key fall back to prompts; in machine mode a missing
+ * required field is a usage error, never a prompt.
+ */
+async function resolveCustomAddInput(
+  opts: ProviderOptions,
+  interactive: boolean,
+  prompts: ProviderClackLike,
+): Promise<CustomAddInput> {
+  const lane = parseLane(opts.lane);
+  if (!lane.ok) return { kind: 'usage', message: lane.message };
+  const authEnvVar = parseAuthEnvVar(opts.authEnvVar);
+  if (!authEnvVar.ok) return { kind: 'usage', message: authEnvVar.message };
+  const tiers = parseTiers(opts);
+  if (!tiers.ok) return { kind: 'usage', message: tiers.message };
+  const pricing = parsePricing(opts);
+  if (!pricing.ok) return { kind: 'usage', message: pricing.message };
+
+  let id = trimOrUndefined(opts.provider);
+  let name = trimOrUndefined(opts.name);
+  let baseUrl = trimOrUndefined(opts.baseUrl);
+  let laneValue = lane.value;
+  let apiKey = trimOrUndefined(opts.key);
+  let modelsEndpoint = trimOrUndefined(opts.modelsEndpoint);
+
+  if (!interactive) {
+    if (!id) return { kind: 'usage', message: '<id> is required' };
+    if (!name) return { kind: 'usage', message: '--name is required' };
+    if (!baseUrl) return { kind: 'usage', message: '--base-url is required' };
+    if (!laneValue) {
+      return {
+        kind: 'usage',
+        message: `--lane is required (${CUSTOM_PROVIDER_LANES.join('|')})`,
+      };
+    }
+  } else {
+    if (!id) {
+      const answer = await prompts.text({
+        message: 'Provider id (lower-case, dashes allowed)',
+        placeholder: 'my-gateway',
+      });
+      if (prompts.isCancel(answer)) return { kind: 'cancelled' };
+      id = trimOrUndefined(String(answer));
+    }
+    if (!name) {
+      const answer = await prompts.text({
+        message: 'Display name',
+        placeholder: 'My Gateway',
+      });
+      if (prompts.isCancel(answer)) return { kind: 'cancelled' };
+      name = trimOrUndefined(String(answer));
+    }
+    if (!baseUrl) {
+      const answer = await prompts.text({
+        message: 'Base URL (http:// or https://)',
+        placeholder: 'https://gateway.example.com',
+      });
+      if (prompts.isCancel(answer)) return { kind: 'cancelled' };
+      baseUrl = trimOrUndefined(String(answer));
+    }
+    if (!laneValue) {
+      const answer = await prompts.select({
+        message: 'Which wire protocol does the endpoint speak?',
+        options: [
+          { value: 'anthropic', label: 'Anthropic-compatible (passthrough)' },
+          {
+            value: 'openai',
+            label: 'OpenAI-compatible (local translation proxy)',
+          },
+        ],
+      });
+      if (prompts.isCancel(answer)) return { kind: 'cancelled' };
+      const picked = parseLane(String(answer));
+      if (!picked.ok) return { kind: 'usage', message: picked.message };
+      laneValue = picked.value;
+    }
+    if (!apiKey) {
+      const answer = await prompts.password({
+        message: 'API key (leave blank if the endpoint needs none)',
+      });
+      if (prompts.isCancel(answer)) return { kind: 'cancelled' };
+      apiKey = trimOrUndefined(String(answer));
+    }
+    if (!modelsEndpoint) {
+      const answer = await prompts.text({
+        message: 'Models endpoint (optional — press Enter to skip)',
+        placeholder: '',
+      });
+      if (prompts.isCancel(answer)) return { kind: 'cancelled' };
+      modelsEndpoint = trimOrUndefined(String(answer));
+    }
+  }
+
+  // One validation authority: the same schema the settings store and the RPC
+  // handler parse with, so the CLI can never accept a shape they would reject.
+  const parsed = CustomProviderEntrySchema.safeParse({
+    id,
+    name,
+    baseUrl,
+    lane: laneValue,
+    ...(authEnvVar.value ? { authEnvVar: authEnvVar.value } : {}),
+    ...(trimOrUndefined(opts.keyPrefix)
+      ? { keyPrefix: trimOrUndefined(opts.keyPrefix) }
+      : {}),
+    ...(trimOrUndefined(opts.helpUrl)
+      ? { helpUrl: trimOrUndefined(opts.helpUrl) }
+      : {}),
+    ...(modelsEndpoint ? { modelsEndpoint } : {}),
+    ...(tiers.value ? { defaultTiers: tiers.value } : {}),
+    ...(pricing.value ? { pricing: pricing.value } : {}),
+  });
+  if (!parsed.success) {
+    return { kind: 'usage', message: formatEntryIssues(parsed.error.issues) };
+  }
+
+  return {
+    kind: 'ok',
+    entry: parsed.data,
+    ...(apiKey ? { apiKey } : {}),
+  };
+}
+
+/** Collect only the fields the user actually passed to `custom update`. */
+function resolveCustomUpdateChanges(
+  opts: ProviderOptions,
+): ParseResult<CustomEntryChanges> {
+  const lane = parseLane(opts.lane);
+  if (!lane.ok) return lane;
+  const authEnvVar = parseAuthEnvVar(opts.authEnvVar);
+  if (!authEnvVar.ok) return authEnvVar;
+  const tiers = parseTiers(opts);
+  if (!tiers.ok) return tiers;
+  const pricing = parsePricing(opts);
+  if (!pricing.ok) return pricing;
+
+  const baseUrl = trimOrUndefined(opts.baseUrl);
+  if (baseUrl !== undefined) {
+    const check = CustomProviderEntrySchema.shape.baseUrl.safeParse(baseUrl);
+    if (!check.success) {
+      return {
+        ok: false,
+        message: `--base-url: ${check.error.issues.map((issue) => issue.message).join('; ')}`,
+      };
+    }
+  }
+
+  const changes: CustomEntryChanges = {
+    ...(trimOrUndefined(opts.name) ? { name: trimOrUndefined(opts.name) } : {}),
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+    ...(lane.value ? { lane: lane.value } : {}),
+    ...(authEnvVar.value ? { authEnvVar: authEnvVar.value } : {}),
+    ...(trimOrUndefined(opts.keyPrefix)
+      ? { keyPrefix: trimOrUndefined(opts.keyPrefix) }
+      : {}),
+    ...(trimOrUndefined(opts.helpUrl)
+      ? { helpUrl: trimOrUndefined(opts.helpUrl) }
+      : {}),
+    ...(trimOrUndefined(opts.modelsEndpoint)
+      ? { modelsEndpoint: trimOrUndefined(opts.modelsEndpoint) }
+      : {}),
+    ...(tiers.value ? { defaultTiers: tiers.value } : {}),
+    ...(pricing.value ? { pricing: pricing.value } : {}),
+  };
+
+  return { ok: true, value: changes };
+}
+
+async function runCustom(
+  opts: ProviderOptions,
+  formatter: Formatter,
+  globals: GlobalOptions,
+  stderr: ProviderStderrLike,
+  engine: typeof withEngine,
+  hooks: ProviderExecuteHooks,
+): Promise<number> {
+  const action = opts.action;
+
+  if (action === 'list') {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ entries: CustomProviderEntry[] }>(
+        ctx.transport,
+        'provider:listCustomEntries',
+        undefined,
+      );
+      // Entries are non-secret metadata by contract, but this payload is the
+      // one place a stored key could leak if that contract ever slipped, so it
+      // goes through the same redactor `provider status` uses.
+      await formatter.writeNotification(
+        'provider.custom.entries',
+        redact({ entries: result.entries ?? [] }, { reveal: false }),
+      );
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'add') {
+    const interactive = (hooks.isInteractive ?? defaultIsInteractive)(globals);
+    const prompts = hooks.clack ?? clack;
+    const resolved = await resolveCustomAddInput(opts, interactive, prompts);
+    if (resolved.kind === 'cancelled') {
+      prompts.cancel('Cancelled — nothing was saved.');
+      return CUSTOM_CANCEL_EXIT_CODE;
+    }
+    if (resolved.kind === 'usage') {
+      stderr.write(`ptah provider custom add: ${resolved.message}\n`);
+      return ExitCode.UsageError;
+    }
+
+    const { entry, apiKey } = resolved;
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ entry: CustomProviderEntry }>(
+        ctx.transport,
+        'provider:addCustomEntry',
+        { entry, ...(apiKey ? { apiKey } : {}) },
+      );
+      // The key is never echoed back — only the stored metadata is reported.
+      await formatter.writeNotification(
+        'provider.custom.added',
+        redact(
+          { entry: result.entry ?? entry, keyStored: apiKey !== undefined },
+          { reveal: false },
+        ),
+      );
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'update') {
+    const id = trimOrUndefined(opts.provider);
+    if (!id) {
+      stderr.write('ptah provider custom update: <id> is required\n');
+      return ExitCode.UsageError;
+    }
+    const changes = resolveCustomUpdateChanges(opts);
+    if (!changes.ok) {
+      stderr.write(`ptah provider custom update: ${changes.message}\n`);
+      return ExitCode.UsageError;
+    }
+    const apiKey = trimOrUndefined(opts.key);
+    if (Object.keys(changes.value).length === 0 && apiKey === undefined) {
+      stderr.write(
+        'ptah provider custom update: nothing to update — pass at least one field flag or --key\n',
+      );
+      return ExitCode.UsageError;
+    }
+
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ entry: CustomProviderEntry }>(
+        ctx.transport,
+        'provider:updateCustomEntry',
+        { id, changes: changes.value, ...(apiKey ? { apiKey } : {}) },
+      );
+      await formatter.writeNotification(
+        'provider.custom.updated',
+        redact(
+          { entry: result.entry, keyStored: apiKey !== undefined },
+          { reveal: false },
+        ),
+      );
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'remove') {
+    const id = trimOrUndefined(opts.provider);
+    if (!id) {
+      stderr.write('ptah provider custom remove: <id> is required\n');
+      return ExitCode.UsageError;
+    }
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ removed: boolean }>(
+        ctx.transport,
+        'provider:removeCustomEntry',
+        { id },
+      );
+      if (result.removed !== true) {
+        stderr.write(
+          `ptah provider custom remove: no custom provider with id '${id}'\n`,
+        );
+        return ExitCode.UsageError;
+      }
+      await formatter.writeNotification('provider.custom.removed', {
+        id,
+        removed: true,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'test') {
+    const id = trimOrUndefined(opts.provider);
+    if (!id) {
+      stderr.write('ptah provider custom test: <id> is required\n');
+      return ExitCode.UsageError;
+    }
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{
+        ok: boolean;
+        message: string;
+        latencyMs?: number;
+      }>(ctx.transport, 'provider:testCustomEntry', { id });
+      // A failed probe is a RESULT, not a crash: the notification is emitted
+      // either way (with the backend's message verbatim) so a script can read
+      // why, and only the exit code distinguishes the two.
+      await formatter.writeNotification('provider.custom.test', {
+        id,
+        ok: result.ok === true,
+        message: result.message,
+        ...(result.latencyMs !== undefined
+          ? { latencyMs: result.latencyMs }
+          : {}),
+      });
+      return result.ok === true ? ExitCode.Success : ExitCode.GeneralError;
+    });
+  }
+
+  stderr.write(
+    `ptah provider custom: unknown action '${String(action)}' (expected list|add|update|remove|test)\n`,
   );
   return ExitCode.UsageError;
 }

@@ -25,23 +25,25 @@ import type { ICopilotAuthService } from '@ptah-extension/auth-providers';
 // otherwise prevent the import from resolving in jest). The auth command only
 // reads AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH at runtime.
 //
-// `ANTHROPIC_PROVIDERS` is consumed transitively by `auth-rpc.schema.ts`
-// (`ANTHROPIC_PROVIDERS.map(p => p.id)` at module load â†’ Zod enum). The
-// fixture lives in `test-utils/agent-sdk-mock.ts` so it stays in sync with
-// `settings.spec.ts` and is type-anchored against the real registry shape.
+// The provider-registry accessors are consumed by `auth.ts` itself
+// (`getAllAnthropicProviders()` for the did-you-mean list) and transitively by
+// `auth-rpc.schema.ts` (`getAnthropicProvider()` in the provider-id
+// refinement). The fixture lives in `test-utils/agent-sdk-mock.ts` so it stays
+// in sync with `settings.spec.ts` and is type-anchored against the real
+// registry shape.
 // `require()` is used inside the factory because jest hoists `jest.mock`
 // above module-scope `import` statements.
 jest.mock(
   '@ptah-extension/agent-sdk',
   () => {
     const {
-      mockAnthropicProviders,
+      mockProviderRegistryAccessors,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
       },
-      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      ...mockProviderRegistryAccessors(),
       // Stub: tests inject `spawnCodexLogin` via hooks, so the real
       // `spawnCli` is never reached. We only need a callable export so
       // the value import in `auth.ts` resolves at module load.

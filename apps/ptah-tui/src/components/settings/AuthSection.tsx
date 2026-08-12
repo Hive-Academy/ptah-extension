@@ -18,6 +18,27 @@ import {
   resolveProviderEndpoint,
   resolveProviderFormKind,
 } from './provider-form.js';
+import {
+  CustomProviderForm,
+  type CustomProviderFormStatus,
+} from './CustomProviderForm.js';
+import {
+  customProviderFormFromEntry,
+  customProviderSecurityNote,
+  emptyCustomProviderForm,
+  type CustomProviderFormMode,
+  type CustomProviderFormValues,
+} from './custom-provider-form.js';
+import type { CustomProviderEntry } from '@ptah-extension/shared';
+
+/**
+ * Synthetic tile that opens the add-custom-provider form.
+ *
+ * Kept out of `availableProviders` on purpose: it is an action, not a
+ * provider, and putting it in the registry projection would mean every other
+ * consumer of `auth:getAuthStatus` had to learn to skip it.
+ */
+export const ADD_CUSTOM_TILE_ID = '__add-custom-provider';
 
 interface ProviderInfo {
   id: string;
@@ -125,6 +146,8 @@ interface BrowseViewProps {
   selectedIndex: number;
   auth: AuthStatus;
   isActive: boolean;
+  /** Ids of user-defined entries, badged so they are distinguishable. */
+  customIds: ReadonlySet<string>;
 }
 
 function BrowseView({
@@ -132,11 +155,24 @@ function BrowseView({
   selectedIndex,
   auth,
   isActive,
+  customIds,
 }: BrowseViewProps): React.JSX.Element {
   return (
     <Box flexDirection="column">
       {tiles.map((tileId, index) => {
         const isSelected = index === selectedIndex && isActive;
+
+        if (tileId === ADD_CUSTOM_TILE_ID) {
+          return (
+            <ListItem
+              key={tileId}
+              label="＋ Add custom provider"
+              isSelected={isSelected}
+              badge={<Badge variant="accent">New</Badge>}
+            />
+          );
+        }
+
         const name =
           tileId === CLAUDE_TILE_ID
             ? 'Claude'
@@ -148,7 +184,9 @@ function BrowseView({
         return (
           <ListItem
             key={tileId}
-            label={`${providerIcon(tileId)} ${name}`}
+            label={`${providerIcon(tileId)} ${name}${
+              customIds.has(tileId) ? ' (custom)' : ''
+            }`}
             isSelected={isSelected}
             badge={<Badge variant={variant}>{statusLabel}</Badge>}
           />
@@ -563,7 +601,9 @@ function AmbientConfig({
       </Text>
       <Box gap={1}>
         <Text dimColor>Credentials:</Text>
-        <Text color={theme.ui.muted}>~/.claude (managed by the Claude CLI)</Text>
+        <Text color={theme.ui.muted}>
+          ~/.claude (managed by the Claude CLI)
+        </Text>
       </Box>
 
       {cliFound ? (
@@ -903,6 +943,20 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   const [copilotLoggingIn, setCopilotLoggingIn] = useState(false);
   const [statusMsg, setStatusMsg] = useState<StatusMsg | null>(null);
 
+  // User-defined entries are read from `provider:listCustomEntries` rather than
+  // inferred from a flag on the auth-status projection: this call also carries
+  // the lane, tiers and pricing the edit form has to pre-fill, which the tile
+  // projection deliberately does not include.
+  const [customEntries, setCustomEntries] = useState<CustomProviderEntry[]>([]);
+  const [customForm, setCustomForm] = useState<{
+    mode: CustomProviderFormMode;
+    entryId: string | null;
+    values: CustomProviderFormValues;
+  } | null>(null);
+  const [customBusy, setCustomBusy] = useState(false);
+  const [customStatus, setCustomStatus] =
+    useState<CustomProviderFormStatus | null>(null);
+
   const loadAuthStatus = useCallback(async (): Promise<void> => {
     setLoading(true);
     const result = await call<void, AuthStatus>(
@@ -915,13 +969,28 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
     setLoading(false);
   }, [call]);
 
+  const loadCustomEntries = useCallback(async (): Promise<void> => {
+    const result = await call<void, { entries: CustomProviderEntry[] }>(
+      'provider:listCustomEntries',
+      undefined as unknown as void,
+    );
+    setCustomEntries(result?.entries ?? []);
+  }, [call]);
+
   useEffect(() => {
     void loadAuthStatus();
-  }, [loadAuthStatus]);
+    void loadCustomEntries();
+  }, [loadAuthStatus, loadCustomEntries]);
+
+  const customIds = new Set(customEntries.map((entry) => entry.id));
 
   const tiles: string[] = authStatus
-    ? [CLAUDE_TILE_ID, ...authStatus.availableProviders.map((p) => p.id)]
-    : [CLAUDE_TILE_ID];
+    ? [
+        CLAUDE_TILE_ID,
+        ...authStatus.availableProviders.map((p) => p.id),
+        ADD_CUSTOM_TILE_ID,
+      ]
+    : [CLAUDE_TILE_ID, ADD_CUSTOM_TILE_ID];
 
   const selectedTileId = tiles[providerIndex] ?? CLAUDE_TILE_ID;
   const selectedProvider =
@@ -930,14 +999,19 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   // One classification, resolved by the pure module so it is testable and so
   // `supportsOptionalApiKey` / `nativeAuth` can no longer be swallowed by the
   // broad `authType === 'none'` test (TASK_2026_172 Issues 3 & 4).
+  const isAddCustomTile = selectedTileId === ADD_CUSTOM_TILE_ID;
+  /** The stored entry behind the selected tile, when that tile is user-defined. */
+  const selectedCustomEntry =
+    customEntries.find((entry) => entry.id === selectedTileId) ?? null;
+
   const formKind = resolveProviderFormKind(selectedTileId, selectedProvider);
-  const isClaudeTile = formKind === 'claude';
+  const isClaudeTile = !isAddCustomTile && formKind === 'claude';
   const isCopilotProvider = formKind === 'copilot';
   const isCodexProvider = formKind === 'codex';
   const isAmbientProvider = formKind === 'ambient';
   const isLocalProvider =
     formKind === 'local' || formKind === 'local-optional-key';
-  const isApiKeyProvider = formKind === 'api-key';
+  const isApiKeyProvider = !isAddCustomTile && formKind === 'api-key';
   const hasOptionalKey = formKeyIsOptional(formKind);
   /** Whether the SELECTED tile currently has a stored provider key. */
   const selectedHasKey =
@@ -1113,14 +1187,141 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
     setSaving(false);
   }, [call, loadAuthStatus, reinitializeSdk, resetLoginProgress]);
 
+  /**
+   * Probe a saved custom entry and surface the backend's message VERBATIM.
+   *
+   * Unlike `auth:testConnection` (which polls local SDK-adapter health and so
+   * cannot tell a typo'd host from a working one), this RPC makes one real
+   * round-trip through the entry's declared lane. Its message is the only
+   * evidence the user has about a URL they typed themselves, so it is shown
+   * unedited — no "Connection failed" paraphrase over the top of it.
+   */
+  const runCustomTest = useCallback(
+    async (id: string): Promise<void> => {
+      setCustomBusy(true);
+      const result = await call<
+        { id: string },
+        { ok: boolean; message: string; latencyMs?: number }
+      >('provider:testCustomEntry', { id });
+      if (!result) {
+        setCustomStatus({
+          type: 'error',
+          text: rpcError ?? 'provider:testCustomEntry returned no result.',
+        });
+      } else {
+        setCustomStatus({
+          type: result.ok ? 'success' : 'error',
+          text:
+            result.latencyMs !== undefined
+              ? `${result.message} (${result.latencyMs}ms)`
+              : result.message,
+        });
+      }
+      setCustomBusy(false);
+    },
+    [call, rpcError],
+  );
+
+  const handleCustomSubmit = useCallback(
+    async (entry: CustomProviderEntry, apiKey?: string): Promise<void> => {
+      const form = customForm;
+      if (!form) return;
+
+      setCustomBusy(true);
+      setCustomStatus(null);
+
+      const isEdit = form.mode === 'edit' && form.entryId !== null;
+      const result = isEdit
+        ? await call<
+            {
+              id: string;
+              changes: Omit<CustomProviderEntry, 'id'>;
+              apiKey?: string;
+            },
+            { entry: CustomProviderEntry }
+          >('provider:updateCustomEntry', {
+            id: form.entryId as string,
+            changes: (({ id: _id, ...rest }) => rest)(entry),
+            ...(apiKey ? { apiKey } : {}),
+          })
+        : await call<
+            { entry: CustomProviderEntry; apiKey?: string },
+            { entry: CustomProviderEntry }
+          >('provider:addCustomEntry', {
+            entry,
+            ...(apiKey ? { apiKey } : {}),
+          });
+
+      if (!result) {
+        setCustomStatus({
+          type: 'error',
+          text: rpcError ?? 'Could not save the custom provider.',
+        });
+        setCustomBusy(false);
+        return;
+      }
+
+      await loadCustomEntries();
+      await loadAuthStatus();
+      setCustomForm(null);
+      setCustomBusy(false);
+      // Save & Test: a user-typed endpoint that saves cleanly still proves
+      // nothing, so the probe runs immediately after the write.
+      await runCustomTest(result.entry?.id ?? entry.id);
+    },
+    [
+      call,
+      customForm,
+      loadAuthStatus,
+      loadCustomEntries,
+      rpcError,
+      runCustomTest,
+    ],
+  );
+
+  const handleCustomDelete = useCallback(async (): Promise<void> => {
+    const id = customForm?.entryId;
+    if (!id) return;
+    setCustomBusy(true);
+    setCustomStatus(null);
+    const result = await call<{ id: string }, { removed: boolean }>(
+      'provider:removeCustomEntry',
+      { id },
+    );
+    if (result?.removed === true) {
+      await loadCustomEntries();
+      await loadAuthStatus();
+      setCustomForm(null);
+      setCustomStatus({ type: 'success', text: `Removed ${id}.` });
+    } else {
+      setCustomStatus({
+        type: 'error',
+        text: rpcError ?? `Could not remove ${id}.`,
+      });
+    }
+    setCustomBusy(false);
+  }, [call, customForm, loadAuthStatus, loadCustomEntries, rpcError]);
+
   const browseNav = useKeyboardNav({
     itemCount: tiles.length,
     isActive: isActive && !loading && !configuring,
-    onSelect: () => {
+    onSelect: (index: number) => {
       setConfiguring(true);
       setStatusMsg(null);
       setEditingKey(false);
       setKeyInput('');
+      setCustomStatus(null);
+      // The add tile is an action, so selecting it opens the create form
+      // directly instead of a provider configurator with nothing to configure.
+      setCustomForm(
+        tiles[index] === ADD_CUSTOM_TILE_ID
+          ? {
+              mode: 'create',
+              entryId: null,
+              values: emptyCustomProviderForm(),
+            }
+          : null,
+      );
     },
   });
 
@@ -1133,12 +1334,53 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   // the AppShell handler, which left Settings in the same press.
   useEscapeClaim(
     'settings.auth-configuring',
-    configuring && !editingKey && !saving && !copilotLoggingIn,
+    configuring && !editingKey && !saving && !copilotLoggingIn && !customForm,
+  );
+
+  // The custom-provider form binds its own Escape (cancel), so it holds its own
+  // claim — otherwise one press would close the form AND leave Settings.
+  useEscapeClaim(
+    'settings.auth-custom-form',
+    customForm !== null && !customBusy,
   );
 
   useInput(
     (input, key) => {
-      if (!configuring || editingKey || saving || copilotLoggingIn) return;
+      if (
+        !configuring ||
+        editingKey ||
+        saving ||
+        copilotLoggingIn ||
+        customForm
+      ) {
+        return;
+      }
+
+      // `e` on a user-defined tile opens the same form the add tile uses, in
+      // edit mode — that form owns delete (with confirm) too, so there is one
+      // destructive path rather than a second bare chord.
+      if (
+        (input === 'e' || input === 'E') &&
+        !key.ctrl &&
+        selectedCustomEntry
+      ) {
+        setCustomStatus(null);
+        setCustomForm({
+          mode: 'edit',
+          entryId: selectedCustomEntry.id,
+          values: customProviderFormFromEntry(selectedCustomEntry),
+        });
+        return;
+      }
+
+      if (
+        (input === 't' || input === 'T') &&
+        !key.ctrl &&
+        selectedCustomEntry
+      ) {
+        void runCustomTest(selectedCustomEntry.id);
+        return;
+      }
 
       if (key.escape) {
         setConfiguring(false);
@@ -1192,7 +1434,12 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
     },
     {
       isActive:
-        isActive && configuring && !editingKey && !saving && !copilotLoggingIn,
+        isActive &&
+        configuring &&
+        !editingKey &&
+        !saving &&
+        !copilotLoggingIn &&
+        !customForm,
     },
   );
 
@@ -1221,6 +1468,30 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
     );
   }
 
+  if (customForm) {
+    return (
+      <CustomProviderForm
+        // Remounting on mode/id change is what resets the field state — the
+        // form owns its values, so a stale edit must not bleed into the next.
+        key={`${customForm.mode}:${customForm.entryId ?? 'new'}`}
+        mode={customForm.mode}
+        initialValues={customForm.values}
+        busy={customBusy}
+        status={customStatus}
+        isActive={isActive}
+        onSubmit={(entry, apiKey) => void handleCustomSubmit(entry, apiKey)}
+        onTest={() => {
+          if (customForm.entryId) void runCustomTest(customForm.entryId);
+        }}
+        onDelete={() => void handleCustomDelete()}
+        onCancel={() => {
+          setCustomForm(null);
+          setConfiguring(false);
+        }}
+      />
+    );
+  }
+
   if (!configuring) {
     return (
       <BrowseView
@@ -1228,6 +1499,7 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
         selectedIndex={providerIndex}
         auth={authStatus}
         isActive={isActive}
+        customIds={customIds}
       />
     );
   }
@@ -1237,6 +1509,33 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       <Box marginBottom={1}>
         <Text dimColor>Esc: back to providers</Text>
       </Box>
+
+      {selectedCustomEntry && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text dimColor>
+            {customProviderSecurityNote(selectedCustomEntry.baseUrl)}
+          </Text>
+          <Box gap={2}>
+            <KeyHint keys="e" label="edit / delete" />
+            <KeyHint keys="t" label="test connection" />
+          </Box>
+          {customStatus && (
+            <Text
+              color={
+                customStatus.type === 'success'
+                  ? theme.status.success
+                  : customStatus.type === 'error'
+                    ? theme.status.error
+                    : theme.status.info
+              }
+              wrap="wrap"
+            >
+              {customStatus.type === 'success' ? '✓ ' : '✗ '}
+              {customStatus.text}
+            </Text>
+          )}
+        </Box>
+      )}
 
       {isClaudeTile && (
         <ClaudeConfig
