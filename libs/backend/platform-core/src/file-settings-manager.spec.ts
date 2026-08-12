@@ -71,6 +71,7 @@ import { PtahFileSettingsManager } from './file-settings-manager';
 import {
   FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
 } from './file-settings-keys';
 
 // ---------------------------------------------------------------------------
@@ -216,6 +217,39 @@ describe('PtahFileSettingsManager', () => {
       expect(
         reader.get<string | null>('provider.openrouter.modelTier.opus'),
       ).toBeNull();
+    });
+
+    // TASK_2026_180. The `'lane'` tier scope is written by background skill
+    // lanes through `ProviderModelsService.setModelTier(id, tier, model,
+    // 'lane')`. Routing and persistence are two separate failures and this
+    // pins both: `isFileBasedSettingKey` must claim the key (otherwise the
+    // write never reaches this store at all), and the value must survive a
+    // full writer → disk → fresh-reader cycle.
+    //
+    // Asserted end to end rather than as a regex unit test because the failure
+    // mode is silent in the read direction — with the key unrouted, reads fall
+    // back to the provider entry's `defaultTiers` and look correct, so only a
+    // round-trip through a SECOND manager instance can tell "persisted" from
+    // "served me the default I happened to expect".
+    it('round-trips a lane-scoped provider tier override to disk', async () => {
+      const laneKey = 'provider.lm-studio.lane.modelTier.haiku';
+      expect(isFileBasedSettingKey(laneKey)).toBe(true);
+
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set(laneKey, 'qwen2.5-coder-7b');
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get<string>(laneKey)).toBe('qwen2.5-coder-7b');
+
+      // And it landed under the nested `lane` node, not beside the mainAgent
+      // mapping — a lane write must never repoint the chat provider's tier.
+      const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) as {
+        provider: Record<string, Record<string, unknown>>;
+      };
+      const lmStudio = parsed.provider['lm-studio'];
+      const lane = lmStudio['lane'] as Record<string, Record<string, unknown>>;
+      expect(lane['modelTier']['haiku']).toBe('qwen2.5-coder-7b');
+      expect(lmStudio['mainAgent']).toBeUndefined();
     });
 
     it('serializes writes (last write wins, no corruption)', async () => {

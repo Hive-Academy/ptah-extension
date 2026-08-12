@@ -351,14 +351,23 @@ const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 
 /**
  * Per-scope tier override keys written by ProviderModelsService:
- *   provider.<providerId>.<mainAgent|cliAgent>.modelTier.<sonnet|opus|haiku>
+ *   provider.<providerId>.<mainAgent|cliAgent|lane>.modelTier.<sonnet|opus|haiku>
  *
  * Must be file-routed for every provider id (including trademarked ones not
  * declarable in package.json contributes.configuration) so that the scoped
  * writes from the Model Mapping dialog actually persist to ~/.ptah/settings.json.
+ *
+ * The alternation must list EVERY member of `ProviderTierScope`
+ * (`libs/shared/src/lib/types/rpc/rpc-providers.types.ts`). A scope missing
+ * here fails silently in one direction only, which is why it is easy to miss:
+ * reads fall through to the provider entry's `defaultTiers` and look correct,
+ * and only a WRITE is lost — `set()` is routed to a store that does not own
+ * the key, no error is raised, and the next read serves the default as if the
+ * user had never remapped the tier. `'lane'` (TASK_2026_180, background skill
+ * lanes) was absent for exactly one batch for this reason.
  */
 const PROVIDER_SCOPED_TIER_PATTERN =
-  /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
+  /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent|lane)\.modelTier\.(sonnet|opus|haiku)$/;
 
 const SCOPED_SETTING_PREFIX_PATTERN = /^(app|workspace)\./;
 

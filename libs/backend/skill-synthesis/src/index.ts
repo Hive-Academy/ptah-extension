@@ -32,8 +32,43 @@ export {
   INTERNAL_QUERY_SERVICE_TOKEN,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
   SESSION_ACTIVITY_REGISTRY_TOKEN,
+  PROVIDER_AUTH_RESOLVER_TOKEN,
   type SkillSynthesisDIToken,
 } from './lib/di/tokens';
+export {
+  SKILL_LANE_IDS,
+  LANE_AUTH_RETRY_MS,
+  type SkillLaneId,
+  type SkillLaneTier,
+  type SkillLaneConfig,
+  type LaneAuthOverride,
+  type ResolvedSkillLane,
+  type SkillLaneFailureKind,
+  type SkillLaneFailure,
+  type SkillLaneResolution,
+} from './lib/lanes/lane.types';
+export {
+  PROVIDER_AUTH_ERROR_NAME,
+  type ILaneAuthResolver,
+  type LaneTierScope,
+} from './lib/lanes/lane-auth-resolver.port';
+export {
+  SKILL_LANE_SECTION,
+  SKILL_LANE_FIELDS,
+  SKILL_LANE_KEYS,
+  SKILL_LANE_DEFAULTS,
+  SKILL_LANE_PREFIXES,
+  maxLaneTimeoutMs,
+  readSkillLane,
+  readSkillLanes,
+  flattenSkillLanes,
+  type SkillLaneField,
+  type SkillLanesPatch,
+} from './lib/lanes/skill-lane-config';
+export {
+  LaneResolverService,
+  resolveLaneModel,
+} from './lib/lanes/lane-resolver.service';
 export { registerSkillSynthesisServices } from './lib/di/register';
 export {
   migrateSkillMdFiles,
@@ -168,6 +203,21 @@ export {
   type SkillStageHandler,
   type SkillStageResult,
 } from './lib/queue/skill-drain.service';
+export {
+  EVIDENCE_CLASSES,
+  FRICTION_KINDS,
+  SESSION_VERDICT_DEGRADED_REASONS,
+  SESSION_VERDICT_JSON_SCHEMA,
+  isEvidenceClass,
+  type EvidenceClass,
+  type FrictionKind,
+  type FrictionEntry,
+  type RoutineDraft,
+  type SessionVerdict,
+  type SessionVerdictInput,
+  type SessionVerdictDraft,
+} from './lib/archaeology/session-verdict.types';
+export { SessionVerdictStore } from './lib/archaeology/session-verdict.store';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,
@@ -178,8 +228,17 @@ export type {
   SkillSynthesisDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
 
-export { JUDGE_DEFAULT_MODEL_ID } from './lib/types';
+export {
+  JUDGE_DEFAULT_MODEL_ID,
+  JUDGE_STATUSES,
+  unjudgedVerdictFields,
+} from './lib/types';
 export type {
+  JudgeStatus,
+  JudgeCriterionScores,
+  JudgeVerdict,
+  JudgeVerdictFields,
+  JudgedCandidateRow,
   SkillId,
   CandidateId,
   SkillStatus,

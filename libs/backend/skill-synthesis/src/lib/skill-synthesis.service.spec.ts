@@ -13,6 +13,7 @@ import type { SkillMdGenerator } from './skill-md-generator';
 import type { SkillPromotionService } from './skill-promotion.service';
 import type { TrajectoryExtractor } from './trajectory-extractor';
 import type { CandidateId, SkillCandidateRow } from './types';
+import { unjudgedVerdictFields } from './types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -41,6 +42,7 @@ function fakeRow(
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    ...unjudgedVerdictFields(),
     ...overrides,
   };
 }

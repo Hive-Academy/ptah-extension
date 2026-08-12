@@ -57,6 +57,30 @@ describe('isFileBasedSettingKey', () => {
       ).toBe(true);
     });
 
+    // TASK_2026_180. `'lane'` is the third ProviderTierScope member, read by
+    // `ProviderAuthResolver.buildTierValues(id, 'lane')` for background skill
+    // lanes. It was missing from the alternation for one batch, and the way it
+    // failed is the reason this block exists: a MISSING scope breaks writes
+    // only. Reads fell through to the provider entry's `defaultTiers` and
+    // looked entirely correct, so nothing surfaced until something persisted a
+    // lane tier — at which point the write went to a store that does not own
+    // the key, raised nothing, and the next read served the default back as if
+    // the remap had never happened.
+    it.each(['sonnet', 'opus', 'haiku'] as const)(
+      'returns true for lane tier pattern .lane.modelTier.%s',
+      (tier) => {
+        expect(
+          isFileBasedSettingKey(`provider.openrouter.lane.modelTier.${tier}`),
+        ).toBe(true);
+      },
+    );
+
+    it('routes lane tier keys for provider ids carrying a hyphen', () => {
+      expect(
+        isFileBasedSettingKey('provider.lm-studio.lane.modelTier.haiku'),
+      ).toBe(true);
+    });
+
     it('returns false for unknown scope segments', () => {
       expect(
         isFileBasedSettingKey(

@@ -21,7 +21,10 @@ import {
   type SqliteStatement,
 } from '@ptah-extension/persistence-sqlite';
 import {
+  JUDGE_STATUSES,
   type CandidateId,
+  type JudgeStatus,
+  type JudgeVerdict,
   type NewCandidateInput,
   type RegisterCandidateResult,
   type SkillCandidateRow,
@@ -33,85 +36,6 @@ import {
   type GradedInvocationRow,
 } from './types';
 import { cosineSimilarity } from './cosine-similarity';
-
-/**
- * The judge verdict vocabulary (migration `0033`).
- *
- * THIS UNION IS THE ONLY ENFORCEMENT THERE IS. `0033` deliberately ships
- * `judge_status` with NO `CHECK` constraint: SQLite cannot widen a CHECK with
- * `ALTER TABLE`, and phases 3/4 add scoring paths, so the vocabulary is not
- * knowable up front. The price of that choice is that the store — the single
- * gate every read and write passes through — has to do the enforcing, on BOTH
- * edges: `recordJudgeVerdict` rejects a non-member, and `toCandidateRow`
- * refuses to hand an unrecognized string to a consumer that has been told the
- * type is this union.
- */
-export const JUDGE_STATUSES = ['scored', 'unscored', 'disabled'] as const;
-
-export type JudgeStatus = (typeof JUDGE_STATUSES)[number];
-
-/**
- * The five criteria `SkillJudgeService` scores. Persisted individually rather
- * than only as an average so the UI can render a scorecard, and so a verdict
- * that is strong on novelty but weak on scope is legible instead of collapsed
- * into one number. `null` per criterion means "this criterion was not scored".
- */
-export interface JudgeCriterionScores {
-  novelty: number | null;
-  actionability: number | null;
-  scope: number | null;
-  generalization: number | null;
-  triggerClarity: number | null;
-}
-
-/**
- * A judge outcome as written by the promotion gate.
- *
- * `score: null` IS THE `unscored` VERDICT — it is not a low score and it is not
- * zero. It is the representation that phase 1 exists to introduce: before it,
- * an LLM error, a rate limit, or an unparseable reply made the judge fail OPEN
- * and fabricate `{ passed: true, score: 10 }`, which the UI then rendered as a
- * genuine perfect verdict. A candidate whose judge call failed must read back
- * as "we do not know", carry the reason, and stay eligible for a retry.
- */
-export interface JudgeVerdict {
-  status: JudgeStatus;
-  /** `null` for every non-`scored` status. Never coalesce this to 0. */
-  score: number | null;
-  /** Why. For `unscored` this is the failure ("rate limited"), not a critique. */
-  reason: string | null;
-  /** Omit entirely when the judge produced no per-criterion breakdown. */
-  criteria?: JudgeCriterionScores;
-  /** Defaults to `Date.now()`. */
-  judgedAt?: number;
-}
-
-/** The `0033` judge columns as they appear on a read row. */
-export interface JudgeVerdictFields {
-  /** `null` = never judged (every row predating `0033`). */
-  judgeStatus: JudgeStatus | null;
-  /** `null` = unscored. Distinct from a genuine `0`. */
-  judgeScore: number | null;
-  judgeReason: string | null;
-  judgeCriteria: JudgeCriterionScores;
-  /** Raw JSON text; phase 3 owns the shape and the parse. Read-only here. */
-  judgePanelRationales: string | null;
-  judgedAt: number | null;
-  /**
-   * Human-readable title. `name` is a slug derived from the first 140
-   * characters of the first user message — it is an internal id and the
-   * SKILL.md folder name, and must never be rendered as a title.
-   */
-  displayName: string | null;
-}
-
-/**
- * A `skill_candidates` row including its judge verdict.
- *
- * This is a widening of `SkillCandidateRow`, not a replacement: every existing
- * consumer that takes a `SkillCandidateRow` keeps compiling unchanged.
- */
-export type JudgedCandidateRow = SkillCandidateRow & JudgeVerdictFields;
 
 interface RawCandidateRow {
   id: string;
@@ -250,13 +174,13 @@ export class SkillCandidateStore {
     return { candidate: row, reused: false };
   }
 
-  findById(id: CandidateId): JudgedCandidateRow | null {
+  findById(id: CandidateId): SkillCandidateRow | null {
     const stmt = this.db.prepare(`SELECT * FROM skill_candidates WHERE id = ?`);
     const raw = stmt.get(id) as RawCandidateRow | undefined;
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  findByTrajectoryHash(hash: string): JudgedCandidateRow | null {
+  findByTrajectoryHash(hash: string): SkillCandidateRow | null {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates WHERE trajectory_hash = ?`,
     );
@@ -264,7 +188,7 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  findByName(name: string): JudgedCandidateRow | null {
+  findByName(name: string): SkillCandidateRow | null {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates WHERE name = ? ORDER BY created_at DESC LIMIT 1`,
     );
@@ -272,7 +196,7 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  listByStatus(status: SkillStatus): JudgedCandidateRow[] {
+  listByStatus(status: SkillStatus): SkillCandidateRow[] {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates
        WHERE status = ?
@@ -295,12 +219,12 @@ export class SkillCandidateStore {
   listActiveOrderedByDecayScore(
     now: number,
     decayRate: number,
-  ): JudgedCandidateRow[] {
+  ): SkillCandidateRow[] {
     const promoted = this.listByStatus('promoted').filter(
       (r) => !r.pinned && r.residency === 'resident',
     );
     if (promoted.length === 0) return [];
-    const scored: Array<{ row: JudgedCandidateRow; score: number }> = [];
+    const scored: Array<{ row: SkillCandidateRow; score: number }> = [];
     for (const row of promoted) {
       const invocations = this.listInvocations(row.id, 1000);
       let score = 0;
@@ -319,7 +243,7 @@ export class SkillCandidateStore {
    * junction layer (description+body no longer fed to the model) but keep their
    * row and SKILL.md for future re-promotion; `resident` is the default.
    */
-  setResidency(id: CandidateId, residency: SkillResidency): JudgedCandidateRow {
+  setResidency(id: CandidateId, residency: SkillResidency): SkillCandidateRow {
     const stmt = this.db.prepare(
       `UPDATE skill_candidates SET residency = ? WHERE id = ?`,
     );
@@ -352,7 +276,7 @@ export class SkillCandidateStore {
    * Active = status='promoted'. Ordered by recency-weighted invocation
    * activity for LRU eviction (most-active first → eviction takes the tail).
    */
-  listActiveOrderedByActivity(now: number): JudgedCandidateRow[] {
+  listActiveOrderedByActivity(now: number): SkillCandidateRow[] {
     const stmt = this.db.prepare(
       `SELECT c.*,
               (
@@ -383,7 +307,7 @@ export class SkillCandidateStore {
       rejectedAt?: number;
       bodyPath?: string;
     } = {},
-  ): JudgedCandidateRow {
+  ): SkillCandidateRow {
     const current = this.findById(id);
     if (!current) {
       throw new Error(`[skill-synthesis] updateStatus: ${id} not found`);
@@ -446,7 +370,7 @@ export class SkillCandidateStore {
   recordJudgeVerdict(
     id: CandidateId,
     verdict: JudgeVerdict,
-  ): JudgedCandidateRow {
+  ): SkillCandidateRow {
     if (!(JUDGE_STATUSES as readonly string[]).includes(verdict.status)) {
       throw new Error(
         `[skill-synthesis] recordJudgeVerdict: unknown judge status '${String(
@@ -507,7 +431,7 @@ export class SkillCandidateStore {
    * whitespace-only name clears the column so the UI falls back rather than
    * rendering a blank title.
    */
-  setDisplayName(id: CandidateId, displayName: string): JudgedCandidateRow {
+  setDisplayName(id: CandidateId, displayName: string): SkillCandidateRow {
     const trimmed = displayName.trim();
     const stmt = this.db.prepare(
       `UPDATE skill_candidates SET display_name = ? WHERE id = ?`,
@@ -970,11 +894,11 @@ export class SkillCandidateStore {
   searchActiveByEmbedding(
     embedding: Float32Array,
     limit = 5,
-  ): Array<{ row: JudgedCandidateRow; similarity: number }> {
+  ): Array<{ row: SkillCandidateRow; similarity: number }> {
     if (!this.vecStatus.available) return [];
     const promoted = this.listByStatus('promoted');
     if (promoted.length === 0) return [];
-    const scored: Array<{ row: JudgedCandidateRow; similarity: number }> = [];
+    const scored: Array<{ row: SkillCandidateRow; similarity: number }> = [];
     for (const row of promoted) {
       if (row.embeddingRowid === null) continue;
       const stored = this.readEmbedding(row.embeddingRowid);
@@ -1077,7 +1001,7 @@ export class SkillCandidateStore {
     return 'unscored';
   }
 
-  private toCandidateRow(raw: RawCandidateRow): JudgedCandidateRow {
+  private toCandidateRow(raw: RawCandidateRow): SkillCandidateRow {
     let sources: string[] = [];
     try {
       const parsed = JSON.parse(raw.source_session_ids) as unknown;

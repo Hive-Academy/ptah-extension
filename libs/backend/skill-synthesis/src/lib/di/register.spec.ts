@@ -12,6 +12,7 @@ import { container as rootContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerSkillSynthesisServices } from './register';
 import {
+  PROVIDER_AUTH_RESOLVER_TOKEN,
   SESSION_ACTIVITY_REGISTRY_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
 } from './tokens';
@@ -54,6 +55,29 @@ describe('registerSkillSynthesisServices', () => {
     );
     expect(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER.description).toBe(
       'PtahSkillForegroundActivityTracker',
+    );
+  });
+
+  it('gives the lane resolver its planned description', () => {
+    expect(SKILL_SYNTHESIS_TOKENS.LANE_RESOLVER_SERVICE.description).toBe(
+      'PtahSkillLaneResolverService',
+    );
+  });
+
+  it('gives the session-verdict store its planned description', () => {
+    expect(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE.description).toBe(
+      'PtahSkillSessionVerdictStore',
+    );
+  });
+
+  it('points the provider-auth token at the SDK resolver symbol', () => {
+    // Same globally-interned symbol as SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER.
+    // This one fails SILENTLY when wrong: the injection is `{isOptional:true}`,
+    // so a typo resolves `null` and every lane quietly ignores its configured
+    // provider and rides the user's foreground credentials instead — which is
+    // precisely the behaviour lanes exist to prevent.
+    expect(PROVIDER_AUTH_RESOLVER_TOKEN).toBe(
+      Symbol.for('SdkProviderAuthResolver'),
     );
   });
 

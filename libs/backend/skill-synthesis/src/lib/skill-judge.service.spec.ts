@@ -11,6 +11,7 @@ import type {
   SkillSynthesisSettings,
   CandidateId,
 } from './types';
+import { unjudgedVerdictFields } from './types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -69,6 +70,7 @@ function fakeCandidate(): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    ...unjudgedVerdictFields(),
   };
 }
 

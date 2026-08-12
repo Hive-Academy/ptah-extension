@@ -42,6 +42,8 @@ import { SkillQueueStore } from '../queue/skill-queue.store';
 import { SkillBudgetStore } from '../queue/skill-budget.store';
 import { ForegroundActivityTracker } from '../queue/foreground-activity.tracker';
 import { SkillDrainService } from '../queue/skill-drain.service';
+import { LaneResolverService } from '../lanes/lane-resolver.service';
+import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
@@ -75,6 +77,8 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillBudgetStore);
   container.registerSingleton(ForegroundActivityTracker);
   container.registerSingleton(SkillDrainService);
+  container.registerSingleton(LaneResolverService);
+  container.registerSingleton(SessionVerdictStore);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -143,6 +147,12 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE, {
     useToken: SkillDrainService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.LANE_RESOLVER_SERVICE, {
+    useToken: LaneResolverService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE, {
+    useToken: SessionVerdictStore,
   });
   container.register(SKILL_REPROPAGATION_TOKEN, {
     useClass: NoOpSkillRepropagation,

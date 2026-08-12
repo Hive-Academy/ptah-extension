@@ -22,12 +22,13 @@
  */
 import 'reflect-metadata';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
+import { SkillCandidateStore } from './skill-candidate.store';
 import {
-  SkillCandidateStore,
   JUDGE_STATUSES,
+  type CandidateId,
   type JudgeStatus,
-} from './skill-candidate.store';
-import type { CandidateId, NewCandidateInput } from './types';
+  type NewCandidateInput,
+} from './types';
 import {
   resolveOpener,
   type TestDatabase,

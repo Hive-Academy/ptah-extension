@@ -45,6 +45,25 @@ export const SESSION_ACTIVITY_REGISTRY_TOKEN = Symbol.for(
   'SdkSessionActivityRegistry',
 );
 
+/**
+ * Cross-library DI token for the provider auth resolver.
+ * Matches SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER =
+ * Symbol.for('SdkProviderAuthResolver').
+ *
+ * The port is declared in `agent-sdk` and implemented in `auth-providers`,
+ * two libs away; referenced by symbol here for the same reason as
+ * INTERNAL_QUERY_SERVICE_TOKEN, and injected `{isOptional: true}` so a CLI or
+ * e2e host that registers neither still resolves `LaneResolverService` — with
+ * every lane riding the active provider, which is the pre-lane behaviour.
+ *
+ * A typo here does NOT fail loudly: the optional injection resolves `null` and
+ * every lane silently ignores its configured provider. `di/register.spec.ts`
+ * pins the symbol for that reason.
+ */
+export const PROVIDER_AUTH_RESOLVER_TOKEN = Symbol.for(
+  'SdkProviderAuthResolver',
+);
+
 export const SKILL_SYNTHESIS_TOKENS = {
   /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
   SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
@@ -92,6 +111,10 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_DRAIN_SERVICE: Symbol.for('PtahSkillSynthesisDrainService'),
   /** ForegroundActivityTracker — ms since the last chat turn, for the backoff gate. */
   FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
+  /** LaneResolverService — lane id → {auth snapshot, model} via the shared auth chain. */
+  LANE_RESOLVER_SERVICE: Symbol.for('PtahSkillLaneResolverService'),
+  /** SessionVerdictStore — the archaeologist's structured per-session verdict (`0034`). */
+  SESSION_VERDICT_STORE: Symbol.for('PtahSkillSessionVerdictStore'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;
