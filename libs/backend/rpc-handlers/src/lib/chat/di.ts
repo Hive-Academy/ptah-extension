@@ -15,6 +15,7 @@
  *   STREAM_BROADCASTER        ← PTAH_CLI
  *   SUBAGENT_CONTEXT_INJECTOR ← PTAH_CLI
  *   SLASH_COMMAND_ROUTER      ← SDK_CONTEXT, STREAM_BROADCASTER
+ *   OUTPUT_STYLE_ACTIVATION   ← (no chat deps; output-styles + settings-core)
  *   SESSION                   ← all of the above
  *
  * Re-exports `CHAT_TOKENS` for ergonomic import at call sites.
@@ -28,6 +29,7 @@ import { ChatPtahCliService } from './ptah-cli/chat-ptah-cli.service';
 import { ChatStreamBroadcaster } from './streaming/chat-stream-broadcaster.service';
 import { ChatSubagentContextInjectorService } from './session/chat-subagent-context-injector.service';
 import { ChatSlashCommandRouterService } from './session/chat-slash-command-router.service';
+import { ChatOutputStyleActivationService } from './session/chat-output-style-activation.service';
 import { ChatSessionService } from './session/chat-session.service';
 
 export { CHAT_TOKENS } from './tokens';
@@ -46,6 +48,10 @@ export function registerChatServices(container: DependencyContainer): void {
   container.registerSingleton(
     CHAT_TOKENS.SLASH_COMMAND_ROUTER,
     ChatSlashCommandRouterService,
+  );
+  container.registerSingleton(
+    CHAT_TOKENS.OUTPUT_STYLE_ACTIVATION,
+    ChatOutputStyleActivationService,
   );
   container.registerSingleton(CHAT_TOKENS.SESSION, ChatSessionService);
 }

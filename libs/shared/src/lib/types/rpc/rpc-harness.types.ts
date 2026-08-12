@@ -5,8 +5,8 @@
  * The harness builder configures: agents, skills, system prompts, MCP servers, and CLAUDE.md.
  */
 
-import { z } from 'zod';
 import type { FlatStreamEventUnion } from '../execution';
+import type { McpInstallTarget, McpServerConfig } from '../mcp-directory.types';
 
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {
@@ -88,9 +88,43 @@ export interface GeneratedSkillSpec {
 
 /** Skill configuration: selected and newly created skills */
 export interface HarnessSkillConfig {
+  /**
+   * IDs of the skills the design selected. Kept as a plain `string[]` — it is
+   * what CLAUDE.md, the system prompt, and the wizard surface render.
+   */
   selectedSkills: string[];
+  /**
+   * Origin metadata for the entries in `selectedSkills`, used to actually
+   * install marketplace skills when the harness is applied. Optional on
+   * purpose: presets written before install support existed — and every
+   * locally-discovered skill — carry only the ID. A selected skill without a
+   * ref is still described in the generated CLAUDE.md; it is just never
+   * installed from skills.sh.
+   */
+  selectedSkillRefs?: HarnessSkillRef[];
   createdSkills: NewSkillDefinition[];
 }
+
+/**
+ * Where a selected skill came from, so `harness:apply` can install it.
+ *
+ * `installSource` is the `owner/repo` slug the skills.sh CLI needs
+ * (`npx skills add <owner/repo> --skill <skillId>`). It is the field that the
+ * search result carries and the bare `selectedSkills` ID throws away.
+ */
+export interface HarnessSkillRef {
+  /** Matches the corresponding entry in `HarnessSkillConfig.selectedSkills`. */
+  skillId: string;
+  /** Origin as reported by `ptah.harness.searchSkills`. */
+  source: 'local' | 'skills.sh';
+  /** `owner/repo` backing a skills.sh skill. Required to install it. */
+  installSource?: string;
+  /** Install scope. Defaults to {@link HARNESS_DEFAULT_SKILL_SCOPE}. */
+  scope?: 'project' | 'global';
+}
+
+/** Install scope used for a harness skill ref that does not specify one. */
+export const HARNESS_DEFAULT_SKILL_SCOPE: 'project' | 'global' = 'project';
 
 /** Definition for a skill created during the wizard flow */
 export interface NewSkillDefinition {
@@ -118,7 +152,25 @@ export interface McpServerEntry {
   url: string;
   description?: string;
   enabled: boolean;
+  /**
+   * Transport config used to actually install the server when the harness is
+   * applied. Optional on purpose: entries discovered from an existing workspace
+   * mcp.json, and presets written before install support existed, carry only
+   * the descriptive fields. An entry without a config is still described in the
+   * generated CLAUDE.md — it is just never installed.
+   */
+  config?: McpServerConfig;
+  /** Config key written into the target mcp.json. Defaults to `name`. */
+  serverKey?: string;
+  /** Where to install. Defaults to `['claude', 'vscode']`. */
+  installTargets?: McpInstallTarget[];
 }
+
+/** Default install targets for a harness MCP entry that does not specify any. */
+export const HARNESS_DEFAULT_MCP_TARGETS: McpInstallTarget[] = [
+  'claude',
+  'vscode',
+];
 
 /** CLAUDE.md generation configuration */
 export interface HarnessClaudeMdConfig {
@@ -354,59 +406,6 @@ export interface HarnessWorkflowPromptParams {
 export interface HarnessWorkflowPromptResponse {
   prompt: string;
 }
-
-/**
- * Zod schema validating a `Partial<HarnessConfig>` at the `proposeConfig` MCP
- * tool boundary. Every field is optional so the agent can stream incremental
- * config decisions; structures are intentionally permissive (the agent owns
- * the authoring contract) while still rejecting non-object payloads.
- */
-export const HarnessConfigUpdatesSchema = z
-  .object({
-    name: z.string(),
-    persona: z
-      .object({
-        label: z.string(),
-        description: z.string(),
-        goals: z.array(z.string()),
-        templateId: z.string().optional(),
-      })
-      .partial(),
-    agents: z
-      .object({
-        enabledAgents: z.record(z.string(), z.unknown()),
-        harnessSubagents: z.array(z.unknown()),
-      })
-      .partial(),
-    skills: z
-      .object({
-        selectedSkills: z.array(z.string()),
-        createdSkills: z.array(z.unknown()),
-      })
-      .partial(),
-    prompt: z
-      .object({
-        systemPrompt: z.string(),
-        enhancedSections: z.record(z.string(), z.string()),
-      })
-      .partial(),
-    mcp: z
-      .object({
-        servers: z.array(z.unknown()),
-        enabledTools: z.record(z.string(), z.array(z.string())),
-      })
-      .partial(),
-    claudeMd: z
-      .object({
-        generateProjectClaudeMd: z.boolean(),
-        customSections: z.record(z.string(), z.string()),
-        previewContent: z.string(),
-      })
-      .partial(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  })
-  .partial();
 
 /** Operation types that can produce streaming events */
 export type HarnessStreamOperation =

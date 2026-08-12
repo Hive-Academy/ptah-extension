@@ -69,6 +69,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'webSearch:', // Web search provider configuration (API key status)
   'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
+  'outputStyle:', // Claude Code output styles (list, get, activate, save, delete, diagnose)
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
   'gateway:', // MCP gateway status, bindings, and messages
   'voice:', // Voice input transcription (chat input mic → Whisper)

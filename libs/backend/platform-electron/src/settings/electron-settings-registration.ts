@@ -24,6 +24,7 @@ import {
   MemorySettings,
   SkillSynthesisSettings,
   CronSettings,
+  TasksSettings,
   MigrationRunner,
   SecretsFileStore,
   WorkspaceScopeResolver,
@@ -122,6 +123,9 @@ export function registerElectronSettings(container: DependencyContainer): void {
   });
   container.register(SETTINGS_TOKENS.CRON_SETTINGS, {
     useValue: new CronSettings(reactiveStore),
+  });
+  container.register(SETTINGS_TOKENS.TASKS_SETTINGS, {
+    useValue: new TasksSettings(reactiveStore),
   });
   const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
   const boundV4 = (dir: string) => runV4Migration(dir, appPrefix);

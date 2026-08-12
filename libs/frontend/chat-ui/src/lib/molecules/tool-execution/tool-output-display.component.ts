@@ -47,7 +47,7 @@ import {
   template: `
     @if (node().toolOutput || editInput()) {
       <div class="mt-1.5">
-        <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">
+        <div class="text-[10px] font-semibold text-base-content-muted mb-0.5">
           Output
         </div>
 

@@ -31,6 +31,8 @@ export * from './rpc/rpc-skill-clone.types';
 
 export * from './rpc/rpc-tasks.types';
 
+export * from './rpc/rpc-output-style.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -258,6 +260,10 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitDiffFileParams,
+  GitDiffFileResult,
+  GitApplyHunksParams,
+  GitApplyHunksResult,
   GitPushParams,
   GitPushResult,
   GitBranchesParams,
@@ -365,6 +371,12 @@ import type {
   SkillSynthesisGetCloneResult,
   SkillSynthesisEnhanceNowParams,
   SkillSynthesisEnhanceNowResult,
+  SkillSynthesisPreviewEnhancementParams,
+  SkillSynthesisPreviewEnhancementResult,
+  SkillSynthesisApplyProposalParams,
+  SkillSynthesisApplyProposalResult,
+  SkillSynthesisGetHistoryBodyParams,
+  SkillSynthesisGetHistoryBodyResult,
   SkillSynthesisRevertEnhancementParams,
   SkillSynthesisRevertEnhancementResult,
   SkillSynthesisRebaseCloneParams,
@@ -484,17 +496,49 @@ import type {
   TasksListResult,
   TasksGetParams,
   TasksGetResult,
+  TasksGetArtifactParams,
+  TasksGetArtifactResult,
   TasksCreateParams,
   TasksCreateResult,
+  TasksSweepParams,
+  TasksSweepResult,
   TasksUpdateStatusParams,
   TasksUpdateStatusResult,
+  TasksUpdateMetadataParams,
+  TasksUpdateMetadataResult,
+  TasksBulkUpdateStatusParams,
+  TasksBulkUpdateStatusResult,
+  TasksBulkUpdateLabelParams,
+  TasksBulkUpdateLabelResult,
   TasksGenerateRegistryParams,
   TasksGenerateRegistryResult,
   TasksBoardParams,
   TasksBoardResult,
   TasksReindexParams,
   TasksReindexResult,
+  TasksAdoptParams,
+  TasksAdoptResult,
+  TasksDoctorPlanParams,
+  TasksDoctorPlanResult,
+  TasksGetViewsParams,
+  TasksGetViewsResult,
+  TasksSaveViewsParams,
+  TasksSaveViewsResult,
 } from './rpc/rpc-tasks.types';
+import type {
+  OutputStyleListParams,
+  OutputStyleListResult,
+  OutputStyleGetParams,
+  OutputStyleGetResult,
+  OutputStyleActivateParams,
+  OutputStyleActivateResult,
+  OutputStyleSaveParams,
+  OutputStyleSaveResult,
+  OutputStyleDeleteParams,
+  OutputStyleDeleteResult,
+  OutputStyleDiagnoseParams,
+  OutputStyleDiagnoseResult,
+} from './rpc/rpc-output-style.types';
 
 /**
  * RPC Method Registry
@@ -508,7 +552,7 @@ import type {
  * If you add a new RPC method:
  * 1. Add its params/result types above
  * 2. Add an entry to this registry
- * 3. Register the handler in RpcMethodRegistrationService
+ * 3. Give it an owner in RPC_HANDLER_MANIFEST (@ptah-extension/rpc-handlers)
  *
  * If a method is not in this registry, it CANNOT be called from frontend.
  */
@@ -848,7 +892,16 @@ export interface RpcMethodRegistry {
     result: PluginConfigState;
   };
   'plugins:save-config': {
-    params: { enabledPluginIds: string[]; disabledSkillIds?: string[] };
+    params: {
+      enabledPluginIds: string[];
+      disabledSkillIds?: string[];
+      /**
+       * Explicit denylist for default-enabled (harness-authored) plugins.
+       * Omit to preserve whatever is already persisted — clients that predate
+       * this field (TUI, CLI) must not clobber it.
+       */
+      disabledPluginIds?: string[];
+    };
     result: { success: boolean; error?: string };
   };
   'plugins:list-skills': {
@@ -1256,6 +1309,11 @@ export interface RpcMethodRegistry {
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
+  'git:diffFile': { params: GitDiffFileParams; result: GitDiffFileResult };
+  'git:applyHunks': {
+    params: GitApplyHunksParams;
+    result: GitApplyHunksResult;
+  };
   'git:push': { params: GitPushParams; result: GitPushResult };
   'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
   'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
@@ -1493,6 +1551,18 @@ export interface RpcMethodRegistry {
   'skillSynthesis:enhanceNow': {
     params: SkillSynthesisEnhanceNowParams;
     result: SkillSynthesisEnhanceNowResult;
+  };
+  'skillSynthesis:previewEnhancement': {
+    params: SkillSynthesisPreviewEnhancementParams;
+    result: SkillSynthesisPreviewEnhancementResult;
+  };
+  'skillSynthesis:applyProposal': {
+    params: SkillSynthesisApplyProposalParams;
+    result: SkillSynthesisApplyProposalResult;
+  };
+  'skillSynthesis:getHistoryBody': {
+    params: SkillSynthesisGetHistoryBodyParams;
+    result: SkillSynthesisGetHistoryBodyResult;
   };
   'skillSynthesis:revertEnhancement': {
     params: SkillSynthesisRevertEnhancementParams;
@@ -1765,10 +1835,30 @@ export interface RpcMethodRegistry {
   };
   'tasks:list': { params: TasksListParams; result: TasksListResult };
   'tasks:get': { params: TasksGetParams; result: TasksGetResult };
+  'tasks:getArtifact': {
+    params: TasksGetArtifactParams;
+    result: TasksGetArtifactResult;
+  };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
+  'tasks:sweepFinished': {
+    params: TasksSweepParams;
+    result: TasksSweepResult;
+  };
   'tasks:updateStatus': {
     params: TasksUpdateStatusParams;
     result: TasksUpdateStatusResult;
+  };
+  'tasks:updateMetadata': {
+    params: TasksUpdateMetadataParams;
+    result: TasksUpdateMetadataResult;
+  };
+  'tasks:bulkUpdateStatus': {
+    params: TasksBulkUpdateStatusParams;
+    result: TasksBulkUpdateStatusResult;
+  };
+  'tasks:bulkUpdateLabel': {
+    params: TasksBulkUpdateLabelParams;
+    result: TasksBulkUpdateLabelResult;
   };
   'tasks:generateRegistry': {
     params: TasksGenerateRegistryParams;
@@ -1776,6 +1866,43 @@ export interface RpcMethodRegistry {
   };
   'tasks:board': { params: TasksBoardParams; result: TasksBoardResult };
   'tasks:reindex': { params: TasksReindexParams; result: TasksReindexResult };
+  'tasks:adopt': { params: TasksAdoptParams; result: TasksAdoptResult };
+  'tasks:doctorPlan': {
+    params: TasksDoctorPlanParams;
+    result: TasksDoctorPlanResult;
+  };
+  'tasks:getViews': {
+    params: TasksGetViewsParams;
+    result: TasksGetViewsResult;
+  };
+  'tasks:saveViews': {
+    params: TasksSaveViewsParams;
+    result: TasksSaveViewsResult;
+  };
+  'outputStyle:list': {
+    params: OutputStyleListParams;
+    result: OutputStyleListResult;
+  };
+  'outputStyle:get': {
+    params: OutputStyleGetParams;
+    result: OutputStyleGetResult;
+  };
+  'outputStyle:activate': {
+    params: OutputStyleActivateParams;
+    result: OutputStyleActivateResult;
+  };
+  'outputStyle:save': {
+    params: OutputStyleSaveParams;
+    result: OutputStyleSaveResult;
+  };
+  'outputStyle:delete': {
+    params: OutputStyleDeleteParams;
+    result: OutputStyleDeleteResult;
+  };
+  'outputStyle:diagnose': {
+    params: OutputStyleDiagnoseParams;
+    result: OutputStyleDiagnoseResult;
+  };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -2768,6 +2895,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:discard': true,
   'git:commit': true,
   'git:showFile': true,
+  'git:diffFile': true,
+  'git:applyHunks': true,
   'git:push': true,
   'git:branches': true,
   'git:checkout': true,
@@ -2842,6 +2971,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:listClones': true,
   'skillSynthesis:getClone': true,
   'skillSynthesis:enhanceNow': true,
+  'skillSynthesis:previewEnhancement': true,
+  'skillSynthesis:applyProposal': true,
+  'skillSynthesis:getHistoryBody': true,
   'skillSynthesis:revertEnhancement': true,
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
@@ -2925,11 +3057,27 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'tasks:list': true,
   'tasks:get': true,
+  'tasks:getArtifact': true,
   'tasks:create': true,
+  'tasks:sweepFinished': true,
   'tasks:updateStatus': true,
+  'tasks:updateMetadata': true,
+  'tasks:bulkUpdateStatus': true,
+  'tasks:bulkUpdateLabel': true,
   'tasks:generateRegistry': true,
   'tasks:board': true,
   'tasks:reindex': true,
+  'tasks:adopt': true,
+  'tasks:doctorPlan': true,
+  'tasks:getViews': true,
+  'tasks:saveViews': true,
+
+  'outputStyle:list': true,
+  'outputStyle:get': true,
+  'outputStyle:activate': true,
+  'outputStyle:save': true,
+  'outputStyle:delete': true,
+  'outputStyle:diagnose': true,
 };
 
 /**

@@ -38,7 +38,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       />
       <div class="flex flex-col min-w-0 flex-1 gap-0.5">
         <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-semibold text-base-content/80">
+          <span class="text-xs font-semibold text-base-content-muted">
             {{ actionLabel() }}
           </span>
           @if (status(); as s) {
@@ -48,14 +48,17 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           }
           @if (taskId(); as id) {
             <span
-              class="text-[10px] font-mono text-base-content/40 truncate max-w-[10rem]"
+              class="text-[10px] font-mono text-base-content-muted truncate max-w-[10rem]"
               [title]="id"
               >{{ id }}</span
             >
           }
         </div>
         @if (title(); as t) {
-          <span class="text-[11px] text-base-content/60 truncate" [title]="t">
+          <span
+            class="text-[11px] text-base-content-muted truncate"
+            [title]="t"
+          >
             {{ t }}
           </span>
         }

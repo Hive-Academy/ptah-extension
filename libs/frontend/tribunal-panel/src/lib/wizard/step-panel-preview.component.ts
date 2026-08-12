@@ -19,10 +19,11 @@ import {
   WebviewNavigationService,
   EffortStateService,
 } from '@ptah-extension/core';
-import type { ProviderModelInfo, EffortLevel } from '@ptah-extension/shared';
+import type { EffortLevel } from '@ptah-extension/shared';
 import {
   TribunalDiscoveryService,
   type DiscoveredVendor,
+  type TribunalModelOption,
 } from '../services/tribunal-discovery.service';
 import {
   laneBaseKey,
@@ -57,7 +58,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <h3 class="text-base font-semibold text-base-content">
             Assemble the panel
           </h3>
-          <p class="text-sm text-base-content/55">
+          <p class="text-sm text-base-content-muted">
             Add vendors and pick a model per lane. The same vendor can appear
             multiple times. Up to {{ maxVendors }} lanes.
           </p>
@@ -86,7 +87,8 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content">{{
             selectedCount()
           }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Lanes</span
           >
         </div>
@@ -95,7 +97,8 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content">{{
             availableCount()
           }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Available</span
           >
         </div>
@@ -104,7 +107,8 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content"
             >{{ selectedCount() }}/{{ maxVendors }}</span
           >
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Cap</span
           >
         </div>
@@ -113,13 +117,15 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="text-lg font-semibold tabular-nums text-base-content"
             >~{{ estimatedTurns() }}</span
           >
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Est. turns</span
           >
         </div>
 
         <label class="ml-auto flex flex-col gap-1">
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Effort</span
           >
           <select
@@ -137,7 +143,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
       </div>
 
       <div
-        class="flex items-start gap-2 rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-base-content/60"
+        class="flex items-start gap-2 rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-base-content-muted"
       >
         <lucide-angular
           [img]="InfoIcon"
@@ -176,7 +182,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
               @if (modelOptionsForLane(lane).length > 0) {
                 <label class="flex flex-col gap-1">
                   <span
-                    class="text-[10px] uppercase tracking-wide text-base-content/45"
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
                     >Model</span
                   >
                   <select
@@ -191,11 +197,11 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                   </select>
                 </label>
               } @else if (laneSupportsModel(lane)) {
-                <span class="text-[11px] text-base-content/50">
+                <span class="text-[11px] text-base-content-muted">
                   {{ lane.model ?? 'Provider default model' }}
                 </span>
               } @else {
-                <span class="text-[11px] text-base-content/50">
+                <span class="text-[11px] text-base-content-muted">
                   No model selection for this vendor.
                 </span>
               }
@@ -209,12 +215,13 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
           <span class="loading loading-dots loading-md"></span>
         </div>
       } @else if (vendors().length === 0) {
-        <p class="py-6 text-center text-sm text-base-content/50">
+        <p class="py-6 text-center text-sm text-base-content-muted">
           No vendors discovered. Install a CLI agent to convene a panel.
         </p>
       } @else {
         <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          <span
+            class="text-[10px] uppercase tracking-wide text-base-content-muted"
             >Add a lane</span
           >
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -239,7 +246,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                     class="truncate text-sm font-medium text-base-content"
                     >{{ vendor.lane.displayName }}</span
                   >
-                  <span class="text-[11px] text-base-content/50">
+                  <span class="text-[11px] text-base-content-muted">
                     {{ statusText(vendor) }}
                   </span>
                 </span>
@@ -247,7 +254,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                   <span
                     role="link"
                     tabindex="0"
-                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content/70 hover:border-primary hover:text-primary"
+                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content-muted hover:border-primary hover:text-primary"
                     [attr.aria-label]="'Configure ' + vendor.lane.displayName"
                     (click)="configure($event, vendor)"
                     (keydown.enter)="configure($event, vendor)"
@@ -262,7 +269,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                   </span>
                 } @else {
                   <span
-                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content/60"
+                    class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content-muted"
                   >
                     <lucide-angular
                       [img]="AddIcon"
@@ -323,7 +330,7 @@ export class StepPanelPreviewComponent {
   private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
   private readonly _loading = signal(false);
   private readonly _modelsByBase = signal<
-    ReadonlyMap<string, readonly ProviderModelInfo[]>
+    ReadonlyMap<string, readonly TribunalModelOption[]>
   >(new Map());
 
   protected readonly vendors = this._vendors.asReadonly();
@@ -376,7 +383,7 @@ export class StepPanelPreviewComponent {
 
   protected modelOptionsForLane(
     lane: VendorLane,
-  ): readonly ProviderModelInfo[] {
+  ): readonly TribunalModelOption[] {
     return this._modelsByBase().get(laneBaseKey(lane)) ?? [];
   }
 

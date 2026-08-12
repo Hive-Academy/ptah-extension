@@ -31,7 +31,7 @@ It returns candidate servers with installation snippets you can paste into your 
 To confirm a server was picked up, list the connected servers and their tool catalogs:
 
 ```text
-harness_list_installed_mcp
+ptah_harness_list_installed_mcp
 ```
 
 The **Settings → MCP** panel shows the same information with per-server logs and a **Reconnect** button.

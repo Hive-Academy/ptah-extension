@@ -67,7 +67,7 @@ import type {
           </button>
         </div>
 
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Headless agents (Codex CLI, Copilot, Cursor, Antigravity, opencode,
           Pi) for parallel task execution.
         </p>
@@ -80,7 +80,7 @@ import type {
         <!-- Loading state -->
         @if (agentConfigLoading()) {
           <div
-            class="flex items-center gap-2 text-xs text-base-content/50 py-2"
+            class="flex items-center gap-2 text-xs text-base-content-muted py-2"
           >
             <span class="loading loading-spinner loading-xs"></span>
             <span>Loading agent config...</span>
@@ -93,14 +93,14 @@ import type {
             class="border border-base-300/30 rounded bg-base-200/20 p-2.5 mb-3"
           >
             <div
-              class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide mb-2"
+              class="text-[10px] font-medium text-base-content-muted uppercase tracking-wide mb-2"
             >
               Settings
             </div>
 
             <!-- Preferred Agent Order -->
             <div class="mb-2.5">
-              <span class="text-[10px] text-base-content/50 mb-1 block">
+              <span class="text-[10px] text-base-content-muted mb-1 block">
                 Preferred Agent Order
               </span>
               @if (orderedAgents().length > 0) {
@@ -123,7 +123,7 @@ import type {
                       />
                       <lucide-angular
                         [img]="TerminalIcon"
-                        class="w-3 h-3 text-base-content/50 shrink-0"
+                        class="w-3 h-3 text-base-content-muted shrink-0"
                       />
                       <span class="text-[11px] flex-1 truncate">{{
                         agent.name
@@ -161,11 +161,11 @@ import type {
                     </div>
                   }
                 </div>
-                <p class="text-[9px] text-base-content/30 mt-1">
+                <p class="text-[9px] text-base-content-muted mt-1">
                   First available agent is used when no CLI is specified.
                 </p>
               } @else {
-                <p class="text-[10px] text-base-content/40 italic">
+                <p class="text-[10px] text-base-content-muted italic">
                   No agents detected. Install a CLI or add a Ptah CLI agent.
                 </p>
               }
@@ -176,11 +176,11 @@ import type {
               <div class="flex items-center justify-between mb-0.5">
                 <label
                   for="agent-max-concurrent"
-                  class="text-[10px] text-base-content/50"
+                  class="text-[10px] text-base-content-muted"
                 >
                   Max Concurrent Agents
                 </label>
-                <span class="text-[10px] text-base-content/40">
+                <span class="text-[10px] text-base-content-muted">
                   {{ agentConfig()?.maxConcurrentAgents }}
                 </span>
               </div>
@@ -194,7 +194,7 @@ import type {
                 class="range range-xs range-secondary"
               />
               <div
-                class="flex justify-between text-[10px] text-base-content/40 px-0.5"
+                class="flex justify-between text-[10px] text-base-content-muted px-0.5"
               >
                 <span>1</span>
                 <span>5</span>
@@ -208,7 +208,7 @@ import type {
             class="border border-base-300/30 rounded bg-base-200/20 p-2.5 mb-3"
           >
             <div
-              class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide mb-2"
+              class="text-[10px] font-medium text-base-content-muted uppercase tracking-wide mb-2"
             >
               System CLIs
             </div>
@@ -227,7 +227,7 @@ import type {
                     <div class="flex items-center gap-2">
                       <lucide-angular
                         [img]="ChevronRightIcon"
-                        class="w-3 h-3 text-base-content/40 transition-transform duration-150"
+                        class="w-3 h-3 text-base-content-muted transition-transform duration-150"
                         [class.rotate-90]="isCliExpanded(cli.cli)"
                       />
                       <lucide-angular
@@ -291,7 +291,7 @@ import type {
                         <div class="mt-2">
                           <label
                             for="agent-codex-model"
-                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mb-0.5 block"
                           >
                             Model
                           </label>
@@ -320,7 +320,7 @@ import type {
 
                           <label
                             for="agent-codex-reasoning"
-                            class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
                           >
                             Reasoning Effort
                           </label>
@@ -347,10 +347,10 @@ import type {
 
                           <div class="flex items-center justify-between mt-2">
                             <div>
-                              <span class="text-[10px] text-base-content/50"
+                              <span class="text-[10px] text-base-content-muted"
                                 >Permissions</span
                               >
-                              <p class="text-[9px] text-base-content/30">
+                              <p class="text-[9px] text-base-content-muted">
                                 Full auto — Codex runs headless with full access
                               </p>
                             </div>
@@ -363,7 +363,7 @@ import type {
                         <div class="mt-2">
                           <label
                             for="agent-copilot-model"
-                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mb-0.5 block"
                           >
                             Model
                           </label>
@@ -392,7 +392,7 @@ import type {
 
                           <label
                             for="agent-copilot-reasoning"
-                            class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
                           >
                             Reasoning Effort
                           </label>
@@ -421,10 +421,10 @@ import type {
 
                           <div class="flex items-center justify-between mt-2">
                             <div>
-                              <span class="text-[10px] text-base-content/50"
+                              <span class="text-[10px] text-base-content-muted"
                                 >Auto-approve tools</span
                               >
-                              <p class="text-[9px] text-base-content/30">
+                              <p class="text-[9px] text-base-content-muted">
                                 Skip permission prompts for all tool calls
                               </p>
                             </div>
@@ -444,7 +444,7 @@ import type {
                         <div class="mt-2">
                           <label
                             for="agent-cursor-apikey"
-                            class="text-[10px] text-base-content/50 mb-0.5 flex items-center gap-1"
+                            class="text-[10px] text-base-content-muted mb-0.5 flex items-center gap-1"
                           >
                             <lucide-angular
                               [img]="KeyRoundIcon"
@@ -488,7 +488,7 @@ import type {
                               }
                             </button>
                           </div>
-                          <p class="text-[9px] text-base-content/30 mt-1">
+                          <p class="text-[9px] text-base-content-muted mt-1">
                             Create a key at cursor.com → Dashboard →
                             Integrations. Stored in
                             <code>~/.ptah/settings.json</code>; the
@@ -497,7 +497,7 @@ import type {
 
                           <label
                             for="agent-cursor-model"
-                            class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
                           >
                             Model
                           </label>
@@ -527,10 +527,10 @@ import type {
 
                           <div class="flex items-center justify-between mt-2">
                             <div>
-                              <span class="text-[10px] text-base-content/50"
+                              <span class="text-[10px] text-base-content-muted"
                                 >Permissions</span
                               >
-                              <p class="text-[9px] text-base-content/30">
+                              <p class="text-[9px] text-base-content-muted">
                                 Full auto — Cursor runs headless with full
                                 access
                               </p>
@@ -545,7 +545,7 @@ import type {
                         <div class="mt-2">
                           <label
                             for="agent-antigravity-model"
-                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mb-0.5 block"
                           >
                             Model
                           </label>
@@ -577,10 +577,10 @@ import type {
 
                           <div class="flex items-center justify-between mt-2">
                             <div>
-                              <span class="text-[10px] text-base-content/50"
+                              <span class="text-[10px] text-base-content-muted"
                                 >Permissions</span
                               >
-                              <p class="text-[9px] text-base-content/30">
+                              <p class="text-[9px] text-base-content-muted">
                                 Full auto — Antigravity runs headless with full
                                 access
                               </p>
@@ -595,7 +595,7 @@ import type {
                         <div class="mt-2">
                           <label
                             for="agent-opencode-model"
-                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mb-0.5 block"
                           >
                             Model
                           </label>
@@ -621,17 +621,17 @@ import type {
                               </option>
                             }
                           </select>
-                          <p class="text-[9px] text-base-content/30 mt-1">
+                          <p class="text-[9px] text-base-content-muted mt-1">
                             Model id uses <code>provider/model</code> format
                             (e.g. <code>anthropic/claude-sonnet-4-5</code>).
                           </p>
 
                           <div class="flex items-center justify-between mt-2">
                             <div>
-                              <span class="text-[10px] text-base-content/50"
+                              <span class="text-[10px] text-base-content-muted"
                                 >Permissions</span
                               >
-                              <p class="text-[9px] text-base-content/30">
+                              <p class="text-[9px] text-base-content-muted">
                                 Full auto — opencode runs headless with
                                 <code>--auto</code>
                               </p>
@@ -645,7 +645,7 @@ import type {
                         <div class="mt-2">
                           <label
                             for="agent-pi-model"
-                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mb-0.5 block"
                           >
                             Model
                           </label>
@@ -672,7 +672,7 @@ import type {
 
                           <label
                             for="agent-pi-reasoning"
-                            class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+                            class="text-[10px] text-base-content-muted mt-2 mb-0.5 block"
                           >
                             Reasoning Effort
                           </label>
@@ -698,10 +698,10 @@ import type {
 
                           <div class="flex items-center justify-between mt-2">
                             <div>
-                              <span class="text-[10px] text-base-content/50"
+                              <span class="text-[10px] text-base-content-muted"
                                 >Permissions</span
                               >
-                              <p class="text-[9px] text-base-content/30">
+                              <p class="text-[9px] text-base-content-muted">
                                 No approval gate and no MCP support — Pi always
                                 runs tools with full process permissions.
                               </p>
@@ -720,16 +720,16 @@ import type {
               <div
                 class="border border-warning/30 rounded p-2.5 mt-2 bg-warning/5"
               >
-                <p class="text-xs text-base-content/60 mb-1.5">
+                <p class="text-xs text-base-content-muted mb-1.5">
                   No CLI agents found. Install one to enable agent
                   orchestration:
                 </p>
                 <div class="flex flex-col gap-1 text-xs">
-                  <span class="text-base-content/50">
+                  <span class="text-base-content-muted">
                     Codex CLI:
                     <code>npm install -g &#64;openai/codex</code>
                   </span>
-                  <span class="text-base-content/50">
+                  <span class="text-base-content-muted">
                     Copilot:
                     <code>npm install -g &#64;github/copilot</code>
                   </span>

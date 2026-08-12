@@ -10,7 +10,38 @@
 
 import { TestBed } from '@angular/core/testing';
 import { FilePickerService, FileSuggestion } from './file-picker.service';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  VSCodeService,
+  type WebviewConfig,
+} from '@ptah-extension/core';
+
+/**
+ * Backend `ContextFileInfo` shape as returned by `context:getAllFiles` /
+ * `context:getFileSuggestions`, before FilePickerService maps it to
+ * FileSuggestion.
+ */
+function backendFile(name: string, dir = 'src') {
+  return {
+    uri: `/workspace/${dir}/${name}`,
+    fsPath: `/workspace/${dir}/${name}`,
+    relativePath: `${dir}/${name}`,
+    fileName: name,
+    fileType: 'file',
+    size: 100,
+    lastModified: 1,
+    isDirectory: false,
+  };
+}
+
+/** A deferred whose resolution the test controls, to park an in-flight RPC. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 
 /**
  * Factory to create FileSuggestion test data
@@ -33,20 +64,33 @@ function createFileSuggestion(
 
 describe('FilePickerService', () => {
   let service: FilePickerService;
+  let workspaceRoot: string;
 
   // Mock ClaudeRpcService - only used for fetchWorkspaceFiles, not searchFiles
   const mockRpcService = {
-    call: jest.fn().mockResolvedValue({ success: false, data: null }),
+    call: jest.fn(),
   };
 
   beforeEach(() => {
+    mockRpcService.call.mockReset();
+    mockRpcService.call.mockResolvedValue({ success: false, data: null });
+    workspaceRoot = 'D:\\ws\\alpha';
+    const mockVsCode = {
+      config: () => ({ workspaceRoot }) as WebviewConfig,
+    } as unknown as VSCodeService;
+
     TestBed.configureTestingModule({
       providers: [
         FilePickerService,
         { provide: ClaudeRpcService, useValue: mockRpcService },
+        { provide: VSCodeService, useValue: mockVsCode },
       ],
     });
     service = TestBed.inject(FilePickerService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
   });
 
   it('should be created', () => {
@@ -581,6 +625,327 @@ describe('FilePickerService', () => {
   // ============================================================================
   // OTHER SERVICE METHODS
   // ============================================================================
+
+  // ============================================================================
+  // WORKSPACE SWITCH INVALIDATION (TASK_2026_200, criterion 11)
+  // ============================================================================
+
+  /** Read the private TTL stamp — 0 means "nothing the TTL may vouch for". */
+  function lastUpdate(svc: FilePickerService): number {
+    return (svc as unknown as { _lastUpdate: () => number })._lastUpdate();
+  }
+
+  describe('switchWorkspace() cache invalidation', () => {
+    it('refetches inside the 5-minute TTL after a switch instead of serving the cached list', async () => {
+      mockRpcService.call.mockResolvedValueOnce({
+        success: true,
+        data: { files: [backendFile('alpha-only.ts')] },
+      });
+      await service.ensureFilesLoaded();
+      expect(service.workspaceFiles().map((f) => f.name)).toEqual([
+        'alpha-only.ts',
+      ]);
+      expect(mockRpcService.call).toHaveBeenCalledTimes(1);
+
+      service.switchWorkspace('D:\\ws\\beta');
+      workspaceRoot = 'D:\\ws\\beta';
+      mockRpcService.call.mockResolvedValueOnce({
+        success: true,
+        data: { files: [backendFile('beta-only.ts')] },
+      });
+
+      // No clock advanced: this is opened well inside the 5-minute TTL — the
+      // exact window in which the pre-fix picker served the previous
+      // workspace's files.
+      await service.ensureFilesLoaded();
+
+      expect(mockRpcService.call).toHaveBeenCalledTimes(2);
+      expect(service.workspaceFiles().map((f) => f.name)).toEqual([
+        'beta-only.ts',
+      ]);
+      expect(mockRpcService.call).toHaveBeenLastCalledWith(
+        'context:getAllFiles',
+        expect.objectContaining({ workspaceRoot: 'D:\\ws\\beta' }),
+      );
+    });
+
+    it('resets the TTL stamp so an emptied list cannot be vouched for', () => {
+      mockRpcService.call.mockResolvedValueOnce({
+        success: true,
+        data: { files: [backendFile('alpha-only.ts')] },
+      });
+      return service.fetchWorkspaceFiles().then(() => {
+        expect(lastUpdate(service)).toBeGreaterThan(0);
+        service.switchWorkspace('D:\\ws\\beta');
+        expect(lastUpdate(service)).toBe(0);
+        expect(service.workspaceFiles()).toEqual([]);
+      });
+    });
+
+    it('clears remote results, the searching flag and the fetch error', () => {
+      const svc = service as unknown as {
+        _remoteResults: { set: (v: FileSuggestion[]) => void };
+        _isRemoteSearching: { set: (v: boolean) => void };
+        _fetchError: { set: (v: string | null) => void };
+      };
+      svc._remoteResults.set([createFileSuggestion({ name: 'stale.ts' })]);
+      svc._isRemoteSearching.set(true);
+      svc._fetchError.set('alpha blew up');
+
+      service.switchWorkspace('D:\\ws\\beta');
+
+      expect(service.remoteResults()).toEqual([]);
+      expect(service.isRemoteSearching()).toBe(false);
+      expect(service.fetchError()).toBeNull();
+    });
+
+    it('does not discard the user\u2019s already-attached files', () => {
+      const svc = service as unknown as {
+        _includedFiles: { set: (v: unknown[]) => void };
+      };
+      svc._includedFiles.set([{ path: '/workspace/src/attached.ts' }]);
+
+      service.switchWorkspace('D:\\ws\\beta');
+
+      expect(service.includedFiles()).toHaveLength(1);
+    });
+  });
+
+  // ============================================================================
+  // IN-FLIGHT INVALIDATION — the response that lands AFTER the switch
+  // ============================================================================
+
+  describe('switchWorkspace() invalidates in-flight reads', () => {
+    it('drops a pre-switch context:getAllFiles response that resolves after the switch', async () => {
+      const inFlight = deferred<{ success: boolean; data: unknown }>();
+      mockRpcService.call.mockReturnValueOnce(inFlight.promise);
+
+      const fetching = service.fetchWorkspaceFiles();
+      service.switchWorkspace('D:\\ws\\beta');
+
+      // Alpha's response comes back only now — after the cache was cleared.
+      inFlight.resolve({
+        success: true,
+        data: { files: [backendFile('alpha-only.ts')] },
+      });
+      await fetching;
+
+      expect(service.workspaceFiles()).toEqual([]);
+      // Critically, the TTL must not have been armed either: a stale response
+      // that re-published alpha's list WITH a fresh stamp would then be served
+      // for the next five minutes.
+      expect(lastUpdate(service)).toBe(0);
+    });
+
+    it('lets the next open refetch after a stale response was dropped', async () => {
+      const inFlight = deferred<{ success: boolean; data: unknown }>();
+      mockRpcService.call.mockReturnValueOnce(inFlight.promise);
+
+      const fetching = service.fetchWorkspaceFiles();
+      service.switchWorkspace('D:\\ws\\beta');
+      inFlight.resolve({
+        success: true,
+        data: { files: [backendFile('alpha-only.ts')] },
+      });
+      await fetching;
+
+      mockRpcService.call.mockResolvedValueOnce({
+        success: true,
+        data: { files: [backendFile('beta-only.ts')] },
+      });
+      await service.ensureFilesLoaded();
+
+      expect(service.workspaceFiles().map((f) => f.name)).toEqual([
+        'beta-only.ts',
+      ]);
+    });
+
+    it('does not surface a pre-switch failure as the new workspace\u2019s error', async () => {
+      const inFlight = deferred<{ success: boolean; data: unknown }>();
+      mockRpcService.call.mockReturnValueOnce(inFlight.promise);
+
+      const fetching = service.fetchWorkspaceFiles();
+      service.switchWorkspace('D:\\ws\\beta');
+      inFlight.resolve({ success: false, data: undefined });
+      await fetching;
+
+      expect(service.fetchError()).toBeNull();
+    });
+
+    it('does not let a stale fetch clear the loading flag of the post-switch fetch', async () => {
+      const stale = deferred<{ success: boolean; data: unknown }>();
+      const fresh = deferred<{ success: boolean; data: unknown }>();
+      mockRpcService.call
+        .mockReturnValueOnce(stale.promise)
+        .mockReturnValueOnce(fresh.promise);
+
+      const staleFetch = service.fetchWorkspaceFiles();
+      service.switchWorkspace('D:\\ws\\beta');
+      const freshFetch = service.fetchWorkspaceFiles();
+      expect(service.isLoading()).toBe(true);
+
+      stale.resolve({
+        success: true,
+        data: { files: [backendFile('alpha-only.ts')] },
+      });
+      await staleFetch;
+
+      // Beta's fetch is still in flight — the stale settle must not report it
+      // as finished, nor publish alpha's files.
+      expect(service.isLoading()).toBe(true);
+      expect(service.workspaceFiles()).toEqual([]);
+
+      fresh.resolve({
+        success: true,
+        data: { files: [backendFile('beta-only.ts')] },
+      });
+      await freshFetch;
+
+      expect(service.isLoading()).toBe(false);
+      expect(service.workspaceFiles().map((f) => f.name)).toEqual([
+        'beta-only.ts',
+      ]);
+    });
+
+    it('cancels a debounced remote search that has not fired yet', () => {
+      jest.useFakeTimers();
+      try {
+        service.searchFilesRemote('alpha');
+        service.switchWorkspace('D:\\ws\\beta');
+        jest.advanceTimersByTime(1000);
+        expect(mockRpcService.call).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('drops a pre-switch context:getFileSuggestions response that resolves after the switch', async () => {
+      jest.useFakeTimers();
+      try {
+        const inFlight = deferred<{ success: boolean; data: unknown }>();
+        mockRpcService.call.mockReturnValueOnce(inFlight.promise);
+
+        service.searchFilesRemote('alpha');
+        jest.advanceTimersByTime(200); // debounce fires, RPC issued
+        await Promise.resolve();
+
+        service.switchWorkspace('D:\\ws\\beta');
+
+        inFlight.resolve({
+          success: true,
+          data: { files: [backendFile('alpha-only.ts')] },
+        });
+        for (let i = 0; i < 5; i++) {
+          await Promise.resolve();
+        }
+
+        expect(service.remoteResults()).toEqual([]);
+        expect(service.isRemoteSearching()).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  // ============================================================================
+  // WORKSPACE-SCOPED CALL SITES (TASK_2026_200, criterion 9 call-site half)
+  // ============================================================================
+
+  describe('workspace-scoped RPC params', () => {
+    it('context:getAllFiles carries the active workspaceRoot', async () => {
+      mockRpcService.call.mockResolvedValueOnce({
+        success: true,
+        data: { files: [] },
+      });
+
+      await service.fetchWorkspaceFiles();
+
+      expect(mockRpcService.call).toHaveBeenCalledWith('context:getAllFiles', {
+        includeImages: false,
+        limit: 1000,
+        workspaceRoot: 'D:\\ws\\alpha',
+      });
+    });
+
+    it('context:getAllFiles omits workspaceRoot when unset — never sends ""', async () => {
+      workspaceRoot = '';
+      mockRpcService.call.mockResolvedValueOnce({
+        success: true,
+        data: { files: [] },
+      });
+
+      await service.fetchWorkspaceFiles();
+
+      const params = mockRpcService.call.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect('workspaceRoot' in params).toBe(false);
+      expect(params).toEqual({ includeImages: false, limit: 1000 });
+    });
+
+    it('context:getFileSuggestions carries the active workspaceRoot', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRpcService.call.mockResolvedValue({
+          success: true,
+          data: { files: [] },
+        });
+
+        service.searchFilesRemote('alpha');
+        jest.advanceTimersByTime(200);
+        await Promise.resolve();
+
+        expect(mockRpcService.call).toHaveBeenCalledWith(
+          'context:getFileSuggestions',
+          { query: 'alpha', limit: 30, workspaceRoot: 'D:\\ws\\alpha' },
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('context:getFileSuggestions omits workspaceRoot when unset', async () => {
+      jest.useFakeTimers();
+      try {
+        workspaceRoot = '   ';
+        mockRpcService.call.mockResolvedValue({
+          success: true,
+          data: { files: [] },
+        });
+
+        service.searchFilesRemote('alpha');
+        jest.advanceTimersByTime(200);
+        await Promise.resolve();
+
+        const params = mockRpcService.call.mock.calls[0][1] as Record<
+          string,
+          unknown
+        >;
+        expect('workspaceRoot' in params).toBe(false);
+        expect(params).toEqual({ query: 'alpha', limit: 30 });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('reads the root at call time, so a switch is reflected in the next request', async () => {
+      mockRpcService.call.mockResolvedValue({
+        success: true,
+        data: { files: [] },
+      });
+      await service.fetchWorkspaceFiles();
+
+      service.switchWorkspace('D:\\ws\\beta');
+      workspaceRoot = 'D:\\ws\\beta';
+      await service.fetchWorkspaceFiles();
+
+      expect(mockRpcService.call).toHaveBeenLastCalledWith(
+        'context:getAllFiles',
+        expect.objectContaining({ workspaceRoot: 'D:\\ws\\beta' }),
+      );
+    });
+  });
 
   describe('isFileSupported()', () => {
     it('should recognize TypeScript files as supported', () => {

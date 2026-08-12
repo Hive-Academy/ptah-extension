@@ -118,7 +118,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
     await director.say(2);
   }
 
-  // 2) Pan the schedules table top→bottom so the camera reveals every job
+  // 2) Pan the schedules grid top→bottom so the camera reveals every job
   // while the narration plays over the scroll.
   await director.say(3, {
     target: panel,
@@ -127,8 +127,8 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
     },
   });
 
-  // 3) Spotlight a single schedule row (or gracefully narrate the empty state).
-  const row = page.locator('[data-testid="cron-job-row"]').first();
+  // 3) Spotlight a single schedule card (or gracefully narrate the empty state).
+  const row = page.locator('[data-testid="cron-job-card"]').first();
   const hasJob = await row.isVisible().catch(() => false);
 
   if (hasJob) {
@@ -140,8 +140,8 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
       },
     });
 
-    // 4) Click the row — selection only — to reveal the READ-ONLY run-history
-    //    panel below the table. This mutates nothing.
+    // 4) Click the card — selection only — to open the READ-ONLY run-history
+    //    detail drawer. This mutates nothing.
     await director.say(5, {
       target: row,
       during: async () => {

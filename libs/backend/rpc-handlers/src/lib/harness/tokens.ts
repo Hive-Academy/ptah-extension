@@ -19,5 +19,7 @@ export const HARNESS_TOKENS = {
   WORKFLOW_PROMPT: Symbol.for('HarnessWorkflowPromptService'),
   STREAM_BROADCASTER: Symbol.for('HarnessStreamBroadcaster'),
   IO_FS: Symbol.for('HarnessIoFs'),
+  MCP_INSTALL: Symbol.for('HarnessMcpInstall'),
+  SKILL_INSTALL: Symbol.for('HarnessSkillInstall'),
   LLM_RUNNER: Symbol.for('HarnessLlmRunner'),
 } as const;

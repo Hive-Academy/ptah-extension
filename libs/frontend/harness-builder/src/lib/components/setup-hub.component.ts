@@ -221,7 +221,7 @@ import type {
               class="w-8 h-8 animate-spin text-primary mx-auto"
               aria-hidden="true"
             />
-            <p class="mt-3 text-sm text-base-content/60">
+            <p class="mt-3 text-sm text-base-content-muted">
               Loading configuration status...
             </p>
           </div>
@@ -270,7 +270,9 @@ import type {
                   <h2 class="text-2xl font-bold text-base-content">
                     Configure Your Workspace
                   </h2>
-                  <p class="text-sm text-base-content/50 mt-2 leading-relaxed">
+                  <p
+                    class="text-sm text-base-content-muted mt-2 leading-relaxed"
+                  >
                     Analyze your workspace, assemble your AI team, or start a
                     brand-new project. Get AI-powered recommendations tailored
                     to your project.
@@ -286,7 +288,7 @@ import type {
           <!-- ═══ Section: Quick Actions ═══ -->
           <div class="flex items-center gap-3 mb-4 mt-2">
             <span
-              class="text-xs font-semibold uppercase tracking-wider text-base-content/30"
+              class="text-xs font-semibold uppercase tracking-wider text-base-content-muted"
               >Quick Actions</span
             >
             <div class="flex-1 h-px bg-base-300/50"></div>
@@ -348,7 +350,8 @@ import type {
                         <span
                           class="w-2 h-2 rounded-full bg-base-content/20"
                         ></span>
-                        <span class="text-xs font-medium text-base-content/40"
+                        <span
+                          class="text-xs font-medium text-base-content-muted"
                           >Not configured</span
                         >
                       }
@@ -361,7 +364,7 @@ import type {
                   <h2 class="text-lg font-bold text-base-content">
                     Workspace Analysis
                   </h2>
-                  <p class="text-sm text-base-content/50 mt-1">
+                  <p class="text-sm text-base-content-muted mt-1">
                     Analyze your project and configure agents with AI-powered
                     recommendations.
                   </p>
@@ -401,7 +404,7 @@ import type {
                       {{ setupStatus()?.isConfigured ? '100%' : '0%' }}
                       Complete
                     </span>
-                    <span class="text-[10px] text-base-content/40">
+                    <span class="text-[10px] text-base-content-muted">
                       {{
                         setupStatus()?.isConfigured
                           ? 'All systems configured'
@@ -414,7 +417,7 @@ import type {
                 <!-- Stats row -->
                 @if (setupStatus()?.isConfigured) {
                   <div
-                    class="flex items-center gap-3 text-xs text-base-content/40 pt-2 border-t border-base-300/30"
+                    class="flex items-center gap-3 text-xs text-base-content-muted pt-2 border-t border-base-300/30"
                   >
                     <div class="flex items-center gap-1.5">
                       <span class="w-1 h-1 rounded-full bg-secondary/50"></span>
@@ -425,7 +428,7 @@ import type {
                       <span>{{ setupStatus()!.ruleCount }} rules</span>
                     </div>
                     @if (setupStatus()!.lastUpdated) {
-                      <span class="ml-auto text-base-content/30">{{
+                      <span class="ml-auto text-base-content-muted">{{
                         setupStatus()!.lastUpdated
                       }}</span>
                     }
@@ -503,7 +506,7 @@ import type {
                       <span
                         class="w-2 h-2 rounded-full bg-base-content/20"
                       ></span>
-                      <span class="text-xs font-medium text-base-content/40"
+                      <span class="text-xs font-medium text-base-content-muted"
                         >No team yet</span
                       >
                     }
@@ -515,7 +518,7 @@ import type {
                   <h2 class="text-lg font-bold text-base-content">
                     AI Team Builder
                   </h2>
-                  <p class="text-sm text-base-content/50 mt-1">
+                  <p class="text-sm text-base-content-muted mt-1">
                     Design your AI team — agents, skills, and MCP tools — and
                     apply it to your workspace as CLAUDE.md, agents, and skills.
                   </p>
@@ -524,7 +527,7 @@ import type {
                 <!-- Status bar -->
                 <div class="mt-1">
                   <div
-                    class="flex items-center justify-between text-[10px] text-base-content/40 mb-1.5"
+                    class="flex items-center justify-between text-[10px] text-base-content-muted mb-1.5"
                   >
                     <span>Team status</span>
                     <span>{{ hasClaudeMd() ? 'Active' : 'Not created' }}</span>
@@ -595,7 +598,7 @@ import type {
                   <h2 class="text-lg font-bold text-base-content">
                     New Project
                   </h2>
-                  <p class="text-sm text-base-content/50 mt-1">
+                  <p class="text-sm text-base-content-muted mt-1">
                     Plan and scaffold a brand-new SaaS workspace (Nx + Angular /
                     NestJS) with a generated roadmap and its own AI team.
                   </p>
@@ -651,7 +654,7 @@ import type {
 
                 <div>
                   <h2 class="text-lg font-bold text-base-content">Tribunal</h2>
-                  <p class="text-sm text-base-content/50 mt-1">
+                  <p class="text-sm text-base-content-muted mt-1">
                     Put your AI vendors on one panel — run a Council, Forge, or
                     Race and compare them side by side.
                   </p>
@@ -678,7 +681,7 @@ import type {
           <!-- ═══ Section: Configuration ═══ -->
           <div class="flex items-center gap-3 mb-4 mt-8">
             <span
-              class="text-xs font-semibold uppercase tracking-wider text-base-content/30"
+              class="text-xs font-semibold uppercase tracking-wider text-base-content-muted"
               >Configuration</span
             >
             <div class="flex-1 h-px bg-base-300/50"></div>
@@ -704,7 +707,7 @@ import type {
                   />
                 </div>
                 <div
-                  class="px-2 py-0.5 rounded-full bg-base-300/50 text-[10px] font-medium text-base-content/50"
+                  class="px-2 py-0.5 rounded-full bg-base-300/50 text-[10px] font-medium text-base-content-muted"
                 >
                   {{ presets().length }} saved
                 </div>
@@ -713,7 +716,7 @@ import type {
               <h3 class="text-sm font-semibold text-base-content">
                 Saved Presets
               </h3>
-              <p class="text-xs text-base-content/40 mt-1">
+              <p class="text-xs text-base-content-muted mt-1">
                 Reusable AI team configurations for different workflows.
               </p>
 
@@ -727,21 +730,22 @@ import type {
                       <span
                         class="w-1 h-1 rounded-full bg-accent/50 shrink-0"
                       ></span>
-                      <span class="truncate font-medium text-base-content/70">{{
-                        preset.name
-                      }}</span>
+                      <span
+                        class="truncate font-medium text-base-content-muted"
+                        >{{ preset.name }}</span
+                      >
                     </div>
                   }
                   @if (presets().length > 3) {
                     <span
-                      class="text-[10px] text-base-content/30 text-center mt-0.5"
+                      class="text-[10px] text-base-content-muted text-center mt-0.5"
                     >
                       +{{ presets().length - 3 }} more
                     </span>
                   }
                 </div>
               } @else {
-                <p class="text-xs text-base-content/30 italic mt-3">
+                <p class="text-xs text-base-content-muted italic mt-3">
                   No presets yet. Save an AI team configuration to create one.
                 </p>
               }
@@ -776,7 +780,7 @@ import type {
               <h3 class="text-sm font-semibold text-base-content">
                 Active Configuration
               </h3>
-              <p class="text-xs text-base-content/40 mt-1">
+              <p class="text-xs text-base-content-muted mt-1">
                 Current workspace configuration files and settings.
               </p>
 
@@ -791,11 +795,11 @@ import type {
                       [img]="hasClaudeMd() ? CheckCircleIcon : AlertCircleIcon"
                       class="w-3 h-3"
                       [class.text-success]="hasClaudeMd()"
-                      [class.text-base-content/30]="!hasClaudeMd()"
+                      [class.text-base-content-muted]="!hasClaudeMd()"
                       aria-hidden="true"
                     />
                   </div>
-                  <span class="text-base-content/50">
+                  <span class="text-base-content-muted">
                     CLAUDE.md
                     {{ hasClaudeMd() ? 'present' : 'missing' }}
                   </span>
@@ -814,13 +818,13 @@ import type {
                       "
                       class="w-3 h-3"
                       [class.text-success]="setupStatus()?.isConfigured"
-                      [class.text-base-content/30]="
+                      [class.text-base-content-muted]="
                         !setupStatus()?.isConfigured
                       "
                       aria-hidden="true"
                     />
                   </div>
-                  <span class="text-base-content/50">
+                  <span class="text-base-content-muted">
                     Agent config
                     {{ setupStatus()?.isConfigured ? 'active' : 'pending' }}
                   </span>

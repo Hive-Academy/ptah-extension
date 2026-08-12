@@ -96,7 +96,7 @@ jobs:
         run: npx nx run ptah-electron:build-dev
 
       - name: Copy renderer assets into Electron dist
-        run: npx nx run ptah-electron:copy-renderer
+        run: npx nx run ptah-electron:copy-renderer-dev
 
       - name: Run Electron E2E specs under xvfb
         run: xvfb-run --auto-servernum npx nx run ptah-electron-e2e:e2e --skip-nx-cache

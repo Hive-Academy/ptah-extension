@@ -1,0 +1,22 @@
+{
+  "name": "api-notifications",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/api/notifications/src",
+  "projectType": "library",
+  "tags": ["scope:api", "type:util"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/api/notifications/jest.config.cts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit --project libs/api/notifications/tsconfig.lib.json"
+      }
+    }
+  }
+}

@@ -35,7 +35,7 @@ import { LucideAngularModule, KeyRound, X } from 'lucide-angular';
             class="w-3 h-3 text-warning flex-shrink-0"
             aria-hidden="true"
           />
-          <span class="font-semibold text-base-content/80">
+          <span class="font-semibold text-base-content-muted">
             Authentication required
           </span>
           <span class="flex-1"></span>
@@ -56,7 +56,7 @@ import { LucideAngularModule, KeyRound, X } from 'lucide-angular';
             <lucide-angular [img]="XIcon" class="w-3 h-3" aria-hidden="true" />
           </button>
         </div>
-        <p class="px-2 pb-1.5 text-[11px] text-base-content/60 leading-snug">
+        <p class="px-2 pb-1.5 text-[11px] text-base-content-muted leading-snug">
           {{ message() }}
         </p>
       </div>

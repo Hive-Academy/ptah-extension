@@ -20,7 +20,7 @@ interface HistogramBar {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (totalValue() === 0) {
-      <div class="text-xs text-base-content/60">
+      <div class="text-xs text-base-content-muted">
         No eligibility data recorded yet.
       </div>
     } @else {

@@ -26,7 +26,12 @@ import type {
   ModelPricing,
 } from '@ptah-extension/shared';
 import { updatePricingMap } from '@ptah-extension/shared';
-import { SdkError, TIER_ENV_VAR_MAP } from '@ptah-extension/agent-sdk';
+import {
+  SdkError,
+  TIER_ENV_VAR_MAP,
+  TIER_METADATA_ENV_VAR_MAP,
+  ALL_TIER_ENV_KEYS,
+} from '@ptah-extension/agent-sdk';
 import {
   getAnthropicProvider,
   type AnthropicProvider,
@@ -121,6 +126,58 @@ export class ProviderModelsService {
     return `provider.${providerId}.${scope}.modelTier.${tier}`;
   }
 
+  /** Config key holding the last catalog a provider successfully returned. */
+  private getCatalogConfigKey(providerId: string): string {
+    return `provider.${providerId}.modelCatalog`;
+  }
+
+  /**
+   * Remember the catalog a provider just returned so a later fetch failure can
+   * fall back to real data instead of the hardcoded `staticModels` snapshot.
+   *
+   * Fire-and-forget: a failed write must never break the fetch that produced
+   * the data, so this swallows its own errors after logging.
+   */
+  private async persistCatalog(
+    providerId: string,
+    models: ProviderModelInfo[],
+  ): Promise<void> {
+    try {
+      await this.config.set(this.getCatalogConfigKey(providerId), {
+        models,
+        timestamp: Date.now(),
+      });
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[ProviderModelsService] Failed to persist model catalog',
+        {
+          providerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * Read the persisted catalog. Returns null when absent or malformed — the
+   * value survives across releases, so treat its shape as untrusted.
+   */
+  private readPersistedCatalog(providerId: string): ProviderModelInfo[] | null {
+    const stored = this.config.get<{ models?: unknown }>(
+      this.getCatalogConfigKey(providerId),
+    );
+    const models = stored?.models;
+    if (!Array.isArray(models)) return null;
+    const valid = models.filter(
+      (m): m is ProviderModelInfo =>
+        !!m &&
+        typeof m === 'object' &&
+        typeof (m as ProviderModelInfo).id === 'string' &&
+        typeof (m as ProviderModelInfo).name === 'string',
+    );
+    return valid.length > 0 ? valid : null;
+  }
+
   /**
    * Legacy config key shape used before scope was introduced.
    * Only used as a read-fallback for the `mainAgent` scope.
@@ -175,6 +232,7 @@ export class ProviderModelsService {
         const models = await dynamicFetcher();
         if (models.length > 0) {
           this.modelCache.set(providerId, { models, timestamp: now });
+          void this.persistCatalog(providerId, models);
 
           const filtered = toolUseOnly
             ? models.filter((m) => m.supportsToolUse)
@@ -212,6 +270,9 @@ export class ProviderModelsService {
           toolUseOnly,
         );
         result.models = this.mergeStaticMetadata(result.models, provider);
+        if (result.models.length > 0) {
+          void this.persistCatalog(providerId, result.models);
+        }
         return result;
       } catch (error) {
         this.logger.warn(
@@ -223,6 +284,26 @@ export class ProviderModelsService {
         );
       }
     }
+    // Prefer the last catalog this provider actually returned over the
+    // hardcoded one. `staticModels` is a snapshot frozen at release time and
+    // goes stale on every provider model launch; a persisted catalog is real
+    // provider data that merely isn't live.
+    const persisted = this.readPersistedCatalog(providerId);
+    if (persisted && persisted.length > 0) {
+      this.logger.info(
+        '[ProviderModelsService] Live fetch unavailable — using the last catalog this provider returned',
+        { providerId, count: persisted.length },
+      );
+      const filtered = toolUseOnly
+        ? persisted.filter((m) => m.supportsToolUse)
+        : persisted;
+      return {
+        models: filtered,
+        totalCount: persisted.length,
+        isStatic: false,
+      };
+    }
+
     if (provider.staticModels && provider.staticModels.length > 0) {
       const models: ProviderModelInfo[] = provider.staticModels.map((m) => ({
         id: m.id,
@@ -414,6 +495,7 @@ export class ProviderModelsService {
     if (scope === 'mainAgent') {
       this.authEnv[envVar as keyof AuthEnv] = modelId;
       process.env[envVar] = modelId;
+      this.applyTierMetadata(providerId, tier, modelId);
     }
 
     this.logger.info('[ProviderModelsService] Set model tier', {
@@ -550,6 +632,7 @@ export class ProviderModelsService {
       if (value) {
         this.authEnv[envKey as keyof AuthEnv] = value;
         process.env[envKey] = value;
+        this.applyTierMetadata(providerId, tier as ProviderModelTier, value);
       }
     }
 
@@ -560,11 +643,49 @@ export class ProviderModelsService {
   }
 
   /**
+   * Publish the display metadata the SDK pairs with a remapped tier.
+   *
+   * Without `_NAME`/`_DESCRIPTION` the picker labels a mapped tier with its raw
+   * model id and shows Claude's own description. Resolved from the provider's
+   * last fetched model list, so it is only available for models we've actually
+   * listed — a tier pointing at a hand-typed custom id keeps the bare id.
+   *
+   * `_SUPPORTED_CAPABILITIES` is deliberately only written when the provider
+   * declares capabilities: the SDK treats that var as an allowlist and reports
+   * anything absent from it as unsupported, so guessing would silently disable
+   * working features.
+   */
+  private applyTierMetadata(
+    providerId: string,
+    tier: ProviderModelTier,
+    modelId: string,
+  ): void {
+    const keys = TIER_METADATA_ENV_VAR_MAP[tier];
+    const model = this.modelCache
+      .get(providerId)
+      ?.models.find((m) => m.id === modelId);
+
+    const write = (key: keyof AuthEnv, value: string | undefined): void => {
+      if (value) {
+        this.authEnv[key] = value;
+        process.env[key] = value;
+      } else {
+        delete this.authEnv[key];
+        delete process.env[key];
+      }
+    };
+
+    write(keys.name, model?.name);
+    write(keys.description, model?.description);
+    write(keys.capabilities, model?.capabilities?.join(','));
+  }
+
+  /**
    * Clear all tier environment variables
    * Call this when switching providers or switching to OAuth/API key auth
    */
   clearAllTierEnvVars(): void {
-    for (const envKey of Object.values(TIER_ENV_VAR_MAP)) {
+    for (const envKey of ALL_TIER_ENV_KEYS) {
       delete this.authEnv[envKey as keyof AuthEnv];
       delete process.env[envKey];
     }

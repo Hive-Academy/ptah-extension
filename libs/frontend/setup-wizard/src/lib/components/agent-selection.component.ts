@@ -70,7 +70,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
         <button
           class="px-4 py-2 text-xs font-medium transition-colors relative"
           [class.text-primary]="activeTab() === 'project'"
-          [class.text-base-content/50]="activeTab() !== 'project'"
+          [class.text-base-content-muted]="activeTab() !== 'project'"
           (click)="activeTab.set('project')"
         >
           <lucide-angular
@@ -87,7 +87,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
         <button
           class="px-4 py-2 text-xs font-medium transition-colors relative"
           [class.text-primary]="activeTab() === 'community'"
-          [class.text-base-content/50]="activeTab() !== 'community'"
+          [class.text-base-content-muted]="activeTab() !== 'community'"
           (click)="onSwitchToCommunityTab()"
         >
           <lucide-angular
@@ -156,10 +156,10 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
           >
             <lucide-angular
               [img]="UsersIcon"
-              class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+              class="h-8 w-8 text-base-content-muted mb-2 mx-auto"
             />
             <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
-            <p class="text-xs text-base-content/50">
+            <p class="text-xs text-base-content-muted">
               Unable to load agent recommendations. Please go back and restart
               the analysis.
             </p>
@@ -173,14 +173,14 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
                 <div class="flex items-center gap-2 mb-2.5">
                   <lucide-angular
                     [img]="getCategoryLucideIcon(category)"
-                    class="h-3.5 w-3.5 text-base-content/50"
+                    class="h-3.5 w-3.5 text-base-content-muted"
                   />
                   <span
-                    class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
+                    class="text-[10px] font-medium text-base-content-muted uppercase tracking-wide"
                   >
                     {{ getCategoryLabel(category) }}
                   </span>
-                  <span class="text-[10px] text-base-content/30">
+                  <span class="text-[10px] text-base-content-muted">
                     {{ getAgentsByCategory(category).length }}
                   </span>
                 </div>
@@ -252,7 +252,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
 
                       <!-- Description -->
                       <p
-                        class="text-[11px] text-base-content/60 leading-relaxed mb-2 pl-6"
+                        class="text-[11px] text-base-content-muted leading-relaxed mb-2 pl-6"
                       >
                         {{ agent.description }}
                       </p>
@@ -265,7 +265,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
                             track criteria
                           ) {
                             <span
-                              class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                              class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content-muted"
                             >
                               {{ criteria }}
                             </span>
@@ -286,9 +286,9 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
         @if (communityPacksLoading()) {
           <div class="flex items-center gap-2 py-8 justify-center">
             <span
-              class="loading loading-spinner loading-sm text-base-content/40"
+              class="loading loading-spinner loading-sm text-base-content-muted"
             ></span>
-            <span class="text-xs text-base-content/40"
+            <span class="text-xs text-base-content-muted"
               >Loading community packs...</span
             >
           </div>
@@ -298,15 +298,15 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
           >
             <lucide-angular
               [img]="GlobeIcon"
-              class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+              class="h-8 w-8 text-base-content-muted mb-2 mx-auto"
             />
             <h3 class="text-sm font-semibold mb-1">No Community Packs</h3>
-            <p class="text-xs text-base-content/50">
+            <p class="text-xs text-base-content-muted">
               No community agent packs are available at the moment.
             </p>
           </div>
         } @else {
-          <p class="text-xs text-base-content/50 mb-3">
+          <p class="text-xs text-base-content-muted mb-3">
             Browse and install pre-built agent packs from the community.
           </p>
           @for (pack of communityPacks(); track pack.source) {
@@ -319,17 +319,17 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
               >
                 <lucide-angular
                   [img]="PackageIcon"
-                  class="h-3.5 w-3.5 text-base-content/50 shrink-0"
+                  class="h-3.5 w-3.5 text-base-content-muted shrink-0"
                 />
                 <div class="flex-1 min-w-0">
                   <div class="text-xs font-medium truncate">
                     {{ pack.name }}
                   </div>
-                  <div class="text-[10px] text-base-content/50">
+                  <div class="text-[10px] text-base-content-muted">
                     {{ pack.description }}
                   </div>
                 </div>
-                <span class="text-[10px] text-base-content/40 shrink-0">
+                <span class="text-[10px] text-base-content-muted shrink-0">
                   {{ pack.agents.length }} agents
                 </span>
                 <lucide-angular
@@ -338,7 +338,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
                       ? ChevronDownIcon
                       : ChevronRightIcon
                   "
-                  class="h-3 w-3 text-base-content/30 shrink-0"
+                  class="h-3 w-3 text-base-content-muted shrink-0"
                 />
               </button>
 
@@ -431,12 +431,12 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
                           }
                         </div>
                         <p
-                          class="text-[11px] text-base-content/60 leading-relaxed mb-1.5"
+                          class="text-[11px] text-base-content-muted leading-relaxed mb-1.5"
                         >
                           {{ agent.description }}
                         </p>
                         <span
-                          class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                          class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content-muted"
                         >
                           {{ agent.category }}
                         </span>

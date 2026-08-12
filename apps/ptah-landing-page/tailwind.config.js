@@ -23,6 +23,52 @@ module.exports = {
           100: '#e9ebef',
         },
         amber: { 400: '#ffbb4d', 500: '#f5a524', 600: '#c97e0e' },
+        // Wires the daisyUI custom property `--surface-high` (declared per
+        // dark/light theme below — see panel-theme-spec.md §1) into a real
+        // utility class. Without this, `--surface-high` is emitted into the
+        // compiled stylesheet as a declared-but-unconsumed CSS variable —
+        // no `.bg-surface-high`/`.border-surface-high` etc. exist to read
+        // it. This makes it a normal Tailwind color token backed by the
+        // theme-scoped CSS var, so it repaints correctly under both
+        // `data-theme=operator-admin/-member` (#34486a) and
+        // `data-theme=operator-member-light` (#e2e2ea).
+        'surface-high': 'var(--surface-high)',
+        // Same wiring pattern for `--border-hairline` (panel-theme-spec.md
+        // §2). `base-300` cannot double as both a raised-surface fill and a
+        // hairline stroke — those two roles need different lightness, and
+        // conflating them made `border-base-300` on a `bg-base-200` card
+        // measure 1.05:1 (functionally invisible) after the ladder widened.
+        // `hairline` is its own token so borders stay legible independent
+        // of whatever the surface ladder does next.
+        hairline: 'var(--border-hairline)',
+        /**
+         * `base-content-muted` — the secondary tier of the text ladder.
+         *
+         * Mirrors `apps/ptah-extension-webview/tailwind.config.js`. This app
+         * has its OWN daisyUI config and shares nothing with the webview's, so
+         * the token has to be registered here too — and it must be, because
+         * `libs/frontend/markdown` and `libs/frontend/chat` are compiled
+         * through THIS config as well as the webview's.
+         *
+         * Why a token and not `text-base-content/NN`: composited in sRGB
+         * against each theme's own `base-100`, `/40` fails on all four operator
+         * themes (2.47:1 - 3.33:1), `/50` fails on `operator-admin` and
+         * `operator-member` (4.35:1), and `/60` measures **4.41:1 on
+         * `operator-member-light`** — the live AA failure TASK_2026_177 Batch
+         * 15B found in the first light-theme axe pass this repo ever ran. There
+         * is no single alpha that passes on every theme; the value has to be
+         * chosen per theme, which is what `--bcm` is.
+         *
+         * The `var(--bc)` fallback is deliberate and load-bearing: a theme with
+         * no measured `--bcm` renders at FULL base-content contrast. An
+         * unhandled theme degrades to "not visually muted", never to "fails
+         * contrast".
+         *
+         * Values are recomputed from the literal theme colours by
+         * `src/app/base-content-muted.spec.ts`, which fails if any drops below
+         * 4.5:1 or if a theme declared here has no value.
+         */
+        'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
@@ -85,6 +131,10 @@ module.exports = {
           'base-200': '#0e1015',
           'base-300': '#171a21',
           'base-content': '#e9ebef',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.46:1. See the `colors` block above and
+          // base-content-muted.spec.ts, which re-measures it.
+          '--bcm': '61.980067% 0.006234 266.580599',
           info: '#38bdf8',
           'info-content': '#08090c',
           success: '#34d399',
@@ -109,11 +159,26 @@ module.exports = {
         },
       },
       {
-        // Admin-only theme: same palette as `operator` but with clearly-stepped
-        // surface elevation so cards/panels read as raised against the page
-        // canvas (the public `operator` steps #08→#0e→#17 were too close and
-        // made every surface look flat-black). Scoped via data-theme on the
-        // admin shell root so the marketing site keeps `operator` untouched.
+        // Admin-only theme: reconciled against 8 Stitch-generated Ptah
+        // Builders mockups (docs/design-system/panel-theme-spec.md).
+        //
+        // History: v1 lifted base-200/300 straight off
+        // kinetic_operator/DESIGN.md's Material-3 frontmatter (too flat vs
+        // the old theme). v2 "fixed" that by widening the ladder to hit
+        // arbitrary WCAG targets (overcorrected — rendered as a visibly
+        // different, lighter navy-slate product than the reference). v3
+        // (this version) is grounded in pixel-sampled evidence from the
+        // actual mockup canvases (60k+ sample histograms): page bg and card
+        // fill sample at #0c141f/~#161a23-#151c27, a page→card ratio of only
+        // ~1.06-1.08:1 — the mockups do NOT create depth via background-step
+        // distance. Their card definition comes from a sampled hairline
+        // border at ~(44,51,66) giving ~1.43:1 card-to-border contrast. So:
+        // base-100/200/300/surface-high are back to the tight v1 values
+        // (matches the sampled evidence almost exactly), and depth instead
+        // comes from `--border-hairline`, tuned to hit the sampled ~1.43:1
+        // card-to-border ratio — see spec §1/§2 for the full derivation.
+        // Scoped via data-theme on the admin shell root so the marketing
+        // site keeps `operator` untouched.
         'operator-admin': {
           primary: '#f5a524',
           'primary-focus': '#c97e0e',
@@ -124,13 +189,69 @@ module.exports = {
           accent: '#ffbb4d',
           'accent-focus': '#f5a524',
           'accent-content': '#08090c',
-          neutral: '#161a23',
+          neutral: '#151c27',
           'neutral-focus': '#232936',
           'neutral-content': '#b7bdc9',
-          'base-100': '#0b0d12',
-          'base-200': '#161a23',
-          'base-300': '#232936',
-          'base-content': '#e9ebef',
+          'base-100': '#0c141f',
+          'base-200': '#151c27',
+          'base-300': '#19202c',
+          'base-content': '#dce2f3',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.15:1. See the `colors` block above and
+          // base-content-muted.spec.ts, which re-measures it.
+          '--bcm': '62.365194% 0.024670 264.797474',
+          info: '#38bdf8',
+          'info-content': '#08090c',
+          success: '#34d399',
+          'success-content': '#08090c',
+          // #eab308 (Tailwind yellow-500): differentiates `warning` from the
+          // brand-amber `primary` (#f5a524). See visual-design-specification
+          // §7.3 and panel-theme-spec.md §3 — do not undo this.
+          warning: '#eab308',
+          'warning-content': '#08090c',
+          error: '#fb7185',
+          'error-content': '#08090c',
+          '--surface-high': '#232936',
+          '--border-hairline': '#303849',
+          '--rounded-box': '0.75rem',
+          '--rounded-btn': '0.5rem',
+          '--rounded-badge': '999px',
+          '--animation-btn': '0.15s',
+          '--animation-input': '0.2s',
+          '--btn-focus-scale': '1.0',
+          '--border-btn': '1px',
+          '--tab-border': '2px',
+          '--tab-radius': '0.5rem',
+        },
+      },
+      {
+        // Member-facing shell (dashboard home, community feed, discussion
+        // threads, course viewer). Same tight, evidence-grounded dark
+        // ladder as `operator-admin` — see
+        // docs/design-system/panel-theme-spec.md — kept as a separate theme
+        // name so the member shell can diverge from the admin shell later
+        // without touching admin.
+        'operator-member': {
+          primary: '#f5a524',
+          'primary-focus': '#c97e0e',
+          'primary-content': '#08090c',
+          secondary: '#34d399',
+          'secondary-focus': '#10b981',
+          'secondary-content': '#08090c',
+          accent: '#ffbb4d',
+          'accent-focus': '#f5a524',
+          'accent-content': '#08090c',
+          neutral: '#151c27',
+          'neutral-focus': '#232936',
+          'neutral-content': '#b7bdc9',
+          'base-100': '#0c141f',
+          'base-200': '#151c27',
+          'base-300': '#19202c',
+          'base-content': '#dce2f3',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.15:1. Same ladder as `operator-admin`; kept duplicated
+          // rather than shared so the member shell can diverge later.
+          '--bcm': '62.365194% 0.024670 264.797474',
           info: '#38bdf8',
           'info-content': '#08090c',
           success: '#34d399',
@@ -139,6 +260,63 @@ module.exports = {
           'warning-content': '#08090c',
           error: '#fb7185',
           'error-content': '#08090c',
+          '--surface-high': '#232936',
+          '--border-hairline': '#303849',
+          '--rounded-box': '0.75rem',
+          '--rounded-btn': '0.5rem',
+          '--rounded-badge': '999px',
+          '--animation-btn': '0.15s',
+          '--animation-input': '0.2s',
+          '--btn-focus-scale': '1.0',
+          '--border-btn': '1px',
+          '--tab-border': '2px',
+          '--tab-radius': '0.5rem',
+        },
+      },
+      {
+        // Light-mode counterpart to `operator-member`. Ladder + primary/
+        // accent are reconciled from the 4 light-mode Stitch screens plus
+        // warm_professionalism/DESIGN.md — see panel-theme-spec.md §1/§3.
+        // Brand primary stays #f5a524 in light mode too (decision, not
+        // Stitch's own inconsistent per-screen light CTA color).
+        // base-100/200/300 are intentionally left tight (page #faf9f7 vs
+        // card #ffffff samples at ~1.05:1) — same idiom as the dark ladder,
+        // confirmed by pixel-sampling both mockups: neither theme creates
+        // depth via background-step distance. `--border-hairline` is tuned
+        // (darker than the previously-cited #e2ddd4) to actually read
+        // against a pure-white card — see spec §2.
+        'operator-member-light': {
+          primary: '#f5a524',
+          'primary-focus': '#c97e0e',
+          'primary-content': '#08090c',
+          secondary: '#34d399',
+          'secondary-focus': '#10b981',
+          'secondary-content': '#08090c',
+          accent: '#ffbb4d',
+          'accent-focus': '#f5a524',
+          'accent-content': '#08090c',
+          neutral: '#f2f0ec',
+          'neutral-focus': '#e2ddd4',
+          'neutral-content': '#1a1c22',
+          'base-100': '#faf9f7',
+          'base-200': '#ffffff',
+          'base-300': '#f2f0ec',
+          'base-content': '#1a1c22',
+          // Secondary text tier: base-content mixed 40% toward base-100 in
+          // OKLCH → 5.06:1. This is the theme with the actual defect —
+          // `text-base-content/60` composites to 4.41:1 here, BELOW the 4.5:1
+          // AA gate, across the whole shared panel nav. See the `colors` block.
+          '--bcm': '52.912219% 0.008359 340.327631',
+          info: '#38bdf8',
+          'info-content': '#08090c',
+          success: '#34d399',
+          'success-content': '#08090c',
+          warning: '#eab308',
+          'warning-content': '#08090c',
+          error: '#fb7185',
+          'error-content': '#08090c',
+          '--surface-high': '#e2e2ea',
+          '--border-hairline': '#dcd6cb',
           '--rounded-box': '0.75rem',
           '--rounded-btn': '0.5rem',
           '--rounded-badge': '999px',

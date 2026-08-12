@@ -83,11 +83,11 @@ interface TestResult {
         <div class="flex items-center gap-1">
           <lucide-angular
             [img]="KeyRoundIcon"
-            class="w-3 h-3 text-base-content/60"
+            class="w-3 h-3 text-base-content-muted"
           />
           <label
             for="elevenlabs-key"
-            class="text-xs font-medium text-base-content/70"
+            class="text-xs font-medium text-base-content-muted"
           >
             API Key
           </label>
@@ -188,20 +188,20 @@ interface TestResult {
       <div class="mb-2">
         <label
           for="elevenlabs-voice"
-          class="text-xs font-medium text-base-content/70 mb-1 block"
+          class="text-xs font-medium text-base-content-muted mb-1 block"
         >
           Voice
         </label>
         @if (!config().apiKeyConfigured) {
           <p
-            class="text-[10px] text-base-content/50"
+            class="text-[10px] text-base-content-muted"
             data-testid="elevenlabs-voices-locked"
           >
             Save an API key to load your voices.
           </p>
         } @else if (isLoadingVoices()) {
           <div
-            class="text-[10px] text-base-content/50"
+            class="text-[10px] text-base-content-muted"
             data-testid="elevenlabs-voices-loading"
           >
             Loading voices…
@@ -244,7 +244,7 @@ interface TestResult {
       <div class="mb-2">
         <label
           for="elevenlabs-tts-model"
-          class="text-xs font-medium text-base-content/70 mb-1 block"
+          class="text-xs font-medium text-base-content-muted mb-1 block"
         >
           Model
         </label>
@@ -268,7 +268,7 @@ interface TestResult {
       <div>
         <label
           for="elevenlabs-output-format"
-          class="text-xs font-medium text-base-content/70 mb-1 block"
+          class="text-xs font-medium text-base-content-muted mb-1 block"
         >
           Output Format
         </label>
@@ -295,7 +295,7 @@ interface TestResult {
       <div>
         <label
           for="elevenlabs-stt-model"
-          class="text-xs font-medium text-base-content/70 mb-1 block"
+          class="text-xs font-medium text-base-content-muted mb-1 block"
         >
           Transcription Model
         </label>

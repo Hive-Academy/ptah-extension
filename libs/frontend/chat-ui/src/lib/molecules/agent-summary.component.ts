@@ -50,13 +50,13 @@ export type ParsedBlock =
               <!-- Header (clickable to toggle) -->
               <button
                 type="button"
-                class="w-full py-1.5 px-2 text-[11px] flex items-center gap-1.5 text-base-content/60 hover:bg-base-300/50 transition-colors cursor-pointer rounded-t"
+                class="w-full py-1.5 px-2 text-[11px] flex items-center gap-1.5 text-base-content-muted hover:bg-base-300/50 transition-colors cursor-pointer rounded-t"
                 (click)="toggleThinking($index)"
               >
                 <!-- Expand/Collapse icon -->
                 <lucide-angular
                   [img]="ChevronDownIcon"
-                  class="w-3 h-3 flex-shrink-0 text-base-content/50 transition-transform"
+                  class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform"
                   [class.rotate-0]="!collapsedThinking()[$index]"
                   [class.-rotate-90]="collapsedThinking()[$index]"
                 />
@@ -70,7 +70,7 @@ export type ParsedBlock =
               @if (!collapsedThinking()[$index]) {
                 <div class="px-2 pb-2 border-t border-base-300/30">
                   <div
-                    class="prose prose-xs prose-invert max-w-none text-[11px] text-base-content/70 pt-1.5"
+                    class="prose prose-xs prose-invert max-w-none text-[11px] text-base-content-muted pt-1.5"
                   >
                     <markdown [data]="block.content" />
                   </div>
@@ -89,7 +89,7 @@ export type ParsedBlock =
                   block.name
                 }}</span>
                 @if (getMainParam(block)) {
-                  <span class="text-base-content/50 ml-1 truncate">{{
+                  <span class="text-base-content-muted ml-1 truncate">{{
                     getMainParam(block)
                   }}</span>
                 }

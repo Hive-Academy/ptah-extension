@@ -14,10 +14,14 @@ export const TASK_SPECS_TOKENS = {
   TASK_SCANNER: Symbol.for('TaskSpecsScanner'),
   /** TaskWriterService — create + updateStatus (byte-preserving). */
   TASK_WRITER: Symbol.for('TaskSpecsWriter'),
+  /** TaskDoctorService — plan()/apply()/undo(). Never runs automatically. */
+  TASK_DOCTOR: Symbol.for('TaskSpecsDoctor'),
   /** RegistryGeneratorService — deterministic registry.md table. */
   REGISTRY_GENERATOR: Symbol.for('TaskSpecsRegistryGenerator'),
   /** TaskIndexStore — SQLite derived index (Batch B). */
   TASK_INDEX_STORE: Symbol.for('TaskSpecsIndexStore'),
+  /** TaskSweepService — deletes aged-out finished folders. Never automatic. */
+  TASK_SWEEP: Symbol.for('TaskSpecsSweep'),
   /** TaskIndexService — lazy start + watcher + debounce (Batch B). */
   TASK_INDEX_SERVICE: Symbol.for('TaskSpecsIndexService'),
 } as const;

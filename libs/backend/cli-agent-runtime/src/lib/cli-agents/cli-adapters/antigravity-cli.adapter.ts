@@ -1,30 +1,54 @@
 /**
  * Antigravity CLI Adapter (`agy`)
  *
- * Spawn-based text adapter for Google's Antigravity CLI. Unlike the Codex /
- * Cursor SDK adapters, `agy` has NO structured output mode: print mode emits
- * PLAIN TEXT (optional verbose step narration followed by a markdown answer),
- * so segment parsing here is a HEURISTIC line classifier rather than a JSONL
- * event loop.
+ * Spawn-based, structured-JSONL adapter for Google's Antigravity CLI. As of
+ * `agy` v1.1.11 print mode supports `--output-format stream-json`, which emits
+ * one JSON object per line, so segment parsing here is an event loop like the
+ * opencode / Codex adapters — not the old plain-text heuristic classifier.
  *
- * Non-interactive run:  agy --dangerously-skip-permissions --model <label>
+ * Non-interactive run:  agy --dangerously-skip-permissions
+ *                           --output-format stream-json --model <label>
  *                           --add-dir <cwd> --print "<prompt>"
  *
+ * Observed stream-json schema (captured from agy 1.1.11 — see
+ * `.ptah/specs/TASK_2026_199/stream-json-capture.md`). Every line is
+ * `{"event": <name>, ...}` with the payload nested under a key of that name:
+ *
+ * - `init`   — `{event, conversation_id, init:{cwd, tools[], permission_mode}}`
+ *              The conversation id IS on the stream, so no mtime scan is needed.
+ * - `step_update` — `{event, step_update:{conversation_id, step_index, state,
+ *              step_type, tool_name?, tool_info?, text_delta?, duration_seconds?,
+ *              usage?}}`. `state` is `ACTIVE` | `DONE`; `step_type` observed as
+ *              `user_input`, `agent_response`, `tool`, `checkpoint`, `unknown`
+ *              (the binary also carries a `system_message` literal).
+ *              `tool_info` is `{name, parameters, output?}` — `output` only on
+ *              the `DONE` update, and it carries failure text inline (there is
+ *              no separate error flag or exit code).
+ * - `result` — `{event, result:{conversation_id, status, response,
+ *              duration_seconds, num_turns, usage}}`. `response` is the full
+ *              concatenation of the `text_delta`s already streamed, so it is
+ *              NOT re-emitted; only a usage summary is.
+ *
  * Notes:
+ * - `text_delta` is INCREMENTAL per `agent_response` step (each event carries
+ *   only the newly appended chunk), so no last-seen-text diffing is required.
+ * - `agy` does NOT stream reasoning text — thinking shows up only as
+ *   `usage.thinking_tokens`. No `thinking` segments are emitted; guessing them
+ *   from prose (the previous behaviour) produced false positives.
+ * - Lines that fail to parse as JSON fall back to being emitted verbatim as
+ *   `text` (banners, crash dumps, a partial final line).
  * - `--print` (alias `--prompt`/`-p`) is a STRING flag whose value is the
  *   prompt; Go's flag parser consumes the following argv element, so it is
  *   always passed LAST with the prompt as a single argv item.
  * - `--dangerously-skip-permissions` maps to autoApprove; required or
  *   file-writing tool calls hang waiting for interactive approval.
- * - Print mode does NOT print the conversation id to stdout. The session id is
- *   recovered post-run by enumerating the newest `.db` under
- *   ~/.gemini/antigravity-cli/conversations/ (mtime).
+ * - `--effort` takes `low|medium|high` only; other values are dropped rather
+ *   than passed through (same allowlist shape as the Codex adapter).
  * - `agy` has no GEMINI_SYSTEM_MD support, so systemPrompt/projectGuidance are
  *   prepended to the task prompt via buildTaskPrompt (the shared fallback).
  *
  * See: https://antigravity.google/docs/cli/reference
  */
-import { readdirSync, statSync } from 'fs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -56,14 +80,61 @@ import {
  */
 const PRINT_TIMEOUT = '3600s';
 
-/**
- * Heuristic prefixes for narration/step lines (`agy` describes each action
- * before performing it, e.g. "I will read the file..."). Matching lines are
- * emitted as `thinking` segments; everything else is treated as answer `text`.
- * Best-effort only — `agy` exposes no structured tool events to key off.
- */
-const NARRATION_PREFIX =
-  /^(i will\b|i'll\b|i am going to\b|i'm going to\b|i need to\b|i should\b|let me\b|first,? i\b|now i\b|next,? i\b|then i\b|searching\b|reading\b|running\b|writing\b|editing\b|creating\b|looking\b|checking\b|analyzing\b|exploring\b|inspecting\b|gathering\b)/i;
+/** Values `agy --effort` accepts. Anything else is dropped. */
+const AGY_EFFORTS = ['low', 'medium', 'high'] as const;
+
+/** Token/cost accounting attached to `agent_response` / `checkpoint` / `result`. */
+interface AgyUsage {
+  readonly input_tokens?: number;
+  readonly output_tokens?: number;
+  readonly thinking_tokens?: number;
+  readonly cache_read_tokens?: number;
+  readonly total_tokens?: number;
+}
+
+/** Tool invocation detail. `output` is present only on the `DONE` update. */
+interface AgyToolInfo {
+  readonly name?: string;
+  readonly parameters?: Record<string, unknown>;
+  readonly output?: string;
+}
+
+/** Payload of a `step_update` event. */
+interface AgyStepUpdate {
+  readonly conversation_id?: string;
+  readonly step_index?: number;
+  readonly state?: string;
+  readonly step_type?: string;
+  readonly tool_name?: string;
+  readonly tool_info?: AgyToolInfo;
+  readonly text_delta?: string;
+  readonly duration_seconds?: number;
+  readonly usage?: AgyUsage;
+}
+
+/** Payload of the terminal `result` event. */
+interface AgyResult {
+  readonly conversation_id?: string;
+  readonly status?: string;
+  readonly response?: string;
+  readonly duration_seconds?: number;
+  readonly num_turns?: number;
+  readonly usage?: AgyUsage;
+}
+
+/** A single line of `agy --output-format stream-json` output. */
+interface AgyEvent {
+  readonly event?: string;
+  /** Present at the TOP level of the `init` event (not nested under `init`). */
+  readonly conversation_id?: string;
+  readonly init?: {
+    readonly cwd?: string;
+    readonly tools?: readonly string[];
+    readonly permission_mode?: string;
+  };
+  readonly step_update?: AgyStepUpdate;
+  readonly result?: AgyResult;
+}
 
 export class AntigravityCliAdapter implements CliAdapter {
   readonly name = 'antigravity' as const;
@@ -283,44 +354,12 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   /**
-   * Recover the CLI-native conversation id after a print-mode run.
-   *
-   * Print mode never echoes the id to stdout; `agy` persists each conversation
-   * as a per-id SQLite DB under ~/.gemini/antigravity-cli/conversations/<uuid>.db.
-   * We return the newest `.db` (by mtime) created at/after the run started, so
-   * a stale prior conversation is never mistaken for this run's session.
-   * Never throws — returns undefined when nothing qualifies.
-   */
-  private resolveSessionId(sinceMs: number): string | undefined {
-    try {
-      const dir = join(
-        AntigravityCliAdapter.geminiRoot(),
-        'antigravity-cli',
-        'conversations',
-      );
-      let newestId: string | undefined;
-      let newestMs = sinceMs - 2000; // small clock-skew tolerance
-      for (const entry of readdirSync(dir)) {
-        if (!entry.endsWith('.db')) continue; // skip .db-shm / .db-wal
-        const mtimeMs = statSync(join(dir, entry)).mtimeMs;
-        if (mtimeMs >= newestMs) {
-          newestMs = mtimeMs;
-          newestId = entry.slice(0, -'.db'.length);
-        }
-      }
-      return newestId;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * Run the task via `agy` print mode.
+   * Run the task via `agy` print mode with `--output-format stream-json`.
    *
    * Spawns `agy` with the prompt as the value of the trailing `--print` flag,
-   * captures plain-text stdout, and classifies each line into `thinking`
-   * (narration) or `text` (answer) segments. stderr and non-zero exit surface
-   * as `error` segments.
+   * buffers stdout by line, JSON.parses each line defensively, and dispatches
+   * to structured `CliOutputSegment`s. The conversation id is captured from the
+   * `init` event. stderr and non-zero exit surface as `error` segments.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     if (options.workingDirectory) {
@@ -341,13 +380,19 @@ export class AntigravityCliAdapter implements CliAdapter {
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
 
-    const args: string[] = [];
+    const args: string[] = ['--output-format', 'stream-json'];
     if (options.autoApprove !== false) {
       args.push('--dangerously-skip-permissions');
     }
     args.push('--print-timeout', PRINT_TIMEOUT);
     if (options.model) {
       args.push('--model', options.model);
+    }
+    if (
+      options.reasoningEffort &&
+      (AGY_EFFORTS as readonly string[]).includes(options.reasoningEffort)
+    ) {
+      args.push('--effort', options.reasoningEffort);
     }
     if (options.workingDirectory) {
       args.push('--add-dir', options.workingDirectory);
@@ -362,11 +407,12 @@ export class AntigravityCliAdapter implements CliAdapter {
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
 
-    const spawnStartMs = Date.now();
     const binary = options.binaryPath ?? 'agy';
-    // On Windows `agy` is typically an npm `.cmd` shim; resolveDirectSpawn points
-    // spawn at the real node entrypoint/binary so child.pid is the process
-    // taskkill /T should walk from (not the cmd.exe shim). No-op off-Windows.
+    // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
+    // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`
+    // shim, resolveDirectSpawn points spawn at the real node entrypoint/binary
+    // so child.pid is the process taskkill /T should walk from (not the cmd.exe
+    // shim). No-op off-Windows.
     const spawnDescriptor = await resolveDirectSpawn(binary);
     const child = spawnCli(
       spawnDescriptor.command,
@@ -392,12 +438,20 @@ export class AntigravityCliAdapter implements CliAdapter {
     };
     abortController.signal.addEventListener('abort', onAbort);
 
+    const setSessionId = (id: string | undefined): void => {
+      if (!capturedSessionId && id) {
+        capturedSessionId = id;
+      }
+    };
+
     let lineBuf = '';
     child.stdout?.on('data', (data: string) => {
       lineBuf += stripAnsiCodes(data);
       const lines = lineBuf.split(/\r?\n/);
       lineBuf = lines.pop() ?? '';
-      const LINE_BUF_CAP = 64 * 1024;
+      // A single stream-json line carries a whole tool output, so the cap is
+      // sized like opencode's rather than the old plain-text 64KB.
+      const LINE_BUF_CAP = 1024 * 1024;
       if (lineBuf.length > LINE_BUF_CAP) {
         output.emit(
           `[Antigravity CLI Warning] Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.\n`,
@@ -409,7 +463,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         lineBuf = '';
       }
       for (const line of lines) {
-        this.handleLine(line, output.emit, segment.emit);
+        this.handleLine(line, output.emit, segment.emit, setSessionId);
       }
     });
 
@@ -441,7 +495,7 @@ export class AntigravityCliAdapter implements CliAdapter {
       child.on('close', (code, signal) => {
         abortController.signal.removeEventListener('abort', onAbort);
         if (lineBuf.trim()) {
-          this.handleLine(lineBuf, output.emit, segment.emit);
+          this.handleLine(lineBuf, output.emit, segment.emit, setSessionId);
           lineBuf = '';
         }
         const exitCode = code ?? (signal ? 1 : 0);
@@ -451,7 +505,6 @@ export class AntigravityCliAdapter implements CliAdapter {
             content: `Antigravity CLI exited with code ${exitCode}`,
           });
         }
-        capturedSessionId = this.resolveSessionId(spawnStartMs);
         resolve(exitCode);
       });
 
@@ -483,21 +536,127 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   /**
-   * Emit a single plain-text output line and its structured segment.
-   * Narration/step lines become `thinking`; everything else is answer `text`.
-   * Blank lines pass through to raw output only (preserving markdown spacing).
+   * Parse one stream-json line and emit its raw text + structured segment(s).
+   * A line that is not valid JSON falls back to being emitted verbatim as
+   * `text` — `agy` prints banners and crash dumps outside the event stream.
    */
   private handleLine(
     line: string,
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
+    setSessionId: (id: string | undefined) => void,
   ): void {
-    emitOutput(line + '\n');
     const trimmed = line.trim();
     if (!trimmed) return;
-    emitSegment({
-      type: NARRATION_PREFIX.test(trimmed) ? 'thinking' : 'text',
-      content: trimmed,
-    });
+
+    let event: AgyEvent;
+    try {
+      event = JSON.parse(trimmed) as AgyEvent;
+    } catch {
+      emitOutput(trimmed + '\n');
+      emitSegment({ type: 'text', content: trimmed });
+      return;
+    }
+
+    switch (event.event) {
+      case 'init':
+        // Carries the conversation id; nothing user-facing to render.
+        setSessionId(event.conversation_id);
+        break;
+      case 'step_update':
+        if (event.step_update) {
+          setSessionId(event.step_update.conversation_id);
+          this.handleStepUpdate(event.step_update, emitOutput, emitSegment);
+        }
+        break;
+      case 'result':
+        if (event.result) {
+          setSessionId(event.result.conversation_id);
+          this.handleResult(event.result, emitOutput, emitSegment);
+        }
+        break;
+      default:
+        // Defensive fallback — surface unrecognized events rather than dropping.
+        emitSegment({ type: 'info', content: trimmed });
+        break;
+    }
+  }
+
+  /**
+   * Map a `step_update` to segments.
+   *
+   * - `tool` + `ACTIVE` → `tool-call` (parameters known, output not yet)
+   * - `tool` + `DONE`   → `tool-result` (`tool_info.output` carries failure
+   *   text inline; `agy` reports no separate error flag or exit code, so no
+   *   `tool-result-error` / `command` segment is synthesized)
+   * - `agent_response`  → `text` for each incremental `text_delta`
+   * - everything else (`user_input`, `checkpoint`, `unknown`, …) is a
+   *   structural marker and produces no segment.
+   */
+  private handleStepUpdate(
+    step: AgyStepUpdate,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+  ): void {
+    if (step.step_type === 'tool') {
+      const toolName = step.tool_name ?? step.tool_info?.name ?? 'tool';
+      const toolCallId =
+        step.step_index !== undefined ? String(step.step_index) : undefined;
+
+      if (step.state === 'DONE') {
+        emitSegment({
+          type: 'tool-result',
+          toolName,
+          content: step.tool_info?.output ?? '',
+          toolCallId,
+        });
+        return;
+      }
+
+      const parameters = step.tool_info?.parameters;
+      emitOutput(`[Tool] ${toolName}\n`);
+      emitSegment({
+        type: 'tool-call',
+        toolName,
+        toolArgs: parameters ? JSON.stringify(parameters) : undefined,
+        toolInput: parameters,
+        content: '',
+        toolCallId,
+      });
+      return;
+    }
+
+    if (step.step_type === 'agent_response' && step.text_delta) {
+      emitOutput(step.text_delta);
+      emitSegment({ type: 'text', content: step.text_delta });
+    }
+  }
+
+  /**
+   * Emit the terminal outcome. `result.response` repeats text already streamed
+   * as deltas, so only a usage summary is emitted on success; a non-SUCCESS
+   * status surfaces as an `error` segment carrying the response body.
+   */
+  private handleResult(
+    result: AgyResult,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+  ): void {
+    if (result.status && result.status !== 'SUCCESS') {
+      const message = result.response?.trim()
+        ? `${result.status}: ${result.response.trim()}`
+        : `Antigravity CLI finished with status ${result.status}`;
+      emitOutput(`\n[Error] ${message}\n`);
+      emitSegment({ type: 'error', content: message });
+      return;
+    }
+
+    const usage = result.usage;
+    if (!usage) return;
+    const usageStr = `Usage: ${usage.input_tokens ?? 0} input, ${
+      usage.output_tokens ?? 0
+    } output tokens`;
+    emitOutput(`\n[${usageStr}]\n`);
+    emitSegment({ type: 'info', content: usageStr });
   }
 }

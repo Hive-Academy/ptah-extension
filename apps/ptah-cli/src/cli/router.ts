@@ -36,6 +36,7 @@ import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
 import * as skillSynthesisCmd from './commands/skill-synthesis.js';
+import * as specCmd from './commands/ptah-spec.js';
 import * as tuiCmd from './commands/tui.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as wizardCmd from './commands/wizard.js';
@@ -759,6 +760,194 @@ export function buildRouter(): Command {
       );
       process.exitCode = exit;
     });
+
+  // -- ptah spec -------------------------------------------------------------
+  // Task specs under .ptah/specs/ (TASK_2026_179, step 16). Backed by the
+  // shared `tasks:*` RPC namespace, except `doctor`, which resolves
+  // TaskDoctorService directly — applying and rolling back a repair is a CLI-
+  // only capability by design.
+  //
+  // Every subcommand declares its own `--json`. The root program's `--json` is
+  // declared on the PROGRAM, so `ptah spec list --json` would otherwise fail to
+  // parse; the local flag makes that documented form work and forces machine
+  // output even after an earlier `--human`. Each subcommand emits exactly ONE
+  // notification, so `--json` yields a single parseable JSON document.
+  const spec = program
+    .command('spec')
+    .description(
+      'manage task specs in .ptah/specs (new / status / show / list / check / doctor)',
+    );
+
+  spec
+    .command('new')
+    .description('create a task folder + carrier via tasks:create')
+    .requiredOption('--title <text>', 'short imperative title')
+    .requiredOption(
+      '--type <type>',
+      'task type (FEATURE|BUGFIX|REFACTORING|DOCUMENTATION|RESEARCH|DEVOPS|SAAS_INIT|CREATIVE)',
+    )
+    .option(
+      '--description <text>',
+      'one-line summary (prose belongs elsewhere)',
+    )
+    .option('--depends-on <list>', 'comma-separated task ids', collectCsv)
+    .option('--executor <name>', 'agent expected to execute it')
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(
+      async (opts: {
+        title: string;
+        type: string;
+        description?: string;
+        dependsOn?: string[];
+        executor?: string;
+        json?: boolean;
+      }) => {
+        const exit = await specCmd.execute(
+          {
+            subcommand: 'new',
+            title: opts.title,
+            type: opts.type,
+            description: opts.description,
+            dependsOn: opts.dependsOn,
+            executor: opts.executor,
+            json: opts.json === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  spec
+    .command('status <id>')
+    .description('move a task to a new status via tasks:updateStatus')
+    .requiredOption(
+      '--to <status>',
+      'target status (backlog|in_progress|in_review|blocked|done|cancelled)',
+    )
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(async (id: string, opts: { to: string; json?: boolean }) => {
+      const exit = await specCmd.execute(
+        {
+          subcommand: 'status',
+          id,
+          to: opts.to,
+          json: opts.json === true,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  spec
+    .command('show <id>')
+    .description('emit spec.detail for one task via tasks:get')
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const exit = await specCmd.execute(
+        { subcommand: 'show', id, json: opts.json === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // `--label` / `--estimate` fold into a TaskFilterSpec that the SERVER applies
+  // through the shared `filterTasks` (FR-C1.5). Nothing is filtered in-process.
+  spec
+    .command('list')
+    .description('emit spec.list via tasks:list')
+    .option(
+      '--status <list>',
+      'comma-separated statuses to include',
+      collectCsv,
+    )
+    .option('--type <list>', 'comma-separated types to include', collectCsv)
+    .option(
+      '--label <list>',
+      'comma-separated labels; a task matching ANY of them is included',
+      collectCsv,
+    )
+    .option(
+      '--estimate <list>',
+      'comma-separated sizes (XS|S|M|L|XL) and/or "unestimated"',
+      collectCsv,
+    )
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(
+      async (opts: {
+        status?: string[];
+        type?: string[];
+        label?: string[];
+        estimate?: string[];
+        json?: boolean;
+      }) => {
+        const exit = await specCmd.execute(
+          {
+            subcommand: 'list',
+            status: opts.status,
+            filterType: opts.type,
+            label: opts.label,
+            estimate: opts.estimate,
+            json: opts.json === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  spec
+    .command('check')
+    .description(
+      'health-check the spec tree — names every skipped folder with its reason',
+    )
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(async (opts: { json?: boolean }) => {
+      const exit = await specCmd.execute(
+        { subcommand: 'check', json: opts.json === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  spec
+    .command('doctor')
+    .description(
+      'diagnose and (only when asked) repair .ptah/specs. --plan is read-only and is the default.',
+    )
+    .option(
+      '--plan',
+      'compute the repair plan and write NOTHING (default)',
+      false,
+    )
+    .option('--fix', 'apply the plan (journals every effect first)', false)
+    .option('--undo', 'reverse the last --fix using the journal', false)
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(
+      async (opts: {
+        plan?: boolean;
+        fix?: boolean;
+        undo?: boolean;
+        json?: boolean;
+      }) => {
+        // `--plan` is the default and the only non-mutating mode. When more
+        // than one is passed the SAFEST wins rather than the last one parsed:
+        // guessing wrong here mutates a gitignored tree.
+        const mode =
+          opts.plan === true
+            ? 'plan'
+            : opts.undo === true
+              ? 'undo'
+              : opts.fix === true
+                ? 'fix'
+                : 'plan';
+        const exit = await specCmd.execute(
+          { subcommand: 'doctor', doctorMode: mode, json: opts.json === true },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   // -- ptah auth -------------------------------------------------------------
   // Sub-dispatcher: status / login / logout / test.

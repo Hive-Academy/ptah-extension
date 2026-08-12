@@ -16,6 +16,9 @@
  *   NativeDropdownComponent,
  *   NativePopoverComponent,
  *   NativeAutocompleteComponent,
+ *   NativeCardComponent,
+ *   NativeTabGroupComponent,
+ *   NativeDrawerComponent,
  * } from '@ptah-extension/ui';
  * ```
  */
@@ -25,3 +28,6 @@ export * from './dropdown';
 export * from './popover';
 export * from './autocomplete';
 export * from './form';
+export * from './card';
+export * from './tab-group';
+export * from './drawer';

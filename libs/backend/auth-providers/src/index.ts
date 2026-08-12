@@ -68,6 +68,7 @@ export {
   COPILOT_DEFAULT_TIERS,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   readCopilotToken,
+  readCopilotUsername,
   getCopilotHostsPath,
   getCopilotAppsPath,
   writeCopilotToken,
@@ -76,7 +77,9 @@ export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotDeviceLoginInfo,
   CopilotHostsFile,
+  CopilotLoginOptions,
 } from './lib/providers/copilot';
 export {
   CodexAuthService,

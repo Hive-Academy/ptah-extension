@@ -4,10 +4,19 @@
   "projectType": "application",
   "sourceRoot": "apps/ptah-electron/src",
   "tags": ["scope:electron", "type:app"],
+  "implicitDependencies": ["ptah-extension-webview"],
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}/main.mjs",
+        "{options.outputPath}/main.mjs.map",
+        "{options.outputPath}/package.json",
+        "{options.outputPath}/package-lock.json",
+        "{options.outputPath}/electron-builder.yml",
+        "{options.outputPath}/assets",
+        "{options.outputPath}/templates"
+      ],
       "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/ptah-electron",
@@ -112,7 +121,7 @@
     },
     "build-preload": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/preload.js"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/preload.ts",
@@ -134,7 +143,7 @@
     },
     "build-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/embedder-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
@@ -157,7 +166,7 @@
     },
     "build-voice-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{options.outputPath}/voice-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/voice-providers/src/lib/worker/voice-worker.ts",
@@ -212,8 +221,7 @@
           "nx build-main ptah-electron --configuration=development",
           "nx build-preload ptah-electron",
           "nx build-embedder-worker ptah-electron",
-          "nx build-voice-worker ptah-electron",
-          "nx build ptah-extension-webview --configuration=development"
+          "nx build-voice-worker ptah-electron"
         ],
         "parallel": false
       }
@@ -224,6 +232,16 @@
       "outputs": ["{workspaceRoot}/dist/apps/ptah-electron/renderer"],
       "options": {
         "command": "node apps/ptah-electron/scripts/copy-renderer.js"
+      }
+    },
+    "copy-renderer-dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build ptah-extension-webview --configuration=development",
+          "node apps/ptah-electron/scripts/copy-renderer.js"
+        ],
+        "parallel": false
       }
     },
     "rebuild-native": {
@@ -241,7 +259,7 @@
           "nx build-voice-worker ptah-electron",
           "nx build-dev ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
-          "nx copy-renderer ptah-electron",
+          "nx copy-renderer-dev ptah-electron",
           "node apps/ptah-electron/scripts/launch.js"
         ],
         "parallel": false
@@ -255,7 +273,8 @@
           "nx build-preload ptah-electron --watch",
           "nx build-embedder-worker ptah-electron --watch",
           "nx build-voice-worker ptah-electron --watch",
-          "nx build ptah-extension-webview --configuration=development --watch"
+          "nx build ptah-extension-webview --configuration=development --watch",
+          "node apps/ptah-electron/scripts/watch-renderer.js"
         ],
         "parallel": true
       }

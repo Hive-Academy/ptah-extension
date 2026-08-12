@@ -7,6 +7,11 @@
  */
 
 export {
+  AgentRpcHandlers,
+  CommandRpcHandlers,
+  FileSystemRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
   SessionRpcHandlers,
   ContextRpcHandlers,
   AutocompleteRpcHandlers,
@@ -26,6 +31,7 @@ export {
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
+  OutputStyleRpcHandlers,
   SkillsShRpcHandlers,
   GitRpcHandlers,
   WorkspaceRpcHandlers,
@@ -38,16 +44,23 @@ export {
   EmbedderRpcHandlers,
   GatewayRpcHandlers,
   VoiceRpcHandlers,
+  LayoutRpcHandlers,
+  TerminalRpcHandlers,
+  UpdateRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,
   TasksRpcHandlers,
+  asAuthCommandRunner,
 } from './lib/handlers';
 export type {
   DbHealthResult,
   DbHealthParams,
   DbResetParams,
   DbResetResult,
+  AuthCommandRequest,
+  AuthCommandResult,
+  IAuthCommandRunner,
 } from './lib/handlers';
 export type {
   IPlatformCommands,
@@ -55,7 +68,7 @@ export type {
   ISaveDialogProvider,
   IModelDiscovery,
 } from '@ptah-extension/platform-core';
-export * from './lib/register-all';
+export * from './lib/host-profile';
 export * from './lib/verify-and-report';
 export {
   registerSharedRpcHandlers,

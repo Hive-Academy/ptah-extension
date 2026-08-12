@@ -62,6 +62,7 @@ function createFsMock(): jest.Mocked<IFileSystemProvider> {
     exists: jest.fn(),
     delete: jest.fn(),
     createDirectory: jest.fn(),
+    createDirectoryExclusive: jest.fn(),
     copy: jest.fn(),
     findFiles: jest.fn(),
     createFileWatcher: jest.fn(),

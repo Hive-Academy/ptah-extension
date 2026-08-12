@@ -59,7 +59,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
             </div>
           </div>
           <h1 class="text-2xl font-bold mb-3">Setup Complete!</h1>
-          <p class="text-base-content/60 max-w-xl mx-auto">
+          <p class="text-base-content-muted max-w-xl mx-auto">
             Your personalized agents have been generated. You're ready to start
             using intelligent development workflows.
           </p>

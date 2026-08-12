@@ -26,7 +26,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               <span class="text-sm">Enabled</span>
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Successes to promote</span
               >
               <input
@@ -36,7 +36,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Dedup cosine threshold</span
               >
               <input
@@ -47,7 +47,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Max active skills</span
               >
               <input
@@ -57,7 +57,9 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1 sm:col-span-2">
-              <span class="text-xs text-base-content/60">Candidates dir</span>
+              <span class="text-xs text-base-content-muted"
+                >Candidates dir</span
+              >
               <input
                 type="text"
                 class="input input-bordered input-sm"
@@ -71,7 +73,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
           <h2 class="text-sm font-semibold">Eligibility &amp; quality</h2>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Eligibility min turns</span
               >
               <input
@@ -81,7 +83,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Eviction decay rate (0-1)</span
               >
               <input
@@ -92,7 +94,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Generalization context threshold</span
               >
               <input
@@ -102,7 +104,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Prefilter min edits</span
               >
               <input
@@ -112,7 +114,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Prefilter min chars</span
               >
               <input
@@ -122,7 +124,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Prefilter min tool uses</span
               >
               <input
@@ -132,7 +134,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Dedup cluster threshold (0-1)</span
               >
               <input
@@ -157,7 +159,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               <span class="text-sm">Judge enabled</span>
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Min judge score (0-10)</span
               >
               <input
@@ -168,7 +170,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1 sm:col-span-2">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Judge model ('inherit' = workspace default)</span
               >
               <input
@@ -184,7 +186,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
           <h2 class="text-sm font-semibold">Pinning &amp; curation</h2>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Max pinned skills</span
               >
               <input
@@ -202,7 +204,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               <span class="text-sm">Curator enabled</span>
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Curator interval (hours)</span
               >
               <input
@@ -212,7 +214,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Suggestion min cluster size</span
               >
               <input
@@ -222,7 +224,7 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
               />
             </label>
             <label class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60"
+              <span class="text-xs text-base-content-muted"
                 >Suggestion max candidates</span
               >
               <input

@@ -6,6 +6,7 @@ export { CopilotAuthService } from './copilot-auth.service';
 export { VscodeCopilotAuthService } from './vscode-copilot-auth.service';
 export {
   readCopilotToken,
+  readCopilotUsername,
   getCopilotHostsPath,
   getCopilotAppsPath,
   writeCopilotToken,
@@ -24,6 +25,8 @@ export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotDeviceLoginInfo,
+  CopilotLoginOptions,
   CopilotTokenResponse,
 } from './copilot-provider.types';
 export { OpenAIResponseTranslator as CopilotResponseTranslator } from '../../translation';

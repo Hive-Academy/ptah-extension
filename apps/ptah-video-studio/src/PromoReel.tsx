@@ -50,6 +50,14 @@ const NEW_STAGE_SCENES = new Set<string>([
   'story-lifecycle',
   'story-proof',
   'story-cta',
+  'builders-hook',
+  'builders-promise',
+  'builders-cohort',
+  'builders-course',
+  'builders-vault',
+  'builders-room',
+  'builders-proof',
+  'builders-offer',
 ]);
 
 /** Extra on-screen breath after each scene's timeline ends. */

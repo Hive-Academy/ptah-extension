@@ -46,7 +46,7 @@
             Data Portability
           </h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Export or import your settings, API keys, and preferences.
         </p>
         <div class="flex gap-2">
@@ -131,15 +131,15 @@
               Authentication
             </h2>
           </div>
-          <p class="text-xs text-base-content/70 mb-2">
+          <p class="text-xs text-base-content-muted mb-2">
             Configure your authentication method to connect with AI providers.
           </p>
           <div
             class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-3"
           >
             <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
-            <p class="text-[10px] text-base-content/60 leading-relaxed">
-              <strong class="text-base-content/70">Runs 100% locally.</strong>
+            <p class="text-[10px] text-base-content-muted leading-relaxed">
+              <strong class="text-base-content-muted">Runs 100% locally.</strong>
               Your credentials go directly from this machine to the AI provider
               — no proxies, no Ptah servers involved.
             </p>
@@ -151,7 +151,7 @@
             <div class="divider my-2 text-[10px] opacity-50">
               Provider Model Mapping
             </div>
-            <p class="text-xs text-base-content/70 mb-3">
+            <p class="text-xs text-base-content-muted mb-3">
               Override default Anthropic model aliases with models from your
               provider.
             </p>
@@ -182,6 +182,7 @@
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'pro-features') {
       <ptah-enhanced-prompts-config />
+      <ptah-output-style-config />
       <ptah-workflows-config />
       <ptah-mcp-port-config />
       <ptah-vscode-lm-config (modelChanged)="onModelChanged()" />

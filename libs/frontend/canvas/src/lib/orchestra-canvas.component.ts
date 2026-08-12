@@ -126,7 +126,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
               content
               class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
             >
-              <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+              <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
                 New Session
               </h3>
               <input
@@ -144,7 +144,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
               />
               <div class="flex gap-2">
                 <button
-                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
                   (click)="handleCancelSession()"
                 >
                   <lucide-angular [img]="XIcon" class="w-3 h-3" />
@@ -171,7 +171,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
           <div
             class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
           >
-            <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+            <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
               New Session
             </h3>
             <input
@@ -189,7 +189,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
             />
             <div class="flex gap-2">
               <button
-                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
                 (click)="handleCancelSession()"
               >
                 <lucide-angular [img]="XIcon" class="w-3 h-3" />

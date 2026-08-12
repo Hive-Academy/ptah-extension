@@ -1,0 +1,16 @@
+
+[test:native] persistence-sqlite — electron-as-node (ABI-matched)
+
+Test Suites: 18 passed, 18 total
+Tests:       145 passed, 145 total
+Snapshots:   0 total
+Time:        33.512 s
+Ran all test suites.
+
+[test:native] task-specs — electron-as-node (ABI-matched)
+
+Test Suites: 14 passed, 14 total
+Tests:       380 passed, 380 total
+Snapshots:   0 total
+Time:        44.948 s
+Ran all test suites.

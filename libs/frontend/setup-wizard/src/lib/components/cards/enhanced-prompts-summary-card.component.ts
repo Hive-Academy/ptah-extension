@@ -41,45 +41,45 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
           />
           <h3 class="text-sm font-semibold">Generated Guidance</h3>
           @if (summaryData().usedFallback) {
-          <span class="badge badge-warning badge-xs gap-1">
-            <lucide-angular
-              [img]="AlertTriangleIcon"
-              class="w-2.5 h-2.5"
-              aria-hidden="true"
-            />
-            fallback
-          </span>
+            <span class="badge badge-warning badge-xs gap-1">
+              <lucide-angular
+                [img]="AlertTriangleIcon"
+                class="w-2.5 h-2.5"
+                aria-hidden="true"
+              />
+              fallback
+            </span>
           }
         </div>
 
         <!-- Section Grid -->
         <div class="grid grid-cols-2 gap-2">
           @for (section of sections(); track section.name) {
-          <div
-            class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-base-100/50 border border-base-300/50"
-          >
-            @if (section.generated) {
-            <lucide-angular
-              [img]="CircleCheckIcon"
-              class="w-3.5 h-3.5 text-success shrink-0"
-              aria-hidden="true"
-            />
-            } @else {
-            <lucide-angular
-              [img]="FileTextIcon"
-              class="w-3.5 h-3.5 text-base-content/30 shrink-0"
-              aria-hidden="true"
-            />
-            }
-            <div class="min-w-0 flex-1">
-              <span class="text-xs font-medium truncate block">{{
-                section.name
-              }}</span>
-              <span class="text-[10px] text-base-content/50">
-                {{ section.wordCount }} words
-              </span>
+            <div
+              class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-base-100/50 border border-base-300/50"
+            >
+              @if (section.generated) {
+                <lucide-angular
+                  [img]="CircleCheckIcon"
+                  class="w-3.5 h-3.5 text-success shrink-0"
+                  aria-hidden="true"
+                />
+              } @else {
+                <lucide-angular
+                  [img]="FileTextIcon"
+                  class="w-3.5 h-3.5 text-base-content-muted shrink-0"
+                  aria-hidden="true"
+                />
+              }
+              <div class="min-w-0 flex-1">
+                <span class="text-xs font-medium truncate block">{{
+                  section.name
+                }}</span>
+                <span class="text-[10px] text-base-content-muted">
+                  {{ section.wordCount }} words
+                </span>
+              </div>
             </div>
-          </div>
           }
         </div>
 
@@ -87,7 +87,7 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
         <div
           class="flex items-center justify-between mt-2 pt-2 border-t border-base-300/30"
         >
-          <span class="text-[10px] text-base-content/40">
+          <span class="text-[10px] text-base-content-muted">
             {{ generatedCount() }} of {{ sections().length }} sections generated
           </span>
           <span class="badge badge-ghost badge-xs">
@@ -115,6 +115,6 @@ export class EnhancedPromptsSummaryCardComponent {
 
   /** Count of successfully generated sections */
   protected readonly generatedCount = computed(
-    () => this.summary().sections.filter((s) => s.generated).length
+    () => this.summary().sections.filter((s) => s.generated).length,
   );
 }

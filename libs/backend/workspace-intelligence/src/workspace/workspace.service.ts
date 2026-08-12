@@ -17,7 +17,11 @@ import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  FileType,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IDisposable,
@@ -112,6 +116,22 @@ export interface WorkspaceStructureAnalysis {
   recommendations: string[];
 }
 
+/** Insertion-order bound on {@link WorkspaceService.analysisByRoot}. */
+const MAX_CACHED_ANALYSES = 8;
+
+/**
+ * An in-flight workspace analysis plus its cancellation fence.
+ *
+ * The fence is a per-computation object, not a per-key counter: a counter map
+ * has to be bounded, and pruning a counter resets it to zero — which would let
+ * a long-parked, twice-invalidated computation compare equal again and publish
+ * a stale entry. Object identity cannot be reset.
+ */
+interface PendingWorkspaceAnalysis {
+  readonly fence: { cancelled: boolean };
+  readonly promise: Promise<WorkspaceAnalysisResult | undefined>;
+}
+
 /**
  * WorkspaceService - Workspace management and analysis
  *
@@ -146,7 +166,45 @@ export interface WorkspaceStructureAnalysis {
 @injectable()
 export class WorkspaceService implements IDisposable {
   private disposables: IDisposable[] = [];
+
+  /** Analysis for the process-global active folder (the no-root path). */
   private currentAnalysis?: WorkspaceAnalysisResult;
+
+  /**
+   * Fences writes to {@link currentAnalysis} so a slow analysis started for an
+   * older active folder cannot overwrite a newer one's result.
+   */
+  private globalAnalysisGeneration = 0;
+
+  /**
+   * ROOT MODEL (TASK_2026_200, task 3.3) — analyses keyed on
+   * `normalizeWorkspaceRoot(root)`.
+   *
+   * `getProjectInfo()` / `analyzeWorkspaceStructure()` now accept an explicit
+   * root, and that argument wins over `this.workspaceProvider.getWorkspaceRoot()`
+   * UNCONDITIONALLY: this is the hop where the raw process-global provider used
+   * to leak into every MCP `ptah_workspace_analyze` answer (context.md §2,
+   * chain step 3). The explicit path never consults `currentAnalysis`.
+   *
+   * The map exists for cost, not correctness — `analyzeRoot()` walks the whole
+   * tree twice (file count + statistics), and `ptah_workspace_analyze` issues
+   * three overlapping requests for one root. Correctness comes from the key
+   * being derived synchronously before any `await` and every write being
+   * epoch-guarded in the same synchronous block as the guard.
+   */
+  private readonly analysisByRoot = new Map<string, WorkspaceAnalysisResult>();
+
+  /**
+   * De-dupes concurrent analyses of the same root AND carries each analysis's
+   * invalidation fence. See {@link PendingWorkspaceAnalysis}.
+   */
+  private readonly inFlightAnalysisByRoot = new Map<
+    string,
+    PendingWorkspaceAnalysis
+  >();
+
+  /** Normalized keys of the folders the platform reported at the last check. */
+  private knownFolderKeys = new Set<string>();
 
   constructor(
     @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
@@ -198,15 +256,117 @@ export class WorkspaceService implements IDisposable {
   async updateWorkspaceAnalysis(): Promise<
     WorkspaceAnalysisResult | undefined
   > {
+    // Captured synchronously; only the newest caller may publish to
+    // `currentAnalysis`. Guard and write below are adjacent — no `await`
+    // between them.
+    const generation = ++this.globalAnalysisGeneration;
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
 
     if (!workspaceRoot) {
-      this.currentAnalysis = undefined;
+      if (generation === this.globalAnalysisGeneration) {
+        this.currentAnalysis = undefined;
+      }
       return undefined;
     }
 
+    // An explicit refresh must not be served from the cache.
+    this.invalidateAnalysis(normalizeWorkspaceRoot(workspaceRoot));
+    const analysis = await this.resolveAnalysis(workspaceRoot);
+
+    if (generation === this.globalAnalysisGeneration) {
+      this.currentAnalysis = analysis;
+    }
+
+    return analysis;
+  }
+
+  /**
+   * Cache-or-compute the analysis for one explicit root.
+   *
+   * Everything between the cache read and the in-flight registration is
+   * synchronous, so a concurrent caller for the same root joins the existing
+   * computation instead of starting a second full tree walk.
+   */
+  private resolveAnalysis(
+    root: string,
+  ): Promise<WorkspaceAnalysisResult | undefined> {
+    const key = normalizeWorkspaceRoot(root);
+
+    const cached = this.analysisByRoot.get(key);
+    if (cached) {
+      return Promise.resolve(cached);
+    }
+
+    const inFlight = this.inFlightAnalysisByRoot.get(key);
+    if (inFlight) {
+      return inFlight.promise;
+    }
+
+    const fence = { cancelled: false };
+    const promise = this.analyzeRoot(root, key, fence).finally(() => {
+      if (this.inFlightAnalysisByRoot.get(key)?.fence === fence) {
+        this.inFlightAnalysisByRoot.delete(key);
+      }
+    });
+    this.inFlightAnalysisByRoot.set(key, { fence, promise });
+    return promise;
+  }
+
+  /**
+   * Resolve the analysis a public entry point should use.
+   *
+   * An explicit `root` wins unconditionally and NEVER falls back to
+   * `currentAnalysis`; omitting it reproduces the pre-fix behaviour exactly.
+   */
+  private async resolveAnalysisFor(
+    root?: string,
+  ): Promise<WorkspaceAnalysisResult | undefined> {
+    if (root) {
+      return await this.resolveAnalysis(root);
+    }
+    return this.currentAnalysis ?? (await this.updateWorkspaceAnalysis());
+  }
+
+  /**
+   * Drop a root's cached analysis and fence any computation still in flight for
+   * it, so a late-resuming walk cannot resurrect the stale entry.
+   * Fully synchronous.
+   */
+  private invalidateAnalysis(key: string): void {
+    this.analysisByRoot.delete(key);
+
+    const pending = this.inFlightAnalysisByRoot.get(key);
+    if (pending) {
+      pending.fence.cancelled = true;
+      this.inFlightAnalysisByRoot.delete(key);
+    }
+  }
+
+  /** Insert with an insertion-order (FIFO) bound. */
+  private rememberAnalysis(key: string, analysis: WorkspaceAnalysisResult) {
+    this.analysisByRoot.delete(key);
+    this.analysisByRoot.set(key, analysis);
+
+    while (this.analysisByRoot.size > MAX_CACHED_ANALYSES) {
+      const oldest = this.analysisByRoot.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      this.analysisByRoot.delete(oldest.value);
+    }
+  }
+
+  /**
+   * Analyze one explicit root. Writes no process-global state — the only write
+   * is the epoch-guarded cache publish at the end, keyed on the `key` captured
+   * before the first `await`.
+   */
+  private async analyzeRoot(
+    workspacePath: string,
+    key: string,
+    fence: { cancelled: boolean },
+  ): Promise<WorkspaceAnalysisResult | undefined> {
     try {
-      const workspacePath = workspaceRoot;
       const workspaceName = path.basename(workspacePath);
       const projectType =
         await this.projectDetector.detectProjectType(workspacePath);
@@ -237,7 +397,7 @@ export class WorkspaceService implements IDisposable {
         version = cargoInfo?.version;
         description = cargoInfo?.description;
       }
-      this.currentAnalysis = {
+      const analysis: WorkspaceAnalysisResult = {
         info: {
           name: workspaceName,
           path: workspacePath,
@@ -255,14 +415,20 @@ export class WorkspaceService implements IDisposable {
         hasGitRepository,
       };
 
-      return this.currentAnalysis;
-    } catch (error) {
+      // Publish. Guard and write are adjacent — no `await` between them, and
+      // `key` was captured before the first `await`, so this can never land
+      // under a different root than the one analyzed.
+      if (!fence.cancelled) {
+        this.rememberAnalysis(key, analysis);
+      }
+
+      return analysis;
+    } catch (error: unknown) {
       console.error('Failed to update workspace analysis:', error);
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),
         { errorSource: 'WorkspaceService.updateWorkspaceAnalysis' },
       );
-      this.currentAnalysis = undefined;
       return undefined;
     }
   }
@@ -277,11 +443,13 @@ export class WorkspaceService implements IDisposable {
    * - Total file count
    * - Git repository status
    *
+   * @param root - Explicit workspace root. When supplied it wins
+   *   unconditionally over `this.workspaceProvider.getWorkspaceRoot()` and the
+   *   `currentAnalysis` field. Omitted → pre-fix behaviour.
    * @returns Detailed project info or null if no workspace
    */
-  async getProjectInfo(): Promise<ProjectInfo | null> {
-    const analysis =
-      this.currentAnalysis || (await this.updateWorkspaceAnalysis());
+  async getProjectInfo(root?: string): Promise<ProjectInfo | null> {
+    const analysis = await this.resolveAnalysisFor(root);
 
     if (!analysis) {
       return null;
@@ -347,11 +515,15 @@ export class WorkspaceService implements IDisposable {
    * - Directory structure (limited depth to avoid performance issues)
    * - Context inclusion/exclusion recommendations
    *
+   * @param root - Explicit workspace root. When supplied it wins
+   *   unconditionally over `this.workspaceProvider.getWorkspaceRoot()` and the
+   *   `currentAnalysis` field. Omitted → pre-fix behaviour.
    * @returns Workspace structure analysis or null if no workspace
    */
-  async analyzeWorkspaceStructure(): Promise<WorkspaceStructureAnalysis | null> {
-    const analysis =
-      this.currentAnalysis || (await this.updateWorkspaceAnalysis());
+  async analyzeWorkspaceStructure(
+    root?: string,
+  ): Promise<WorkspaceStructureAnalysis | null> {
+    const analysis = await this.resolveAnalysisFor(root);
 
     if (!analysis) {
       return null;
@@ -754,14 +926,49 @@ export class WorkspaceService implements IDisposable {
    * Listens to workspace change events and triggers re-analysis.
    */
   private setupEventHandlers(): void {
+    this.knownFolderKeys = this.readCurrentFolderKeys();
+
     const disposable = this.workspaceProvider.onDidChangeWorkspaceFolders(
       () => {
-        this.updateWorkspaceAnalysis().catch((error) => {
-          console.error('Failed to update workspace on folder change:', error);
-        });
+        this.handleWorkspaceFoldersChanged();
       },
     );
     this.disposables.push(disposable);
+  }
+
+  /**
+   * Per-key cache invalidation on a platform folder change.
+   *
+   * `onDidChangeWorkspaceFolders` is `IEvent<void>` and does not say which
+   * folder changed, so the removed set is derived by diffing the folder list
+   * against the previously observed one. Only roots that were open and are now
+   * gone are evicted — a still-open folder, or a session root that was never in
+   * the platform's list, keeps its analysis. `updateWorkspaceAnalysis()` then
+   * refreshes the active folder exactly as it did before this change.
+   */
+  private handleWorkspaceFoldersChanged(): void {
+    const currentKeys = this.readCurrentFolderKeys();
+
+    for (const key of this.knownFolderKeys) {
+      if (!currentKeys.has(key)) {
+        this.invalidateAnalysis(key);
+      }
+    }
+    this.knownFolderKeys = currentKeys;
+
+    this.updateWorkspaceAnalysis().catch((error: unknown) => {
+      console.error('Failed to update workspace on folder change:', error);
+    });
+  }
+
+  /** Normalized keys of the folders the platform currently reports. */
+  private readCurrentFolderKeys(): Set<string> {
+    try {
+      const folders = this.workspaceProvider.getWorkspaceFolders() ?? [];
+      return new Set(folders.map((folder) => normalizeWorkspaceRoot(folder)));
+    } catch {
+      return new Set<string>();
+    }
   }
 
   /**
@@ -770,5 +977,11 @@ export class WorkspaceService implements IDisposable {
   dispose(): void {
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
+    this.analysisByRoot.clear();
+    for (const pending of this.inFlightAnalysisByRoot.values()) {
+      pending.fence.cancelled = true;
+    }
+    this.inFlightAnalysisByRoot.clear();
+    this.knownFolderKeys = new Set<string>();
   }
 }

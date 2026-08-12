@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import type {
   PermissionRequest,
@@ -11,8 +11,12 @@ import type {
 } from '@ptah-extension/cli-engine';
 
 import { TuiProvider } from '../context/TuiContext.js';
+import type { TuiFilePickerBridge } from '../transport/tui-file-picker-bridge.js';
 import { ThemeProvider } from '../context/ThemeContext.js';
-import { SessionProvider, useSessionContext } from '../context/SessionContext.js';
+import {
+  SessionProvider,
+  useSessionContext,
+} from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';
 import { FocusProvider } from '../hooks/use-focus-manager.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
@@ -24,18 +28,22 @@ import { PermissionPrompt } from './common/PermissionPrompt.js';
 import type { PermissionDecision } from './common/PermissionPrompt.js';
 import { UserQuestionPrompt } from './common/UserQuestionPrompt.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
+import { HelpOverlay } from './overlays/HelpOverlay.js';
 import { ModelSelector } from './overlays/ModelSelector.js';
+import { QUIT_CONFIRM_WINDOW_MS } from '../lib/keymap.js';
+import { applyEscape } from '../lib/escape-target.js';
 import { ThothPanel } from './thoth/ThothPanel.js';
 import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
 import { useAgentConfig } from '../hooks/use-agent-config.js';
-
-type ActiveView = 'chat' | 'settings' | 'thoth';
+import { resolveInitialView } from './initial-view.js';
+import type { ActiveView } from './initial-view.js';
 
 interface AppProps {
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
   workspacePath: string;
+  filePicker?: TuiFilePickerBridge;
   authReady: boolean;
   authError?: string;
   reinitializeSdk: () => Promise<boolean>;
@@ -64,12 +72,35 @@ function AppShell({
   const { setActiveSession } = useSessionContext();
   const agentConfig = useAgentConfig();
 
-  const [activeView, setActiveView] = useState<ActiveView>('chat');
+  const [activeView, setActiveView] = useState<ActiveView>(() =>
+    resolveInitialView(authReady),
+  );
   const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [agentPanelVisible, setAgentPanelVisible] = useState(true);
+  // Closed by default. It was open by default, and for the overwhelming
+  // majority of runs its entire contribution was the words "No active agents"
+  // occupying a fifth of the terminal for the whole session.
+  const [agentPanelVisible, setAgentPanelVisible] = useState(false);
   const [modalStack, setModalStack] = useState<React.ReactNode[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [hasConversation, setHasConversation] = useState(false);
   const [overlayActive, setOverlayActive] = useState(false);
+  const [quitArmed, setQuitArmed] = useState(false);
+  const quitTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Ctrl+K opens the palette from the shell, but the command machinery
+  // (`useCommands`) is owned by ChatPanel, which holds the chat callbacks the
+  // commands act on. ChatPanel publishes its executor here on mount so the
+  // palette can actually run a selection — previously `onExecute` was
+  // `handleDismiss(); void name;`, i.e. the advertised ^K did nothing at all.
+  const commandSinkRef = useRef<((name: string, args: string) => void) | null>(
+    null,
+  );
+  const registerCommandSink = useCallback(
+    (sink: ((name: string, args: string) => void) | null) => {
+      commandSinkRef.current = sink;
+    },
+    [],
+  );
 
   const handleQuit = useCallback(() => {
     onQuit();
@@ -78,6 +109,23 @@ function AppShell({
 
   const handleSwitchView = useCallback((view: 'chat' | 'settings') => {
     setActiveView(view);
+  }, []);
+
+  const dismissTopModal = useCallback(() => {
+    setModalStack((prev) => prev.slice(0, -1));
+  }, []);
+
+  const handleHelp = useCallback(() => {
+    setModalStack((prev) => [
+      ...prev,
+      <HelpOverlay key={`help-${Date.now()}`} onDismiss={dismissTopModal} />,
+    ]);
+  }, [dismissTopModal]);
+
+  useEffect(() => {
+    return () => {
+      if (quitTimerRef.current !== null) clearTimeout(quitTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -128,28 +176,12 @@ function AppShell({
     };
   }, [pushAdapter, fireAndForget]);
 
-  useEffect(() => {
-    const handleChunk = (): void => {
-      setIsStreaming(true);
-    };
-    const handleComplete = (): void => {
-      setIsStreaming(false);
-    };
-    const handleError = (): void => {
-      setIsStreaming(false);
-    };
-
-    pushAdapter.on('chat:chunk', handleChunk);
-    pushAdapter.on('chat:complete', handleComplete);
-    pushAdapter.on('chat:error', handleError);
-
-    return () => {
-      pushAdapter.off('chat:chunk', handleChunk);
-      pushAdapter.off('chat:complete', handleComplete);
-      pushAdapter.off('chat:error', handleError);
-    };
-  }, [pushAdapter]);
-
+  // The status bar used to derive `isStreaming` from its own
+  // `chat:chunk`/`chat:complete` listeners. That is a second source of truth
+  // for one piece of state, and it only ever cleared on a push event — so when
+  // the backend went silent the bar stayed on "◉ Streaming" forever even after
+  // ChatStreamController's watchdog had already ended the turn. The controller
+  // is now the only owner; ChatPanel reports its state up.
   const modalActive = modalStack.length > 0;
 
   const handleOverlayActiveChange = useCallback((active: boolean) => {
@@ -158,11 +190,9 @@ function AppShell({
 
   useInput(
     (input, key) => {
-      if (key.ctrl && input === 'q') {
-        handleQuit();
-        return;
-      }
-
+      // Ctrl+Q is gone: it is XON in every terminal's default flow control, so
+      // on the terminals that swallow it the advertised quit key simply did
+      // nothing. Quitting is Ctrl+C twice or `/quit`, both in the keymap.
       if (key.ctrl && input === 'b') {
         setAgentPanelVisible((prev) => !prev);
       }
@@ -195,9 +225,9 @@ function AppShell({
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
-        const handleExecute = (name: string): void => {
+        const handleExecute = (name: string, args: string): void => {
           handleDismiss();
-          void name;
+          commandSinkRef.current?.(name, args);
         };
         setModalStack((prev) => [
           ...prev,
@@ -222,8 +252,49 @@ function AppShell({
         ]);
       }
 
-      if (key.escape) {
-        setActiveView('chat');
+      if (key.ctrl && input === 'c') {
+        // Ink is rendered with `exitOnCtrlC: false`, so this is the only Ctrl+C
+        // handler. One press arms, a second within the window quits; anything
+        // else disarms. A single stray Ctrl+C can no longer end the session.
+        if (quitArmed) {
+          if (quitTimerRef.current !== null) clearTimeout(quitTimerRef.current);
+          handleQuit();
+          return;
+        }
+        setQuitArmed(true);
+        quitTimerRef.current = setTimeout(() => {
+          setQuitArmed(false);
+          quitTimerRef.current = null;
+        }, QUIT_CONFIRM_WINDOW_MS);
+        return;
+      }
+
+      if (quitArmed) {
+        setQuitArmed(false);
+        if (quitTimerRef.current !== null) {
+          clearTimeout(quitTimerRef.current);
+          quitTimerRef.current = null;
+        }
+      }
+
+      if (key.escape && !isStreaming) {
+        // Exactly ONE surface per press, topmost first, so repeated presses
+        // walk deterministically back to the chat. See `lib/escape-target.ts`.
+        //
+        // Gated on `!isStreaming` because the keymap declares Esc-interrupt
+        // (`when: 'streaming'`) and Esc-cancel (`when: 'idle'`) as two
+        // phase-disjoint bindings on one key — that is what lets the conflict
+        // spec pass. Ungated, an Escape during a turn with a panel open would
+        // fire both: stop the stream AND close the panel, which is the
+        // two-things-per-press behaviour this task set out to remove.
+        const next = applyEscape({
+          view: activeView,
+          sidebarVisible,
+          agentPanelVisible,
+        });
+        setActiveView(next.view);
+        setSidebarVisible(next.sidebarVisible);
+        setAgentPanelVisible(next.agentPanelVisible);
       }
     },
     {
@@ -237,20 +308,19 @@ function AppShell({
 
   return (
     <ErrorBoundary>
-      {!authReady && (
-        <Box paddingX={1} marginBottom={0}>
-          <Text color="yellow">
-            Agent not ready
-            {authError ? ` — ${authError}` : ''}. Press Ctrl+S → Authentication
-            to configure a provider.
-          </Text>
-        </Box>
-      )}
+      {/*
+        The "Agent not ready" banner is gone from here: it duplicated the
+        welcome screen's provider line, and `resolveInitialView` already opens
+        Settings → Authentication when auth is missing, so the banner was
+        telling you to press Ctrl+S while you were already looking at the panel
+        it would have taken you to.
+      */}
       <Layout
         sidebarVisible={sidebarVisible}
         agentPanelVisible={agentPanelVisible}
-        activeView={layoutView}
+        activeView={activeView}
         isStreaming={isStreaming}
+        hasConversation={hasConversation}
         modalActive={modalActive || overlayActive}
         fallbackModel={agentConfig.model}
       >
@@ -264,24 +334,41 @@ function AppShell({
               lifecycle={thothLifecycle}
               pushAdapter={pushAdapter}
               isActive={
-                process.stdin.isTTY === true &&
-                !modalActive &&
-                !overlayActive
+                process.stdin.isTTY === true && !modalActive && !overlayActive
               }
             />
           ) : (
             <ChatPanel
-              modalActive={modalActive}
+              // The sidebar counts as modal for the composer. `SessionList`
+              // binds bare letters (n = new, d = delete, y = confirm) and
+              // Enter/arrows with only `isFocused={!modalActive}` to guard
+              // them, so while the sidebar was open every one of those keys
+              // fired from *inside* a chat message: typing "and" created a
+              // session and armed a delete. Blurring the composer gives the
+              // sidebar sole ownership of the keyboard while it is up.
+              modalActive={modalActive || sidebarVisible}
               onOverlayActiveChange={handleOverlayActiveChange}
+              onStreamingChange={setIsStreaming}
+              registerCommandSink={registerCommandSink}
               onSettings={() => setActiveView('settings')}
               onSessions={() => setSidebarVisible((prev) => !prev)}
               onQuit={handleQuit}
+              onHelp={handleHelp}
+              onConversationChange={setHasConversation}
               agentConfig={agentConfig}
               authReady={authReady}
+              authError={authError}
             />
           )}
         </MainPanel>
       </Layout>
+      {quitArmed && (
+        <Box paddingX={1}>
+          <Text color="yellow">
+            Press Ctrl+C again to quit — any other key cancels.
+          </Text>
+        </Box>
+      )}
       <ModalOverlay visible={modalStack.length > 0}>{topModal}</ModalOverlay>
     </ErrorBoundary>
   );
@@ -292,6 +379,7 @@ export function App({
   pushAdapter,
   fireAndForget,
   workspacePath,
+  filePicker,
   authReady,
   authError,
   reinitializeSdk,
@@ -303,6 +391,8 @@ export function App({
       transport={transport}
       pushAdapter={pushAdapter}
       fireAndForget={fireAndForget}
+      workspacePath={workspacePath}
+      filePicker={filePicker}
       reinitializeSdk={reinitializeSdk}
     >
       <ThemeProvider>

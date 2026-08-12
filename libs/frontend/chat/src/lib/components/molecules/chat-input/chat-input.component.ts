@@ -188,7 +188,7 @@ interface PastedImage {
           <!-- Attachment buttons overlaid at top-right of textarea -->
           <div class="absolute top-1.5 right-2 z-10 flex items-center gap-0.5">
             <button
-              class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+              class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-base-content"
               (click)="handleAttachFiles()"
               title="Attach files"
               type="button"
@@ -196,7 +196,7 @@ interface PastedImage {
               <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
             </button>
             <button
-              class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+              class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-base-content"
               (click)="handleAttachImages()"
               title="Attach images"
               type="button"
@@ -214,7 +214,7 @@ interface PastedImage {
                   'btn btn-ghost btn-xs btn-square ' +
                   (isRecording()
                     ? 'text-error animate-pulse'
-                    : 'text-base-content/50 hover:text-base-content/80')
+                    : 'text-base-content-muted hover:text-base-content')
                 "
                 [disabled]="isTranscribing()"
                 (click)="handleVoiceButton()"
@@ -328,7 +328,7 @@ interface PastedImage {
       <div class="flex items-center justify-between gap-1.5 min-w-0">
         <!-- Left: Auth Method Badge + Model Selector -->
         <div
-          class="flex items-center gap-0.5 text-base-content/60 flex-shrink-0"
+          class="flex items-center gap-0.5 text-base-content-muted flex-shrink-0"
         >
           <!-- Auth Method Badge -->
           @if (authMethodLabel()) {

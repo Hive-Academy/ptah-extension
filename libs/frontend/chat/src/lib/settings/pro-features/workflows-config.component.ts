@@ -73,7 +73,7 @@ type WorkflowsSetParams = AgentSetConfigParams & {
             Reasoning Effort
           </h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           How much reasoning the agent applies per turn. Higher effort is slower
           but more thorough.
         </p>
@@ -104,7 +104,7 @@ type WorkflowsSetParams = AgentSetConfigParams & {
             Dynamic Workflows
           </h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Let the agent plan and run a multi-step workflow per task instead of a
           single-shot reply.
         </p>
@@ -127,7 +127,7 @@ type WorkflowsSetParams = AgentSetConfigParams & {
           />
         </div>
 
-        <div class="flex items-start gap-1 mt-2 text-base-content/50">
+        <div class="flex items-start gap-1 mt-2 text-base-content-muted">
           <lucide-angular [img]="InfoIcon" class="w-3 h-3 mt-0.5 shrink-0" />
           <span class="text-[10px] leading-relaxed">
             Workflows require a paid plan.
@@ -149,7 +149,7 @@ type WorkflowsSetParams = AgentSetConfigParams & {
           <lucide-angular [img]="ZapIcon" class="w-4 h-4 text-secondary" />
           <h2 class="text-xs font-medium uppercase tracking-wide">Ultracode</h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Ultracode (xhigh effort + auto-workflow per task). Turns on maximum
           practical reasoning and tags each message so the agent plans a
           workflow.
@@ -172,12 +172,12 @@ type WorkflowsSetParams = AgentSetConfigParams & {
           />
         </div>
 
-        <div class="flex items-start gap-1 mt-2 text-base-content/50">
+        <div class="flex items-start gap-1 mt-2 text-base-content-muted">
           <lucide-angular [img]="InfoIcon" class="w-3 h-3 mt-0.5 shrink-0" />
           <span class="text-[10px] leading-relaxed">
-            The <code class="text-base-content/70">ultracode</code> keyword only
-            takes effect on messages you type yourself. Turning Ultracode off
-            restores your previous reasoning effort.
+            The <code class="text-base-content-muted">ultracode</code> keyword
+            only takes effect on messages you type yourself. Turning Ultracode
+            off restores your previous reasoning effort.
           </span>
         </div>
       </div>

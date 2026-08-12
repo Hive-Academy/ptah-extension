@@ -37,19 +37,25 @@ describe('KeyboardNavigationService', () => {
       expect(service.activeIndex()).toBe(-1);
     });
 
-    it('should clamp active index when new itemCount is smaller', () => {
+    it('should reset to the first item when the list narrows, even when the index survives the clamp', () => {
       service.configure({ itemCount: 5 });
-      service.setActiveIndex(4);
-      expect(service.activeIndex()).toBe(4);
-      service.configure({ itemCount: 2 });
-      expect(service.activeIndex()).toBe(1);
+      service.setActiveIndex(2); // survives the clamp: 2 <= M-1
+      service.configure({ itemCount: 3 }); // N=5 narrowed to M=3 (M >= 2)
+      expect(service.activeIndex()).toBe(0);
     });
 
-    it('should preserve active index when still valid', () => {
+    it('should reset to the first item on a same-count reconfigure', () => {
       service.configure({ itemCount: 5 });
       service.setActiveIndex(2);
+      service.configure({ itemCount: 5 }); // same count: content may have changed
+      expect(service.activeIndex()).toBe(0);
+    });
+
+    it('should land on 0, not the clamp, when the index is out of range after narrowing', () => {
       service.configure({ itemCount: 5 });
-      expect(service.activeIndex()).toBe(2);
+      service.setActiveIndex(4);
+      service.configure({ itemCount: 3 }); // clamp would give 2
+      expect(service.activeIndex()).toBe(0);
     });
   });
 

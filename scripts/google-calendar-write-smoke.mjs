@@ -26,7 +26,7 @@
  * in the real members' area even if cleanup fails.
  *
  * Deterministic: mints a `ptah_auth` JWT with JWT_SECRET (same mechanism as
- * community-gate-smoke.mjs / discourse-e2e.mjs). `validateToken` is pure JWT
+ * google-sessions-smoke.mjs). `validateToken` is pure JWT
  * verification with no DB lookup, so no user seeding is required.
  *
  * Run from Windows (reaches :3000). Requires `npm run docker:up` and JWT_SECRET

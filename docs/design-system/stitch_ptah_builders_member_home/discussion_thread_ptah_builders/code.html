@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discussion Thread - Ptah Builders</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@450;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-bright": "#323946",
+                      "surface-tint": "#ffb957",
+                      "tertiary-fixed": "#c4e7ff",
+                      "surface-dim": "#0c141f",
+                      "on-secondary-fixed": "#001e2c",
+                      "on-surface-variant": "#d7c3ae",
+                      "on-error-container": "#ffdad6",
+                      "primary": "#ffc77f",
+                      "outline": "#9f8e7a",
+                      "on-tertiary-fixed-variant": "#004c69",
+                      "on-primary-fixed-variant": "#643f00",
+                      "surface-container-low": "#151c27",
+                      "surface-container": "#19202c",
+                      "inverse-primary": "#835400",
+                      "surface": "#0c141f",
+                      "background": "#0c141f",
+                      "on-primary": "#462b00",
+                      "on-tertiary": "#003549",
+                      "inverse-surface": "#dce2f3",
+                      "on-tertiary-container": "#004d69",
+                      "on-primary-fixed": "#2a1800",
+                      "on-error": "#690005",
+                      "tertiary-container": "#36c2ff",
+                      "primary-fixed-dim": "#ffb957",
+                      "on-tertiary-fixed": "#001e2c",
+                      "tertiary": "#9ad9ff",
+                      "outline-variant": "#524434",
+                      "surface-container-high": "#232a36",
+                      "secondary-fixed": "#c4e7ff",
+                      "on-primary-container": "#643f00",
+                      "on-background": "#dce2f3",
+                      "surface-container-lowest": "#070e1a",
+                      "on-secondary-fixed-variant": "#004c69",
+                      "on-secondary": "#00354a",
+                      "error-container": "#93000a",
+                      "surface-container-highest": "#2e3542",
+                      "primary-fixed": "#ffddb5",
+                      "on-secondary-container": "#00374d",
+                      "inverse-on-surface": "#2a313d",
+                      "surface-variant": "#2e3542",
+                      "secondary-fixed-dim": "#7bd0ff",
+                      "error": "#ffb4ab",
+                      "tertiary-fixed-dim": "#7bd0ff",
+                      "secondary": "#7bd0ff",
+                      "primary-container": "#f5a524",
+                      "on-surface": "#dce2f3",
+                      "secondary-container": "#00a6e0",
+                      // Added for syntax highlighting
+                      "syntax-keyword": "#ffc77f", // Primary
+                      "syntax-string": "#d7c3ae", // on-surface-variant
+                      "syntax-comment": "#9f8e7a"  // outline
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px",
+                      "card": "12px",
+                      "button": "8px"
+              },
+              "spacing": {
+                      "unit": "4px",
+                      "gutter": "16px",
+                      "stack-tight": "8px",
+                      "stack-loose": "32px",
+                      "container-padding": "24px"
+              },
+              "fontFamily": {
+                      "numeric-data": [
+                              "JetBrains Mono"
+                      ],
+                      "label-caps": [
+                              "JetBrains Mono"
+                      ],
+                      "body-base": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "code-sm": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "title-sm": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "numeric-data": [
+                              "14px",
+                              {
+                                      "lineHeight": "1",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.08em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-base": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "code-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "450"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "title-sm": [
+                              "18px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        /* Base styles */
+        body {
+            background-color: #0b0d12; /* Layer 0 */
+            color: #dce2f3;
+        }
+        
+        .card-surface {
+            background-color: #161a23; /* Layer 1 */
+            border: 1px solid #2c3342;
+            border-radius: 12px;
+        }
+
+        .elevated-surface {
+            background-color: #232936; /* Layer 2 */
+            border: 1px solid #2c3342;
+            box-shadow: 0px 8px 24px rgba(0,0,0,0.5);
+            border-radius: 12px;
+        }
+
+        .hairline-border {
+            border-color: #2c3342;
+        }
+
+        /* Syntax Highlighting overrides */
+        .token.keyword { color: #ffc77f; }
+        .token.function { color: #7bd0ff; }
+        .token.string { color: #d7c3ae; }
+        .token.comment { color: #9f8e7a; font-style: italic; }
+        .token.operator { color: #dce2f3; }
+        .token.punctuation { color: #9f8e7a; }
+
+        /* Custom scrollbar for high-end feel */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0d12;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2c3342;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #524434;
+        }
+    </style>
+</head>
+<body class="font-body-base text-on-surface antialiased min-h-screen flex">
+<!-- Side Navigation -->
+<nav class="bg-surface-container-lowest border-r border-outline-variant fixed h-full left-0 top-0 w-64 flex flex-col py-gutter z-30 hidden md:flex">
+<!-- Header -->
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-surface-container-high flex items-center justify-center border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A high-contrast, minimalist tech avatar representing an 'Engineering Lead' in a dark-themed UI. The avatar features a stylized, glowing wireframe geometric shape (like a cube or isometric hexagon) in vibrant amber on a deep obsidian black background. The style is precise, technical, and premium." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCKRLjSMuQMyiw8mSkFtkuQWDXi6RkA9ffvIIUG4-6KKRw6hX4od1wwk9JUoJMTGXKbWGrMjsPXanP8LIXHQFyLU-Y_-m0nrNI1e1SO1R51B0tCoPXSIJKz39B2541LwAkdFmwzKFM_QxqJ0bMExaiw__BUbtfvIKb0aP3CLEjQhBY6_uIy_1vTxouGXYj-nTHjMDHmAaFzetFjXJSrRLrXwra8Ceb4K7spDN115lbVKPQWmZyhJJHF1A"/>
+</div>
+<div>
+<h2 class="font-headline-md text-title-sm font-bold text-primary tracking-tight">Operator Console</h2>
+<p class="font-label-caps text-label-caps text-on-surface-variant mt-1">Engineering Lead</p>
+</div>
+</div>
+<!-- Main Nav -->
+<div class="flex-1 flex flex-col gap-1 px-4">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+<span class="font-label-caps text-label-caps">HUB</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">school</span>
+<span class="font-label-caps text-label-caps">LEARN</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+<span class="font-label-caps text-label-caps">BUILD</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">podcasts</span>
+<span class="font-label-caps text-label-caps">LIVE</span>
+</a>
+<!-- Active State -->
+<a class="flex items-center gap-3 px-4 py-2 text-primary bg-primary/10 border-r-2 border-primary cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">groups</span>
+<span class="font-label-caps text-label-caps">COMMUNITY</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">account_circle</span>
+<span class="font-label-caps text-label-caps">ACCOUNT</span>
+</a>
+</div>
+<!-- Footer Nav -->
+<div class="px-4 border-t border-outline-variant pt-4 mt-auto">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+<span class="font-label-caps text-label-caps">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer active:scale-95 transition-all rounded-button" href="#">
+<span class="material-symbols-outlined text-[20px]">contact_support</span>
+<span class="font-label-caps text-label-caps">Support</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 md:ml-64 flex flex-col min-h-screen">
+<!-- Top App Bar -->
+<header class="bg-surface sticky top-0 w-full z-40 border-b border-outline-variant flex justify-between items-center h-16 px-gutter backdrop-blur-sm bg-surface/90">
+<div class="flex items-center gap-6">
+<span class="font-label-caps text-label-caps tracking-widest text-primary">ENGINEERING_HUB</span>
+<nav class="hidden lg:flex items-center gap-6 ml-8">
+<a class="text-primary border-b-2 border-primary pb-1 font-title-sm text-title-sm duration-200 ease-in-out" href="#">Discussions</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-title-sm text-title-sm duration-200 ease-in-out" href="#">Documentation</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-title-sm text-title-sm duration-200 ease-in-out" href="#">Benchmarks</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<!-- Search (Implicitly on right as per JSON) -->
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
+<input class="bg-[#161a23] border border-[#2c3342] text-on-surface font-body-sm rounded-button pl-9 pr-4 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 w-48 transition-all" placeholder="Search..." type="text"/>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-1 hidden sm:block">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant cursor-pointer ml-2">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A small, stylized profile avatar of an engineer. High contrast, dark mode aesthetic, with subtle neon amber accents. Deep black background. Precise and professional." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBcJoyv76cpR8M7P-gvWfbi2t-k1wdlfNa4JLw5DRFVyp95M9-IB4xB-Z9prY0cq5QuR29qjdgV4ic-Wb__bbwNwjSqYKmmk7d6EqcXEw4Tm-ZgmWd3z10_sM13HwUQOk0_QBLZkPiY4C6MI67boPvkz01eupz6ZsMb-dbcTw6dtHwVHMxRhAZdTE3XBNyjTEFYLGFYapMUhmfGOB_F1CjjYvly20mWuu8hMQajADl86mZy00L_GcuqYw"/>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<main class="flex-1 p-gutter md:p-container-padding flex justify-center pb-32">
+<!-- Three Column Layout for Desktop, Single for Mobile -->
+<div class="w-full max-w-[1140px] flex gap-8">
+<!-- Main Discussion Column (Max 820px) -->
+<div class="flex-1 max-w-[820px] flex flex-col gap-6">
+<!-- Breadcrumbs & Heading -->
+<div>
+<div class="flex items-center gap-2 text-on-surface-variant font-body-sm mb-4">
+<a class="hover:text-primary transition-colors" href="#">Community</a>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+<a class="hover:text-primary transition-colors" href="#">Packs</a>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+<span class="text-on-surface">Kubernetes Operator Patterns</span>
+</div>
+<h1 class="font-headline-md text-headline-md text-on-surface mb-4 leading-tight">
+                            Best practices for building custom Kubernetes Operators in Go
+                        </h1>
+<!-- Metadata Row -->
+<div class="flex items-center flex-wrap gap-3">
+<span class="bg-[#161a23] border border-[#2c3342] px-2 py-1 rounded text-primary font-label-caps text-label-caps">PACKS</span>
+<div class="flex items-center gap-2 ml-2">
+<img alt="Sarah Chen" class="w-6 h-6 rounded-full object-cover" data-alt="A professional headshot avatar of a female engineer, 'Sarah Chen', in a dark studio setting. Moody lighting with a rim light highlighting her silhouette. Serious, focused expression." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDeQkg2a2QEHGNPzPB8oIP74ohtL2O5MW5uvVhhIZk3XVSAh28ooBdlO1-EiyqTRHGxURBOKxQwuc01fs1FOmczdIl8RAExTRswFz9wDNErRRIwmT4OL_vssZES_m0e5lxPfTw4Rd5HIvUttkre807n21Yn9_pntzBvXJFIOeZ4oQMrXItZtgil_i-UcQLL_re7Ejy84UoRzabWMrl6OZeWlrwVSFQ9HhoM6jFO-JZ6mGPhBvKYGA2FXg"/>
+<span class="font-title-sm text-title-sm text-on-surface">Sarah Chen</span>
+<span class="bg-primary/10 text-primary border border-primary/30 px-1.5 py-0.5 rounded text-[10px] font-label-caps uppercase ml-1">Core Team</span>
+</div>
+<span class="text-on-surface-variant font-numeric-data text-numeric-data ml-auto">2 hours ago</span>
+</div>
+</div>
+<!-- Original Post (Card) -->
+<div class="card-surface p-6">
+<div class="prose prose-invert max-w-none font-body-base text-on-surface space-y-4">
+<p>
+                                When building operators using controller-runtime, I frequently see developers struggling with state reconciliation loops. The most common anti-pattern is treating the <code class="bg-[#0b0d12] text-primary font-code-sm text-code-sm px-1.5 py-0.5 rounded border border-[#2c3342]">Reconcile()</code> function as an event handler rather than a level-based state synchronizer.
+                            </p>
+<p>
+                                After reviewing several internal packs last week, I've compiled a few critical pitfalls to avoid when setting up your managers and controllers:
+                            </p>
+<ul class="list-disc pl-5 space-y-2 text-on-surface-variant marker:text-primary">
+<li>Ignoring cache sync states before attempting to read resources.</li>
+<li>Failing to implement proper backoff via <code class="bg-[#0b0d12] text-primary font-code-sm text-code-sm px-1.5 py-0.5 rounded border border-[#2c3342]">ctrl.Result{RequeueAfter: ...}</code> on transient errors.</li>
+<li>Leaking goroutines in custom source watchers.</li>
+<li>Misusing finalizers, leading to deadlocked namespace deletion.</li>
+</ul>
+<!-- Fenced Code Block -->
+<div class="mt-6 relative group rounded-lg overflow-hidden border border-[#2c3342] bg-[#0b0d12]">
+<div class="flex items-center justify-between px-4 py-2 border-b border-[#2c3342] bg-[#161a23]">
+<span class="font-label-caps text-label-caps text-on-surface-variant">main.go</span>
+<button class="elevated-surface text-on-surface-variant hover:text-primary px-2 py-1 rounded font-label-caps text-[10px] transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">content_copy</span> COPY
+                                    </button>
+</div>
+<pre class="p-4 overflow-x-auto"><code class="font-code-sm text-code-sm"><span class="token keyword">func</span> <span class="token punctuation">(</span>r <span class="token operator">*</span>MyReconciler<span class="token punctuation">)</span> <span class="token function">Reconcile</span><span class="token punctuation">(</span>ctx context<span class="token operator">.</span>Context<span class="token punctuation">,</span> req ctrl<span class="token operator">.</span>Request<span class="token punctuation">)</span> <span class="token punctuation">(</span>ctrl<span class="token operator">.</span>Result<span class="token punctuation">,</span> <span class="token keyword">error</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Fetch the custom resource</span>
+    <span class="token keyword">var</span> cr myv1<span class="token operator">.</span>CustomResource
+    <span class="token keyword">if</span> err <span class="token operator">:=</span> r<span class="token operator">.</span><span class="token function">Get</span><span class="token punctuation">(</span>ctx<span class="token punctuation">,</span> req<span class="token operator">.</span>NamespacedName<span class="token punctuation">,</span> <span class="token operator">&amp;</span>cr<span class="token punctuation">)</span><span class="token punctuation">;</span> err <span class="token operator">!=</span> <span class="token keyword">nil</span> <span class="token punctuation">{</span>
+        <span class="token keyword">if</span> errors<span class="token operator">.</span><span class="token function">IsNotFound</span><span class="token punctuation">(</span>err<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">return</span> ctrl<span class="token operator">.</span>Result<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token keyword">nil</span>
+        <span class="token punctuation">}</span>
+        <span class="token keyword">return</span> ctrl<span class="token operator">.</span>Result<span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">,</span> err
+    <span class="token punctuation">}</span>
+
+    <span class="token comment">// ALWAYS rely on state, not events</span>
+    <span class="token keyword">if</span> !cr<span class="token operator">.</span>ObjectMeta<span class="token operator">.</span>DeletionTimestamp<span class="token operator">.</span><span class="token function">IsZero</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> r<span class="token operator">.</span><span class="token function">handleDeletion</span><span class="token punctuation">(</span>ctx<span class="token punctuation">,</span> <span class="token operator">&amp;</span>cr<span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+
+    <span class="token keyword">return</span> r<span class="token operator">.</span><span class="token function">syncState</span><span class="token punctuation">(</span>ctx<span class="token punctuation">,</span> <span class="token operator">&amp;</span>cr<span class="token punctuation">)</span>
+<span class="token punctuation">}</span></code></pre>
+</div>
+</div>
+<!-- Post Footer Actions -->
+<div class="mt-6 pt-4 border-t border-[#2c3342] flex items-center gap-6">
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">thumb_up</span>
+<span class="font-numeric-data text-numeric-data">128</span>
+</button>
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined text-[20px]">reply</span>
+<span class="font-title-sm text-[13px]">Reply</span>
+</button>
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors ml-auto">
+<span class="material-symbols-outlined text-[20px]">bookmark_border</span>
+</button>
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined text-[20px]">share</span>
+</button>
+</div>
+</div>
+<!-- Separator -->
+<div class="flex items-center gap-4 py-4">
+<div class="h-px bg-[#2c3342] flex-1"></div>
+<span class="font-label-caps text-label-caps text-on-surface-variant">12 REPLIES</span>
+<div class="h-px bg-[#2c3342] flex-1"></div>
+</div>
+<!-- Replies List -->
+<div class="space-y-4">
+<!-- Reply 1: Regular -->
+<div class="card-surface p-5">
+<div class="flex items-start justify-between mb-3">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="Avatar of a male engineer 'David Miller'. Dark themed portrait with a slight blueish tech rim light." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB3cyWCUBLxjxbjY1HO8aRee7dQlibh9BiFf7lT8VbGh-z52_9AURIbJyMah52XJcCvusp_z9K-x98g3JL_-27tDGeSb-yM0UPbbNki3ZOjdanxPdCAOv_giEL-AgAyTv9Y-ST6_MiAJ7xJn0HRMzZsp3O8a94n2OWLkP0IAs_xUlc80UQO7vscKODFwmhGfCKWB3Yz3J8TswWOyLhtPu1171lKdbQrSL4CaU1Ubols4MBC5gjEZlS4kA"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-title-sm text-title-sm text-on-surface">David Miller</span>
+<span class="text-on-surface-variant text-[11px] font-medium px-1.5 py-0.5 bg-[#232936] rounded border border-[#2c3342]">Founding Member</span>
+</div>
+<span class="text-on-surface-variant font-numeric-data text-[12px]">1 hour ago</span>
+</div>
+</div>
+</div>
+<div class="font-body-sm text-on-surface-variant leading-relaxed pl-11">
+                                That's a great point about the finalizer. I actually ran into that deadlocked namespace issue last month. We ended up having to patch the CRD to remove the finalizer manually just to unblock the cluster tear-down script. Definitely adding that to our internal review checklist.
+                             </div>
+<div class="mt-3 pl-11 flex items-center gap-4">
+<button class="flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">thumb_up</span> 14
+                                </button>
+<button class="flex items-center gap-1.5 text-on-surface-variant hover:text-on-surface transition-colors text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">reply</span> Reply
+                                </button>
+</div>
+</div>
+<!-- Reply 2: Nested -->
+<div class="card-surface p-5 ml-11 relative">
+<!-- Indentation line -->
+<div class="absolute left-[-22px] top-0 bottom-0 w-px bg-[#2c3342]"></div>
+<div class="absolute left-[-22px] top-[30px] w-5 h-px bg-[#2c3342]"></div>
+<div class="flex items-start justify-between mb-3">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="Avatar of an engineer. High contrast, dark background, subtle amber lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBbsG3mIFc8sfLmyVOijINP85qpyWkYfr5Kw4TZsc0M59OTzhjDnu4kSKaVG9wixpFYvCgj6F3xVRKRfk1JhpDPtRA1TPO9c8K7he5_ZzHk7kFcelP89DJasxesNF5qFCp2eR_X5w-1tOpPaixNxfG53wnORDadKZnoZP8ep-ruxenFrm6TMCtTgd1o9P4kC9CzG4zPzNPT68ViKBPY9zu_fnUrCSDFbbbG3S4Z0U3z3WOhvjkv52pdow"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-title-sm text-title-sm text-on-surface">Alex Kim</span>
+</div>
+<span class="text-on-surface-variant font-numeric-data text-[12px]">45 mins ago</span>
+</div>
+</div>
+</div>
+<!-- Quote -->
+<div class="pl-11 mb-3">
+<div class="border-l-2 border-outline-variant pl-3 py-1 mb-2">
+<span class="text-[11px] text-on-surface-variant font-bold mb-1 block">Replying to David Miller:</span>
+<p class="font-body-sm text-on-surface-variant italic opacity-80">"That's a great point about the finalizer..."</p>
+</div>
+<div class="font-body-sm text-on-surface-variant leading-relaxed">
+                                     Exactly. We built a small CLI tool that scans namespaces for stranded finalizers precisely because manual patching became too frequent during development.
+                                 </div>
+</div>
+<div class="mt-2 pl-11 flex items-center gap-4">
+<button class="flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">thumb_up</span> 3
+                                </button>
+</div>
+</div>
+<!-- Reply 3: Staff Reply (Elevated) -->
+<div class="elevated-surface p-5 border-primary/20">
+<div class="flex items-start justify-between mb-3">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover border-2 border-primary" data-alt="Avatar of 'Marcus Chen', a Ptah Team staff member. Professional, lit with the brand's primary amber color on the edge. High authority vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJwoVmaELiH6JnonsJfP-bQiZ8o043KicOGo-9I_KhJwTsNMMAcxqsApdfK-E_OOJUrTJ9glWEeKTjRPfsD5zbvsGuJKWZILT-xiYSOF9M_CEw3OhckeZ0m9JJmo1mPkbSULS9hjpL4q9mf6Zg1k3rc0i1Ypr3fQH6C1ger0wdkN4p7X1TNe5a_bX-I-2mllpRMIVVkAaNrjcvBL3NwyuJ-YjWGWSr9q156ClfNnChVKkLxkb9VkHqCg"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-title-sm text-title-sm text-on-surface font-bold">Marcus Chen</span>
+<span class="bg-primary text-on-primary font-label-caps text-[10px] px-1.5 py-0.5 rounded shadow-[0_0_8px_rgba(245,165,36,0.4)]">PTAH TEAM</span>
+</div>
+<span class="text-on-surface-variant font-numeric-data text-[12px]">30 mins ago</span>
+</div>
+</div>
+</div>
+<div class="font-body-sm text-on-surface leading-relaxed pl-11">
+                                For the cache sync issue, v0.15 of <code class="bg-[#0b0d12] text-primary font-code-sm text-[11px] px-1 py-0.5 rounded border border-[#2c3342]">controller-runtime</code> introduced better defaults, but it's still best practice to explicitly wait. We are adding an automated lint rule to the <code class="bg-[#0b0d12] text-primary font-code-sm text-[11px] px-1 py-0.5 rounded border border-[#2c3342]">ptah-cli</code> next week that will flag missing cache sync checks in custom controllers.
+                             </div>
+<div class="mt-3 pl-11 flex items-center gap-4">
+<button class="flex items-center gap-1.5 text-primary hover:text-primary-fixed transition-colors text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">thumb_up</span> 42
+                                </button>
+<button class="flex items-center gap-1.5 text-on-surface-variant hover:text-on-surface transition-colors text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]">reply</span> Reply
+                                </button>
+</div>
+</div>
+<!-- Reply 4: Accepted Answer -->
+<div class="card-surface p-5 border-l-4 border-l-secondary-container">
+<div class="flex items-start justify-between mb-3">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="Avatar of 'Elena Rodriguez'. Professional engineer portrait, sharp focus, dark background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCyfBpC55ochgyOp1PRCUBnXY5uo1ca7RCRmrHYodIAHgNEM20gw_nGoMJIRpX04BCgpf1liCukjYDrsx4VXPlYiBStvzzAYb6cK9A_7KH0GwaLuz2WdykRHBjACXJiHfFBYcPxKjgL8vDso_3qM2_ms8BOgVsAQz5l4Et4VIRgBr0pYtqEEgdBVfhZWoJEH02KjdbApDoe2oLwiIcE-l9lUrUoelTpbD7NLUqViyPdaOe5W3c8YW4s_g"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-title-sm text-title-sm text-on-surface">Elena Rodriguez</span>
+<div class="flex items-center gap-1 text-secondary-container bg-secondary-container/10 px-1.5 py-0.5 rounded border border-secondary-container/20">
+<span class="material-symbols-outlined text-[12px]">check_circle</span>
+<span class="font-label-caps text-[10px]">ACCEPTED ANSWER</span>
+</div>
+</div>
+<span class="text-on-surface-variant font-numeric-data text-[12px]">10 mins ago</span>
+</div>
+</div>
+</div>
+<div class="font-body-sm text-on-surface-variant leading-relaxed pl-11">
+                                Another edge case to watch for is handling status subresource updates. If you update the status but return an error to force a requeue, the status update might get lost if it conflicts with another controller. Always return <code class="bg-[#0b0d12] text-primary font-code-sm text-[11px] px-1 py-0.5 rounded border border-[#2c3342]">ctrl.Result{Requeue: true}, nil</code> after a successful status update to ensure a clean cycle.
+                             </div>
+</div>
+</div>
+</div>
+<!-- Right Rail (280px) - Hidden on smaller screens -->
+<aside class="hidden lg:flex flex-col w-[280px] gap-6 shrink-0">
+<!-- Participants -->
+<div class="card-surface p-5">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-4">PARTICIPANTS (5)</h3>
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="Thumbnail avatar of Sarah Chen." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAR1f0sf8E-fWo1ARZW_SZWZTFcqqHbilbE7gR-z58ewPmATDCzh3nb-10WZ0EuYVA6kZRffTr-a0VRu21-rYKuXUEjb16-Bym-kAtUY2H0ueKmSGBSiTv28f37gEXgkkyQNi2RawZpVOB_f0ZMoN7B0uIqTN35O4cuQRfAHHXmFL-IpCZdfoDys_NcjQONvy_-84Q5mx_JhZx2S9T_yuOhP6EJSBBgYJxXvKL2b6qQvHyg8mrNCQ4YLw"/>
+<span class="font-body-sm text-on-surface text-[13px]">Sarah Chen</span>
+</div>
+<span class="font-numeric-data text-numeric-data text-on-surface-variant text-[12px]">1</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="Thumbnail avatar of David Miller." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBkEbCOLCvf1n-dzT7x-lsjPGNK-0ZI3QlN14VpNeJWY77Ym6wr0unE-qKM4hNBNUSINpwVz4UCzqxDO5EqTbirCceOfq-KGkpVNPkGucu8H_5wjG30FuMbFHtIKYM28Jzf2_ze18p6nKCNC8Yma0e3xKLbqMH4mFTv5M62O3iwlY2JDSkAn3wZowBgSBpgtbLA5K1068K_BlcPh_n3OhxM5QVU4Z2iHxG_aor_Y7UTi2tQoKBN4simTA"/>
+<span class="font-body-sm text-on-surface text-[13px]">David Miller</span>
+</div>
+<span class="font-numeric-data text-numeric-data text-on-surface-variant text-[12px]">3</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="Thumbnail avatar of Marcus Chen." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZVufytLvuFGC-oc4bAMfvpgqAnPrVnEQuoa91E581BtCvwsfmrAhs34JTV82gmVk-4dUmmgss1hCMtV8RgRIFEuJpmPPLXSqfd7T71Re1R9MUMNaxQVqpxwUYmsungjNEbzZD448kdB6p7q-DNdmY42S9w_bdgosEJxiCm2bAzsd3l_vCy1q1wiDUAHg2ve0qdevEBXKTQ0YGZHOsn1gqK3u7Cyyuchri81ruUMST5TOpgXsv-KfIPw"/>
+<span class="font-body-sm text-primary text-[13px]">Marcus Chen</span>
+</div>
+<span class="font-numeric-data text-numeric-data text-primary text-[12px]">1</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="Thumbnail avatar of Alex Kim." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDEyQ0umZEXB2p7TOE-419jtyvbDFfxL8ddxvG9u3rGvHYznU0KPYKZ_zuRUiIebvBSxrnYZk-JVI_jfBG2HJfjhqnA1Y9VSY5Qk9s0H-ZIYqY0paiJAByG5stZ_tsp1x8kkhJtGimenU0AD7EuZbnNT5tZYLqCNd5b_zsj6ESbdxRzEdBs1Xe13Yb5RwVQYf1xst9YbxHYSCtOV1PlPGmxPTUTyfxECwkSdobsjsw_uAEInrM8rLguuA"/>
+<span class="font-body-sm text-on-surface text-[13px]">Alex Kim</span>
+</div>
+<span class="font-numeric-data text-numeric-data text-on-surface-variant text-[12px]">1</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="Thumbnail avatar of Elena Rodriguez." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBLYnZBj7HIKzCr53b0XEh6SwuBSLbnDJ0f1aUrRPWRlwLzIwOGr4fc8RzNYNLyOejVXJQZNrwU0liN3iSx-WOU5N_tnr0xund8qY54RzJLMdDTXYKAVjSrOIkRDMRUe0EaL_TrnX6kss19qWd1Si0KowinktYXk0dehUwR3FNon4XQEh-Bt7MXpUGejpZwGTMaiOMwQuEGIu4BKNu9Rzq2aQ3SCO9ES1l4OpWX-ykaVeNKS5FEb2AbSg"/>
+<span class="font-body-sm text-on-surface text-[13px]">Elena Rodriguez</span>
+</div>
+<span class="font-numeric-data text-numeric-data text-on-surface-variant text-[12px]">1</span>
+</div>
+</div>
+</div>
+<!-- Thread Info -->
+<div class="card-surface p-5">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-4">THREAD INFO</h3>
+<div class="space-y-3">
+<div class="flex justify-between items-center text-[13px]">
+<span class="text-on-surface-variant">Created</span>
+<span class="font-numeric-data text-on-surface">Oct 24</span>
+</div>
+<div class="flex justify-between items-center text-[13px]">
+<span class="text-on-surface-variant">Last activity</span>
+<span class="font-numeric-data text-on-surface">5m ago</span>
+</div>
+<div class="flex justify-between items-center text-[13px]">
+<span class="text-on-surface-variant">Views</span>
+<span class="font-numeric-data text-on-surface">1.2k</span>
+</div>
+</div>
+</div>
+<!-- Related Topics -->
+<div class="card-surface p-5">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-4">RELATED</h3>
+<ul class="space-y-3">
+<li>
+<a class="font-body-sm text-[13px] text-on-surface hover:text-primary transition-colors line-clamp-2 leading-tight" href="#">Controller-runtime deep dive</a>
+</li>
+<li>
+<a class="font-body-sm text-[13px] text-on-surface hover:text-primary transition-colors line-clamp-2 leading-tight" href="#">Operator SDK vs Kubebuilder</a>
+</li>
+<li>
+<a class="font-body-sm text-[13px] text-on-surface hover:text-primary transition-colors line-clamp-2 leading-tight" href="#">Managing CRD versions</a>
+</li>
+</ul>
+</div>
+</aside>
+</div>
+</main>
+</div>
+<!-- Sticky Composer (Fixed at bottom) -->
+<div class="fixed bottom-0 left-0 md:left-64 right-0 bg-[#161a23]/95 backdrop-blur-md border-t border-[#2c3342] shadow-[0_-8px_24px_rgba(0,0,0,0.4)] z-50 transform transition-transform duration-300">
+<div class="max-w-[1140px] mx-auto p-4 flex gap-4 items-start">
+<img class="w-10 h-10 rounded-full object-cover border border-[#2c3342] hidden sm:block mt-1" data-alt="Current user's avatar. High tech style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBlMH00BgHtLa6sI2QTkU6JghI_NmUebJWmIxVdYLrQbXZ1hTBqqU0dSM2B1epCtlrASP-AyqHT8lmSSZUpnASdLFwXEvNxMbeBd6b3EyIvw3BAnNdBGlQ3Aw69bRgqCRTpI1wv8b5LVlmftDGkuqIj5PZNLul-NhAjZJcAbYZnDPjBD_85kaDaZPL5t-pRVF765e46KD4THiKUu0l_zKNfFmD9KS5XfIbQb9eZ0vladApqv2NlADj7mw"/>
+<div class="flex-1 bg-[#0b0d12] border border-[#2c3342] rounded-lg overflow-hidden focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/50 transition-all">
+<!-- Toolbar -->
+<div class="bg-[#161a23] border-b border-[#2c3342] px-3 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar">
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="Bold">
+<span class="material-symbols-outlined text-[18px]">format_bold</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="Italic">
+<span class="material-symbols-outlined text-[18px]">format_italic</span>
+</button>
+<div class="w-px h-4 bg-[#2c3342] mx-1"></div>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="Link">
+<span class="material-symbols-outlined text-[18px]">link</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="Inline Code">
+<span class="material-symbols-outlined text-[18px]">code</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="Code Block">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</button>
+<div class="w-px h-4 bg-[#2c3342] mx-1"></div>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="Image">
+<span class="material-symbols-outlined text-[18px]">image</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-[#2c3342] rounded transition-colors" title="List">
+<span class="material-symbols-outlined text-[18px]">format_list_bulleted</span>
+</button>
+</div>
+<!-- Textarea -->
+<textarea class="w-full bg-transparent border-none text-on-surface font-body-sm p-3 focus:ring-0 resize-none h-24 min-h-[96px]" placeholder="Write a reply..."></textarea>
+<!-- Composer Footer -->
+<div class="flex items-center justify-between px-3 py-2 bg-[#0b0d12] border-t border-[#2c3342]/50">
+<span class="text-[11px] text-on-surface-variant flex items-center gap-1 font-body-sm">
+<svg fill="currentColor" height="14" viewbox="0 0 16 16" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M14.85 3H1.15C0.52 3 0 3.52 0 4.15V11.85C0 12.48 0.52 13 1.15 13H14.85C15.48 13 16 12.48 16 11.85V4.15C16 3.52 15.48 3 14.85 3ZM10 11H8V6.5L6.5 8L5 6.5V11H3V5H5L6.5 6.5L8 5H10V11ZM14 11H11.5L12.5 8H11V7H14V8H12.5L13.5 11Z"></path></svg>
+                         Markdown supported
+                     </span>
+<button class="bg-primary hover:bg-[#ffbb4d] text-[#2a1800] font-title-sm text-[13px] px-4 py-1.5 rounded-button transition-colors active:scale-95">
+                         Post reply
+                     </button>
+</div>
+</div>
+</div>
+</div>
+</body></html>

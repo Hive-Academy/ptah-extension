@@ -1,0 +1,27 @@
+{
+  "name": "web-ui",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/web/ui/src",
+  "prefix": "app",
+  "projectType": "library",
+  "tags": ["scope:web", "type:ui"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/web/ui/jest.config.cts",
+        "tsConfig": "libs/web/ui/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/web/ui/tsconfig.lib.json"
+      }
+    }
+  }
+}

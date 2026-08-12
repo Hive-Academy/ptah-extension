@@ -14,7 +14,7 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Preconditions (asserted by `global-setup.ts`): the license server + Postgres
  * must be up (`docker compose up -d`). The full backend smoke
- * (`node scripts/discourse-e2e.mjs` etc.) is the API-level layer beneath these
+ * (`node scripts/google-sessions-smoke.mjs` etc.) is the API-level layer beneath these
  * UI specs — run it separately before a full pass.
  */
 const isCI = !!process.env['CI'];

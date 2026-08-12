@@ -1,0 +1,349 @@
+/* ==========================================================================
+   message-bubble — part 2 of 2.
+
+   This is the verbatim tail of `message-bubble.component.css`, split off
+   because the combined file was 977 B over the 10 kB `anyComponentStyle`
+   budget (TASK_2026_187 Unit 7). Nothing was rewritten: the split point is a
+   byte boundary, and both halves stay component stylesheets so `:host` /
+   `::ng-deep` scoping is unchanged.
+
+   It MUST stay second in `styleUrls`. Rules below deliberately override rules
+   in part 1 by source order — `.code-block-container pre` over
+   `markdown pre`, and the `markdown table` / `tr:nth-child(even)` additions
+   over the base table block.
+   ========================================================================== */
+
+/* ==========================================================================
+   Callout Cards (within message bubbles)
+   ========================================================================== */
+
+:host ::ng-deep .callout {
+  border-left: 3px solid oklch(var(--in));
+  background-color: oklch(var(--b2) / 0.3);
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding: 0.45em 0.65em;
+  margin: 0.6em 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+:host ::ng-deep .callout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  font-weight: 600;
+  margin-bottom: 0.25em;
+  font-size: 0.92em;
+}
+
+:host ::ng-deep .callout-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex-shrink: 0;
+}
+
+:host ::ng-deep .callout-title {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.85em;
+}
+
+:host ::ng-deep .callout-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Callout variants */
+:host ::ng-deep .callout-note {
+  border-left-color: oklch(var(--in));
+  background-color: oklch(var(--in) / 0.07);
+}
+
+:host ::ng-deep .callout-note .callout-header {
+  color: oklch(var(--in));
+}
+
+:host ::ng-deep .callout-tip {
+  border-left-color: oklch(var(--su));
+  background-color: oklch(var(--su) / 0.07);
+}
+
+:host ::ng-deep .callout-tip .callout-header {
+  color: oklch(var(--su));
+}
+
+:host ::ng-deep .callout-warning {
+  border-left-color: oklch(var(--wa));
+  background-color: oklch(var(--wa) / 0.07);
+}
+
+:host ::ng-deep .callout-warning .callout-header {
+  color: oklch(var(--wa));
+}
+
+:host ::ng-deep .callout-important {
+  border-left-color: oklch(var(--s));
+  background-color: oklch(var(--s) / 0.07);
+}
+
+:host ::ng-deep .callout-important .callout-header {
+  color: oklch(var(--s));
+}
+
+:host ::ng-deep .callout-caution {
+  border-left-color: oklch(var(--er));
+  background-color: oklch(var(--er) / 0.07);
+}
+
+:host ::ng-deep .callout-caution .callout-header {
+  color: oklch(var(--er));
+}
+
+/* ==========================================================================
+   Code Block Container with Language Badge Header (within message bubbles)
+   ========================================================================== */
+
+:host ::ng-deep .code-block-container {
+  margin: 0.6em 0;
+  border: 1px solid oklch(var(--bc) / 0.06);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+:host ::ng-deep .code-block-container pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+:host ::ng-deep .code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3em 0.65em;
+  background-color: oklch(var(--b1) / 0.55);
+  border-bottom: 1px solid oklch(var(--bc) / 0.05);
+  min-height: 1.5em;
+}
+
+:host ::ng-deep .code-lang-badge {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.7em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: oklch(var(--s) / 0.85);
+}
+
+:host ::ng-deep .code-line-count {
+  font-size: 0.7em;
+  color: oklch(var(--bc) / 0.45);
+  font-weight: 400;
+}
+
+:host ::ng-deep .code-block-collapsible summary.code-block-toggle {
+  cursor: pointer;
+  padding: 0.2em 0.65em;
+  font-size: 0.75em;
+  font-weight: 500;
+  color: oklch(var(--bc) / 0.55);
+  background-color: oklch(var(--b1) / 0.3);
+  border-bottom: 1px solid oklch(var(--bc) / 0.04);
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+:host ::ng-deep .code-block-collapsible summary.code-block-toggle:hover {
+  background-color: oklch(var(--b1) / 0.55);
+  color: oklch(var(--bc) / 0.85);
+}
+
+:host ::ng-deep .code-block-collapsible summary.code-block-toggle::marker {
+  color: oklch(var(--s) / 0.5);
+}
+
+/* ==========================================================================
+   Decorative Divider (within message bubbles)
+   ========================================================================== */
+
+:host ::ng-deep .prose-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1px;
+  margin: 1.25em 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(var(--s) / 0.25) 15%,
+    oklch(var(--s) / 0.4) 50%,
+    oklch(var(--s) / 0.25) 85%,
+    transparent
+  );
+}
+
+:host ::ng-deep .prose-divider-ornament {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background-color: oklch(var(--s) / 0.5);
+  transform: rotate(45deg);
+}
+
+/* ==========================================================================
+   Enhanced Headings (within message bubbles)
+   ========================================================================== */
+
+:host ::ng-deep .prose-heading-accented {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+:host ::ng-deep .prose-heading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: oklch(var(--s) / 0.7);
+  flex-shrink: 0;
+}
+
+:host ::ng-deep .prose-heading-bordered {
+  padding-left: 0.5em;
+  border-left: 3px solid oklch(var(--s) / 0.35);
+}
+
+/* ==========================================================================
+   Step List (within message bubbles)
+   ========================================================================== */
+
+/* ==========================================================================
+   List Card (within message bubbles)
+   ========================================================================== */
+
+:host ::ng-deep .prose-list-card {
+  background-color: oklch(var(--b2) / 0.12);
+  border: 1px solid oklch(var(--bc) / 0.06);
+  border-radius: 0.5rem;
+  padding: 0.5em 0.65em 0.5em 0.35em;
+  margin: 0.7em 0;
+  font-size: 0.88em;
+}
+
+:host ::ng-deep .prose-list-card ol,
+:host ::ng-deep .prose-list-card ul {
+  margin: 0;
+  padding-left: 1.7em;
+}
+
+:host ::ng-deep .prose-list-card li {
+  margin-bottom: 0.35em;
+  padding-left: 0.15em;
+  line-height: 1.6;
+}
+
+:host ::ng-deep .prose-list-card li:last-child {
+  margin-bottom: 0;
+}
+
+:host ::ng-deep .prose-list-card li p {
+  margin-bottom: 0.2em;
+}
+
+:host ::ng-deep .prose-list-card li > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Gold-accented markers for ordered lists */
+:host ::ng-deep .prose-list-card ol > li::marker {
+  color: oklch(var(--s) / 0.7);
+  font-weight: 600;
+}
+
+/* Gold dot bullets for unordered lists */
+:host ::ng-deep .prose-list-card ul {
+  list-style: none;
+}
+
+:host ::ng-deep .prose-list-card ul > li {
+  position: relative;
+}
+
+:host ::ng-deep .prose-list-card ul > li::before {
+  content: '';
+  position: absolute;
+  left: -1.1em;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: oklch(var(--s) / 0.5);
+}
+
+/* Nested lists — tighter, dimmer bullets */
+:host ::ng-deep .prose-list-card ul ul,
+:host ::ng-deep .prose-list-card ol ol,
+:host ::ng-deep .prose-list-card ul ol,
+:host ::ng-deep .prose-list-card ol ul {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+
+:host ::ng-deep .prose-list-card ul ul > li::before {
+  width: 4px;
+  height: 4px;
+  background-color: oklch(var(--bc) / 0.25);
+}
+
+/* ==========================================================================
+   Enhanced Tables (within message bubbles)
+   ========================================================================== */
+
+:host ::ng-deep markdown table {
+  border-top: 2px solid oklch(var(--s) / 0.3);
+}
+
+:host ::ng-deep markdown tr:nth-child(even) td {
+  background-color: oklch(var(--bc) / 0.02);
+}
+
+/* ==========================================================================
+   Streaming Avatar Glow - Replaces animate-pulse to avoid flashing entire bubble
+   Only the ring/shadow around the avatar pulses, not the avatar opacity.
+   ========================================================================== */
+
+:host ::ng-deep .streaming-avatar-glow {
+  box-shadow:
+    0 0 0 2px oklch(var(--b1)),
+    0 0 0 4px oklch(var(--in) / 0.6),
+    0 0 8px 2px oklch(var(--in) / 0.25);
+  animation: avatar-ring-pulse 2s ease-in-out infinite;
+}
+
+@keyframes avatar-ring-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px oklch(var(--b1)),
+      0 0 0 4px oklch(var(--in) / 0.6),
+      0 0 8px 2px oklch(var(--in) / 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px oklch(var(--b1)),
+      0 0 0 4px oklch(var(--in) / 0.35),
+      0 0 4px 1px oklch(var(--in) / 0.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host ::ng-deep .streaming-avatar-glow {
+    animation: none;
+    box-shadow:
+      0 0 0 2px oklch(var(--b1)),
+      0 0 0 4px oklch(var(--in) / 0.6);
+  }
+}

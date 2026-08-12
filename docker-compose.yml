@@ -54,20 +54,17 @@ services:
         condition: service_healthy
     env_file:
       - .env
-    # Lets this container reach the local Discourse dev container for admin
-    # group-sync. The browser reaches Discourse at `localhost:3001`
-    # (DISCOURSE_URL in .env); this container cannot use `localhost` (that's
-    # itself), so it reaches Discourse at `host.docker.internal:3001` — mapped
-    # to the host gateway below. See docs/deploy/local-testing-setup.md
-    # (Workstream A, the localhost-vs-host.docker.internal note).
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
     environment:
       DATABASE_URL: postgresql://ptah:ptah_dev_password@postgres:5432/ptah_db
       NODE_ENV: development
       NX_DAEMON: 'false'
     volumes:
       - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
+      # The server's domain code lives in libs/api/* (and tsconfig.base.json owns
+      # the @ptah-api/* aliases), so both must be live-mounted or the container
+      # compiles a stale copy baked at image-build time.
+      - ./libs:/app/libs:delegated
+      - ./tsconfig.base.json:/app/tsconfig.base.json:delegated
       - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
       - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
       - ./apps/ptah-license-server/tsconfig.json:/app/apps/ptah-license-server/tsconfig.json:delegated

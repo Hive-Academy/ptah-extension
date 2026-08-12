@@ -133,6 +133,8 @@ export { buildSafeEnv } from './lib/helpers/build-safe-env';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,
+  TIER_METADATA_ENV_VAR_MAP,
+  ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
   SdkModelService,
   MemoryPromptInjector,

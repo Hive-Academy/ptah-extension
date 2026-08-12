@@ -25,7 +25,7 @@ import {
       @if (messageCount() === 0) {
         <!-- No usage data fallback -->
         <div class="card-body p-3">
-          <div class="text-sm text-base-content/70">
+          <div class="text-sm text-base-content-muted">
             No usage data available
           </div>
         </div>
@@ -40,7 +40,7 @@ import {
               </span>
             </div>
 
-            <div class="flex gap-2 text-xs text-base-content/70">
+            <div class="flex gap-2 text-xs text-base-content-muted">
               <span
                 >{{
                   formatTokens(totalTokensInput() + totalTokensOutput())
@@ -58,25 +58,25 @@ import {
 
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div>
-                <span class="text-base-content/70">Input tokens:</span>
+                <span class="text-base-content-muted">Input tokens:</span>
                 <span class="font-medium ml-2">{{
                   formatTokens(totalTokensInput())
                 }}</span>
               </div>
               <div>
-                <span class="text-base-content/70">Output tokens:</span>
+                <span class="text-base-content-muted">Output tokens:</span>
                 <span class="font-medium ml-2">{{
                   formatTokens(totalTokensOutput())
                 }}</span>
               </div>
               <div>
-                <span class="text-base-content/70">Avg. cost/message:</span>
+                <span class="text-base-content-muted">Avg. cost/message:</span>
                 <span class="font-medium ml-2">{{
                   formatCost(averageCostPerMessage())
                 }}</span>
               </div>
               <div>
-                <span class="text-base-content/70">Messages with cost:</span>
+                <span class="text-base-content-muted">Messages with cost:</span>
                 <span class="font-medium ml-2">{{ messageCount() }}</span>
               </div>
             </div>

@@ -124,7 +124,7 @@
     @if (activeTileId()) {
       <div class="flex items-center gap-1 mt-1.5 px-0.5">
         <lucide-angular [img]="CheckIcon" class="w-3 h-3 text-success" />
-        <span class="text-[10px] text-base-content/70">
+        <span class="text-[10px] text-base-content-muted">
           Active:
           <span class="font-semibold text-success">{{
             activeProviderName()
@@ -193,7 +193,7 @@
         @if (authState.hasApiKey() && !apiKey()) {
           <div class="flex gap-1.5">
             <div
-              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content-muted font-mono"
             >
               sk-ant-api03-••••••••••••
             </div>
@@ -297,8 +297,8 @@
             class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20"
           >
             <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
-            <p class="text-[10px] text-base-content/60 leading-relaxed">
-              <strong class="text-base-content/70">Claude CLI detected.</strong>
+            <p class="text-[10px] text-base-content-muted leading-relaxed">
+              <strong class="text-base-content-muted">Claude CLI detected.</strong>
               Authentication is managed by the CLI. If you're logged in via
               <code class="text-[10px]">claude login</code>, your credentials
               will be used automatically.
@@ -310,8 +310,8 @@
             class="flex items-start gap-1.5 p-2 rounded bg-warning/10 border border-warning/20"
           >
             <span class="text-warning text-[10px] shrink-0 mt-0.5">●</span>
-            <p class="text-[10px] text-base-content/60 leading-relaxed">
-              <strong class="text-base-content/70"
+            <p class="text-[10px] text-base-content-muted leading-relaxed">
+              <strong class="text-base-content-muted"
                 >Claude CLI not found.</strong
               >
               Install it and log in to use your Claude subscription.
@@ -368,7 +368,7 @@
                 [img]="GithubIcon"
                 class="w-3.5 h-3.5 opacity-70"
               />
-              <span class="text-base-content/70">
+              <span class="text-base-content-muted">
                 {{ authState.copilotUsername() ?? 'Connected via GitHub' }}
               </span>
             </div>
@@ -442,7 +442,7 @@
         <div
           class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
         >
-          <span class="text-base-content/70">
+          <span class="text-base-content-muted">
             Authenticated via
             <code class="text-[10px]">~/.codex/auth.json</code>
           </span>
@@ -498,7 +498,7 @@
           class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
         >
           <lucide-angular [img]="ServerIcon" class="w-3.5 h-3.5 opacity-70" />
-          <span class="text-base-content/70">
+          <span class="text-base-content-muted">
             No API key needed — runs locally
           </span>
         </div>
@@ -525,7 +525,7 @@
           <span class="label-text text-xs font-medium">
             {{ selectedProvider()?.name ?? 'Provider' }} API Key
             @if (supportsOptionalKey()) {
-              <span class="text-base-content/50 font-normal">(optional)</span>
+              <span class="text-base-content-muted font-normal">(optional)</span>
             }
           </span>
           @if (authState.isLoading()) {
@@ -549,7 +549,7 @@
         @if (authState.hasProviderKey() && !providerKey()) {
           <div class="flex gap-1.5">
             <div
-              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content-muted font-mono"
             >
               {{ selectedProvider()?.maskedKeyDisplay ?? '••••••••••••' }}
             </div>
@@ -702,7 +702,7 @@
       <div class="label py-1">
         <button
           type="button"
-          class="btn btn-ghost btn-xs gap-1 text-base-content/70"
+          class="btn btn-ghost btn-xs gap-1 text-base-content-muted"
           (click)="resetToGlobalDefault()"
           [disabled]="authState.isSaving()"
           aria-label="Clear the workspace override and revert to the global default"

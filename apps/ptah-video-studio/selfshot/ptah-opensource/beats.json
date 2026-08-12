@@ -1,0 +1,167 @@
+{
+  "slug": "ptah-opensource",
+  "mode": "talking-head",
+  "input": {
+    "cameraVideo": "camera.mp4"
+  },
+  "music": "rising-dawn.mp3",
+  "endCard": {
+    "enabled": true,
+    "durationMs": 6000,
+    "headline": "Open source on GitHub"
+  },
+  "_note": "CONTINUOUS COVERAGE: a panel graphic is on screen for every descriptive sentence from 0:03 to the end. Panels butt up against each other with ~0.3s seams so one exits as the next enters. Keyword chips are NOT used here — they share the left third with panels and would collide. Re-time by reading the sentence boundaries in words.json, not by eye.",
+  "beats": [
+    {
+      "type": "lower-third",
+      "at": 2.5,
+      "durationMs": 5500,
+      "title": "Abdallah Khalil",
+      "subtitle": "Founder, Ptah"
+    },
+    {
+      "type": "graphic",
+      "at": 3,
+      "durationMs": 8600,
+      "name": "building-this",
+      "layout": "panel",
+      "note": "1.5–11.5s — 'working on a coding agent for a year and a half… also using it to build a SaaS application'."
+    },
+    {
+      "type": "graphic",
+      "at": 11.9,
+      "durationMs": 10200,
+      "name": "open-source",
+      "layout": "panel",
+      "note": "11.9–22s — 'fully open source, the code is on GitHub and I want more contributors'."
+    },
+    {
+      "type": "graphic",
+      "at": 22.4,
+      "durationMs": 11700,
+      "name": "the-name",
+      "layout": "panel",
+      "note": "22.4–34s — 'big fan of Egyptology, so I called it Ptah' + the why-I-built-it lead-in."
+    },
+    {
+      "type": "graphic",
+      "at": 34.4,
+      "durationMs": 15800,
+      "name": "stack-grid",
+      "layout": "panel",
+      "note": "34.4–50.2s — Nx, Angular/React, NestJS, Prisma/ORMs, domain-driven design."
+    },
+    {
+      "type": "graphic",
+      "at": 50.5,
+      "durationMs": 14600,
+      "name": "agent-gap",
+      "layout": "panel",
+      "note": "50.5–65.1s — 'very good at writing a code but they almost struggled to understand how I designed the architecture'."
+    },
+    {
+      "type": "graphic",
+      "at": 65.4,
+      "durationMs": 14700,
+      "name": "encode-architecture",
+      "layout": "panel",
+      "note": "65.4–80.1s — 'That's why I built Ptah. To encode this architecture… and stop re-explaining myself'. Swaps to the encoded-once card at ~2s in."
+    },
+    {
+      "type": "graphic",
+      "at": 80.4,
+      "durationMs": 18300,
+      "name": "provider-switch",
+      "layout": "panel",
+      "note": "80.4–98.7s — 'provider agnostic… Claude Code, Codex, or a Llama subscription or any open source model'."
+    },
+    {
+      "type": "graphic",
+      "at": 99,
+      "durationMs": 8200,
+      "name": "harness-layers",
+      "layout": "panel",
+      "note": "99–107.2s — 'your agentic harness and context harness… at the application layer'."
+    },
+    {
+      "type": "graphic",
+      "at": 107.5,
+      "durationMs": 11200,
+      "name": "ships-with",
+      "layout": "panel",
+      "note": "107.5–118.7s — both numbers count up as he says '24 skills and around 15 agent templates'."
+    },
+    {
+      "type": "graphic",
+      "at": 119,
+      "durationMs": 11000,
+      "name": "install-flow",
+      "layout": "panel",
+      "note": "119–130s — 'pick what you want and then install it. Ptah will wire it into your workspace and install it in the coding agent you are using'."
+    },
+    {
+      "type": "graphic",
+      "at": 130.3,
+      "durationMs": 27500,
+      "name": "skills-checklist",
+      "layout": "panel",
+      "note": "130.3–157.8s — 'not just prompts… the way I have been coding' through the whole worked list ending 'all of those ships directly into Ptah'."
+    },
+    {
+      "type": "graphic",
+      "at": 158.1,
+      "durationMs": 17700,
+      "name": "wizard-phases",
+      "layout": "panel",
+      "note": "158.1–175.8s — 'doesn't hand you generic agent… setup wizard… understands your architecture and your tech stack'."
+    },
+    {
+      "type": "graphic",
+      "at": 176.1,
+      "durationMs": 9100,
+      "name": "wizard-output",
+      "layout": "panel",
+      "note": "176.1–185.2s — 'evaluation for your weaknesses and the strengths… generates tailored agents and skills'."
+    },
+    {
+      "type": "graphic",
+      "at": 185.4,
+      "durationMs": 6800,
+      "name": "runtime-trio",
+      "layout": "panel",
+      "note": "185.4–192.2s — 'runs in three places, a VS Code extension, a desktop application and a CLI tool'."
+    },
+    {
+      "type": "graphic",
+      "at": 192.5,
+      "durationMs": 13500,
+      "name": "cli-both-ways",
+      "layout": "panel",
+      "note": "192.5–206s — 'works both ways headless… JSON-RPC… and also a terminal user interface where you are driving it yourself'."
+    },
+    {
+      "type": "graphic",
+      "at": 206.3,
+      "durationMs": 11900,
+      "name": "agent-grid",
+      "layout": "panel",
+      "note": "206.3–218.2s — 'up to nine different agents with different models and also different providers'."
+    },
+    {
+      "type": "graphic",
+      "at": 218.5,
+      "durationMs": 11700,
+      "name": "memory-timeline",
+      "layout": "panel",
+      "note": "218.5–230.2s — 'memory that resists over session… first day of the week… still there on Friday'."
+    },
+    {
+      "type": "graphic",
+      "at": 230.5,
+      "durationMs": 15000,
+      "name": "trajectory-skill",
+      "layout": "panel",
+      "note": "230.5–245.5s — 'once you finish your work, it has a trajectory… generate new skills to use into your project'. Runs to the end card."
+    }
+  ]
+}

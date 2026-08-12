@@ -70,12 +70,17 @@ export class PtahCliSpawnOptions {
    * @param authEnv - Isolated auth environment for the agent
    * @param cwd - Working directory
    * @param projectGuidance - Optional project guidance text
+   * @param resolvedModel - The concrete model this spawn runs on, already
+   *   resolved from `modelTier` by `PtahCliRegistry.spawnAgent`. Feeds the
+   *   model-identity clarification; passing the wrong value here is what made
+   *   a `modelTier: 'sonnet'` agent announce the opus model.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
     authEnv: AuthEnv,
     cwd: string,
     projectGuidance?: string,
+    resolvedModel?: string,
   ): Promise<PtahSpawnAssembly> {
     const mcpServerRunning = this.isMcpServerRunning();
     const enhancedPromptsContent =
@@ -83,7 +88,7 @@ export class PtahCliSpawnOptions {
     const activeProviderId = getActiveProviderId(authEnv);
     const promptResult = assembleSystemPrompt({
       providerId: activeProviderId,
-      authEnv,
+      resolvedModel,
       mcpServerRunning,
       enhancedPromptsContent,
     });

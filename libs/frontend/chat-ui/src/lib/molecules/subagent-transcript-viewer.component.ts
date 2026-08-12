@@ -53,7 +53,9 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
           />
           <h3 class="font-semibold text-sm truncate" [title]="agentName()">
             {{ agentName() || 'Subagent' }}
-            <span class="text-base-content/50 font-normal">— Transcript</span>
+            <span class="text-base-content-muted font-normal"
+              >— Transcript</span
+            >
           </h3>
         </div>
         <div class="flex items-center gap-1 flex-shrink-0">
@@ -93,7 +95,7 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
         @if (loading() && messages().length === 0) {
           <!-- Loading state -->
           <div
-            class="flex items-center justify-center gap-2 py-12 text-sm text-base-content/60"
+            class="flex items-center justify-center gap-2 py-12 text-sm text-base-content-muted"
             data-testid="subagent-transcript-loading"
           >
             <span class="loading loading-spinner loading-sm"></span>
@@ -123,7 +125,7 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
         } @else if (messages().length === 0) {
           <!-- Empty state -->
           <div
-            class="flex flex-col items-center gap-2 py-12 text-center text-base-content/50"
+            class="flex flex-col items-center gap-2 py-12 text-center text-base-content-muted"
             data-testid="subagent-transcript-empty"
           >
             <lucide-angular
@@ -146,7 +148,7 @@ import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
                 data-testid="subagent-transcript-message"
               >
                 <div
-                  class="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-base-content/40 px-1"
+                  class="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-base-content-muted px-1"
                 >
                   <span>{{ msg.role === 'user' ? 'User' : 'Assistant' }}</span>
                   @if (msg.timestamp) {

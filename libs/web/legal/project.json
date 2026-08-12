@@ -1,0 +1,27 @@
+{
+  "name": "web-legal",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/web/legal/src",
+  "prefix": "app",
+  "projectType": "library",
+  "tags": ["scope:web", "type:feature"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/web/legal/jest.config.cts",
+        "tsConfig": "libs/web/legal/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/web/legal/tsconfig.lib.json"
+      }
+    }
+  }
+}

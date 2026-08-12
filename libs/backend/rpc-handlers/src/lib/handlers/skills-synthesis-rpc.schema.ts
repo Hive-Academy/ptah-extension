@@ -137,6 +137,41 @@ export const SkillEnhanceNowParamsSchema = z.object({
   slug: SlugSchema,
 });
 
+/**
+ * Opaque handle minted by `SkillEnhancerService.generateProposal`
+ * (`crypto.randomUUID`). Shape-checked here so a malformed id is rejected at
+ * the boundary rather than reaching the proposal cache.
+ */
+const ProposalIdSchema = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    'invalid proposalId',
+  );
+
+export const SkillPreviewEnhancementParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillApplyProposalParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+  proposalId: ProposalIdSchema,
+});
+
+/**
+ * `ts` is constrained to the exact snapshot-directory format produced by
+ * `UserLayerMirrorService.makeUniqueHistoryDir` (`Date.now()` optionally
+ * suffixed with a collision counter). Anything else — separators, dots,
+ * traversal — is rejected before any path is built.
+ */
+export const SkillGetHistoryBodyParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+  ts: HistoryTsSchema,
+});
+
 export const SkillRevertEnhancementParamsSchema = z.object({
   kind: SkillCloneKindSchema,
   slug: SlugSchema,

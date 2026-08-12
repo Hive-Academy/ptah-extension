@@ -21,11 +21,11 @@ import type {
     >
       <div class="border-b border-base-300 px-4 py-3">
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          <span class="text-base-content/60">Last analysis:</span>
+          <span class="text-base-content-muted">Last analysis:</span>
           <span class="font-medium">{{ lastAnalysisLabel() }}</span>
           @if (reasonChip(); as chip) {
             <span
-              class="inline-flex items-center gap-1.5 text-xs text-base-content/70"
+              class="inline-flex items-center gap-1.5 text-xs text-base-content-muted"
               data-testid="skills-pipeline-reason"
             >
               <span
@@ -36,13 +36,13 @@ import type {
             </span>
           }
         </div>
-        <p class="mt-1 text-xs text-base-content/60">
+        <p class="mt-1 text-xs text-base-content-muted">
           Today:
-          <span class="tabular-nums text-base-content/80">{{
+          <span class="tabular-nums text-base-content-muted">{{
             acceptedToday()
           }}</span>
           accepted,
-          <span class="tabular-nums text-base-content/80">{{
+          <span class="tabular-nums text-base-content-muted">{{
             ineligibleToday()
           }}</span>
           ineligible

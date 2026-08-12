@@ -1,0 +1,16 @@
+{
+  "exportedFrom": "http://localhost:3001",
+  "note": "",
+  "categories": [
+    {
+      "id": 4,
+      "name": "General",
+      "slug": "general",
+      "description": null,
+      "color": "25AAE2",
+      "read_restricted": false,
+      "topic_count": 2
+    }
+  ],
+  "topics": []
+}

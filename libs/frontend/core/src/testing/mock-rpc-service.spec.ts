@@ -56,9 +56,9 @@ describe('rpcSuccess / rpcError', () => {
   });
 
   it('rpcError produces a failed RpcResult carrying error + errorCode', () => {
-    const result = rpcError<string>('boom', 'LICENSE_REQUIRED');
+    const result = rpcError<string>('boom', 'WORKSPACE_NOT_OPEN');
     expect(result.isError()).toBe(true);
     expect(result.error).toBe('boom');
-    expect(result.errorCode).toBe('LICENSE_REQUIRED');
+    expect(result.errorCode).toBe('WORKSPACE_NOT_OPEN');
   });
 });

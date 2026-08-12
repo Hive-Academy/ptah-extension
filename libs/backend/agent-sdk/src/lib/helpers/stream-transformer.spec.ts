@@ -32,6 +32,17 @@ import type { IPricingProvider } from '../pricing.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
 import { StreamTransformer, ResultModelUsage } from './stream-transformer';
+import type { NoActivityWatchdog } from './no-activity-watchdog';
+
+interface FakeWatchdog {
+  start: jest.Mock;
+  kick: jest.Mock;
+  stop: jest.Mock;
+}
+
+function makeFakeWatchdog(): FakeWatchdog {
+  return { start: jest.fn(), kick: jest.fn(), stop: jest.fn() };
+}
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -542,6 +553,79 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     expect(hitCost as number).toBeGreaterThan(0);
     expect(byModel.get('mystery-model-y')).toBeNull();
     expect(captured[0].cost).toBe(hitCost);
+  });
+});
+
+describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', () => {
+  it('starts the watchdog once, kicks it on EVERY SDK message, and stops it when the stream ends', async () => {
+    const { transformer } = makeHarness();
+    const watchdog = makeFakeWatchdog();
+
+    // Three heterogeneous events — a message_start (partial), a second
+    // message_start, and a result. Each must reset the inactivity window.
+    const messages: SDKMessage[] = [
+      messageStart(MODEL, { input_tokens: 100 }),
+      messageStart(MODEL, { input_tokens: 100 }),
+      resultMessage(MODEL, { inputTokens: 100, outputTokens: 10 }),
+    ];
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable(messages),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      activityWatchdog: watchdog as unknown as NoActivityWatchdog,
+    });
+
+    await drain(iter);
+
+    expect(watchdog.start).toHaveBeenCalledTimes(1);
+    expect(watchdog.kick).toHaveBeenCalledTimes(messages.length);
+    expect(watchdog.stop).toHaveBeenCalledTimes(1);
+    // start() must precede the first kick (armed before the first event).
+    expect(watchdog.start.mock.invocationCallOrder[0]).toBeLessThan(
+      watchdog.kick.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('stops the watchdog even when the stream throws (error teardown path)', async () => {
+    const { transformer } = makeHarness();
+    const watchdog = makeFakeWatchdog();
+    const boom = new Error('stream exploded');
+
+    const explodingIterable: AsyncIterable<SDKMessage> = {
+      async *[Symbol.asyncIterator]() {
+        yield messageStart(MODEL, { input_tokens: 1 });
+        throw boom;
+      },
+    };
+
+    const iter = transformer.transform({
+      sdkQuery: explodingIterable,
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+      activityWatchdog: watchdog as unknown as NoActivityWatchdog,
+    });
+
+    await expect(drain(iter)).rejects.toBe(boom);
+
+    expect(watchdog.start).toHaveBeenCalledTimes(1);
+    expect(watchdog.kick).toHaveBeenCalledTimes(1); // the one yielded message
+    expect(watchdog.stop).toHaveBeenCalledTimes(1); // finally cleanup on throw
+  });
+
+  it('is a no-op safe path when no watchdog is supplied', async () => {
+    const { transformer } = makeHarness();
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable([
+        resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 }),
+      ]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+    await expect(drain(iter)).resolves.toBeUndefined();
   });
 });
 

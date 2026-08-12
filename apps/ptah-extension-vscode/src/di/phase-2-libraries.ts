@@ -14,7 +14,11 @@ import type { DependencyContainer } from 'tsyringe';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -40,13 +44,6 @@ import {
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import {
-  MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-  type IMemoryLister,
-  type ISymbolSink,
-} from '@ptah-extension/memory-contracts';
-
 export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
@@ -58,6 +55,15 @@ export function registerPhase2Libraries(
   // connection later in wire-runtime, so the store choice is deferred to first
   // resolution (wire-runtime.ts:176 precedent).
   registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even for a user who never opens the Tasks board. Non-
+  // blocking and failure-swallowing by contract — see startTaskSpecsIndex.
+  startTaskSpecsIndex(container, logger);
+  // output-styles registered in all three hosts: OutputStyleRpcHandlers is a
+  // `requires: []` manifest entry, so every host resolves it. Its services
+  // depend only on the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER,
+  // WORKSPACE_PROVIDER) and are consumed by Phase 3/4 handlers.
+  registerOutputStyleServices(container, logger);
   registerVsCodeLmToolsServices(container, logger);
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),
@@ -92,27 +98,6 @@ export function registerPhase2Libraries(
 
   wireAgentAdapterAliases(container);
 
-  const noopMemoryReader: IMemoryReader = {
-    search: async () => ({ hits: [], bm25Only: true }),
-  };
-  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-    useValue: noopMemoryReader,
-  });
-
-  const noopMemoryLister: IMemoryLister = {
-    listAll: () => ({ memories: [], total: 0 }),
-  };
-  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
-    useValue: noopMemoryLister,
-  });
-
-  const noopSymbolSink: ISymbolSink = {
-    deleteSymbolsForFile: () => 0,
-    insertSymbols: async () => undefined,
-  };
-  container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
-    useValue: noopSymbolSink,
-  });
   registerAgentGenerationServices(container, logger);
   try {
     const enhancedPrompts = container.resolve<EnhancedPromptsService>(

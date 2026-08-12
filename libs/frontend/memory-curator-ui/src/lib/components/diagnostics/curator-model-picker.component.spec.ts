@@ -151,9 +151,75 @@ describe('CuratorModelPickerComponent', () => {
       'Active provider (default)',
     );
     expect(modelSelect.options[0].textContent).toBe(
-      'Default (claude-haiku-4-5-20251001)',
+      "Default (active provider's haiku tier)",
     );
     expect(providerSelect.innerHTML).not.toContain('<script');
+  });
+
+  describe('default-model label (TASK_2026_159)', () => {
+    it('never names a Claude model when no curator provider is chosen', () => {
+      const fixture = create();
+      const label =
+        (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+          '[data-testid="curator-model-select"]',
+        )?.options[0].textContent ?? '';
+
+      expect(label).not.toContain('claude');
+      expect(label).toBe("Default (active provider's haiku tier)");
+    });
+
+    it("names the chosen provider's own haiku tier — Ollama Cloud, not Claude Haiku", async () => {
+      const fixture = create('ollama-cloud', '');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const label =
+        (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+          '[data-testid="curator-model-select"]',
+        )?.options[0].textContent ?? '';
+
+      expect(label).toBe('Default (ministral-3:cloud)');
+      expect(label).not.toContain('claude-haiku-4-5-20251001');
+    });
+
+    it('re-labels live when the user switches curator provider', async () => {
+      const fixture = create('ollama-cloud', '');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const select = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="curator-model-select"]',
+      ) as HTMLSelectElement;
+      expect(select.options[0].textContent).toBe('Default (ministral-3:cloud)');
+
+      const providerSelect = (
+        fixture.nativeElement as HTMLElement
+      ).querySelector(
+        '[data-testid="curator-provider-select"]',
+      ) as HTMLSelectElement;
+      providerSelect.value = 'moonshot';
+      providerSelect.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(select.options[0].textContent).not.toBe(
+        'Default (ministral-3:cloud)',
+      );
+      expect(select.options[0].textContent).toContain('Default (');
+    });
+
+    it('falls back to a named tier for a provider with no declared haiku mapping', async () => {
+      const fixture = create('lm-studio', '');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const label =
+        (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+          '[data-testid="curator-model-select"]',
+        )?.options[0].textContent ?? '';
+
+      expect(label).toBe('Default (LM Studio haiku tier)');
+    });
   });
 
   it('surfaces a model load error from the RPC result', async () => {

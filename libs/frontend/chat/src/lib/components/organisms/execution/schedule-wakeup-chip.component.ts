@@ -31,12 +31,12 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         class="w-3.5 h-3.5 shrink-0 text-warning"
         aria-hidden="true"
       />
-      <span class="text-xs font-semibold text-base-content/80 shrink-0">
+      <span class="text-xs font-semibold text-base-content-muted shrink-0">
         {{ headline() }}
       </span>
       @if (reason(); as r) {
         <span
-          class="text-[11px] text-base-content/50 truncate min-w-0"
+          class="text-[11px] text-base-content-muted truncate min-w-0"
           [title]="r"
         >
           {{ r }}

@@ -54,6 +54,7 @@ import {
   AppStateManager,
   VSCodeService,
   ClaudeRpcService,
+  LazyViewService,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
   HARNESS_BUILDER_COMPONENT,
@@ -150,6 +151,14 @@ export class AppShellComponent {
   );
 
   /**
+   * Resolver for the deferred view tokens (TASK_2026_187).
+   *
+   * **Must stay declared above every field that calls `this.lazyViews`** —
+   * Angular initialises class fields top-to-bottom (R11).
+   */
+  private readonly lazyViews = inject(LazyViewService);
+
+  /**
    * WizardViewComponent provided via DI token â€” breaks circular dependency between chat and setup-wizard.
    * Provided by the application bootstrapper (app.config.ts) so chat never imports setup-wizard directly.
    */
@@ -160,47 +169,69 @@ export class AppShellComponent {
    * OrchestraCanvasComponent provided via DI token â€” breaks circular dependency between chat and canvas.
    * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
    * Provided by the application bootstrapper (app.config.ts).
+   *
+   * **Eager on purpose.** This was deferred during TASK_2026_187 and reverted on
+   * measured evidence: `ElectronShellComponent` (which embeds this component)
+   * forces grid mode in its constructor, so the canvas is the Electron launch
+   * surface and deferring it cost 50-70 ms of startup TTI with no path on which
+   * it helped. Marketplace and tribunal remain deferred — they are not launch
+   * surfaces.
    */
   readonly orchestraCanvasComponent =
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
 
   /**
-   * HarnessBuilderViewComponent provided via DI token â€” breaks circular dependency.
-   * Provided by the application bootstrapper (app.config.ts).
+   * HarnessBuilderViewComponent, resolved from a deferred loader token — breaks
+   * the circular dependency between @ptah-extension/harness-builder and
+   * @ptah-extension/chat. Loads when the harness-builder view is opened.
    */
-  readonly harnessBuilderComponent =
-    inject(HARNESS_BUILDER_COMPONENT, { optional: true }) ?? null;
+  readonly harnessBuilderComponent = this.lazyViews.resolveWhen(
+    HARNESS_BUILDER_COMPONENT,
+    () => this.currentView() === 'harness-builder',
+  );
 
   /**
-   * SetupHubComponent provided via DI token â€” breaks circular dependency.
-   * Provided by the application bootstrapper (app.config.ts).
+   * SetupHubComponent, resolved from a deferred loader token — breaks the
+   * circular dependency between @ptah-extension/harness-builder and
+   * @ptah-extension/chat. Loads when the setup-hub view is opened.
+   *
+   * Shares its lazy chunk with {@link harnessBuilderComponent} — both components
+   * live in the same library, so opening either view fetches the same chunk.
    */
-  readonly setupHubComponent =
-    inject(SETUP_HUB_COMPONENT, { optional: true }) ?? null;
+  readonly setupHubComponent = this.lazyViews.resolveWhen(
+    SETUP_HUB_COMPONENT,
+    () => this.currentView() === 'setup-hub',
+  );
 
   /**
-   * MarketplaceHubComponent provided via DI token — breaks circular dependency
-   * between @ptah-extension/marketplace and @ptah-extension/chat.
-   * Provided by the application bootstrapper (app.config.ts).
+   * MarketplaceHubComponent, resolved from a deferred loader token — breaks the
+   * circular dependency between @ptah-extension/marketplace and
+   * @ptah-extension/chat. Loads when the marketplace view is opened.
    */
-  readonly marketplaceComponent =
-    inject(MARKETPLACE_COMPONENT, { optional: true }) ?? null;
+  readonly marketplaceComponent = this.lazyViews.resolveWhen(
+    MARKETPLACE_COMPONENT,
+    () => this.currentView() === 'marketplace',
+  );
 
   /**
-   * TribunalPageComponent provided via DI token — breaks circular dependency
-   * between @ptah-extension/tribunal-panel and @ptah-extension/chat.
-   * Provided by the application bootstrapper (app.config.ts).
+   * TribunalPageComponent, resolved from a deferred loader token — breaks the
+   * circular dependency between @ptah-extension/tribunal-panel and
+   * @ptah-extension/chat. Loads when the tribunal view is opened.
    */
-  readonly tribunalComponent =
-    inject(TRIBUNAL_COMPONENT, { optional: true }) ?? null;
+  readonly tribunalComponent = this.lazyViews.resolveWhen(
+    TRIBUNAL_COMPONENT,
+    () => this.currentView() === 'tribunal',
+  );
 
   /**
-   * TasksViewComponent provided via DI token — breaks circular dependency
-   * between @ptah-extension/tasks-ui and @ptah-extension/chat.
-   * Provided by the application bootstrapper (app.config.ts).
+   * TasksViewComponent, resolved from a deferred loader token — breaks the
+   * circular dependency between @ptah-extension/tasks-ui and
+   * @ptah-extension/chat. Loads when the tasks view is opened.
    */
-  readonly tasksComponent =
-    inject(TASKS_VIEW_COMPONENT, { optional: true }) ?? null;
+  readonly tasksComponent = this.lazyViews.resolveWhen(
+    TASKS_VIEW_COMPONENT,
+    () => this.currentView() === 'tasks',
+  );
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
   readonly CalendarDaysIcon = CalendarDays;

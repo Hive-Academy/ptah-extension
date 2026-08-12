@@ -32,7 +32,11 @@ function createRealTcpProvider(): IHttpServerProvider {
       await new Promise<void>((resolve, reject) => {
         const onError = (err: Error): void => {
           server.removeListener('listening', onListening);
-          reject(err);
+          // A failed bind (EADDRINUSE) still leaves a `net.Server` whose libuv
+          // handle Node tears down asynchronously. Closing it explicitly means
+          // the caller never has to reason about an unbound server it can no
+          // longer reach — nothing is left half-open for the worker to wait on.
+          server.close(() => reject(err));
         };
         const onListening = (): void => {
           server.removeListener('error', onError);

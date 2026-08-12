@@ -22,7 +22,7 @@ If the task type is ambiguous, ask the user to clarify rather than defaulting to
 
 ```
 /orchestrate [task description]     # New task
-/orchestrate TASK_2025_XXX          # Continue existing task
+/orchestrate TASK_YYYY_NNN          # Continue existing task
 ```
 
 ### Strategy Quick Reference
@@ -127,7 +127,7 @@ See [strategies.md](references/strategies.md) for detailed selection guidance.
 ### Mode Detection
 
 ```
-if ($ARGUMENTS matches /^TASK_2025_\d{3}$/)
+if ($ARGUMENTS matches /^TASK_\d{4}_\d{3}$/)
     -> CONTINUATION mode (resume existing task)
 else
     -> NEW_TASK mode (create new task)
@@ -135,15 +135,19 @@ else
 
 ### NEW_TASK: Initialization
 
-1. **Read Registry**: `Read(.ptah/specs/registry.md)` - find highest TASK_ID, increment
-2. **Create Task Folder**: `mkdir .ptah/specs/TASK_[ID]`
-3. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy
-4. **Announce**: Present task ID, type, complexity, planned agent sequence
+1. **Allocate ID by atomic reserve**: prefer the `tasks:create` RPC (`TaskWriterService.create`), which reserves atomically and never overwrites. If allocating by hand: `Glob(.ptah/specs/TASK_*)` - highest `NNN` for the year + 1, zero-pad - then **reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)` without `recursive`, NOT `mkdir -p`). On `EEXIST` a concurrent session took that id: re-scan, increment, retry. The folder creation IS the lock. NEVER derive the ID from `registry.md` - it is generated output and can be stale.
+2. **Reserve Task Folder (exclusive)**: `mkdir .ptah/specs/TASK_[ID]` with fail-if-exists semantics - a succeeding `mkdir` is your reservation, a failing one is a retry.
+3. **Create Carrier FIRST, never overwriting**: `Write(.ptah/specs/TASK_[ID]/task.md)` - the frontmatter carrier (see the template in [task-tracking.md](references/task-tracking.md)). The write MUST fail if `task.md` already exists (exclusive create), so a residual race surfaces as an error instead of silent loss. A folder without `task.md` is invisible to the Tasks board and the registry.
+4. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy
+5. **Announce**: Present task ID, type, complexity, planned agent sequence
+
+**Carrier rules**: `task.md` holds machine-read frontmatter (status, type, title). To change status later, `Edit` exactly the `status:` line - NEVER rewrite the whole file with `Write`. Prose belongs in `context.md`, not in the carrier.
 
 ### CONTINUATION: Phase Detection
 
 | Documents Present       | Next Action                         |
 | ----------------------- | ----------------------------------- |
+| No task.md              | Invalid - create the carrier first  |
 | context.md only         | Invoke project-manager              |
 | task-description.md     | User validate OR invoke architect   |
 | implementation-plan.md  | User validate OR team-leader MODE 1 |
@@ -220,7 +224,7 @@ Instead, present the checkpoint as a **plain text message**: surface the documen
 ```
 REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 
-Document: .ptah/tasks/TASK_[ID]/task-description.md
+Document: .ptah/specs/TASK_[ID]/task-description.md
 
 [2–4 line summary of scope, key requirements, out-of-scope]
 
@@ -306,16 +310,16 @@ Tier 2: Team-Leader (Advisory only — NEVER spawns)
 
 ### Quick Reference
 
-| Aspect                 | Detail                                                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)                                                                     |
-| **Sole spawner**       | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents                                                |
-| **Team-leader role**   | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch                                              |
-| **Available agents**   | ptah-cli, codex, copilot (user-configured)                                                                           |
-| **Concurrency limit**  | Max 3 CLI agents simultaneously                                                                                      |
-| **Selection priority** | ptah-cli > codex > copilot                                                                                           |
-| **Decision authority** | Team-leader recommends; orchestrator executes the recommendation                                                     |
-| **Quality ownership**  | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
+| Aspect                 | Detail                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)                                                                           |
+| **Sole spawner**       | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents                                                      |
+| **Team-leader role**   | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch                                                    |
+| **Available agents**   | **Discovered** via `ptah_agent_list` — never assumed. Adapters and configured providers differ per release and per machine |
+| **Concurrency limit**  | Max 3 CLI agents simultaneously                                                                                            |
+| **Selection**          | By task fit (cheap+fast for bulk, strong reasoning for analysis, different family for review) — not a fixed ranking        |
+| **Decision authority** | Team-leader recommends; orchestrator executes the recommendation                                                           |
+| **Quality ownership**  | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit       |
 
 ### Executor Recommendation Heuristics (Applied by Team-Leader in tasks.md)
 
@@ -345,10 +349,11 @@ independently-executable sub-tasks to speed up your work.
 
 **How to delegate:**
 
-1. Spawn: `ptah_agent_spawn { task: "...", cli: "codex", taskFolder: "...", files: [...] }`
-2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
-3. Read: `ptah_agent_read { agentId: "..." }`
-4. Use the results in your deliverable
+1. Discover: `ptah_agent_list {}` — the returned rows are the ONLY spawnable agents; never assume a vendor
+2. Spawn: `ptah_agent_spawn { task: "...", cli: "<an installed cli>" | ptahCliId: "<a listed id>", taskFolder: "...", files: [...] }`
+3. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
+4. Read: `ptah_agent_read { agentId: "..." }`
+5. Use the results in your deliverable
 
 **How to resume a timed-out/failed agent:**
 
@@ -362,6 +367,9 @@ independently-executable sub-tasks to speed up your work.
 - CLI agents have NO shared context — include ALL necessary info in the task prompt
 - CLI agents should NOT commit to git
 - YOU own the quality — review CLI agent output before incorporating
+- **Verified delegation**: CLI-written code that will ship gets reviewed by a DIFFERENT vendor
+  family (or line by line by you) before you absorb it. Never let a CLI review its own work.
+  Feed defects back to the original executor, cap at 2 revise rounds, then finish it yourself.
 - Delegate grunt work, keep synthesis and decisions to yourself
 - When a CLI agent times out or fails, **resume it** instead of re-spawning from scratch
 
@@ -371,7 +379,7 @@ independently-executable sub-tasks to speed up your work.
 
 **Note**: The team-leader does NOT receive this injection block — it is strictly advisory and is forbidden from spawning sub-agents or CLI agents. Its recommendations live in `tasks.md` under `Recommended Executor` / `Execution Mode` per batch.
 
-See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
+See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference, including the **Verified Delegation** rule. For a high-stakes change where the acceptance bar can be written down in advance, escalate to the `tribunal` skill's **Crucible** move — a cheap executor lane looped against a strong judge lane from another vendor family, gated on a frozen rubric.
 
 ---
 

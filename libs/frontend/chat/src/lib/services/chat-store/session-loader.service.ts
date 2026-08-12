@@ -19,6 +19,7 @@ import { Injectable, signal, inject, effect, untracked } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
+  CliSessionReference,
   SessionId,
   FlatStreamEventUnion,
   SubagentRecord,
@@ -72,6 +73,15 @@ export class SessionLoaderService {
    * progress (e.g., from restored-session effect firing alongside switchSession).
    */
   private readonly _inFlightSessions = new Set<string>();
+
+  /**
+   * Sessions whose CLI agent cards have already been pushed into
+   * AgentMonitorStore this app run — either from a `chat:resume` payload or a
+   * dedicated `session:cli-sessions` fetch. Keeps concurrent surfaces from
+   * racing the same fetch and stops a re-hydrate from undoing a manual
+   * "Clear completed".
+   */
+  private readonly _cliSessionsRestored = new Set<string>();
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
   /**
@@ -632,9 +642,7 @@ export class SessionLoaderService {
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
-        if (cliSessions && cliSessions.length > 0) {
-          this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
-        }
+        this.applyCliSessions(cliSessions, sessionId);
       } else if (resumeResult.success && messages && messages.length > 0) {
         const executionMessages = messages.map((msg) => ({
           id: msg.id,
@@ -648,9 +656,7 @@ export class SessionLoaderService {
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set(resumableSubagents ?? []);
         this._resumableSubagentsSessionId = sessionId;
-        if (cliSessions && cliSessions.length > 0) {
-          this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
-        }
+        this.applyCliSessions(cliSessions, sessionId);
       } else {
         this.tabManager.applyResumeFailure(activeTabId);
         this.sessionManager.setStatus('loaded');
@@ -672,6 +678,20 @@ export class SessionLoaderService {
   }
 
   /**
+   * Push a `chat:resume` payload's CLI session references into the agent
+   * monitor and record the session as hydrated, so a surface that resolves the
+   * same session later skips its own `session:cli-sessions` fetch.
+   */
+  private applyCliSessions(
+    cliSessions: CliSessionReference[] | undefined,
+    sessionId: SessionId,
+  ): void {
+    if (!cliSessions || cliSessions.length === 0) return;
+    this._cliSessionsRestored.add(sessionId);
+    this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+  }
+
+  /**
    * Restore CLI agent sessions for the active tab after webview reopens.
    *
    * When the webview is first opened, tabs are restored from localStorage with
@@ -680,11 +700,28 @@ export class SessionLoaderService {
    * loads them into the agent monitor panel.
    */
   async restoreCliSessionsForActiveTab(): Promise<void> {
-    try {
-      const activeTab = this.tabManager.activeTab();
-      const sessionId = activeTab?.claudeSessionId;
-      if (!sessionId) return;
+    const sessionId = this.tabManager.activeTab()?.claudeSessionId;
+    if (!sessionId) return;
+    await this.restoreCliSessionsForSession(sessionId);
+  }
 
+  /**
+   * Restore CLI agent sessions for one specific session.
+   *
+   * Every chat surface calls this for its own session as soon as that session
+   * resolves, so a canvas tile hydrates its agent panel whether or not it is
+   * the active tab. The bootstrap-time active-tab restore only ever covered
+   * one surface, which left every other tile permanently showing "No agents"
+   * for CLI agents spawned in a prior run.
+   *
+   * Runs at most once per session per app run: re-fetching would resurrect
+   * cards the user cleared by hand via "Clear completed".
+   */
+  async restoreCliSessionsForSession(sessionId: SessionId): Promise<void> {
+    if (this._cliSessionsRestored.has(sessionId)) return;
+    this._cliSessionsRestored.add(sessionId);
+
+    try {
       const result = await this.claudeRpcService.call('session:cli-sessions', {
         sessionId,
       });
@@ -694,6 +731,7 @@ export class SessionLoaderService {
         this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
       }
     } catch (error) {
+      this._cliSessionsRestored.delete(sessionId);
       console.warn(
         '[SessionLoaderService] Failed to restore CLI sessions:',
         error,
@@ -775,10 +813,7 @@ export class SessionLoaderService {
       // ptahCliId. Without this, CLI agents spawned in a prior run never
       // reappear in the sidebar after a webview/app reopen even though they
       // are persisted and returned by the backend.
-      const cliSessions = result.data?.cliSessions;
-      if (cliSessions && cliSessions.length > 0) {
-        this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
-      }
+      this.applyCliSessions(result.data?.cliSessions, sessionId);
     } catch (error) {
       console.warn(
         '[SessionLoaderService] Failed to check resumable subagents for restored session',

@@ -106,7 +106,7 @@ import type {
         class="flex items-center justify-between px-3 py-1 bg-base-300/30 border-t border-base-content/5 shrink-0"
       >
         <button
-          class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content/50 hover:text-base-content/80"
+          class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content-muted hover:text-base-content"
           (click)="isCollapsed.set(!isCollapsed())"
           type="button"
         >
@@ -117,7 +117,7 @@ import type {
           {{ isCollapsed() ? 'Expand' : 'Collapse' }}
         </button>
         <button
-          class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content/50 hover:text-primary"
+          class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content-muted hover:text-primary"
           (click)="expandToFull.emit()"
           title="Switch to full view"
           type="button"

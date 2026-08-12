@@ -17,6 +17,7 @@ import {
 } from 'lucide-angular';
 import { CommandDiscoveryFacade } from './command-discovery.facade';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { VSCodeService, type WebviewConfig } from './vscode.service';
 
 function rpcSuccess<T>(data: T): RpcResult<T> {
   return new RpcResult<T>(true, data, undefined, undefined);
@@ -37,13 +38,19 @@ function buildMockRpc() {
 describe('CommandDiscoveryFacade', () => {
   let facade: CommandDiscoveryFacade;
   let mockRpc: ReturnType<typeof buildMockRpc>;
+  let workspaceRoot: string;
 
   beforeEach(() => {
     mockRpc = buildMockRpc();
+    workspaceRoot = 'D:\\ws\\alpha';
+    const mockVsCode = {
+      config: () => ({ workspaceRoot }) as WebviewConfig,
+    } as unknown as VSCodeService;
     TestBed.configureTestingModule({
       providers: [
         CommandDiscoveryFacade,
         { provide: ClaudeRpcService, useValue: mockRpc },
+        { provide: VSCodeService, useValue: mockVsCode },
       ],
     });
     facade = TestBed.inject(CommandDiscoveryFacade);
@@ -60,6 +67,160 @@ describe('CommandDiscoveryFacade', () => {
     expect(facade.commands()).toEqual([]);
     expect(facade.isCached()).toBe(false);
     expect(facade.error()).toBeNull();
+  });
+
+  // ── Workspace-switch invalidation (TASK_2026_200) ─────────────────────────
+
+  describe('clearCache() on workspace switch', () => {
+    it('forces a refetch of the / picker after a switch', async () => {
+      mockRpc.call.mockResolvedValueOnce(
+        rpcSuccess({
+          commands: [
+            { name: 'alpha-cmd', description: 'A only', scope: 'project' },
+          ],
+        }),
+      );
+      await facade.fetchCommands();
+      expect(facade.isCached()).toBe(true);
+
+      facade.clearCache();
+      workspaceRoot = 'D:\\ws\\beta';
+      mockRpc.call.mockResolvedValueOnce(
+        rpcSuccess({
+          commands: [
+            { name: 'beta-cmd', description: 'B only', scope: 'project' },
+          ],
+        }),
+      );
+
+      await facade.fetchCommands();
+
+      expect(facade.commands().map((c) => c.name)).toEqual(['beta-cmd']);
+      expect(mockRpc.call).toHaveBeenCalledTimes(2);
+      expect(mockRpc.call).toHaveBeenLastCalledWith(
+        'autocomplete:commands',
+        expect.objectContaining({ workspaceRoot: 'D:\\ws\\beta' }),
+      );
+    });
+
+    it('drops an in-flight pre-switch response that resolves after the clear', async () => {
+      let release!: (value: RpcResult<{ commands: unknown[] }>) => void;
+      mockRpc.call.mockReturnValueOnce(
+        new Promise<RpcResult<{ commands: unknown[] }>>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const fetching = facade.fetchCommands();
+      facade.clearCache();
+
+      release(
+        rpcSuccess({
+          commands: [
+            { name: 'alpha-cmd', description: 'A only', scope: 'project' },
+          ],
+        }),
+      );
+      await fetching;
+
+      expect(facade.commands()).toEqual([]);
+      // isCached has no TTL — a stale response pinning it true would freeze
+      // workspace A's commands into the / picker for the process lifetime.
+      expect(facade.isCached()).toBe(false);
+    });
+
+    it('still refetches after a stale response was dropped', async () => {
+      let release!: (value: RpcResult<{ commands: unknown[] }>) => void;
+      mockRpc.call.mockReturnValueOnce(
+        new Promise<RpcResult<{ commands: unknown[] }>>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const fetching = facade.fetchCommands();
+      facade.clearCache();
+      release(
+        rpcSuccess({
+          commands: [
+            { name: 'alpha-cmd', description: 'A only', scope: 'project' },
+          ],
+        }),
+      );
+      await fetching;
+
+      mockRpc.call.mockResolvedValueOnce(
+        rpcSuccess({
+          commands: [
+            { name: 'beta-cmd', description: 'B only', scope: 'project' },
+          ],
+        }),
+      );
+      await facade.fetchCommands();
+
+      expect(facade.commands().map((c) => c.name)).toEqual(['beta-cmd']);
+    });
+
+    it('leaves isLoading false after a clear, so fetchCommands is not wedged', async () => {
+      let release!: (value: RpcResult<{ commands: unknown[] }>) => void;
+      mockRpc.call.mockReturnValueOnce(
+        new Promise<RpcResult<{ commands: unknown[] }>>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const fetching = facade.fetchCommands();
+      expect(facade.isLoading()).toBe(true);
+
+      facade.clearCache();
+      expect(facade.isLoading()).toBe(false);
+
+      release(rpcSuccess({ commands: [] }));
+      await fetching;
+      expect(facade.isLoading()).toBe(false);
+    });
+
+    it('does not surface a pre-switch failure as the new workspace\u2019s error', async () => {
+      let reject!: (reason: Error) => void;
+      mockRpc.call.mockReturnValueOnce(
+        new Promise((_resolve, r) => {
+          reject = r;
+        }),
+      );
+
+      const fetching = facade.fetchCommands();
+      facade.clearCache();
+      reject(new Error('alpha discovery blew up'));
+      await fetching;
+
+      expect(facade.error()).toBeNull();
+    });
+  });
+
+  // ── Workspace scoping (TASK_2026_200, criterion 10 call-site half) ────────
+
+  describe('workspace scoping on autocomplete:commands', () => {
+    it('sends the active workspaceRoot with the request', async () => {
+      mockRpc.call.mockResolvedValueOnce(rpcSuccess({ commands: [] }));
+
+      await facade.fetchCommands();
+
+      expect(mockRpc.call).toHaveBeenCalledWith('autocomplete:commands', {
+        query: '',
+        maxResults: 100,
+        workspaceRoot: 'D:\\ws\\alpha',
+      });
+    });
+
+    it('omits workspaceRoot entirely when no root is known — never sends ""', async () => {
+      workspaceRoot = '';
+      mockRpc.call.mockResolvedValueOnce(rpcSuccess({ commands: [] }));
+
+      await facade.fetchCommands();
+
+      const params = mockRpc.call.mock.calls[0][1] as Record<string, unknown>;
+      expect('workspaceRoot' in params).toBe(false);
+      expect(params).toEqual({ query: '', maxResults: 100 });
+    });
   });
 
   // ── fetchCommands — happy paths ───────────────────────────────────────────

@@ -77,7 +77,7 @@ export interface ModelUsageEntry {
                   class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                   [title]="modelName"
                 >
-                  <span class="text-[10px] uppercase text-base-content/50"
+                  <span class="text-[10px] uppercase text-base-content-muted"
                     >Model</span
                   >
                   <span class="text-purple-400 font-semibold">{{
@@ -90,7 +90,7 @@ export interface ModelUsageEntry {
                   class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                   [title]="contextTooltip()"
                 >
-                  <span class="text-[10px] uppercase text-base-content/50"
+                  <span class="text-[10px] uppercase text-base-content-muted"
                     >Ctx</span
                   >
                   <span class="text-cyan-400">{{ contextPercentLabel() }}</span>
@@ -100,7 +100,7 @@ export interface ModelUsageEntry {
                 class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
                 [title]="tokenTooltip()"
               >
-                <span class="text-[10px] uppercase text-base-content/50"
+                <span class="text-[10px] uppercase text-base-content-muted"
                   >Tokens</span
                 >
                 <span class="tabular-nums">{{
@@ -110,7 +110,7 @@ export interface ModelUsageEntry {
               <span
                 class="inline-flex items-center gap-1 bg-success/10 border border-success/20 rounded px-1.5 py-0.5 whitespace-nowrap"
               >
-                <span class="text-[10px] uppercase text-base-content/50"
+                <span class="text-[10px] uppercase text-base-content-muted"
                   >Cost</span
                 >
                 <span class="text-success tabular-nums">{{
@@ -121,7 +121,7 @@ export interface ModelUsageEntry {
                 <span
                   class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
                 >
-                  <span class="text-[10px] uppercase text-base-content/50"
+                  <span class="text-[10px] uppercase text-base-content-muted"
                     >Time</span
                   >
                   <span class="tabular-nums">{{
@@ -133,7 +133,7 @@ export interface ModelUsageEntry {
                 <span
                   class="inline-flex items-center gap-1 bg-info/10 border border-info/20 rounded px-1.5 py-0.5 whitespace-nowrap"
                 >
-                  <span class="text-[10px] uppercase text-base-content/50"
+                  <span class="text-[10px] uppercase text-base-content-muted"
                     >Agents</span
                   >
                   <span class="text-info tabular-nums">{{
@@ -145,7 +145,7 @@ export interface ModelUsageEntry {
                 <span
                   class="inline-flex items-center gap-1 bg-warning/10 border border-warning/20 rounded px-1.5 py-0.5 whitespace-nowrap"
                 >
-                  <span class="text-[10px] uppercase text-base-content/50"
+                  <span class="text-[10px] uppercase text-base-content-muted"
                     >Compactions</span
                   >
                   <span class="text-warning tabular-nums">{{
@@ -166,7 +166,7 @@ export interface ModelUsageEntry {
                       : 'Show per-model breakdown'
                   "
                 >
-                  <span class="text-[10px] uppercase text-base-content/50"
+                  <span class="text-[10px] uppercase text-base-content-muted"
                     >Models</span
                   >
                   <span class="text-purple-400 font-semibold"
@@ -179,7 +179,7 @@ export interface ModelUsageEntry {
               }
             </div>
             <button
-              class="text-base-content/40 hover:text-base-content/70 transition-colors flex-shrink-0 p-0.5"
+              class="text-base-content-muted hover:text-base-content transition-colors flex-shrink-0 p-0.5"
               (click)="isStatsCollapsed.set(false)"
               type="button"
               title="Expand stats"
@@ -209,22 +209,22 @@ export interface ModelUsageEntry {
                 class="grid grid-cols-4 gap-1 px-2 py-1 border-b border-base-content/10"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted"
                 >
                   Model
                 </div>
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted text-right"
                 >
                   In
                 </div>
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted text-right"
                 >
                   Out
                 </div>
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted text-right"
                 >
                   Cost
                 </div>
@@ -240,12 +240,12 @@ export interface ModelUsageEntry {
                     {{ formatModelName(usage.model) }}
                   </div>
                   <div
-                    class="text-xs text-right tabular-nums text-base-content/70"
+                    class="text-xs text-right tabular-nums text-base-content-muted"
                   >
                     {{ formatTokens(usage.inputTokens) }}
                   </div>
                   <div
-                    class="text-xs text-right tabular-nums text-base-content/70"
+                    class="text-xs text-right tabular-nums text-base-content-muted"
                   >
                     {{ formatTokens(usage.outputTokens) }}
                   </div>
@@ -282,7 +282,7 @@ export interface ModelUsageEntry {
                 [title]="modelName"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
                 >
                   Model
                 </div>
@@ -301,7 +301,7 @@ export interface ModelUsageEntry {
                 [title]="contextTooltip()"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
                 >
                   Context
                 </div>
@@ -309,7 +309,7 @@ export interface ModelUsageEntry {
                   class="text-sm font-semibold text-cyan-400 leading-tight mt-0.5"
                 >
                   {{ contextPercentLabel() }}
-                  <span class="text-[10px] font-normal text-base-content/40">
+                  <span class="text-[10px] font-normal text-base-content-muted">
                     ({{ formatTokens(liveModelStats()!.contextUsed) }})
                   </span>
                 </div>
@@ -322,7 +322,7 @@ export interface ModelUsageEntry {
               [title]="tokenTooltip()"
             >
               <div
-                class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
               >
                 Tokens
               </div>
@@ -338,7 +338,7 @@ export interface ModelUsageEntry {
               class="bg-base-200/50 rounded px-2 py-1.5 border border-success/20"
             >
               <div
-                class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
               >
                 Cost
               </div>
@@ -355,7 +355,7 @@ export interface ModelUsageEntry {
                 class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
                 >
                   Duration
                 </div>
@@ -373,7 +373,7 @@ export interface ModelUsageEntry {
                 class="bg-base-200/50 rounded px-2 py-1.5 border border-info/20"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
                 >
                   Agents
                 </div>
@@ -392,7 +392,7 @@ export interface ModelUsageEntry {
                 title="Number of context compactions during this session"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
                 >
                   Compactions
                 </div>
@@ -417,7 +417,7 @@ export interface ModelUsageEntry {
                 "
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
                 >
                   Models
                 </div>
@@ -449,7 +449,7 @@ export interface ModelUsageEntry {
                 stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                class="text-base-content/40"
+                class="text-base-content-muted"
               >
                 <polyline points="18 15 12 9 6 15" />
               </svg>
@@ -466,22 +466,22 @@ export interface ModelUsageEntry {
                 class="grid grid-cols-4 gap-1 px-2 py-1 border-b border-base-content/10"
               >
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted"
                 >
                   Model
                 </div>
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted text-right"
                 >
                   In
                 </div>
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted text-right"
                 >
                   Out
                 </div>
                 <div
-                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                  class="text-[10px] uppercase tracking-wider text-base-content-muted text-right"
                 >
                   Cost
                 </div>
@@ -499,12 +499,12 @@ export interface ModelUsageEntry {
                     {{ formatModelName(usage.model) }}
                   </div>
                   <div
-                    class="text-xs text-right tabular-nums text-base-content/70"
+                    class="text-xs text-right tabular-nums text-base-content-muted"
                   >
                     {{ formatTokens(usage.inputTokens) }}
                   </div>
                   <div
-                    class="text-xs text-right tabular-nums text-base-content/70"
+                    class="text-xs text-right tabular-nums text-base-content-muted"
                   >
                     {{ formatTokens(usage.outputTokens) }}
                   </div>

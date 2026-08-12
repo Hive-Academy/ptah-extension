@@ -89,7 +89,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
             <h3 class="text-sm font-semibold text-base-content">
               Connect an OAuth MCP server
             </h3>
-            <p class="text-[11px] text-base-content/50">
+            <p class="text-[11px] text-base-content-muted">
               Authorize a remote MCP server that uses OAuth to sign in.
             </p>
           </div>
@@ -131,7 +131,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
           <!-- Advanced: pre-registered client credentials (collapsed by default) -->
           <details class="rounded-lg border border-base-300 bg-base-100/40">
             <summary
-              class="cursor-pointer select-none px-2 py-1.5 text-[11px] font-medium text-base-content/60"
+              class="cursor-pointer select-none px-2 py-1.5 text-[11px] font-medium text-base-content-muted"
             >
               Advanced
             </summary>
@@ -154,7 +154,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
                 (input)="onClientSecretInput($event)"
                 aria-label="Client Secret"
               />
-              <p class="text-[10px] text-base-content/40">
+              <p class="text-[10px] text-base-content-muted">
                 Only needed for servers that don't support automatic app
                 registration.
               </p>
@@ -192,7 +192,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
             }
           </button>
         </form>
-        <p class="text-[10px] text-base-content/30 text-center">
+        <p class="text-[10px] text-base-content-muted text-center">
           Opens your browser to authorize. Your tokens are stored encrypted by
           Ptah and never leave your machine.
         </p>
@@ -201,7 +201,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
       <!-- Connected servers -->
       <div>
         <div
-          class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+          class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
         >
           Connected apps
         </div>
@@ -223,7 +223,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
           </div>
         } @else if (servers().length === 0) {
           <div
-            class="text-xs text-base-content/50 text-center py-6 rounded-lg border border-dashed border-base-300"
+            class="text-xs text-base-content-muted text-center py-6 rounded-lg border border-dashed border-base-300"
           >
             No apps connected yet. Paste a server URL above and click Connect to
             authorize your first OAuth MCP server.
@@ -241,7 +241,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
                   >
                     <lucide-angular
                       [img]="PlugIcon"
-                      class="w-4 h-4 text-base-content/60"
+                      class="w-4 h-4 text-base-content-muted"
                     />
                   </div>
 
@@ -279,7 +279,7 @@ const OAUTH_SUGGESTIONS: readonly OAuthSuggestion[] = [
                       }
                     </div>
                     <div
-                      class="text-[10px] text-base-content/40 font-mono mt-0.5 truncate"
+                      class="text-[10px] text-base-content-muted font-mono mt-0.5 truncate"
                     >
                       {{ server.serverUrl }}
                     </div>

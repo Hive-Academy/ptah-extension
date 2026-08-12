@@ -28,6 +28,8 @@ import { HarnessPromptBuilderService } from './config/harness-prompt-builder.ser
 import { HarnessConfigStore } from './config/harness-config-store.service';
 import { HarnessAgentFileWriterService } from './config/harness-agent-file-writer.service';
 import { HarnessFsService } from './io/harness-fs.service';
+import { HarnessMcpInstallService } from './io/harness-mcp-install.service';
+import { HarnessSkillInstallService } from './io/harness-skill-install.service';
 import { HarnessLlmRunner } from './ai/harness-llm-runner.service';
 import { HarnessSuggestionService } from './ai/harness-suggestion.service';
 import { HarnessSubagentDesignService } from './ai/harness-subagent-design.service';
@@ -56,6 +58,14 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HarnessAgentFileWriterService,
   );
   container.registerSingleton(HARNESS_TOKENS.IO_FS, HarnessFsService);
+  container.registerSingleton(
+    HARNESS_TOKENS.MCP_INSTALL,
+    HarnessMcpInstallService,
+  );
+  container.registerSingleton(
+    HARNESS_TOKENS.SKILL_INSTALL,
+    HarnessSkillInstallService,
+  );
   container.registerSingleton(HARNESS_TOKENS.LLM_RUNNER, HarnessLlmRunner);
   container.registerSingleton(
     HARNESS_TOKENS.SUGGESTION,

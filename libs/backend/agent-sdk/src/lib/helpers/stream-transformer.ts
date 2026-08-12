@@ -40,6 +40,7 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
+import type { NoActivityWatchdog } from './no-activity-watchdog';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -104,24 +105,17 @@ export interface StreamTransformConfig {
    */
   tabId?: string;
   /**
-   * AbortController for the underlying SDK query. When present, the stream
-   * transformer enforces a first-response timeout: if no SDK message arrives
-   * within FIRST_MESSAGE_TIMEOUT_MS, the controller is aborted and a clear
-   * error is thrown so the UI surfaces a timeout message instead of hanging
-   * forever (e.g., on misconfigured third-party providers where requests
-   * silently fall back to api.anthropic.com and get dropped).
+   * No-stream-activity watchdog for the underlying SDK query. When present, the
+   * transformer `start()`s it before consuming the stream, `kick()`s it on
+   * every SDK message (any event — message, partial/streaming delta, tool_use,
+   * tool_result, thinking — resets the inactivity window), and `stop()`s it in
+   * the `finally` so it can neither leak nor fire after the turn ends. On
+   * timeout the watchdog resolves pending permissions and aborts the query with
+   * a descriptive error, so a genuinely stuck session surfaces instead of
+   * hanging forever; a long-but-alive turn keeps kicking it and never trips it.
    */
-  abortController?: AbortController;
+  activityWatchdog?: NoActivityWatchdog;
 }
-
-/**
- * Time to wait for the first SDK message before giving up.
- *
- * 90 seconds covers the p99 first-token latency for reasoning models and cold
- * local Ollama loads. LLM round-trips that take longer than this are almost
- * always a routing / configuration problem rather than a slow model.
- */
-const FIRST_MESSAGE_TIMEOUT_MS = 90_000;
 
 /**
  * Validated stats interface
@@ -237,7 +231,7 @@ export class StreamTransformer {
       onSessionIdResolved,
       onResultStats,
       tabId,
-      abortController,
+      activityWatchdog,
     } = config;
     const logger = this.logger;
     const messageTransformer = this.messageTransformer;
@@ -251,46 +245,20 @@ export class StreamTransformer {
         let yieldedEventCount = 0;
         let effectiveSessionId = sessionId;
         const lastTurnContextByModel = new Map<string, number>();
-        let firstMessageReceived = false;
         let loggedEagerMcpTools = false;
-        const baseUrlForError = authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
-        const timeoutHandle: NodeJS.Timeout | null = abortController
-          ? setTimeout(() => {
-              if (firstMessageReceived) return;
-              const seconds = Math.round(FIRST_MESSAGE_TIMEOUT_MS / 1000);
-              logger.error(
-                `[StreamTransformer] Session ${sessionId} timed out waiting for first response after ${seconds}s â€” aborting (baseUrl=${baseUrlForError}, model=${initialModel})`,
-              );
-              try {
-                abortController.abort(
-                  new Error(
-                    `Request timed out after ${seconds}s â€” no response from provider ` +
-                      `(baseUrl="${baseUrlForError}", model="${initialModel}"). ` +
-                      `The provider may not support this model ID, or the endpoint may be unreachable. ` +
-                      `Check provider configuration or switch providers.`,
-                  ),
-                );
-              } catch (abortErr) {
-                logger.warn(
-                  '[StreamTransformer] Failed to abort timed-out query',
-                  abortErr instanceof Error
-                    ? abortErr
-                    : new Error(String(abortErr)),
-                );
-              }
-            }, FIRST_MESSAGE_TIMEOUT_MS)
-          : null;
+
+        // Arm the no-activity watchdog before consuming the stream. It fires
+        // only if NO SDK message arrives for the full inactivity window; every
+        // message below kicks it, so a slow-but-alive turn never trips it.
+        activityWatchdog?.start();
 
         try {
           for await (const sdkMessage of sdkQuery) {
+            // Any stream activity — message, partial/streaming delta, tool_use,
+            // tool_result, thinking — resets the inactivity window.
+            activityWatchdog?.kick();
             sdkMessageCount++;
 
-            if (!firstMessageReceived) {
-              firstMessageReceived = true;
-              if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-              }
-            }
             if (isStreamEvent(sdkMessage)) {
               const event = sdkMessage.event;
               if (isMessageStart(event)) {
@@ -513,9 +481,9 @@ export class StreamTransformer {
 
           throw error;
         } finally {
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-          }
+          // Stop the watchdog on every teardown path (end-of-stream, error,
+          // abort) so it can neither leak nor fire after the turn ends.
+          activityWatchdog?.stop();
           logger.debug(`[StreamTransformer] Session ${sessionId} stream ended`);
         }
       },

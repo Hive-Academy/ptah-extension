@@ -2,7 +2,7 @@ import { test, expect } from '../support/fixtures';
 
 /**
  * Handoff §6 — Profile page (`/profile`, AuthGuard). `communityPage` clears the
- * guard (real `/api/auth/me`); `/api/v1/licenses/me` is stubbed to an active
+ * guard (real `/api/v1/auth/me`); `/api/v1/licenses/me` is stubbed to an active
  * Builder so the reveal-key / sync / manage affordances render (they gate on
  * `plan:'builders'` + non-null `subscription`). The SSE ticket is stubbed to 401
  * so no EventSource opens during the test.
@@ -37,7 +37,7 @@ test.describe('Profile page @profile', () => {
         body: JSON.stringify(BUILDER_LICENSE),
       }),
     );
-    await communityPage.route('**/api/auth/stream/ticket', (route) =>
+    await communityPage.route('**/api/v1/auth/stream/ticket', (route) =>
       route.fulfill({
         status: 401,
         contentType: 'application/json',

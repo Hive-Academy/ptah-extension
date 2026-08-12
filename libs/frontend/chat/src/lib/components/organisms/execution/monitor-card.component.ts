@@ -34,19 +34,22 @@ import type { ExecutionNode } from '@ptah-extension/shared';
       />
       <div class="flex flex-col min-w-0 flex-1 gap-0.5">
         <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-semibold text-base-content/80">
+          <span class="text-xs font-semibold text-base-content-muted">
             Monitoring
           </span>
           <span class="badge badge-xs badge-ghost">{{ lifespanLabel() }}</span>
         </div>
         @if (description(); as d) {
-          <span class="text-[11px] text-base-content/60 truncate" [title]="d">
+          <span
+            class="text-[11px] text-base-content-muted truncate"
+            [title]="d"
+          >
             {{ d }}
           </span>
         }
         @if (command(); as c) {
           <code
-            class="text-[10px] font-mono text-base-content/40 truncate"
+            class="text-[10px] font-mono text-base-content-muted truncate"
             [title]="c"
             >{{ c }}</code
           >

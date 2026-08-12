@@ -14,7 +14,12 @@
 import { z } from 'zod';
 import { captionSchema, type CaptionToken } from '../lib/load-manifest';
 import { shotSchema, type Shot } from '../lib/shots';
-import { layoutStateSchema, selfShotModeSchema } from './manifest';
+import {
+  graphicNameSchema,
+  iconNameSchema,
+  layoutStateSchema,
+  selfShotModeSchema,
+} from './manifest';
 
 const cornerSchema = z.enum(['tl', 'tr', 'bl', 'br']);
 
@@ -33,6 +38,7 @@ export const resolvedOverlaySchema = z.discriminatedUnion('type', [
     durationMs: z.number().positive(),
     text: z.string(),
     corner: cornerSchema.optional(),
+    icon: iconNameSchema.optional(),
   }),
   z.object({
     type: z.literal('stat'),
@@ -41,6 +47,14 @@ export const resolvedOverlaySchema = z.discriminatedUnion('type', [
     value: z.string(),
     label: z.string(),
     corner: cornerSchema.optional(),
+    icon: iconNameSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('graphic'),
+    atMs: z.number().nonnegative(),
+    durationMs: z.number().positive(),
+    name: graphicNameSchema,
+    layout: z.enum(['panel', 'full']),
   }),
   z.object({
     type: z.literal('broll'),

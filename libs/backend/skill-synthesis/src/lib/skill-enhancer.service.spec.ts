@@ -1,5 +1,10 @@
 import 'reflect-metadata';
-import { SkillEnhancerService } from './skill-enhancer.service';
+import {
+  SkillEnhancerService,
+  ProposalNotFoundError,
+  PROPOSAL_TTL_MS,
+  MAX_CACHED_PROPOSALS,
+} from './skill-enhancer.service';
 import type { SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
@@ -701,5 +706,390 @@ describe('SkillEnhancerService', () => {
       slug: 'deep-research',
       historyTs: '1700000000000',
     });
+  });
+});
+
+// ─── Preview-before-apply: generateProposal / applyProposal seam ────────────
+
+describe('SkillEnhancerService — preview-before-apply', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const PASS: JudgeDecision = {
+    passed: true,
+    score: 8,
+    reason: 'judge-verdict',
+  };
+  const IMPROVED =
+    '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body';
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function passingHarness() {
+    return makeHarness({ judgeDecision: PASS, candidateText: IMPROVED });
+  }
+
+  /**
+   * `makeHarness` resolves `execute` to ONE async generator, so its stream is
+   * exhausted after a single call (every existing test drives `enhance` once).
+   * Tests that generate several proposals re-arm it with a fresh stream per
+   * call.
+   */
+  function armRepeatableLlm(h: Harness, text: string): void {
+    h.internalQuery.execute.mockImplementation(async () => ({
+      stream: (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text }] },
+        };
+        yield { type: 'result' };
+      })(),
+      abort: jest.fn(),
+      close: jest.fn(),
+    }));
+  }
+
+  it('generateProposal returns both bodies + an opaque proposalId', async () => {
+    const h = passingHarness();
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    expect(result.proposed).toBe(true);
+    expect(result.skipReason).toBeUndefined();
+    expect(result.proposalId).toMatch(UUID_RE);
+    expect(result.currentBody).toContain('Body');
+    expect(result.proposedBody).toBe(IMPROVED);
+    expect(result.judgeScore).toBe(8);
+    expect(result.judgeReason).toBe('judge-verdict');
+    expect(result.kind).toBe('skill');
+  });
+
+  it('generateProposal writes NOTHING to disk and does not mutate the registry', async () => {
+    const h = passingHarness();
+    await h.svc.generateProposal('deep-research', makeSettings());
+
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+    expect(h.mirror.writeEnhancedFileClone).not.toHaveBeenCalled();
+    expect(h.mirror.revert).not.toHaveBeenCalled();
+    expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+    expect(h.repropagation.repropagate).not.toHaveBeenCalled();
+  });
+
+  it('generateProposal(kind=agent) still writes nothing', async () => {
+    const h = passingHarness();
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+      { kind: 'agent' },
+    );
+
+    expect(result.proposed).toBe(true);
+    expect(result.kind).toBe('agent');
+    expect(h.mirror.writeEnhancedFileClone).not.toHaveBeenCalled();
+    expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal writes the exact previewed body without re-running the LLM', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+    expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+
+    const applied = await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    expect(applied.applied).toBe(true);
+    expect(applied.historyTs).toBe('1700000000000');
+    expect(applied.judgeScore).toBe(8);
+    // The LLM ran once, during preview only.
+    expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+    expect(h.mirror.writeEnhancedSkill).toHaveBeenCalledTimes(1);
+    expect(h.mirror.writeEnhancedSkill).toHaveBeenCalledWith({
+      slug: 'deep-research',
+      newBody: IMPROVED,
+    });
+    expect(h.registry.markEnhanced).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      expect.any(Number),
+      'sha256:new',
+    );
+    expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+  });
+
+  it('applyProposal(kind=agent) routes through writeEnhancedFileClone', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+      { kind: 'agent' },
+    );
+    await h.svc.applyProposal(
+      'agent',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    expect(h.mirror.writeEnhancedFileClone).toHaveBeenCalledWith({
+      kind: 'agent',
+      slug: 'deep-research',
+      newBody: IMPROVED,
+    });
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal with an unknown proposalId throws not-found and writes nothing', async () => {
+    const h = passingHarness();
+    await expect(
+      h.svc.applyProposal(
+        'skill',
+        'deep-research',
+        '00000000-0000-4000-8000-000000000000',
+      ),
+    ).rejects.toBeInstanceOf(ProposalNotFoundError);
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+    expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal never regenerates on a cache miss', async () => {
+    const h = passingHarness();
+    await h.svc
+      .applyProposal(
+        'skill',
+        'deep-research',
+        '00000000-0000-4000-8000-000000000000',
+      )
+      .catch(() => undefined);
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal rejects an expired proposal (TTL)', async () => {
+    const h = passingHarness();
+    const nowSpy = jest.spyOn(Date, 'now');
+    const t0 = 1_700_000_000_000;
+    nowSpy.mockReturnValue(t0);
+
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+    expect(proposal.proposalId).not.toBeNull();
+
+    nowSpy.mockReturnValue(t0 + PROPOSAL_TTL_MS + 1);
+    let thrown: unknown;
+    try {
+      await h.svc.applyProposal(
+        'skill',
+        'deep-research',
+        proposal.proposalId as string,
+      );
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    nowSpy.mockRestore();
+
+    expect(thrown).toBeInstanceOf(ProposalNotFoundError);
+    expect((thrown as ProposalNotFoundError).code).toBe('not-found');
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal rejects a slug mismatch (proposal belongs to another clone)', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    let thrown: unknown;
+    try {
+      await h.svc.applyProposal(
+        'skill',
+        'other-slug',
+        proposal.proposalId as string,
+      );
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ProposalNotFoundError);
+    expect((thrown as ProposalNotFoundError).code).toBe('mismatch');
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal rejects a kind mismatch', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    let thrown: unknown;
+    try {
+      await h.svc.applyProposal(
+        'agent',
+        'deep-research',
+        proposal.proposalId as string,
+      );
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ProposalNotFoundError);
+    expect((thrown as ProposalNotFoundError).code).toBe('mismatch');
+  });
+
+  it('a proposalId is single-use: re-applying throws instead of double-writing', async () => {
+    const h = passingHarness();
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+    await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+
+    await expect(
+      h.svc.applyProposal(
+        'skill',
+        'deep-research',
+        proposal.proposalId as string,
+      ),
+    ).rejects.toBeInstanceOf(ProposalNotFoundError);
+    expect(h.mirror.writeEnhancedSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it('cache is bounded: the oldest proposal is evicted past MAX_CACHED_PROPOSALS', async () => {
+    const h = passingHarness();
+    armRepeatableLlm(h, IMPROVED);
+    const first = await h.svc.generateProposal('deep-research', makeSettings());
+    expect(first.proposalId).not.toBeNull();
+
+    for (let i = 0; i < MAX_CACHED_PROPOSALS; i += 1) {
+      await h.svc.generateProposal('deep-research', makeSettings());
+    }
+
+    await expect(
+      h.svc.applyProposal('skill', 'deep-research', first.proposalId as string),
+    ).rejects.toBeInstanceOf(ProposalNotFoundError);
+  });
+
+  it('judge-rejected preview still returns the diff plus the reason', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: false, score: 3, reason: 'judge-verdict' },
+      candidateText: IMPROVED,
+    });
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+      { manual: true },
+    );
+
+    expect(result.proposed).toBe(false);
+    expect(result.proposalId).toBeNull();
+    expect(result.skipReason).toBe('judge-rejected');
+    expect(result.proposedBody).toBe(IMPROVED);
+    expect(result.currentBody).toContain('Body');
+    expect(result.judgeScore).toBe(3);
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+  });
+
+  it('invalid-candidate preview yields no proposalId and no write', async () => {
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText: 'Improved body with no frontmatter at all',
+    });
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    expect(result.proposed).toBe(false);
+    expect(result.proposalId).toBeNull();
+    expect(result.skipReason).toBe('invalid-candidate');
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+  });
+
+  it('no-change preview short-circuits before the judge', async () => {
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText:
+        '---\nname: deep-research\ndescription: Research deeply\n---\nBody',
+    });
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+
+    expect(result.proposed).toBe(false);
+    expect(result.skipReason).toBe('no-change');
+    expect(result.proposalId).toBeNull();
+    expect(h.judge.judge).not.toHaveBeenCalled();
+  });
+
+  it('cooldown preview is bypassed by manual (matching enhanceNow)', async () => {
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText: IMPROVED,
+      lastEnhancedAt: Date.now(),
+    });
+
+    const auto = await h.svc.generateProposal('deep-research', makeSettings());
+    expect(auto.skipReason).toBe('cooldown');
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
+
+    const manual = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+      { manual: true },
+    );
+    expect(manual.proposed).toBe(true);
+  });
+
+  it('enhance() composes both halves: one LLM call, one write, one repropagate', async () => {
+    const h = passingHarness();
+    const result = await h.svc.enhance('deep-research', makeSettings());
+
+    expect(result.changed).toBe(true);
+    expect(result.historyTs).toBe('1700000000000');
+    expect(result.judgeScore).toBe(8);
+    expect(result.skipReason).toBeUndefined();
+    expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+    expect(h.mirror.writeEnhancedSkill).toHaveBeenCalledTimes(1);
+    expect(h.repropagation.repropagate).toHaveBeenCalledTimes(1);
+  });
+
+  it('enhance() leaves no proposal behind (the id it minted is consumed)', async () => {
+    const h = passingHarness();
+    armRepeatableLlm(h, IMPROVED);
+    await h.svc.enhance('deep-research', makeSettings());
+
+    // A fresh preview + apply still works and advances the write count by
+    // exactly one — the id enhance() minted was consumed, not left dangling.
+    const proposal = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+    );
+    await h.svc.applyProposal(
+      'skill',
+      'deep-research',
+      proposal.proposalId as string,
+    );
+    expect(h.mirror.writeEnhancedSkill).toHaveBeenCalledTimes(2);
+  });
+
+  it('enhance() stays fail-soft when the write path throws', async () => {
+    const h = passingHarness();
+    h.mirror.writeEnhancedSkill.mockRejectedValueOnce(new Error('EACCES'));
+
+    const result = await h.svc.enhance('deep-research', makeSettings());
+    expect(result.changed).toBe(false);
+    expect(result.skipReason).toBe('error');
+    expect(h.registry.markEnhanced).not.toHaveBeenCalled();
   });
 });

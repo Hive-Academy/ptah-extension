@@ -372,7 +372,10 @@ describe('buildAgentNamespace — list', () => {
     ]);
   });
 
-  it('filters out disabled CLIs before merging', async () => {
+  // `spawn` REJECTS an explicit disabled `cli`, so omitting disabled CLIs here
+  // meant the only way to discover the restriction was to fail a spawn. They
+  // are now reported with `disabled: true` instead.
+  it('reports disabled CLIs with disabled: true instead of omitting them', async () => {
     const { deps, mocks } = makeDeps({
       registry: undefined,
       getDisabledClis: () => ['copilot'],
@@ -383,7 +386,35 @@ describe('buildAgentNamespace — list', () => {
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
-    expect(list.map((r) => r.cli)).toEqual(['codex']);
+
+    expect(list.map((r) => r.cli)).toEqual(['codex', 'copilot']);
+    expect(list.find((r) => r.cli === 'codex')?.disabled).toBeUndefined();
+    expect(list.find((r) => r.cli === 'copilot')?.disabled).toBe(true);
+  });
+
+  it('leaves ptah-cli agents unmarked — disabledClis matches CLI types only', async () => {
+    const { deps, mocks } = makeDeps({
+      getDisabledClis: () => ['ptah-alice'],
+    });
+    mocks.detection.detectAll.mockResolvedValue([
+      { cli: 'codex', installed: true, supportsSteer: false },
+    ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.listAgents.mockResolvedValue([
+      {
+        id: 'ptah-alice',
+        name: 'Alice',
+        providerName: 'anthropic',
+        hasApiKey: true,
+        enabled: true,
+      },
+    ]);
+
+    const list = await buildAgentNamespace(deps).list();
+    const alice = list.find((r) => r.ptahCliId === 'ptah-alice');
+
+    expect(alice).toBeDefined();
+    expect(alice?.disabled).toBeUndefined();
   });
 
   it('merges ptah-cli agents that are enabled+hasApiKey and honors preferred order', async () => {

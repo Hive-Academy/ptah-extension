@@ -234,7 +234,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                       ? ChevronRightIcon
                       : ChevronDownIcon
                   "
-                  class="w-3.5 h-3.5 shrink-0 text-base-content/50"
+                  class="w-3.5 h-3.5 shrink-0 text-base-content-muted"
                   aria-hidden="true"
                 />
                 <lucide-angular
@@ -259,7 +259,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                 </span>
                 @if (group.totalTokens !== undefined) {
                   <span
-                    class="text-[10px] text-base-content/40 font-mono shrink-0"
+                    class="text-[10px] text-base-content-muted font-mono shrink-0"
                   >
                     {{ group.totalTokens }} tok
                   </span>
@@ -295,7 +295,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                       </span>
                       @if (tile.totalTokens !== undefined) {
                         <span
-                          class="text-[10px] text-base-content/40 font-mono"
+                          class="text-[10px] text-base-content-muted font-mono"
                         >
                           {{ tile.totalTokens }}
                         </span>
@@ -400,7 +400,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                       </code>
                       @if (perm.toolArgs) {
                         <span
-                          class="text-[10px] text-base-content/40 font-mono truncate"
+                          class="text-[10px] text-base-content-muted font-mono truncate"
                         >
                           {{ perm.toolArgs }}
                         </span>
@@ -441,8 +441,8 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
             <div
               class="flex flex-col items-center justify-center h-32 text-center"
             >
-              <span class="text-sm text-base-content/40">No agents</span>
-              <span class="text-xs text-base-content/25 mt-1"
+              <span class="text-sm text-base-content-muted">No agents</span>
+              <span class="text-xs text-base-content-muted mt-1"
                 >Agents will appear here when spawned</span
               >
             </div>

@@ -84,7 +84,11 @@ import {
   buildCorpusNamespace,
   buildCodeNamespace,
   buildHarnessNamespace,
+  buildTasksNamespace,
+  type TaskSpecWriterLike,
+  type TaskSpecIndexLike,
 } from './namespace-builders';
+import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
 import { getCallerSessionId } from './mcp-core/mcp-request-context';
 import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
@@ -92,6 +96,7 @@ import {
   AgentProcessManager,
   CliDetectionService,
   McpRegistryProvider,
+  McpInstallService,
   SmitheryRegistrySource,
   PulseMcpRegistrySource,
   SkillsShApiClient,
@@ -377,6 +382,15 @@ export class PtahAPIBuilder {
 
     @inject(TOKENS.AUTH_SECRETS_SERVICE, { isOptional: true })
     private readonly authSecretsService: IAuthSecretsService | undefined,
+
+    // Task-spec collaborators (TASK_2026_179, step 17). Optional so a host that
+    // has not registered `task-specs` still boots — the namespace reports the
+    // absence instead of the whole API failing to construct.
+    @inject(TASK_SPECS_TOKENS.TASK_WRITER, { isOptional: true })
+    private readonly taskWriter: TaskSpecWriterLike | undefined,
+
+    @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
+    private readonly taskIndex: TaskSpecIndexLike | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
   }
@@ -400,19 +414,34 @@ export class PtahAPIBuilder {
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
-    const coreDeps = {
-      workspaceAnalyzer: this.workspaceAnalyzer,
-      contextOrchestration: this.contextOrchestration,
-    };
-
+    // ORDERING CONTRACT (TASK_2026_200, task 3.1) — the session-aware provider
+    // MUST be constructed BEFORE any dependency bag, and every bag MUST carry
+    // it. It previously sat below `coreDeps`, so `coreDeps` was built without a
+    // provider at all and the `workspace` + `search` namespaces silently
+    // answered for the process-global active folder instead of the calling
+    // session's root (context.md §2). Do not move this construction back down,
+    // and do not add a bag above it.
+    //
     // Session-aware provider: `getWorkspaceRoot()` prefers the calling session's
     // workspace over the process-global active folder. Path-resolving agent
     // namespaces use this so a relative path resolves against the right
     // workspace when multiple workspaces are open in Electron.
+    //
+    // NOTE: deliberately NOT registered globally against
+    // `PLATFORM_TOKENS.WORKSPACE_PROVIDER` — the same singletons serve non-MCP
+    // callers (webview RPC, watchers, indexer warm-up) that have no caller
+    // session id to resolve against (context.md §4 "Alternative considered",
+    // research-report.md §6 — both reject global registration).
     const sessionAwareWorkspaceProvider = buildSessionAwareWorkspaceProvider(
       this.workspaceProvider,
       () => this.resolveSessionWorkspaceRoot(),
     );
+
+    const coreDeps = {
+      workspaceAnalyzer: this.workspaceAnalyzer,
+      contextOrchestration: this.contextOrchestration,
+      workspaceProvider: sessionAwareWorkspaceProvider,
+    };
 
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
@@ -627,6 +656,13 @@ export class PtahAPIBuilder {
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
+      tasks: this.buildNamespaceSafe('tasks', () =>
+        buildTasksNamespace({
+          getWriter: () => this.taskWriter,
+          getIndex: () => this.taskIndex,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
       harness: this.buildNamespaceSafe('harness', () => {
         if (!this.pluginLoader) {
           throw new Error(
@@ -652,6 +688,10 @@ export class PtahAPIBuilder {
           // PulseMCP needs no API key — always live in production so the harness
           // builder also discovers trusted vendor/community servers.
           pulseMcpRegistry: new PulseMcpRegistrySource({ logger: this.logger }),
+          // Same installer that backs the marketplace MCP directory and
+          // harness:apply, so an agent-initiated install lands in exactly the
+          // same config files and the same ~/.ptah/mcp-installed.json manifest.
+          mcpInstaller: new McpInstallService(),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           broadcast: (type, payload) => {
             if (!webviewManager) {

@@ -281,7 +281,7 @@ describe('SmitherySurfaceComponent', () => {
       expect(component.activeConfigSchema()).not.toBeNull();
       expect(hostElement.querySelector('ptah-json-schema-form')).toBeTruthy();
       // Required field unfilled → resolve gated.
-      expect(component.canResolve()).toBe(false);
+      expect(component.canSetup()).toBe(false);
     });
 
     it('skips the form for an empty / no-required-props configSchema (one-click)', async () => {
@@ -301,10 +301,10 @@ describe('SmitherySurfaceComponent', () => {
 
       expect(component.activeConfigSchema()).toBeNull();
       expect(hostElement.querySelector('ptah-json-schema-form')).toBeFalsy();
-      expect(component.canResolve()).toBe(true);
+      expect(component.canSetup()).toBe(true);
     });
 
-    it('resolves a one-click server with empty config and marks it ready', async () => {
+    it('validates then PERSISTS a one-click server via installSmithery', async () => {
       setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/simple' }] }),
       );
@@ -317,12 +317,37 @@ describe('SmitherySurfaceComponent', () => {
       setResponder('mcpDirectory:resolveSmithery', () =>
         ok({ config: { type: 'http', url: 'https://server.smithery.ai/mcp' } }),
       );
+      setResponder('mcpDirectory:installSmithery', () =>
+        ok({ success: true, serverKey: 'smithery_owner_simple' }),
+      );
+      // Nothing installed on mount; the manifest reports it after install.
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({ servers: [] }),
+      );
+      const installedEvents: string[] = [];
       await createComponent();
+      component.serverInstalled.subscribe((k) => installedEvents.push(k));
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              source: 'smithery',
+              qualifiedName: '@owner/simple',
+              serverKey: 'smithery_owner_simple',
+              hasEncryptedConfig: false,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
 
       await component.toggleInstallPanel({ name: '@owner/simple' });
-      await component.resolve({ name: '@owner/simple' });
+      await component.setupServer({ name: '@owner/simple' });
       fixture.detectChanges();
 
+      // Pre-flight validation ran first...
       const resolveCall = calls.find(
         (c) => c.method === 'mcpDirectory:resolveSmithery',
       );
@@ -330,10 +355,76 @@ describe('SmitherySurfaceComponent', () => {
         qualifiedName: '@owner/simple',
         config: {},
       });
-      expect(component.resolvedNames().has('@owner/simple')).toBe(true);
+      // ...then the real persistence path.
+      const installCall = calls.find(
+        (c) => c.method === 'mcpDirectory:installSmithery',
+      );
+      expect(installCall?.params).toEqual({
+        qualifiedName: '@owner/simple',
+        config: {},
+      });
+      expect(
+        calls.findIndex((c) => c.method === 'mcpDirectory:resolveSmithery'),
+      ).toBeLessThan(
+        calls.findIndex((c) => c.method === 'mcpDirectory:installSmithery'),
+      );
+
+      expect(component.isInstalled('@owner/simple')).toBe(true);
+      expect(component.serverKeyOf('@owner/simple')).toBe(
+        'smithery_owner_simple',
+      );
+      expect(installedEvents).toEqual(['smithery_owner_simple']);
+      expect(component.setupPhase()).toBe('idle');
+      expect(hostElement.textContent).toContain(
+        'Installed — available in new chat sessions.',
+      );
     });
 
-    it('surfaces a resolve error in-view', async () => {
+    it('forwards the collected config to installSmithery', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/keyed' }] }),
+      );
+      setResponder('mcpDirectory:getDetails', () =>
+        ok({
+          name: '@owner/keyed',
+          connections: [
+            {
+              type: 'http',
+              configSchema: {
+                type: 'object',
+                required: ['apiKey'],
+                properties: { apiKey: { type: 'string' } },
+              },
+            },
+          ],
+        }),
+      );
+      setResponder('mcpDirectory:resolveSmithery', () =>
+        ok({ config: { type: 'http', url: 'https://server.smithery.ai/mcp' } }),
+      );
+      setResponder('mcpDirectory:installSmithery', () =>
+        ok({ success: true, serverKey: 'smithery_owner_keyed' }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({ servers: [] }),
+      );
+      await createComponent();
+
+      await component.toggleInstallPanel({ name: '@owner/keyed' });
+      component.configValue.set({ apiKey: 'sk-server-key' });
+      component.configValid.set(true);
+      await component.setupServer({ name: '@owner/keyed' });
+
+      const installCall = calls.find(
+        (c) => c.method === 'mcpDirectory:installSmithery',
+      );
+      expect(installCall?.params).toEqual({
+        qualifiedName: '@owner/keyed',
+        config: { apiKey: 'sk-server-key' },
+      });
+    });
+
+    it('surfaces a validation error and NEVER calls installSmithery', async () => {
       setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/simple' }] }),
       );
@@ -346,11 +437,114 @@ describe('SmitherySurfaceComponent', () => {
       await createComponent();
 
       await component.toggleInstallPanel({ name: '@owner/simple' });
-      await component.resolve({ name: '@owner/simple' });
+      await component.setupServer({ name: '@owner/simple' });
       fixture.detectChanges();
 
-      expect(component.resolveError()).toBe('missing api key');
-      expect(component.resolvedNames().has('@owner/simple')).toBe(false);
+      expect(component.setupError()).toBe('missing api key');
+      expect(methodsCalled()).not.toContain('mcpDirectory:installSmithery');
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+      expect(component.setupPhase()).toBe('idle');
+    });
+
+    it('surfaces an install failure in-view and stays uninstalled', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:getDetails', () =>
+        ok({ name: '@owner/simple', connections: [{ type: 'http' }] }),
+      );
+      setResponder('mcpDirectory:resolveSmithery', () =>
+        ok({ config: { type: 'http', url: 'https://server.smithery.ai/mcp' } }),
+      );
+      setResponder('mcpDirectory:installSmithery', () =>
+        ok({ success: false, error: 'disk full' }),
+      );
+      await createComponent();
+
+      await component.toggleInstallPanel({ name: '@owner/simple' });
+      await component.setupServer({ name: '@owner/simple' });
+      fixture.detectChanges();
+
+      expect(component.setupError()).toBe('disk full');
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+      expect(hostElement.textContent).not.toContain(
+        'Installed — available in new chat sessions.',
+      );
+    });
+
+    it('reflects manifest-installed servers on mount', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              source: 'smithery',
+              qualifiedName: '@owner/simple',
+              serverKey: 'smithery_owner_simple',
+              hasEncryptedConfig: true,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      await createComponent();
+
+      expect(component.isInstalled('@owner/simple')).toBe(true);
+      expect(hostElement.textContent).toContain('Installed');
+      expect(hostElement.textContent).toContain('Remove');
+    });
+
+    it('uninstalls by serverKey and clears the installed badge', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              source: 'smithery',
+              qualifiedName: '@owner/simple',
+              serverKey: 'smithery_owner_simple',
+              hasEncryptedConfig: true,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      setResponder('mcpDirectory:uninstallSmithery', () =>
+        ok({ success: true }),
+      );
+      const removedEvents: string[] = [];
+      await createComponent();
+      component.serverUninstalled.subscribe((k) => removedEvents.push(k));
+
+      await component.uninstall({ name: '@owner/simple' });
+      fixture.detectChanges();
+
+      const uninstallCall = calls.find(
+        (c) => c.method === 'mcpDirectory:uninstallSmithery',
+      );
+      expect(uninstallCall?.params).toEqual({
+        serverKey: 'smithery_owner_simple',
+      });
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+      expect(removedEvents).toEqual(['smithery_owner_simple']);
+    });
+
+    it('keeps browsing usable when the installed manifest read fails', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        fail('manifest unreadable'),
+      );
+      await createComponent();
+
+      expect(component.displayServers().length).toBe(1);
+      expect(component.installedByName().size).toBe(0);
+      expect(component.browseError()).toBeNull();
     });
 
     it('surfaces a getDetails RPC failure in-view', async () => {

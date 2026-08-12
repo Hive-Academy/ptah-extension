@@ -319,6 +319,13 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
         merged.skills = {
           selectedSkills:
             updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [],
+          // Carried alongside the ids so `harness:apply` can install the
+          // skills.sh entries — dropping this would strip the origin the
+          // installer needs.
+          selectedSkillRefs:
+            updates.skills.selectedSkillRefs ??
+            cfg.skills?.selectedSkillRefs ??
+            [],
           createdSkills:
             updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
         };

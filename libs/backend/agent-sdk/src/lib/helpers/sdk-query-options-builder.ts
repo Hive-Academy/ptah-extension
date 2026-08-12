@@ -59,6 +59,7 @@ import {
   type ModelInfo,
   type SdkBeta,
   type Options,
+  type Settings,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
@@ -66,7 +67,11 @@ import {
   ANTHROPIC_PROVIDERS,
   getModelContextWindow,
 } from '@ptah-extension/shared';
-import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
+import {
+  SdkModelService,
+  TIER_ENV_VAR_MAP,
+  buildTierEnvDefaults,
+} from './sdk-model-service';
 import { experimentalBetaEnv } from './build-safe-env';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
@@ -78,28 +83,15 @@ import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
- * Detect obvious upstream provider error signatures in a stderr chunk.
- *
- * The SDK sometimes logs HTTP / API errors to stderr without forwarding them
- * through the message stream, which causes the UI to hang. These patterns
- * cover the common cases we've seen from Anthropic-compatible providers
- * (Moonshot, Z.AI, OpenRouter) â€” HTTP status codes, Anthropic error type
- * strings, and common auth/model keywords.
+ * Placeholders `ModelResolver.resolve()` can hand back when a tier has no
+ * concrete mapping: the bare tier names and the literal `'default'`. They name
+ * a slot, not a model, so the identity block must be omitted rather than
+ * announce "You are running as sonnet".
  */
-function isUpstreamProviderError(stderrChunk: string): boolean {
-  const lower = stderrChunk.toLowerCase();
-  return (
-    /\b(401|403|404|429|5\d\d)\b/.test(stderrChunk) ||
-    lower.includes('model_not_found') ||
-    lower.includes('invalid_request_error') ||
-    lower.includes('authentication_error') ||
-    lower.includes('permission_error') ||
-    lower.includes('not_found_error') ||
-    lower.includes('rate_limit_error') ||
-    lower.includes('overloaded_error') ||
-    lower.includes('api_error')
-  );
-}
+const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
+  'default',
+  ...Object.keys(TIER_ENV_VAR_MAP),
+]);
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -111,12 +103,24 @@ function isUpstreamProviderError(stderrChunk: string): boolean {
  * This function generates a clarification prompt that overrides the identity
  * when a third-party provider is active.
  *
+ * `resolvedModel` MUST be the same value handed to `Options.model` — i.e. the
+ * output of `SdkModelService.resolveModelId()` for THIS session. It used to be
+ * derived here as `OPUS || SONNET || HAIKU`, which picks the first tier that
+ * happens to be defined rather than the tier the session runs on: a
+ * `modelTier: 'sonnet'` spawn on a provider whose opus and sonnet mappings
+ * differ was ordered to identify as the opus model. Because the block ends with
+ * "takes precedence over any other identity instructions", the agent then
+ * authoritatively reported a model it was not running.
+ *
  * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
- * @returns Identity clarification prompt, or undefined if using Anthropic directly
+ * @param resolvedModel - The concrete model id this session runs on
+ * @returns Identity clarification prompt, or undefined when the provider is
+ *   Anthropic itself or the model cannot be resolved to a concrete id (a
+ *   missing clarification beats a confidently wrong one)
  */
 export function buildModelIdentityPrompt(
   providerId: string | null,
-  authEnv: AuthEnv,
+  resolvedModel: string | undefined,
 ): string | undefined {
   if (!providerId) {
     return undefined;
@@ -126,12 +130,9 @@ export function buildModelIdentityPrompt(
   if (!provider) {
     return undefined;
   }
-  const actualModel =
-    authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-    authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-    authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
-  if (!actualModel) {
+  const actualModel = resolvedModel?.trim();
+  if (!actualModel || UNRESOLVED_MODEL_IDS.has(actualModel.toLowerCase())) {
     return undefined;
   }
   return `# Model Identity Clarification
@@ -184,10 +185,25 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
 export interface AssembleSystemPromptInput {
   /** Active provider ID (from getActiveProviderId) - for model identity clarification */
   providerId: string | null;
-  /** AuthEnv for the session - used by buildModelIdentityPrompt */
-  authEnv: AuthEnv;
+  /**
+   * The concrete model id this session runs on — the SAME value assigned to
+   * `Options.model`. Feeds `buildModelIdentityPrompt`; when it cannot be
+   * resolved the identity block is omitted rather than guessed.
+   */
+  resolvedModel: string | undefined;
   /** User's custom system prompt (from sessionConfig or UI) */
   userSystemPrompt?: string;
+  /**
+   * Output-style BODY to append (TASK_2026_197, Req 5.2).
+   *
+   * Populated ONLY when `ActivationDecision.path === 'inject'` — a user-tier
+   * style FILE on a localhost-proxy provider, where `settingSources` drops
+   * `'user'` and the SDK never scans `~/.claude/output-styles/` at all. Every
+   * other case rides the flag tier (`Options.settings.outputStyle`) instead,
+   * which is why this is a separate field from `outputStyleName` and why the
+   * two can never both be set — see `assertSingleOutputStylePath`.
+   */
+  outputStyleBody?: string;
   /** Whether the MCP server is currently running */
   mcpServerRunning: boolean;
   /** Enhanced prompts content (AI-generated guidance) */
@@ -230,16 +246,28 @@ export interface SystemPromptAssemblyResult {
 export function assembleSystemPrompt(
   input: AssembleSystemPromptInput,
 ): SystemPromptAssemblyResult {
-  const { providerId, authEnv, userSystemPrompt, enhancedPromptsContent } =
-    input;
+  const {
+    providerId,
+    resolvedModel,
+    userSystemPrompt,
+    enhancedPromptsContent,
+    outputStyleBody,
+  } = input;
   const appendParts: string[] = [];
-  const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
+  const identityPrompt = buildModelIdentityPrompt(providerId, resolvedModel);
   if (identityPrompt) {
     appendParts.push(identityPrompt);
   }
   appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
+  }
+  // Output-style INJECT fallback. Pushed exactly once, from exactly one place:
+  // there is no other `appendParts.push(outputStyleBody)` in this file, which
+  // is what makes Req 5.3 ("applied exactly once") structural. The trim guard
+  // keeps an all-whitespace body from adding a stray blank section.
+  if (outputStyleBody?.trim()) {
+    appendParts.push(outputStyleBody);
   }
   if (enhancedPromptsContent?.trim()) {
     appendParts.push(enhancedPromptsContent);
@@ -249,6 +277,60 @@ export function assembleSystemPrompt(
     mode: 'preset-append',
     content: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
   };
+}
+
+/** The two `AISessionConfig` fields that carry an output-style activation. */
+type OutputStyleActivationFields = Pick<
+  AISessionConfig,
+  'outputStyleName' | 'outputStyleBody'
+>;
+
+/**
+ * Defensive guard: the flag field and the inject field must never both be set.
+ *
+ * `OutputStyleActivationResolver` defines `inject` as `!fileVisible`, so the
+ * two branches are complements of one boolean and this is unreachable through
+ * the supported path. It is asserted anyway because the failure mode it
+ * guards is silent — a style applied through BOTH the flag tier and the
+ * appended prompt is a doubled instruction the user cannot see (R3 / Req 5.3).
+ * Throwing here makes a future regression loud at session start instead.
+ */
+export function assertSingleOutputStylePath(
+  sessionConfig?: OutputStyleActivationFields,
+): void {
+  if (sessionConfig?.outputStyleName && sessionConfig?.outputStyleBody) {
+    throw new SdkError(
+      'Output style activation is ambiguous: outputStyleName and ' +
+        'outputStyleBody are both set. ActivationDecision guarantees exactly ' +
+        'one of them; this is a regression in the activation resolver or in ' +
+        'the chat-session call site.',
+    );
+  }
+}
+
+/**
+ * Build the SDK's FLAG-tier settings object for one session.
+ *
+ * `PTAH_DISABLE_SDK_AUTO_MEMORY` is a MODULE-LEVEL object handed to the SDK by
+ * reference on every query. Mutating it to carry a style would leak that style
+ * into every later session, including sessions that chose none (G4) — so a
+ * style is merged into a FRESH spread and the shared constant is only ever
+ * read.
+ *
+ * When no style is active the constant is returned unchanged, so `outputStyle`
+ * is ABSENT rather than `undefined` or `'default'`. This matters: the flag tier
+ * OUTRANKS user/project/local settings, so emitting the key when Ptah has no
+ * opinion would silently clobber a style the user picked for their own Claude
+ * Code CLI usage. Absence is the only correct "no opinion" value (G4b).
+ */
+export function buildFlagSettings(
+  sessionConfig?: OutputStyleActivationFields,
+): Settings {
+  assertSingleOutputStylePath(sessionConfig);
+  const styleName = sessionConfig?.outputStyleName?.trim();
+  return styleName
+    ? { ...PTAH_DISABLE_SDK_AUTO_MEMORY, outputStyle: styleName }
+    : PTAH_DISABLE_SDK_AUTO_MEMORY;
 }
 
 /**
@@ -314,17 +396,6 @@ export interface QueryOptionsInput {
    * bundle time.
    */
   pathToClaudeCodeExecutable?: string;
-  /**
-   * Optional callback invoked when the SDK's stderr stream contains an
-   * obvious upstream provider error (HTTP 4xx, model_not_found,
-   * invalid_request_error, authentication failures). The callee is
-   * responsible for surfacing the error to the UI â€” typically by aborting
-   * the query's AbortController with a descriptive Error, which then
-   * causes the stream iterator to throw. Without this hook, stderr-only
-   * errors (e.g., Moonshot returning model_not_found for an unsupported
-   * tier mapping) can leave the UI hanging with no response.
-   */
-  onProviderError?: (message: string) => void;
   /**
    * When true, resume + forkSession together create a NEW session ID instead
    * of mutating the resumed transcript. Used by the fork-session RPC path.
@@ -507,7 +578,6 @@ export class SdkQueryOptionsBuilder {
       pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
-      onProviderError,
       forkSession,
       enableFileCheckpointing,
       includePartialMessages,
@@ -571,6 +641,7 @@ export class SdkQueryOptionsBuilder {
       initialUserQuery,
       cwd,
       effectiveAuthEnv,
+      model,
     );
     const routingId = sessionConfig?.tabId ?? sessionId;
     const routingSessionId = routingId ? SessionId.safeParse(routingId) : null;
@@ -633,7 +704,11 @@ export class SdkQueryOptionsBuilder {
         resume: resumeSessionId,
         maxTurns: this.calculateMaxTurns(sessionConfig),
         systemPrompt,
-        settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+        // Flag tier. Fresh per session when a style is active; the shared
+        // PTAH_DISABLE_SDK_AUTO_MEMORY constant itself is never mutated (G4),
+        // and the `outputStyle` key is absent entirely when no style is
+        // chosen so a CLI-chosen style is not clobbered (G4b).
+        settings: buildFlagSettings(sessionConfig),
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
@@ -682,23 +757,15 @@ export class SdkQueryOptionsBuilder {
             : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
+          // stderr is for logging/observability only. Stuck-session detection
+          // is handled by the no-activity watchdog (NoActivityWatchdog),
+          // NOT by pattern-matching stderr text — no session is aborted here.
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else if (data.includes('[WARN]')) {
             this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else {
             this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
-          }
-
-          if (onProviderError && isUpstreamProviderError(data)) {
-            try {
-              onProviderError(data);
-            } catch (hookErr) {
-              this.logger.warn(
-                '[SdkQueryOptionsBuilder] onProviderError hook threw',
-                hookErr instanceof Error ? hookErr : new Error(String(hookErr)),
-              );
-            }
           }
         },
         hooks,
@@ -950,6 +1017,8 @@ export class SdkQueryOptionsBuilder {
    * @param mcpServerRunning - Whether MCP server is running
    * @param initialUserQuery - First user message text for memory recall
    * @param cwd - Workspace root for workspace-scoped memory recall
+   * @param resolvedModel - The concrete model id assigned to `Options.model`,
+   *   so the identity clarification names the model the session actually runs on
    * @returns System prompt configuration for SDK (always preset+append)
    */
   private async buildSystemPrompt(
@@ -959,6 +1028,7 @@ export class SdkQueryOptionsBuilder {
     initialUserQuery?: string,
     cwd?: string,
     authEnvOverride?: AuthEnv,
+    resolvedModel?: string,
   ): Promise<SdkQueryOptions['systemPrompt']> {
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
     const activeProviderId = getActiveProviderId(effectiveAuthEnv);
@@ -971,11 +1041,14 @@ export class SdkQueryOptionsBuilder {
 
     const result = assembleSystemPrompt({
       providerId: activeProviderId,
-      authEnv: effectiveAuthEnv,
+      resolvedModel,
       userSystemPrompt: sessionConfig?.systemPrompt,
       mcpServerRunning,
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
+      // Set only on the `inject` branch of ActivationDecision; the `flag`
+      // branch travels on options.settings instead (see buildFlagSettings).
+      outputStyleBody: sessionConfig?.outputStyleBody,
     });
     let sessionStartBlock = '';
     if (cwd) {

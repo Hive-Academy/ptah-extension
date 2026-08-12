@@ -1,22 +1,25 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { RequestMethod } from '@nestjs/common';
 import {
+  METHOD_METADATA,
   MODULE_METADATA,
   PATH_METADATA,
-  METHOD_METADATA,
   GUARDS_METADATA,
-  ROUTE_ARGS_METADATA,
 } from '@nestjs/common/constants';
-import { AppModule } from '../app/app.module';
-import { AdminModule } from './admin.module';
-import { AdminGuard } from './admin.guard';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import { PacksModule } from '../packs/packs.module';
-import { AdminPacksController } from '../packs/admin-packs.controller';
-import { AdminSessionsController } from '../google-sessions/admin-sessions.controller';
-import { AdminCommunityController } from '../discourse/admin-community.controller';
-import { MemberGroupsController } from '../member-groups/member-groups.controller';
+import { AdminGuard } from '@ptah-api/identity';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminCommunityCategoriesController } from '@ptah-api/forum';
+import { AdminCommunityPostsController } from '@ptah-api/forum';
+import { AdminCommunityTopicsController } from '@ptah-api/forum';
+import { AdminCourseModulesController } from '@ptah-api/learning';
+import { AdminCoursesController } from '@ptah-api/learning';
+import { AdminLessonsController } from '@ptah-api/learning';
+import { PacksModule } from '@ptah-api/community';
+import { AdminPacksController } from '@ptah-api/community';
+import { AdminSessionsController } from '@ptah-api/community';
+import { MemberGroupsController } from '@ptah-api/community';
+import { WORKSPACE_ROOT } from '../testing/controller-registry';
 
 /**
  * STRUCTURAL GUARD TESTS (TASK_2026_169, plan §8.2).
@@ -27,72 +30,65 @@ import { MemberGroupsController } from '../member-groups/member-groups.controlle
  * CI on every commit.
  *
  *   G1 — every admin controller carries JwtAuthGuard + AdminGuard at CLASS level
- *   G3 — PacksModule is registered BEFORE AdminModule (routing landmine)
  *   G4 — the Builders membership gate never consults admin identity
- *   G5 — the admin community controller exposes ONLY @Get handlers
  *   G6 — PacksModule registers no member-facing controller
- *   G7 — every @Body()/@Query() param binds dtoPipe (input validation is live)
+ *
+ * G5 ("the admin community controller exposes ONLY @Get handlers") USED to live
+ * here. It was DELETED by TASK_2026_177 P1b, not moved. G5 was the executable
+ * form of "all moderation stays in the external forum's own admin panel" — a
+ * rule whose subject no longer exists. `AdminCommunityController` was deleted
+ * with the rest of that forum integration, and the native community surface
+ * that replaces it owns moderation WRITES by design (plan §2.5, R8). Re-adding a
+ * read-only assertion against the new admin moderation controllers would freeze
+ * the opposite of the intended architecture.
+ *
+ * ⚠️ TASK_2026_177 P2 LANDED THOSE CONTROLLERS AND STILL DID NOT RESTORE G5.
+ * G1 below now enumerates all three (`AdminCommunityCategoriesController`,
+ * `AdminCommunityTopicsController`, `AdminCommunityPostsController`), and the
+ * two assertions added beside it are the INVERSE of G5's claim: the prefixes
+ * are disjoint (RISK-J), and the surface genuinely declares writes. What makes
+ * those writes safe is not that they do not exist — it is that each one records
+ * an `AdminAuditLog` row INSIDE its own transaction (PRE-6), asserted in
+ * `libs/api/forum`'s three controller specs.
+ *
+ * G3 ("registers PacksModule before AdminModule in AppModule") USED to live
+ * here. It was DELETED by TASK_2026_170 R2, not moved. G3 froze an arbitrary
+ * ordering of `app.module.ts`'s `imports` array as if the ordering itself were
+ * the invariant; it was only ever a PROXY for the real property — that no two
+ * controllers contest a route. R2 removed the cause by moving
+ * `AdminController`'s `v1/admin/:model` wildcards under `v1/admin/records`, and
+ * `src/common/route-map.spec.ts` now asserts the real property directly as RI-2
+ * ("no cross-controller contest"), which holds no matter how the array is
+ * ordered. Keeping G3 after that would have made a free choice look mandatory.
+ *
+ * G7 ("every @Body()/@Query() param binds dtoPipe") USED to live here. It was
+ * moved to `src/common/controller-validation.spec.ts` by TASK_2026_170: it now
+ * covers every controller in the server, including public ones, which do not
+ * belong under an admin-guards heading — and it needed a named-primitive
+ * carve-out (`@Query('code')`) that the version here did not have.
  */
 
-const SRC = join(__dirname, '..');
+/**
+ * Read a source file this suite asserts on, by WORKSPACE-relative path.
+ *
+ * ⚠️ WORKSPACE-relative, and a SINGLE literal per file, on purpose. These
+ * assertions read source TEXT, so they are a second path ledger alongside
+ * `ALL_CONTROLLERS[].file` — and the files they name now live in `libs/api/*`
+ * rather than this app. Anchoring on `WORKSPACE_ROOT` (shared with the
+ * controller registry) spans both, and keeping each path as one whole literal
+ * is what lets `tools/migration` rewrite it automatically the next time one of
+ * these files moves. A `join(SRC, 'dir', 'file.ts')` split into segments is
+ * invisible to that rewriting and silently rots into ENOENT.
+ */
+function readSource(workspaceRelativePath: string): string {
+  return readFileSync(
+    join(WORKSPACE_ROOT, ...workspaceRelativePath.split('/')),
+    'utf8',
+  );
+}
 
 function guardsOf(target: object): unknown[] {
   return (Reflect.getMetadata(GUARDS_METADATA, target) as unknown[]) ?? [];
-}
-
-/**
- * Nest's `RouteParamtypes` values for the two decorators that carry a request
- * payload. Route args metadata is keyed `"<paramtype>:<index>"`.
- */
-const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
-
-interface ParamBinding {
-  handler: string;
-  kind: 'Body' | 'Query';
-  /** True when a ValidationPipe with `expectedType` is bound to the param. */
-  validated: boolean;
-}
-
-/**
- * Enumerate every `@Body()` / `@Query()` parameter on a controller and report
- * whether each one binds a `dtoPipe(...)` — i.e. a `ValidationPipe` carrying an
- * explicit `expectedType`.
- */
-function paramBindings(
-  controller: new (...args: never[]) => unknown,
-): ParamBinding[] {
-  const proto = controller.prototype as object;
-  const handlers = Object.getOwnPropertyNames(proto).filter(
-    (name) => name !== 'constructor',
-  );
-
-  const bindings: ParamBinding[] = [];
-  for (const handler of handlers) {
-    const meta =
-      (Reflect.getMetadata(ROUTE_ARGS_METADATA, controller, handler) as Record<
-        string,
-        { pipes?: unknown[] }
-      >) ?? {};
-
-    for (const [key, value] of Object.entries(meta)) {
-      const paramtype = Number(key.split(':')[0]);
-      if (paramtype !== PARAMTYPE.BODY && paramtype !== PARAMTYPE.QUERY) {
-        continue;
-      }
-      const validated = (value.pipes ?? []).some(
-        (pipe) =>
-          pipe instanceof ValidationPipe &&
-          (pipe as ValidationPipe & { expectedType?: unknown }).expectedType !==
-            undefined,
-      );
-      bindings.push({
-        handler: `${controller.name}.${handler}`,
-        kind: paramtype === PARAMTYPE.BODY ? 'Body' : 'Query',
-        validated,
-      });
-    }
-  }
-  return bindings;
 }
 
 function controllersOf(
@@ -112,8 +108,23 @@ describe('Admin surface — structural guards', () => {
     it.each([
       ['AdminPacksController', AdminPacksController],
       ['AdminSessionsController', AdminSessionsController],
-      ['AdminCommunityController', AdminCommunityController],
       ['MemberGroupsController', MemberGroupsController],
+      // TASK_2026_177 P2 — the three community moderation controllers. G1 is a
+      // HAND-MAINTAINED enumeration: an admin controller absent from it is not
+      // partially covered, it is simply untested by the guard test, and nothing
+      // else in the server asserts the class-level chain.
+      [
+        'AdminCommunityCategoriesController',
+        AdminCommunityCategoriesController,
+      ],
+      ['AdminCommunityTopicsController', AdminCommunityTopicsController],
+      ['AdminCommunityPostsController', AdminCommunityPostsController],
+      // TASK_2026_177 P3 — the three curriculum authoring controllers. Same
+      // reasoning: G1 is a HAND-MAINTAINED enumeration, so an admin controller
+      // absent from it is untested rather than partially covered.
+      ['AdminCoursesController', AdminCoursesController],
+      ['AdminCourseModulesController', AdminCourseModulesController],
+      ['AdminLessonsController', AdminLessonsController],
     ])(
       '%s declares JwtAuthGuard + AdminGuard at class level',
       (_name, ctrl) => {
@@ -132,33 +143,144 @@ describe('Admin surface — structural guards', () => {
     it.each([
       ['AdminPacksController', AdminPacksController],
       ['AdminSessionsController', AdminSessionsController],
-      ['AdminCommunityController', AdminCommunityController],
+      [
+        'AdminCommunityCategoriesController',
+        AdminCommunityCategoriesController,
+      ],
+      ['AdminCommunityTopicsController', AdminCommunityTopicsController],
+      ['AdminCommunityPostsController', AdminCommunityPostsController],
+      ['AdminCoursesController', AdminCoursesController],
+      ['AdminCourseModulesController', AdminCourseModulesController],
+      ['AdminLessonsController', AdminLessonsController],
     ])('%s is mounted under v1/admin/', (_name, ctrl) => {
       const path = Reflect.getMetadata(PATH_METADATA, ctrl) as string;
       expect(path.startsWith('v1/admin/')).toBe(true);
     });
-  });
 
-  describe('G3 — module registration order (routing landmine, plan §7.2)', () => {
-    // AdminController is @Controller('v1/admin') with @Get(':model') and
-    // @Get(':model/:id') wildcards. A sibling @Controller('v1/admin/packs')
-    // only wins the route match when its module is registered FIRST.
-    // Registered after, GET /api/v1/admin/packs falls through to the generic
-    // admin CRUD and 400s with "Unknown admin model: packs" — a confusing,
-    // non-obvious failure. This asserts the ordering directly, with no Nest
-    // bootstrap and no database.
-    it('registers PacksModule before AdminModule in AppModule', () => {
-      const imports = Reflect.getMetadata(
-        MODULE_METADATA.IMPORTS,
-        AppModule,
-      ) as unknown[];
+    // ⚠️ RISK-J, asserted here as well as in `route-map.spec.ts`. The three
+    // community controllers sit at three DISJOINT literal depth-4 prefixes. The
+    // plan's §2.5 split put topic moderation at the bare `v1/admin/community`,
+    // a strict path-prefix of the categories controller — which RI-1 rejects,
+    // with `PREFIX_EXCEPTIONS` and `KNOWN_PREFIX_DEBT` both empty by design.
+    // Restated on this side so the failure names the ADMIN SURFACE rule rather
+    // than only the routing invariant.
+    it('the three community moderation prefixes are disjoint, with nothing at the bare v1/admin/community', () => {
+      const prefixes = [
+        AdminCommunityCategoriesController,
+        AdminCommunityTopicsController,
+        AdminCommunityPostsController,
+      ].map((ctrl) => Reflect.getMetadata(PATH_METADATA, ctrl) as string);
 
-      const packsIndex = imports.indexOf(PacksModule);
-      const adminIndex = imports.indexOf(AdminModule);
+      expect(prefixes.sort()).toEqual([
+        'v1/admin/community/categories',
+        'v1/admin/community/posts',
+        'v1/admin/community/topics',
+      ]);
+      expect(prefixes).not.toContain('v1/admin/community');
+    });
 
-      expect(packsIndex).toBeGreaterThanOrEqual(0);
-      expect(adminIndex).toBeGreaterThanOrEqual(0);
-      expect(packsIndex).toBeLessThan(adminIndex);
+    // 🔴 THE SAME TWO ASSERTIONS FOR TASK_2026_177 P3's THREE CURRICULUM
+    // CONTROLLERS, and the first of them is the one that would catch the shape
+    // most likely to be "tidied up" later.
+    it('the three curriculum prefixes are disjoint SIBLINGS at depth 3 (RISK-N)', () => {
+      const prefixes = [
+        AdminCoursesController,
+        AdminCourseModulesController,
+        AdminLessonsController,
+      ].map((ctrl) => Reflect.getMetadata(PATH_METADATA, ctrl) as string);
+
+      expect(prefixes.sort()).toEqual([
+        'v1/admin/course-modules',
+        'v1/admin/courses',
+        'v1/admin/lessons',
+      ]);
+
+      // 🔴 `v1/admin/courses/modules` WOULD be a proper segment-wise path prefix
+      // of `v1/admin/courses`, which RI-1 rejects (RISK-J's shape). The
+      // hyphenated sibling is NOT, because segment 3 differs — even though one
+      // prefix is a *string* prefix of the other, which is exactly what makes a
+      // naive `startsWith` check get this backwards. Restated on this side so a
+      // failure names the ADMIN SURFACE rule rather than only the routing
+      // invariant.
+      expect(prefixes).not.toContain('v1/admin/courses/modules');
+      for (const prefix of prefixes) {
+        expect(prefix.split('/')).toHaveLength(3);
+      }
+
+      const violations: string[] = [];
+      for (const a of prefixes) {
+        for (const b of prefixes) {
+          if (a === b) continue;
+          const left = a.split('/');
+          const right = b.split('/');
+          if (left.length >= right.length) continue;
+          if (left.every((segment, i) => segment === right[i])) {
+            violations.push(`${a} < ${b}`);
+          }
+        }
+      }
+      expect(violations).toEqual([]);
+    });
+
+    it('the curriculum authoring surface declares WRITES, by design', () => {
+      // The analogue of the assertion below: authoring is a write surface, and
+      // what makes those writes safe is that each records an `AdminAuditLog` row
+      // INSIDE its own transaction (PRE-6) — asserted in `libs/api/learning`'s
+      // three admin controller specs. That matters more here than in the forum:
+      // `Course`, `CourseModule` and `Lesson` carry no `deletedBy` column, so
+      // the audit row is the ONLY record of who deleted one.
+      const writeVerbs = [
+        AdminCoursesController,
+        AdminCourseModulesController,
+        AdminLessonsController,
+      ].flatMap((ctrl) => {
+        const proto = ctrl.prototype as object;
+        return Object.getOwnPropertyNames(proto)
+          .filter((name) => name !== 'constructor')
+          .map((name) => {
+            const fn = Object.getOwnPropertyDescriptor(proto, name)
+              ?.value as object;
+            return Reflect.getMetadata(METHOD_METADATA, fn) as
+              | number
+              | undefined;
+          })
+          .filter((method): method is number => method !== undefined);
+      });
+
+      // RequestMethod.GET === 0, so this MUST compare against the enum rather
+      // than test truthiness.
+      expect(writeVerbs.some((verb) => verb !== RequestMethod.GET)).toBe(true);
+    });
+
+    // ⚠️ G5 IS NOT COMING BACK, AND THIS IS NOT IT. G5 asserted that the admin
+    // community controller exposed only `@Get` handlers — a rule whose subject
+    // (an EXTERNAL forum owning its own moderation history) was deleted by P1b.
+    // The native surface owns moderation WRITES by design. What replaces the
+    // concern is the opposite assertion: the writes exist AND are audited, which
+    // `libs/api/forum`'s three controller specs check by asserting the audit row
+    // shares the mutation's transaction (PRE-6).
+    it('the community moderation surface declares WRITES, by design (the inverse of the deleted G5)', () => {
+      const writeVerbs = [
+        AdminCommunityCategoriesController,
+        AdminCommunityTopicsController,
+        AdminCommunityPostsController,
+      ].flatMap((ctrl) => {
+        const proto = ctrl.prototype as object;
+        return Object.getOwnPropertyNames(proto)
+          .filter((name) => name !== 'constructor')
+          .map((name) => {
+            const fn = Object.getOwnPropertyDescriptor(proto, name)
+              ?.value as object;
+            return Reflect.getMetadata(METHOD_METADATA, fn) as
+              | number
+              | undefined;
+          })
+          .filter((method): method is number => method !== undefined);
+      });
+
+      // RequestMethod.GET === 0, so this MUST compare against the enum rather
+      // than test truthiness.
+      expect(writeVerbs.some((verb) => verb !== RequestMethod.GET)).toBe(true);
     });
   });
 
@@ -167,13 +289,21 @@ describe('Admin surface — structural guards', () => {
     // never a loosening of the member gate. If this file ever learns about
     // ADMIN_EMAILS, AdminGuard, or an isAdmin flag, the two concerns have been
     // fused and a platform admin would silently gain member entitlements.
-    const membershipSource = readFileSync(
-      join(SRC, 'discourse', 'builders-membership.service.ts'),
-      'utf8',
+    //
+    // ⚠️ REPOINTED BY TASK_2026_177 P1b. This suite used to read
+    // `BuildersMembershipService`, which held one of the three
+    // `isBuildersMember` implementations RISK-A enumerated. That file was
+    // deleted with the whole forum-integration tree; its logic was relocated FIRST
+    // (MG-2.2 / RK-4) to `MembershipService`, which is now the SINGLE
+    // implementation (R7.2). The invariant is unchanged and its subject is the
+    // same code — only the file it lives in moved, so this is a repoint and not
+    // a weakening.
+    const membershipSource = readSource(
+      'libs/api/membership/src/lib/membership.service.ts',
     );
 
     it.each(['ADMIN_EMAILS', 'AdminGuard', 'isAdmin'])(
-      'builders-membership.service.ts contains no reference to %s',
+      'membership.service.ts contains no reference to %s',
       (needle) => {
         expect(membershipSource).not.toContain(needle);
       },
@@ -182,93 +312,14 @@ describe('Admin surface — structural guards', () => {
     it('no source file fuses the member gate with an admin check', () => {
       // The literal shape the plan forbids: `isBuildersMember || isAdmin`.
       for (const file of [
-        join(SRC, 'discourse', 'builders-membership.service.ts'),
-        join(SRC, 'discourse', 'community.controller.ts'),
-        join(SRC, 'google-sessions', 'members.controller.ts'),
+        'libs/api/membership/src/lib/membership.service.ts',
+        'libs/api/community/src/lib/google-sessions/members.controller.ts',
       ]) {
-        const source = readFileSync(file, 'utf8');
+        const source = readSource(file);
         expect(source).not.toMatch(/isBuildersMember\s*\|\|\s*isAdmin/);
         expect(source).not.toContain('AdminGuard');
       }
     });
-  });
-
-  describe('G5 — the admin community controller is READ-ONLY', () => {
-    // The executable form of Checkpoint-1 Decision 1: all Discourse moderation
-    // stays in Discourse's own admin panel. A contributor adding a moderation
-    // write here fails the build rather than quietly reopening the surface.
-    it('exposes only @Get handlers', () => {
-      const proto = AdminCommunityController.prototype;
-      const handlers = Object.getOwnPropertyNames(proto).filter(
-        (name) => name !== 'constructor',
-      );
-
-      expect(handlers.length).toBeGreaterThan(0);
-
-      for (const name of handlers) {
-        const descriptor = Object.getOwnPropertyDescriptor(proto, name);
-        const method = Reflect.getMetadata(
-          METHOD_METADATA,
-          descriptor?.value as object,
-        );
-        expect({ name, method }).toEqual({
-          name,
-          method: RequestMethod.GET,
-        });
-      }
-    });
-  });
-
-  describe('G7 — every @Body()/@Query() param binds dtoPipe (validation is live)', () => {
-    // ⚠️ WHY THIS TEST EXISTS.
-    // esbuild does not implement `emitDecoratorMetadata`, so Nest cannot infer
-    // a handler parameter's DTO class and the globally-registered
-    // ValidationPipe short-circuits on `if (!metatype) return value;`. The
-    // practical effect is that a bare `@Body() dto: X` is SILENTLY UNVALIDATED:
-    // every @Matches/@MaxLength/@IsUUID cap and `forbidNonWhitelisted` becomes
-    // inert. This was live and demonstrated —
-    // `POST /admin/groups {"key":"INVALID KEY WITH SPACES!!"}` returned 201.
-    //
-    // `dtoPipe(X)` fixes it per-parameter via ValidationPipe's `expectedType`.
-    // Without this test that fix rots exactly the way the bug did: the next
-    // contributor copies a bare `@Body()` from anywhere else in the codebase
-    // (where it is still the norm) and ships an endpoint whose validation
-    // silently does nothing, on the admin surface, where a bad `repoUrl` or an
-    // unbounded array has the highest blast radius.
-    const CONTROLLERS: Array<
-      [string, new (...args: never[]) => unknown, number]
-    > = [
-      // [name, controller, minimum number of Body/Query params expected]
-      ['AdminPacksController', AdminPacksController, 3],
-      ['AdminSessionsController', AdminSessionsController, 3],
-      ['AdminCommunityController', AdminCommunityController, 1],
-      ['MemberGroupsController', MemberGroupsController, 4],
-    ];
-
-    it.each(CONTROLLERS)(
-      '%s binds a ValidationPipe with expectedType on every payload param',
-      (_name, controller) => {
-        for (const binding of paramBindings(controller)) {
-          // Assert on the whole object so a failure names the exact handler.
-          expect(binding).toEqual({
-            handler: binding.handler,
-            kind: binding.kind,
-            validated: true,
-          });
-        }
-      },
-    );
-
-    // Anti-vacuity: if the metadata key format ever changes under us, the loop
-    // above would iterate zero params and pass without checking anything.
-    it.each(CONTROLLERS)(
-      '%s actually exposes payload params for G7 to check',
-      (_name, controller, minimum) => {
-        expect(paramBindings(controller).length).toBeGreaterThanOrEqual(
-          minimum,
-        );
-      },
-    );
   });
 
   describe('G6 — PacksModule registers no member-facing controller', () => {
@@ -293,13 +344,24 @@ describe('Admin surface — structural guards', () => {
       // docblocks in these files deliberately name both services in prose to
       // explain why they are absent, and a naive `toContain` would flag that
       // documentation as a violation.
+      //
+      // ⚠️ REPOINTED BY TASK_2026_177 P1b, for the same reason as G4 above.
+      // `builders-membership.service` was deleted with that tree, so
+      // a pattern naming it would have become permanently vacuous — an assertion
+      // that cannot fail is worse than none, because it reads as coverage.
+      // `MembershipService` is the relocated single implementation, so it is now
+      // the thing packs must not reach for.
       const forbiddenImports = [
-        /from\s+'[^']*builders-membership\.service'/,
+        /from\s+'[^']*membership\.service'/,
+        /from\s+'[^']*@ptah-api\/membership'/,
         /from\s+'[^']*member-groups\.service'/,
       ];
 
-      for (const file of ['packs.service.ts', 'packs.module.ts']) {
-        const text = readFileSync(join(SRC, 'packs', file), 'utf8');
+      for (const file of [
+        'libs/api/community/src/lib/packs/packs.service.ts',
+        'libs/api/community/src/lib/packs/packs.module.ts',
+      ]) {
+        const text = readSource(file);
         for (const pattern of forbiddenImports) {
           expect({ file, matched: pattern.test(text) }).toEqual({
             file,
@@ -307,7 +369,7 @@ describe('Admin surface — structural guards', () => {
           });
         }
         // Nor injected by token.
-        expect(text).not.toMatch(/@Inject\(\s*BuildersMembershipService\s*\)/);
+        expect(text).not.toMatch(/@Inject\(\s*MembershipService\s*\)/);
         expect(text).not.toMatch(/@Inject\(\s*MemberGroupsService\s*\)/);
       }
     });

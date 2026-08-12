@@ -62,7 +62,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         <div class="relative">
           <lucide-angular
             [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40"
+            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
             aria-hidden="true"
           />
           <input
@@ -98,7 +98,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         @if (isLoadingRecommendations() && !searchQuery()) {
           <div>
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               Recommended for your project
             </div>
@@ -109,7 +109,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         ) {
           <div>
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               Recommended for your project
             </div>
@@ -142,11 +142,11 @@ interface DisplaySkillEntry extends SkillShEntry {
                       }
                     </div>
                     <p
-                      class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                      class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
                     >
                       {{ skill.description }}
                     </p>
-                    <span class="text-[10px] text-base-content/40 font-mono"
+                    <span class="text-[10px] text-base-content-muted font-mono"
                       >{{ skill.source }}/{{ skill.skillId }}</span
                     >
                   </div>
@@ -199,12 +199,12 @@ interface DisplaySkillEntry extends SkillShEntry {
             }
           } @else {
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               {{ searchQuery() ? 'Search Results' : 'Popular Skills' }}
             </div>
             @if (displaySkills().length === 0) {
-              <div class="text-xs text-base-content/50 text-center py-4">
+              <div class="text-xs text-base-content-muted text-center py-4">
                 {{
                   searchQuery()
                     ? 'No skills found for "' + searchQuery() + '"'
@@ -241,11 +241,11 @@ interface DisplaySkillEntry extends SkillShEntry {
                       }
                     </div>
                     <p
-                      class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                      class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
                     >
                       {{ skill.description }}
                     </p>
-                    <span class="text-[10px] text-base-content/40 font-mono"
+                    <span class="text-[10px] text-base-content-muted font-mono"
                       >{{ skill.source }}/{{ skill.skillId }}</span
                     >
                   </div>
@@ -298,7 +298,7 @@ interface DisplaySkillEntry extends SkillShEntry {
             <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
           }
         } @else if (installedSkills().length === 0) {
-          <div class="text-xs text-base-content/50 text-center py-6">
+          <div class="text-xs text-base-content-muted text-center py-6">
             <p class="mb-1">No skills installed yet</p>
             <button
               class="btn btn-ghost btn-xs"
@@ -311,7 +311,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         } @else {
           @if (projectSkills().length > 0) {
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               Project Skills
             </div>
@@ -332,9 +332,10 @@ interface DisplaySkillEntry extends SkillShEntry {
                         }
                       </div>
                     }
-                    <span class="text-[10px] text-base-content/40 font-mono">{{
-                      skill.source
-                    }}</span>
+                    <span
+                      class="text-[10px] text-base-content-muted font-mono"
+                      >{{ skill.source }}</span
+                    >
                   </div>
                   <button
                     class="btn btn-ghost btn-xs text-error shrink-0"
@@ -355,7 +356,7 @@ interface DisplaySkillEntry extends SkillShEntry {
           }
           @if (globalSkills().length > 0) {
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium mt-3"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium mt-3"
             >
               Global Skills
             </div>
@@ -376,9 +377,10 @@ interface DisplaySkillEntry extends SkillShEntry {
                         }
                       </div>
                     }
-                    <span class="text-[10px] text-base-content/40 font-mono">{{
-                      skill.source
-                    }}</span>
+                    <span
+                      class="text-[10px] text-base-content-muted font-mono"
+                      >{{ skill.source }}</span
+                    >
                   </div>
                   <button
                     class="btn btn-ghost btn-xs text-error shrink-0"
@@ -401,7 +403,7 @@ interface DisplaySkillEntry extends SkillShEntry {
       }
 
       <!-- skills.sh attribution -->
-      <div class="text-[10px] text-base-content/30 text-center pt-1">
+      <div class="text-[10px] text-base-content-muted text-center pt-1">
         Powered by
         <a
           href="https://skills.sh"

@@ -18,9 +18,10 @@ Re-exports `./lib/overlays`, `./lib/selection`, `./lib/native` — all three dom
 
 **Native (recommended)**:
 
-- Components: `NativeDropdownComponent`, `NativePopoverComponent`, `NativeOptionComponent`, `NativeAutocompleteComponent`
+- Overlay / selection: `NativeDropdownComponent`, `NativePopoverComponent`, `NativeOptionComponent`, `NativeAutocompleteComponent`
+- Layout / structure: `NativeCardComponent`, `NativeTabGroupComponent`, `NativeDrawerComponent`
 - Services: `FloatingUIService`, `KeyboardNavigationService`
-- Types: `FloatingUIOptions`, `KeyboardNavigationConfig`
+- Types: `FloatingUIOptions`, `KeyboardNavigationConfig`, `NativeCardTone`, `NativeCardDensity`, `NativeTab`, `NativeDrawerSide`
 
 **Deprecated CDK variants**: `DropdownComponent`, `PopoverComponent`, `OptionComponent`, `AutocompleteComponent` + `AutocompleteDirective` + shared overlay position helpers.
 
@@ -30,6 +31,9 @@ Re-exports `./lib/overlays`, `./lib/selection`, `./lib/native` — all three dom
   - `shared/floating-ui.service.ts` — wraps `@floating-ui/dom` (`computePosition` + `autoUpdate`)
   - `shared/keyboard-navigation.service.ts` — signal-based replacement for CDK `ActiveDescendantKeyManager`
   - `option/`, `dropdown/`, `popover/`, `autocomplete/` — one component per folder
+  - `card/` — `NativeCardComponent`: `[card-header]` / default / `[card-footer]` slots, optional tone-coloured status spine, `clickable` / `selectable` variants. A click landing on a nested `button` / `a` / `input` (or anything marked `data-card-ignore`) never activates the card, so cards can carry their own action row
+  - `tab-group/` — `NativeTabGroupComponent`: `role=tablist/tab/tabpanel`, per-tab count badge, roving tabindex, Arrow/Home/End with automatic activation. `activeId` is a `model()` so it works uncontrolled or `[(activeId)]`-bound
+  - `drawer/` — `NativeDrawerComponent`: right/left slide-over, native focus trap (store → move → cycle → restore), Esc + backdrop close. Parent owns `isOpen`; the drawer only emits `closed`
 - `src/lib/overlays/` — deprecated CDK Overlay components (`dropdown/`, `popover/`, `shared/`)
 - `src/lib/selection/` — deprecated CDK A11y components (`option/`, `autocomplete/`)
 
@@ -66,3 +70,5 @@ Re-exports `./lib/overlays`, `./lib/selection`, `./lib/native` — all three dom
 4. **No CDK Overlay in new code.** Floating UI positions content in place (no portal), which works around VS Code webview sandboxing.
 5. **DaisyUI styling** for VS Code theme compatibility.
 6. **Subpath imports** are available for tree-shaking (`@ptah-extension/ui/native/dropdown`, etc.).
+7. **Keep these primitives domain-free.** `card`, `tab-group` and `drawer` were extracted for the Thoth surfaces (Skills, Memory, Cron, Gateway, Marketplace) — no feature type may ever be imported here.
+8. **Projection slots inside `@if`.** A slot element (`[card-header]`, `[drawer-footer]`, …) that sits inside an `@if` block with more than one root node silently falls through to the DEFAULT slot (Angular NG8011). Give each projected node its own single-root `@if`.

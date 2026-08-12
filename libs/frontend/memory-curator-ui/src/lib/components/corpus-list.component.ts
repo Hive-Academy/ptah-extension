@@ -67,7 +67,7 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
 
       <header class="flex flex-wrap items-center gap-2">
         <span class="text-sm font-semibold">Knowledge corpora</span>
-        <span class="text-xs text-base-content/60">
+        <span class="text-xs text-base-content-muted">
           {{ corpora().length }} corpora
         </span>
         <div class="ml-auto flex gap-1">
@@ -127,7 +127,7 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
       } @else if (corpora().length === 0) {
         <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
           <p class="text-sm font-medium">No corpora yet</p>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-base-content-muted">
             Click Build corpus to snapshot a memory filter into a named,
             primeable bundle.
           </p>
@@ -143,12 +143,12 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span class="text-sm font-medium">{{ corpus.name }}</span>
-                  <span class="text-xs text-base-content/60">
+                  <span class="text-xs text-base-content-muted">
                     {{ corpus.count }} memories · built
                     {{ formatTimestamp(corpus.builtAt) }}
                   </span>
                   @if (corpus.rebuiltAt !== null) {
-                    <span class="text-xs text-base-content/60">
+                    <span class="text-xs text-base-content-muted">
                       · rebuilt {{ formatTimestamp(corpus.rebuiltAt) }}
                     </span>
                   }

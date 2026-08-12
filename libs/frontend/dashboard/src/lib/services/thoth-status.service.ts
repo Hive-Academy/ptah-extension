@@ -13,10 +13,15 @@ import {
   type ThothActiveTabId,
 } from '@ptah-extension/core';
 import { formatCompact } from '../utils/format.utils';
-import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
-import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
-import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
-import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
+// Services-only subpaths, NOT the wide barrels. This service is eager (it is a
+// MESSAGE_HANDLERS entry, and the dashboard is a startup-reachable view via the
+// `ptah.openDashboard` command), so importing the wide barrels here would drag
+// all four Thoth tab libs into the initial bundle and defeat the @defer on
+// ThothShellComponent. See TASK_2026_187 Unit 4.
+import { MemoryRpcService } from '@ptah-extension/memory-curator-ui/services';
+import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui/services';
+import { CronRpcService } from '@ptah-extension/cron-scheduler-ui/services';
+import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui/services';
 import {
   MESSAGE_TYPES,
   type GatewayPlatformId,

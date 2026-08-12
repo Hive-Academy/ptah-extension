@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "commonjs",
+  "sideEffects": false,
   "main": "./index.cjs",
   "types": "./index.d.ts",
   "exports": {
@@ -13,6 +14,10 @@
     "./testing": {
       "types": "./src/testing/index.ts",
       "default": "./src/testing/index.ts"
+    },
+    "./schemas": {
+      "types": "./src/schemas.ts",
+      "default": "./src/schemas.ts"
     }
   },
   "dependencies": {

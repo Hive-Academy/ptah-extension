@@ -12,13 +12,13 @@ const OWN_ORIGIN = 'http://localhost:4200';
 async function stubLoginSuccess(
   page: import('@playwright/test').Page,
 ): Promise<void> {
-  await page.route('**/api/auth/login/email', (route) =>
+  await page.route('**/api/v1/auth/login/email', (route) =>
     route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ success: true }),
     }),
   );
-  await page.route('**/api/auth/me', (route) =>
+  await page.route('**/api/v1/auth/me', (route) =>
     route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -66,7 +66,7 @@ test.describe('Auth — return-URL guard & logout @auth', () => {
     communityPage,
   }) => {
     let logoutCalled = false;
-    await communityPage.route('**/api/auth/logout', (route) => {
+    await communityPage.route('**/api/v1/auth/logout', (route) => {
       logoutCalled = true;
       return route.fulfill({
         status: 200,
@@ -81,7 +81,7 @@ test.describe('Auth — return-URL guard & logout @auth', () => {
       .first()
       .click();
 
-    // handleLogout hard-navigates to '/' after POST /api/auth/logout.
+    // handleLogout hard-navigates to '/' after POST /api/v1/auth/logout.
     // (The hint isn't asserted: the fixture re-injects it via addInitScript on
     // every navigation, so it's not a meaningful post-logout signal here.)
     await communityPage.waitForURL(new RegExp(`${OWN_ORIGIN}/?$`));

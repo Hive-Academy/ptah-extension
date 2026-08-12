@@ -80,12 +80,19 @@ export {
 } from './lib/skill-registry-catalog.service';
 export {
   SkillEnhancerService,
+  ProposalNotFoundError,
   MIN_INVOCATIONS_TO_ENHANCE,
   ENHANCE_COOLDOWN_MS,
+  PROPOSAL_TTL_MS,
+  MAX_CACHED_PROPOSALS,
   type EnhanceResult,
   type EnhanceOptions,
   type EnhanceSkipReason,
   type RevertEnhancementResult,
+  type EnhancementProposal,
+  type GenerateProposalResult,
+  type ApplyProposalResult,
+  type ProposalRejectionCode,
 } from './lib/skill-enhancer.service';
 export {
   SKILL_REPROPAGATION_TOKEN,

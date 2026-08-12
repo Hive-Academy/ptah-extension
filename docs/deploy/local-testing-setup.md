@@ -1,201 +1,42 @@
-# Local-First Testing Setup — Builders + Discourse + Sessions
+# Local-First Testing Setup — Builders + Sessions
 
 Goal: exercise the **full founder stack on your own machine** before touching
-production — Discourse SSO round-trip, Google Calendar/Meet sessions, and the
-Paddle Builders checkout — then promote the identical config to prod.
+production — Google Calendar/Meet sessions and the Paddle Builders checkout —
+then promote the identical config to prod.
+
+> [!NOTE]
+> **Workstream A (forum SSO) was removed by TASK_2026_177.** The self-hosted
+> forum, its SSO provider endpoint, its admin group-sync and the local dev
+> container that backed all three are gone; the community is an in-product
+> surface under `/members`. The lettering of the remaining workstreams (B, C) is
+> deliberately UNCHANGED so the cross-references in
+> `founder-setup-checklist.md` and `e2e-test-handoff.md` still resolve.
+>
+> If a forum container is still running on your machine or on the production
+> droplet, tearing it down is a separate ordered procedure —
+> `.ptah/specs/task_2026_177/decommission-runbook.md`.
 
 Companion docs (prod detail lives there, not duplicated here):
 
 - `founder-setup-checklist.md` — the master launch ledger.
-- `discourse-digitalocean.md` — prod Discourse install (§1–6) + Google (§7).
 
-All the application code (SSO provider, admin group-sync, calendar attendee
-management, checkout) is already written and unit-tested. Everything below is
-**configuration + provisioning**, identical in shape locally and in prod.
-
----
-
-## Topology (important — Discourse is NOT in our compose)
-
-The official free Discourse "development install" runs from **Discourse's own
-source repo** via its `d/boot_dev` launcher, which owns its container stack
-(Postgres, Redis, unicorn, ember-cli, mailcatcher). It is not a service in our
-`docker-compose.yml`, and shouldn't be — the `discourse/discourse_dev` image is
-driven by those scripts, not plain compose.
-
-```
-Your machine
-├── docker-compose.yml (this repo)   postgres + license-server + ngrok   :3000
-│      └── extra_hosts: host.docker.internal → host-gateway  (reaches Discourse)
-└── /root/discourse (WSL Ubuntu-24.04, github.com/discourse/discourse)   :3001
-       booted with `d/boot_dev` (Rails remapped :3001→:3000) — talk over localhost
-```
-
-Because DiscourseConnect SSO is a chain of **browser 302 redirects**, the browser
-only needs to reach `license-server` (`:3000`) and `Discourse` (`:3001`). The one
-server-to-server path is the license server calling Discourse's admin API for
-group-sync — the container reaches Discourse at `host.docker.internal:3001`
-(see the localhost-vs-host.docker.internal note in Workstream A).
+All the application code (calendar attendee management, checkout) is already
+written and unit-tested. Everything below is **configuration + provisioning**,
+identical in shape locally and in prod.
 
 ---
 
 ## Current status
 
-| Workstream                             | Local status                                                                                                                                                                                                                                             |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SSO endpoint (crypto/redirect/reject)  | ✅ **verified** — `node scripts/discourse-sso-smoke.mjs` (all checks green)                                                                                                                                                                              |
-| Discourse dev container + admin config | ✅ **complete** — `discourse/discourse_dev` in WSL Ubuntu (Rails on host 3001), SSO + `builders` group + gated category + API key configured, `node scripts/discourse-e2e.mjs` fully green (round-trip, gating, admin-sync, config)                      |
-| Google Calendar / Meet sessions        | ✅ **complete** — `Ptah Sessions` OAuth client, `GOOGLE_OAUTH_*` + `BUILDERS_SESSION_EVENT_ID` (`cfjfqv3bc65e1lj1ikthei4i40`, weekly + Meet) in `.env`, `node scripts/google-sessions-smoke.mjs` fully green (token → list → master event with meetLink) |
-| Paddle Builders checkout (sandbox)     | ⬜ Workstream C (sandbox already wired, flag off)                                                                                                                                                                                                        |
+| Workstream                         | Local status                                                                                                                                                                                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Google Calendar / Meet sessions    | ✅ **complete** — `Ptah Sessions` OAuth client, `GOOGLE_OAUTH_*` + `BUILDERS_SESSION_EVENT_ID` (`cfjfqv3bc65e1lj1ikthei4i40`, weekly + Meet) in `.env`, `node scripts/google-sessions-smoke.mjs` fully green (token → list → master event with meetLink) |
+| Paddle Builders checkout (sandbox) | ⬜ Workstream C (sandbox already wired, flag off)                                                                                                                                                                                                        |
 
-Prereqs already satisfied in `.env`: `DISCOURSE_SSO_SECRET`, `JWT_SECRET`,
-sandbox Paddle Builders price + discount ids, `RESEND_API_KEY`, `NGROK_AUTHTOKEN`,
-`API_PUBLIC_URL=http://localhost:3000`, `FRONTEND_URL=http://localhost:4200`.
+Prereqs already satisfied in `.env`: `JWT_SECRET`, sandbox Paddle Builders price
 
-> [!NOTE]
-> The landing page dev server (`nx serve ptah-landing-page`) also defaults to
-> `:4200`. Don't run it at the same time as Discourse's ember-cli. Test checkout
-> (Workstream C) and Discourse (Workstream A) in separate sessions, or move one
-> to another port.
-
----
-
-## Workstream A — Discourse SSO (local dev container) ✅ DONE & VERIFIED
-
-Runs the official `discourse/discourse_dev` container inside the existing
-**WSL2 Ubuntu-24.04** distro (source must live in the Linux filesystem — a
-Discourse requirement). Rails is remapped to host **3001** so it coexists with the
-license server on 3000. Everything below has been executed and verified by
-`node scripts/discourse-e2e.mjs` (all round-trip + gating + admin-sync checks green).
-
-All Ubuntu commands run as `root` in the distro: `wsl -d Ubuntu-24.04 -u root`.
-
-### A0. Prerequisites (one-time)
-
-- **Docker Desktop → Settings → Resources → WSL Integration** → enable
-  **Ubuntu-24.04** → Apply & Restart. Verify: `wsl -d Ubuntu-24.04 -- docker ps`.
-
-### A1. Clone into the Ubuntu filesystem + fix ownership
-
-```bash
-# inside Ubuntu-24.04 (root)
-git clone --depth 1 https://github.com/discourse/discourse.git /root/discourse
-# The dev container's `discourse` user is uid 1000; the source must be writable by
-# it (we cloned as root/uid 0). Chown everything EXCEPT the postgres data dir:
-chown 1000:1000 /root/discourse
-find /root/discourse -mindepth 1 -maxdepth 1 ! -name data -exec chown -R 1000:1000 {} +
-```
-
-### A2. Remap the Rails port (avoid the :3000 clash) + boot
-
-```bash
-cd /root/discourse
-sed -i 's/:3000:3000/:3001:3000/' d/boot_dev   # host 3001 → container 3000
-./d/boot_dev                                    # pull image + start container
-```
-
-> [!NOTE]
-> `d/boot_dev` tries `d/bundle install` via `docker exec -it` (a TTY), which fails
-> in a non-interactive/detached shell. Gems are already baked into the image, so
-> that failure is harmless — but **pnpm deps are NOT baked** and must be installed
-> explicitly (next step), or `db:migrate` aborts at `assets:precompile`.
-
-### A3. Install JS deps, create + migrate the DB
-
-Helper — run any container command as the `discourse` user via a **login shell**
-(tools like `bundle`/`pnpm`/`rails` are only on the login `PATH`):
-
-```bash
-DX(){ docker exec -i -u discourse:discourse -w /src discourse_dev bash -lc "$*"; }
-DX pnpm install                      # ~1 min; populates node_modules/.pnpm
-DX 'bin/rails db:create'
-DX 'bin/rails db:migrate'            # loads the full schema (~349 tables) + seeds
-```
-
-### A4. Configure Discourse (SSO + group + category + API key)
-
-Non-interactive via `rails runner` — **setting order matters** (`discourse_connect_url`
-before `enable_discourse_connect`; `email_editable=false` before `auth_overrides_email`).
-Write `/root/discourse/local-setup.rb`:
-
-```ruby
-SECRET = "<DISCOURSE_SSO_SECRET from .env>"
-SiteSetting.discourse_connect_url = "http://localhost:3000/api/v1/sso/discourse"
-SiteSetting.discourse_connect_secret = SECRET
-SiteSetting.enable_discourse_connect = true
-SiteSetting.email_editable = false
-SiteSetting.auth_overrides_email = true
-SiteSetting.enable_local_logins = false
-
-g = Group.find_by(name: "builders") || Group.create!(name: "builders")
-g.visibility_level = Group.visibility_levels[:members]; g.save!
-
-cat = Category.find_by(slug: "builders-lounge") ||
-      Category.create!(name: "Builders Lounge", slug: "builders-lounge", user_id: Discourse.system_user.id)
-cat.set_permissions("builders" => :full); cat.save!   # removes "everyone"
-
-ApiKey.where(description: "ptah-license-server group sync").destroy_all
-ak = ApiKey.new(description: "ptah-license-server group sync", created_by_id: Discourse.system_user.id)
-ak.save!
-puts "API_KEY=#{ak.key}"
-```
-
-```bash
-DX 'bin/rails runner local-setup.rb'   # prints API_KEY=... — copy it
-```
-
-### A5. Start the Rails server (persistent, detached)
-
-`RAILS_DEVELOPMENT_HOSTS=host.docker.internal` lets the license-server **container**
-reach Discourse for admin group-sync (see networking note below). Started via
-`docker exec -d`, so it does NOT auto-restart with the container — re-run after a
-reboot / `./launcher`-style restart.
-
-```bash
-docker exec -d -u discourse:discourse -w /src \
-  -e RAILS_DEVELOPMENT_HOSTS=host.docker.internal \
-  discourse_dev bash -lc "bin/rails server -b 0.0.0.0 -p 3000 > /src/log/railss.log 2>&1"
-# health: curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3001/srv/status  → 200
-```
-
-### A6. Wire `.env` + recreate the license server
-
-```bash
-DISCOURSE_URL=http://localhost:3001         # browser + Ubuntu curl reach Discourse here
-DISCOURSE_API_KEY=<API_KEY from A4>
-DISCOURSE_API_USERNAME=system
-```
-
-```bash
-docker compose up -d --force-recreate license-server   # NOT `restart` — restart does
-                                                        # not reload .env changes
-```
-
-### A7. Verify (automated, deterministic)
-
-```bash
-node scripts/discourse-sso-smoke.mjs   # endpoint crypto/redirect/reject
-node scripts/discourse-e2e.mjs         # full round-trip vs real Discourse:
-#   1. Builder subscriber  → SSO → auto-added to `builders`
-#   2. Community user      → SSO → excluded from `builders`
-#   3. Admin group-sync    → PUT/DELETE /groups/{id}/members (Paddle fan-out contract)
-#   4. Config              → SSO-only enforced
-```
-
-Manual browser round-trip (optional): log into the landing page so the `ptah_auth`
-cookie is set, then hit `http://localhost:3001` → **Log In** → you land back on the
-forum already authenticated (no Discourse password prompt).
-
-> [!IMPORTANT]
-> **Local networking (localhost vs host.docker.internal).** The browser/curl reach
-> Discourse at `localhost:3001`; the license-server _container_ cannot use
-> `localhost` (that's the container itself) — it reaches Discourse at
-> `host.docker.internal:3001` (allowed via `RAILS_DEVELOPMENT_HOSTS`). We keep
-> `DISCOURSE_URL=localhost:3001` because the browser SSO redirect must resolve, and
-> the container-side admin-sync **contract is verified** by `discourse-e2e.mjs`
-> Phase 3 (and the container's reachability was confirmed directly). **In prod this
-> split disappears** — `DISCOURSE_URL=https://community.ptah.live` is one public
-> host reachable by both the browser and the container.
+- discount ids, `RESEND_API_KEY`, `NGROK_AUTHTOKEN`,
+  `FRONTEND_URL=http://localhost:4200`.
 
 ---
 
@@ -205,7 +46,7 @@ The license server reads the weekly Builders session from **your** Google
 Calendar and adds/removes members as attendees on the recurring event. The OAuth
 client + refresh token are **the same in dev and prod** — do this once and reuse
 the five values in `.env.prod` later. It's the one workstream only you can do
-(it clicks through your Google account), so knock it out while Discourse builds.
+(it clicks through your Google account), so knock it out first.
 
 The code path: `GOOGLE_OAUTH_*` → refresh-token grant at
 `oauth2.googleapis.com/token` → Calendar v3 REST (no `googleapis` package). Scope
@@ -297,9 +138,12 @@ seeds one):
 
 ## Workstream C — Paddle Builders checkout (sandbox)
 
-Sandbox product, prices, and the FOUNDING35/50 discounts are already in `.env`
-and the landing page (`environment.ts` points its checkout at the sandbox price
-ids). Checkout is guard-blocked by a flag; flip it locally to test:
+Sandbox product and prices are already in `.env` and the landing page
+(`environment.ts` points its checkout at the sandbox price ids). The founding
+discounts **FOUNDING70M** / **FOUNDING70Y** must be (re)created in the Paddle
+sandbox at **70%** — the old 35%/50% `dsc_` ids in `.env` are stale and cannot
+be edited in Paddle once used. Checkout is guard-blocked by a flag; flip it
+locally to test:
 
 1. `.env` → `BUILDERS_CHECKOUT_ENABLED=true`
 2. `apps/ptah-landing-page/src/environments/environment.ts` →
@@ -321,15 +165,13 @@ Revert the two flags to `false` when done so local mirrors the waitlist default.
 Once all three workstreams pass locally, prod is the **same config with real
 values**. Follow `founder-setup-checklist.md` §2 in order; the deltas from local:
 
-| Local                                  | Production                                                            |
-| -------------------------------------- | --------------------------------------------------------------------- |
-| Discourse dev container (`d/boot_dev`) | `discourse_docker` on a DO droplet (`discourse-digitalocean.md` §1–6) |
-| `DISCOURSE_URL=http://localhost:3001`  | `https://community.ptah.live` + DNS A record + Resend SMTP            |
-| Paddle **sandbox** ids                 | Paddle **live** product/prices/discounts (checklist §2.1)             |
-| `.env` (dev secrets)                   | `.env.prod` (add the Discourse block — see runbook §4)                |
-| local Postgres (migrated)              | `prisma migrate deploy` against the prod DB (checklist §2.4)          |
-| Google OAuth (same client)             | **reuse the same client/token**                                       |
-| `BUILDERS_CHECKOUT_ENABLED=false`      | flip to `true` at launch (checklist §2.5)                             |
+| Local                             | Production                                                   |
+| --------------------------------- | ------------------------------------------------------------ |
+| Paddle **sandbox** ids            | Paddle **live** product/prices/discounts (checklist §2.1)    |
+| `.env` (dev secrets)              | `.env.prod`                                                  |
+| local Postgres (migrated)         | `prisma migrate deploy` against the prod DB (checklist §2.4) |
+| Google OAuth (same client)        | **reuse the same client/token**                              |
+| `BUILDERS_CHECKOUT_ENABLED=false` | flip to `true` at launch (checklist §2.5)                    |
 
 Is it hard? No — the code is done and you've already proven the wiring locally.
 Prod is provisioning a droplet, one DNS record, mirroring the Paddle product, and

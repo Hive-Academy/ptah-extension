@@ -1,0 +1,507 @@
+{
+  "$comment": [
+    "Manifest-driven domain extraction plan.",
+    "",
+    "The array order IS the migration order. A domain may only be extracted once",
+    "every domain in its `dependsOn` chain already exists as a real lib.",
+    "",
+    "Fields:",
+    "  name       - domain id, also the Nx project name of the generated lib",
+    "  lib        - workspace-relative lib root",
+    "  importPath - TS path alias (the ONLY legal way to import the lib; no deep imports)",
+    "  platform   - 'web' -> @nx/angular:library, 'api' -> @nx/js:library",
+    "  tags       - Nx tags string passed straight to the generator",
+    "  app        - workspace-relative source app the files come from",
+    "  sources    - app-relative globs. Either a plain string (destination mirrors the",
+    "               path relative to <app>/src/app) or { glob, to } where `to` is the",
+    "               destination directory under <lib>/src/lib and the structure below",
+    "               the glob's static base is preserved.",
+    "  dependsOn  - domains that must be extracted first",
+    "  selectorPrefixes - (web only, optional) Angular selector prefixes the generated",
+    "               lib eslint config must accept. Defaults to [\"app\"].",
+    "",
+    "Entries with an empty `sources` array are SKELETONS: they document the planned",
+    "order but the extractor refuses to run them until they are filled in."
+  ],
+  "domains": [
+    {
+      "name": "web-core",
+      "lib": "libs/web/core",
+      "importPath": "@ptah-web/core",
+      "platform": "web",
+      "tags": "scope:web,type:util",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        "src/app/services/auth.service.ts",
+        "src/app/services/auth-initializer.service.ts",
+        "src/app/services/seo.service.ts",
+        "src/app/services/validate-response.ts",
+        "src/app/services/subscription-state.service.ts",
+        "src/app/services/github-release.service.ts",
+        "src/app/services/waitlist.service.ts",
+        "src/app/services/paddle-checkout.service.ts",
+        "src/app/services/members-api.service.ts",
+        "src/app/services/sse-events.service.ts",
+        "src/app/interceptors/api.interceptor.ts",
+        "src/app/config/api-base-url.token.ts",
+        "src/app/guards/auth.guard.ts",
+        "src/app/guards/guest.guard.ts",
+        "src/app/guards/admin-auth.guard.ts",
+        "src/app/config/paddle.config.ts",
+        "src/app/config/early-adopter.config.ts",
+        "src/app/config/sessions.config.ts",
+        "src/app/utils/paddle-validation.util.ts",
+        {
+          "glob": "src/app/pages/profile/models/license-data.interface.ts",
+          "to": "models"
+        }
+      ],
+      "dependsOn": [],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-ui",
+      "lib": "libs/web/ui",
+      "importPath": "@ptah-web/ui",
+      "platform": "web",
+      "tags": "scope:web,type:ui",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/components/navigation.component.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/app/components/footer.component.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/app/components/countdown-timer.component.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/app/components/console/console-grid-background.component.ts",
+          "to": "console"
+        }
+      ],
+      "dependsOn": ["web-core"],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-legal",
+      "lib": "libs/web/legal",
+      "importPath": "@ptah-web/legal",
+      "platform": "web",
+      "tags": "scope:web,type:feature",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/pages/legal/**/*.ts",
+          "to": "."
+        }
+      ],
+      "dependsOn": ["web-core", "web-ui"],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-landing",
+      "lib": "libs/web/landing",
+      "importPath": "@ptah-web/landing",
+      "platform": "web",
+      "tags": "scope:web,type:feature",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/pages/landing-page.component.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/app/sections/**/*.ts",
+          "to": "sections"
+        },
+        {
+          "glob": "src/app/components/console/**/*.ts",
+          "to": "console"
+        }
+      ],
+      "dependsOn": ["web-core", "web-ui"],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-pricing",
+      "lib": "libs/web/pricing",
+      "importPath": "@ptah-web/pricing",
+      "platform": "web",
+      "tags": "scope:web,type:feature",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/pages/pricing/**/*.ts",
+          "to": "."
+        }
+      ],
+      "dependsOn": ["web-core", "web-ui"],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-auth",
+      "lib": "libs/web/auth",
+      "importPath": "@ptah-web/auth",
+      "platform": "web",
+      "tags": "scope:web,type:feature",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/pages/auth/**/*.ts",
+          "to": "."
+        }
+      ],
+      "dependsOn": ["web-core", "web-ui"],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-account",
+      "lib": "libs/web/account",
+      "importPath": "@ptah-web/account",
+      "platform": "web",
+      "tags": "scope:web,type:feature",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/pages/profile/**/*.ts",
+          "to": "profile"
+        },
+        {
+          "glob": "src/app/pages/members/**/*.ts",
+          "to": "members"
+        },
+        {
+          "glob": "src/app/pages/sessions/**/*.ts",
+          "to": "sessions"
+        },
+        {
+          "glob": "src/app/pages/contact/**/*.ts",
+          "to": "contact"
+        }
+      ],
+      "dependsOn": ["web-core", "web-ui"],
+      "selectorPrefixes": ["app", "ptah"]
+    },
+    {
+      "name": "web-admin",
+      "lib": "libs/web/admin",
+      "importPath": "@ptah-web/admin",
+      "platform": "web",
+      "tags": "scope:web,type:feature",
+      "app": "apps/ptah-landing-page",
+      "sources": [
+        {
+          "glob": "src/app/pages/admin/**/*.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/app/services/admin-api.service.ts",
+          "to": "services"
+        },
+        {
+          "glob": "src/app/services/admin-builders-api.service.ts",
+          "to": "services"
+        }
+      ],
+      "dependsOn": ["web-core", "web-ui"],
+      "selectorPrefixes": ["app", "ptah"],
+      "publicApi": ["admin.routes.ts"]
+    },
+    {
+      "name": "api-core",
+      "lib": "libs/api/core",
+      "importPath": "@ptah-api/core",
+      "platform": "api",
+      "tags": "scope:api,type:util",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/prisma/*.ts",
+          "to": "prisma"
+        },
+        {
+          "glob": "src/generated-prisma-client/**/*",
+          "to": "generated-prisma-client",
+          "raw": true
+        },
+        {
+          "glob": "src/config/*.ts",
+          "to": "config"
+        },
+        {
+          "glob": "src/common/dto-validation.pipe.ts",
+          "to": "common"
+        },
+        {
+          "glob": "src/sentry/sentry.module.ts",
+          "to": "sentry"
+        },
+        {
+          "glob": "src/testing/mock-prisma.factory*.ts",
+          "to": ".",
+          "entryPoint": "testing"
+        },
+        {
+          "glob": "src/testing/nest-module-builder*.ts",
+          "to": ".",
+          "entryPoint": "testing"
+        }
+      ],
+      "dependsOn": [],
+      "publicApi": [
+        "prisma/*.ts",
+        "config/*.ts",
+        "common/*.ts",
+        "sentry/*.ts",
+        "generated-prisma-client/client.ts"
+      ]
+    },
+    {
+      "name": "api-audit",
+      "lib": "libs/api/audit",
+      "importPath": "@ptah-api/audit",
+      "platform": "api",
+      "tags": "scope:api,type:util",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/audit/*.ts",
+          "to": "."
+        }
+      ],
+      "dependsOn": ["api-core"]
+    },
+    {
+      "name": "api-email",
+      "lib": "libs/api/email",
+      "importPath": "@ptah-api/email",
+      "platform": "api",
+      "tags": "scope:api,type:util",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/email/**/*.ts",
+          "to": "."
+        }
+      ],
+      "dependsOn": ["api-core"]
+    },
+    {
+      "name": "api-identity",
+      "lib": "libs/api/identity",
+      "importPath": "@ptah-api/identity",
+      "platform": "api",
+      "tags": "scope:api,type:util",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/app/auth/dto/**/*.ts",
+          "to": "dto"
+        },
+        {
+          "glob": "src/app/auth/interfaces/**/*.ts",
+          "to": "interfaces"
+        },
+        {
+          "glob": "src/app/auth/providers/**/*.ts",
+          "to": "providers"
+        },
+        {
+          "glob": "src/app/auth/services/**/*.ts",
+          "to": "services"
+        },
+        {
+          "glob": "src/app/auth/guards/jwt-auth.guard*.ts",
+          "to": "guards"
+        },
+        {
+          "glob": "src/app/auth/guards/query-token.guard*.ts",
+          "to": "guards"
+        },
+        {
+          "glob": "src/admin/admin.guard.ts",
+          "to": "guards"
+        },
+        {
+          "glob": "src/admin/admin-throttler.guard.ts",
+          "to": "guards"
+        }
+      ],
+      "dependsOn": ["api-core", "api-email"]
+    },
+    {
+      "name": "api-licensing",
+      "lib": "libs/api/licensing",
+      "importPath": "@ptah-api/licensing",
+      "platform": "api",
+      "tags": "scope:api,type:feature",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/license/**/*.ts",
+          "to": "license"
+        },
+        {
+          "glob": "src/events/**/*.ts",
+          "to": "events"
+        },
+        {
+          "glob": "src/app/auth/auth.controller.ts",
+          "to": "auth-endpoints"
+        },
+        {
+          "glob": "src/app/auth/auth.module.ts",
+          "to": "auth-endpoints"
+        },
+        {
+          "glob": "src/app/auth/guards/admin-api-key.guard.spec.ts",
+          "to": "license/guards"
+        }
+      ],
+      "dependsOn": [
+        "api-core",
+        "api-identity",
+        "api-audit",
+        "api-email",
+        "api-marketing",
+        "api-community"
+      ]
+    },
+    {
+      "name": "api-community",
+      "lib": "libs/api/community",
+      "importPath": "@ptah-api/community",
+      "platform": "api",
+      "tags": "scope:api,type:feature",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/member-groups/**/*.ts",
+          "to": "member-groups"
+        },
+        {
+          "glob": "src/google-sessions/**/*.ts",
+          "to": "google-sessions"
+        },
+        {
+          "glob": "src/packs/**/*.ts",
+          "to": "packs"
+        },
+        {
+          "glob": "src/circle/**/*.ts",
+          "to": "circle"
+        }
+      ],
+      "dependsOn": ["api-core", "api-identity", "api-audit"]
+    },
+    {
+      "name": "api-marketing",
+      "lib": "libs/api/marketing",
+      "importPath": "@ptah-api/marketing",
+      "platform": "api",
+      "tags": "scope:api,type:feature",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/contact/**/*.ts",
+          "to": "contact"
+        },
+        {
+          "glob": "src/session/**/*.ts",
+          "to": "session"
+        },
+        {
+          "glob": "src/marketing/**/*.ts",
+          "to": "marketing"
+        },
+        {
+          "glob": "src/waitlist/**/*.ts",
+          "to": "waitlist"
+        }
+      ],
+      "dependsOn": ["api-core", "api-email", "api-identity", "api-audit"]
+    },
+    {
+      "name": "api-billing",
+      "lib": "libs/api/billing",
+      "importPath": "@ptah-api/billing",
+      "platform": "api",
+      "tags": "scope:api,type:feature",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/paddle/**/*.ts",
+          "to": "paddle"
+        },
+        {
+          "glob": "src/subscription/**/*.ts",
+          "to": "subscription"
+        },
+        {
+          "glob": "src/testing/fixtures/paddle/*.ts",
+          "to": "fixtures/paddle",
+          "entryPoint": "testing"
+        },
+        {
+          "glob": "src/testing/fixtures/paddle/*.json",
+          "to": "fixtures/paddle",
+          "entryPoint": "testing",
+          "raw": true
+        },
+        {
+          "glob": "src/testing/testcontainers/*.ts",
+          "to": "testcontainers",
+          "entryPoint": "testing"
+        }
+      ],
+      "dependsOn": [
+        "api-core",
+        "api-identity",
+        "api-email",
+        "api-marketing",
+        "api-community",
+        "api-licensing"
+      ]
+    },
+    {
+      "name": "api-admin",
+      "lib": "libs/api/admin",
+      "importPath": "@ptah-api/admin",
+      "platform": "api",
+      "tags": "scope:api,type:feature",
+      "app": "apps/ptah-license-server",
+      "sources": [
+        {
+          "glob": "src/admin/*.controller.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/admin/admin.*.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/admin/admin-models.config.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/admin/dto/**/*.ts",
+          "to": "dto"
+        }
+      ],
+      "dependsOn": [
+        "api-core",
+        "api-identity",
+        "api-audit",
+        "api-email",
+        "api-community",
+        "api-marketing",
+        "api-licensing"
+      ]
+    }
+  ]
+}

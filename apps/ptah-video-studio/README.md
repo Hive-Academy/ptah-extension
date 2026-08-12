@@ -27,11 +27,9 @@ The capture step cannot run in CI because it requires:
 - the live authenticated Electron app,
 - a running local Docker backend.
 
-The render step cannot run on Windows dev machines because Windows Smart App
-Control (SAC) blocks Remotion's unsigned compositor DLLs at load time
-(Win32 error 4551 on `swscale-8.dll`). Disabling SAC is permanent and
-requires a factory reset to re-enable, so we render on CI (Linux) or any
-machine without SAC (e.g. a Linux workstation, WSL, macOS).
+Local rendering on this Windows machine **works** — see "Rendering on Windows"
+below. The CI round-trip is a fallback for machines that still have Smart App
+Control enabled, not the default path.
 
 ---
 
@@ -395,20 +393,33 @@ fast (mtime-gated skip logic in narrate.mjs and caption.mjs).
 
 ---
 
-## Why we cannot render on the Windows dev machine
+## Rendering on Windows
 
-Windows 11 Smart App Control (SAC) blocks any unsigned binary at load time.
-Remotion's native compositor ships pre-built Windows DLLs
-(`@remotion/compositor-win32-x64-msvc`) that are not signed with a
-Microsoft-recognized certificate. When Node loads the compositor,
-Windows raises Win32 error 4551 (ERROR_UNKNOWN_REVISION) and the process
-exits.
+**This works today. Render locally.**
 
-Disabling SAC requires putting Windows into "evaluation mode" and then
-re-enabling it — there is no toggle. A factory reset is required to revert.
-This is not acceptable for a developer machine, so we render on Linux CI
-where this restriction does not apply.
+Earlier revisions of this file said rendering was impossible here and routed
+you through a two-workflow GitHub Actions round-trip. That is no longer true
+and following it wastes a lot of time for no benefit.
 
-There is no workaround on the capture side: the capture itself runs fine on
-Windows (Playwright + Electron work). Only the `remotion render` step is
-affected.
+The original blocker was real: Windows 11 Smart App Control (SAC) blocks
+unsigned binaries at load time, and Remotion's native compositor
+(`@remotion/compositor-win32-x64-msvc`) ships pre-built DLLs without a
+Microsoft-recognised signature, so Node hit Win32 error 4551
+(`ERROR_UNKNOWN_REVISION`) on `swscale-8.dll` and died.
+
+SAC has since been disabled on this machine, so the restriction is gone.
+`ROADMAP.md` recorded that; this file did not, and the two contradicted each
+other for a while. The evidence is on disk: two dozen rendered mp4s under
+`dist/apps/ptah-electron-e2e/recordings/*/out/`.
+
+```bash
+# capture-free promo — no Playwright, no Electron, no Docker
+node apps/ptah-video-studio/scripts/render-promo.mjs --promo <slug>
+
+# free local voice for a draft (see narrate.mjs engines)
+node apps/ptah-video-studio/scripts/render-promo.mjs --promo <slug> --engine kokoro
+```
+
+Use CI only if you are on a machine where SAC is still on. Capture was never
+affected either way — Playwright and Electron run fine on Windows; only
+`remotion render` ever was.

@@ -39,12 +39,12 @@ import type { ExecutionNode } from '@ptah-extension/shared';
         aria-hidden="true"
       />
       <div class="flex flex-col min-w-0 flex-1">
-        <span class="text-xs font-semibold text-base-content/80">
+        <span class="text-xs font-semibold text-base-content-muted">
           Workflow launched
         </span>
         @if (workflowName(); as name) {
           <span
-            class="text-[11px] text-base-content/50 truncate"
+            class="text-[11px] text-base-content-muted truncate"
             [title]="name"
           >
             {{ name }}

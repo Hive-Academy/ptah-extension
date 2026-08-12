@@ -8,6 +8,8 @@ import {
   effect,
   untracked,
   ElementRef,
+  NgZone,
+  OnDestroy,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -39,6 +41,7 @@ import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
+import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
@@ -114,11 +117,12 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [TranscriptRetentionService, PanelResizeService],
 })
-export class ChatViewComponent {
+export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -144,6 +148,7 @@ export class ChatViewComponent {
   private readonly _compactionLifecycle = inject(CompactionLifecycleService);
   protected readonly suppressAnimateOnce =
     this._compactionLifecycle.suppressAnimateOnce;
+  private readonly sessionLoader = inject(SessionLoaderService);
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
@@ -298,17 +303,45 @@ export class ChatViewComponent {
 
   private resizeHandleEl: HTMLElement | null = null;
   private resizePointerId: number | null = null;
+  private _resizeFrame: number | null = null;
+  private _latestResizeEvent: PointerEvent | null = null;
+  private _startWidth: number | null = null;
+  private _hostRight: number | null = null;
 
   private readonly onResizeMove = (event: PointerEvent): void => {
     if (event.pointerId !== this.resizePointerId) return;
-    const host = this.hostEl.nativeElement;
-    const newWidth = host.getBoundingClientRect().right - event.clientX;
-    this.panelResizeService.setCustomWidth(newWidth, host.clientWidth);
+    this._latestResizeEvent = event;
+    if (this._resizeFrame === null) {
+      this._resizeFrame = requestAnimationFrame(this._applyResize);
+    }
+  };
+
+  private readonly _applyResize = (): void => {
+    this._resizeFrame = null;
+    const event = this._latestResizeEvent;
+    this._latestResizeEvent = null;
+    if (!event || this._hostRight === null) return;
+    const newWidth = this._hostRight - event.clientX;
+    this.ngZone.run(() =>
+      this.panelResizeService.setCustomWidth(
+        newWidth,
+        this.hostEl.nativeElement.clientWidth,
+      ),
+    );
   };
 
   private readonly onResizeEnd = (event: PointerEvent): void => {
     if (event.pointerId !== this.resizePointerId) return;
-    this.endResize();
+    this._endResize(false);
+  };
+
+  private readonly _onBlur = (): void => this._endResize(true);
+
+  private readonly _onKeydown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this._endResize(true);
+    }
   };
 
   /**
@@ -327,12 +360,21 @@ export class ChatViewComponent {
     const handle = event.currentTarget as HTMLElement;
     this.resizeHandleEl = handle;
     this.resizePointerId = event.pointerId;
+    this._startWidth = this.panelResizeService.customWidth();
+    this._hostRight = this.hostEl.nativeElement.getBoundingClientRect().right;
+
     handle.setPointerCapture(event.pointerId);
-    handle.addEventListener('pointermove', this.onResizeMove);
-    handle.addEventListener('pointerup', this.onResizeEnd);
-    handle.addEventListener('pointercancel', this.onResizeEnd);
-    // Fires if the handle is torn out of the DOM mid-drag (panel auto-closes).
-    handle.addEventListener('lostpointercapture', this.onResizeEnd);
+
+    this.ngZone.runOutsideAngular(() => {
+      handle.addEventListener('pointermove', this.onResizeMove);
+      handle.addEventListener('pointerup', this.onResizeEnd);
+      handle.addEventListener('pointercancel', this.onResizeEnd);
+      // Fires if the handle is torn out of the DOM mid-drag (panel auto-closes).
+      handle.addEventListener('lostpointercapture', this.onResizeEnd);
+      window.addEventListener('blur', this._onBlur);
+      document.addEventListener('keydown', this._onKeydown);
+    });
+
     this.panelResizeService.setDragging(true);
   }
 
@@ -341,11 +383,39 @@ export class ChatViewComponent {
     this.panelResizeService.resetWidth();
   }
 
+  ngOnDestroy(): void {
+    this._cancelResizeFrame();
+    this._cleanupResizeListeners();
+  }
+
   private endResize(): void {
+    this._endResize(false);
+  }
+
+  private _endResize(cancel: boolean): void {
+    const startWidth = this._startWidth;
+    this._cancelResizeFrame();
+    if (cancel && startWidth !== null) {
+      this.ngZone.run(() =>
+        this.panelResizeService.setCustomWidth(
+          startWidth,
+          this.hostEl.nativeElement.clientWidth,
+        ),
+      );
+    } else {
+      this._applyResize();
+    }
+    this._cleanupResizeListeners();
+  }
+
+  private _cleanupResizeListeners(): void {
     const handle = this.resizeHandleEl;
     const pointerId = this.resizePointerId;
     this.resizeHandleEl = null;
     this.resizePointerId = null;
+    this._latestResizeEvent = null;
+    this._startWidth = null;
+    this._hostRight = null;
     if (handle) {
       handle.removeEventListener('pointermove', this.onResizeMove);
       handle.removeEventListener('pointerup', this.onResizeEnd);
@@ -355,7 +425,16 @@ export class ChatViewComponent {
         handle.releasePointerCapture(pointerId);
       }
     }
-    this.panelResizeService.setDragging(false);
+    window.removeEventListener('blur', this._onBlur);
+    document.removeEventListener('keydown', this._onKeydown);
+    this.ngZone.run(() => this.panelResizeService.setDragging(false));
+  }
+
+  private _cancelResizeFrame(): void {
+    if (this._resizeFrame !== null) {
+      cancelAnimationFrame(this._resizeFrame);
+      this._resizeFrame = null;
+    }
   }
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
@@ -653,6 +732,27 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Hydrate this surface's CLI agent cards from persisted metadata. Each
+    // surface asks for its OWN session — a canvas tile is rarely the active
+    // tab, and the bootstrap-time active-tab restore only ever covered one of
+    // them, so agents spawned in a prior run never came back on the others.
+    // SessionLoaderService dedupes per session, so the extra calls from the
+    // main panel and sibling tiles cost nothing.
+    effect(() => {
+      const sessionId = this.resolvedSessionId();
+      if (!sessionId) return;
+      untracked(() => {
+        this.sessionLoader
+          .restoreCliSessionsForSession(sessionId)
+          .catch((err) => {
+            console.warn(
+              '[ChatView] Failed to restore CLI sessions for surface:',
+              err,
+            );
+          });
+      });
+    });
+
     // Force the embedded agent panel open when a deep-tree caller (the
     // "Workflow launched" chip) requests it via AgentMonitorStore. The store's
     // monotonic counter re-triggers even after the user manually closed the

@@ -10,8 +10,11 @@ import type {
   SkillSuggestionSummary,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
+  SkillSynthesisApplyProposalResult,
   SkillSynthesisEnhanceNowResult,
   SkillSynthesisGetCloneResult,
+  SkillSynthesisGetHistoryBodyResult,
+  SkillSynthesisPreviewEnhancementResult,
   SkillSynthesisInvocationEntry,
   SkillSynthesisKeepCloneResult,
   SkillSynthesisListCandidatesParams,
@@ -322,6 +325,61 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to enhance clone');
+  }
+
+  /**
+   * Dry-run an enhancement: generate + judge a candidate rewrite WITHOUT
+   * writing it. The returned `proposalId` is the handle
+   * {@link applyProposal} commits, so Apply never re-runs the model and never
+   * writes a body the user did not see in the diff.
+   */
+  public async previewEnhancement(
+    kind: SkillCloneKind,
+    slug: string,
+  ): Promise<SkillSynthesisPreviewEnhancementResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:previewEnhancement',
+      { kind, slug },
+      { timeout: SKILL_RPC_TIMEOUTS.ENHANCE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to preview enhancement');
+  }
+
+  /** Commit a previewed proposal to disk. */
+  public async applyProposal(
+    kind: SkillCloneKind,
+    slug: string,
+    proposalId: string,
+  ): Promise<SkillSynthesisApplyProposalResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:applyProposal',
+      { kind, slug, proposalId },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to apply enhancement proposal');
+  }
+
+  /** Fetch one history snapshot's body so it can be diffed before reverting. */
+  public async getHistoryBody(
+    kind: SkillCloneKind,
+    slug: string,
+    ts: string,
+  ): Promise<SkillSynthesisGetHistoryBodyResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getHistoryBody',
+      { kind, slug, ts },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to load history snapshot');
   }
 
   /** Revert an enhancement to a prior history snapshot. */

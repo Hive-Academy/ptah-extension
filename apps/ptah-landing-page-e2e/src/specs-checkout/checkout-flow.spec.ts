@@ -7,7 +7,7 @@ const CTA = { name: /Join Ptah Builders/i };
 /**
  * Handoff §3.2 (checkout completes → /profile) and §3.3 (duplicate-subscription
  * block). Both use an authenticated community user (`communityPage`) so the real
- * backend resolves auth (`/api/auth/me`, `/licenses/me`) and the CTA renders as
+ * backend resolves auth (`/api/v1/auth/me`, `/licenses/me`) and the CTA renders as
  * the "join" checkout button. The Paddle SDK + the subscription endpoints are
  * stubbed (§8.4 — never drive the real cross-origin overlay).
  */

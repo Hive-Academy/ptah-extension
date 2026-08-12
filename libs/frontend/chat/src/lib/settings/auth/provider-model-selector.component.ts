@@ -88,7 +88,7 @@ const TIER_CONFIGS: TierConfig[] = [
       <div class="flex items-center justify-between">
         <div>
           <h4 class="text-sm font-medium text-base-content">Model Mapping</h4>
-          <p class="text-xs text-base-content/60 mt-0.5">
+          <p class="text-xs text-base-content-muted mt-0.5">
             Override default Anthropic model aliases with provider models
           </p>
         </div>
@@ -108,7 +108,7 @@ const TIER_CONFIGS: TierConfig[] = [
 
       <!-- No Key State -->
       @if (!hasKey()) {
-        <div class="text-xs text-base-content/50 text-center py-4">
+        <div class="text-xs text-base-content-muted text-center py-4">
           Configure your provider API key above to see available models.
         </div>
       }
@@ -117,7 +117,7 @@ const TIER_CONFIGS: TierConfig[] = [
       @if (hasKey() && isLoading() && availableModels().length === 0) {
         <div class="flex items-center justify-center gap-2 py-8">
           <span class="loading loading-spinner loading-sm"></span>
-          <span class="text-sm text-base-content/60">Loading models...</span>
+          <span class="text-sm text-base-content-muted">Loading models...</span>
         </div>
       }
 
@@ -141,7 +141,7 @@ const TIER_CONFIGS: TierConfig[] = [
                   <span class="text-sm font-medium text-base-content">
                     {{ tierConfig.label }}
                   </span>
-                  <span class="text-xs text-base-content/50 ml-2">
+                  <span class="text-xs text-base-content-muted ml-2">
                     {{ tierConfig.description }}
                   </span>
                 </div>
@@ -178,7 +178,7 @@ const TIER_CONFIGS: TierConfig[] = [
                   }
                 </div>
               } @else {
-                <div class="text-xs text-base-content/50 mb-2">
+                <div class="text-xs text-base-content-muted mb-2">
                   Using default Anthropic {{ tierConfig.label }}
                 </div>
               }
@@ -247,14 +247,14 @@ const TIER_CONFIGS: TierConfig[] = [
                     <lucide-angular [img]="XIcon" class="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <div class="text-[10px] text-base-content/50 mt-1 pl-0.5">
+                <div class="text-[10px] text-base-content-muted mt-1 pl-0.5">
                   Enter any model ID supported by this provider
                 </div>
               } @else {
                 <!-- Toggle to show custom input -->
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs gap-1 mt-1.5 text-base-content/40 hover:text-base-content"
+                  class="btn btn-ghost btn-xs gap-1 mt-1.5 text-base-content-muted hover:text-base-content"
                   (click)="openCustomInput(tierConfig.tier)"
                   [attr.aria-label]="
                     'Enter custom model ID for ' + tierConfig.label
@@ -271,7 +271,7 @@ const TIER_CONFIGS: TierConfig[] = [
 
       <!-- Model count footer -->
       @if (hasKey() && availableModels().length > 0) {
-        <div class="text-xs text-base-content/50 text-center">
+        <div class="text-xs text-base-content-muted text-center">
           {{ availableModels().length }} models available •
           {{ toolUseModelsCount() }} support tool use
         </div>
@@ -283,7 +283,7 @@ const TIER_CONFIGS: TierConfig[] = [
       <div class="flex items-center gap-2 py-1">
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium truncate">{{ model.name }}</div>
-          <div class="text-xs text-base-content/60 font-mono truncate">
+          <div class="text-xs text-base-content-muted font-mono truncate">
             {{ model.id }}
           </div>
         </div>

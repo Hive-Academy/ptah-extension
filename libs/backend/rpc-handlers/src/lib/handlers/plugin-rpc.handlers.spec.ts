@@ -20,8 +20,12 @@
  *     `{ enabledPluginIds, disabledSkillIds }` shape without mutation.
  *
  *   - `plugins:save-config`:
- *       - Validates `enabledPluginIds` against the known-plugin registry —
- *         unknown IDs are silently dropped, not errored.
+ *       - Validates `enabledPluginIds` against the known-plugin registry
+ *         (bundled catalogue + discovered `ptah-harness-*` dirs) — unknown IDs
+ *         are silently dropped, not errored.
+ *       - `disabledPluginIds` is the opt-out denylist for harness plugins:
+ *         validated against the same registry, and `undefined` means "preserve
+ *         what is persisted" for clients that never send it.
  *       - Deduplicates IDs via `new Set(...)` so round-tripped payloads don't
  *         bloat the saved config.
  *       - Back-compat: when `disabledSkillIds` is undefined (TUI clients),
@@ -84,6 +88,8 @@ type MockPluginLoader = jest.Mocked<
     | 'getWorkspacePluginConfig'
     | 'saveWorkspacePluginConfig'
     | 'resolvePluginPaths'
+    | 'resolveCurrentPluginPaths'
+    | 'discoverHarnessPluginPaths'
     | 'discoverSkillsForPlugins'
   >
 >;
@@ -93,6 +99,14 @@ function createMockPluginLoader(
     availablePlugins?: PluginInfo[];
     workspaceConfig?: PluginConfigState;
     resolvedPaths?: string[];
+    /**
+     * What the junction-feeding resolver returns. Defaults to `resolvedPaths`
+     * so bundled-only setups behave exactly as before; set it explicitly to
+     * model harness-authored ptah-harness-* dirs being appended.
+     */
+    junctionPaths?: string[];
+    /** Harness dirs on disk, as `discoverHarnessPluginPaths()` reports them. */
+    harnessPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
   } = {},
 ): MockPluginLoader {
@@ -104,6 +118,7 @@ function createMockPluginLoader(
       overrides.workspaceConfig ?? {
         enabledPluginIds: [],
         disabledSkillIds: [],
+        disabledPluginIds: [],
         lastUpdated: 0,
       },
     ),
@@ -111,6 +126,14 @@ function createMockPluginLoader(
     resolvePluginPaths: jest
       .fn()
       .mockReturnValue(overrides.resolvedPaths ?? []),
+    resolveCurrentPluginPaths: jest
+      .fn()
+      .mockReturnValue(
+        overrides.junctionPaths ?? overrides.resolvedPaths ?? [],
+      ),
+    discoverHarnessPluginPaths: jest
+      .fn()
+      .mockReturnValue(overrides.harnessPaths ?? []),
     discoverSkillsForPlugins: jest
       .fn()
       .mockReturnValue(overrides.discoveredSkills ?? []),
@@ -148,6 +171,22 @@ function makePluginInfo(id: string, name = id): PluginInfo {
     skillCount: 0,
     commandCount: 0,
     keywords: [],
+    source: 'bundled',
+  } as unknown as PluginInfo;
+}
+
+/** A discovered, user-authored `ptah-harness-*` plugin (opt-out semantics). */
+function makeHarnessPluginInfo(id: string, name = id): PluginInfo {
+  return {
+    id,
+    name,
+    description: `desc for ${id}`,
+    category: 'harness-tools',
+    skillCount: 1,
+    commandCount: 0,
+    isDefault: false,
+    keywords: [],
+    source: 'harness',
   } as unknown as PluginInfo;
 }
 
@@ -179,6 +218,8 @@ function makeHarness(
     availablePlugins?: PluginInfo[];
     workspaceConfig?: PluginConfigState;
     resolvedPaths?: string[];
+    junctionPaths?: string[];
+    harnessPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
   } = {},
 ): Harness {
@@ -431,6 +472,211 @@ describe('PluginRpcHandlers', () => {
       );
     });
 
+    it('feeds junctions from the harness-inclusive resolver, not the bundled-only one', async () => {
+      // Regression: junctions used to be created from the bundled-only
+      // resolvePluginPaths() result, so SkillJunctionService.removeStaleJunctions
+      // deleted every harness-authored junction on any marketplace toggle.
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+        resolvedPaths: ['/plugins/alpha'],
+        junctionPaths: [
+          '/plugins/alpha',
+          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+        ],
+        discoveredSkills: [],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: [],
+      });
+
+      expect(h.pluginLoader.resolveCurrentPluginPaths).toHaveBeenCalled();
+      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
+        ['/plugins/alpha', '/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        [],
+      );
+    });
+
+    it('keeps harness junctions alive when the user disables every plugin', async () => {
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+        resolvedPaths: [],
+        junctionPaths: ['/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        discoveredSkills: [],
+      });
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:save-config', {
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
+        ['/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        [],
+      );
+    });
+
+    it('validates disabled skill IDs against the enabled bundled paths when no harness dirs exist', async () => {
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+        resolvedPaths: ['/plugins/alpha'],
+        junctionPaths: ['/plugins/alpha'],
+        discoveredSkills: [makeSkillEntry('real-skill', 'alpha')],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: ['real-skill'],
+      });
+
+      expect(h.pluginLoader.discoverSkillsForPlugins).toHaveBeenCalledWith([
+        '/plugins/alpha',
+      ]);
+    });
+
+    it('widens the skill-ID scope to harness dirs so a harness skill can be disabled', async () => {
+      // Harness plugins are opt-out, so they are absent from enabledPluginIds
+      // and therefore from resolvePluginPaths(). Scoping skill validation to
+      // that result alone would drop every harness skill ID as "unknown" and
+      // silently break the per-skill toggle for user-authored skills.
+      const harnessDir = '/home/user/.ptah/plugins/ptah-harness-demo-skill';
+      const h = makeHarness({
+        availablePlugins: [
+          makePluginInfo('alpha'),
+          makeHarnessPluginInfo('ptah-harness-demo-skill'),
+        ],
+        resolvedPaths: ['/plugins/alpha'],
+        harnessPaths: [harnessDir],
+        junctionPaths: ['/plugins/alpha', harnessDir],
+        discoveredSkills: [
+          makeSkillEntry('real-skill', 'alpha'),
+          makeSkillEntry('demo-skill', 'ptah-harness-demo-skill'),
+        ],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: ['demo-skill'],
+      });
+
+      expect(h.pluginLoader.discoverSkillsForPlugins).toHaveBeenCalledWith([
+        '/plugins/alpha',
+        harnessDir,
+      ]);
+      const [savedConfig] =
+        h.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(savedConfig.disabledSkillIds).toEqual(['demo-skill']);
+    });
+
+    it('keeps a harness plugin ID in enabledPluginIds instead of dropping it', async () => {
+      // Regression: knownPluginIds came from a bundled-only registry, so
+      // save-config returned success and persisted nothing for a harness ID.
+      const h = makeHarness({
+        availablePlugins: [
+          makePluginInfo('alpha'),
+          makeHarnessPluginInfo('ptah-harness-foo'),
+        ],
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'plugins:save-config',
+        {
+          enabledPluginIds: ['alpha', 'ptah-harness-foo'],
+          disabledSkillIds: [],
+        },
+      );
+
+      expect(result.success).toBe(true);
+      const [savedConfig] =
+        h.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(savedConfig.enabledPluginIds).toEqual([
+        'alpha',
+        'ptah-harness-foo',
+      ]);
+    });
+
+    it('persists disabledPluginIds for an unchecked harness plugin', async () => {
+      const h = makeHarness({
+        availablePlugins: [
+          makePluginInfo('alpha'),
+          makeHarnessPluginInfo('ptah-harness-foo'),
+        ],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: [],
+        disabledPluginIds: ['ptah-harness-foo'],
+      });
+
+      const [savedConfig] =
+        h.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(savedConfig.disabledPluginIds).toEqual(['ptah-harness-foo']);
+    });
+
+    it('rejects an unknown ID in disabledPluginIds', async () => {
+      const h = makeHarness({
+        availablePlugins: [makeHarnessPluginInfo('ptah-harness-foo')],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+        disabledPluginIds: ['ptah-harness-foo', 'ptah-harness-ghost', 42],
+      });
+
+      const [savedConfig] =
+        h.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(savedConfig.disabledPluginIds).toEqual(['ptah-harness-foo']);
+    });
+
+    it('forwards disabledPluginIds as undefined when the caller omits it (TUI/CLI back-compat)', async () => {
+      // undefined is the "preserve what is persisted" signal — sending [] here
+      // would silently re-enable every plugin the user had turned off.
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: [],
+      });
+
+      const [savedConfig] =
+        h.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(savedConfig.disabledPluginIds).toBeUndefined();
+    });
+
+    it('still drops a genuinely unknown harness-prefixed ID', async () => {
+      const h = makeHarness({
+        availablePlugins: [
+          makePluginInfo('alpha'),
+          makeHarnessPluginInfo('ptah-harness-foo'),
+        ],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha', 'ptah-harness-ghost', 'totally-unknown'],
+        disabledSkillIds: [],
+      });
+
+      const [savedConfig] =
+        h.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(savedConfig.enabledPluginIds).toEqual(['alpha']);
+    });
+
     it('returns a structured error shape (not a throw) when the loader throws', async () => {
       const h = makeHarness({
         availablePlugins: [makePluginInfo('alpha')],
@@ -498,6 +744,37 @@ describe('PluginRpcHandlers', () => {
         'alpha',
         'beta',
       ]);
+    });
+
+    it('forwards harness plugin IDs to the resolver so their skills are listed', async () => {
+      // The modal calls this with every ID from plugins:list-available, which
+      // now includes ptah-harness-*. Those IDs must reach resolvePluginPaths
+      // intact or harness skills never render a per-skill checkbox.
+      const h = makeHarness({
+        resolvedPaths: [
+          '/plugins/alpha',
+          '/home/user/.ptah/plugins/ptah-harness-foo',
+        ],
+        discoveredSkills: [
+          makeSkillEntry('s1', 'alpha'),
+          makeSkillEntry('demo-skill', 'ptah-harness-foo'),
+        ],
+      });
+      h.handlers.register();
+
+      const result = await call<{ skills: PluginSkillEntry[] }>(
+        h,
+        'plugins:list-skills',
+        { pluginIds: ['alpha', 'ptah-harness-foo'] },
+      );
+
+      expect(h.pluginLoader.resolvePluginPaths).toHaveBeenCalledWith([
+        'alpha',
+        'ptah-harness-foo',
+      ]);
+      expect(result.skills.map((s) => s.pluginId)).toContain(
+        'ptah-harness-foo',
+      );
     });
 
     it('returns { skills: [] } when pluginIds is missing entirely', async () => {

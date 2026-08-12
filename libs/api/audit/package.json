@@ -1,0 +1,6 @@
+{
+  "name": "@ptah-api/audit",
+  "version": "0.0.1",
+  "private": true,
+  "sideEffects": false
+}

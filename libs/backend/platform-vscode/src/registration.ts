@@ -11,6 +11,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 import { VscodeFileSystemProvider } from './implementations/vscode-file-system-provider';
+import { VscodeFileDialog } from './implementations/vscode-file-dialog';
 import { VscodeStateStorage } from './implementations/vscode-state-storage';
 import { VscodeDiskStateStorage } from './implementations/vscode-disk-state-storage';
 import { VscodeSecretStorage } from './implementations/vscode-secret-storage';
@@ -54,6 +55,9 @@ export function registerPlatformVscodeServices(
   container.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: platformInfo });
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new VscodeFileSystemProvider(),
+  });
+  container.register(PLATFORM_TOKENS.FILE_DIALOG, {
+    useValue: new VscodeFileDialog(),
   });
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new VscodeStateStorage(context.globalState),

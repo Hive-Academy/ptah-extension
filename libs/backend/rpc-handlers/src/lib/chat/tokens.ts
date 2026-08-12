@@ -14,4 +14,5 @@ export const CHAT_TOKENS = {
   STREAM_BROADCASTER: Symbol.for('ChatStreamBroadcaster'),
   SUBAGENT_CONTEXT_INJECTOR: Symbol.for('ChatSubagentContextInjectorService'),
   SLASH_COMMAND_ROUTER: Symbol.for('ChatSlashCommandRouterService'),
+  OUTPUT_STYLE_ACTIVATION: Symbol.for('ChatOutputStyleActivationService'),
 } as const;

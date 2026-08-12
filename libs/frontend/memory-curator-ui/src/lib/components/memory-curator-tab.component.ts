@@ -78,11 +78,11 @@ const SEARCH_DEBOUNCE_MS = 300;
       >
         <lucide-angular
           [img]="BrainIcon"
-          class="size-8 text-base-content/30"
+          class="size-8 text-base-content-muted"
           aria-hidden="true"
         />
         <p class="text-sm font-medium">Memory lives in the desktop app</p>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Memory curation needs the local index and runs only in Ptah desktop.
         </p>
         <a
@@ -108,7 +108,7 @@ const SEARCH_DEBOUNCE_MS = 300;
             </span>
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Memory</h1>
-              <p class="mt-0.5 text-sm text-base-content/60">
+              <p class="mt-0.5 text-sm text-base-content-muted">
                 Facts, events, and code Thoth has learned across sessions.
               </p>
             </div>
@@ -201,7 +201,7 @@ const SEARCH_DEBOUNCE_MS = 300;
               />
 
               <section class="space-y-2">
-                <h2 class="text-sm font-medium text-base-content/80">
+                <h2 class="text-sm font-medium text-base-content-muted">
                   Advanced indexing
                 </h2>
                 <ptah-workspace-indexing />
@@ -214,7 +214,7 @@ const SEARCH_DEBOUNCE_MS = 300;
                 class="space-y-2"
                 data-testid="memory-diagnostics-details"
               >
-                <h2 class="text-sm font-medium text-base-content/80">
+                <h2 class="text-sm font-medium text-base-content-muted">
                   Diagnostics
                 </h2>
                 <ptah-memory-diagnostics-accordion />

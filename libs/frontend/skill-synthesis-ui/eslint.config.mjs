@@ -41,6 +41,35 @@ export default [
     },
   },
   {
+    // The Skills tab must never inherit the Monaco / xterm bundle. The ONLY
+    // legal route to `@ptah-extension/editor` is the runtime `import()` inside
+    // `lazy-diff-view.component.ts`; a static import anywhere else silently
+    // defeats that boundary, so it is a lint error rather than a convention.
+    files: ['**/*.ts'],
+    ignores: ['**/lazy-diff-view.component.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@ptah-extension/editor',
+              message:
+                'Static import of @ptah-extension/editor pulls Monaco/xterm into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@ptah-extension/editor/*'],
+              message:
+                'Static import of @ptah-extension/editor pulls Monaco/xterm into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.html'],
     plugins: {
       '@angular-eslint/template': angularTemplate,

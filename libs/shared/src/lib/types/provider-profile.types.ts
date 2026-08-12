@@ -1,19 +1,25 @@
-import { z } from 'zod';
+/**
+ * Provider profile — the resolved per-session auth/model bundle handed to the
+ * agent SDK. The matching `ProviderProfileSchema` lives in
+ * `provider-profile.schemas.ts` so this type carries no `zod` dependency.
+ */
 
-export const ProviderProfileSchema = z.object({
-  providerId: z.string().min(1),
-  authEnv: z.object({
-    ANTHROPIC_API_KEY: z.string().optional(),
-    ANTHROPIC_BASE_URL: z.string().optional(),
-    ANTHROPIC_AUTH_TOKEN: z.string().optional(),
-    ANTHROPIC_DEFAULT_SONNET_MODEL: z.string().optional(),
-    ANTHROPIC_DEFAULT_OPUS_MODEL: z.string().optional(),
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: z.string().optional(),
-  }),
-  model: z.string().min(1),
-  baseUrl: z.string().optional(),
-  cliJsPath: z.string().optional(),
-  defaultMaxTokens: z.number().int().positive().optional(),
-});
+/** Anthropic-shaped auth environment carried by a {@link ProviderProfile}. */
+export interface ProviderProfileAuthEnv {
+  ANTHROPIC_API_KEY?: string | undefined;
+  ANTHROPIC_BASE_URL?: string | undefined;
+  ANTHROPIC_AUTH_TOKEN?: string | undefined;
+  ANTHROPIC_DEFAULT_SONNET_MODEL?: string | undefined;
+  ANTHROPIC_DEFAULT_OPUS_MODEL?: string | undefined;
+  ANTHROPIC_DEFAULT_HAIKU_MODEL?: string | undefined;
+}
 
-export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
+/** Resolved provider profile for a single session. */
+export interface ProviderProfile {
+  providerId: string;
+  authEnv: ProviderProfileAuthEnv;
+  model: string;
+  baseUrl?: string | undefined;
+  cliJsPath?: string | undefined;
+  defaultMaxTokens?: number | undefined;
+}

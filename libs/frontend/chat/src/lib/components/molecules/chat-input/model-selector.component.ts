@@ -83,7 +83,7 @@ import { SessionId } from '@ptah-extension/shared';
         <!-- Header -->
         <div class="px-2 py-1.5 border-b border-base-300">
           <span
-            class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wide"
+            class="text-[11px] font-semibold text-base-content-muted uppercase tracking-wide"
           >
             Select Model
           </span>
@@ -97,7 +97,7 @@ import { SessionId } from '@ptah-extension/shared';
             modelState.isPending() && effectiveAvailableModels().length === 0
           ) {
             <div
-              class="flex items-center gap-2 px-4 py-3 text-xs text-base-content/60"
+              class="flex items-center gap-2 px-4 py-3 text-xs text-base-content-muted"
             >
               <span class="loading loading-spinner loading-xs"></span>
               Loading models...
@@ -105,7 +105,7 @@ import { SessionId } from '@ptah-extension/shared';
           } @else if (
             modelState.isLoaded() && effectiveAvailableModels().length === 0
           ) {
-            <div class="px-4 py-3 text-xs text-base-content/60">
+            <div class="px-4 py-3 text-xs text-base-content-muted">
               No models available. Check your provider connection.
             </div>
           }
@@ -146,7 +146,7 @@ import { SessionId } from '@ptah-extension/shared';
                       {{ model.providerModelId }}
                     </span>
                   }
-                  <span class="text-[11px] mt-0.5 text-base-content/60">
+                  <span class="text-[11px] mt-0.5 text-base-content-muted">
                     {{ model.description }}
                   </span>
                 </div>

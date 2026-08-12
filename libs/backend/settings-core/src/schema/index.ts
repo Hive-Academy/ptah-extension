@@ -10,6 +10,7 @@ import {
   providerSelectedModelDef,
   providerReasoningEffortDef,
 } from './provider-schema';
+import { OUTPUT_STYLE_SELECTED_NAME_DEF } from './output-style-schema';
 import { SMITHERY_API_KEY_DEF } from './smithery-schema';
 
 /**
@@ -32,4 +33,5 @@ export const SETTINGS_SCHEMA: readonly any[] = Object.freeze([
   GATEWAY_DISCORD_TOKEN_DEF,
   GATEWAY_SLACK_TOKEN_DEF,
   SMITHERY_API_KEY_DEF,
+  OUTPUT_STYLE_SELECTED_NAME_DEF,
 ]);

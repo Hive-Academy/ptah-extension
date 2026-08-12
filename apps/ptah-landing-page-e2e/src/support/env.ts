@@ -6,7 +6,7 @@ export const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
 
 /**
  * Minimal `.env` parser — identical shape to the `loadEnv()` in
- * `scripts/discourse-e2e.mjs` so the e2e harness and the backend-contract
+ * `scripts/google-sessions-smoke.mjs` so the e2e harness and the backend-contract
  * scripts read secrets the same way (one source of truth for JWT_SECRET etc.).
  */
 export function loadEnv(): Record<string, string> {

@@ -41,6 +41,10 @@ import type { SessionRegistry } from './session-registry.service';
 import type { SessionStreamPump } from './session-stream-pump.service';
 import { PERMISSION_MODE_MAP } from './permission-mode-map';
 import type { SdkQueryRunner } from '../sdk-query-runner.service';
+import {
+  NoActivityWatchdog,
+  NO_ACTIVITY_TIMEOUT_MS,
+} from '../no-activity-watchdog';
 
 export class SessionQueryExecutor {
   constructor(
@@ -132,6 +136,65 @@ export class SessionQueryExecutor {
         `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
       );
     }
+    // No-stream-activity watchdog. Replaces the old stderr-pattern
+    // `onProviderError` abort: rather than guessing "stuck" from stderr text
+    // (brittle in both directions), we surface a stuck session when the SDK
+    // query produces no stream activity for the window. The watchdog is
+    // started/kicked/stopped by the StreamTransformer as it consumes the
+    // stream (kick on every event → reset), so a long-but-alive turn (long
+    // tool call, extended thinking, slow stream) never trips it. Declared
+    // before the try so the init-failure rollback can stop() it.
+    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    const providerBaseUrl =
+      effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
+    const providerModel = sessionConfig?.model ?? 'unknown';
+    const activityWatchdog = new NoActivityWatchdog(
+      NO_ACTIVITY_TIMEOUT_MS,
+      () => {
+        if (abortController.signal.aborted) {
+          return;
+        }
+        const seconds = Math.round(NO_ACTIVITY_TIMEOUT_MS / 1000);
+        this.logger.error(
+          `[SessionLifecycle] Session ${sessionId} produced no stream activity for ${seconds}s — ` +
+            `stopping the stuck session (baseUrl=${providerBaseUrl}, model=${providerModel})`,
+        );
+        // Invariant (session-lifecycle-abort / stream-closed-abort): resolve
+        // pending permissions BEFORE the abort tears down the CLI stream, so
+        // an in-flight can_use_tool cannot wedge the UI, and the CLI-internal
+        // "Stream closed" rejection stays benign teardown rather than a real
+        // error. Mirrors endSession()'s cleanup-first ordering.
+        try {
+          this.permissionHandler.cleanupPendingPermissions(rec.tabId);
+        } catch (cleanupErr) {
+          this.logger.warn(
+            '[SessionLifecycle] Failed to clean up pending permissions on no-activity timeout',
+            cleanupErr instanceof Error
+              ? cleanupErr
+              : new Error(String(cleanupErr)),
+          );
+        }
+        // Descriptive, non-"abort" wording on purpose: the StreamTransformer
+        // catch classifies messages containing "abort"/"cancel" as benign
+        // user aborts (debug-level, suppressed). A stuck-session timeout must
+        // surface to the UI as a real error instead.
+        try {
+          abortController.abort(
+            new Error(
+              `No stream activity for ${seconds}s — no response from provider ` +
+                `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                `The session appears stuck; stopping it. The provider may be ` +
+                `unreachable or overloaded — check configuration or retry.`,
+            ),
+          );
+        } catch (abortErr) {
+          this.logger.warn(
+            '[SessionLifecycle] Failed to abort on no-activity timeout',
+            abortErr instanceof Error ? abortErr : new Error(String(abortErr)),
+          );
+        }
+      },
+    );
     try {
       const queryFn = await this.moduleLoader.getQueryFunction();
       const userMessageStream = this.streamPump.createUserMessageStream(
@@ -160,7 +223,6 @@ export class SessionQueryExecutor {
               | 'default'
               | 'acceptEdits'
               | 'plan');
-      let providerErrorAborted = false;
       const queryOptions = await this.queryOptionsBuilder.build({
         userMessageStream,
         abortController,
@@ -182,34 +244,6 @@ export class SessionQueryExecutor {
         mcpServersOverride,
         initialUserQuery: initialUserQuery ?? initialPrompt?.content,
         authEnvOverride,
-        onProviderError: (stderrChunk: string) => {
-          if (providerErrorAborted || abortController.signal.aborted) return;
-          providerErrorAborted = true;
-          const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
-          const baseUrl =
-            effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
-          const model = sessionConfig?.model ?? 'unknown';
-          const summary = stderrChunk.slice(0, 500);
-          this.logger.error(
-            `[SessionLifecycle] Provider error detected on stderr — aborting session ${sessionId} ` +
-              `(baseUrl=${baseUrl}, model=${model}): ${summary}`,
-          );
-          try {
-            abortController.abort(
-              new Error(
-                `Provider returned an error (baseUrl="${baseUrl}", model="${model}"). ` +
-                  `Details: ${summary}`,
-              ),
-            );
-          } catch (abortErr) {
-            this.logger.warn(
-              '[SessionLifecycle] Failed to abort on provider error',
-              abortErr instanceof Error
-                ? abortErr
-                : new Error(String(abortErr)),
-            );
-          }
-        },
       });
       const isResume = !!resumeSessionId;
       let effectivePrompt: string | AsyncIterable<SDKUserMessage>;
@@ -265,12 +299,17 @@ export class SessionQueryExecutor {
         sdkQuery,
         initialModel,
         abortController,
+        activityWatchdog,
       };
     } catch (err) {
       if (rec) {
         this.registry.remove(rec);
       }
 
+      // The watchdog is only armed once StreamTransformer calls start(); it is
+      // never started on this init-failure path, but stop() defensively
+      // guarantees the timer can never fire after rollback.
+      activityWatchdog.stop();
       abortController.abort();
       this.logger.error(
         `[SessionLifecycle] Query init failed for session ${sessionId}; rolling back pre-registration`,

@@ -18,6 +18,7 @@ import {
   Star,
   ChevronDown,
   ChevronRight,
+  Wand2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { PluginInfo, PluginSkillEntry } from '@ptah-extension/shared';
@@ -33,12 +34,15 @@ interface CategoryGroup {
 }
 
 /** Ordered category definitions for display grouping.
- * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS */
+ * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS
+ * plus the dynamic `harness-tools` category the loader assigns to discovered
+ * `ptah-harness-*` directories. */
 const CATEGORY_LABELS: Record<PluginInfo['category'], string> = {
   'core-tools': 'Core Tools',
   'backend-tools': 'Backend Tools',
   'frontend-tools': 'Frontend Tools',
   'creative-tools': 'Creative Tools',
+  'harness-tools': 'Your Skills',
 };
 
 const CATEGORY_ORDER: PluginInfo['category'][] = [
@@ -46,7 +50,19 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
   'backend-tools',
   'frontend-tools',
   'creative-tools',
+  'harness-tools',
 ];
+
+/**
+ * True when the plugin was authored by the user through the harness wizard.
+ *
+ * Harness plugins are OPT-OUT: enabled the moment they exist on disk, disabled
+ * only by an explicit entry in `disabledPluginIds`. Bundled plugins (and any
+ * legacy payload with no `source`) are OPT-IN via `enabledPluginIds`.
+ */
+function isHarnessPlugin(plugin: PluginInfo): boolean {
+  return plugin.source === 'harness';
+}
 
 /**
  * PluginBrowserModalComponent - Modal dialog for browsing and configuring plugins
@@ -88,7 +104,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
             </div>
             <div>
               <span class="block font-bold text-lg">Configure Ptah Skills</span>
-              <span class="block text-sm text-base-content/60">
+              <span class="block text-sm text-base-content-muted">
                 Select plugins to enhance your AI sessions
               </span>
             </div>
@@ -111,7 +127,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                 class="loading loading-spinner loading-md text-primary"
               ></span>
             </div>
-            <span class="block text-sm text-base-content/60 text-center">
+            <span class="block text-sm text-base-content-muted text-center">
               Loading available plugins...
             </span>
           </div>
@@ -132,7 +148,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           <div class="relative mb-4">
             <lucide-angular
               [img]="SearchIcon"
-              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40"
+              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content-muted"
               aria-hidden="true"
             />
             <input
@@ -155,7 +171,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
               <div>
                 <!-- Category header -->
                 <span
-                  class="block text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+                  class="block text-xs font-semibold uppercase tracking-wider text-base-content-muted mb-2"
                 >
                   {{ group.label }}
                 </span>
@@ -201,9 +217,21 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                                 Recommended
                               </span>
                             }
+                            @if (plugin.source === 'harness') {
+                              <span
+                                class="badge badge-xs badge-secondary gap-1"
+                              >
+                                <lucide-angular
+                                  [img]="WandIcon"
+                                  class="w-2.5 h-2.5"
+                                  aria-hidden="true"
+                                />
+                                Yours
+                              </span>
+                            }
                           </div>
                           <span
-                            class="block text-xs text-base-content/60 mt-0.5 leading-relaxed"
+                            class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
                           >
                             {{ plugin.description }}
                           </span>
@@ -305,7 +333,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                                   >{{ skill.displayName }}</span
                                 >
                                 <span
-                                  class="text-xs text-base-content/50 truncate"
+                                  class="text-xs text-base-content-muted truncate"
                                   >{{ skill.description }}</span
                                 >
                               </label>
@@ -318,7 +346,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                 </div>
               </div>
             } @empty {
-              <div class="text-center py-6 text-base-content/50">
+              <div class="text-center py-6 text-base-content-muted">
                 <span class="block text-sm">
                   @if (searchQuery()) {
                     No plugins match your search.
@@ -332,11 +360,11 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
 
           <!-- Footer -->
           <div class="modal-action mt-4 pt-3 border-t border-base-300">
-            <span class="text-xs text-base-content/50 flex-1">
+            <span class="text-xs text-base-content-muted flex-1">
               {{ selectedIds().size }} of
               {{ availablePlugins().length }} selected
               @if (disabledSkillIds().size > 0) {
-                <span class="text-base-content/40">
+                <span class="text-base-content-muted">
                   &middot; {{ disabledSkillIds().size }} skill{{
                     disabledSkillIds().size !== 1 ? 's' : ''
                   }}
@@ -400,6 +428,7 @@ export class PluginBrowserModalComponent {
   protected readonly StarIcon = Star;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly WandIcon = Wand2;
 
   /** Controls modal visibility (from parent) */
   readonly isOpen = input(false);
@@ -589,18 +618,41 @@ export class PluginBrowserModalComponent {
   /**
    * Save the current plugin configuration via RPC.
    * Emits saved with enabled IDs, then closes modal.
+   *
+   * Harness plugins are opt-out, so an unchecked one cannot be expressed by
+   * simply leaving it out of `enabledPluginIds` — the backend would rediscover
+   * it and re-enable it. Every unchecked harness plugin is therefore sent
+   * explicitly in `disabledPluginIds`.
+   *
+   * The inverse also holds: a CHECKED harness plugin is deliberately kept OUT
+   * of `enabledPluginIds`. That list drives the user-layer mirror, and
+   * SkillJunctionService's flat skill map lets a mirrored copy win over the
+   * live plugin directory — mirroring a harness plugin would freeze its skills
+   * at mirror time and hide later wizard edits. Absence from the denylist is
+   * the whole "enabled" signal for harness plugins.
    */
   async saveConfiguration(): Promise<void> {
     this.isSaving.set(true);
     this.saveError.set(null);
 
     try {
-      const enabledPluginIds = Array.from(this.selectedIds());
+      const selected = this.selectedIds();
+      const harnessIds = new Set(
+        this.availablePlugins()
+          .filter(isHarnessPlugin)
+          .map((p) => p.id),
+      );
+      const enabledPluginIds = Array.from(selected).filter(
+        (id) => !harnessIds.has(id),
+      );
       const disabledSkillIds = Array.from(this.disabledSkillIds());
+      const disabledPluginIds = Array.from(harnessIds).filter(
+        (id) => !selected.has(id),
+      );
 
       const result = await this.rpcService.call(
         'plugins:save-config',
-        { enabledPluginIds, disabledSkillIds },
+        { enabledPluginIds, disabledSkillIds, disabledPluginIds },
         { timeout: 10000 },
       );
 
@@ -620,6 +672,38 @@ export class PluginBrowserModalComponent {
     } finally {
       this.isSaving.set(false);
     }
+  }
+
+  /**
+   * Translate the persisted config into the modal's checkbox state.
+   *
+   * The two activation models are collapsed into one `selectedIds` set here so
+   * the template stays a plain checked/unchecked render:
+   * - bundled (opt-in)  → checked when listed in `enabledPluginIds`
+   * - harness (opt-out) → checked unless listed in `disabledPluginIds`
+   */
+  private deriveSelection(
+    plugins: PluginInfo[],
+    enabledPluginIds: string[],
+    disabledPluginIds: string[],
+  ): Set<string> {
+    const enabled = new Set(enabledPluginIds);
+    const disabled = new Set(disabledPluginIds);
+
+    const selection = new Set(
+      enabledPluginIds.filter((id) => !disabled.has(id)),
+    );
+
+    for (const plugin of plugins) {
+      if (!isHarnessPlugin(plugin)) continue;
+      if (disabled.has(plugin.id)) {
+        selection.delete(plugin.id);
+      } else if (!enabled.has(plugin.id)) {
+        selection.add(plugin.id);
+      }
+    }
+
+    return selection;
   }
 
   /**
@@ -647,7 +731,11 @@ export class PluginBrowserModalComponent {
       }
 
       if (configResult.isSuccess() && configResult.data) {
-        this.selectedIds.set(new Set(configResult.data.enabledPluginIds));
+        this.selectedIds.set(
+          this.deriveSelection(plugins, configResult.data.enabledPluginIds, [
+            ...(configResult.data.disabledPluginIds ?? []),
+          ]),
+        );
         this.disabledSkillIds.set(
           new Set(configResult.data.disabledSkillIds ?? []),
         );

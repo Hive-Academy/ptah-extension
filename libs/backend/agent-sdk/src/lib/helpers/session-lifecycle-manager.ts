@@ -53,6 +53,7 @@ import { SessionQueryExecutor } from './session-lifecycle/session-query-executor
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
+import type { NoActivityWatchdog } from './no-activity-watchdog';
 export type { SDKUserMessage, ContentBlock };
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
@@ -243,6 +244,14 @@ export interface ExecuteQueryResult {
   initialModel: string;
   /** Abort controller for this session */
   abortController: AbortController;
+  /**
+   * No-stream-activity watchdog for this turn. The StreamTransformer must
+   * `start()` it before consuming the stream, `kick()` it on every SDK message
+   * (any event resets the inactivity window), and `stop()` it in a `finally`
+   * so it can neither leak nor fire after the turn ends. On timeout it resolves
+   * pending permissions and aborts `abortController` with a descriptive error.
+   */
+  activityWatchdog: NoActivityWatchdog;
 }
 
 /**

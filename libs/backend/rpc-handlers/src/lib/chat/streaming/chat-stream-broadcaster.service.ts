@@ -1,11 +1,10 @@
-/**
+﻿/**
  * Chat stream broadcaster.
  *
  * Owns the webview broadcast loop (`streamEventsToWebview`). Moves
  * byte-identically from `chat-rpc.handlers.ts`. The streaming lifecycle
  * preserves:
  *
- *   - `streamExitedNormally` cleanup gate.
  *   - `isUserAbort` substring match (`'aborted by user' | 'abort' | 'cancelled' | 'canceled'`).
  *   - `isCorruptedResume` cleanup path (`eventCount === 0 && !isUserAbort`).
  *   - Every `MESSAGE_TYPES.CHAT_*` payload shape.
@@ -63,13 +62,23 @@ export class ChatStreamBroadcaster {
 
   private readonly streamingSessionIds = new Set<string>();
 
+  /**
+   * True while a broadcast loop is attached to this id â€” the liveness signal
+   * that registry presence (`isSessionActive`) is NOT. Callers deciding
+   * "continue into the live session vs. resume it" must consult this, since a
+   * registered session whose loop has exited can no longer deliver events.
+   *
+   * Keyed by whatever `streamEventsToWebview` was called with: the tabId for a
+   * fresh `chat:start`, the real session UUID for a resume. Callers holding
+   * both should check both.
+   */
   isStreaming(sessionId: string): boolean {
     return this.streamingSessionIds.has(sessionId);
   }
 
   /**
    * Stream flat events to webview
-   * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
+   * Handles SDK AsyncIterable<FlatStreamEventUnion> â†’ webview messages.
    *
    * The webview rebuilds ExecutionNode trees at render time from these flat events.
    * Events include tabId for routing and sessionId (real SDK UUID) for storage.
@@ -130,7 +139,7 @@ export class ChatStreamBroadcaster {
             }
           } catch (err: unknown) {
             this.logger.warn(
-              '[RPC] Failed to save child session metadata — session may appear in sidebar',
+              '[RPC] Failed to save child session metadata â€” session may appear in sidebar',
               { error: err instanceof Error ? err.message : String(err) },
             );
           }
@@ -236,11 +245,32 @@ export class ChatStreamBroadcaster {
       this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
-      if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {
-        await this.sdkAdapter.endSession(sessionId);
-        this.logger.info(
-          `[RPC] Session ${sessionId} cleaned up after natural stream completion`,
-        );
+      // This loop is the session's ONLY consumer, so its exit â€” for any
+      // reason, not just the clean `for await` completion â€” leaves nothing
+      // reading the SDK query. Gating cleanup on `streamExitedNormally` left
+      // the registry record alive after a mid-stream throw (provider drop,
+      // transport close), and `isSessionActive` (registry presence) then
+      // reported that corpse as active: the next `chat:continue` skipped
+      // auto-resume and pushed the user's message onto a queue nobody drains,
+      // hanging the turn with no events and no watchdog (the watchdog is armed
+      // by the stream transformer that just died). `isSessionActive` keeps this
+      // idempotent for the user-abort path, where `chat:abort` already ended
+      // the session.
+      if (this.sdkAdapter.isSessionActive(sessionId)) {
+        try {
+          await this.sdkAdapter.endSession(sessionId);
+          this.logger.info(
+            `[RPC] Session ${sessionId} cleaned up after stream exit`,
+            { normalExit: streamExitedNormally, eventCount },
+          );
+        } catch (cleanupErr) {
+          this.logger.warn(
+            `[RPC] Failed to clean up session ${sessionId} after stream exit`,
+            cleanupErr instanceof Error
+              ? cleanupErr
+              : new Error(String(cleanupErr)),
+          );
+        }
       }
     }
   }

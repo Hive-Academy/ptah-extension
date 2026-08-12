@@ -122,7 +122,7 @@ export class ToolIconComponent {
       case 'ScheduleWakeup':
         return 'text-warning'; // warning (amber) - scheduled loop wakeup
       default:
-        return 'text-base-content/60';
+        return 'text-base-content-muted';
     }
   }
 }

@@ -82,6 +82,10 @@ export { SentryTracerAdapter } from './services/sentry-tracer.adapter';
 export { NoopTracer } from './services/noop-tracer';
 export { NullSessionAttachmentGuard } from './services/null-session-attachment-guard';
 export { GitInfoService } from './services/git-info.service';
+export type {
+  WorktreeFileReader,
+  DiffFileRequest,
+} from './services/git-info.service';
 export {
   execGit,
   DEFAULT_GIT_TIMEOUT_MS,

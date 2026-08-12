@@ -82,7 +82,7 @@ interface ThothTabSpec {
           />
           <div class="leading-tight">
             <h1 class="text-sm font-semibold text-base-content">Thoth</h1>
-            <p class="text-[11px] text-base-content/50">Agentic platform</p>
+            <p class="text-[11px] text-base-content-muted">Agentic platform</p>
           </div>
         </div>
 
@@ -115,7 +115,7 @@ interface ThothTabSpec {
                   [img]="tab.icon"
                   class="size-4 shrink-0"
                   [class.text-secondary]="isActive"
-                  [class.text-base-content/40]="!isActive"
+                  [class.text-base-content-muted]="!isActive"
                   aria-hidden="true"
                 />
                 <span
@@ -123,7 +123,7 @@ interface ThothTabSpec {
                   class="text-sm"
                   [class.font-medium]="isActive"
                   [class.text-base-content]="isActive"
-                  [class.text-base-content/70]="!isActive"
+                  [class.text-base-content-muted]="!isActive"
                   >{{ tab.label }}</span
                 >
               </div>
@@ -137,7 +137,7 @@ interface ThothTabSpec {
                     >{{ status.value }}</span
                   >
                   @if (status.unit) {
-                    <span class="text-[11px] text-base-content/45">{{
+                    <span class="text-[11px] text-base-content-muted">{{
                       status.unit
                     }}</span>
                   }
@@ -157,12 +157,12 @@ interface ThothTabSpec {
                   </div>
                 } @else {
                   <span
-                    class="truncate pl-6 text-[11px] text-base-content/45"
+                    class="truncate pl-6 text-[11px] text-base-content-muted"
                     >{{ status.desc }}</span
                   >
                 }
               } @else {
-                <span class="pl-6 text-[11px] text-base-content/35">{{
+                <span class="pl-6 text-[11px] text-base-content-muted">{{
                   status.desc
                 }}</span>
               }

@@ -16,11 +16,11 @@ import {
   ExternalLink,
   LucideAngularModule,
 } from 'lucide-angular';
-import { NavigationComponent } from '../../components/navigation.component';
-import { FooterComponent } from '../../components/footer.component';
-import { GitHubReleaseService } from '../../services/github-release.service';
-import { SeoService } from '../../services/seo.service';
-import { ConsoleGridBackgroundComponent } from '../../components/console/console-grid-background.component';
+import { NavigationComponent } from '@ptah-web/ui';
+import { FooterComponent } from '@ptah-web/ui';
+import { GitHubReleaseService } from '@ptah-web/core';
+import { SeoService } from '@ptah-web/core';
+import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 
 @Component({
   selector: 'ptah-download-page',

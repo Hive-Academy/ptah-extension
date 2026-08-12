@@ -62,7 +62,7 @@ interface VoiceGroup {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <p class="text-xs text-base-content/70 mb-2">
+    <p class="text-xs text-base-content-muted mb-2">
       Kokoro voice used to read replies aloud. Apache-licensed, runs locally;
       the ~80 MB model downloads to
       <code class="text-[10px] bg-base-300 px-1 rounded">~/.ptah/models/</code>
@@ -147,7 +147,7 @@ interface VoiceGroup {
       <div class="flex items-center justify-between mb-1">
         <label
           for="local-tts-voice"
-          class="text-xs font-medium text-base-content/70"
+          class="text-xs font-medium text-base-content-muted"
         >
           Voice
         </label>
@@ -164,7 +164,7 @@ interface VoiceGroup {
 
       @if (isLoadingVoices()) {
         <div
-          class="text-[10px] text-base-content/50"
+          class="text-[10px] text-base-content-muted"
           data-testid="local-tts-voices-loading"
         >
           Loading voices…
@@ -206,7 +206,7 @@ interface VoiceGroup {
             max="100"
             data-testid="local-tts-download-progress"
           ></progress>
-          <span class="text-[10px] text-base-content/60 w-20 text-right">
+          <span class="text-[10px] text-base-content-muted w-20 text-right">
             @if (ttsDownloadPercent() !== null) {
               Downloading {{ ttsDownloadPercent() }}%
             } @else {
@@ -226,10 +226,10 @@ interface VoiceGroup {
             </span>
           } @else {
             <span
-              class="text-[10px] text-base-content/50 flex items-center gap-1"
+              class="text-[10px] text-base-content-muted flex items-center gap-1"
               data-testid="local-tts-download-status"
             >
-              <span class="text-base-content/40">○</span>
+              <span class="text-base-content-muted">○</span>
               Not downloaded
             </span>
           }

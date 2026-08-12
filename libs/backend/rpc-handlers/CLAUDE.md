@@ -11,7 +11,7 @@ Platform-agnostic RPC handler classes shared between the VS Code extension, Elec
 **Belongs here**:
 
 - One `*-rpc.handlers.ts` per RPC namespace plus its `*-rpc.schema.ts`
-- `register-all.ts` (shared registration fan-out) and `verify-and-report.ts`
+- `host-profile/` (capability vocabulary, handler manifest, `registerRpcSurface`) and `verify-and-report.ts`
 - Sub-service DI bundles for harness (`HARNESS_TOKENS`) and chat (`CHAT_TOKENS`)
 - Cross-cutting helpers used by handlers (`utils/workspace-authorization.ts`)
 
@@ -28,7 +28,7 @@ Tier 1: `SessionRpcHandlers`, `ContextRpcHandlers`, `AutocompleteRpcHandlers`, `
 Tier 2: `SetupRpcHandlers`, `WizardGenerationRpcHandlers`, `ConfigRpcHandlers`, `LicenseRpcHandlers`, `ChatRpcHandlers`, `AuthRpcHandlers`, `EnhancedPromptsRpcHandlers`, `QualityRpcHandlers`, `ProviderRpcHandlers`, `WebSearchRpcHandlers`.
 Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `WorkspaceRpcHandlers`, `SettingsRpcHandlers`, `MemoryRpcHandlers`, `SkillsSynthesisRpcHandlers`, `CronRpcHandlers`, `GatewayRpcHandlers`, `PersistenceRpcHandlers`, `IndexingRpcHandlers`.
 
-**Registration**: `SHARED_HANDLERS`, `registerAllRpcHandlers` (via `register-all`), `verifyAndReport`, `HARNESS_TOKENS`, `registerHarnessServices`, `CHAT_TOKENS`, `registerChatServices`.
+**Registration**: `RPC_HANDLER_MANIFEST`, `registerRpcSurface`, `deriveRpcSurface`, `capabilities`, `HostProfile`, `verifyAndReportRpcRegistration`, `HARNESS_TOKENS`, `registerHarnessServices`, `CHAT_TOKENS`, `registerChatServices`.
 
 **Utilities**: `isAuthorizedWorkspace`, `mintResetChallengeToken`.
 
@@ -41,14 +41,16 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - `src/lib/harness/` — `HarnessRpcHandlers` sub-services + `HARNESS_TOKENS`
 - `src/lib/chat/` — `ChatRpcHandlers` sub-services + `CHAT_TOKENS`
 - `src/lib/utils/workspace-authorization.ts` — shared `isAuthorizedWorkspace` (PR-267)
-- `src/lib/register-all.ts` — `SHARED_HANDLERS` tuple + compile-time RpcMethodName coverage assertions
+- `src/lib/utils/output-style-selection.ts` — the one read/write/normalisation of `outputStyle.selectedName`, shared by `OutputStyleRpcHandlers` (what is active) and `ChatOutputStyleActivationService` (what to activate). Two implementations means the picker can show one style while another reaches the SDK — do not re-inline either half.
+- `src/lib/host-profile/` — `Capability` vocabulary, `RPC_HANDLER_MANIFEST`, `HostProfile`, `registerRpcSurface`
 - `src/lib/verify-and-report.ts` — runtime verification of registration completeness
 
 ## Key Files
 
-- `src/lib/register-all.ts:53` — `SHARED_HANDLERS` canonical list (every handler class lives in this tuple)
+- `src/lib/host-profile/manifest.ts` — `RPC_HANDLER_MANIFEST`, the single source of truth for method ownership + required capabilities. It partitions `RPC_METHOD_NAMES` exactly (asserted in `rpc-allowlist.spec.ts`), which is what makes per-host exclusions derivable instead of hand-maintained.
+- `src/lib/host-profile/register-rpc-surface.ts` — the one registration engine; each host calls it with its profile and contains no other RPC code.
 - `src/lib/handlers/index.ts` — barrel exported via `src/index.ts`
-- Each `*-rpc.handlers.ts` declares `static readonly METHODS` tuple — the union is compile-asserted to equal `RpcMethodName`
+- Each `*-rpc.handlers.ts` declares `static readonly METHODS` tuple, referenced by its manifest entry
 - `src/lib/utils/workspace-authorization.ts` — workspace auth gate used by privileged handlers
 
 ## Dependencies
@@ -59,9 +61,10 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 ## Guidelines
 
 - **Namespace dual-registration (CRITICAL — historical bug source)**: every new RPC namespace requires updates in BOTH places:
-  1. **Compile-time**: add the method name to `RpcMethodName` in `libs/shared/.../rpc.types.ts` (the union backs the compile-time assertion in `register-all.ts`).
+  1. **Compile-time**: add the method name to `RpcMethodName` in `libs/shared/.../rpc.types.ts` (the union backs the manifest's `satisfies` assertion).
   2. **Runtime**: add the prefix string to `ALLOWED_METHOD_PREFIXES` in `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46`. Missing this causes silent runtime crash — the transport rejects unrecognized prefixes.
-- **One handler class per namespace** — name like `<Namespace>RpcHandlers`, file `<namespace>-rpc.handlers.ts`, schema file `<namespace>-rpc.schema.ts`.
+- **One handler class per namespace** — name like `<Namespace>RpcHandlers`, file `<namespace>-rpc.handlers.ts`, schema file `<namespace>-rpc.schema.ts`. Add a `RPC_HANDLER_MANIFEST` entry for it in the same change; hosts that cannot serve it simply leave its capability off.
+- **Never hand-maintain a method exclusion list** — exclusions are `manifest x profile`. A host that should not serve a namespace turns its capability off in `apps/<host>/src/rpc-host-profile.ts` (or `cli-engine/.../cli-host-profile.ts`).
 - **Zod schemas mandatory** — every handler method validates params via its schema file before doing work.
 - **Platform-agnostic only** — never `import * from 'vscode'`. Use `platform-core` ports (`IUserInteraction`, `IFileSystemProvider`, `IPlatformCommands`, …) via DI.
 - **Catch unknown**: `catch (error: unknown)` and narrow before logging/returning.

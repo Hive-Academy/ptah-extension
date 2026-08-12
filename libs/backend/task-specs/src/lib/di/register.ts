@@ -18,6 +18,8 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { TaskScannerService } from '../task-scanner.service';
 import { TaskWriterService } from '../task-writer.service';
+import { TaskDoctorService } from '../task-doctor.service';
+import { TaskSweepService } from '../task-sweep.service';
 import { RegistryGeneratorService } from '../registry-generator.service';
 import {
   SqliteTaskIndexStore,
@@ -36,6 +38,14 @@ export function registerTaskSpecsServices(
   container.registerSingleton(TaskScannerService);
   container.registerSingleton(RegistryGeneratorService);
   container.registerSingleton(TaskWriterService);
+  // Registered so a surface can resolve it — never invoked from here. The
+  // doctor mutates only when something calls `apply()` explicitly; nothing in
+  // startup, and nothing in `ensureStarted`, may call it.
+  container.registerSingleton(TaskDoctorService);
+  // Same rule as the doctor: registered so a surface can resolve it, NEVER
+  // invoked from startup or from `ensureStarted`. It deletes folders, and the
+  // only thing allowed to trigger it is a user pressing the button.
+  container.registerSingleton(TaskSweepService);
 
   container.register(TASK_SPECS_TOKENS.TASK_SCANNER, {
     useToken: TaskScannerService,
@@ -45,6 +55,12 @@ export function registerTaskSpecsServices(
   });
   container.register(TASK_SPECS_TOKENS.TASK_WRITER, {
     useToken: TaskWriterService,
+  });
+  container.register(TASK_SPECS_TOKENS.TASK_DOCTOR, {
+    useToken: TaskDoctorService,
+  });
+  container.register(TASK_SPECS_TOKENS.TASK_SWEEP, {
+    useToken: TaskSweepService,
   });
 
   // Derived index store — pick SQLite when the shared connection is present,

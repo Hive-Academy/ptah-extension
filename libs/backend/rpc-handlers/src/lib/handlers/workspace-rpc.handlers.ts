@@ -23,18 +23,21 @@
  * - `workspace:addFolder`       — Open native picker, register the chosen folder
  * - `workspace:registerFolder`  — Register a known path (used by frontend tests + CLI)
  * - `workspace:removeFolder`    — Remove a folder + dispose its storage
- * - `workspace:switch`          — Switch active workspace + import sessions
+ * - `workspace:switch`          — Switch active workspace, then fire-and-forget
+ *                                 a session import and a file-index rebuild for
+ *                                 the new root (both off the critical path)
  *
  * VS Code Note: VS Code's `VsCodeWorkspaceProvider` does not implement
- * `IWorkspaceLifecycleProvider`; the VS Code app excludes this handler via
- * `registerAllRpcHandlers(container, { exclude: [WorkspaceRpcHandlers] })`
- * and lists the `workspace:*` methods in its `ELECTRON_ONLY_METHODS` array
- * so verifier output stays clean.
+ * `IWorkspaceLifecycleProvider`, so its host profile leaves the
+ * `workspaceLifecycle` capability off. `registerRpcSurface` then skips this
+ * handler and derives the `workspace:*` exclusions for the verifier.
  */
 
 import { injectable, inject } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, WorkspaceContextManager } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type { WorkspaceFileIndexService } from '@ptah-extension/workspace-intelligence';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SessionImporterService } from '@ptah-extension/agent-sdk';
 import {
@@ -115,6 +118,8 @@ export class WorkspaceRpcHandlers {
     private readonly sessionImporter: SessionImporterService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
     private readonly providerProxyPool: ProviderProxyPool,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly container: DependencyContainer,
   ) {}
 
   register(): void {
@@ -332,6 +337,27 @@ export class WorkspaceRpcHandlers {
             );
           }
 
+          // Same deferral contract as the session import above: the `@` file
+          // picker's backing index is pinned to whichever root it last built
+          // for, so without this the picker keeps serving the PREVIOUS
+          // workspace's files for the rest of the process lifetime
+          // (TASK_2026_200). Indexing a large repo is seconds of file I/O, so
+          // it must stay off the switch critical path and must never turn a
+          // successful switch into `success:false`.
+          try {
+            this.deferFileIndexRebuild(params.path);
+          } catch (indexErr: unknown) {
+            this.logger.warn(
+              '[RPC] workspace:switch deferFileIndexRebuild threw synchronously (non-fatal)',
+              {
+                error:
+                  indexErr instanceof Error
+                    ? indexErr.message
+                    : String(indexErr),
+              },
+            );
+          }
+
           const folderName = params.path.split(/[/\\]/).pop() ?? 'Workspace';
 
           this.logger.info('[RPC] workspace:switch', {
@@ -379,6 +405,61 @@ export class WorkspaceRpcHandlers {
    * and the separate boot-time import (app activation) is unaffected because
    * it calls `scanAndImport` directly, not through this handler.
    */
+  /**
+   * Rebuild the `@`-mention file index for the newly-activated workspace, OFF
+   * the `workspace:switch` critical path.
+   *
+   * `WorkspaceFileIndexService` holds single-active-root state: it is built
+   * once at boot for the startup workspace and, before TASK_2026_200, was never
+   * rebuilt — so after any switch the picker listed the boot workspace's files
+   * forever. `ensureReadyFor(root)` is the service's explicit-root entry point;
+   * it is a cheap no-op when the requested root is already the indexed one
+   * (roots compare by `normalizeWorkspaceRoot`, so separator/drive-case
+   * variants do not force a redundant rebuild) and supersedes any in-flight
+   * build otherwise.
+   *
+   * Resolution is OPTIONAL by design. The CLI host has no picker surface and
+   * does not register the index (`research-report.md` §3, §4.D); VS Code does
+   * not serve `workspace:switch` at all. On any host where the token is absent
+   * this degrades silently — it must never break the switch.
+   */
+  private deferFileIndexRebuild(workspacePath: string): void {
+    if (!this.container.isRegistered(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)) {
+      this.logger.debug(
+        '[RPC] workspace:switch file index not registered on this host (skipping re-index)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    const fileIndex = this.container.resolve<WorkspaceFileIndexService>(
+      TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+    );
+
+    this.logger.info('[RPC] workspace:switch re-indexing files for workspace', {
+      path: workspacePath,
+    });
+    const startedAt = Date.now();
+    void fileIndex
+      .ensureReadyFor(workspacePath)
+      .then(() => {
+        this.logger.info('[RPC] workspace:switch file re-index complete', {
+          path: workspacePath,
+          durationMs: Date.now() - startedAt,
+          fileCount: fileIndex.fileCount,
+        });
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(
+          '[RPC] workspace:switch file re-index failed (non-fatal)',
+          {
+            path: workspacePath,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
+  }
+
   private deferSessionImport(workspacePath: string): void {
     const key = workspacePath.replace(/\\/g, '/').toLowerCase();
 

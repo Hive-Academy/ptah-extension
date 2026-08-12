@@ -43,7 +43,7 @@ export type TribunalTileStatus = 'idle' | 'running' | 'completed' | 'failed';
           </span>
           @if (model()) {
             <span
-              class="truncate font-mono text-[10px] text-base-content/50"
+              class="truncate font-mono text-[10px] text-base-content-muted"
               data-testid="tribunal-tile-model"
             >
               {{ model() }}
@@ -51,7 +51,7 @@ export type TribunalTileStatus = 'idle' | 'running' | 'completed' | 'failed';
           }
         </span>
         <span
-          class="ml-auto text-[10px] uppercase tracking-wide text-base-content/50"
+          class="ml-auto text-[10px] uppercase tracking-wide text-base-content-muted"
         >
           {{ statusLabel() }}
         </span>

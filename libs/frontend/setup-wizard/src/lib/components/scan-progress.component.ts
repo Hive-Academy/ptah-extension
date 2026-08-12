@@ -148,7 +148,7 @@ interface PhaseStep {
                     } @else {
                       <lucide-angular
                         [img]="phase.icon"
-                        class="w-4 h-4 text-base-content/30"
+                        class="w-4 h-4 text-base-content-muted"
                         aria-hidden="true"
                       />
                     }
@@ -157,7 +157,7 @@ interface PhaseStep {
                       [class]="
                         isPhaseCompleteOrCurrent(phase.id)
                           ? ''
-                          : 'text-base-content/40'
+                          : 'text-base-content-muted'
                       "
                     >
                       {{ phase.label }}
@@ -200,7 +200,7 @@ interface PhaseStep {
             <!-- Progress Bar -->
             <div class="shrink-0 mb-3">
               <div class="flex justify-between mb-1.5">
-                <span class="text-sm font-medium text-base-content/80">
+                <span class="text-sm font-medium text-base-content-muted">
                   Analyzing {{ progressData.filesScanned || 0 }} of
                   {{ progressData.totalFiles || 0 }} files...
                 </span>
@@ -231,7 +231,7 @@ interface PhaseStep {
               <span
                 class="loading loading-spinner loading-sm text-primary"
               ></span>
-              <span class="text-sm text-base-content/60"
+              <span class="text-sm text-base-content-muted"
                 >Initializing analysis...</span
               >
             </div>
@@ -305,13 +305,13 @@ interface PhaseStep {
                           aria-hidden="true"
                         />
                         <span
-                          class="text-sm font-medium text-base-content/90 whitespace-nowrap"
+                          class="text-sm font-medium text-base-content-muted whitespace-nowrap"
                         >
                           {{ detection }}
                         </span>
                       </div>
                     } @empty {
-                      <p class="text-base-content/50 text-xs italic">
+                      <p class="text-base-content-muted text-xs italic">
                         Scanning for project characteristics...
                       </p>
                     }

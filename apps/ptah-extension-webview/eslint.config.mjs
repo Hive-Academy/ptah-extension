@@ -46,6 +46,27 @@ export default [
         'error',
         { accessibility: 'explicit' },
       ],
+
+      // Bundle boundary (TASK_2026_187 Unit 1). The wide `@ptah-extension/editor`
+      // barrel re-exports `TerminalComponent`, which value-imports xterm
+      // (~380 kB). A single static import of it from the composition root makes
+      // the whole editor lib eagerly reachable and defeats every existing
+      // `await import('@ptah-extension/editor')` site.
+      // NOTE: only the BARE specifier is banned. `@ptah-extension/editor/services`
+      // is the intended replacement and must stay legal — do NOT add a
+      // `patterns: ['@ptah-extension/editor/*']` group here.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@ptah-extension/editor',
+              message:
+                'Static import of the wide @ptah-extension/editor barrel pulls xterm (~380 kB) into the initial bundle. Use @ptah-extension/editor/services for services, or a runtime import() for components. See TASK_2026_187.',
+            },
+          ],
+        },
+      ],
     },
   },
   {

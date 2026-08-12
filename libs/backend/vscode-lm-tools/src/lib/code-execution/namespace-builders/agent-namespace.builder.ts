@@ -224,9 +224,14 @@ export function buildAgentNamespace(
     list: async () => {
       const cliResults = await cliDetectionService.detectAll();
       const disabledClis = getDisabledClis?.() ?? [];
-      const enabledCliResults =
+      // Disabled CLIs are MARKED, not dropped. `spawn` rejects an explicit
+      // `cli` that is disabled, so omitting them here left the caller
+      // discovering the restriction only by failing a spawn.
+      const enabledCliResults: CliDetectionResult[] =
         disabledClis.length > 0
-          ? cliResults.filter((c) => !disabledClis.includes(c.cli))
+          ? cliResults.map((c) =>
+              disabledClis.includes(c.cli) ? { ...c, disabled: true } : c,
+            )
           : cliResults;
 
       const registry = getPtahCliRegistry?.();

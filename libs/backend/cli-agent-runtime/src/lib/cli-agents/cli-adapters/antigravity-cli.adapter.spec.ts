@@ -1,12 +1,17 @@
 /**
  * AntigravityCliAdapter Unit Tests
  *
- * The adapter spawns the `agy` binary in print mode and parses PLAIN TEXT
- * stdout (no JSONL). Tests mock cli-adapter.utils (spawnCli / resolveCliPath /
- * probeCliVersion) and fs so no real `agy` process or disk write happens.
+ * The adapter spawns the `agy` binary in print mode with
+ * `--output-format stream-json` and parses the resulting JSONL event stream.
+ * Tests mock cli-adapter.utils (spawnCli / resolveCliPath / probeCliVersion)
+ * and fs so no real `agy` process or disk write happens.
  * Covers: detect() (installed/not), listModels() parsing of `agy models`,
- * runSdk() arg construction (print/model/skip-permissions/conversation/add-dir),
- * the heuristic text→segment parser, and post-run session-id recovery.
+ * runSdk() arg construction (stream-json/print/model/effort/skip-permissions/
+ * conversation/add-dir), the stream-json → segment mapping, the non-JSON
+ * fallback, and session-id capture from the `init` event.
+ *
+ * Every stream-json fixture below is copied from output captured by running the
+ * real binary (agy 1.1.11) — see `.ptah/specs/TASK_2026_199/stream-json-capture.md`.
  */
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
@@ -90,18 +95,6 @@ jest.mock('./cli-adapter.utils', () => {
   };
 });
 
-const mockReaddirSync = jest.fn();
-const mockStatSync = jest.fn();
-
-jest.mock('fs', () => {
-  const actual = jest.requireActual<typeof import('fs')>('fs');
-  return {
-    ...actual,
-    readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
-    statSync: (...args: unknown[]) => mockStatSync(...args),
-  };
-});
-
 jest.mock('fs/promises', () => ({
   readFile: jest.fn().mockRejectedValue(new Error('missing')),
   writeFile: jest.fn().mockResolvedValue(undefined),
@@ -134,8 +127,6 @@ describe('AntigravityCliAdapter', () => {
       currentChild = createFakeChild();
       return currentChild.child;
     });
-    mockReaddirSync.mockReturnValue([]);
-    mockStatSync.mockReturnValue({ mtimeMs: 0 });
     adapter = new AntigravityCliAdapter();
   });
 
@@ -194,7 +185,7 @@ describe('AntigravityCliAdapter', () => {
   describe('runSdk() — argument construction', () => {
     const baseOptions = { task: 'Do the thing', workingDirectory: '/proj' };
 
-    it('spawns print mode with skip-permissions and the prompt LAST', async () => {
+    it('spawns print mode with stream-json, skip-permissions and the prompt LAST', async () => {
       const handle = await adapter.runSdk(baseOptions);
       collect(handle);
       currentChild?.emitClose(0);
@@ -205,6 +196,9 @@ describe('AntigravityCliAdapter', () => {
         string[],
       ];
       expect(binaryArg).toBe('agy');
+      expect(argsArg[argsArg.indexOf('--output-format') + 1]).toBe(
+        'stream-json',
+      );
       expect(argsArg).toContain('--dangerously-skip-permissions');
       expect(argsArg).toContain('--add-dir');
       expect(argsArg[argsArg.indexOf('--add-dir') + 1]).toBe('/proj');
@@ -226,6 +220,32 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg[argsArg.indexOf('--model') + 1]).toBe(
         'Gemini 3.1 Pro (High)',
       );
+    });
+
+    it('adds --effort for a value agy accepts', async () => {
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        reasoningEffort: 'high',
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg[argsArg.indexOf('--effort') + 1]).toBe('high');
+    });
+
+    it('drops --effort for a value agy does not accept', async () => {
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        reasoningEffort: 'xhigh',
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg).not.toContain('--effort');
     });
 
     it('adds --conversation when resuming a session', async () => {
@@ -268,43 +288,250 @@ describe('AntigravityCliAdapter', () => {
     });
   });
 
-  describe('runSdk() — text→segment parsing', () => {
+  describe('runSdk() — stream-json → segment parsing', () => {
     const baseOptions = { task: 'Do the thing', workingDirectory: '/proj' };
+    const CONV_ID = '917bf234-79d8-496b-88b0-c3d7e376d066';
 
-    it('classifies narration lines as thinking and answers as text', async () => {
+    /** `init` line as emitted by agy 1.1.11 (tool list truncated). */
+    const initLine = JSON.stringify({
+      event: 'init',
+      conversation_id: CONV_ID,
+      init: {
+        cwd: 'D:\\projects\\ptah-extension',
+        tools: ['list_dir', 'view_file', 'run_command'],
+        permission_mode: 'always-proceed',
+      },
+    });
+
+    const stepLine = (step: Record<string, unknown>): string =>
+      JSON.stringify({
+        event: 'step_update',
+        step_update: { conversation_id: CONV_ID, ...step },
+      });
+
+    it('maps a tool step to a tool-call then a tool-result', async () => {
       const handle = await adapter.runSdk(baseOptions);
-      const { output, segments } = collect(handle);
+      const { segments } = collect(handle);
 
-      currentChild?.stdout.write('I will read the config file.\n');
-      currentChild?.stdout.write('The answer is 42.\n');
-      currentChild?.stdout.write('\n');
+      currentChild?.stdout.write(initLine + '\n');
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 3,
+          state: 'ACTIVE',
+          step_type: 'tool',
+          tool_name: 'list_dir',
+          tool_info: {
+            name: 'list_dir',
+            parameters: { DirectoryPath: 'D:\\projects\\ptah-extension' },
+          },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 3,
+          state: 'DONE',
+          step_type: 'tool',
+          tool_name: 'list_dir',
+          duration_seconds: 0.2881932,
+          tool_info: {
+            name: 'list_dir',
+            parameters: { DirectoryPath: 'D:\\projects\\ptah-extension' },
+            output: 'apps/\nlibs/\npackage.json',
+          },
+        }) + '\n',
+      );
       currentChild?.emitClose(0);
       await handle.done;
 
-      expect(output.join('')).toContain('I will read the config file.');
-      expect(output.join('')).toContain('The answer is 42.');
+      const call = segments.find((s) => s.type === 'tool-call');
+      const result = segments.find((s) => s.type === 'tool-result');
+      expect(call).toMatchObject({
+        toolName: 'list_dir',
+        toolCallId: '3',
+        toolInput: { DirectoryPath: 'D:\\projects\\ptah-extension' },
+      });
+      expect(result).toMatchObject({
+        toolName: 'list_dir',
+        toolCallId: '3',
+        content: 'apps/\nlibs/\npackage.json',
+      });
+    });
 
-      const thinking = segments.filter((s) => s.type === 'thinking');
+    it('emits incremental agent_response text_deltas as text segments', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+
+      currentChild?.stdout.write(initLine + '\n');
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 5,
+          state: 'ACTIVE',
+          step_type: 'agent_response',
+          text_delta: 'Here are the files ',
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 5,
+          state: 'DONE',
+          step_type: 'agent_response',
+          text_delta: 'in the repo root.\n',
+          duration_seconds: 4.43,
+          usage: { input_tokens: 5112, output_tokens: 2390 },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
       const text = segments.filter((s) => s.type === 'text');
-      expect(thinking).toHaveLength(1);
-      expect(thinking[0].content).toBe('I will read the config file.');
-      expect(text).toHaveLength(1);
-      expect(text[0].content).toBe('The answer is 42.');
-      // Blank line produces no segment.
-      expect(segments).toHaveLength(2);
+      expect(text.map((s) => s.content)).toEqual([
+        'Here are the files ',
+        'in the repo root.\n',
+      ]);
+      expect(output.join('')).toContain('Here are the files in the repo root.');
+    });
+
+    it('produces no segment for structural steps', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(initLine + '\n');
+      currentChild?.stdout.write(
+        stepLine({ step_index: 0, state: 'DONE', step_type: 'user_input' }) +
+          '\n',
+      );
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 1,
+          state: 'DONE',
+          step_type: 'unknown',
+          duration_seconds: 0.0009982,
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 4,
+          state: 'DONE',
+          step_type: 'checkpoint',
+          usage: { input_tokens: 103, output_tokens: 4 },
+        }) + '\n',
+      );
+      // An agent_response that only produced thinking carries usage but no
+      // text_delta — agy never streams reasoning text, so nothing is emitted.
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 2,
+          state: 'DONE',
+          step_type: 'agent_response',
+          usage: { output_tokens: 168, thinking_tokens: 125 },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments).toHaveLength(0);
+    });
+
+    it('emits a usage info segment on a SUCCESS result without repeating the response', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(initLine + '\n');
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: {
+            conversation_id: CONV_ID,
+            status: 'SUCCESS',
+            response: 'Here are the files in the repo root.',
+            duration_seconds: 6.72,
+            num_turns: 1,
+            usage: { input_tokens: 25269, output_tokens: 2562 },
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments).toEqual([
+        { type: 'info', content: 'Usage: 25269 input, 2562 output tokens' },
+      ]);
+    });
+
+    it('emits an error segment for a non-SUCCESS result', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: {
+            conversation_id: CONV_ID,
+            status: 'ERROR',
+            response: 'model quota exceeded',
+          },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const errors = segments.filter((s) => s.type === 'error');
+      expect(errors[0].content).toBe('ERROR: model quota exceeded');
+    });
+
+    it('falls back to verbatim text for a line that is not JSON', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+
+      currentChild?.stdout.write('Warning: update available\n');
+      currentChild?.stdout.write('{"event":"step_update",\n'); // truncated JSON
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const text = segments.filter((s) => s.type === 'text');
+      expect(text.map((s) => s.content)).toEqual([
+        'Warning: update available',
+        '{"event":"step_update",',
+      ]);
+      expect(output.join('')).toContain('Warning: update available');
+    });
+
+    it('surfaces an unrecognized event name as info rather than dropping it', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        JSON.stringify({ event: 'future_event', payload: 1 }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments).toEqual([
+        {
+          type: 'info',
+          content: '{"event":"future_event","payload":1}',
+        },
+      ]);
     });
 
     it('flushes a trailing partial line on close', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
 
-      currentChild?.stdout.write('Final answer without newline');
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 5,
+          state: 'DONE',
+          step_type: 'agent_response',
+          text_delta: 'Final answer',
+        }),
+      );
       currentChild?.emitClose(0);
       await handle.done;
 
       const text = segments.filter((s) => s.type === 'text');
       expect(text).toHaveLength(1);
-      expect(text[0].content).toBe('Final answer without newline');
+      expect(text[0].content).toBe('Final answer');
     });
 
     it('emits an error segment for stderr and a non-zero exit', async () => {
@@ -345,33 +572,56 @@ describe('AntigravityCliAdapter', () => {
     });
   });
 
-  describe('runSdk() — session id recovery', () => {
-    it('returns the newest .db (excluding wal/shm) after the run', async () => {
-      mockReaddirSync.mockReturnValue([
-        'old.db',
-        'new.db',
-        'new.db-wal',
-        'new.db-shm',
-      ]);
-      mockStatSync.mockImplementation((p: string) => ({
-        mtimeMs: p.includes('new.db') ? Date.now() + 10_000 : 1,
-      }));
+  describe('runSdk() — session id capture', () => {
+    const CONV_ID = '917bf234-79d8-496b-88b0-c3d7e376d066';
 
+    it('captures the conversation id from the init event, mid-run', async () => {
       const handle = await adapter.runSdk({
         task: 'X',
         workingDirectory: '/proj',
       });
       collect(handle);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'init',
+          conversation_id: CONV_ID,
+          init: { cwd: '/proj', tools: [], permission_mode: 'always-proceed' },
+        }) + '\n',
+      );
+      // Available before the process exits — no post-run mtime scan.
+      expect(handle.getSessionId?.()).toBe(CONV_ID);
+
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(handle.getSessionId?.()).toBe(CONV_ID);
+    });
+
+    it('falls back to the id on a step_update when init was missed', async () => {
+      const handle = await adapter.runSdk({
+        task: 'X',
+        workingDirectory: '/proj',
+      });
+      collect(handle);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'step_update',
+          step_update: {
+            conversation_id: CONV_ID,
+            step_index: 0,
+            state: 'DONE',
+            step_type: 'user_input',
+          },
+        }) + '\n',
+      );
       currentChild?.emitClose(0);
       await handle.done;
 
-      expect(handle.getSessionId?.()).toBe('new');
+      expect(handle.getSessionId?.()).toBe(CONV_ID);
     });
 
-    it('returns undefined when no db is newer than the run start', async () => {
-      mockReaddirSync.mockReturnValue(['stale.db']);
-      mockStatSync.mockReturnValue({ mtimeMs: 1 });
-
+    it('returns undefined when the stream carried no conversation id', async () => {
       const handle = await adapter.runSdk({
         task: 'X',
         workingDirectory: '/proj',

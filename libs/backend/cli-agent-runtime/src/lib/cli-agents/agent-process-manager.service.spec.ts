@@ -825,6 +825,39 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       // Since our mock detection returns codex as installed, it should be chosen
       expect(result.cli).toBe('codex');
     });
+
+    // Regression: the system-CLI allowlist used to be a hard-coded
+    // ['codex','copilot','cursor'] triple, so antigravity/opencode/pi were
+    // silently skipped when preferred and the manager fell through to
+    // auto-detect. It now derives from SYSTEM_CLI_TYPES.
+    it.each(['antigravity', 'opencode', 'pi'])(
+      'honours %s as a preferred CLI',
+      async (cli) => {
+        setupVscodeConfig({ preferredAgentOrder: [cli] });
+
+        const result = await manager.spawn({
+          task: 'Task without explicit CLI',
+          workingDirectory: '/workspace/root',
+        });
+
+        expect(result.cli).toBe(cli);
+      },
+    );
+
+    it('skips a preferred CLI that is disabled', async () => {
+      setupVscodeConfig({
+        preferredAgentOrder: ['antigravity'],
+        disabledClis: ['antigravity'],
+      });
+
+      const result = await manager.spawn({
+        task: 'Task without explicit CLI',
+        workingDirectory: '/workspace/root',
+      });
+
+      // Falls through to auto-detect, which the mock reports as codex.
+      expect(result.cli).toBe('codex');
+    });
   });
 
   describe('continueConversation()', () => {

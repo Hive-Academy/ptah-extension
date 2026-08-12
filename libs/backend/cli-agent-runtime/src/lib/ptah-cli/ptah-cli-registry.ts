@@ -566,6 +566,9 @@ export class PtahCliRegistry {
       authEnv,
       cwd,
       options?.projectGuidance,
+      // The tier is already resolved above — hand the identity clarification
+      // the same model the spawn runs on rather than letting it guess a tier.
+      model || undefined,
     );
     const {
       outputCallbacks,

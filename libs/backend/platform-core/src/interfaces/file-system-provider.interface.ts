@@ -66,8 +66,30 @@ export interface IFileSystemProvider {
   /**
    * Create a directory (including parent directories).
    * Replaces: vscode.workspace.fs.createDirectory()
+   *
+   * Recursive AND idempotent: resolves when the directory already exists. Do
+   * NOT use it to claim a name — see {@link createDirectoryExclusive}.
    */
   createDirectory(path: string): Promise<void>;
+
+  /**
+   * Create a directory NON-recursively, rejecting if the path already exists.
+   *
+   * This is the only compare-and-swap primitive the port exposes. It exists so
+   * a caller can atomically CLAIM a name (e.g. a `.ptah/specs/TASK_YYYY_NNN`
+   * folder) against a concurrent writer in another process.
+   *
+   * Contract:
+   *  - The parent directory must already exist; this call never creates it.
+   *  - If `path` already exists (as a file OR a directory) the returned promise
+   *    REJECTS with an error whose `code` is `'EEXIST'`.
+   *  - The existence check and the creation are a single filesystem operation.
+   *    Implementations MUST NOT stat-then-create: that reintroduces exactly the
+   *    time-of-check/time-of-use race this method exists to close.
+   *
+   * @throws An `Error & { code: 'EEXIST' }` when `path` already exists.
+   */
+  createDirectoryExclusive(path: string): Promise<void>;
 
   /**
    * Copy a file or directory.

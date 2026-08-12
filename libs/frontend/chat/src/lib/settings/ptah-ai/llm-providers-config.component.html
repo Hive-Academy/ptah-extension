@@ -55,7 +55,7 @@
       <!-- Default model -->
       <div class="flex items-center gap-2 mt-1 min-w-0">
         <label
-          class="text-xs text-base-content/60 shrink-0"
+          class="text-xs text-base-content-muted shrink-0"
           [for]="'model-' + provider.provider"
           >Model:</label
         >
@@ -84,7 +84,7 @@
         <span class="loading loading-spinner loading-xs"></span>
         } } @else if (llmState.loadingModels().has(provider.provider)) {
         <!-- Loading spinner while fetching models -->
-        <span class="text-xs text-base-content/50 flex items-center gap-1">
+        <span class="text-xs text-base-content-muted flex items-center gap-1">
           <span class="loading loading-spinner loading-xs"></span>
           Loading models...
         </span>
@@ -135,7 +135,7 @@
 
       <!-- VS Code LM info note -->
       @if (provider.provider === 'vscode-lm') {
-      <div class="text-xs text-base-content/50 mt-2">
+      <div class="text-xs text-base-content-muted mt-2">
         Uses models from VS Code's Language Model API. No API key required.
       </div>
       }

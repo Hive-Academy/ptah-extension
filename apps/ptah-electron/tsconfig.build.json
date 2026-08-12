@@ -34,6 +34,7 @@
         "../../libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/shared": ["../../libs/shared/src/index.ts"],
+      "@ptah-extension/shared/schemas": ["../../libs/shared/src/schemas.ts"],
       "@ptah-extension/vscode-core": [
         "../../libs/backend/vscode-core/src/index.ts"
       ],
@@ -63,6 +64,12 @@
       ],
       "@ptah-extension/task-specs": [
         "../../libs/backend/task-specs/src/index.ts"
+      ],
+      "@ptah-extension/output-styles": [
+        "../../libs/backend/output-styles/src/index.ts"
+      ],
+      "@ptah-extension/thoth-runtime": [
+        "../../libs/backend/thoth-runtime/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler": [
         "../../libs/backend/cron-scheduler/src/index.ts"

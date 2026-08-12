@@ -18,7 +18,7 @@ import {
  */
 test.describe('Builders waitlist join @p0', () => {
   const emailInput = '#waitlist-email';
-  const submit = /Join the Waitlist/;
+  const submit = /Apply/;
 
   test('new email joins → "founding member" confirmation (real backend)', async ({
     page,

@@ -90,6 +90,51 @@ export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
 };
 
 /**
+ * The metadata env vars that ride alongside each tier's `_MODEL` var.
+ *
+ * The SDK reads all four per tier. Setting only `_MODEL` — which is what Ptah
+ * did historically — leaves a remapped tier rendering with the raw model id as
+ * its label and Claude's own description text.
+ *
+ * Kept separate from `TIER_ENV_VAR_MAP` so `ModelResolver`, which maps a bare
+ * tier name to the model id, keeps its single-key lookup.
+ */
+export const TIER_METADATA_ENV_VAR_MAP: Record<
+  EnvMappedTier,
+  {
+    name: keyof AuthEnv;
+    description: keyof AuthEnv;
+    capabilities: keyof AuthEnv;
+  }
+> = {
+  opus: {
+    name: 'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+    description: 'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+    capabilities: 'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+  },
+  sonnet: {
+    name: 'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
+    description: 'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+    capabilities: 'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
+  },
+  haiku: {
+    name: 'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
+    description: 'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+    capabilities: 'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  },
+};
+
+/** Every tier-scoped env key, in the order the SDK pairs them. */
+export const ALL_TIER_ENV_KEYS: ReadonlyArray<keyof AuthEnv> = [
+  ...Object.values(TIER_ENV_VAR_MAP),
+  ...Object.values(TIER_METADATA_ENV_VAR_MAP).flatMap((m) => [
+    m.name,
+    m.description,
+    m.capabilities,
+  ]),
+];
+
+/**
  * Build tier env var defaults for SDK subprocess environments.
  *
  * Only applies to third-party Anthropic-compatible providers (OpenRouter,
@@ -110,7 +155,7 @@ export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
   }
 
   const defaults: Record<string, string> = {};
-  for (const [, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
+  for (const envKey of ALL_TIER_ENV_KEYS) {
     const value = authEnv[envKey];
     if (value) {
       defaults[envKey] = value;

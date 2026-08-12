@@ -82,7 +82,7 @@ Keep experiments isolated without cluttering your main checkout.
 | `ptah_harness_create_skill`        | Create a new skill under `~/.ptah/skills/` or workspace `.claude/skills/` | Capture a reusable workflow on the fly  |
 | `ptah_harness_search_skills`       | Search the skill registry by keyword                                      | Find a skill by intent rather than name |
 | `ptah_harness_search_mcp_registry` | Search the public MCP server registry                                     | Discover third-party tools to plug in   |
-| `harness_list_installed_mcp`       | List every MCP server configured in the harness                           | Audit what's connected                  |
+| `ptah_harness_list_installed_mcp`  | List every MCP server configured in the harness                           | Audit what's connected                  |
 
 ## Code Execution
 

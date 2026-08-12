@@ -102,7 +102,7 @@ import {
           >
             Ptah
           </h1>
-          <p class="text-xs md:text-sm text-base-content/70 max-w-xs">
+          <p class="text-xs md:text-sm text-base-content-muted max-w-xs">
             Ancient Wisdom • Master Craftsman
           </p>
         </div>
@@ -166,7 +166,7 @@ import {
                   >
                     Ptah Skills
                   </h3>
-                  <p class="text-xs text-base-content/60 leading-relaxed">
+                  <p class="text-xs text-base-content-muted leading-relaxed">
                     Enhance your sessions with specialized skills for
                     orchestration, frontend patterns, backend architecture, and
                     more.
@@ -203,7 +203,7 @@ import {
                 <h4 class="text-xs font-semibold text-warning mb-1">
                   Skills Not Configured
                 </h4>
-                <p class="text-xs text-base-content/60 leading-relaxed mb-2">
+                <p class="text-xs text-base-content-muted leading-relaxed mb-2">
                   The Intelligent Project Setup uses your configured skills to
                   provide better recommendations. It's recommended to configure
                   your Ptah Skills first for optimal results.
@@ -241,7 +241,7 @@ import {
                   >
                     Intelligent Project Setup
                   </h3>
-                  <p class="text-xs text-base-content/60 leading-relaxed">
+                  <p class="text-xs text-base-content-muted leading-relaxed">
                     MCP-powered scanning analyzes your workspace, detects
                     frameworks, and configures optimal AI agents automatically.
                   </p>

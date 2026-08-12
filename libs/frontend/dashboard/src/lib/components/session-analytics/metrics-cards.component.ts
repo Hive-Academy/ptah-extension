@@ -24,7 +24,7 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
       >
         <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+          class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
           Total Cost
         </div>
@@ -37,7 +37,7 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20"
       >
         <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+          class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
           Total Tokens
         </div>
@@ -48,7 +48,7 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
 
       <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
         <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+          class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
           Messages
         </div>
@@ -61,7 +61,7 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-purple-600/20"
       >
         <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+          class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
           Sessions
         </div>
@@ -74,7 +74,7 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-warning/20"
       >
         <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+          class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
           Subagents
         </div>
@@ -87,11 +87,11 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-base-content/15"
       >
         <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+          class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
           Avg / Session
         </div>
-        <div class="text-xl font-semibold text-base-content/80 tabular-nums">
+        <div class="text-xl font-semibold text-base-content-muted tabular-nums">
           {{ formatCost(aggregates().avgCostPerSession) }}
         </div>
       </div>

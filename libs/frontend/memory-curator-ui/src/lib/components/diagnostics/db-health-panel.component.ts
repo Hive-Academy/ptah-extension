@@ -10,6 +10,7 @@ import type {
   MemoryDbHealthDto,
   VecLoadDiagnosticWire,
 } from '@ptah-extension/shared';
+import { NativeCardComponent, type NativeCardTone } from '@ptah-extension/ui';
 
 import { VecEmbedderRecoveryService } from '../../services/vec-embedder-recovery.service';
 
@@ -35,64 +36,72 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
   selector: 'ptah-db-health-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NativeCardComponent],
   template: `
-    <div class="flex flex-col gap-3">
-      <div class="rounded-md border border-base-300 bg-base-100">
-        <header
-          class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
-        >
-          DB Health
-        </header>
-        @if (health(); as h) {
-          <table class="w-full text-xs">
-            <tbody>
-              @for (row of rows(); track row.label) {
-                <tr class="border-b border-base-200 last:border-b-0">
-                  <td class="px-3 py-1.5 font-medium">{{ row.label }}</td>
-                  <td class="px-3 py-1.5 text-right tabular-nums">
-                    {{ row.primary }} / {{ row.secondary }}
-                    <span class="ml-1">{{ row.secondaryLabel }}</span>
-                  </td>
-                  <td class="px-3 py-1.5 text-right">
-                    @if (row.readError) {
-                      <span
-                        class="font-medium text-warning"
-                        data-testid="health-read-error"
-                      >
-                        ⚠ read failed
-                      </span>
-                    } @else if (row.mismatch) {
-                      <span
-                        class="font-bold text-error"
-                        data-testid="health-mismatch"
-                      >
-                        ✗ MISMATCH
-                      </span>
-                    } @else {
-                      <span class="text-success">✓</span>
-                    }
-                  </td>
-                </tr>
+    <div class="flex flex-col gap-4">
+      <section class="flex flex-col gap-2" aria-label="Database health">
+        <header class="flex items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-base-content">DB Health</h3>
+          @if (health(); as h) {
+            <span
+              class="inline-flex items-center gap-1.5 text-xs text-base-content-muted"
+            >
+              <span>coherent</span>
+              @if (h.coherent) {
+                <span class="badge badge-success badge-sm">true</span>
+              } @else {
+                <span class="badge badge-error badge-sm">false</span>
               }
-            </tbody>
-            <tfoot>
-              <tr class="border-t border-base-300 bg-base-200/50">
-                <td class="px-3 py-1.5 text-xs font-medium" colspan="2">
-                  coherent
-                </td>
-                <td class="px-3 py-1.5 text-right">
-                  @if (h.coherent) {
-                    <span class="badge badge-success badge-sm">true</span>
+            </span>
+          }
+        </header>
+
+        @if (health()) {
+          <div class="grid gap-2 sm:grid-cols-3">
+            @for (row of rows(); track row.label + '/' + row.secondaryLabel) {
+              <ptah-native-card
+                [tone]="rowTone(row)"
+                [spine]="true"
+                density="compact"
+              >
+                <div card-header class="flex items-baseline gap-1.5">
+                  <span class="truncate text-xs font-medium">
+                    {{ row.label }}
+                  </span>
+                  <span
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                  >
+                    {{ row.secondaryLabel }}
+                  </span>
+                </div>
+                <p class="text-sm tabular-nums">
+                  {{ row.primary }} / {{ row.secondary }}
+                </p>
+                <div card-footer class="text-xs">
+                  @if (row.readError) {
+                    <span
+                      class="font-medium text-warning"
+                      data-testid="health-read-error"
+                    >
+                      ⚠ read failed
+                    </span>
+                  } @else if (row.mismatch) {
+                    <span
+                      class="font-bold text-error"
+                      data-testid="health-mismatch"
+                    >
+                      ✗ MISMATCH
+                    </span>
                   } @else {
-                    <span class="badge badge-error badge-sm">false</span>
+                    <span class="text-success">✓ in sync</span>
                   }
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+                </div>
+              </ptah-native-card>
+            }
+          </div>
           @if (countErrors().length > 0) {
             <div
-              class="border-t border-base-300 px-3 py-2"
+              class="rounded-xl border border-warning/40 bg-warning/5 px-3 py-2"
               data-testid="health-count-errors"
             >
               <p class="text-xs font-medium text-warning">
@@ -101,7 +110,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
               </p>
               <ul class="mt-1 list-disc space-y-0.5 pl-5">
                 @for (err of countErrors(); track err) {
-                  <li class="font-mono text-[10px] text-base-content/70">
+                  <li class="font-mono text-[10px] text-base-content-muted">
                     {{ err }}
                   </li>
                 }
@@ -109,19 +118,21 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
             </div>
           }
         } @else {
-          <div class="px-3 py-3 text-xs text-base-content/60">
+          <div
+            class="rounded-xl border border-base-300 bg-base-200/40 px-3 py-3 text-xs text-base-content-muted"
+          >
             No DB health data yet.
           </div>
         }
-      </div>
+      </section>
 
-      <div
-        class="rounded-md border border-base-300 bg-base-100"
+      <ptah-native-card
+        [tone]="vecTone()"
+        [spine]="true"
+        density="compact"
         data-testid="vec-status-panel"
       >
-        <header
-          class="flex items-center justify-between border-b border-base-300 px-3 py-2"
-        >
+        <div card-header class="flex items-center justify-between gap-2">
           <span class="text-sm font-semibold text-base-content">
             sqlite-vec
           </span>
@@ -134,17 +145,17 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
               offline
             </span>
           }
-        </header>
-        <div class="px-3 py-2 text-xs">
+        </div>
+        <div class="text-xs">
           @if (vecDiagnostic(); as d) {
             <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-              <dt class="font-medium text-base-content/70">Reason</dt>
+              <dt class="font-medium text-base-content-muted">Reason</dt>
               <dd>{{ vecReasonLabel() }}</dd>
               @if (d.packageName) {
-                <dt class="font-medium text-base-content/70">Package</dt>
+                <dt class="font-medium text-base-content-muted">Package</dt>
                 <dd class="font-mono">{{ d.packageName }}</dd>
               }
-              <dt class="font-medium text-base-content/70">Platform</dt>
+              <dt class="font-medium text-base-content-muted">Platform</dt>
               <dd class="font-mono">
                 {{ d.processPlatform }}/{{ d.processArch }} (Electron
                 {{ d.electronVersion }})
@@ -157,7 +168,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
             @if (d.errorChain && d.errorChain.length > 0) {
               <details class="mt-2">
                 <summary
-                  class="cursor-pointer text-base-content/60 hover:text-base-content"
+                  class="cursor-pointer text-base-content-muted hover:text-base-content"
                 >
                   Show {{ d.errorChain.length }} fallback attempt(s)
                 </summary>
@@ -172,12 +183,15 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
               </details>
             }
           } @else {
-            <div class="text-base-content/60">
+            <div class="text-base-content-muted">
               Status not yet available — open the workspace or click Retry.
             </div>
           }
         </div>
-        <div class="flex flex-wrap gap-2 border-t border-base-300 px-3 py-2">
+        <div
+          card-footer
+          class="flex flex-wrap gap-2 border-t border-base-300/70 pt-2"
+        >
           <button
             type="button"
             class="btn btn-xs btn-primary"
@@ -200,15 +214,15 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
             Open binding folder
           </button>
         </div>
-      </div>
+      </ptah-native-card>
 
-      <div
-        class="rounded-md border border-base-300 bg-base-100"
+      <ptah-native-card
+        [tone]="embedderTone()"
+        [spine]="true"
+        density="compact"
         data-testid="embedder-status-panel"
       >
-        <header
-          class="flex items-center justify-between border-b border-base-300 px-3 py-2"
-        >
+        <div card-header class="flex items-center justify-between gap-2">
           <span class="text-sm font-semibold text-base-content">
             Embedder
           </span>
@@ -230,8 +244,8 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
           >
             {{ embedderBadgeLabel() }}
           </span>
-        </header>
-        <div class="px-3 py-2 text-xs">
+        </div>
+        <div class="text-xs">
           @if (embedderDownloading()) {
             <div class="flex items-center gap-2">
               <progress
@@ -244,25 +258,28 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
                 {{ embedderProgressPercent() }}%
               </span>
             </div>
-            <p class="mt-1 text-base-content/60">
+            <p class="mt-1 text-base-content-muted">
               Downloading ONNX model — first run only, then cached locally.
             </p>
           } @else if (embedderStatus()?.error; as err) {
             <div class="text-error">{{ err.message }}</div>
-            <p class="mt-1 text-base-content/60">
+            <p class="mt-1 text-base-content-muted">
               Click Retry after fixing network access or disk-space issues.
             </p>
           } @else if (embedderReady()) {
-            <div class="text-base-content/70">
+            <div class="text-base-content-muted">
               Model loaded — semantic search and curator embeddings active.
             </div>
           } @else {
-            <div class="text-base-content/60">
+            <div class="text-base-content-muted">
               Idle — first curator or indexer run will trigger lazy download.
             </div>
           }
         </div>
-        <div class="flex flex-wrap gap-2 border-t border-base-300 px-3 py-2">
+        <div
+          card-footer
+          class="flex flex-wrap gap-2 border-t border-base-300/70 pt-2"
+        >
           <button
             type="button"
             class="btn btn-xs btn-primary"
@@ -284,7 +301,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
             Copy diagnostic
           </button>
         </div>
-      </div>
+      </ptah-native-card>
 
       @if (toast(); as t) {
         <div
@@ -381,6 +398,28 @@ export class DbHealthPanelComponent implements OnInit {
   protected readonly countErrors = computed<readonly string[]>(
     () => this.health()?.countErrors ?? [],
   );
+
+  /**
+   * Card tone for one health row. A failed READ outranks a mismatch: when a
+   * count could not be read at all, the two numbers were never comparable, so
+   * calling it a mismatch would be a false accusation.
+   */
+  protected rowTone(row: HealthRow): NativeCardTone {
+    if (row.readError) return 'warning';
+    if (row.mismatch) return 'error';
+    return 'success';
+  }
+
+  protected readonly vecTone = computed<NativeCardTone>(() =>
+    this.vecAvailable() ? 'success' : 'error',
+  );
+
+  protected readonly embedderTone = computed<NativeCardTone>(() => {
+    if (this.embedderReady()) return 'success';
+    if (this.embedderDownloading()) return 'warning';
+    if (this.embedderStatus()?.error) return 'error';
+    return 'neutral';
+  });
 
   ngOnInit(): void {
     void this.recovery.prime();

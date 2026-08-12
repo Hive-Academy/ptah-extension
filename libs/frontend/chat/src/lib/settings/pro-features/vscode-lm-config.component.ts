@@ -60,7 +60,7 @@ import { LlmProviderStateService } from '@ptah-extension/core';
           <!-- Model selection dropdown -->
           <div class="flex items-center gap-2 mt-1 min-w-0">
             <label
-              class="text-xs text-base-content/60 shrink-0"
+              class="text-xs text-base-content-muted shrink-0"
               for="vscode-lm-model"
               >Model:</label
             >
@@ -87,13 +87,13 @@ import { LlmProviderStateService } from '@ptah-extension/core';
               }
             } @else if (llmState.loadingModels().has('vscode-lm')) {
               <span
-                class="text-xs text-base-content/50 flex items-center gap-1"
+                class="text-xs text-base-content-muted flex items-center gap-1"
               >
                 <span class="loading loading-spinner loading-xs"></span>
                 Loading models...
               </span>
             } @else {
-              <span class="text-xs text-base-content/50"
+              <span class="text-xs text-base-content-muted"
                 >No models available</span
               >
             }
@@ -113,7 +113,7 @@ import { LlmProviderStateService } from '@ptah-extension/core';
           }
 
           <!-- Info note -->
-          <div class="text-xs text-base-content/50 mt-2">
+          <div class="text-xs text-base-content-muted mt-2">
             Uses models from VS Code's Language Model API. No API key required.
           </div>
 

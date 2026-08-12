@@ -56,7 +56,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
         <div class="space-y-3 mb-4">
           <!-- Summary bar -->
           <div
-            class="flex items-center gap-2 text-xs text-base-content/60 mb-2"
+            class="flex items-center gap-2 text-xs text-base-content-muted mb-2"
           >
             <span
               >Model:
@@ -64,14 +64,14 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
                 mp.manifest.model
               }}</span></span
             >
-            <span class="text-base-content/30">|</span>
+            <span class="text-base-content-muted">|</span>
             <span
               >Duration:
               <span class="font-semibold text-base-content">{{
                 formatDuration(mp.manifest.totalDurationMs)
               }}</span></span
             >
-            <span class="text-base-content/30">|</span>
+            <span class="text-base-content-muted">|</span>
             <span
               >Phases:
               <span class="font-semibold text-base-content">{{
@@ -114,7 +114,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
                   getPhaseLabel(phase.id)
                 }}</span>
                 @if (phase.durationMs > 0) {
-                  <span class="text-xs text-base-content/50 ml-auto mr-6">
+                  <span class="text-xs text-base-content-muted ml-auto mr-6">
                     {{ formatDuration(phase.durationMs) }}
                   </span>
                 }
@@ -133,7 +133,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
                     <span>{{ phase.error }}</span>
                   </div>
                 } @else {
-                  <p class="text-xs text-base-content/50 italic">
+                  <p class="text-xs text-base-content-muted italic">
                     No content available for this phase.
                   </p>
                 }

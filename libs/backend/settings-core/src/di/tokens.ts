@@ -35,6 +35,9 @@ export const SETTINGS_TOKENS = {
   /** CronSettings repository. */
   CRON_SETTINGS: Symbol.for('CronSettings'),
 
+  /** TasksSettings repository (saved board views). */
+  TASKS_SETTINGS: Symbol.for('TasksSettings'),
+
   /** MigrationRunner (ISettingsMigrator implementation). */
   MIGRATION_RUNNER: Symbol.for('MigrationRunner'),
 

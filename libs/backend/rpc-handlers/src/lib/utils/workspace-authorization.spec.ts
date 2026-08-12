@@ -103,17 +103,33 @@ describe('isAuthorizedWorkspace', () => {
     });
   });
 
-  describe('case normalization (Windows)', () => {
-    it('accepts the same path in a different case', () => {
+  describe('case normalization is win32-only (TASK_2026_191 F2)', () => {
+    // F2: folding case unconditionally would let `/WORKSPACE/x` match an
+    // authorized `/workspace` on a case-sensitive filesystem. The shared
+    // predicate folds case only on win32, so these assertions are driven by the
+    // host `process.platform` (mirrors the OS-dependent shell fixtures in the
+    // terminal specs).
+    const winOnly = process.platform === 'win32';
+
+    it('accepts the same path in a different case only on win32', () => {
       const provider = makeProvider([FOLDER]);
-      expect(isAuthorizedWorkspace('/C/Projects/My-Repo', provider)).toBe(true);
+      expect(isAuthorizedWorkspace('/C/Projects/My-Repo', provider)).toBe(
+        winOnly,
+      );
     });
 
-    it('accepts a sub-path in a different case', () => {
+    it('accepts a sub-path in a different case only on win32', () => {
       const provider = makeProvider([FOLDER]);
       expect(
         isAuthorizedWorkspace('/C/Projects/My-Repo/SRC/File.TS', provider),
-      ).toBe(true);
+      ).toBe(winOnly);
+    });
+
+    it('accepts a same-case sub-path on every platform', () => {
+      const provider = makeProvider([FOLDER]);
+      expect(isAuthorizedWorkspace(FOLDER + '/src/file.ts', provider)).toBe(
+        true,
+      );
     });
   });
 

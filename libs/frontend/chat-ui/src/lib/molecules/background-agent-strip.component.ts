@@ -120,7 +120,9 @@ export interface BackgroundAgentSteerRequest {
                   entry.name
                 }}</span>
                 @if (entry.description) {
-                  <span class="text-base-content/40 truncate hidden sm:inline">
+                  <span
+                    class="text-base-content-muted truncate hidden sm:inline"
+                  >
                     {{ entry.description }}
                   </span>
                 }
@@ -130,7 +132,7 @@ export interface BackgroundAgentSteerRequest {
               @if (entry.canViewTranscript) {
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content/50 hover:text-primary"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content-muted hover:text-primary"
                   [attr.aria-label]="'View transcript for agent ' + entry.name"
                   title="View transcript"
                   (click)="viewTranscript.emit(entry.id)"
@@ -147,7 +149,7 @@ export interface BackgroundAgentSteerRequest {
                   type="button"
                   class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 hover:text-primary"
                   [class.text-primary]="expandedId() === entry.id"
-                  [class.text-base-content/50]="expandedId() !== entry.id"
+                  [class.text-base-content-muted]="expandedId() !== entry.id"
                   [attr.aria-label]="'Steer agent ' + entry.name"
                   [attr.aria-expanded]="expandedId() === entry.id"
                   title="Steer"
@@ -163,7 +165,7 @@ export interface BackgroundAgentSteerRequest {
               @if (entry.canBackground) {
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content/50 hover:text-info"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content-muted hover:text-info"
                   [attr.aria-label]="
                     'Send agent ' + entry.name + ' to background'
                   "
@@ -180,7 +182,7 @@ export interface BackgroundAgentSteerRequest {
               @if (entry.stoppable) {
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content/50 hover:text-error"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content-muted hover:text-error"
                   [attr.aria-label]="'Stop agent ' + entry.name"
                   title="Stop"
                   (click)="stop.emit(entry.id)"

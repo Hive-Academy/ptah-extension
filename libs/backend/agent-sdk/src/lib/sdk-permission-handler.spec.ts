@@ -6,7 +6,8 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES, PermissionRequestSchema } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { PermissionRequestSchema } from '@ptah-extension/shared/schemas';
 
 import { SdkPermissionHandler } from './sdk-permission-handler';
 
@@ -770,8 +771,8 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       const result = await pending;
       expect(result).toMatchObject({ behavior: 'deny' });
 
-      const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some(
-        (call) => String(call[0]).toLowerCase().includes('timed out'),
+      const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
+        String(call[0]).toLowerCase().includes('timed out'),
       );
       expect(warnedTimeout).toBe(true);
 

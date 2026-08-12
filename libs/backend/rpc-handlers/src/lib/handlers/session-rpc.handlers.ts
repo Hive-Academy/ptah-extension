@@ -730,10 +730,13 @@ export class SessionRpcHandlers {
         const sessionId = this.validateSessionId(params.sessionId);
         await this.authorizeSessionAccess(sessionId);
         const metadata = await this.metadataStore.get(sessionId);
-        const raw = metadata?.cliSessions ?? [];
-        const cliSessions = raw.filter(
-          (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId,
-        );
+        // Returned unfiltered — this must agree with the `cliSessions` payload
+        // of `chat:resume`, which is the other restore path. An earlier filter
+        // dropped ptah-cli refs without a `ptahCliId` to hide ghosts
+        // synthesized by the long-removed recoverMissingCliSessions(); it also
+        // hid legitimate MCP-spawned ptah-cli agents (the tribunal's panelists),
+        // so their cards never came back on reopen.
+        const cliSessions = [...(metadata?.cliSessions ?? [])];
 
         return { cliSessions };
       } catch (error) {

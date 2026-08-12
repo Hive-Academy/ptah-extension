@@ -43,7 +43,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
             class="w-3 h-3 text-warning flex-shrink-0"
             aria-hidden="true"
           />
-          <span class="font-semibold text-base-content/80">Interrupted</span>
+          <span class="font-semibold text-base-content-muted">Interrupted</span>
           <span class="badge badge-xs badge-warning font-mono px-1.5">
             {{ resumableSubagents().length }}
           </span>
@@ -85,12 +85,12 @@ import type { SubagentRecord } from '@ptah-extension/shared';
               {{ agent.agentType }}
             </span>
             <span
-              class="text-[10px] text-base-content/50 font-mono truncate max-w-[8ch]"
+              class="text-[10px] text-base-content-muted font-mono truncate max-w-[8ch]"
               [title]="agent.agentId"
             >
               {{ agent.agentId }}
             </span>
-            <span class="text-[10px] text-base-content/40">
+            <span class="text-[10px] text-base-content-muted">
               {{ getTimeSince(agent.interruptedAt) }}
             </span>
             <span class="flex-1"></span>

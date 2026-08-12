@@ -19,6 +19,7 @@ import 'reflect-metadata';
 
 import type { Logger, SentryService } from '@ptah-extension/vscode-core';
 import type { AuthEnv, ClaudeCliHealth } from '@ptah-extension/shared';
+import { seedStaticModelPricing } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -29,6 +30,16 @@ import { CliStrategy } from './cli.strategy';
 import type { AuthConfigureContext } from '../auth-strategy.types';
 import type { ClaudeCliDetector } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '../../provider-models.service';
+
+// `seedStaticModelPricing` mutates a module-global pricing map that has no
+// reset hook, so ordering between tests would leak. Spy on the call instead.
+jest.mock('@ptah-extension/shared', () => ({
+  ...jest.requireActual('@ptah-extension/shared'),
+  seedStaticModelPricing: jest.fn(),
+}));
+
+const seedStaticModelPricingMock =
+  seedStaticModelPricing as jest.MockedFunction<typeof seedStaticModelPricing>;
 
 /**
  * Build a complete ClaudeCliHealth fixture — the interface requires
@@ -73,9 +84,9 @@ function createMockProviderModels(): jest.Mocked<ProviderModelsSurface> {
   return { clearAllTierEnvVars: jest.fn<void, []>() };
 }
 
-function makeContext(): AuthConfigureContext {
+function makeContext(providerId = 'anthropic'): AuthConfigureContext {
   const authEnv: AuthEnv = {};
-  return { providerId: 'anthropic', authEnv };
+  return { providerId, authEnv };
 }
 
 interface Harness {
@@ -207,6 +218,58 @@ describe('CliStrategy', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('not installed'),
       );
+    });
+  });
+
+  describe('configure() — static model pricing seeding', () => {
+    /**
+     * The Claude Max/Pro subscription tile routes here. Unlike ApiKeyStrategy
+     * and OAuthProxyStrategy, this strategy never seeded the provider's static
+     * model pricing, so a subscription session ran with an unseeded pricing
+     * map and `findModelPricing('claude-haiku-4-5')` logged
+     * "[Pricing] Model 'claude-haiku-4-5' not found in pricing map — cost will
+     * render as unavailable" even though the `claude-cli` registry entry
+     * carries correct pricing for it.
+     */
+    it('seeds the provider static model pricing on success', async () => {
+      const { strategy } = makeStrategy(
+        makeHealth({
+          available: true,
+          path: '/usr/local/bin/claude',
+          version: '1.2.3',
+        }),
+      );
+
+      await strategy.configure(makeContext('claude-cli'));
+
+      expect(seedStaticModelPricingMock).toHaveBeenCalledTimes(1);
+      expect(seedStaticModelPricingMock).toHaveBeenCalledWith('claude-cli');
+    });
+
+    it('does not seed when the CLI is unavailable', async () => {
+      const { strategy } = makeStrategy(makeHealth({ available: false }));
+
+      await strategy.configure(makeContext('claude-cli'));
+
+      expect(seedStaticModelPricingMock).not.toHaveBeenCalled();
+    });
+
+    it('the claude-cli entry it seeds carries the published haiku-4-5 rates', () => {
+      // Guards the data the fix depends on: seeding is only useful if the
+      // registry entry actually prices the model the warning named.
+      const provider = jest
+        .requireActual<
+          typeof import('@ptah-extension/shared')
+        >('@ptah-extension/shared')
+        .getAnthropicProvider('claude-cli');
+      const haiku = provider?.staticModels?.find(
+        (m) => m.id === 'claude-haiku-4-5',
+      );
+
+      expect(haiku).toBeDefined();
+      // $1.00 / MTok in, $5.00 / MTok out.
+      expect(haiku?.inputCostPerToken).toBeCloseTo(1e-6);
+      expect(haiku?.outputCostPerToken).toBeCloseTo(5e-6);
     });
   });
 

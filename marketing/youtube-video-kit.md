@@ -25,7 +25,7 @@ Paste-ready titles, descriptions, tags, and chapters — reusable metadata for t
 ```
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -73,7 +73,7 @@ Ptah is the AI coding orchestra — persistent memory, compounding skills, and u
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -98,7 +98,7 @@ Ptah is the AI coding orchestra — it reads your code, edits your files, and pr
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -123,7 +123,7 @@ Because that disagreement is exactly the signal you need. Ptah is the AI coding 
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -148,7 +148,7 @@ Kick off agent work from the couch, the train, anywhere. Ptah is the AI coding o
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -173,7 +173,7 @@ Explain your codebase once. Ptah remembers — this session, the next, and every
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -198,7 +198,7 @@ While other tools forget, Ptah remembers, distills, and gets better every single
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -223,7 +223,7 @@ Your agents work the night shift now — with no one at the keyboard. Ptah is th
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -248,7 +248,7 @@ Memory, skills, schedules, and the gateway — one app, one full brain.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -273,7 +273,7 @@ When your workflow outgrows its tools, don't switch apps. Grow Ptah instead. Pta
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -298,7 +298,7 @@ You don't adapt to your tools. Ptah adapts to you. Ptah is the AI coding orchest
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -323,7 +323,7 @@ Now you know what your agents cost — down to the dollar. Ptah is the AI coding
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -348,7 +348,7 @@ Read it, browse it, run it — your code and your agents, finally in one place.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -373,7 +373,7 @@ Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -402,7 +402,7 @@ Ptah is the AI coding orchestra — a persistent, multi-agent coding agent that 
 
 Autocomplete ends at the cursor. Ptah remembers yesterday, works while you're away, and answers from your phone.
 
-Ptah is free & open source — install it today. Want to shape where it goes next and lock in founding-member pricing? Join the Ptah Builders waitlist (35% off monthly / 50% off yearly).
+Ptah is free & open source — install it today. Want to shape where it goes next and lock in founding-member pricing? Join the Ptah Builders waitlist (70% off your first year).
 
 ✅ Free & open source: https://ptah.live
 🚀 Builders waitlist: https://ptah.live/?utm_source=youtube#waitlist

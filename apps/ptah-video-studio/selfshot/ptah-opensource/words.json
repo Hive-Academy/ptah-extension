@@ -1,0 +1,2938 @@
+{
+  "slug": "ptah-opensource",
+  "model": "base.en",
+  "generatedAt": "2026-08-11T11:29:11.013Z",
+  "words": [
+    {
+      "text": "Hi,",
+      "startMs": 370,
+      "endMs": 850
+    },
+    {
+      "text": "I",
+      "startMs": 850,
+      "endMs": 1470
+    },
+    {
+      "text": "have",
+      "startMs": 1470,
+      "endMs": 1720
+    },
+    {
+      "text": "been",
+      "startMs": 1720,
+      "endMs": 2580
+    },
+    {
+      "text": "working",
+      "startMs": 2580,
+      "endMs": 3850
+    },
+    {
+      "text": "on",
+      "startMs": 3850,
+      "endMs": 4280
+    },
+    {
+      "text": "a",
+      "startMs": 4280,
+      "endMs": 4330
+    },
+    {
+      "text": "coding",
+      "startMs": 4330,
+      "endMs": 4560
+    },
+    {
+      "text": "agent",
+      "startMs": 4560,
+      "endMs": 5180
+    },
+    {
+      "text": "for",
+      "startMs": 5180,
+      "endMs": 5360
+    },
+    {
+      "text": "a",
+      "startMs": 5360,
+      "endMs": 5420
+    },
+    {
+      "text": "year",
+      "startMs": 5420,
+      "endMs": 5680
+    },
+    {
+      "text": "and",
+      "startMs": 5680,
+      "endMs": 5800
+    },
+    {
+      "text": "a",
+      "startMs": 5800,
+      "endMs": 5850
+    },
+    {
+      "text": "half",
+      "startMs": 5850,
+      "endMs": 6100
+    },
+    {
+      "text": "now",
+      "startMs": 6100,
+      "endMs": 6560
+    },
+    {
+      "text": "and",
+      "startMs": 6560,
+      "endMs": 6850
+    },
+    {
+      "text": "while",
+      "startMs": 6850,
+      "endMs": 7140
+    },
+    {
+      "text": "I'm",
+      "startMs": 7140,
+      "endMs": 7360
+    },
+    {
+      "text": "working",
+      "startMs": 7360,
+      "endMs": 7740
+    },
+    {
+      "text": "on",
+      "startMs": 7740,
+      "endMs": 7910
+    },
+    {
+      "text": "it,",
+      "startMs": 7910,
+      "endMs": 8330
+    },
+    {
+      "text": "I'm",
+      "startMs": 8330,
+      "endMs": 8590
+    },
+    {
+      "text": "also",
+      "startMs": 8590,
+      "endMs": 8850
+    },
+    {
+      "text": "using",
+      "startMs": 8850,
+      "endMs": 9260
+    },
+    {
+      "text": "it",
+      "startMs": 9260,
+      "endMs": 9430
+    },
+    {
+      "text": "to",
+      "startMs": 9430,
+      "endMs": 9680
+    },
+    {
+      "text": "build",
+      "startMs": 9680,
+      "endMs": 10020
+    },
+    {
+      "text": "a",
+      "startMs": 10020,
+      "endMs": 10100
+    },
+    {
+      "text": "SaaS",
+      "startMs": 10100,
+      "endMs": 10430
+    },
+    {
+      "text": "application.",
+      "startMs": 10430,
+      "endMs": 11760
+    },
+    {
+      "text": "Currently,",
+      "startMs": 11760,
+      "endMs": 12650
+    },
+    {
+      "text": "it's",
+      "startMs": 12650,
+      "endMs": 12970
+    },
+    {
+      "text": "fully",
+      "startMs": 12970,
+      "endMs": 13370
+    },
+    {
+      "text": "open",
+      "startMs": 13370,
+      "endMs": 13690
+    },
+    {
+      "text": "source,",
+      "startMs": 13690,
+      "endMs": 14330
+    },
+    {
+      "text": "the",
+      "startMs": 14330,
+      "endMs": 14570
+    },
+    {
+      "text": "code",
+      "startMs": 14570,
+      "endMs": 14940
+    },
+    {
+      "text": "is",
+      "startMs": 14940,
+      "endMs": 15050
+    },
+    {
+      "text": "on",
+      "startMs": 15050,
+      "endMs": 15210
+    },
+    {
+      "text": "GitHub",
+      "startMs": 15210,
+      "endMs": 15690
+    },
+    {
+      "text": "and",
+      "startMs": 15690,
+      "endMs": 15930
+    },
+    {
+      "text": "I",
+      "startMs": 15930,
+      "endMs": 16010
+    },
+    {
+      "text": "want",
+      "startMs": 16010,
+      "endMs": 16330
+    },
+    {
+      "text": "more",
+      "startMs": 16330,
+      "endMs": 16660
+    },
+    {
+      "text": "contributors",
+      "startMs": 16660,
+      "endMs": 17700
+    },
+    {
+      "text": "and",
+      "startMs": 17700,
+      "endMs": 17960
+    },
+    {
+      "text": "other",
+      "startMs": 17960,
+      "endMs": 18400
+    },
+    {
+      "text": "developers",
+      "startMs": 18400,
+      "endMs": 19310
+    },
+    {
+      "text": "who",
+      "startMs": 19310,
+      "endMs": 19530
+    },
+    {
+      "text": "can",
+      "startMs": 19530,
+      "endMs": 19810
+    },
+    {
+      "text": "use",
+      "startMs": 19810,
+      "endMs": 20060
+    },
+    {
+      "text": "it",
+      "startMs": 20060,
+      "endMs": 20230
+    },
+    {
+      "text": "and",
+      "startMs": 20230,
+      "endMs": 20530
+    },
+    {
+      "text": "enhance",
+      "startMs": 20530,
+      "endMs": 21110
+    },
+    {
+      "text": "it",
+      "startMs": 21110,
+      "endMs": 21290
+    },
+    {
+      "text": "alongside",
+      "startMs": 21290,
+      "endMs": 22110
+    },
+    {
+      "text": "me.",
+      "startMs": 22110,
+      "endMs": 22600
+    },
+    {
+      "text": "For",
+      "startMs": 22600,
+      "endMs": 23040
+    },
+    {
+      "text": "the",
+      "startMs": 23040,
+      "endMs": 23140
+    },
+    {
+      "text": "name,",
+      "startMs": 23140,
+      "endMs": 23670
+    },
+    {
+      "text": "I",
+      "startMs": 23670,
+      "endMs": 23840
+    },
+    {
+      "text": "am",
+      "startMs": 23840,
+      "endMs": 23950
+    },
+    {
+      "text": "a",
+      "startMs": 23950,
+      "endMs": 24040
+    },
+    {
+      "text": "big",
+      "startMs": 24040,
+      "endMs": 24310
+    },
+    {
+      "text": "fan",
+      "startMs": 24310,
+      "endMs": 24580
+    },
+    {
+      "text": "of",
+      "startMs": 24580,
+      "endMs": 24810
+    },
+    {
+      "text": "Egyptology,",
+      "startMs": 24810,
+      "endMs": 25840
+    },
+    {
+      "text": "so",
+      "startMs": 25840,
+      "endMs": 26020
+    },
+    {
+      "text": "I",
+      "startMs": 26020,
+      "endMs": 26110
+    },
+    {
+      "text": "called",
+      "startMs": 26110,
+      "endMs": 26660
+    },
+    {
+      "text": "it",
+      "startMs": 26660,
+      "endMs": 26830
+    },
+    {
+      "text": "Ptah,",
+      "startMs": 26830,
+      "endMs": 27480
+    },
+    {
+      "text": "also",
+      "startMs": 27480,
+      "endMs": 27880
+    },
+    {
+      "text": "I",
+      "startMs": 27880,
+      "endMs": 27980
+    },
+    {
+      "text": "wanted",
+      "startMs": 27980,
+      "endMs": 28590
+    },
+    {
+      "text": "to",
+      "startMs": 28590,
+      "endMs": 28790
+    },
+    {
+      "text": "discuss",
+      "startMs": 28790,
+      "endMs": 29520
+    },
+    {
+      "text": "from",
+      "startMs": 29570,
+      "endMs": 29890
+    },
+    {
+      "text": "where",
+      "startMs": 29890,
+      "endMs": 30360
+    },
+    {
+      "text": "I'm",
+      "startMs": 30360,
+      "endMs": 30670
+    },
+    {
+      "text": "coming",
+      "startMs": 30670,
+      "endMs": 31230
+    },
+    {
+      "text": "from",
+      "startMs": 31230,
+      "endMs": 31840
+    },
+    {
+      "text": "and",
+      "startMs": 31840,
+      "endMs": 31850
+    },
+    {
+      "text": "why",
+      "startMs": 31850,
+      "endMs": 32130
+    },
+    {
+      "text": "I",
+      "startMs": 32130,
+      "endMs": 32210
+    },
+    {
+      "text": "built",
+      "startMs": 32210,
+      "endMs": 32750
+    },
+    {
+      "text": "it",
+      "startMs": 32750,
+      "endMs": 32900
+    },
+    {
+      "text": "in",
+      "startMs": 32900,
+      "endMs": 33040
+    },
+    {
+      "text": "the",
+      "startMs": 33040,
+      "endMs": 33320
+    },
+    {
+      "text": "first",
+      "startMs": 33320,
+      "endMs": 33790
+    },
+    {
+      "text": "place.",
+      "startMs": 33790,
+      "endMs": 34600
+    },
+    {
+      "text": "Basically,",
+      "startMs": 34600,
+      "endMs": 35590
+    },
+    {
+      "text": "I",
+      "startMs": 35590,
+      "endMs": 35680
+    },
+    {
+      "text": "have",
+      "startMs": 35680,
+      "endMs": 36040
+    },
+    {
+      "text": "been",
+      "startMs": 36040,
+      "endMs": 36400
+    },
+    {
+      "text": "using",
+      "startMs": 36400,
+      "endMs": 36940
+    },
+    {
+      "text": "Nx",
+      "startMs": 36940,
+      "endMs": 37300
+    },
+    {
+      "text": "workspaces",
+      "startMs": 37300,
+      "endMs": 38200
+    },
+    {
+      "text": "and",
+      "startMs": 38200,
+      "endMs": 38470
+    },
+    {
+      "text": "the",
+      "startMs": 38470,
+      "endMs": 38740
+    },
+    {
+      "text": "TypeScript",
+      "startMs": 38740,
+      "endMs": 39640
+    },
+    {
+      "text": "stack",
+      "startMs": 39640,
+      "endMs": 40140
+    },
+    {
+      "text": "like",
+      "startMs": 40140,
+      "endMs": 40450
+    },
+    {
+      "text": "Angular,",
+      "startMs": 40450,
+      "endMs": 41340
+    },
+    {
+      "text": "React",
+      "startMs": 41340,
+      "endMs": 41820
+    },
+    {
+      "text": "for",
+      "startMs": 41820,
+      "endMs": 42060
+    },
+    {
+      "text": "the",
+      "startMs": 42060,
+      "endMs": 42300
+    },
+    {
+      "text": "front",
+      "startMs": 42300,
+      "endMs": 42700
+    },
+    {
+      "text": "end,",
+      "startMs": 42700,
+      "endMs": 43110
+    },
+    {
+      "text": "NestJS",
+      "startMs": 43110,
+      "endMs": 43660
+    },
+    {
+      "text": "and",
+      "startMs": 43660,
+      "endMs": 43900
+    },
+    {
+      "text": "Prisma",
+      "startMs": 43900,
+      "endMs": 44380
+    },
+    {
+      "text": "was",
+      "startMs": 44380,
+      "endMs": 44620
+    },
+    {
+      "text": "different",
+      "startMs": 44620,
+      "endMs": 45350
+    },
+    {
+      "text": "ORMs",
+      "startMs": 45350,
+      "endMs": 45750
+    },
+    {
+      "text": "and",
+      "startMs": 45750,
+      "endMs": 45980
+    },
+    {
+      "text": "the",
+      "startMs": 45980,
+      "endMs": 46230
+    },
+    {
+      "text": "backend",
+      "startMs": 46230,
+      "endMs": 46830
+    },
+    {
+      "text": "following",
+      "startMs": 46830,
+      "endMs": 47600
+    },
+    {
+      "text": "domain-driven",
+      "startMs": 47600,
+      "endMs": 48460
+    },
+    {
+      "text": "design",
+      "startMs": 48460,
+      "endMs": 48860
+    },
+    {
+      "text": "to",
+      "startMs": 48860,
+      "endMs": 48990
+    },
+    {
+      "text": "build",
+      "startMs": 48990,
+      "endMs": 49320
+    },
+    {
+      "text": "a",
+      "startMs": 49320,
+      "endMs": 49380
+    },
+    {
+      "text": "maintainable",
+      "startMs": 49380,
+      "endMs": 50190
+    },
+    {
+      "text": "SaaS",
+      "startMs": 50190,
+      "endMs": 50450
+    },
+    {
+      "text": "application",
+      "startMs": 50450,
+      "endMs": 51380
+    },
+    {
+      "text": "and",
+      "startMs": 51380,
+      "endMs": 51430
+    },
+    {
+      "text": "through",
+      "startMs": 51430,
+      "endMs": 51850
+    },
+    {
+      "text": "the",
+      "startMs": 51850,
+      "endMs": 52040
+    },
+    {
+      "text": "years",
+      "startMs": 52040,
+      "endMs": 52380
+    },
+    {
+      "text": "I",
+      "startMs": 52380,
+      "endMs": 52540
+    },
+    {
+      "text": "have",
+      "startMs": 52540,
+      "endMs": 52720
+    },
+    {
+      "text": "been",
+      "startMs": 52720,
+      "endMs": 53040
+    },
+    {
+      "text": "using",
+      "startMs": 53040,
+      "endMs": 53430
+    },
+    {
+      "text": "the",
+      "startMs": 53430,
+      "endMs": 53690
+    },
+    {
+      "text": "different",
+      "startMs": 53690,
+      "endMs": 54380
+    },
+    {
+      "text": "coding",
+      "startMs": 54380,
+      "endMs": 55320
+    },
+    {
+      "text": "agent",
+      "startMs": 55320,
+      "endMs": 55390
+    },
+    {
+      "text": "and",
+      "startMs": 55390,
+      "endMs": 55560
+    },
+    {
+      "text": "each",
+      "startMs": 55560,
+      "endMs": 55880
+    },
+    {
+      "text": "time",
+      "startMs": 55880,
+      "endMs": 56200
+    },
+    {
+      "text": "I",
+      "startMs": 56200,
+      "endMs": 56280
+    },
+    {
+      "text": "found",
+      "startMs": 56280,
+      "endMs": 56670
+    },
+    {
+      "text": "they",
+      "startMs": 56670,
+      "endMs": 56990
+    },
+    {
+      "text": "are",
+      "startMs": 56990,
+      "endMs": 57230
+    },
+    {
+      "text": "very",
+      "startMs": 57230,
+      "endMs": 57550
+    },
+    {
+      "text": "good",
+      "startMs": 57550,
+      "endMs": 57870
+    },
+    {
+      "text": "at",
+      "startMs": 57870,
+      "endMs": 58030
+    },
+    {
+      "text": "writing",
+      "startMs": 58030,
+      "endMs": 58640
+    },
+    {
+      "text": "a",
+      "startMs": 58640,
+      "endMs": 58720
+    },
+    {
+      "text": "code",
+      "startMs": 58720,
+      "endMs": 59060
+    },
+    {
+      "text": "but",
+      "startMs": 59060,
+      "endMs": 59530
+    },
+    {
+      "text": "they",
+      "startMs": 59530,
+      "endMs": 59650
+    },
+    {
+      "text": "almost",
+      "startMs": 59650,
+      "endMs": 60160
+    },
+    {
+      "text": "struggled",
+      "startMs": 60160,
+      "endMs": 60920
+    },
+    {
+      "text": "to",
+      "startMs": 60920,
+      "endMs": 61090
+    },
+    {
+      "text": "understand",
+      "startMs": 61090,
+      "endMs": 61940
+    },
+    {
+      "text": "how",
+      "startMs": 61940,
+      "endMs": 62270
+    },
+    {
+      "text": "I",
+      "startMs": 62270,
+      "endMs": 62270
+    },
+    {
+      "text": "built",
+      "startMs": 62270,
+      "endMs": 62690
+    },
+    {
+      "text": "and",
+      "startMs": 62690,
+      "endMs": 62940
+    },
+    {
+      "text": "how",
+      "startMs": 62940,
+      "endMs": 63190
+    },
+    {
+      "text": "I",
+      "startMs": 63190,
+      "endMs": 63270
+    },
+    {
+      "text": "designed",
+      "startMs": 63270,
+      "endMs": 63950
+    },
+    {
+      "text": "the",
+      "startMs": 63950,
+      "endMs": 64190
+    },
+    {
+      "text": "architecture.",
+      "startMs": 64190,
+      "endMs": 65280
+    },
+    {
+      "text": "That's",
+      "startMs": 65280,
+      "endMs": 66100
+    },
+    {
+      "text": "why",
+      "startMs": 66100,
+      "endMs": 66510
+    },
+    {
+      "text": "I",
+      "startMs": 66510,
+      "endMs": 66640
+    },
+    {
+      "text": "built",
+      "startMs": 66640,
+      "endMs": 67370
+    },
+    {
+      "text": "Ptah.",
+      "startMs": 67370,
+      "endMs": 68320
+    },
+    {
+      "text": "To",
+      "startMs": 68320,
+      "endMs": 68520
+    },
+    {
+      "text": "encode",
+      "startMs": 68520,
+      "endMs": 69220
+    },
+    {
+      "text": "this",
+      "startMs": 69220,
+      "endMs": 69620
+    },
+    {
+      "text": "architecture",
+      "startMs": 69620,
+      "endMs": 70840
+    },
+    {
+      "text": "into",
+      "startMs": 70840,
+      "endMs": 71230
+    },
+    {
+      "text": "the",
+      "startMs": 71230,
+      "endMs": 71570
+    },
+    {
+      "text": "coding",
+      "startMs": 71570,
+      "endMs": 72690
+    },
+    {
+      "text": "agent",
+      "startMs": 72690,
+      "endMs": 72730
+    },
+    {
+      "text": "itself",
+      "startMs": 72730,
+      "endMs": 73330
+    },
+    {
+      "text": "and",
+      "startMs": 73330,
+      "endMs": 73630
+    },
+    {
+      "text": "stop",
+      "startMs": 73630,
+      "endMs": 74170
+    },
+    {
+      "text": "re-explaining",
+      "startMs": 74170,
+      "endMs": 75400
+    },
+    {
+      "text": "myself",
+      "startMs": 75400,
+      "endMs": 76360
+    },
+    {
+      "text": "and",
+      "startMs": 76360,
+      "endMs": 76590
+    },
+    {
+      "text": "my",
+      "startMs": 76590,
+      "endMs": 76740
+    },
+    {
+      "text": "architecture",
+      "startMs": 76740,
+      "endMs": 77740
+    },
+    {
+      "text": "to",
+      "startMs": 77740,
+      "endMs": 77810
+    },
+    {
+      "text": "the",
+      "startMs": 77810,
+      "endMs": 78040
+    },
+    {
+      "text": "coding",
+      "startMs": 78040,
+      "endMs": 78580
+    },
+    {
+      "text": "agent",
+      "startMs": 78580,
+      "endMs": 78960
+    },
+    {
+      "text": "each",
+      "startMs": 78960,
+      "endMs": 79250
+    },
+    {
+      "text": "time",
+      "startMs": 79250,
+      "endMs": 79530
+    },
+    {
+      "text": "I",
+      "startMs": 79530,
+      "endMs": 79620
+    },
+    {
+      "text": "use",
+      "startMs": 79620,
+      "endMs": 79840
+    },
+    {
+      "text": "it.",
+      "startMs": 79840,
+      "endMs": 80280
+    },
+    {
+      "text": "So",
+      "startMs": 80280,
+      "endMs": 80440
+    },
+    {
+      "text": "basically,",
+      "startMs": 80440,
+      "endMs": 81350
+    },
+    {
+      "text": "Ptah",
+      "startMs": 81350,
+      "endMs": 81750
+    },
+    {
+      "text": "is",
+      "startMs": 81750,
+      "endMs": 81840
+    },
+    {
+      "text": "a",
+      "startMs": 81840,
+      "endMs": 81920
+    },
+    {
+      "text": "provider",
+      "startMs": 81920,
+      "endMs": 82580
+    },
+    {
+      "text": "agnostic",
+      "startMs": 82580,
+      "endMs": 83240
+    },
+    {
+      "text": "coding",
+      "startMs": 83240,
+      "endMs": 83820
+    },
+    {
+      "text": "orchestra",
+      "startMs": 83820,
+      "endMs": 84570
+    },
+    {
+      "text": "where",
+      "startMs": 84570,
+      "endMs": 84980
+    },
+    {
+      "text": "you",
+      "startMs": 84980,
+      "endMs": 85330
+    },
+    {
+      "text": "can",
+      "startMs": 85330,
+      "endMs": 85480
+    },
+    {
+      "text": "use",
+      "startMs": 85480,
+      "endMs": 85730
+    },
+    {
+      "text": "your",
+      "startMs": 85730,
+      "endMs": 86200
+    },
+    {
+      "text": "different",
+      "startMs": 86200,
+      "endMs": 86880
+    },
+    {
+      "text": "subscriptions,",
+      "startMs": 86890,
+      "endMs": 88010
+    },
+    {
+      "text": "like",
+      "startMs": 88010,
+      "endMs": 88360
+    },
+    {
+      "text": "whether",
+      "startMs": 88360,
+      "endMs": 88970
+    },
+    {
+      "text": "you",
+      "startMs": 88970,
+      "endMs": 89240
+    },
+    {
+      "text": "have",
+      "startMs": 89240,
+      "endMs": 89600
+    },
+    {
+      "text": "Claude",
+      "startMs": 89600,
+      "endMs": 90360
+    },
+    {
+      "text": "Code,",
+      "startMs": 90360,
+      "endMs": 90530
+    },
+    {
+      "text": "Codex,",
+      "startMs": 90530,
+      "endMs": 91120
+    },
+    {
+      "text": "or",
+      "startMs": 91120,
+      "endMs": 91710
+    },
+    {
+      "text": "a",
+      "startMs": 91710,
+      "endMs": 91880
+    },
+    {
+      "text": "Llama",
+      "startMs": 91880,
+      "endMs": 92360
+    },
+    {
+      "text": "subscription",
+      "startMs": 92360,
+      "endMs": 93350
+    },
+    {
+      "text": "or",
+      "startMs": 93350,
+      "endMs": 93620
+    },
+    {
+      "text": "any",
+      "startMs": 93620,
+      "endMs": 94160
+    },
+    {
+      "text": "open",
+      "startMs": 94160,
+      "endMs": 94510
+    },
+    {
+      "text": "source",
+      "startMs": 94510,
+      "endMs": 95040
+    },
+    {
+      "text": "model.",
+      "startMs": 95040,
+      "endMs": 95760
+    },
+    {
+      "text": "You",
+      "startMs": 95760,
+      "endMs": 96010
+    },
+    {
+      "text": "can",
+      "startMs": 96010,
+      "endMs": 96260
+    },
+    {
+      "text": "utilize",
+      "startMs": 96260,
+      "endMs": 96850
+    },
+    {
+      "text": "it",
+      "startMs": 96850,
+      "endMs": 97080
+    },
+    {
+      "text": "with",
+      "startMs": 97080,
+      "endMs": 97360
+    },
+    {
+      "text": "Ptah",
+      "startMs": 97360,
+      "endMs": 97730
+    },
+    {
+      "text": "while",
+      "startMs": 97730,
+      "endMs": 98130
+    },
+    {
+      "text": "having",
+      "startMs": 98130,
+      "endMs": 98620
+    },
+    {
+      "text": "your",
+      "startMs": 98620,
+      "endMs": 98960
+    },
+    {
+      "text": "agentic",
+      "startMs": 98960,
+      "endMs": 99640
+    },
+    {
+      "text": "harness",
+      "startMs": 99640,
+      "endMs": 100240
+    },
+    {
+      "text": "and",
+      "startMs": 100240,
+      "endMs": 100530
+    },
+    {
+      "text": "context",
+      "startMs": 100530,
+      "endMs": 101070
+    },
+    {
+      "text": "harness",
+      "startMs": 101070,
+      "endMs": 101800
+    },
+    {
+      "text": "into",
+      "startMs": 101800,
+      "endMs": 102080
+    },
+    {
+      "text": "just",
+      "startMs": 102080,
+      "endMs": 102570
+    },
+    {
+      "text": "the",
+      "startMs": 102570,
+      "endMs": 103180
+    },
+    {
+      "text": "application",
+      "startMs": 103180,
+      "endMs": 104080
+    },
+    {
+      "text": "itself",
+      "startMs": 104080,
+      "endMs": 104750
+    },
+    {
+      "text": "or",
+      "startMs": 104750,
+      "endMs": 105020
+    },
+    {
+      "text": "at",
+      "startMs": 105020,
+      "endMs": 105190
+    },
+    {
+      "text": "the",
+      "startMs": 105190,
+      "endMs": 105520
+    },
+    {
+      "text": "application",
+      "startMs": 105520,
+      "endMs": 107120
+    },
+    {
+      "text": "layer.",
+      "startMs": 107120,
+      "endMs": 107680
+    },
+    {
+      "text": "Ptah",
+      "startMs": 107680,
+      "endMs": 108000
+    },
+    {
+      "text": "ships",
+      "startMs": 108000,
+      "endMs": 108400
+    },
+    {
+      "text": "with",
+      "startMs": 108400,
+      "endMs": 108720
+    },
+    {
+      "text": "24",
+      "startMs": 108720,
+      "endMs": 109200
+    },
+    {
+      "text": "skills",
+      "startMs": 109200,
+      "endMs": 109680
+    },
+    {
+      "text": "and",
+      "startMs": 109680,
+      "endMs": 109920
+    },
+    {
+      "text": "around",
+      "startMs": 109920,
+      "endMs": 110400
+    },
+    {
+      "text": "15",
+      "startMs": 110400,
+      "endMs": 110880
+    },
+    {
+      "text": "agent",
+      "startMs": 110880,
+      "endMs": 111280
+    },
+    {
+      "text": "templates",
+      "startMs": 111280,
+      "endMs": 112020
+    },
+    {
+      "text": "and",
+      "startMs": 112020,
+      "endMs": 112420
+    },
+    {
+      "text": "all",
+      "startMs": 112420,
+      "endMs": 112490
+    },
+    {
+      "text": "of",
+      "startMs": 112490,
+      "endMs": 112650
+    },
+    {
+      "text": "this",
+      "startMs": 112650,
+      "endMs": 112970
+    },
+    {
+      "text": "is",
+      "startMs": 112970,
+      "endMs": 113130
+    },
+    {
+      "text": "fully",
+      "startMs": 113130,
+      "endMs": 113530
+    },
+    {
+      "text": "customized",
+      "startMs": 113530,
+      "endMs": 114440
+    },
+    {
+      "text": "where",
+      "startMs": 114480,
+      "endMs": 114920
+    },
+    {
+      "text": "you",
+      "startMs": 114920,
+      "endMs": 115210
+    },
+    {
+      "text": "can",
+      "startMs": 115210,
+      "endMs": 115650
+    },
+    {
+      "text": "pick",
+      "startMs": 115650,
+      "endMs": 115960
+    },
+    {
+      "text": "what",
+      "startMs": 115960,
+      "endMs": 116340
+    },
+    {
+      "text": "you",
+      "startMs": 116340,
+      "endMs": 116570
+    },
+    {
+      "text": "want",
+      "startMs": 116570,
+      "endMs": 116930
+    },
+    {
+      "text": "and",
+      "startMs": 116930,
+      "endMs": 117530
+    },
+    {
+      "text": "then",
+      "startMs": 117530,
+      "endMs": 117600
+    },
+    {
+      "text": "install",
+      "startMs": 117600,
+      "endMs": 118270
+    },
+    {
+      "text": "it.",
+      "startMs": 118270,
+      "endMs": 118800
+    },
+    {
+      "text": "Ptah",
+      "startMs": 118800,
+      "endMs": 119130
+    },
+    {
+      "text": "will",
+      "startMs": 119130,
+      "endMs": 119460
+    },
+    {
+      "text": "wire",
+      "startMs": 119460,
+      "endMs": 119790
+    },
+    {
+      "text": "it",
+      "startMs": 119790,
+      "endMs": 119950
+    },
+    {
+      "text": "into",
+      "startMs": 119950,
+      "endMs": 120280
+    },
+    {
+      "text": "your",
+      "startMs": 120280,
+      "endMs": 120670
+    },
+    {
+      "text": "workspace",
+      "startMs": 120670,
+      "endMs": 121370
+    },
+    {
+      "text": "and",
+      "startMs": 121370,
+      "endMs": 121610
+    },
+    {
+      "text": "install",
+      "startMs": 121610,
+      "endMs": 122200
+    },
+    {
+      "text": "it",
+      "startMs": 122200,
+      "endMs": 122360
+    },
+    {
+      "text": "in",
+      "startMs": 122360,
+      "endMs": 122520
+    },
+    {
+      "text": "the",
+      "startMs": 122520,
+      "endMs": 122770
+    },
+    {
+      "text": "coding",
+      "startMs": 122770,
+      "endMs": 123360
+    },
+    {
+      "text": "agent",
+      "startMs": 123360,
+      "endMs": 123780
+    },
+    {
+      "text": "you",
+      "startMs": 123780,
+      "endMs": 124030
+    },
+    {
+      "text": "are",
+      "startMs": 124030,
+      "endMs": 124360
+    },
+    {
+      "text": "using.",
+      "startMs": 124360,
+      "endMs": 125080
+    },
+    {
+      "text": "They",
+      "startMs": 125080,
+      "endMs": 125340
+    },
+    {
+      "text": "are",
+      "startMs": 125340,
+      "endMs": 125540
+    },
+    {
+      "text": "not",
+      "startMs": 125540,
+      "endMs": 125760
+    },
+    {
+      "text": "just",
+      "startMs": 125760,
+      "endMs": 126020
+    },
+    {
+      "text": "prompts.",
+      "startMs": 126020,
+      "endMs": 126680
+    },
+    {
+      "text": "I",
+      "startMs": 126680,
+      "endMs": 126730
+    },
+    {
+      "text": "found",
+      "startMs": 126730,
+      "endMs": 127000
+    },
+    {
+      "text": "somewhere.",
+      "startMs": 127000,
+      "endMs": 127680
+    },
+    {
+      "text": "They",
+      "startMs": 127680,
+      "endMs": 128060
+    },
+    {
+      "text": "are",
+      "startMs": 128060,
+      "endMs": 128390
+    },
+    {
+      "text": "actually",
+      "startMs": 128390,
+      "endMs": 129120
+    },
+    {
+      "text": "the",
+      "startMs": 129120,
+      "endMs": 129410
+    },
+    {
+      "text": "way",
+      "startMs": 129410,
+      "endMs": 129790
+    },
+    {
+      "text": "I",
+      "startMs": 129790,
+      "endMs": 130170
+    },
+    {
+      "text": "have",
+      "startMs": 130170,
+      "endMs": 130240
+    },
+    {
+      "text": "been",
+      "startMs": 130240,
+      "endMs": 130550
+    },
+    {
+      "text": "coding",
+      "startMs": 130550,
+      "endMs": 131120
+    },
+    {
+      "text": "and",
+      "startMs": 131120,
+      "endMs": 131410
+    },
+    {
+      "text": "I",
+      "startMs": 131410,
+      "endMs": 131500
+    },
+    {
+      "text": "have",
+      "startMs": 131500,
+      "endMs": 131880
+    },
+    {
+      "text": "been",
+      "startMs": 131880,
+      "endMs": 132250
+    },
+    {
+      "text": "architecting",
+      "startMs": 132250,
+      "endMs": 133400
+    },
+    {
+      "text": "my",
+      "startMs": 133400,
+      "endMs": 133430
+    },
+    {
+      "text": "SaaS",
+      "startMs": 133430,
+      "endMs": 133960
+    },
+    {
+      "text": "application",
+      "startMs": 133960,
+      "endMs": 135120
+    },
+    {
+      "text": "for",
+      "startMs": 135120,
+      "endMs": 135420
+    },
+    {
+      "text": "all",
+      "startMs": 135420,
+      "endMs": 135720
+    },
+    {
+      "text": "of",
+      "startMs": 135720,
+      "endMs": 135920
+    },
+    {
+      "text": "my",
+      "startMs": 135920,
+      "endMs": 136130
+    },
+    {
+      "text": "years",
+      "startMs": 136130,
+      "endMs": 136620
+    },
+    {
+      "text": "of",
+      "startMs": 136620,
+      "endMs": 136820
+    },
+    {
+      "text": "experience.",
+      "startMs": 136820,
+      "endMs": 138160
+    },
+    {
+      "text": "For",
+      "startMs": 138160,
+      "endMs": 138410
+    },
+    {
+      "text": "example,",
+      "startMs": 138410,
+      "endMs": 139150
+    },
+    {
+      "text": "how",
+      "startMs": 139150,
+      "endMs": 139400
+    },
+    {
+      "text": "you",
+      "startMs": 139400,
+      "endMs": 139650
+    },
+    {
+      "text": "would",
+      "startMs": 139650,
+      "endMs": 140060
+    },
+    {
+      "text": "lay",
+      "startMs": 140060,
+      "endMs": 140390
+    },
+    {
+      "text": "out",
+      "startMs": 140390,
+      "endMs": 140640
+    },
+    {
+      "text": "or",
+      "startMs": 140640,
+      "endMs": 140800
+    },
+    {
+      "text": "how",
+      "startMs": 140800,
+      "endMs": 141050
+    },
+    {
+      "text": "you",
+      "startMs": 141050,
+      "endMs": 141300
+    },
+    {
+      "text": "would",
+      "startMs": 141300,
+      "endMs": 141710
+    },
+    {
+      "text": "create",
+      "startMs": 141710,
+      "endMs": 142210
+    },
+    {
+      "text": "a",
+      "startMs": 142210,
+      "endMs": 142290
+    },
+    {
+      "text": "library",
+      "startMs": 142290,
+      "endMs": 142870
+    },
+    {
+      "text": "or",
+      "startMs": 142870,
+      "endMs": 143030
+    },
+    {
+      "text": "defines",
+      "startMs": 143030,
+      "endMs": 143610
+    },
+    {
+      "text": "first",
+      "startMs": 143610,
+      "endMs": 144120
+    },
+    {
+      "text": "the",
+      "startMs": 144120,
+      "endMs": 144390
+    },
+    {
+      "text": "domain",
+      "startMs": 144390,
+      "endMs": 144940
+    },
+    {
+      "text": "driven",
+      "startMs": 144940,
+      "endMs": 145490
+    },
+    {
+      "text": "design",
+      "startMs": 145490,
+      "endMs": 146040
+    },
+    {
+      "text": "architecture",
+      "startMs": 146040,
+      "endMs": 147150
+    },
+    {
+      "text": "into",
+      "startMs": 147150,
+      "endMs": 147530
+    },
+    {
+      "text": "your",
+      "startMs": 147530,
+      "endMs": 148000
+    },
+    {
+      "text": "workspace,",
+      "startMs": 148000,
+      "endMs": 148900
+    },
+    {
+      "text": "how",
+      "startMs": 148900,
+      "endMs": 149350
+    },
+    {
+      "text": "you",
+      "startMs": 149350,
+      "endMs": 149440
+    },
+    {
+      "text": "would",
+      "startMs": 149440,
+      "endMs": 149900
+    },
+    {
+      "text": "model",
+      "startMs": 149900,
+      "endMs": 150360
+    },
+    {
+      "text": "a",
+      "startMs": 150360,
+      "endMs": 150450
+    },
+    {
+      "text": "domain,",
+      "startMs": 150450,
+      "endMs": 151280
+    },
+    {
+      "text": "how",
+      "startMs": 151280,
+      "endMs": 151490
+    },
+    {
+      "text": "you",
+      "startMs": 151490,
+      "endMs": 151700
+    },
+    {
+      "text": "would",
+      "startMs": 151700,
+      "endMs": 152060
+    },
+    {
+      "text": "apply",
+      "startMs": 152060,
+      "endMs": 152410
+    },
+    {
+      "text": "multi-tenancy",
+      "startMs": 152410,
+      "endMs": 153350
+    },
+    {
+      "text": "with",
+      "startMs": 153350,
+      "endMs": 153640
+    },
+    {
+      "text": "authentication",
+      "startMs": 153640,
+      "endMs": 154660
+    },
+    {
+      "text": "and",
+      "startMs": 154660,
+      "endMs": 154860
+    },
+    {
+      "text": "authorizations,",
+      "startMs": 154860,
+      "endMs": 156010
+    },
+    {
+      "text": "all",
+      "startMs": 156010,
+      "endMs": 156260
+    },
+    {
+      "text": "of",
+      "startMs": 156260,
+      "endMs": 156360
+    },
+    {
+      "text": "those",
+      "startMs": 156360,
+      "endMs": 156710
+    },
+    {
+      "text": "ships",
+      "startMs": 156710,
+      "endMs": 157120
+    },
+    {
+      "text": "directly",
+      "startMs": 157120,
+      "endMs": 157760
+    },
+    {
+      "text": "into",
+      "startMs": 157760,
+      "endMs": 158120
+    },
+    {
+      "text": "Ptah.",
+      "startMs": 158120,
+      "endMs": 158760
+    },
+    {
+      "text": "Also,",
+      "startMs": 158760,
+      "endMs": 159280
+    },
+    {
+      "text": "it",
+      "startMs": 159280,
+      "endMs": 159450
+    },
+    {
+      "text": "doesn't",
+      "startMs": 159450,
+      "endMs": 160050
+    },
+    {
+      "text": "hand",
+      "startMs": 160050,
+      "endMs": 160400
+    },
+    {
+      "text": "you",
+      "startMs": 160400,
+      "endMs": 160660
+    },
+    {
+      "text": "generic",
+      "startMs": 160660,
+      "endMs": 161270
+    },
+    {
+      "text": "agent.",
+      "startMs": 161270,
+      "endMs": 162000
+    },
+    {
+      "text": "It",
+      "startMs": 162000,
+      "endMs": 162160
+    },
+    {
+      "text": "is",
+      "startMs": 162160,
+      "endMs": 162320
+    },
+    {
+      "text": "a",
+      "startMs": 162320,
+      "endMs": 162400
+    },
+    {
+      "text": "setup",
+      "startMs": 162400,
+      "endMs": 162810
+    },
+    {
+      "text": "wizard",
+      "startMs": 162810,
+      "endMs": 163310
+    },
+    {
+      "text": "as",
+      "startMs": 163310,
+      "endMs": 163470
+    },
+    {
+      "text": "well",
+      "startMs": 163470,
+      "endMs": 163970
+    },
+    {
+      "text": "that",
+      "startMs": 163970,
+      "endMs": 164240
+    },
+    {
+      "text": "understands",
+      "startMs": 164240,
+      "endMs": 165050
+    },
+    {
+      "text": "your",
+      "startMs": 165050,
+      "endMs": 165380
+    },
+    {
+      "text": "architecture",
+      "startMs": 165380,
+      "endMs": 166470
+    },
+    {
+      "text": "and",
+      "startMs": 166470,
+      "endMs": 166640
+    },
+    {
+      "text": "your",
+      "startMs": 166640,
+      "endMs": 166970
+    },
+    {
+      "text": "tech",
+      "startMs": 166970,
+      "endMs": 167430
+    },
+    {
+      "text": "stack",
+      "startMs": 167430,
+      "endMs": 167810
+    },
+    {
+      "text": "and",
+      "startMs": 167810,
+      "endMs": 168160
+    },
+    {
+      "text": "everything",
+      "startMs": 168160,
+      "endMs": 168850
+    },
+    {
+      "text": "you",
+      "startMs": 168850,
+      "endMs": 169060
+    },
+    {
+      "text": "are",
+      "startMs": 169060,
+      "endMs": 169270
+    },
+    {
+      "text": "using.",
+      "startMs": 169270,
+      "endMs": 169840
+    },
+    {
+      "text": "Also,",
+      "startMs": 169840,
+      "endMs": 170360
+    },
+    {
+      "text": "it",
+      "startMs": 170360,
+      "endMs": 170560
+    },
+    {
+      "text": "like",
+      "startMs": 170560,
+      "endMs": 170910
+    },
+    {
+      "text": "have",
+      "startMs": 170910,
+      "endMs": 171300
+    },
+    {
+      "text": "an",
+      "startMs": 171300,
+      "endMs": 171450
+    },
+    {
+      "text": "evaluation",
+      "startMs": 171450,
+      "endMs": 172420
+    },
+    {
+      "text": "for",
+      "startMs": 172420,
+      "endMs": 172620
+    },
+    {
+      "text": "your",
+      "startMs": 172620,
+      "endMs": 172980
+    },
+    {
+      "text": "weaknesses",
+      "startMs": 172980,
+      "endMs": 173880
+    },
+    {
+      "text": "and",
+      "startMs": 173880,
+      "endMs": 174150
+    },
+    {
+      "text": "the",
+      "startMs": 174150,
+      "endMs": 174440
+    },
+    {
+      "text": "strengths",
+      "startMs": 174440,
+      "endMs": 175230
+    },
+    {
+      "text": "and",
+      "startMs": 175230,
+      "endMs": 175640
+    },
+    {
+      "text": "based",
+      "startMs": 175640,
+      "endMs": 175950
+    },
+    {
+      "text": "off",
+      "startMs": 175950,
+      "endMs": 176240
+    },
+    {
+      "text": "all",
+      "startMs": 176240,
+      "endMs": 176560
+    },
+    {
+      "text": "of",
+      "startMs": 176560,
+      "endMs": 176770
+    },
+    {
+      "text": "this",
+      "startMs": 176770,
+      "endMs": 177190
+    },
+    {
+      "text": "information,",
+      "startMs": 177190,
+      "endMs": 178570
+    },
+    {
+      "text": "it",
+      "startMs": 178570,
+      "endMs": 178780
+    },
+    {
+      "text": "generates",
+      "startMs": 178780,
+      "endMs": 179730
+    },
+    {
+      "text": "tailored",
+      "startMs": 179730,
+      "endMs": 180590
+    },
+    {
+      "text": "agents",
+      "startMs": 180590,
+      "endMs": 181290
+    },
+    {
+      "text": "and",
+      "startMs": 181290,
+      "endMs": 181550
+    },
+    {
+      "text": "skills",
+      "startMs": 181550,
+      "endMs": 182190
+    },
+    {
+      "text": "for",
+      "startMs": 182190,
+      "endMs": 182530
+    },
+    {
+      "text": "your",
+      "startMs": 182530,
+      "endMs": 182930
+    },
+    {
+      "text": "projects.",
+      "startMs": 182930,
+      "endMs": 184160
+    },
+    {
+      "text": "All",
+      "startMs": 184160,
+      "endMs": 184420
+    },
+    {
+      "text": "of",
+      "startMs": 184420,
+      "endMs": 184840
+    },
+    {
+      "text": "that",
+      "startMs": 184840,
+      "endMs": 184970
+    },
+    {
+      "text": "run",
+      "startMs": 184970,
+      "endMs": 185240
+    },
+    {
+      "text": "in",
+      "startMs": 185240,
+      "endMs": 185420
+    },
+    {
+      "text": "three",
+      "startMs": 185420,
+      "endMs": 185860
+    },
+    {
+      "text": "places,",
+      "startMs": 185860,
+      "endMs": 186630
+    },
+    {
+      "text": "a",
+      "startMs": 186630,
+      "endMs": 186680
+    },
+    {
+      "text": "VS",
+      "startMs": 186680,
+      "endMs": 186900
+    },
+    {
+      "text": "Code",
+      "startMs": 186900,
+      "endMs": 187220
+    },
+    {
+      "text": "extension,",
+      "startMs": 187220,
+      "endMs": 188300
+    },
+    {
+      "text": "a",
+      "startMs": 188300,
+      "endMs": 188310
+    },
+    {
+      "text": "desktop",
+      "startMs": 188310,
+      "endMs": 188940
+    },
+    {
+      "text": "application",
+      "startMs": 188940,
+      "endMs": 189940
+    },
+    {
+      "text": "and",
+      "startMs": 189940,
+      "endMs": 190210
+    },
+    {
+      "text": "a",
+      "startMs": 190210,
+      "endMs": 190300
+    },
+    {
+      "text": "CLI",
+      "startMs": 190300,
+      "endMs": 190640
+    },
+    {
+      "text": "tool.",
+      "startMs": 190640,
+      "endMs": 191640
+    },
+    {
+      "text": "It's",
+      "startMs": 191640,
+      "endMs": 192910
+    },
+    {
+      "text": "a",
+      "startMs": 192910,
+      "endMs": 193260
+    },
+    {
+      "text": "CLI",
+      "startMs": 193260,
+      "endMs": 193520
+    },
+    {
+      "text": "tool",
+      "startMs": 193520,
+      "endMs": 193840
+    },
+    {
+      "text": "as",
+      "startMs": 193840,
+      "endMs": 193990
+    },
+    {
+      "text": "well",
+      "startMs": 193990,
+      "endMs": 194520
+    },
+    {
+      "text": "work",
+      "startMs": 194520,
+      "endMs": 194720
+    },
+    {
+      "text": "both",
+      "startMs": 194720,
+      "endMs": 195070
+    },
+    {
+      "text": "ways",
+      "startMs": 195070,
+      "endMs": 195460
+    },
+    {
+      "text": "headless",
+      "startMs": 195460,
+      "endMs": 195950
+    },
+    {
+      "text": "where",
+      "startMs": 195950,
+      "endMs": 196390
+    },
+    {
+      "text": "an",
+      "startMs": 196390,
+      "endMs": 196560
+    },
+    {
+      "text": "agent",
+      "startMs": 196560,
+      "endMs": 196990
+    },
+    {
+      "text": "can",
+      "startMs": 196990,
+      "endMs": 197430
+    },
+    {
+      "text": "talk",
+      "startMs": 197430,
+      "endMs": 197700
+    },
+    {
+      "text": "to",
+      "startMs": 197700,
+      "endMs": 197780
+    },
+    {
+      "text": "it",
+      "startMs": 197780,
+      "endMs": 198100
+    },
+    {
+      "text": "through",
+      "startMs": 198100,
+      "endMs": 198570
+    },
+    {
+      "text": "a",
+      "startMs": 198570,
+      "endMs": 198660
+    },
+    {
+      "text": "JSON",
+      "startMs": 198660,
+      "endMs": 199160
+    },
+    {
+      "text": "RPC",
+      "startMs": 199160,
+      "endMs": 199470
+    },
+    {
+      "text": "and",
+      "startMs": 199470,
+      "endMs": 199970
+    },
+    {
+      "text": "also",
+      "startMs": 199970,
+      "endMs": 200220
+    },
+    {
+      "text": "a",
+      "startMs": 200220,
+      "endMs": 200320
+    },
+    {
+      "text": "terminal",
+      "startMs": 200320,
+      "endMs": 201180
+    },
+    {
+      "text": "user",
+      "startMs": 201180,
+      "endMs": 201610
+    },
+    {
+      "text": "interface",
+      "startMs": 201610,
+      "endMs": 202600
+    },
+    {
+      "text": "where",
+      "startMs": 202600,
+      "endMs": 203110
+    },
+    {
+      "text": "you",
+      "startMs": 203110,
+      "endMs": 203430
+    },
+    {
+      "text": "are",
+      "startMs": 203430,
+      "endMs": 203740
+    },
+    {
+      "text": "driving",
+      "startMs": 203740,
+      "endMs": 204500
+    },
+    {
+      "text": "it",
+      "startMs": 204500,
+      "endMs": 204690
+    },
+    {
+      "text": "yourself.",
+      "startMs": 204690,
+      "endMs": 205960
+    },
+    {
+      "text": "On",
+      "startMs": 205960,
+      "endMs": 206130
+    },
+    {
+      "text": "our",
+      "startMs": 206130,
+      "endMs": 206430
+    },
+    {
+      "text": "canvas,",
+      "startMs": 206430,
+      "endMs": 207100
+    },
+    {
+      "text": "you",
+      "startMs": 207100,
+      "endMs": 207290
+    },
+    {
+      "text": "can",
+      "startMs": 207290,
+      "endMs": 207540
+    },
+    {
+      "text": "run",
+      "startMs": 207540,
+      "endMs": 207870
+    },
+    {
+      "text": "up",
+      "startMs": 207870,
+      "endMs": 207960
+    },
+    {
+      "text": "to",
+      "startMs": 207960,
+      "endMs": 208130
+    },
+    {
+      "text": "nine",
+      "startMs": 208130,
+      "endMs": 208470
+    },
+    {
+      "text": "different",
+      "startMs": 208470,
+      "endMs": 209230
+    },
+    {
+      "text": "agents",
+      "startMs": 209230,
+      "endMs": 209730
+    },
+    {
+      "text": "with",
+      "startMs": 209730,
+      "endMs": 210690
+    },
+    {
+      "text": "different",
+      "startMs": 210690,
+      "endMs": 210830
+    },
+    {
+      "text": "models",
+      "startMs": 210830,
+      "endMs": 211570
+    },
+    {
+      "text": "and",
+      "startMs": 211570,
+      "endMs": 211590
+    },
+    {
+      "text": "also",
+      "startMs": 211590,
+      "endMs": 211920
+    },
+    {
+      "text": "different",
+      "startMs": 211920,
+      "endMs": 212760
+    },
+    {
+      "text": "providers",
+      "startMs": 212760,
+      "endMs": 213900
+    },
+    {
+      "text": "if",
+      "startMs": 213900,
+      "endMs": 214070
+    },
+    {
+      "text": "you",
+      "startMs": 214070,
+      "endMs": 214650
+    },
+    {
+      "text": "like",
+      "startMs": 214650,
+      "endMs": 214910
+    },
+    {
+      "text": "all",
+      "startMs": 214910,
+      "endMs": 215270
+    },
+    {
+      "text": "from",
+      "startMs": 215270,
+      "endMs": 215950
+    },
+    {
+      "text": "one",
+      "startMs": 215950,
+      "endMs": 216110
+    },
+    {
+      "text": "shared",
+      "startMs": 216110,
+      "endMs": 216820
+    },
+    {
+      "text": "workspace.",
+      "startMs": 216820,
+      "endMs": 218280
+    },
+    {
+      "text": "It",
+      "startMs": 218280,
+      "endMs": 218430
+    },
+    {
+      "text": "also",
+      "startMs": 218430,
+      "endMs": 218730
+    },
+    {
+      "text": "has",
+      "startMs": 218730,
+      "endMs": 218960
+    },
+    {
+      "text": "a",
+      "startMs": 218960,
+      "endMs": 219030
+    },
+    {
+      "text": "memory",
+      "startMs": 219030,
+      "endMs": 219490
+    },
+    {
+      "text": "that",
+      "startMs": 219490,
+      "endMs": 219790
+    },
+    {
+      "text": "resists",
+      "startMs": 219790,
+      "endMs": 220360
+    },
+    {
+      "text": "over",
+      "startMs": 220360,
+      "endMs": 220620
+    },
+    {
+      "text": "session,",
+      "startMs": 220620,
+      "endMs": 221300
+    },
+    {
+      "text": "so",
+      "startMs": 221300,
+      "endMs": 221450
+    },
+    {
+      "text": "the",
+      "startMs": 221450,
+      "endMs": 221680
+    },
+    {
+      "text": "thing",
+      "startMs": 221680,
+      "endMs": 222060
+    },
+    {
+      "text": "you",
+      "startMs": 222060,
+      "endMs": 222290
+    },
+    {
+      "text": "define",
+      "startMs": 222290,
+      "endMs": 222750
+    },
+    {
+      "text": "to",
+      "startMs": 222750,
+      "endMs": 222900
+    },
+    {
+      "text": "it",
+      "startMs": 222900,
+      "endMs": 223050
+    },
+    {
+      "text": "while",
+      "startMs": 223050,
+      "endMs": 223430
+    },
+    {
+      "text": "you",
+      "startMs": 223430,
+      "endMs": 223660
+    },
+    {
+      "text": "are",
+      "startMs": 223660,
+      "endMs": 223960
+    },
+    {
+      "text": "working",
+      "startMs": 223960,
+      "endMs": 224650
+    },
+    {
+      "text": "on",
+      "startMs": 224650,
+      "endMs": 224840
+    },
+    {
+      "text": "the",
+      "startMs": 224840,
+      "endMs": 225130
+    },
+    {
+      "text": "first",
+      "startMs": 225130,
+      "endMs": 225620
+    },
+    {
+      "text": "day",
+      "startMs": 225620,
+      "endMs": 225910
+    },
+    {
+      "text": "of",
+      "startMs": 225910,
+      "endMs": 226100
+    },
+    {
+      "text": "the",
+      "startMs": 226100,
+      "endMs": 226480
+    },
+    {
+      "text": "week,",
+      "startMs": 226480,
+      "endMs": 226970
+    },
+    {
+      "text": "it",
+      "startMs": 226970,
+      "endMs": 227160
+    },
+    {
+      "text": "will",
+      "startMs": 227160,
+      "endMs": 227550
+    },
+    {
+      "text": "exist",
+      "startMs": 227550,
+      "endMs": 228040
+    },
+    {
+      "text": "on",
+      "startMs": 228040,
+      "endMs": 228240
+    },
+    {
+      "text": "Friday",
+      "startMs": 228240,
+      "endMs": 228820
+    },
+    {
+      "text": "until",
+      "startMs": 228820,
+      "endMs": 229340
+    },
+    {
+      "text": "you",
+      "startMs": 229340,
+      "endMs": 229690
+    },
+    {
+      "text": "say",
+      "startMs": 229690,
+      "endMs": 229880
+    },
+    {
+      "text": "so.",
+      "startMs": 229880,
+      "endMs": 230520
+    },
+    {
+      "text": "And",
+      "startMs": 230520,
+      "endMs": 230840
+    },
+    {
+      "text": "once",
+      "startMs": 230840,
+      "endMs": 231090
+    },
+    {
+      "text": "you",
+      "startMs": 231090,
+      "endMs": 231320
+    },
+    {
+      "text": "finish",
+      "startMs": 231320,
+      "endMs": 231800
+    },
+    {
+      "text": "your",
+      "startMs": 231800,
+      "endMs": 232120
+    },
+    {
+      "text": "work,",
+      "startMs": 232120,
+      "endMs": 232600
+    },
+    {
+      "text": "it",
+      "startMs": 232600,
+      "endMs": 232760
+    },
+    {
+      "text": "has",
+      "startMs": 232760,
+      "endMs": 233040
+    },
+    {
+      "text": "a",
+      "startMs": 233040,
+      "endMs": 233080
+    },
+    {
+      "text": "trajectory",
+      "startMs": 233080,
+      "endMs": 233890
+    },
+    {
+      "text": "that",
+      "startMs": 233890,
+      "endMs": 234210
+    },
+    {
+      "text": "run",
+      "startMs": 234210,
+      "endMs": 234450
+    },
+    {
+      "text": "all",
+      "startMs": 234450,
+      "endMs": 234720
+    },
+    {
+      "text": "over",
+      "startMs": 234720,
+      "endMs": 235010
+    },
+    {
+      "text": "your",
+      "startMs": 235010,
+      "endMs": 235330
+    },
+    {
+      "text": "session",
+      "startMs": 235330,
+      "endMs": 235990
+    },
+    {
+      "text": "and",
+      "startMs": 235990,
+      "endMs": 236220
+    },
+    {
+      "text": "try",
+      "startMs": 236220,
+      "endMs": 236480
+    },
+    {
+      "text": "to",
+      "startMs": 236480,
+      "endMs": 236680
+    },
+    {
+      "text": "understand",
+      "startMs": 236680,
+      "endMs": 237570
+    },
+    {
+      "text": "how",
+      "startMs": 237570,
+      "endMs": 237830
+    },
+    {
+      "text": "you",
+      "startMs": 237830,
+      "endMs": 238090
+    },
+    {
+      "text": "could",
+      "startMs": 238090,
+      "endMs": 238530
+    },
+    {
+      "text": "offer",
+      "startMs": 238530,
+      "endMs": 238970
+    },
+    {
+      "text": "you",
+      "startMs": 238970,
+      "endMs": 239230
+    },
+    {
+      "text": "new",
+      "startMs": 239230,
+      "endMs": 239490
+    },
+    {
+      "text": "skills",
+      "startMs": 239490,
+      "endMs": 240020
+    },
+    {
+      "text": "where",
+      "startMs": 240020,
+      "endMs": 240480
+    },
+    {
+      "text": "you",
+      "startMs": 240480,
+      "endMs": 240720
+    },
+    {
+      "text": "can",
+      "startMs": 240720,
+      "endMs": 240980
+    },
+    {
+      "text": "generate",
+      "startMs": 240980,
+      "endMs": 241690
+    },
+    {
+      "text": "them",
+      "startMs": 241690,
+      "endMs": 242040
+    },
+    {
+      "text": "to",
+      "startMs": 242040,
+      "endMs": 242210
+    },
+    {
+      "text": "use",
+      "startMs": 242210,
+      "endMs": 242470
+    },
+    {
+      "text": "into",
+      "startMs": 242470,
+      "endMs": 242820
+    },
+    {
+      "text": "your",
+      "startMs": 242820,
+      "endMs": 243280
+    },
+    {
+      "text": "project",
+      "startMs": 243280,
+      "endMs": 244160
+    },
+    {
+      "text": "from",
+      "startMs": 244160,
+      "endMs": 244180
+    },
+    {
+      "text": "now",
+      "startMs": 244180,
+      "endMs": 244410
+    },
+    {
+      "text": "on.",
+      "startMs": 244410,
+      "endMs": 244840
+    }
+  ],
+  "corrected": true
+}

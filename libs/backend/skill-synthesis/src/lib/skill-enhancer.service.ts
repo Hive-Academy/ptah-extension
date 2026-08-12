@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -55,6 +56,15 @@ export const MIN_INVOCATIONS_TO_ENHANCE = 5;
 const MAX_TRAJECTORY_SESSIONS = 3;
 const TRAJECTORY_MIN_TURNS = 5;
 
+/**
+ * How long a generated-but-unapplied proposal stays redeemable. Long enough to
+ * read a full diff, short enough that the clone on disk cannot have drifted far
+ * underneath it.
+ */
+export const PROPOSAL_TTL_MS = 15 * 60 * 1000;
+/** Hard cap on cached proposals; oldest is evicted first (insertion order). */
+export const MAX_CACHED_PROPOSALS = 20;
+
 export interface EnhanceOptions {
   readonly manual?: boolean;
   readonly kind?: SkillRegistryKind;
@@ -88,8 +98,79 @@ export interface RevertEnhancementResult {
   newHistoryTs: string | null;
 }
 
+/**
+ * A generated-and-judged improvement that has NOT been written to disk. Held
+ * in memory only (never persisted) and redeemable exactly once via
+ * {@link SkillEnhancerService.applyProposal}.
+ */
+export interface EnhancementProposal {
+  readonly proposalId: string;
+  readonly slug: string;
+  readonly kind: SkillRegistryKind;
+  readonly currentBody: string;
+  readonly proposedBody: string;
+  readonly judgeScore: number | null;
+  readonly judgeReason: string | null;
+  readonly createdAt: number;
+}
+
+/**
+ * Outcome of the read-only half of enhancement. `proposed: true` guarantees
+ * `proposalId` / `currentBody` / `proposedBody` are non-null. On a skip the
+ * bodies and judge fields are still filled in wherever they are known, so the
+ * caller can show *why* a candidate was rejected next to the rejected diff.
+ */
+export interface GenerateProposalResult {
+  proposed: boolean;
+  slug: string;
+  kind: SkillRegistryKind;
+  currentBody: string | null;
+  proposedBody: string | null;
+  judgeScore: number | null;
+  judgeReason: string | null;
+  proposalId: string | null;
+  skipReason?: EnhanceSkipReason;
+}
+
+/** Outcome of the write half of enhancement. */
+export interface ApplyProposalResult {
+  applied: boolean;
+  slug: string;
+  kind: SkillRegistryKind;
+  judgeScore: number | null;
+  judgeReason: string | null;
+  historyTs: string | null;
+}
+
+/** Why a `proposalId` could not be redeemed. */
+export type ProposalRejectionCode = 'not-found' | 'expired' | 'mismatch';
+
+/**
+ * Thrown by {@link SkillEnhancerService.applyProposal} when the id does not
+ * resolve to a live proposal for the requested `(kind, slug)`. Callers MUST
+ * surface this rather than silently regenerating — re-running the LLM would
+ * apply a body the user never previewed.
+ */
+export class ProposalNotFoundError extends Error {
+  constructor(
+    readonly code: ProposalRejectionCode,
+    readonly proposalId: string,
+  ) {
+    super(`Enhancement proposal ${code}: ${proposalId}`);
+    this.name = 'ProposalNotFoundError';
+  }
+}
+
 @injectable()
 export class SkillEnhancerService {
+  /**
+   * Generated-but-unapplied proposals, keyed by opaque `proposalId`. In-memory
+   * only and process-local: a restart simply invalidates outstanding previews,
+   * which is the safe failure mode (Apply re-previews instead of writing a
+   * body nobody saw).
+   */
+  private readonly proposals = new Map<string, EnhancementProposal>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -126,19 +207,30 @@ export class SkillEnhancerService {
     return !this.isWithinCooldown(slug, settings, kind);
   }
 
-  async enhance(
+  /**
+   * Generate + judge an improvement WITHOUT touching disk.
+   *
+   * Runs every gate the write path runs (eligibility, cooldown, generation,
+   * judge verdict, frontmatter validation) and stops immediately before the
+   * snapshot/write. A proposal that clears all gates is parked in the
+   * in-memory cache and its opaque `proposalId` returned; redeem it with
+   * {@link applyProposal}. Fail-soft: never throws, mirroring `enhance`.
+   */
+  async generateProposal(
     slug: string,
     settings: SkillSynthesisSettings,
     options: EnhanceOptions = {},
-  ): Promise<EnhanceResult> {
+  ): Promise<GenerateProposalResult> {
     const kind: SkillRegistryKind = options.kind ?? 'skill';
-    const base: EnhanceResult = {
-      changed: false,
+    const base: GenerateProposalResult = {
+      proposed: false,
       slug,
       kind,
+      currentBody: null,
+      proposedBody: null,
       judgeScore: null,
       judgeReason: null,
-      historyTs: null,
+      proposalId: null,
     };
 
     try {
@@ -174,7 +266,7 @@ export class SkillEnhancerService {
         scorecardBlock,
       );
       if (!candidateBody) {
-        return { ...base, skipReason: 'empty-candidate' };
+        return { ...base, currentBody, skipReason: 'empty-candidate' };
       }
 
       if (candidateBody.trim() === currentBody.trim()) {
@@ -185,7 +277,7 @@ export class SkillEnhancerService {
             kind,
           },
         );
-        return { ...base, skipReason: 'no-change' };
+        return { ...base, currentBody, skipReason: 'no-change' };
       }
 
       const decision = await this.judge.judge(
@@ -194,6 +286,14 @@ export class SkillEnhancerService {
         settings,
         scorecardBlock ?? undefined,
       );
+
+      const judged: GenerateProposalResult = {
+        ...base,
+        currentBody,
+        proposedBody: candidateBody,
+        judgeScore: decision.score,
+        judgeReason: decision.reason,
+      };
 
       const autoRequiresVerdict = !options.manual;
       const passedForWrite =
@@ -209,12 +309,7 @@ export class SkillEnhancerService {
           judgeScore: decision.score,
           manual: options.manual ?? false,
         });
-        return {
-          ...base,
-          judgeScore: decision.score,
-          judgeReason: decision.reason,
-          skipReason: 'judge-rejected',
-        };
+        return { ...judged, skipReason: 'judge-rejected' };
       }
 
       if (
@@ -230,62 +325,135 @@ export class SkillEnhancerService {
             judgeReason: decision.reason,
           },
         );
-        return {
-          ...base,
-          judgeScore: decision.score,
-          judgeReason: decision.reason,
-          skipReason: 'invalid-candidate',
-        };
+        return { ...judged, skipReason: 'invalid-candidate' };
       }
 
       if (
         !this.requiresFrontmatter(kind) &&
         candidateBody.trim().length === 0
       ) {
+        return { ...judged, skipReason: 'invalid-candidate' };
+      }
+
+      const proposal: EnhancementProposal = {
+        proposalId: randomUUID(),
+        slug,
+        kind,
+        currentBody,
+        proposedBody: candidateBody,
+        judgeScore: decision.score,
+        judgeReason: decision.reason,
+        createdAt: Date.now(),
+      };
+      this.cacheProposal(proposal);
+
+      return { ...judged, proposed: true, proposalId: proposal.proposalId };
+    } catch (error: unknown) {
+      this.logger.warn('[skill-enhancer] proposal generation failed', {
+        slug,
+        kind,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { ...base, skipReason: 'error' };
+    }
+  }
+
+  /**
+   * Redeem a previously generated proposal: snapshot the clone to history,
+   * write the exact previewed body, refresh the sidecar, and re-propagate.
+   *
+   * Consumes the cache entry, so a `proposalId` applies at most once. Throws
+   * {@link ProposalNotFoundError} on an unknown / expired id or when
+   * `(kind, slug)` do not match the cached proposal — never regenerates.
+   */
+  async applyProposal(
+    kind: SkillRegistryKind,
+    slug: string,
+    proposalId: string,
+  ): Promise<ApplyProposalResult> {
+    const proposal = this.takeProposal(kind, slug, proposalId);
+
+    const written: WriteEnhancedResult =
+      proposal.kind === 'skill'
+        ? await this.mirror.writeEnhancedSkill({
+            slug: proposal.slug,
+            newBody: proposal.proposedBody,
+          })
+        : await this.mirror.writeEnhancedFileClone({
+            kind: proposal.kind,
+            slug: proposal.slug,
+            newBody: proposal.proposedBody,
+          });
+
+    this.registry.markEnhanced(
+      proposal.kind,
+      proposal.slug,
+      Date.now(),
+      written.currentContentHash,
+    );
+
+    await this.repropagate(proposal.slug, proposal.kind);
+
+    this.logger.info('[skill-enhancer] clone enhanced', {
+      slug: proposal.slug,
+      kind: proposal.kind,
+      judgeScore: proposal.judgeScore,
+      judgeReason: proposal.judgeReason,
+      historyTs: written.historyTs,
+    });
+
+    return {
+      applied: true,
+      slug: proposal.slug,
+      kind: proposal.kind,
+      judgeScore: proposal.judgeScore,
+      judgeReason: proposal.judgeReason,
+      historyTs: written.historyTs,
+    };
+  }
+
+  /**
+   * One-shot enhancement: generate, judge, and write in a single pass.
+   *
+   * Thin compose of {@link generateProposal} + {@link applyProposal} — the
+   * auto-enhance path and `skillSynthesis:enhanceNow` keep their exact prior
+   * behaviour, including fail-soft error handling.
+   */
+  async enhance(
+    slug: string,
+    settings: SkillSynthesisSettings,
+    options: EnhanceOptions = {},
+  ): Promise<EnhanceResult> {
+    const kind: SkillRegistryKind = options.kind ?? 'skill';
+    const base: EnhanceResult = {
+      changed: false,
+      slug,
+      kind,
+      judgeScore: null,
+      judgeReason: null,
+      historyTs: null,
+    };
+
+    try {
+      const proposal = await this.generateProposal(slug, settings, options);
+      if (!proposal.proposed || proposal.proposalId === null) {
         return {
           ...base,
-          judgeScore: decision.score,
-          judgeReason: decision.reason,
-          skipReason: 'invalid-candidate',
+          judgeScore: proposal.judgeScore,
+          judgeReason: proposal.judgeReason,
+          skipReason: proposal.skipReason ?? 'error',
         };
       }
 
-      const written: WriteEnhancedResult =
-        kind === 'skill'
-          ? await this.mirror.writeEnhancedSkill({
-              slug,
-              newBody: candidateBody,
-            })
-          : await this.mirror.writeEnhancedFileClone({
-              kind,
-              slug,
-              newBody: candidateBody,
-            });
-
-      this.registry.markEnhanced(
-        kind,
-        slug,
-        Date.now(),
-        written.currentContentHash,
-      );
-
-      await this.repropagate(slug, kind);
-
-      this.logger.info('[skill-enhancer] clone enhanced', {
-        slug,
-        kind,
-        judgeScore: decision.score,
-        judgeReason: decision.reason,
-        historyTs: written.historyTs,
-      });
+      const applied = await this.applyProposal(kind, slug, proposal.proposalId);
 
       return {
         changed: true,
         slug,
         kind,
-        judgeScore: decision.score,
-        judgeReason: decision.reason,
-        historyTs: written.historyTs,
+        judgeScore: applied.judgeScore,
+        judgeReason: applied.judgeReason,
+        historyTs: applied.historyTs,
       };
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] enhance failed; fail-soft', {
@@ -295,6 +463,50 @@ export class SkillEnhancerService {
       });
       return { ...base, skipReason: 'error' };
     }
+  }
+
+  /** Park a proposal, pruning expired entries and capping total size. */
+  private cacheProposal(proposal: EnhancementProposal): void {
+    this.pruneProposals();
+    while (this.proposals.size >= MAX_CACHED_PROPOSALS) {
+      // Map iterates in insertion order → first key is the oldest proposal.
+      const oldest = this.proposals.keys().next();
+      if (oldest.done) break;
+      this.proposals.delete(oldest.value);
+    }
+    this.proposals.set(proposal.proposalId, proposal);
+  }
+
+  /** Drop every proposal past {@link PROPOSAL_TTL_MS}. */
+  private pruneProposals(): void {
+    const cutoff = Date.now() - PROPOSAL_TTL_MS;
+    for (const [id, proposal] of this.proposals) {
+      if (proposal.createdAt <= cutoff) {
+        this.proposals.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Resolve and consume a proposal, asserting it belongs to `(kind, slug)`.
+   * Removal happens before the write so a failed apply cannot be retried
+   * against a clone whose on-disk state is now unknown.
+   */
+  private takeProposal(
+    kind: SkillRegistryKind,
+    slug: string,
+    proposalId: string,
+  ): EnhancementProposal {
+    this.pruneProposals();
+    const proposal = this.proposals.get(proposalId);
+    if (!proposal) {
+      throw new ProposalNotFoundError('not-found', proposalId);
+    }
+    if (proposal.kind !== kind || proposal.slug !== slug) {
+      throw new ProposalNotFoundError('mismatch', proposalId);
+    }
+    this.proposals.delete(proposalId);
+    return proposal;
   }
 
   async revert(

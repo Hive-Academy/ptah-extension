@@ -1,0 +1,744 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
+import { EmailService } from '@ptah-api/email';
+import { AuditLogService } from '@ptah-api/audit';
+import { isAdminEmail } from '@ptah-api/identity';
+import {
+  ADMIN_MODELS,
+  AdminModelConfig,
+  AdminModelKey,
+} from './admin-models.config';
+import { BulkEmailDto, ListQueryDto } from './admin.dto';
+import { DeleteUserDto } from './dto/delete-user.dto';
+import { MemberGroupsService } from '@ptah-api/community';
+import type { AdminListResponse } from './admin-records.controller';
+import type { AdminBulkEmailResponse } from './admin-users.controller';
+
+/**
+ * Per-user relation counts included in the deletion preview & result payloads.
+ * Matches the `User` relations in `schema.prisma` that cascade via `onDelete`.
+ * `failed_webhooks` is intentionally omitted — that table has no FK to users.
+ */
+export interface UserCascadedCounts {
+  subscriptions: number;
+  licenses: number;
+  sessionRequests: number;
+}
+
+export interface UserDeletionPreview {
+  userId: string;
+  email: string;
+  cascaded: UserCascadedCounts;
+  hasActivePaidSubscription: boolean;
+  activePaddleSubscriptionId?: string;
+  isAdminSelf: boolean;
+}
+
+export interface UserDeletionResult {
+  deleted: true;
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    createdAt: Date;
+  };
+  cascaded: UserCascadedCounts;
+  auditLogId: string;
+}
+
+export interface DeleteUserActor {
+  email: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+/**
+ * Response shape for `GET /api/v1/admin/stats`.
+ *
+ * `waitlist.*` are counts over the `Waitlist` table; `members.*` count active
+ * licenses by plan (`builders` = paid membership, `community` = free tier).
+ */
+export interface AdminStatsResponse {
+  waitlist: {
+    total: number;
+    /** Rows sent the WITHDRAWN paid invite. Historical — nothing writes it. */
+    notified: number;
+    /**
+     * TASK_2026_201 R4.5 — rows granted FREE founding access (`approvedAt`
+     * non-null). A separate fact from `converted`, and that separation is the
+     * whole point of the column: a gift is not a conversion, and counting one
+     * as the other silently inflates the paid funnel the day checkout opens.
+     */
+    approved: number;
+    /** Rows that PAID. Written by the Paddle fan-out only. */
+    converted: number;
+    last7Days: number;
+  };
+  members: {
+    builders: number;
+    community: number;
+  };
+  /**
+   * Command-Center "Needs Attention" aggregates (TASK_2026_164 §3.1). Purely
+   * additive — cheap `count()` queries surfacing the operator work queue.
+   */
+  attention: {
+    /** Waitlist rows with no `notifiedAt` (= total − notified). */
+    waitlistUninvited: number;
+    /** Failed webhooks with `resolved = false`. */
+    failedWebhooksUnresolved: number;
+    /** Subscriptions in `past_due`. */
+    subscriptionsPastDue: number;
+    /** Session requests in `pending`. */
+    sessionRequestsPending: number;
+  };
+  groups: Array<{ key: string; name: string; memberCount: number }>;
+  updatedAt: string;
+}
+
+/** Window (ms) for the `waitlist.last7Days` recent-signup metric. */
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Subscription statuses that count as an "active paid" subscription for the
+ * cascade-delete confirmation gate (§5.1). A subscription in any of these
+ * states represents real money that Paddle considers live — the admin must
+ * explicitly acknowledge before we delete the user row (which cascades to
+ * the subscription row in our DB; Paddle's own row is unaffected).
+ */
+const ACTIVE_PAID_STATUSES: readonly string[] = [
+  'active',
+  'trialing',
+  'past_due',
+];
+
+/**
+ * AdminService
+ *
+ * Generic CRUD (list/get/update) + bulk-email layer over 6 Prisma models.
+ * All user-supplied field names are validated against the per-model allowlist
+ * in `admin-models.config.ts` BEFORE flowing into Prisma. Unknown fields are
+ * rejected (sort) or silently dropped (PATCH body).
+ *
+ * SECURITY:
+ *   - `cfg.prismaModel` is a hard-coded string literal union, never user-input.
+ *   - `sortBy` validated against `cfg.sortableFields` → BadRequestException on miss.
+ *   - `search` iterates `cfg.searchFields` (hard-coded) only.
+ *   - PATCH body filtered through `cfg.editableFields` in `filterEditable()`.
+ *   - ISO date strings coerced to `Date` for DateTime columns.
+ */
+@Injectable()
+export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailService) private readonly email: EmailService,
+    @Inject(AuditLogService) private readonly auditLog: AuditLogService,
+    @Inject(ConfigService) private readonly config: ConfigService,
+    // Optional: member-cohort counts for the stats dashboard. Bound by the
+    // @Global() MemberGroupsModule; @Optional + best-effort read means a
+    // groups failure never fails /stats (empty-array fallback).
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
+  ) {}
+
+  /**
+   * List records with pagination, sort, and optional text search.
+   * Uses a single `$transaction([findMany, count])` round trip.
+   */
+  async list(key: AdminModelKey, q: ListQueryDto): Promise<AdminListResponse> {
+    const cfg = ADMIN_MODELS[key];
+    const page = Number(q.page ?? 1) || 1;
+    const pageSize = Number(q.pageSize ?? 25) || 25;
+    if (q.sortBy && !cfg.sortableFields.includes(q.sortBy)) {
+      throw new BadRequestException(
+        `sortBy '${q.sortBy}' not allowed. Allowed: ${cfg.sortableFields.join(', ')}`,
+      );
+    }
+    const sortBy =
+      q.sortBy && cfg.sortableFields.includes(q.sortBy)
+        ? q.sortBy
+        : cfg.defaultSortBy;
+
+    const where = this.buildListWhere(cfg, q);
+    const delegate = (
+      this.prisma as unknown as Record<
+        string,
+        {
+          findMany: (args: unknown) => Promise<unknown[]>;
+          count: (args: unknown) => Promise<number>;
+        }
+      >
+    )[cfg.prismaModel];
+
+    const [rows, total] = await this.prisma.$transaction([
+      delegate.findMany({
+        where,
+        orderBy: { [sortBy]: q.sortOrder ?? 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: cfg.include,
+      }) as unknown as never,
+      delegate.count({ where }) as unknown as never,
+    ]);
+
+    return {
+      data: rows as Record<string, unknown>[],
+      total: total as unknown as number,
+      page,
+      pageSize,
+      totalPages: Math.ceil((total as unknown as number) / pageSize),
+    };
+  }
+
+  /**
+   * Fetch a single record by primary id.
+   * Returns `null` when not found — controller translates to 404.
+   */
+  async getById(
+    key: AdminModelKey,
+    id: string,
+  ): Promise<Record<string, unknown> | null> {
+    const cfg = ADMIN_MODELS[key];
+    const delegate = (
+      this.prisma as unknown as Record<
+        string,
+        {
+          findUnique: (
+            args: unknown,
+          ) => Promise<Record<string, unknown> | null>;
+        }
+      >
+    )[cfg.prismaModel];
+    return delegate.findUnique({
+      where: { id },
+      include: cfg.include,
+    });
+  }
+
+  /**
+   * PATCH a record.
+   *
+   * - Filters body through `cfg.editableFields` (drops non-editable keys).
+   * - Coerces ISO date strings for `*At` / `expires*` / `scheduled*` fields.
+   * - Throws BadRequestException if no editable fields were supplied.
+   * - Logs the write with a correlation-friendly message.
+   */
+  async update(
+    key: AdminModelKey,
+    id: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const cfg = ADMIN_MODELS[key];
+    const data = this.filterEditable(cfg, body);
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException(
+        `No editable fields supplied. Editable: ${
+          cfg.editableFields.length > 0
+            ? cfg.editableFields.join(', ')
+            : '(none)'
+        }`,
+      );
+    }
+
+    this.logger.log(
+      `Admin PATCH ${key}/${id} fields=[${Object.keys(data).join(',')}]`,
+    );
+
+    const delegate = (
+      this.prisma as unknown as Record<
+        string,
+        {
+          update: (args: unknown) => Promise<Record<string, unknown>>;
+        }
+      >
+    )[cfg.prismaModel];
+
+    return delegate.update({
+      where: { id },
+      data,
+      include: cfg.include,
+    });
+  }
+
+  /**
+   * Bulk-email N users selected by id.
+   *
+   * - Looks up the users' emails via a single `findMany({ where: { id: { in: [...] } } })`.
+   * - Sends via `EmailService.sendCustomEmail` in parallel (`Promise.allSettled`).
+   * - Aggregates `{ sent, failed: [{ userId, error }] }`.
+   * - Logs subject + recipient count for audit.
+   */
+  async bulkEmailUsers(dto: BulkEmailDto): Promise<AdminBulkEmailResponse> {
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: dto.userIds } },
+      select: { id: true, email: true },
+    });
+
+    this.logger.log(
+      `Bulk email: subject="${dto.subject}" recipients=${users.length}`,
+    );
+
+    const results = await Promise.allSettled(
+      users.map((u) =>
+        this.email.sendCustomEmail({
+          to: u.email,
+          subject: dto.subject,
+          html: dto.html,
+        }),
+      ),
+    );
+
+    const failed: AdminBulkEmailResponse['failed'] = [];
+    let sent = 0;
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        sent += 1;
+      } else {
+        const reason = r.reason as { message?: string } | undefined;
+        failed.push({
+          userId: users[i].id,
+          error: reason?.message ?? String(r.reason),
+        });
+      }
+    });
+
+    this.logger.log(
+      `Bulk email complete: sent=${sent} failed=${failed.length}`,
+    );
+
+    return { sent, failed };
+  }
+
+  /**
+   * Aggregate the founding-launch dashboard stats (`GET /v1/admin/stats`).
+   *
+   * Every count runs in a single `$transaction([...])` round trip:
+   *   - waitlist total / notified / approved / converted / last-7-day signups
+   *   - active `builders` and `community` license members
+   *   - the "needs attention" work-queue aggregates
+   *
+   * ⚠️ ONE AGGREGATE PER STAGE, NEVER A QUERY PER ROW (NFR-Performance). The
+   * `approved` stage is a single `count` with a `{ not: null }` predicate — the
+   * same shape as `notified` and `converted` beside it — not a scan of the
+   * approval results.
+   */
+  async getStats(): Promise<AdminStatsResponse> {
+    const since = new Date(Date.now() - SEVEN_DAYS_MS);
+
+    const [
+      total,
+      notified,
+      approved,
+      converted,
+      last7Days,
+      builders,
+      community,
+      failedWebhooksUnresolved,
+      subscriptionsPastDue,
+      sessionRequestsPending,
+    ] = await this.prisma.$transaction([
+      this.prisma.waitlist.count(),
+      this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
+      this.prisma.waitlist.count({ where: { approvedAt: { not: null } } }),
+      this.prisma.waitlist.count({ where: { convertedAt: { not: null } } }),
+      this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.license.count({
+        where: { plan: 'builders', status: 'active' },
+      }),
+      this.prisma.license.count({
+        where: { plan: 'community', status: 'active' },
+      }),
+      this.prisma.failedWebhook.count({ where: { resolved: false } }),
+      this.prisma.subscription.count({ where: { status: 'past_due' } }),
+      this.prisma.sessionRequest.count({ where: { status: 'pending' } }),
+    ]);
+
+    return {
+      waitlist: { total, notified, approved, converted, last7Days },
+      members: { builders, community },
+      attention: {
+        // No notifiedAt timestamp yet = not-yet-invited; total minus notified.
+        waitlistUninvited: total - notified,
+        failedWebhooksUnresolved,
+        subscriptionsPastDue,
+        sessionRequestsPending,
+      },
+      groups: await this.getGroupStats(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Per-group member counts for the stats dashboard. Best-effort: an unbound
+   * collaborator or a lookup failure yields an empty array — never fails
+   * `/stats`.
+   */
+  private async getGroupStats(): Promise<
+    Array<{ key: string; name: string; memberCount: number }>
+  > {
+    if (!this.memberGroups) {
+      return [];
+    }
+    try {
+      const groups = await this.memberGroups.listWithCounts();
+      return groups.map((g) => ({
+        key: g.key,
+        name: g.name,
+        memberCount: g.memberCount,
+      }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Failed to load member-group stats: ${message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Build a case-insensitive `contains` OR clause across `cfg.searchFields`.
+   * Returns `{}` (no filter) when `search` is empty/whitespace.
+   */
+  private buildSearchWhere(
+    cfg: AdminModelConfig,
+    search?: string,
+  ): Record<string, unknown> {
+    if (!search || search.trim().length === 0) return {};
+    const term = search.trim();
+    return {
+      OR: cfg.searchFields.map((field) => ({
+        [field]: { contains: term, mode: 'insensitive' as const },
+      })),
+    };
+  }
+
+  /**
+   * Combine the optional text `search` and the optional field `filter` into a
+   * single Prisma `where`. Both are independent allowlisted inputs; when both
+   * are present they AND together (text search *within* the filtered set).
+   * Returns `{}` (no constraint) when neither is supplied — preserving the
+   * pre-filter behavior for older clients.
+   */
+  private buildListWhere(
+    cfg: AdminModelConfig,
+    q: ListQueryDto,
+  ): Record<string, unknown> {
+    const clauses = [
+      this.buildSearchWhere(cfg, q.search),
+      this.buildFilterWhere(cfg, q.filter),
+    ].filter((c) => Object.keys(c).length > 0);
+    if (clauses.length === 0) return {};
+    if (clauses.length === 1) return clauses[0];
+    return { AND: clauses };
+  }
+
+  /**
+   * Parse a `field:value` filter and translate it into a Prisma `where`
+   * fragment, enforcing the per-model `filterableFields` allowlist (the only
+   * boundary between the query-string and Prisma for filtering).
+   *
+   * Returns `{}` when no filter is supplied. Throws `BadRequestException` when:
+   *   - the `field:value` shape is malformed,
+   *   - `field` is not in the model's allowlist (arbitrary filtering blocked),
+   *   - a boolean/datePresence value is not `true`/`false`,
+   *   - a string value falls outside its declared `allowedValues`,
+   *   - a relationPreset value names a preset that was not declared.
+   */
+  private buildFilterWhere(
+    cfg: AdminModelConfig,
+    filter?: string,
+  ): Record<string, unknown> {
+    if (!filter || filter.trim().length === 0) return {};
+
+    const separator = filter.indexOf(':');
+    if (separator <= 0 || separator === filter.length - 1) {
+      throw new BadRequestException(
+        `filter must be in 'field:value' form (got '${filter}')`,
+      );
+    }
+    const field = filter.slice(0, separator).trim();
+    const value = filter.slice(separator + 1).trim();
+
+    const spec = cfg.filterableFields?.[field];
+    if (!spec) {
+      const allowed = cfg.filterableFields
+        ? Object.keys(cfg.filterableFields)
+        : [];
+      throw new BadRequestException(
+        allowed.length > 0
+          ? `filter field '${field}' not allowed. Allowed: ${allowed.join(', ')}`
+          : 'filtering is not supported for this model',
+      );
+    }
+
+    switch (spec.type) {
+      case 'boolean':
+        return { [spec.column]: this.parseBoolFilter(field, value) };
+      case 'datePresence':
+        return {
+          [spec.column]: this.parseBoolFilter(field, value)
+            ? { not: null }
+            : null,
+        };
+      case 'string':
+        if (spec.allowedValues && !spec.allowedValues.includes(value)) {
+          throw new BadRequestException(
+            `filter '${field}' value '${value}' not allowed. Allowed: ${spec.allowedValues.join(', ')}`,
+          );
+        }
+        return { [spec.column]: value };
+      case 'relationPreset': {
+        // The value is only ever a KEY lookup into the hard-coded preset map —
+        // no part of the returned `where` fragment originates from user input.
+        const preset = spec.presets[value];
+        if (!preset) {
+          throw new BadRequestException(
+            `filter '${field}' value '${value}' not allowed. Allowed: ${Object.keys(
+              spec.presets,
+            ).join(', ')}`,
+          );
+        }
+        return { ...preset };
+      }
+    }
+  }
+
+  /** Coerce a filter value to boolean; 400 on anything but `true`/`false`. */
+  private parseBoolFilter(field: string, value: string): boolean {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw new BadRequestException(
+      `filter '${field}' expects 'true' or 'false' (got '${value}')`,
+    );
+  }
+
+  /**
+   * Filter a PATCH body through the model's `editableFields` allowlist.
+   * Non-editable keys are silently dropped (tolerates UI-sent extras).
+   * ISO date strings for `*At` / `expires*` / `scheduled*` fields are
+   * coerced to `Date` instances so Prisma accepts them as DateTime input.
+   */
+  private filterEditable(
+    cfg: AdminModelConfig,
+    body: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const field of cfg.editableFields) {
+      if (field in body) {
+        data[field] = this.coerceIfDate(field, body[field]);
+      }
+    }
+    return data;
+  }
+
+  /**
+   * Convert ISO string to `Date` for known DateTime field-name patterns.
+   * Preserves invalid strings so Prisma throws a clear validation error.
+   */
+  private coerceIfDate(field: string, value: unknown): unknown {
+    if (typeof value !== 'string') return value;
+    if (!/At$|^expires|^scheduled/.test(field)) return value;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? value : d;
+  }
+
+  /**
+   * Compute the impact preview for `DELETE /v1/admin/users/:id` (§5.1).
+   *
+   * Counts every cascaded row per the User relations in
+   * `schema.prisma` (subscriptions, licenses, session_requests).
+   * Also flags:
+   *   - `hasActivePaidSubscription` — any subscription row in
+   *     ('active' | 'trialing' | 'past_due'), plus the paddleSubscriptionId
+   *     so the frontend can show "Paddle sub {id}" in the warning banner.
+   *   - `isAdminSelf` — target email matches `ADMIN_EMAILS`, resolved through
+   *     `isAdminEmail` from `@ptah-api/identity` (the ONE parse of that
+   *     allowlist in the server — this file used to carry a private copy).
+   *     Preview returns this so the UI can pre-disable the delete button;
+   *     the service itself re-checks in `deleteUserCascade` to avoid a TOCTOU.
+   *     Note the posture: `isAdminEmail` returns `false` for an unconfigured
+   *     allowlist rather than throwing, which is safe HERE only because
+   *     `AdminGuard` fail-closes upstream, so this code never runs without one.
+   *
+   * Throws `NotFoundException` when the user id does not exist.
+   */
+  async getUserDeletionPreview(id: string): Promise<UserDeletionPreview> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true },
+    });
+    if (!user) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
+
+    const [subscriptions, licenses, sessionRequests, activePaid] =
+      await this.prisma.$transaction([
+        this.prisma.subscription.count({ where: { userId: id } }),
+        this.prisma.license.count({ where: { userId: id } }),
+        this.prisma.sessionRequest.count({ where: { userId: id } }),
+        this.prisma.subscription.findFirst({
+          where: { userId: id, status: { in: [...ACTIVE_PAID_STATUSES] } },
+          select: { paddleSubscriptionId: true },
+        }),
+      ]);
+
+    return {
+      userId: user.id,
+      email: user.email,
+      cascaded: { subscriptions, licenses, sessionRequests },
+      hasActivePaidSubscription: activePaid !== null,
+      activePaddleSubscriptionId: activePaid?.paddleSubscriptionId,
+      isAdminSelf: isAdminEmail(this.config, user.email),
+    };
+  }
+
+  /**
+   * Execute the user cascade delete inside a single Prisma interactive
+   * transaction (§6.2). Steps:
+   *
+   *   1. Load the user row (404 if missing).
+   *   2. Refuse if target email is on the ADMIN_EMAILS allowlist
+   *      (`CANNOT_DELETE_ADMIN`).
+   *   3. Verify typed `body.confirmEmail` matches user.email (case-insensitive).
+   *   4. Check for active paid subscription; require `acknowledgePaidSubscription`
+   *      override to proceed when present.
+   *   5. Snapshot counts + the user row for the audit payload.
+   *   6. Write an `admin_audit_log` row via `auditLog.write({..., tx})` —
+   *      atomic with the delete (R8).
+   *   7. `tx.user.delete(...)` — schema `onDelete: Cascade` handles children.
+   *
+   * Concurrent-delete race: if the row disappears between step 1 and step 7,
+   * Prisma throws `P2025`. We catch and rethrow as `NotFoundException` so the
+   * admin sees 404 instead of a bare 500.
+   *
+   * Privacy: user email is persisted to `targetSnapshot` (needed for audit
+   * reconstruction) but NEVER logged via `Logger`. Structured log keeps only
+   * the actor email + target id.
+   */
+  async deleteUserCascade(
+    id: string,
+    body: DeleteUserDto,
+    actor: DeleteUserActor,
+  ): Promise<UserDeletionResult> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({ where: { id } });
+        if (!user) {
+          throw new NotFoundException(`User ${id} not found`);
+        }
+        if (isAdminEmail(this.config, user.email)) {
+          throw new ForbiddenException({
+            code: 'CANNOT_DELETE_ADMIN',
+            message: 'Admins cannot delete another admin account',
+          });
+        }
+        if (
+          body.confirmEmail.trim().toLowerCase() !==
+          user.email.trim().toLowerCase()
+        ) {
+          throw new BadRequestException({
+            code: 'CONFIRM_EMAIL_MISMATCH',
+            message: 'confirmEmail does not match target user email',
+          });
+        }
+        const activePaid = await tx.subscription.findFirst({
+          where: {
+            userId: id,
+            status: { in: [...ACTIVE_PAID_STATUSES] },
+          },
+          select: { paddleSubscriptionId: true },
+        });
+        if (activePaid && body.acknowledgePaidSubscription !== true) {
+          throw new ConflictException({
+            code: 'ACTIVE_PAID_SUBSCRIPTION',
+            paddleSubscriptionId: activePaid.paddleSubscriptionId,
+            message:
+              'User has an active paid Paddle subscription. Re-submit with acknowledgePaidSubscription: true to force-delete.',
+          });
+        }
+        const [subscriptions, licenses, sessionRequests] = await Promise.all([
+          tx.subscription.count({ where: { userId: id } }),
+          tx.license.count({ where: { userId: id } }),
+          tx.sessionRequest.count({ where: { userId: id } }),
+        ]);
+
+        const cascadedCounts: UserCascadedCounts = {
+          subscriptions,
+          licenses,
+          sessionRequests,
+        };
+
+        const snapshot = {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          workosId: user.workosId,
+          paddleCustomerId: user.paddleCustomerId,
+          emailVerified: user.emailVerified,
+          marketingOptIn: user.marketingOptIn,
+          createdAt: user.createdAt.toISOString(),
+          updatedAt: user.updatedAt.toISOString(),
+        };
+        const auditLogId = await this.auditLog.write({
+          actorEmail: actor.email,
+          action: 'user.delete',
+          targetType: 'User',
+          targetId: id,
+          targetSnapshot: snapshot,
+          metadata: {
+            cascadedCounts,
+            acknowledgedPaidSubscription:
+              body.acknowledgePaidSubscription === true,
+          },
+          ipAddress: actor.ip,
+          userAgent: actor.userAgent,
+          tx,
+        });
+        await tx.user.delete({ where: { id } });
+        this.logger.log({
+          message: 'admin user cascade delete',
+          actorEmail: actor.email,
+          targetId: id,
+          cascadedCounts,
+          auditLogId,
+        });
+
+        return {
+          deleted: true as const,
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            createdAt: user.createdAt,
+          },
+          cascaded: cascadedCounts,
+          auditLogId,
+        };
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        throw new NotFoundException(`User ${id} not found`);
+      }
+      throw err;
+    }
+  }
+}

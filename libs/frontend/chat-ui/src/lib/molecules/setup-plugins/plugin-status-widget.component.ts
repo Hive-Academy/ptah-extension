@@ -8,6 +8,30 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Puzzle, XCircle } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import type { PluginInfo } from '@ptah-extension/shared';
+
+/**
+ * Count the plugins that are actually active.
+ *
+ * Bundled plugins are opt-in (`enabledPluginIds`), harness-authored ones are
+ * opt-out (`disabledPluginIds`), so the enabled count is NOT simply
+ * `enabledPluginIds.length` — a user-authored skill is live without ever being
+ * listed there.
+ */
+function countEnabledPlugins(
+  plugins: PluginInfo[],
+  enabledPluginIds: string[],
+  disabledPluginIds: string[],
+): number {
+  const enabled = new Set(enabledPluginIds);
+  const disabled = new Set(disabledPluginIds);
+
+  return plugins.filter((plugin) =>
+    plugin.source === 'harness'
+      ? !disabled.has(plugin.id)
+      : enabled.has(plugin.id) && !disabled.has(plugin.id),
+  ).length;
+}
 
 /**
  * PluginStatusWidgetComponent - Plugin configuration status widget
@@ -78,11 +102,11 @@ import { ClaudeRpcService } from '@ptah-extension/core';
             <div>
               <h4 class="text-xs font-medium leading-tight">Plugins</h4>
               @if (pluginCount() > 0) {
-                <p class="text-[10px] text-base-content/60 leading-tight">
+                <p class="text-[10px] text-base-content-muted leading-tight">
                   {{ pluginCount() }}/{{ totalAvailable() }} enabled
                 </p>
               } @else {
-                <p class="text-[10px] text-base-content/60 leading-tight">
+                <p class="text-[10px] text-base-content-muted leading-tight">
                   Not configured
                 </p>
               }
@@ -148,14 +172,20 @@ export class PluginStatusWidgetComponent implements OnInit {
         this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
       ]);
 
-      if (listResult.isSuccess() && listResult.data) {
-        this.totalAvailable.set(listResult.data.plugins.length);
-      } else {
-        this.totalAvailable.set(0);
-      }
+      const plugins: PluginInfo[] =
+        listResult.isSuccess() && listResult.data
+          ? listResult.data.plugins
+          : [];
+      this.totalAvailable.set(plugins.length);
 
       if (configResult.isSuccess() && configResult.data) {
-        this.pluginCount.set(configResult.data.enabledPluginIds.length);
+        this.pluginCount.set(
+          countEnabledPlugins(
+            plugins,
+            configResult.data.enabledPluginIds,
+            configResult.data.disabledPluginIds ?? [],
+          ),
+        );
       } else {
         this.pluginCount.set(0);
       }

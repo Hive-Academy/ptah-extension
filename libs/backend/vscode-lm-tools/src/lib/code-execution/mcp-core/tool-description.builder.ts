@@ -7,6 +7,245 @@
 
 import { MCPToolDefinition } from '../types';
 import { PTAH_SYSTEM_PROMPT } from '../ptah-system-prompt.constant';
+import {
+  CONTEXT_FILE,
+  MAX_LABEL_LENGTH,
+  MAX_LABELS_PER_TASK,
+  SYSTEM_CLI_TYPES,
+  TASK_ESTIMATES,
+  TASK_STATUSES,
+  TASK_TYPES,
+} from '@ptah-extension/shared';
+
+// ---------------------------------------------------------------------------
+// Task specs (TASK_2026_179, step 17) — ALWAYS-ON core tools
+// ---------------------------------------------------------------------------
+//
+// These five are built unconditionally in `handleToolsList` and are never
+// filtered by `disabledMcpNamespaces`. There is deliberately no sixth tool for
+// writing prose into the carrier: the carrier is machine-owned metadata and
+// the prose doc is agent-owned, and a section-writer would put agent narrative
+// onto the very file the Tasks board also mutates. Agents write prose with
+// their ordinary file tools.
+//
+// The status/type enums are spread from the shared canonical lists rather than
+// hand-listed, so a new status cannot become describable to the agent without
+// also being real.
+
+/** Shared tail so every task tool teaches the same ownership rule. */
+const CARRIER_OWNERSHIP_NOTE =
+  `The carrier holds metadata only. Write background, plans and discussion to ` +
+  `${CONTEXT_FILE} in the same folder using your normal file tools — never into ` +
+  `the carrier, which Ptah rewrites.`;
+
+/** Build the ptah_task_create tool definition. */
+export function buildTaskCreateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_create',
+    description:
+      `Create a task under .ptah/specs/. Allocates the next TASK_YYYY_NNN id, ` +
+      `claims the folder atomically, and writes a valid carrier — use this ` +
+      `instead of creating the folder and its metadata by hand, which is how ` +
+      `task folders end up invisible to the Tasks board. ${CARRIER_OWNERSHIP_NOTE}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short imperative title' },
+        type: {
+          type: 'string',
+          enum: [...TASK_TYPES],
+          description: 'Task type',
+        },
+        description: {
+          type: 'string',
+          description: 'One-line summary. Long-form context does NOT go here.',
+        },
+        dependsOn: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task folder names this task depends on',
+        },
+        executor: {
+          type: 'string',
+          description: 'Agent expected to execute it',
+        },
+        labels: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Free-text labels. Matching is case- and whitespace-insensitive, ' +
+            'so reuse an existing label rather than inventing a variant of it. ' +
+            'Omit entirely when there are none.',
+        },
+        estimate: {
+          type: 'string',
+          enum: [...TASK_ESTIMATES],
+          description:
+            'Relative size, smallest first. It is a rough signal, not a ' +
+            'duration, and nothing sums it.',
+        },
+        parent: {
+          type: 'string',
+          description:
+            'Folder name of the parent task. Parentage is ONE level deep: a ' +
+            'parent that itself has a parent is reported as invalid rather ' +
+            'than nested further.',
+        },
+        duplicates: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task folder names this task duplicates',
+        },
+        relatesTo: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Loosely-related task folder names. Declare the relation on ONE ' +
+            'side only — the other direction is derived, and writing both ' +
+            'sides is how the two disagree later.',
+        },
+      },
+      required: ['title', 'type'],
+    },
+  };
+}
+
+/** Build the ptah_task_update tool definition. */
+export function buildTaskUpdateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_update',
+    description:
+      `Change a task's status and/or its metadata in one write. Give at least ` +
+      `one field besides taskId. Rewrites only the frontmatter, and refuses ` +
+      `the write with a retryable TASK_CONFLICT if the carrier changed on disk ` +
+      `since it was read — so a concurrent edit is reported rather than ` +
+      `silently discarded. On TASK_CONFLICT, re-read with ptah_task_get and retry. ` +
+      `EVERY field is a FULL REPLACEMENT, never a merge: to add one label, read ` +
+      `the task first and send the complete new array. An empty array or null ` +
+      `REMOVES the field (dependsOn is the exception — [] clears it in place).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: {
+          type: 'string',
+          description: 'Task folder name, e.g. TASK_2026_179',
+        },
+        status: {
+          type: 'string',
+          enum: [...TASK_STATUSES],
+          description: 'New status',
+        },
+        labels: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            `Complete replacement label set (max ${MAX_LABELS_PER_TASK}, each ` +
+            `at most ${MAX_LABEL_LENGTH} characters, no newlines). [] removes ` +
+            `all labels. Call ptah_task_list first and reuse an existing label ` +
+            `rather than inventing a near-duplicate.`,
+        },
+        estimate: {
+          type: ['string', 'null'],
+          enum: [...TASK_ESTIMATES, null],
+          description: 'T-shirt size. null removes the field.',
+        },
+        parent: {
+          type: ['string', 'null'],
+          description:
+            'Folder name of the parent task. Parentage is ONE level deep — a ' +
+            'parent that itself has a parent is rejected. null removes it.',
+        },
+        duplicates: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Complete replacement list of task folders this one duplicates. ' +
+            '[] removes the field.',
+        },
+        relatesTo: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Complete replacement list of loosely-related task folders. [] ' +
+            'removes the field.',
+        },
+        dependsOn: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Complete replacement dependency list. There is no "blocks" ' +
+            "field: to record that A blocks B, add A to B's dependsOn.",
+        },
+      },
+      required: ['taskId'],
+    },
+  };
+}
+
+/** Build the ptah_task_get tool definition. */
+export function buildTaskGetTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_get',
+    description:
+      'Read one task: its metadata, its carrier body, and the documents present ' +
+      'in its folder. Metadata includes labels, estimate, parent, duplicates ' +
+      'and relatesTo. Returns TASK_NOT_FOUND when the folder has no carrier.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: {
+          type: 'string',
+          description: 'Task folder name, e.g. TASK_2026_179',
+        },
+      },
+      required: ['taskId'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/** Build the ptah_task_list tool definition. */
+export function buildTaskListTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_list',
+    description:
+      'List tasks, optionally filtered by status and/or type. Every task ' +
+      'carries its labels, estimate, parent, duplicates and relatesTo, so use ' +
+      'this to discover which labels a workspace already uses instead of ' +
+      'inventing new ones. Use it to find the highest existing id too, rather ' +
+      'than reading a generated registry, which can be stale.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'array',
+          items: { type: 'string', enum: [...TASK_STATUSES] },
+          description: 'Only include these statuses',
+        },
+        type: {
+          type: 'array',
+          items: { type: 'string', enum: [...TASK_TYPES] },
+          description: 'Only include these types',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/** Build the ptah_task_check tool definition. */
+export function buildTaskCheckTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_check',
+    description:
+      'Health-check the whole task tree. Names every SKIPPED folder with the ' +
+      'typed reason it was skipped, plus every included task carrying a ' +
+      'validation warning. Run this when a task folder you expect is missing ' +
+      'from the board.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+  };
+}
 
 /**
  * Build the execute_code tool definition
@@ -252,7 +491,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
+      'Supports CLI agents (Codex, Copilot, Cursor, Antigravity, opencode, Pi) ' +
+      'and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
@@ -272,9 +512,12 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['codex', 'copilot', 'cursor'],
+          enum: [...SYSTEM_CLI_TYPES],
           description:
-            'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
+            'Which CLI agent to use: codex (OpenAI Codex), copilot (GitHub Copilot), ' +
+            'cursor (Cursor Agent), antigravity (Google `agy`), opencode, or pi. ' +
+            'Only CLIs actually installed on this machine will spawn — check ' +
+            'ptah_agent_list first; naming an uninstalled CLI fails at spawn time. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
             'Not needed when using ptahCliId.',
         },
@@ -303,7 +546,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         taskFolder: {
           type: 'string',
           description:
-            'Task-tracking folder for shared workspace (e.g., ".ptah/specs/TASK_2025_157"). ' +
+            'Task-spec folder for shared workspace (e.g., ".ptah/specs/TASK_2026_157"). ' +
             'Agent will write deliverables here.',
         },
         model: {
@@ -992,7 +1235,11 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
 
 /**
  * Build the ptah_harness_search_mcp_registry tool definition
- * Search the official MCP server registry
+ *
+ * Searches the three catalogue sources. The description deliberately tells the
+ * agent what this tool CANNOT see — vendors that host their own remote MCP
+ * endpoint are usually absent from all three — and points it at web search as
+ * the fallback, so the user is never asked to paste an official URL by hand.
  */
 export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
   return {
@@ -1006,8 +1253,27 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
       'query. Each result is tagged with source: "official", "pulsemcp", or ' +
       '"smithery". Returns server names and descriptions. Use specific ' +
       'technology or vendor keywords (e.g., "github", "postgresql", "autodesk") ' +
-      'for best results. Pair with harness_list_installed_mcp to see which ' +
-      'servers are already configured before adding more.',
+      'for best results. Pair with ptah_harness_list_installed_mcp to see which ' +
+      'servers are already configured before adding more, and install a chosen ' +
+      'server with ptah_harness_install_mcp_server.\n\n' +
+      'COVERAGE LIMIT — these three sources are catalogues of PUBLISHED ' +
+      'packages. A vendor that hosts its own remote MCP endpoint is usually in ' +
+      'NONE of them (Apollo, HubSpot, Zernio, Sentry, Notion and Linear all ' +
+      'return nothing here). So when the user names a specific product and this ' +
+      'tool returns no relevant hit, do NOT conclude the server does not exist ' +
+      'and do NOT ask the user for a link. Fall back to ptah_web_search — query ' +
+      'the vendor\'s own documentation (e.g. "<vendor> MCP server endpoint ' +
+      'docs") and the official Claude connectors directory at ' +
+      'claude.com/connectors, which lists vendor-hosted remote servers. Remote ' +
+      'servers need only their HTTPS endpoint URL: Ptah connects them via OAuth ' +
+      'with dynamic client registration (RFC 9728 / 8414 / 7591), so no API key ' +
+      'or manual client setup is required.\n\n' +
+      "TRUST RULE — only accept an endpoint URL published on the vendor's own " +
+      'domain or in the official connectors directory. Never connect a URL ' +
+      'scraped from a blog, forum or third-party listicle: OAuth dynamic client ' +
+      "registration would hand that server the user's real credentials. If you " +
+      'cannot confirm the endpoint from an authoritative source, say so and ' +
+      'stop rather than guessing a URL.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1027,12 +1293,12 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
 }
 
 /**
- * Build the harness_list_installed_mcp tool definition
+ * Build the ptah_harness_list_installed_mcp tool definition
  * List MCP servers configured in the workspace
  */
 export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
   return {
-    name: 'harness_list_installed_mcp',
+    name: 'ptah_harness_list_installed_mcp',
     description:
       'Harness-builder tool: list the MCP servers already configured in the workspace. ' +
       'Reads from .vscode/mcp.json and .mcp.json in the workspace root and returns each ' +
@@ -1043,6 +1309,57 @@ export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
       properties: {},
     },
     annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_harness_install_mcp_server tool definition
+ * Write an MCP server entry into the workspace/CLI config files
+ */
+export function buildHarnessInstallMcpTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_install_mcp_server',
+    description:
+      'Harness-builder tool: install an MCP server into the workspace by writing its transport ' +
+      'config to the selected target config files (claude -> .mcp.json, vscode -> .vscode/mcp.json, ' +
+      'cursor -> .cursor/mcp.json, copilot -> ~/.copilot/mcp-config.json). Defaults to ' +
+      '["claude","vscode"]. Discover a server first with ptah_harness_search_mcp_registry and check ' +
+      'ptah_harness_list_installed_mcp so you do not re-install one that is already configured. ' +
+      'You must supply the transport config yourself — the registry entry tells you the package/URL. ' +
+      'Returns the resolved server key, the config files written, and per-target warnings. NOTE: the ' +
+      'server becomes available to a NEW agent session, not the current one.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        serverName: {
+          type: 'string',
+          description:
+            'Fully qualified registry name used for install tracking (e.g. "io.github.owner/server").',
+        },
+        config: {
+          type: 'object',
+          description:
+            'Transport config. stdio: {"type":"stdio","command":"npx","args":["-y","pkg"],"env":{}}. ' +
+            'Remote: {"type":"http"|"sse","url":"https://...","headers":{}}.',
+        },
+        serverKey: {
+          type: 'string',
+          description:
+            'Optional config key (e.g. "github"). Defaults to the last path segment of serverName, sanitized.',
+        },
+        targets: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['vscode', 'claude', 'cursor', 'copilot'],
+          },
+          description:
+            'Optional install targets. Defaults to ["claude","vscode"].',
+        },
+      },
+      required: ['serverName', 'config'],
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   };
 }
 

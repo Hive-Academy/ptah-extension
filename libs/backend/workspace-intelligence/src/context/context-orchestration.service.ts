@@ -83,7 +83,8 @@ export interface ExcludeFileResult {
   };
 }
 
-export interface SearchFilesRequest {
+/** @see WorkspaceScopedContextRequest for the `workspaceRoot` contract. */
+export interface SearchFilesRequest extends WorkspaceScopedContextRequest {
   requestId: CorrelationId;
   query: string;
   includeImages?: boolean;
@@ -109,7 +110,22 @@ export interface SearchFilesResult {
   };
 }
 
-export interface GetAllFilesRequest {
+/**
+ * Workspace scoping for the picker/search requests below.
+ *
+ * Optional by contract. Omitting it means "the process-global active workspace
+ * folder" — the pre-TASK_2026_200 behaviour, preserved so an older webview
+ * build and the MCP-side callers that have no root to offer keep working.
+ * Supplying it makes the answer independent of whatever root the process-global
+ * `IWorkspaceProvider` currently reports; if that root cannot be served, the
+ * call fails loudly with `WorkspaceRootMismatchError` rather than returning
+ * another workspace's files (R5).
+ */
+export interface WorkspaceScopedContextRequest {
+  workspaceRoot?: string;
+}
+
+export interface GetAllFilesRequest extends WorkspaceScopedContextRequest {
   requestId: CorrelationId;
   includeImages?: boolean;
   offset?: number;
@@ -136,7 +152,7 @@ export interface GetAllFilesResult {
   };
 }
 
-export interface GetFileSuggestionsRequest {
+export interface GetFileSuggestionsRequest extends WorkspaceScopedContextRequest {
   requestId: CorrelationId;
   query: string;
   limit?: number;
@@ -346,6 +362,7 @@ export class ContextOrchestrationService {
         maxResults: request.maxResults,
         fileTypes: request.fileTypes ? [...request.fileTypes] : undefined,
         sortBy: 'relevance',
+        workspaceRoot: request.workspaceRoot,
       };
 
       const results = await this.contextService.searchFiles(options);
@@ -378,6 +395,7 @@ export class ContextOrchestrationService {
         request.includeImages,
         request.offset,
         request.limit,
+        request.workspaceRoot,
       );
 
       return {
@@ -411,6 +429,7 @@ export class ContextOrchestrationService {
       const suggestions = await this.contextService.getFileSuggestions(
         request.query,
         request.limit,
+        request.workspaceRoot,
       );
 
       return {

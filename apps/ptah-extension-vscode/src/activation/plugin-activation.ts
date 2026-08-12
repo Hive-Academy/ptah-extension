@@ -173,9 +173,11 @@ export function activateSkillJunctions(
     );
     const junctionPluginConfig =
       junctionPluginLoader.getWorkspacePluginConfig();
-    const junctionPluginPaths = junctionPluginLoader.resolvePluginPaths(
-      junctionPluginConfig.enabledPluginIds,
-    );
+    // Harness-inclusive by design — same source as the getPluginPaths callback
+    // below. resolvePluginPaths() would omit the harness-authored
+    // ptah-harness-* dirs and their junctions would be pruned as stale.
+    const junctionPluginPaths =
+      junctionPluginLoader.resolveCurrentPluginPaths();
     const junctionResult = skillJunction.activate({
       pluginPaths: junctionPluginPaths,
       disabledSkillIds: junctionPluginConfig.disabledSkillIds,

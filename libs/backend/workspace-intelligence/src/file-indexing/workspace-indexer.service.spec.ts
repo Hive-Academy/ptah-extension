@@ -40,6 +40,8 @@ jest.mock('vscode', () => ({
   },
 }));
 
+const WORKSPACE_ROOT = '/workspace';
+
 describe('WorkspaceIndexerService', () => {
   let service: WorkspaceIndexerService;
   let fileSystemService: jest.Mocked<FileSystemService>;
@@ -49,8 +51,6 @@ describe('WorkspaceIndexerService', () => {
   let fileClassifier: jest.Mocked<FileTypeClassifierService>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockFsProvider: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mockWorkspaceProvider: any;
 
   beforeEach(() => {
     // Create mock services
@@ -97,14 +97,6 @@ describe('WorkspaceIndexerService', () => {
       createFileWatcher: jest.fn(),
     } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    mockWorkspaceProvider = {
-      getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
-      getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
-      getConfiguration: jest.fn(),
-      onDidChangeConfiguration: jest.fn(),
-      onDidChangeWorkspaceFolders: jest.fn(),
-    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
     service = new WorkspaceIndexerService(
       fileSystemService,
       patternMatcher,
@@ -112,7 +104,6 @@ describe('WorkspaceIndexerService', () => {
       fileClassifier,
       tokenCounter,
       mockFsProvider,
-      mockWorkspaceProvider,
     );
   });
 
@@ -151,7 +142,9 @@ describe('WorkspaceIndexerService', () => {
         };
       });
 
-      const result = await service.indexWorkspace();
+      const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       expect(result.files).toHaveLength(3);
       expect(result.totalFiles).toBe(3);
@@ -203,7 +196,9 @@ describe('WorkspaceIndexerService', () => {
         confidence: 1.0,
       });
 
-      const result = await service.indexWorkspace();
+      const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       expect(result.files).toHaveLength(2); // node_modules file excluded
       expect(result.files.some((f) => f.path.includes('node_modules'))).toBe(
@@ -233,6 +228,7 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
         maxFileSize: 1024 * 1024, // 1MB limit
       });
 
@@ -262,6 +258,7 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
         estimateTokens: true,
       });
 
@@ -297,7 +294,10 @@ describe('WorkspaceIndexerService', () => {
         progressCallbacks.push(progress.filesIndexed);
       });
 
-      await service.indexWorkspace({}, onProgress);
+      await service.indexWorkspace(
+        { workspaceFolder: WORKSPACE_ROOT },
+        onProgress,
+      );
 
       expect(onProgress).toHaveBeenCalledTimes(3);
       expect(progressCallbacks).toEqual([1, 2, 3]);
@@ -336,6 +336,7 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const result = await service.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
         excludePatterns: ['**/test/**'],
       });
 
@@ -343,9 +344,10 @@ describe('WorkspaceIndexerService', () => {
       expect(result.files[0].path).toBe('/workspace/src/app.ts');
     });
 
-    it('should throw error if no workspace folder available', async () => {
-      mockWorkspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
-
+    // TASK_2026_200 task 3.5: `workspaceFolder` no longer falls back to the
+    // process-global IWorkspaceProvider. Omitting it is now an explicit error
+    // rather than a silent index of whatever folder the IDE happens to show.
+    it('should throw error when no workspace folder is supplied', async () => {
       await expect(service.indexWorkspace()).rejects.toThrow(
         'No workspace folder available for indexing',
       );
@@ -375,7 +377,9 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const files = [];
-      for await (const file of service.indexWorkspaceStream()) {
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
         files.push(file);
       }
 
@@ -428,7 +432,9 @@ describe('WorkspaceIndexerService', () => {
       });
 
       const files = [];
-      for await (const file of service.indexWorkspaceStream()) {
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
         files.push(file);
       }
 
@@ -454,14 +460,6 @@ describe('WorkspaceIndexerService', () => {
         createFileWatcher: jest.fn(),
       } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-      const mockWorkspaceProvider = {
-        getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
-        getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
-        getConfiguration: jest.fn(),
-        onDidChangeConfiguration: jest.fn(),
-        onDidChangeWorkspaceFolders: jest.fn(),
-      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
       fileSystemService.stat.mockResolvedValue({
         type: FileType.Source as unknown as number,
         ctime: 0,
@@ -482,10 +480,9 @@ describe('WorkspaceIndexerService', () => {
         fileClassifier,
         tokenCounter,
         mockFsProviderWithSpy,
-        mockWorkspaceProvider,
       );
 
-      await testService.indexWorkspace();
+      await testService.indexWorkspace({ workspaceFolder: WORKSPACE_ROOT });
 
       // The exclude argument must be an array, not a comma-joined string
       expect(mockFsProviderWithSpy.findFiles).toHaveBeenCalledWith(
@@ -519,14 +516,6 @@ describe('WorkspaceIndexerService', () => {
         createFileWatcher: jest.fn(),
       } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-      const mockWorkspaceProvider = {
-        getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
-        getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
-        getConfiguration: jest.fn(),
-        onDidChangeConfiguration: jest.fn(),
-        onDidChangeWorkspaceFolders: jest.fn(),
-      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
       fileSystemService.stat.mockResolvedValue({
         type: FileType.Source as unknown as number,
         ctime: 0,
@@ -547,10 +536,11 @@ describe('WorkspaceIndexerService', () => {
         fileClassifier,
         tokenCounter,
         mockFsProviderFiltered,
-        mockWorkspaceProvider,
       );
 
-      const result = await testService.indexWorkspace();
+      const result = await testService.indexWorkspace({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       // No node_modules paths should appear in the indexed file list
       const hasNodeModules = result.files.some((f) =>
@@ -569,14 +559,14 @@ describe('WorkspaceIndexerService', () => {
         '/workspace/file3.ts',
       ]);
 
-      const count = await service.getFileCount();
+      const count = await service.getFileCount({
+        workspaceFolder: WORKSPACE_ROOT,
+      });
 
       expect(count).toBe(3);
     });
 
-    it('should return 0 if no workspace folder', async () => {
-      mockWorkspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
-
+    it('should return 0 when no workspace folder is supplied', async () => {
       const count = await service.getFileCount();
 
       expect(count).toBe(0);

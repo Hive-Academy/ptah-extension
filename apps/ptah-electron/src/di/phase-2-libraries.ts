@@ -54,7 +54,11 @@ import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
-import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -172,6 +176,16 @@ export function registerPhase2Libraries(
   }
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even for a user who never opens the Tasks board. Electron
+  // restores its workspace AFTER DI, so the helper also re-attempts on
+  // `onDidChangeWorkspaceFolders`. Non-blocking and failure-swallowing.
+  startTaskSpecsIndex(container, logger);
+  // output-styles registered in all three hosts: OutputStyleRpcHandlers is a
+  // `requires: []` manifest entry, so every host resolves it. Its services
+  // depend only on the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER,
+  // WORKSPACE_PROVIDER) and are consumed by Phase 3/4 handlers.
+  registerOutputStyleServices(container, logger);
   container.registerInstance(
     SKILL_REPROPAGATION_TOKEN,
     new ElectronSkillRepropagation(container),

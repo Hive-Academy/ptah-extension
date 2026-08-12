@@ -92,7 +92,7 @@ describe('auth-flow e2e :: magic-link request → token issue', () => {
     const url = await magicLink.createMagicLink(TEST_EMAIL);
 
     expect(url).toMatch(
-      /^https:\/\/portal\.test\/api\/auth\/verify\?token=[a-f0-9]{64}$/,
+      /^https:\/\/portal\.test\/api\/v1\/auth\/verify\?token=[a-f0-9]{64}$/,
     );
   });
 

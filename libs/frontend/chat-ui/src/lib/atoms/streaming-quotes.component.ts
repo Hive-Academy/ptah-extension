@@ -18,7 +18,9 @@ import {
   selector: 'ptah-streaming-quotes',
   standalone: true,
   template: `
-    <div class="flex items-center gap-1.5 text-xs text-base-content/50 italic">
+    <div
+      class="flex items-center gap-1.5 text-xs text-base-content-muted italic"
+    >
       <span class="opacity-60">"</span>
       <span class="typewriter-text overflow-hidden whitespace-nowrap">{{
         displayedText()

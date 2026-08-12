@@ -1,0 +1,7 @@
+{
+  "exportedFrom": "http://localhost:3001",
+  "note": "This file is deliberately not valid JSON — the closing brace is missing and
+  this string is unterminated. MG-1.2 requires a malformed export to abort with a clear
+  error and write nothing, so the seed must fail at the JSON parse and never open a
+  transaction.
+  "categories": [],

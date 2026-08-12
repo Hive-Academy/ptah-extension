@@ -36,7 +36,8 @@ Ptah has two tiers. **Community** is free, open source, and includes every local
 ## Notes
 
 - **Community** is free and fully open source. Every local capability — chat, agents, orchestration, memory, skills, cron, messaging gateway, browser automation, code execution, MCP, and all providers — is included with no gating. There is nothing to activate and no feature held behind a paywall on your own machine.
-- **Ptah Builders** is a paid membership ($29/mo or $290/yr display pricing, billed via Paddle). It adds hosted and community perks — hosted gateway, priority support, early access, and community access. It does **not** unlock local features, because every local feature already ships in Community.
+- **Ptah Builders** is a paid membership ($29/mo or $290/yr display pricing, billed via Paddle). It is a premium SaaS-building course plus weekly live sessions (Q&A, tutorials, and live builds) and the members' community, layered with hosted perks — hosted gateway, priority support, and early access. It does **not** unlock local features, because every local feature already ships in Community.
+- **Founding early adopters get 70% off their first year** — $8.70/month for the first 12 billing cycles, or $87 for the first year on the yearly plan. Renewals are at the list price.
 
 <Aside type="tip">
 Builders signups currently go through the waitlist. Join it from the pricing page at [ptah.live/pricing](https://ptah.live/pricing).

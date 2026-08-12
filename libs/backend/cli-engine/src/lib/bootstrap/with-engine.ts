@@ -23,6 +23,8 @@ import {
 } from '../container.js';
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
+import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler.js';
+import type { IFileDialog } from '@ptah-extension/platform-core';
 import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
@@ -42,7 +44,7 @@ import {
  * Mirrors the slice used by `apps/ptah-electron/src/activation/bootstrap.ts`
  * so the CLI initialization path stays symmetric with Electron.
  */
-interface SdkAgentLifecycle {
+export interface SdkAgentLifecycle {
   initialize(): Promise<boolean>;
   dispose?(): void | Promise<void>;
   getHealth?(): { errorMessage?: string } | undefined;
@@ -166,6 +168,16 @@ export interface WithEngineOptions {
    */
   requireSdk?: boolean;
   /**
+   * Which headless host is booting. The TUI passes `'tui'` so its RPC host
+   * profile can diverge from the stdio CLI's. Defaults to `'cli'`.
+   */
+  host?: 'cli' | 'tui';
+  /**
+   * Selection UI backing `file:pick`. Supplied by the TUI; omitting it leaves
+   * the method unregistered, which is what the stdio CLI wants.
+   */
+  filePicker?: IFileDialog;
+  /**
    * Thoth activation tier (default `'off'`). `'off'` opens no SQLite handle —
    * plain commands pay nothing. `'oneshot'` runs `openAndMigrate()` only so
    * store-backed commands and memory injection work. `'runtime'` additionally
@@ -192,6 +204,27 @@ export interface EngineContext {
   container: DependencyContainer;
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
+  /**
+   * The permission/question fire-and-forget handler built by the bootstrap.
+   * Exposed here so hosts do not construct a second one — a duplicate handler
+   * registers a competing set of response listeners against the same container.
+   */
+  fireAndForget: CliFireAndForgetHandler;
+  /**
+   * Initialize (or re-initialize) the SDK agent adapter AND register the
+   * resolved instance for disposal in `withEngine`'s `finally`.
+   *
+   * Hosts booted with `requireSdk: false` (the TUI) must use this rather than
+   * the bare `initializeSdkAdapter` export: an adapter initialized outside the
+   * engine's knowledge is never disposed, leaking whatever the adapter holds
+   * (subprocesses, sockets, watchers) for the lifetime of the process.
+   */
+  initializeSdk(): Promise<InitializeSdkAdapterResult>;
+  /**
+   * The adapter instance most recently returned by {@link initializeSdk}.
+   * Managed by `withEngine`; hosts should treat it as read-only.
+   */
+  sdkAdapter?: SdkAgentLifecycle;
   /**
    * Thoth lifecycle handles populated when `opts.thoth !== 'off'`. Undefined
    * for plain commands. Disposed LIFO in `withEngine`'s `finally` before the
@@ -222,7 +255,9 @@ export async function withEngine<T>(
   const bootOptions: CliBootstrapOptions = {
     bootstrapMode: opts.mode,
     verbose: globals.verbose === true,
+    host: opts.host ?? 'cli',
   };
+  if (opts.filePicker !== undefined) bootOptions.filePicker = opts.filePicker;
   if (globals.cwd !== undefined) bootOptions.workspacePath = globals.cwd;
   if (opts.pushAdapter !== undefined)
     bootOptions.pushAdapter = opts.pushAdapter;
@@ -235,7 +270,19 @@ export async function withEngine<T>(
     container: result.container,
     transport: result.transport,
     pushAdapter: result.pushAdapter,
+    fireAndForget: result.fireAndForget,
+    initializeSdk: async () => {
+      const sdkResult = await initializeSdkAdapter(result.container);
+      if (sdkResult.adapter) {
+        ctx.sdkAdapter = sdkResult.adapter;
+      }
+      return sdkResult;
+    },
   };
+  // Sequencing gate: the workspace context is created asynchronously by the
+  // (synchronous) bootstrap. Anything that reads or writes settings before it
+  // resolves lands in the global default bucket instead of the workspace one.
+  await result.workspaceReady;
   await (async () => {
     try {
       const migrationRunner = ctx.container.resolve<MigrationRunner>(
@@ -270,14 +317,12 @@ export async function withEngine<T>(
       }
     });
   }
-  let sdkAdapter: SdkAgentLifecycle | undefined;
   if (opts.mode === 'full' && opts.requireSdk !== false) {
     if (globals.verbose === true) {
       process.stderr.write('[ptah] withEngine: initializing SDK adapter\n');
     }
 
-    const sdkResult = await initializeSdkAdapter(ctx.container);
-    sdkAdapter = sdkResult.adapter;
+    const sdkResult = await ctx.initializeSdk();
 
     if (!sdkResult.initialized) {
       const message =
@@ -353,6 +398,10 @@ export async function withEngine<T>(
         );
       }
     }
+    // Covers adapters initialized eagerly (requireSdk !== false) AND ones
+    // initialized late by the host via `ctx.initializeSdk()` — both paths
+    // record the instance on the context, so there is a single dispose site.
+    const sdkAdapter = ctx.sdkAdapter;
     if (sdkAdapter && typeof sdkAdapter.dispose === 'function') {
       try {
         await sdkAdapter.dispose();

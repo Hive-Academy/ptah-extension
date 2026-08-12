@@ -24,9 +24,9 @@ On top of the course, there are weekly live sessions where we talk through whate
 
 [keyword: weekly live sessions]
 
-Builders is a waitlist right now, not a purchase. When it opens, list price is twenty-nine dollars a month, or two hundred ninety dollars a year. Founding members who join the waitlist get thirty-five percent off the monthly price for the first twelve months, or fifty percent off the yearly price for the first year — so that's about eighteen eighty-five a month, or a hundred forty-five for the first year.
+Builders is a waitlist right now, not a purchase. When it opens, list price is twenty-nine dollars a month, or two hundred ninety dollars a year. Founding members who join the waitlist get seventy percent off their first year — so that's eight dollars seventy a month, or eighty-seven dollars for the first year.
 
-[stat-card: 35% off monthly / 50% off yearly — founding members]
+[stat-card: 70% off your first year — founding members]
 
 If you join and it's not useful, there's a thirty-day money-back guarantee.
 
@@ -41,7 +41,7 @@ If you want to be a founding member, the waitlist is at ptah.live.
 ## Recording notes
 
 - **Keywords to enunciate**: `Builders`, `reference codebase`, `the exact setup`, `weekly live sessions`, `thirty-day money-back`.
-- **Say the numbers exactly as scripted** — "twenty-nine dollars a month", "two hundred ninety dollars a year", "thirty-five percent", "fifty percent", "eighteen eighty-five", "a hundred forty-five", "thirty-day". These map to the site copy in `builders-section.component.ts`; if pricing changes there, update this script before recording.
+- **Say the numbers exactly as scripted** — "twenty-nine dollars a month", "two hundred ninety dollars a year", "seventy percent", "eight seventy", "eighty-seven", "thirty-day". These map to the site copy in `builders-section.component.ts`; if pricing changes there, update this script before recording.
 - **State plainly that it's a waitlist, not a purchase** — do not imply checkout is live.
 - **Draft-beats command**:
   ```bash
@@ -61,11 +61,11 @@ If you want to be a founding member, the waitlist is at ptah.live.
 ```
 Ptah Builders is a membership built around one course: build a production SaaS end to end, using Ptah. You keep the reference codebase from the course and the exact Ptah setup — agents, skills, workflows, specs — that built it, plus weekly live sessions on what's changing in AI and software engineering.
 
-Builders is waitlist-only right now. List price is $29/mo or $290/yr at launch; founding members get 35% off monthly (first 12 months) or 50% off yearly (first year), and every membership carries a 30-day money-back guarantee.
+Builders is waitlist-only right now. List price is $29/mo or $290/yr at launch; founding members get 70% off their first year ($8.70/mo or $87 first year), and every membership carries a 30-day money-back guarantee.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
 ✅ Ptah is free & open source: https://ptah.live
-🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```

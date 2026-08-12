@@ -28,7 +28,7 @@ import { SdkBackgroundTaskSummary } from '@ptah-extension/shared';
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-base-200/60 text-base-content/70 animate-pulse-slow hover:bg-base-200 transition-colors"
+        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-base-200/60 text-base-content-muted animate-pulse-slow hover:bg-base-200 transition-colors"
         [attr.aria-expanded]="hasTasks() ? expanded() : null"
         [attr.aria-label]="ariaLabel()"
         [disabled]="!hasTasks()"
@@ -50,7 +50,7 @@ import { SdkBackgroundTaskSummary } from '@ptah-extension/shared';
 
       @if (expanded() && hasTasks()) {
         <ul
-          class="flex flex-col gap-0.5 pl-4 text-[10px] text-base-content/60"
+          class="flex flex-col gap-0.5 pl-4 text-[10px] text-base-content-muted"
           role="list"
           [attr.data-test]="'awaiting-background-task-list'"
         >
