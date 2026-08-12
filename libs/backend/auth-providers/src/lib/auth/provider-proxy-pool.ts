@@ -3,8 +3,9 @@
  *
  * Owns one running translation/OAuth proxy instance PER (workspace, provider)
  * so concurrent workspaces that each select a different proxy-based provider
- * (Copilot, Codex, OpenRouter, Sakana, LM Studio) run fully isolated proxies
- * on distinct ephemeral ports with zero cross-workspace interference.
+ * (Copilot, Codex, OpenRouter, Sakana, LM Studio, or any user-defined
+ * `lane: 'openai'` entry) run fully isolated proxies on distinct ephemeral
+ * ports with zero cross-workspace interference.
  *
  * This pool is ADDITIVE and INDEPENDENT of `AuthManager` / the auth strategies.
  * Workspaces WITHOUT an explicit provider override never reach the pool — they
@@ -19,7 +20,14 @@
  *   injected auth-service singletons the strategies use, so machine-global OAuth
  *   token state (single-flight refresh, file watcher) is never cloned. Sakana is
  *   key-bound at construction (per the workspace-resolved key) via the existing
- *   `createSakanaProxyForKey` factory. LM Studio is keyless.
+ *   `createSakanaProxyForKey` factory. LM Studio is keyless. A custom
+ *   `lane: 'openai'` entry is ENDPOINT-bound at construction (its base URL is
+ *   baked into the proxy) but not key-bound — it reads its Bearer key from
+ *   SecretStorage per request, so rotating the key needs no rebuild.
+ *
+ * Custom entries declared `lane: 'anthropic'` (`requiresProxy: false`) never
+ * need a proxy at all: they speak the Anthropic protocol directly, so the
+ * resolver builds a direct snapshot for them and never reaches this pool.
  *
  * Lifetime: a proxy lives as long as its workspace is present. There is NO idle
  * TTL — an aggressive TTL could stop a proxy mid-stream. Teardown is driven by
@@ -36,6 +44,7 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { AnthropicProvider } from '@ptah-extension/shared';
+import { isCustomProviderId } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ITranslationProxy } from '../translation';
 import {
@@ -61,6 +70,10 @@ import {
   LmStudioTranslationProxy,
   LOCAL_PROXY_TOKEN_PLACEHOLDER,
 } from '../providers/local';
+import {
+  createCustomOpenAiProxy,
+  CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+} from '../providers/custom';
 
 /** A live per-(workspace, provider) proxy entry. */
 interface ProxyPoolEntry {
@@ -71,10 +84,18 @@ interface ProxyPoolEntry {
   /** Placeholder token the SDK sends as `ANTHROPIC_AUTH_TOKEN` (proxy-managed). */
   authToken: string;
   /**
-   * Credential fingerprint. For key-bound providers (Sakana) this embeds the
-   * resolved key so a key change invalidates and re-creates the proxy. For
-   * OAuth/local providers (auth resolved fresh per request from the shared
-   * singleton) it is a constant.
+   * Credential fingerprint — everything baked into the proxy at CONSTRUCTION,
+   * so a change to any of it invalidates and re-creates the instance instead of
+   * silently serving the workspace from the previous configuration.
+   *
+   * - Key-bound providers (Sakana): embeds the resolved key.
+   * - Endpoint-bound providers (custom `lane: 'openai'` entries): embeds the
+   *   resolved base URL. Without it, re-pointing an entry (editing the entry or
+   *   setting/clearing a `provider.<id>.baseUrl` override) would match the
+   *   cached fingerprint and keep forwarding this workspace's traffic — and its
+   *   API key — to the OLD host.
+   * - OAuth/local providers (auth resolved fresh per request from the shared
+   *   singleton, endpoint hardcoded): a constant.
    */
   credentialKey: string;
 }
@@ -116,9 +137,10 @@ export class ProviderProxyPool {
    *
    * Returns `{ baseUrl, authToken }` on success, or `undefined` when the caller
    * must fall back to the global auth path (non-proxy provider, unknown proxy
-   * provider, or required credentials missing). Reuses a live entry when the
-   * credential fingerprint matches and the proxy is still listening; otherwise
-   * (re)creates one and starts it on a fresh ephemeral port.
+   * provider, required credentials missing, or a custom entry with no usable
+   * base URL). Reuses a live entry when the credential fingerprint matches and
+   * the proxy is still listening; otherwise (re)creates one and starts it on a
+   * fresh ephemeral port.
    */
   async acquire(
     workspacePath: string,
@@ -126,12 +148,19 @@ export class ProviderProxyPool {
     provider: AnthropicProvider,
   ): Promise<AcquiredProxy | undefined> {
     if (provider.requiresProxy !== true) {
+      // Not an error and not "unsupported": this provider speaks the Anthropic
+      // protocol directly (built-in passthroughs AND custom `lane: 'anthropic'`
+      // entries), so there is nothing to isolate here. The resolver only calls
+      // us for `requiresProxy: true` and builds a direct snapshot otherwise —
+      // silence is deliberate, a warning here would be noise.
       return undefined;
     }
 
-    // Resolve the credential fingerprint up front so a changed Sakana key
-    // invalidates the cached entry BEFORE we decide to reuse it.
+    // Resolve the credential fingerprint up front so a changed Sakana key or a
+    // re-pointed custom entry invalidates the cached entry BEFORE we decide to
+    // reuse it.
     let sakanaKey: string | undefined;
+    let customBaseUrl: string | undefined;
     let credentialKey = CONSTANT_CREDENTIAL_KEY;
     if (providerId === 'sakana') {
       sakanaKey = (await this.authSecrets.getProviderKey('sakana'))?.trim();
@@ -143,6 +172,16 @@ export class ProviderProxyPool {
         return undefined;
       }
       credentialKey = `sakana:${sakanaKey}`;
+    } else if (isCustomProviderId(providerId)) {
+      customBaseUrl = this.resolveCustomProviderBaseUrl(providerId, provider);
+      if (!customBaseUrl) {
+        this.logger.warn(
+          '[ProviderProxyPool] Custom provider selected for workspace but its entry has no base URL — declining isolated proxy (workspace falls back to global auth).',
+          { workspacePath, providerId },
+        );
+        return undefined;
+      }
+      credentialKey = `custom:${customBaseUrl}`;
     }
 
     const entryKey = this.key(workspacePath, providerId);
@@ -160,7 +199,12 @@ export class ProviderProxyPool {
       await this.stopEntry(entryKey, existing);
     }
 
-    const created = await this.createProxy(providerId, provider, sakanaKey);
+    const created = await this.createProxy(
+      providerId,
+      provider,
+      sakanaKey,
+      customBaseUrl,
+    );
     if (!created) {
       return undefined;
     }
@@ -193,13 +237,15 @@ export class ProviderProxyPool {
 
   /**
    * Build (but do not start) a fresh proxy for the provider, reusing the shared
-   * auth-service singletons for OAuth/OpenRouter and binding Sakana to the
-   * supplied per-workspace key. Returns `undefined` for unknown proxy providers.
+   * auth-service singletons for OAuth/OpenRouter, binding Sakana to the
+   * supplied per-workspace key, and binding a custom entry to its resolved base
+   * URL. Returns `undefined` for unknown proxy providers.
    */
   private async createProxy(
     providerId: string,
-    _provider: AnthropicProvider,
+    provider: AnthropicProvider,
     sakanaKey: string | undefined,
+    customBaseUrl: string | undefined,
   ): Promise<{ proxy: ITranslationProxy; authToken: string } | undefined> {
     switch (providerId) {
       case 'github-copilot': {
@@ -242,6 +288,14 @@ export class ProviderProxyPool {
         };
       }
       default: {
+        // A user-defined `lane: 'openai'` entry — the only proxy-requiring
+        // provider without a case above. `isCustomProviderId` is what keeps
+        // this branch from ever claiming a built-in id: every built-in with a
+        // proxy is matched by an explicit case, and this guard makes that a
+        // property of the code rather than of the case list staying complete.
+        if (isCustomProviderId(providerId) && customBaseUrl) {
+          return this.createCustomProxy(providerId, provider, customBaseUrl);
+        }
         this.logger.warn(
           '[ProviderProxyPool] No proxy factory for proxy-requiring provider — declining isolated proxy.',
           { providerId },
@@ -249,6 +303,75 @@ export class ProviderProxyPool {
         return undefined;
       }
     }
+  }
+
+  /**
+   * Build an isolated translation proxy for a user-defined OpenAI-lane entry,
+   * reusing the same `createCustomOpenAiProxy` factory the global auth path
+   * (`ApiKeyStrategy`) uses — one construction site for one proxy shape.
+   *
+   * No stored-key check here, deliberately, and unlike Sakana: the custom proxy
+   * reads its Bearer key from SecretStorage on EVERY request, so a key added or
+   * rotated after the proxy starts takes effect without a rebuild, and a
+   * missing key surfaces as an actionable `SdkError` naming the entry. Gating
+   * on the key instead would decline the proxy and drop the workspace onto the
+   * GLOBAL provider — i.e. quietly answer from a different vendor than the one
+   * the user picked for this workspace.
+   *
+   * Construction can still throw (an unparseable or non-http base URL — see
+   * `normalizeOpenAiApiRoot`); that is caught here so a malformed entry cannot
+   * take down the resolve path.
+   */
+  private createCustomProxy(
+    providerId: string,
+    provider: AnthropicProvider,
+    baseUrl: string,
+  ): { proxy: ITranslationProxy; authToken: string } | undefined {
+    try {
+      const proxy = createCustomOpenAiProxy({
+        provider,
+        baseUrl,
+        logger: this.logger,
+        authSecrets: this.authSecrets,
+      });
+      return { proxy, authToken: CUSTOM_PROXY_TOKEN_PLACEHOLDER };
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[ProviderProxyPool] Cannot build an isolated translation proxy for custom provider — declining (workspace falls back to global auth).',
+        {
+          providerId,
+          baseUrl,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * The upstream base URL a custom entry's isolated proxy forwards to.
+   *
+   * Precedence mirrors `ApiKeyStrategy.resolveCustomProviderBaseUrl` exactly: a
+   * `provider.<id>.baseUrl` settings override wins, otherwise the entry's OWN
+   * `baseUrl`. The fallback is read off the resolved entry and NOT through
+   * `getProviderBaseUrl()`, which returns the DEFAULT provider's URL
+   * (OpenRouter's) for an id it cannot resolve — for a custom entry that would
+   * mean forwarding the user's API key to a vendor they never chose. Reading
+   * `provider.baseUrl` cannot mis-resolve; an entry with no usable URL returns
+   * `undefined` and declines instead.
+   */
+  private resolveCustomProviderBaseUrl(
+    providerId: string,
+    provider: AnthropicProvider,
+  ): string | undefined {
+    const override = this.configManager.get<string>(
+      `provider.${providerId}.baseUrl`,
+    );
+    if (typeof override === 'string' && override.trim().length > 0) {
+      return override.trim();
+    }
+    const own = provider.baseUrl.trim();
+    return own.length > 0 ? own : undefined;
   }
 
   /**

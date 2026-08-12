@@ -40,7 +40,6 @@ import {
   type AnthropicProvider,
   createEmptyAuthEnv,
   getAnthropicProvider,
-  getProviderBaseUrl,
   getProviderAuthEnvVar,
   OLLAMA_CLOUD_DIRECT_BASE_URL,
   ANTHROPIC_DIRECT_PROVIDER_ID,
@@ -197,7 +196,16 @@ export class WorkspaceProviderProfileResolver {
   /**
    * Anthropic-native and api-key-passthrough third-party providers that speak
    * the Anthropic protocol directly (no local translation proxy): Ollama, Ollama
-   * Cloud, Moonshot, Z.AI. Fully isolatable.
+   * Cloud, Moonshot, Z.AI, and user-defined `lane: 'anthropic'` entries. Fully
+   * isolatable — these need no proxy at all, which is why they never reach
+   * {@link ProviderProxyPool}.
+   *
+   * The registry default comes off the ALREADY-RESOLVED `provider` rather than
+   * from `getProviderBaseUrl(providerId)`. For built-ins the two are the same
+   * value, but `getProviderBaseUrl` falls back to the DEFAULT provider's URL
+   * (OpenRouter's) for an id it cannot resolve — for a user-defined entry that
+   * would forward the user's API key to a vendor they never chose. Reading
+   * `provider.baseUrl` cannot mis-resolve.
    */
   private async buildDirectThirdPartyProfile(
     providerId: string,
@@ -220,12 +228,11 @@ export class WorkspaceProviderProfileResolver {
           snapshot.ANTHROPIC_BASE_URL = OLLAMA_CLOUD_DIRECT_BASE_URL;
           snapshot.ANTHROPIC_AUTH_TOKEN = cloudKey;
         } else {
-          snapshot.ANTHROPIC_BASE_URL = getProviderBaseUrl(providerId);
+          snapshot.ANTHROPIC_BASE_URL = provider.baseUrl;
           snapshot.ANTHROPIC_AUTH_TOKEN = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
         }
       } else {
-        snapshot.ANTHROPIC_BASE_URL =
-          customUrl || getProviderBaseUrl(providerId);
+        snapshot.ANTHROPIC_BASE_URL = customUrl || provider.baseUrl;
         snapshot.ANTHROPIC_AUTH_TOKEN = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
       }
       snapshot.ANTHROPIC_API_KEY = '';
@@ -250,7 +257,7 @@ export class WorkspaceProviderProfileResolver {
       );
       return undefined;
     }
-    const baseUrl = customUrl || getProviderBaseUrl(providerId);
+    const baseUrl = customUrl || provider.baseUrl;
     const authEnvVar = getProviderAuthEnvVar(providerId);
     snapshot.ANTHROPIC_API_KEY = '';
     snapshot.ANTHROPIC_BASE_URL = baseUrl;

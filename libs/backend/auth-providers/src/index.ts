@@ -107,6 +107,13 @@ export {
 } from './lib/providers/sakana';
 export type { ISakanaAuthService } from './lib/providers/sakana';
 export {
+  CustomOpenAiTranslationProxy,
+  createCustomOpenAiProxy,
+  normalizeOpenAiApiRoot,
+  CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/providers/custom';
+export type { CustomOpenAiProxyConfig } from './lib/providers/custom';
+export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,
   OLLAMA_PROVIDER_ENTRY,
