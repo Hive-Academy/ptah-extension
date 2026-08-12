@@ -1306,6 +1306,147 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // -- ptah provider custom --------------------------------------------------
+  // CRUD over the user-defined entries in `provider.custom.entries`
+  // (~/.ptah/settings.json). Metadata only — the API key travels in `--key`
+  // and is stored backend-side in SecretStorage, never written to settings and
+  // never echoed back.
+  //
+  // `--lane` is a REQUIRED, constrained flag rather than something inferred
+  // from the URL: it decides whether the OpenAI→Anthropic translation proxy
+  // runs, and a wrong guess would only surface at the first tool call.
+  const providerCustom = provider
+    .command('custom')
+    .description('manage user-defined providers (list/add/update/remove/test)');
+
+  /** Field flags shared by `custom add` and `custom update`. */
+  interface CustomEntryFlags {
+    name?: string;
+    baseUrl?: string;
+    lane?: string;
+    key?: string;
+    modelsEndpoint?: string;
+    keyPrefix?: string;
+    helpUrl?: string;
+    authEnvVar?: string;
+    tierSonnet?: string;
+    tierOpus?: string;
+    tierHaiku?: string;
+    inputPrice?: string;
+    outputPrice?: string;
+  }
+
+  const withCustomEntryFlags = (cmd: Command): Command =>
+    cmd
+      .option('--name <name>', 'display name shown in every provider picker')
+      .option('--base-url <url>', 'endpoint base URL (http:// or https://)')
+      .option(
+        '--lane <lane>',
+        'wire protocol the endpoint speaks: anthropic|openai',
+      )
+      .option('--key <key>', 'API key (stored in secret storage, never echoed)')
+      .option('--models-endpoint <url>', 'optional model-discovery URL')
+      .option('--key-prefix <prefix>', 'optional expected key prefix')
+      .option('--help-url <url>', 'optional "where do I get a key" URL')
+      .option(
+        '--auth-env-var <name>',
+        'ANTHROPIC_AUTH_TOKEN (default) or ANTHROPIC_API_KEY',
+      )
+      .option('--tier-sonnet <model>', 'model id for the sonnet tier')
+      .option('--tier-opus <model>', 'model id for the opus tier')
+      .option('--tier-haiku <model>', 'model id for the haiku tier')
+      .option('--input-price <usd>', 'optional USD per 1M input tokens')
+      .option('--output-price <usd>', 'optional USD per 1M output tokens');
+
+  const customEntryOptions = (
+    subcommand: 'custom',
+    action: 'add' | 'update',
+    id: string,
+    flags: CustomEntryFlags,
+  ): providerCmd.ProviderOptions => ({
+    subcommand,
+    action,
+    provider: id,
+    name: flags.name,
+    baseUrl: flags.baseUrl,
+    lane: flags.lane,
+    key: flags.key,
+    modelsEndpoint: flags.modelsEndpoint,
+    keyPrefix: flags.keyPrefix,
+    helpUrl: flags.helpUrl,
+    authEnvVar: flags.authEnvVar,
+    tierSonnet: flags.tierSonnet,
+    tierOpus: flags.tierOpus,
+    tierHaiku: flags.tierHaiku,
+    inputPrice: flags.inputPrice,
+    outputPrice: flags.outputPrice,
+  });
+
+  providerCustom
+    .command('list')
+    .description('emit provider.custom.entries with every user-defined entry')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'custom', action: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  withCustomEntryFlags(
+    providerCustom
+      .command('add <id>')
+      .description(
+        'add a user-defined provider and emit provider.custom.added (prompts for missing required fields on a TTY; in machine mode a missing flag is a usage error)',
+      ),
+  ).action(async (id: string, flags: CustomEntryFlags) => {
+    const exit = await providerCmd.execute(
+      customEntryOptions('custom', 'add', id, flags),
+      resolveGlobals(program),
+    );
+    process.exitCode = exit;
+  });
+
+  withCustomEntryFlags(
+    providerCustom
+      .command('update <id>')
+      .description(
+        'change supplied fields of a user-defined provider and emit provider.custom.updated (never prompts)',
+      ),
+  ).action(async (id: string, flags: CustomEntryFlags) => {
+    const exit = await providerCmd.execute(
+      customEntryOptions('custom', 'update', id, flags),
+      resolveGlobals(program),
+    );
+    process.exitCode = exit;
+  });
+
+  providerCustom
+    .command('remove <id>')
+    .description(
+      'delete a user-defined provider and emit provider.custom.removed',
+    )
+    .action(async (id: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'custom', action: 'remove', provider: id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerCustom
+    .command('test <id>')
+    .description(
+      'probe a user-defined provider end-to-end and emit provider.custom.test (exit 1 when the probe fails)',
+    )
+    .action(async (id: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'custom', action: 'test', provider: id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
   // -- ptah workspace --------------------------------------------------------
   // Backed by shared WorkspaceRpcHandlers.
   const workspace = program

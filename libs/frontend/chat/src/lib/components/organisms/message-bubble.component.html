@@ -164,8 +164,14 @@
               [count]="message().tokens!.input + message().tokens!.output"
             />
           }
+          <!--
+            No `!` and no undefined-only guard. A turn on a provider with no
+            known pricing carries `cost: null`, which slipped past the old
+            `!== undefined` check and then rendered as "$0.0000" — the badge now
+            takes the nullable value and says "cost unavailable" itself.
+          -->
           @if (message().cost !== undefined) {
-            <ptah-cost-badge [cost]="message().cost!" />
+            <ptah-cost-badge [cost]="message().cost" />
           }
           @if (message().duration !== undefined) {
             <ptah-duration-badge [durationMs]="message().duration!" />

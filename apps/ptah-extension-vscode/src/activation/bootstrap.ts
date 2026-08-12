@@ -14,6 +14,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
+  type CustomProviderStore,
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
@@ -97,7 +98,23 @@ export async function bootstrapVscode(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    console.log('[Ptah VS Code] Settings registered and migrations applied');
+    // Publish user-defined providers to the shared registry cache BEFORE
+    // anything resolves a provider by id — until this runs,
+    // getAnthropicProvider() knows only the built-ins.
+    const customProviders = DIContainer.resolve<CustomProviderStore>(
+      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+    );
+    const { entries, dropped } = customProviders.load();
+    if (dropped.length > 0) {
+      console.warn(
+        `[Ptah VS Code] Dropped ${dropped.length} malformed custom provider entr${
+          dropped.length === 1 ? 'y' : 'ies'
+        }`,
+      );
+    }
+    console.log(
+      `[Ptah VS Code] Settings registered and migrations applied (${entries.length} custom providers)`,
+    );
   } catch (settingsError) {
     console.warn(
       '[Ptah VS Code] Settings registration / migration failed (non-fatal):',

@@ -49,7 +49,10 @@ import type {
   IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { IActiveWorkspaceSource } from '@ptah-extension/settings-core';
+import type {
+  CustomProviderStore,
+  IActiveWorkspaceSource,
+} from '@ptah-extension/settings-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
@@ -582,6 +585,19 @@ export class CliDIContainer {
       logger.info(
         '[CLI DI] Settings repositories registered (SETTINGS_TOKENS)',
       );
+      // Publish user-defined providers to the shared registry cache BEFORE
+      // anything resolves a provider by id — until this runs,
+      // getAnthropicProvider() knows only the built-ins.
+      const customProviders = container.resolve<CustomProviderStore>(
+        SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+      );
+      const { entries, dropped } = customProviders.load();
+      if (dropped.length > 0) {
+        logger.warn(
+          `[CLI DI] Dropped ${dropped.length} malformed custom provider entries`,
+        );
+      }
+      logger.info(`[CLI DI] Custom providers loaded (${entries.length})`);
     } catch (settingsRegError) {
       logger.error(
         '[CLI DI] Failed to register settings repositories',

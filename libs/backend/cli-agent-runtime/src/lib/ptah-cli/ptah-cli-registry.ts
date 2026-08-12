@@ -27,7 +27,7 @@ import {
   SubagentHookHandler,
   CompactionHookHandler,
   CompactionConfigProvider,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
@@ -468,10 +468,12 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Get list of available Anthropic-compatible providers from the registry
+   * Get list of available Anthropic-compatible providers from the merged
+   * registry — built-ins plus user-defined entries, so a custom provider can
+   * back a spawned Ptah CLI agent.
    */
   getAvailableProviders(): AnthropicProvider[] {
-    return [...ANTHROPIC_PROVIDERS];
+    return getAllAnthropicProviders();
   }
 
   /**

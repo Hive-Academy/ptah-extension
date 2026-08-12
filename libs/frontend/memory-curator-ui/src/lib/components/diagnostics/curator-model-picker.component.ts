@@ -9,7 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import {
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   getAnthropicProvider,
   type ProviderModelInfo,
 } from '@ptah-extension/shared';
@@ -131,8 +131,12 @@ export class CuratorModelPickerComponent {
   protected readonly phase1Note =
     'model rides the active provider (full provider routing coming soon)';
 
+  // Merged registry accessor rather than the static array, so a user-defined
+  // provider can be picked as the curator judge model. `@ptah-extension/shared`
+  // is the one lib a frontend lib may take this from — the backend registry
+  // lives behind the same leaf.
   protected readonly providerOptions: readonly ProviderOption[] =
-    ANTHROPIC_PROVIDERS.map((p) => ({ id: p.id, name: p.name }));
+    getAllAnthropicProviders().map((p) => ({ id: p.id, name: p.name }));
 
   private readonly _provider = signal<string>('');
   private readonly _model = signal<string>('');

@@ -27,12 +27,12 @@
  *        "virtual" stub IDs.
  *
  * Why only `.id` is populated:
- *   The only consumer reached by the spec call paths is
- *   `libs/backend/rpc-handlers/.../auth-rpc.schema.ts`, which evaluates
- *   `ANTHROPIC_PROVIDERS.map(p => p.id)` at module load to build a Zod
- *   enum. Other fields on `AnthropicProvider` (name, baseUrl, authEnvVar,
- *   …) are not touched in the CLI unit-test surface. Keeping the stub
- *   minimal documents that fact and avoids fabricating fake URLs / keys.
+ *   The consumers reached by the spec call paths only read `.id`:
+ *   `auth.ts`'s did-you-mean list (`getAllAnthropicProviders().map(p => p.id)`)
+ *   and `auth-rpc.schema.ts`'s provider-id refinement. Other fields on
+ *   `AnthropicProvider` (name, baseUrl, authEnvVar, …) are not touched in the
+ *   CLI unit-test surface. Keeping the stub minimal documents that fact and
+ *   avoids fabricating fake URLs / keys.
  *
  * If a future spec exercises code that reads richer provider fields, extend
  * `mockAnthropicProviders` (or add a sibling builder) rather than expanding
@@ -70,4 +70,59 @@ export function mockAnthropicProviders(): readonly IdOnlyProvider[] {
     { id: 'github-copilot' },
     { id: 'openai-codex' },
   ] as const satisfies readonly IdOnlyProvider[];
+}
+
+/**
+ * Stub of the merged-registry accessors the real barrel exports
+ * (TASK_2026_236). `getAllAnthropicProviders()` replaced the direct
+ * `ANTHROPIC_PROVIDERS` iteration in `auth.ts`; `getAnthropicProvider()` backs
+ * the `auth-rpc.schema.ts` provider-id refinement. Both resolve against the
+ * same fixture so a spec cannot see one list from one accessor and a different
+ * list from the other.
+ */
+export function mockProviderRegistryAccessors(): {
+  ANTHROPIC_PROVIDERS: readonly IdOnlyProvider[];
+  getAllAnthropicProviders: () => readonly IdOnlyProvider[];
+  getAnthropicProvider: (id: string) => IdOnlyProvider | undefined;
+} {
+  const providers = mockAnthropicProviders();
+  return {
+    ANTHROPIC_PROVIDERS: providers,
+    getAllAnthropicProviders: () => providers,
+    getAnthropicProvider: (id: string) => providers.find((p) => p.id === id),
+  };
+}
+
+/**
+ * Mirror of the real `ALL_TIER_ENV_KEYS` (`agent-sdk`
+ * `helpers/sdk-model-service.ts`) — the three tier `_MODEL` vars plus the three
+ * metadata vars that ride alongside each.
+ *
+ * Why a spec that never mentions tier env vars still needs this: any spec whose
+ * command statically imports `@ptah-extension/cli-engine` drags in
+ * `auth-providers`' barrel → `di/register.ts` → `curator-auth-resolver.ts`,
+ * which SPREADS this constant at module scope. A virtual agent-sdk mock that
+ * omits it makes that spread throw `is not iterable` before a single test runs,
+ * and the failure surfaces as "Test suite failed to run" with a stack pointing
+ * at library code the spec has nothing to do with.
+ *
+ * Keep this list in step with the real constant. It is a fixture, not an
+ * assertion target — nothing reads the values, but the spread needs a real
+ * iterable.
+ */
+export function mockAllTierEnvKeys(): readonly string[] {
+  return [
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  ];
 }

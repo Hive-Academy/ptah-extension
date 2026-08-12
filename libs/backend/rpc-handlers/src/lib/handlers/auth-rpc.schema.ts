@@ -10,13 +10,20 @@
  *     previously lived inside `registerSaveSettings()`. Any valid payload that
  *     parsed before MUST still parse; any invalid payload that was rejected
  *     before MUST still be rejected with an equivalent error shape.
- *   - `anthropicProviderId` is a z.enum over the runtime-known provider IDs
- *     from `ANTHROPIC_PROVIDERS`. This keeps provider-id validation in lockstep
- *     with the provider registry without duplicating the list.
+ *   - `anthropicProviderId` is a plain string validated by a CALL-TIME lookup
+ *     against the merged provider registry. It used to be a `z.enum` built from
+ *     `ANTHROPIC_PROVIDERS.map(p => p.id)` — evaluated once, at module load,
+ *     from the static array — which rejected every user-defined provider id
+ *     unconditionally, before `getAnthropicProvider()` was ever consulted
+ *     (TASK_2026_236). The refinement below preserves the extraction contract
+ *     exactly: the same ids parse, unknown ids still fail with an issue at
+ *     path `anthropicProviderId`. What changed is WHEN and against WHAT — per
+ *     parse, against built-ins PLUS whatever custom entries the backend has
+ *     loaded into the registry cache via `setCustomProviderEntries()`.
  */
 
 import { z } from 'zod';
-import { ANTHROPIC_PROVIDERS } from '@ptah-extension/agent-sdk';
+import { getAnthropicProvider } from '@ptah-extension/agent-sdk';
 
 /**
  * Validated shape for the `auth:saveSettings` RPC method.
@@ -29,16 +36,22 @@ import { ANTHROPIC_PROVIDERS } from '@ptah-extension/agent-sdk';
  *                        SecretStorage. Empty strings are sentinel values for
  *                        "clear the stored credential" (handled by the caller,
  *                        not this schema).
- *   - `anthropicProviderId` — optional provider selector, validated against the
- *                        ids exported from `ANTHROPIC_PROVIDERS` so unknown
- *                        providers are rejected at the RPC boundary.
+ *   - `anthropicProviderId` — optional provider selector, resolved through
+ *                        `getAnthropicProvider()` at parse time so unknown
+ *                        providers are rejected at the RPC boundary while
+ *                        user-defined entries (which only exist at runtime) are
+ *                        accepted.
  */
 export const AuthSettingsSchema = z.object({
   authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
   anthropicApiKey: z.string().optional(),
   providerApiKey: z.string().optional(),
   anthropicProviderId: z
-    .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
+    .string()
+    .min(1)
+    .refine((id) => getAnthropicProvider(id) !== undefined, {
+      message: 'Unknown provider id',
+    })
     .optional(),
   applyTo: z.enum(['global', 'app', 'workspace']).optional(),
 });

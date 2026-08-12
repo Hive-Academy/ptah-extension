@@ -17,7 +17,10 @@
  * @see https://docs.z.ai/devpack/tool/claude
  */
 
+import { z } from 'zod';
+
 import { updatePricingMap, type ModelPricing } from '../utils/pricing.utils';
+import { isValidProviderBaseUrl } from './provider-base-url';
 import { COPILOT_PROVIDER_ENTRY } from './entries/copilot-provider-entry';
 import { CODEX_PROVIDER_ENTRY } from './entries/codex-provider-entry';
 import {
@@ -27,6 +30,7 @@ import {
 } from './entries/local-provider-entry';
 import { CLAUDE_CLI_PROVIDER_ENTRY } from './entries/claude-cli-provider-entry';
 import { SAKANA_PROVIDER_ENTRY } from './entries/sakana-provider-entry';
+import { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -141,6 +145,14 @@ export interface AnthropicProvider {
    * placeholder token. Mutually exclusive with `baseUrl`.
    */
   nativeAuth?: boolean;
+  /**
+   * True only for entries the USER defined (see {@link CustomProviderEntry}).
+   *
+   * Built-in registry entries never set this. Surfaces use it to decide which
+   * tiles get edit/delete affordances and which security copy to render — the
+   * built-in base URLs ship in Ptah's own source, a custom one does not.
+   */
+  isCustom?: boolean;
 }
 
 /**
@@ -443,6 +455,7 @@ export const ANTHROPIC_PROVIDERS = [
   LM_STUDIO_PROVIDER_ENTRY,
   CLAUDE_CLI_PROVIDER_ENTRY,
   SAKANA_PROVIDER_ENTRY,
+  REQUESTY_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
 /**
@@ -459,7 +472,8 @@ export type AnthropicProviderId =
   | 'ollama-cloud'
   | 'lm-studio'
   | 'claude-cli'
-  | 'sakana';
+  | 'sakana'
+  | 'requesty';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';
@@ -467,8 +481,329 @@ export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';
 /** Virtual provider ID for direct Claude auth (OAuth/API key) — not in ANTHROPIC_PROVIDERS registry */
 export const ANTHROPIC_DIRECT_PROVIDER_ID = 'anthropic';
 
+// ---------------------------------------------------------------------------
+// User-defined ("custom") provider entries — TASK_2026_236
+// ---------------------------------------------------------------------------
+
+/**
+ * Which protocol a custom entry speaks. Stored explicitly and NEVER re-derived
+ * from the URL shape, because the two lanes are indistinguishable from a base
+ * URL alone:
+ *   - 'anthropic' → native Messages passthrough → `requiresProxy: false`
+ *   - 'openai'    → OpenAI-compatible, needs the local translation proxy →
+ *                   `requiresProxy: true`
+ */
+export const CUSTOM_PROVIDER_LANES = ['anthropic', 'openai'] as const;
+export type CustomProviderLane = (typeof CUSTOM_PROVIDER_LANES)[number];
+
+/**
+ * Allowed shape of a custom provider id.
+ *
+ * Deliberately the same character class as `PROVIDER_BASE_URL_PATTERN` /
+ * `PROVIDER_SCOPED_TIER_PATTERN` in
+ * `libs/backend/platform-core/src/file-settings-keys.ts` — an id outside this
+ * class would produce settings keys those regexes reject, and the writes would
+ * be silently dropped.
+ */
+export const CUSTOM_PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * True when `id` names a provider that ships in Ptah's own source.
+ *
+ * A user-defined entry may never take one of these ids: a settings file that
+ * could re-declare `openrouter` would silently repoint a shipped, audited tile
+ * at an arbitrary host. Includes the virtual `anthropic` direct-auth id, which
+ * is not in `ANTHROPIC_PROVIDERS` but is just as reserved.
+ */
+export function isBuiltInProviderId(id: string): boolean {
+  if (id === ANTHROPIC_DIRECT_PROVIDER_ID) return true;
+  return ANTHROPIC_PROVIDERS.some((provider) => provider.id === id);
+}
+
+/**
+ * `http:`/`https:` only — literally the same function `llm:setProviderBaseUrl`
+ * now calls, not a second copy of the rule (see `./provider-base-url`).
+ */
+const isHttpUrl = isValidProviderBaseUrl;
+
+/**
+ * Optional, manually-entered per-1M-token rates.
+ *
+ * There is no standard for how a `/v1/models` response encodes pricing, so
+ * custom entries show "cost unavailable" until the user types rates in.
+ */
+export const CustomProviderPricingSchema = z.object({
+  inputPerMillion: z.number().nonnegative(),
+  outputPerMillion: z.number().nonnegative(),
+});
+export type CustomProviderPricing = z.infer<typeof CustomProviderPricingSchema>;
+
+/** Tier → concrete model id mapping, so "Default (recommended)" resolves. */
+export const CustomProviderTiersSchema = z.object({
+  sonnet: z.string().min(1),
+  opus: z.string().min(1),
+  haiku: z.string().min(1),
+});
+
+/**
+ * One user-defined provider entry as persisted in `provider.custom.entries`
+ * inside `~/.ptah/settings.json`.
+ *
+ * NON-SECRET METADATA ONLY. The API key lives exclusively in
+ * `AuthSecretsService.setProviderKey(id, …)` → platform SecretStorage, the same
+ * separation the built-in registry already enforces.
+ */
+/**
+ * Field-level schemas, declared ONCE.
+ *
+ * The full entry schema and the partial-edit schema are both built from these
+ * so the two can never disagree about what a valid `baseUrl` or `lane` is.
+ * The defaulted fields are applied only in the full schema — see
+ * {@link CustomProviderEntryChangesSchema} for why a partial edit must NOT
+ * carry defaults.
+ */
+const customProviderFields = {
+  id: z
+    .string()
+    .regex(
+      CUSTOM_PROVIDER_ID_PATTERN,
+      'Provider id must be lower-case alphanumeric with dashes',
+    ),
+  name: z.string().min(1),
+  baseUrl: z
+    .string()
+    .refine(isHttpUrl, 'Base URL must be an http:// or https:// URL'),
+  lane: z.enum(CUSTOM_PROVIDER_LANES),
+  authEnvVar: z.enum(['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY']),
+  keyPrefix: z.string(),
+  helpUrl: z.string(),
+  modelsEndpoint: z.string().nullable().optional(),
+  defaultTiers: CustomProviderTiersSchema.nullable().optional(),
+  pricing: CustomProviderPricingSchema.nullable().optional(),
+} as const;
+
+export const CustomProviderEntrySchema = z.object({
+  ...customProviderFields,
+  authEnvVar: customProviderFields.authEnvVar.default('ANTHROPIC_AUTH_TOKEN'),
+  keyPrefix: customProviderFields.keyPrefix.default(''),
+  helpUrl: customProviderFields.helpUrl.default(''),
+  createdAt: z.string().optional(),
+});
+
+/** A validated user-defined provider entry. */
+export type CustomProviderEntry = z.infer<typeof CustomProviderEntrySchema>;
+
+/** The whole `provider.custom.entries` array as stored on disk. */
+export const CustomProviderEntriesSchema = z.array(CustomProviderEntrySchema);
+
+/**
+ * What a CALLER supplies when creating or editing an entry.
+ *
+ * `createdAt` is omitted deliberately — it is stamped by the store on insert
+ * and preserved on update, so a client cannot rewrite an entry's history.
+ * Fields carrying a schema default (`authEnvVar`, `keyPrefix`, `helpUrl`) stay
+ * optional on the way in and are filled by the parse.
+ */
+export const CustomProviderEntryInputSchema = CustomProviderEntrySchema.omit({
+  createdAt: true,
+});
+
+/** Input side of {@link CustomProviderEntryInputSchema} — defaults optional. */
+export type CustomProviderEntryInput = z.input<
+  typeof CustomProviderEntryInputSchema
+>;
+
+/**
+ * A partial edit to an existing entry.
+ *
+ * `id` is present but immutable: the API key for an entry lives in
+ * SecretStorage under that id, so renaming would orphan the secret. The store
+ * rejects a `changes.id` that differs from the target id rather than silently
+ * dropping it.
+ *
+ * Built from the UNDEFAULTED field schemas on purpose. Partialling the full
+ * entry schema instead would still materialise `authEnvVar`, `keyPrefix` and
+ * `helpUrl` for keys the caller never mentioned, and the store's merge would
+ * then quietly reset those three fields on every edit.
+ */
+export const CustomProviderEntryChangesSchema = z
+  .object(customProviderFields)
+  .partial();
+
+/** Partial edit shape accepted by `provider:updateCustomEntry`. */
+export type CustomProviderEntryChanges = z.input<
+  typeof CustomProviderEntryChangesSchema
+>;
+
+/** Why a submitted entry did not make it into the merged registry. */
+export interface RejectedCustomProviderEntry {
+  /** The offending id, or `'<unknown>'` when the entry had no usable id. */
+  readonly id: string;
+  readonly reason: string;
+}
+
+/** Outcome of {@link setCustomProviderEntries} — explicit, so callers can log. */
+export interface SetCustomProviderEntriesResult {
+  readonly accepted: readonly CustomProviderEntry[];
+  readonly rejected: readonly RejectedCustomProviderEntry[];
+}
+
+/**
+ * Module-level cache of user-defined entries.
+ *
+ * `libs/shared` is a leaf with no file I/O — it cannot read
+ * `~/.ptah/settings.json` itself. The BACKEND owns population: it reads
+ * `provider.custom.entries` at auth bootstrap and on config change, then calls
+ * {@link setCustomProviderEntries}. Never call the setter from frontend code.
+ */
+let customProviderEntries: readonly CustomProviderEntry[] = [];
+
+/** Derived `AnthropicProvider` view of the cache, rebuilt only on set. */
+let customProviders: readonly AnthropicProvider[] = [];
+
+/**
+ * Project a stored entry onto the `AnthropicProvider` shape the rest of the
+ * codebase already consumes.
+ *
+ * The lane → `requiresProxy` mapping is the whole point of storing the lane:
+ * 'anthropic' passes through natively, 'openai' needs the local translation
+ * proxy.
+ */
+export function customEntryToAnthropicProvider(
+  entry: CustomProviderEntry,
+): AnthropicProvider {
+  let host = entry.baseUrl;
+  try {
+    host = new URL(entry.baseUrl).host;
+  } catch {
+    // Schema guarantees a parseable URL; keep the raw string if that ever changes.
+  }
+
+  return {
+    id: entry.id,
+    name: entry.name,
+    baseUrl: entry.baseUrl,
+    authEnvVar: entry.authEnvVar,
+    keyPrefix: entry.keyPrefix,
+    helpUrl: entry.helpUrl,
+    description: `User-defined endpoint at ${host}`,
+    keyPlaceholder: entry.keyPrefix ? `${entry.keyPrefix}…` : 'API key',
+    maskedKeyDisplay: '••••••••',
+    authType: 'apiKey',
+    requiresProxy: entry.lane === 'openai',
+    isCustom: true,
+    ...(entry.modelsEndpoint ? { modelsEndpoint: entry.modelsEndpoint } : {}),
+    ...(entry.defaultTiers ? { defaultTiers: entry.defaultTiers } : {}),
+  };
+}
+
+/**
+ * Replace the user-defined provider cache.
+ *
+ * Every entry is re-validated here even though the parameter is typed, because
+ * the data originates from a hand-editable JSON file and a single malformed
+ * entry must not take the whole list down.
+ *
+ * Rejection rules (all non-throwing — a bad entry is skipped, not fatal):
+ *   1. Fails {@link CustomProviderEntrySchema}.
+ *   2. Id collides with a BUILT-IN provider id. Shadowing a built-in would let
+ *      a settings file silently repoint `openrouter` (or any shipped entry) at
+ *      an arbitrary host, so built-ins always win.
+ *   3. Id collides with an earlier custom entry in the same array (first wins).
+ *
+ * @returns which entries were accepted and, for each rejection, why.
+ */
+export function setCustomProviderEntries(
+  entries: readonly CustomProviderEntry[],
+): SetCustomProviderEntriesResult {
+  const accepted: CustomProviderEntry[] = [];
+  const rejected: RejectedCustomProviderEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of entries) {
+    const parsed = CustomProviderEntrySchema.safeParse(candidate);
+    if (!parsed.success) {
+      const rawId =
+        candidate && typeof candidate === 'object' && 'id' in candidate
+          ? String((candidate as { id: unknown }).id)
+          : '<unknown>';
+      rejected.push({
+        id: rawId,
+        reason: parsed.error.issues
+          .map(
+            (issue) => `${issue.path.join('.') || 'entry'}: ${issue.message}`,
+          )
+          .join('; '),
+      });
+      continue;
+    }
+
+    const entry = parsed.data;
+    if (isBuiltInProviderId(entry.id)) {
+      rejected.push({
+        id: entry.id,
+        reason: `Id collides with a built-in provider and cannot shadow it`,
+      });
+      continue;
+    }
+    if (seen.has(entry.id)) {
+      rejected.push({
+        id: entry.id,
+        reason: 'Duplicate custom provider id — the first entry wins',
+      });
+      continue;
+    }
+
+    seen.add(entry.id);
+    accepted.push(entry);
+  }
+
+  customProviderEntries = accepted;
+  customProviders = accepted.map(customEntryToAnthropicProvider);
+
+  return { accepted, rejected };
+}
+
+/** Drop every user-defined entry (used on sign-out and by tests). */
+export function clearCustomProviderEntries(): void {
+  customProviderEntries = [];
+  customProviders = [];
+}
+
+/** The raw stored entries — pricing and lane included, unlike the projection. */
+export function getCustomProviderEntries(): readonly CustomProviderEntry[] {
+  return customProviderEntries;
+}
+
+/** One stored entry by id, or undefined if it is not user-defined. */
+export function getCustomProviderEntry(
+  id: string,
+): CustomProviderEntry | undefined {
+  return customProviderEntries.find((entry) => entry.id === id);
+}
+
+/** True when `id` resolves to a user-defined entry rather than a built-in. */
+export function isCustomProviderId(id: string): boolean {
+  return customProviderEntries.some((entry) => entry.id === id);
+}
+
+/**
+ * Every provider the app should offer: built-ins first, user-defined after.
+ *
+ * Use this — NOT `ANTHROPIC_PROVIDERS` — anywhere a list of providers is
+ * enumerated (tile grids, key-status scans, did-you-mean suggestions). Direct
+ * iteration of the static array is how a custom entry ends up working in one
+ * surface and invisible in another.
+ */
+export function getAllAnthropicProviders(): AnthropicProvider[] {
+  return [...ANTHROPIC_PROVIDERS, ...customProviders];
+}
+
 /**
  * Get a provider by ID
+ *
+ * Built-in registry first, then the user-defined cache — a custom entry can
+ * never shadow a shipped one (the setter rejects colliding ids outright).
  *
  * @param id - Provider ID to look up
  * @returns Provider definition, or undefined if not found
@@ -476,7 +811,9 @@ export const ANTHROPIC_DIRECT_PROVIDER_ID = 'anthropic';
 export function getAnthropicProvider(
   id: string,
 ): AnthropicProvider | undefined {
-  return ANTHROPIC_PROVIDERS.find((p) => p.id === id);
+  const builtIn = ANTHROPIC_PROVIDERS.find((p) => p.id === id);
+  if (builtIn) return builtIn;
+  return customProviders.find((p) => p.id === id);
 }
 
 /**

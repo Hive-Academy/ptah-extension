@@ -6,6 +6,11 @@
  */
 
 import type { ModelCapability } from '../auth-env.types';
+import type {
+  CustomProviderEntry,
+  CustomProviderEntryChanges,
+  CustomProviderEntryInput,
+} from '../../providers/provider-registry';
 
 /** Model tier for provider model mapping */
 export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
@@ -124,6 +129,83 @@ export interface ProviderClearModelTierResult {
   success: boolean;
   error?: string;
 }
+// ---------------------------------------------------------------------------
+// User-defined provider entries — TASK_2026_236
+//
+// CRUD over `provider.custom.entries` in ~/.ptah/settings.json plus a real
+// connection probe. All five land under the EXISTING `provider:` prefix, which
+// is already in ALLOWED_METHOD_PREFIXES — only this compile-time contract and
+// the `RpcMethodName` union change (plan.md decision 5).
+//
+// The API key is NEVER part of an entry. It travels as a sibling `apiKey`
+// param on add/update and is routed to SecretStorage by the handler, so the
+// persisted JSON stays non-secret metadata.
+// ---------------------------------------------------------------------------
+
+/** Parameters for provider:listCustomEntries (none). */
+export type ProviderListCustomEntriesParams = Record<string, never>;
+
+/** Response from provider:listCustomEntries. */
+export interface ProviderListCustomEntriesResult {
+  entries: CustomProviderEntry[];
+}
+
+/** Parameters for provider:addCustomEntry. */
+export interface ProviderAddCustomEntryParams {
+  /** Non-secret metadata. `createdAt` is stamped server-side. */
+  entry: CustomProviderEntryInput;
+  /** Optional API key — written to SecretStorage, never to the entry. */
+  apiKey?: string;
+}
+
+/** Response from provider:addCustomEntry. */
+export interface ProviderAddCustomEntryResult {
+  entry: CustomProviderEntry;
+}
+
+/** Parameters for provider:updateCustomEntry. */
+export interface ProviderUpdateCustomEntryParams {
+  /** Id of the entry to edit. Immutable — `changes.id` may not differ from it. */
+  id: string;
+  changes: CustomProviderEntryChanges;
+  /** When present, replaces the stored key for this id. */
+  apiKey?: string;
+}
+
+/** Response from provider:updateCustomEntry. */
+export interface ProviderUpdateCustomEntryResult {
+  entry: CustomProviderEntry;
+}
+
+/** Parameters for provider:removeCustomEntry. */
+export interface ProviderRemoveCustomEntryParams {
+  id: string;
+}
+
+/** Response from provider:removeCustomEntry. */
+export interface ProviderRemoveCustomEntryResult {
+  /** False when the id was already absent. The stored key is deleted either way. */
+  removed: boolean;
+}
+
+/** Parameters for provider:testCustomEntry. */
+export interface ProviderTestCustomEntryParams {
+  id: string;
+}
+
+/**
+ * Response from provider:testCustomEntry.
+ *
+ * `message` is written for the user, not for a log — it names the specific
+ * thing to fix (bad key, wrong base URL, TLS, no tool support, …).
+ */
+export interface ProviderTestCustomEntryResult {
+  ok: boolean;
+  message: string;
+  /** Round-trip time of the probe request; absent when no request was made. */
+  latencyMs?: number;
+}
+
 /** @deprecated Use ProviderModelTier instead */
 export type OpenRouterModelTier = ProviderModelTier;
 /** @deprecated Use ProviderModelInfo instead */

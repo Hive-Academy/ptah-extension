@@ -227,6 +227,20 @@ function makeHarness(
     copilotAuthService as unknown as CopilotAuthService,
     codexAuthService as unknown as CodexAuthService,
     sentry as unknown as SentryService,
+    // User-defined provider entries (TASK_2026_236). Not exercised by this
+    // suite — see provider-rpc.custom-entries.spec.ts for its coverage.
+    {
+      load: () => ({ entries: [], dropped: [] }),
+      list: () => [],
+      get: () => undefined,
+      add: async () => {
+        throw new Error('not used');
+      },
+      update: async () => {
+        throw new Error('not used');
+      },
+      remove: async () => false,
+    } as unknown as import('@ptah-extension/settings-core').CustomProviderStore,
   );
 
   return {
@@ -269,17 +283,28 @@ async function call<TResult>(
 
 describe('ProviderRpcHandlers', () => {
   describe('register()', () => {
-    it('registers the four provider RPC methods', () => {
+    it('registers exactly the methods it declares on METHODS', () => {
       const h = makeHarness();
       h.handlers.register();
 
+      // Pinned against METHODS rather than a hand-written list: the manifest
+      // reads the same tuple, so a method added to one and not the other is
+      // what `rpc-allowlist.spec.ts` would fail on.
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
-        [
+        [...ProviderRpcHandlers.METHODS].sort(),
+      );
+      expect(h.rpcHandler.getRegisteredMethods()).toEqual(
+        expect.arrayContaining([
           'provider:clearModelTier',
           'provider:getModelTiers',
           'provider:listModels',
           'provider:setModelTier',
-        ].sort(),
+          'provider:listCustomEntries',
+          'provider:addCustomEntry',
+          'provider:updateCustomEntry',
+          'provider:removeCustomEntry',
+          'provider:testCustomEntry',
+        ]),
       );
     });
 

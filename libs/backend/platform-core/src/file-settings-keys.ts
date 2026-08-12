@@ -12,7 +12,8 @@
  */
 
 /**
- * Provider auth keys that each get a `selectedModel` + `reasoningEffort` slot.
+ * BUILT-IN provider auth keys that each get a `selectedModel` +
+ * `reasoningEffort` slot.
  *
  * MUST stay in sync with `KNOWN_PROVIDER_AUTH_KEYS` in
  * `libs/backend/settings-core/src/schema/provider-schema.ts`.
@@ -22,6 +23,11 @@
  * These keys must be in FILE_BASED_SETTINGS_KEYS so that
  * VscodeWorkspaceProvider routes them to ~/.ptah/settings.json instead of
  * vscode.workspace.getConfiguration (which has no schema for them).
+ *
+ * USER-DEFINED providers are deliberately NOT here — their ids only exist at
+ * runtime. They are matched by `PROVIDER_AUTH_MODEL_PATTERN` below, the same
+ * escape-hatch style this file already uses for per-provider base URLs and
+ * scoped tier overrides.
  */
 const KNOWN_AUTH_KEYS_FOR_FILE_ROUTING = [
   'apiKey',
@@ -177,6 +183,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // write is discarded with no error and no warning.
   'tasks.savedViews',
   'tasks.activeViewId',
+  // User-defined provider entries (TASK_2026_236) — one JSON array of
+  // NON-SECRET metadata. API keys never live here; they stay in SecretStorage
+  // via AuthSecretsService.setProviderKey().
+  'provider.custom.entries',
   ...KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
     `provider.${k}.selectedModel`,
     `provider.${k}.reasoningEffort`,
@@ -332,6 +342,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Must stay in lockstep with the two `tasks.*` entries above.
   'tasks.savedViews': [],
   'tasks.activeViewId': '',
+  // No custom providers until the user adds one.
+  'provider.custom.entries': [],
   ...Object.fromEntries(
     KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
       [`provider.${k}.selectedModel`, ''],
@@ -360,6 +372,24 @@ const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 const PROVIDER_SCOPED_TIER_PATTERN =
   /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
 
+/**
+ * Per-provider model / reasoning-effort keys for THIRD-PARTY providers:
+ *   provider.thirdParty.<providerId>.(selectedModel|reasoningEffort)
+ *
+ * `KNOWN_AUTH_KEYS_FOR_FILE_ROUTING` above enumerates these for the built-in
+ * providers. It cannot enumerate USER-DEFINED providers — their ids are typed
+ * by the user at runtime — so before this pattern existed a custom entry's
+ * model and reasoning-effort choices hit the documented silent-drop failure
+ * mode of this file: no schema in vscode.workspace.getConfiguration, write
+ * discarded, no error (TASK_2026_236).
+ *
+ * The id character class matches CUSTOM_PROVIDER_ID_PATTERN in
+ * `libs/shared/src/lib/providers/provider-registry.ts` — a custom id outside
+ * it is rejected at entry-creation time, so it can never reach here.
+ */
+const PROVIDER_AUTH_MODEL_PATTERN =
+  /^provider\.thirdParty\.[a-z0-9-]+\.(selectedModel|reasoningEffort)$/;
+
 const SCOPED_SETTING_PREFIX_PATTERN = /^(app|workspace)\./;
 
 /**
@@ -372,6 +402,7 @@ export function isFileBasedSettingKey(key: string): boolean {
   if (FILE_BASED_SETTINGS_KEYS.has(key)) return true;
   if (PROVIDER_BASE_URL_PATTERN.test(key)) return true;
   if (PROVIDER_SCOPED_TIER_PATTERN.test(key)) return true;
+  if (PROVIDER_AUTH_MODEL_PATTERN.test(key)) return true;
   if (SCOPED_SETTING_PREFIX_PATTERN.test(key)) return true;
   return false;
 }

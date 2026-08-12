@@ -5,6 +5,7 @@
 export { SettingsComponent } from './settings.component';
 export { AuthConfigComponent } from './auth/auth-config.component';
 export { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
+export { CustomProviderFormComponent } from './auth/custom-provider-form.component';
 export { LicenseStatusCardComponent } from './license/license-status-card.component';
 export { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 export { McpPortConfigComponent } from './pro-features/mcp-port-config.component';

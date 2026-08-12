@@ -74,6 +74,67 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('PROVIDER_AUTH_MODEL_PATTERN — user-defined providers (TASK_2026_236)', () => {
+    // `KNOWN_AUTH_KEYS_FOR_FILE_ROUTING` can only enumerate built-ins. Before
+    // this pattern existed, a custom provider's model / reasoning-effort
+    // choices hit this file's documented silent-drop failure mode: no schema
+    // in vscode.workspace.getConfiguration, write discarded, no error.
+    const customKeys = [
+      'provider.thirdParty.my-vllm-box.selectedModel',
+      'provider.thirdParty.my-vllm-box.reasoningEffort',
+      'provider.thirdParty.custom-requesty-eu.selectedModel',
+      'provider.thirdParty.litellm.reasoningEffort',
+    ] as const;
+
+    it.each(customKeys)('routes %s to file-based storage', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    });
+
+    it('does not need those keys enumerated in the static Set', () => {
+      // They are matched by pattern — enumerating a runtime id is impossible.
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has(
+          'provider.thirdParty.my-vllm-box.selectedModel',
+        ),
+      ).toBe(false);
+    });
+
+    it('keeps the built-in third-party keys routed via the static Set', () => {
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has(
+          'provider.thirdParty.openrouter.selectedModel',
+        ),
+      ).toBe(true);
+    });
+
+    it('returns false for uppercase ids and unknown leaf names', () => {
+      expect(
+        isFileBasedSettingKey('provider.thirdParty.MyBox.selectedModel'),
+      ).toBe(false);
+      expect(
+        isFileBasedSettingKey('provider.thirdParty.my-box.somethingElse'),
+      ).toBe(false);
+      expect(isFileBasedSettingKey('provider.thirdParty.selectedModel')).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('provider.custom.entries (TASK_2026_236)', () => {
+    it('registers the key so the entry list actually persists', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('provider.custom.entries')).toBe(
+        true,
+      );
+      expect(isFileBasedSettingKey('provider.custom.entries')).toBe(true);
+    });
+
+    it('defaults to an empty list', () => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS['provider.custom.entries']).toEqual(
+        [],
+      );
+    });
+  });
+
   describe('FILE_BASED_SETTINGS_DEFAULTS alignment', () => {
     it('every key in FILE_BASED_SETTINGS_DEFAULTS is also in FILE_BASED_SETTINGS_KEYS', () => {
       for (const key of Object.keys(FILE_BASED_SETTINGS_DEFAULTS)) {

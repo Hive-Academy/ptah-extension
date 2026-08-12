@@ -1,0 +1,441 @@
+<div
+  class="rounded-lg border border-info/30 bg-info/5 p-2.5 space-y-2.5"
+  data-testid="custom-provider-form"
+>
+  <div class="flex items-center justify-between gap-2">
+    <h3 class="text-xs font-semibold">
+      {{ isEditing() ? 'Edit custom provider' : 'Add custom provider' }}
+    </h3>
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs btn-square"
+      (click)="cancel()"
+      title="Close"
+      aria-label="Close custom provider form"
+    >
+      <lucide-angular [img]="XIcon" class="w-3.5 h-3.5" />
+    </button>
+  </div>
+
+  <!-- Display name -->
+  <div class="form-control">
+    <label class="label py-1" for="customProviderName">
+      <span class="label-text text-xs font-medium">Display name</span>
+    </label>
+    <input
+      id="customProviderName"
+      type="text"
+      [(ngModel)]="name"
+      [ngModelOptions]="{ standalone: true }"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="My LiteLLM gateway"
+      autocomplete="off"
+    />
+  </div>
+
+  <!-- Base URL -->
+  <div class="form-control">
+    <label class="label py-1" for="customProviderBaseUrl">
+      <span class="label-text text-xs font-medium">Base URL</span>
+    </label>
+    <input
+      id="customProviderBaseUrl"
+      type="url"
+      [(ngModel)]="baseUrl"
+      [ngModelOptions]="{ standalone: true }"
+      class="input input-bordered input-sm w-full text-xs font-mono"
+      placeholder="https://gateway.example.com"
+      autocomplete="off"
+      inputmode="url"
+      aria-describedby="customProviderBaseUrlHelp"
+    />
+    <div class="label py-0.5">
+      <span
+        id="customProviderBaseUrlHelp"
+        class="label-text-alt text-[10px] opacity-70"
+      >
+        The gateway root, without a trailing <code class="text-[10px]">/v1</code
+        >. Both <code class="text-[10px]">http://</code> and
+        <code class="text-[10px]">https://</code> work, so a machine on your own
+        network is fine.
+      </span>
+    </div>
+  </div>
+
+  <!-- Compatibility lane -->
+  <fieldset class="form-control">
+    <legend class="label-text text-xs font-medium py-1">
+      What does this endpoint speak?
+    </legend>
+    <div class="space-y-1.5">
+      <label
+        class="flex items-start gap-2 p-2 rounded border cursor-pointer"
+        [class.border-primary]="lane() === 'openai'"
+        [class.border-base-300]="lane() !== 'openai'"
+      >
+        <input
+          type="radio"
+          class="radio radio-xs mt-0.5"
+          value="openai"
+          [checked]="lane() === 'openai'"
+          (change)="selectLane('openai')"
+          aria-describedby="laneOpenAiHelp"
+          data-testid="custom-provider-lane-openai"
+        />
+        <span class="flex-1">
+          <span class="block text-[11px] font-semibold">
+            OpenAI-compatible <span class="opacity-60">(safest choice)</span>
+          </span>
+          <span
+            id="laneOpenAiHelp"
+            class="block text-[10px] opacity-70 leading-relaxed mt-0.5"
+          >
+            The endpoint exposes
+            <code class="text-[10px]">/v1/chat/completions</code>. Ptah runs a
+            translation proxy on this machine to talk to it. Far more gateways
+            work this way — pick this if you are not sure.
+          </span>
+        </span>
+      </label>
+
+      <label
+        class="flex items-start gap-2 p-2 rounded border cursor-pointer"
+        [class.border-primary]="lane() === 'anthropic'"
+        [class.border-base-300]="lane() !== 'anthropic'"
+      >
+        <input
+          type="radio"
+          class="radio radio-xs mt-0.5"
+          value="anthropic"
+          [checked]="lane() === 'anthropic'"
+          (change)="selectLane('anthropic')"
+          aria-describedby="laneAnthropicHelp"
+          data-testid="custom-provider-lane-anthropic"
+        />
+        <span class="flex-1">
+          <span class="block text-[11px] font-semibold">
+            Anthropic-compatible <span class="opacity-60">(fastest)</span>
+          </span>
+          <span
+            id="laneAnthropicHelp"
+            class="block text-[10px] opacity-70 leading-relaxed mt-0.5"
+          >
+            The endpoint serves the Messages API directly, so requests pass
+            straight through with nothing to translate. Requesty, LiteLLM
+            passthrough and similar gateways support this.
+          </span>
+        </span>
+      </label>
+    </div>
+  </fieldset>
+
+  <!-- API key (write-only) -->
+  <div class="form-control">
+    <label class="label py-1" for="customProviderKey">
+      <span class="label-text text-xs font-medium">
+        API key
+        <span class="text-base-content-muted font-normal">
+          {{
+            isEditing() ? '(leave blank to keep the stored key)' : '(optional)'
+          }}
+        </span>
+      </span>
+    </label>
+    <input
+      id="customProviderKey"
+      type="password"
+      [(ngModel)]="apiKey"
+      [ngModelOptions]="{ standalone: true }"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="Leave blank if the endpoint needs no key"
+      autocomplete="off"
+      aria-describedby="customProviderKeyHelp"
+    />
+    <div class="label py-0.5">
+      <span
+        id="customProviderKeyHelp"
+        class="label-text-alt text-[10px] opacity-70"
+      >
+        Stored in this machine's secret storage, never in a settings file.
+      </span>
+    </div>
+  </div>
+
+  <!-- Optional details -->
+  <details class="rounded border border-base-300">
+    <summary class="text-[11px] font-medium px-2 py-1.5 cursor-pointer">
+      Optional details
+    </summary>
+    <div class="p-2 pt-0 space-y-2">
+      <div class="form-control">
+        <label class="label py-1" for="customProviderModelsEndpoint">
+          <span class="label-text text-xs font-medium">Models endpoint</span>
+        </label>
+        <input
+          id="customProviderModelsEndpoint"
+          type="url"
+          [(ngModel)]="modelsEndpoint"
+          [ngModelOptions]="{ standalone: true }"
+          class="input input-bordered input-sm w-full text-xs font-mono"
+          placeholder="https://gateway.example.com/v1/models"
+          autocomplete="off"
+        />
+        <div class="label py-0.5">
+          <span class="label-text-alt text-[10px] opacity-70">
+            Lets Ptah list the models this gateway offers. Without it you type
+            model ids by hand.
+          </span>
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1" for="customProviderHelpUrl">
+          <span class="label-text text-xs font-medium">Help URL</span>
+        </label>
+        <input
+          id="customProviderHelpUrl"
+          type="url"
+          [(ngModel)]="helpUrl"
+          [ngModelOptions]="{ standalone: true }"
+          class="input input-bordered input-sm w-full text-xs font-mono"
+          placeholder="https://gateway.example.com/keys"
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="form-control">
+        <span class="label-text text-xs font-medium py-1 block">
+          Model mapping
+        </span>
+        <div class="label py-0.5">
+          <span class="label-text-alt text-[10px] opacity-70">
+            Which model to use for each tier. Fill all three or leave all three
+            blank.
+          </span>
+        </div>
+        <div class="space-y-1.5">
+          <input
+            id="customProviderTierSonnet"
+            type="text"
+            [(ngModel)]="tierSonnet"
+            [ngModelOptions]="{ standalone: true }"
+            class="input input-bordered input-sm w-full text-xs font-mono"
+            placeholder="sonnet tier model id"
+            aria-label="Model id for the sonnet tier"
+            autocomplete="off"
+          />
+          <input
+            id="customProviderTierOpus"
+            type="text"
+            [(ngModel)]="tierOpus"
+            [ngModelOptions]="{ standalone: true }"
+            class="input input-bordered input-sm w-full text-xs font-mono"
+            placeholder="opus tier model id"
+            aria-label="Model id for the opus tier"
+            autocomplete="off"
+          />
+          <input
+            id="customProviderTierHaiku"
+            type="text"
+            [(ngModel)]="tierHaiku"
+            [ngModelOptions]="{ standalone: true }"
+            class="input input-bordered input-sm w-full text-xs font-mono"
+            placeholder="haiku tier model id"
+            aria-label="Model id for the haiku tier"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
+      <div class="form-control">
+        <span class="label-text text-xs font-medium py-1 block">
+          Price per 1M tokens (USD)
+        </span>
+        <div class="flex gap-1.5">
+          <input
+            id="customProviderPriceInput"
+            type="text"
+            inputmode="decimal"
+            [(ngModel)]="priceInput"
+            [ngModelOptions]="{ standalone: true }"
+            class="input input-bordered input-sm flex-1 text-xs"
+            placeholder="input"
+            aria-label="Price per 1M input tokens in USD"
+            autocomplete="off"
+          />
+          <input
+            id="customProviderPriceOutput"
+            type="text"
+            inputmode="decimal"
+            [(ngModel)]="priceOutput"
+            [ngModelOptions]="{ standalone: true }"
+            class="input input-bordered input-sm flex-1 text-xs"
+            placeholder="output"
+            aria-label="Price per 1M output tokens in USD"
+            autocomplete="off"
+          />
+        </div>
+        @if (pricingOmitted()) {
+          <div class="label py-0.5">
+            <span
+              class="label-text-alt text-[10px] opacity-70"
+              data-testid="custom-provider-pricing-hint"
+            >
+              Ptah cannot read prices from an arbitrary gateway. Leave these
+              blank and session cost shows as
+              <strong>cost unavailable</strong> instead of a misleading $0.00.
+            </span>
+          </div>
+        }
+      </div>
+    </div>
+  </details>
+
+  <!-- Security copy naming the host the user typed -->
+  @if (typedHost(); as host) {
+    <div
+      class="flex items-start gap-1.5 p-2 rounded bg-warning/10 border border-warning/20"
+      data-testid="custom-provider-security-note"
+    >
+      <lucide-angular
+        [img]="AlertTriangleIcon"
+        class="w-3 h-3 text-warning shrink-0 mt-0.5"
+      />
+      <p class="text-[10px] text-base-content-muted leading-relaxed">
+        Your key and your prompts go from this machine straight to
+        <code class="text-[10px] font-semibold">{{ host }}</code
+        >. Ptah does not operate, vet, or monitor that endpoint — you are
+        trusting whoever runs it.
+      </p>
+    </div>
+  }
+
+  <!-- Client-side validation errors -->
+  @if (visibleErrors().length > 0) {
+    <div
+      class="alert alert-error py-2 px-3"
+      role="alert"
+      aria-live="assertive"
+      data-testid="custom-provider-validation-errors"
+    >
+      <ul class="list-disc list-inside text-[11px] space-y-0.5">
+        @for (error of visibleErrors(); track error) {
+          <li>{{ error }}</li>
+        }
+      </ul>
+    </div>
+  }
+
+  <!-- Backend rejection, surfaced verbatim -->
+  @if (backendError()) {
+    <div
+      class="alert alert-error py-2 px-3"
+      role="alert"
+      aria-live="assertive"
+      data-testid="custom-provider-backend-error"
+    >
+      <span class="text-[11px] whitespace-pre-wrap break-words">{{
+        backendError()
+      }}</span>
+    </div>
+  }
+
+  <!-- Connection probe -->
+  @if (isTesting()) {
+    <div
+      class="alert alert-info py-2 px-3"
+      role="status"
+      aria-live="polite"
+      data-testid="custom-provider-test-pending"
+    >
+      <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
+      <span class="text-[11px]">
+        Calling {{ typedHost() ?? 'the endpoint' }} — this can take up to 10
+        seconds.
+      </span>
+    </div>
+  } @else if (ownTestState(); as state) {
+    <div
+      class="alert py-2 px-3"
+      [class.alert-success]="state.ok"
+      [class.alert-error]="!state.ok"
+      [attr.role]="state.ok ? 'status' : 'alert'"
+      aria-live="polite"
+      data-testid="custom-provider-test-result"
+    >
+      <span class="text-[11px] whitespace-pre-wrap break-words flex-1">
+        {{ state.message }}
+        @if (state.ok && state.latencyMs !== undefined) {
+          <span class="opacity-70">({{ state.latencyMs }} ms)</span>
+        }
+      </span>
+    </div>
+  }
+
+  <!-- Actions -->
+  <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+    <button
+      type="button"
+      class="btn btn-primary btn-sm gap-1.5 text-xs"
+      (click)="save()"
+      [disabled]="!canSave()"
+      data-testid="custom-provider-save"
+    >
+      @if (isSaving()) {
+        <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
+        <span>Saving…</span>
+      } @else {
+        <span>{{ isEditing() ? 'Save changes' : 'Add provider' }}</span>
+      }
+    </button>
+
+    <button
+      type="button"
+      class="btn btn-outline btn-sm text-xs"
+      (click)="testConnection()"
+      [disabled]="!isEditing() || isTesting() || isSaving()"
+      [title]="
+        isEditing()
+          ? 'Send one real request to this endpoint'
+          : 'Add the provider first, then test it'
+      "
+      data-testid="custom-provider-test"
+    >
+      Test connection
+    </button>
+
+    @if (isEditing()) {
+      @if (confirmingDelete()) {
+        <button
+          type="button"
+          class="btn btn-error btn-sm text-xs gap-1.5"
+          (click)="confirmDelete()"
+          [disabled]="isSaving()"
+          data-testid="custom-provider-delete-confirm"
+        >
+          <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
+          <span>Delete for good</span>
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm text-xs"
+          (click)="cancelDelete()"
+        >
+          Keep it
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
+          (click)="requestDelete()"
+          [disabled]="isSaving()"
+          title="Delete this custom provider"
+          aria-label="Delete this custom provider"
+          data-testid="custom-provider-delete"
+        >
+          <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
+        </button>
+      }
+    }
+  </div>
+</div>

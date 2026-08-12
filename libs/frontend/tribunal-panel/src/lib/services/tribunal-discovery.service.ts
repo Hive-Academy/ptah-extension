@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { ANTHROPIC_PROVIDERS } from '@ptah-extension/shared';
+import { getAllAnthropicProviders } from '@ptah-extension/shared';
 import type {
   AgentListCliModelsResult,
   AnthropicProvider,
@@ -176,7 +176,8 @@ export class TribunalDiscoveryService {
   private buildProviderLanes(
     detectedClis: readonly CliDetectionResult[],
   ): DiscoveredVendor[] {
-    const providers = ANTHROPIC_PROVIDERS as readonly AnthropicProvider[];
+    // Merged registry — a user-defined provider is a legitimate tribunal lane.
+    const providers: readonly AnthropicProvider[] = getAllAnthropicProviders();
     return providers
       .filter((provider) => !CLI_FAMILY_PROVIDER_IDS.has(provider.id))
       .map((provider) => {

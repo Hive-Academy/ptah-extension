@@ -23,7 +23,10 @@ export {
   providerSelectedModelDef,
   providerReasoningEffortDef,
 } from './schema/provider-schema';
-export type { KnownProviderAuthKey } from './schema/provider-schema';
+export type {
+  KnownProviderAuthKey,
+  ProviderAuthKey,
+} from './schema/provider-schema';
 export { PTAH_CLI_AGENTS_DEF } from './schema/cli-subagent-schema';
 export type { PtahCliAgentEntry } from './schema/cli-subagent-schema';
 export {
@@ -62,6 +65,15 @@ export { MemorySettings } from './repositories/memory-settings';
 export { SkillSynthesisSettings } from './repositories/skill-synthesis-settings';
 export { CronSettings } from './repositories/cron-settings';
 export { TasksSettings } from './repositories/tasks-settings';
+export {
+  CustomProviderStore,
+  CustomProviderStoreError,
+  CUSTOM_PROVIDER_ENTRIES_KEY,
+} from './repositories/custom-provider-store';
+export type {
+  CustomProviderLoadResult,
+  CustomProviderStoreLogger,
+} from './repositories/custom-provider-store';
 export { MigrationRunner } from './migrations/runner';
 export type { MigrationFn } from './migrations/runner';
 export { runV1Migration } from './migrations/v1-migration';
