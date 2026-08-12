@@ -30,6 +30,18 @@ import type { PtySession } from './_harness';
 
 jest.setTimeout(180_000);
 
+/**
+ * The composer's placeholder — and therefore the only honest way to read
+ * "the composer is empty" off a frame.
+ *
+ * `ink-text-input` renders the placeholder ONLY while the value is empty, so a
+ * frame carrying this string proves nothing leaked into the buffer, and a
+ * frame missing it proves something did. That matters more than it sounds:
+ * asserting `not.toMatch(/l/)` against a screen full of prose is meaningless,
+ * and asserting on the composer's own text would pin the layout.
+ */
+const COMPOSER_EMPTY = /Ask, or \/ for commands/;
+
 describe('ptah tui interaction (pty)', () => {
   let home: string;
   let tui: PtySession | null = null;
@@ -139,5 +151,132 @@ describe('ptah tui interaction (pty, configured workspace)', () => {
     });
     const sidebar = await tui.press(KEYS.alt('l'));
     expect(sidebar).toMatch(/Sessions/);
+  });
+
+  /*
+   * The two specs below press the same chords the ones above do, from the one
+   * place a user actually presses them: the chat screen, composer focused,
+   * nothing streaming. That is not the same test.
+   *
+   * `keymap.ts` declares `session.list` and `agent.model` as `scope: 'global'`,
+   * which is a claim about exactly this frame — a global binding that only
+   * works once you have left the composer is not global. The pre-existing Alt+M
+   * spec presses Escape first and so proves the chord from Settings; this pair
+   * proves it from chat, and additionally that the chord did not ALSO type its
+   * letter into the message being composed.
+   */
+
+  it('opens the model selector on Alt+M with the composer focused', async () => {
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+    // Precondition, asserted rather than assumed: chat is up and the composer
+    // is empty and focused. Without this the "still empty afterwards" checks
+    // below would have no baseline.
+    expect(tui.screen()).toMatch(/The Coding Orchestra/);
+    expect(tui.screen()).toMatch(COMPOSER_EMPTY);
+
+    const afterAltM = await tui.press(KEYS.alt('m'));
+    expect(afterAltM).toMatch(/per Mtok/);
+
+    // Closing the selector walks back to a composer that never saw the chord.
+    // A leaked 'm' replaces the placeholder with the character, so this is the
+    // assertion that catches "the shortcut fired AND typed".
+    const afterEscape = await tui.press(KEYS.escape);
+    expect(afterEscape).toMatch(/The Coding Orchestra/);
+    expect(afterEscape).toMatch(COMPOSER_EMPTY);
+  });
+
+  it('toggles the sessions panel on Alt+L with the composer focused', async () => {
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+    expect(tui.screen()).toMatch(/The Coding Orchestra/);
+    expect(tui.screen()).toMatch(COMPOSER_EMPTY);
+
+    const opened = await tui.press(KEYS.alt('l'));
+    expect(opened).toMatch(/Sessions/);
+    expect(opened).toMatch(COMPOSER_EMPTY);
+
+    // The second press closes it again. `not.toMatch` is only worth anything
+    // beside a positive on the same frame — an empty screen from a dead TUI
+    // satisfies every negative — so the composer check doubles as the liveness
+    // proof for this one.
+    const closed = await tui.press(KEYS.alt('l'));
+    expect(closed).toMatch(COMPOSER_EMPTY);
+    expect(closed).not.toMatch(/Sessions/);
+  });
+
+  /*
+   * And the delivery that actually broke.
+   *
+   * `press(KEYS.alt('x'))` writes ESC and the key together, which is the happy
+   * path — Ink joins them and every `key.meta` handler fires. It is not the
+   * only delivery: Ink gives up on a dangling ESC after 20ms, and once it does,
+   * the chord arrives as Escape followed by a plain letter. The specs above
+   * cannot see that, and it is what a user hits, because a stalled event loop
+   * is enough to lose the race (Node runs timers before poll).
+   *
+   * Pre-fix these two failed with the letter sitting in the composer — `❯ m`,
+   * `❯ l` — and no selector and no panel, which is the reported defect exactly.
+   */
+
+  it('opens the model selector on Alt+M split into two reads', async () => {
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+    expect(tui.screen()).toMatch(COMPOSER_EMPTY);
+
+    const afterAltM = await tui.pressMetaSplit('m');
+    expect(afterAltM).toMatch(/per Mtok/);
+
+    const afterEscape = await tui.press(KEYS.escape);
+    expect(afterEscape).toMatch(/The Coding Orchestra/);
+    expect(afterEscape).toMatch(COMPOSER_EMPTY);
+  });
+
+  it('toggles the sessions panel on Alt+L split into two reads', async () => {
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+    expect(tui.screen()).toMatch(COMPOSER_EMPTY);
+
+    const opened = await tui.pressMetaSplit('l');
+    expect(opened).toMatch(/Sessions/);
+    expect(opened).toMatch(COMPOSER_EMPTY);
+  });
+
+  it('still types a letter pressed well after an Escape', async () => {
+    // The other half of the rule, and the one that keeps the fix honest: the
+    // reassembly is a window, not a mode. Escape and then a letter, pressed as
+    // two keys the way a person does, must reach the composer as text — not
+    // toggle a panel and vanish.
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+
+    await tui.press(KEYS.escape);
+    const typed = await tui.press('l');
+    // Still chat, so the frame is real and the negatives below mean something.
+    expect(typed).toMatch(/The Coding Orchestra/);
+    // The placeholder is gone, which is how this harness reads "the composer
+    // holds text" without matching a column position.
+    expect(typed).not.toMatch(COMPOSER_EMPTY);
+    expect(typed).not.toMatch(/Sessions/);
   });
 });

@@ -36,6 +36,7 @@ import { HelpOverlay } from './overlays/HelpOverlay.js';
 import { ModelSelector } from './overlays/ModelSelector.js';
 import { QUIT_CONFIRM_WINDOW_MS } from '../lib/keymap.js';
 import { applyEscape } from '../lib/escape-target.js';
+import { isMetaChord, noteEscape } from '../lib/meta-chord.js';
 import { ThothPanel } from './thoth/ThothPanel.js';
 import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
 import { useAgentConfig } from '../hooks/use-agent-config.js';
@@ -209,27 +210,41 @@ function AppShell({
       // Ctrl+Q is also gone: XON in every terminal's default flow control, so
       // on the terminals that swallow it the advertised quit key did nothing.
       // Quitting is Ctrl+C twice or `/quit`, both in the keymap.
-      if (key.meta && input === 'a') {
+      //
+      // `meta`, not `key.meta`: Ink only joins the two bytes of an Alt chord
+      // into one keypress when they arrive within 20ms of each other, and when
+      // they do not, every binding below silently became a typed letter. This
+      // shell is the one place that sees both halves, so it is where the chord
+      // is put back together — see `lib/meta-chord.ts`. Recorded before the
+      // Escape handling further down, and outside its gates, because an Escape
+      // that some other surface has claimed is just as likely to be half of an
+      // Alt chord as one that reaches `applyEscape`.
+      if (key.escape && key.meta !== true) {
+        noteEscape();
+      }
+      const meta = isMetaChord(key, input);
+
+      if (meta && input === 'a') {
         setAgentPanelVisible((prev) => !prev);
       }
 
-      if (key.meta && input === 'l') {
+      if (meta && input === 'l') {
         setSidebarVisible((prev) => !prev);
       }
 
-      if (key.meta && input === 'n') {
+      if (meta && input === 'n') {
         setActiveSession(null);
       }
 
-      if (key.meta && input === 's') {
+      if (meta && input === 's') {
         setActiveView((prev) => (prev === 'settings' ? 'chat' : 'settings'));
       }
 
-      if (key.meta && input === 't') {
+      if (meta && input === 't') {
         setActiveView((prev) => (prev === 'thoth' ? 'chat' : 'thoth'));
       }
 
-      if (key.meta && input === 'e') {
+      if (meta && input === 'e') {
         void agentConfig.cycleEffort();
       }
 
@@ -239,7 +254,7 @@ function AppShell({
         void agentConfig.cyclePermission();
       }
 
-      if (key.meta && input === 'k') {
+      if (meta && input === 'k') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
@@ -259,7 +274,7 @@ function AppShell({
 
       // Alt+M. Ctrl+M is carriage return (undeliverable) and Ctrl+O is
       // VDISCARD, so neither could carry this. See `keymap.ts`.
-      if (key.meta && input === 'm') {
+      if (meta && input === 'm') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };

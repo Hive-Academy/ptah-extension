@@ -4,6 +4,7 @@ import TextInput from 'ink-text-input';
 
 import { useTheme } from '../../hooks/use-theme.js';
 import { BORDER_STYLE, GLYPHS } from '../../lib/glyphs.js';
+import { isEscapePrefixed } from '../../lib/meta-chord.js';
 import { StreamActivity } from './StreamActivity.js';
 import {
   isComposerFocused,
@@ -66,7 +67,21 @@ export function MessageInput({
       // This handler runs AFTER TextInput's (child effects register first), so
       // the stray character is already in the buffer and we roll the value
       // back to what it was before the chord.
-      if (shouldRollBackChord(composerState, key, input)) {
+      //
+      // `isEscapePrefixed` is read here rather than passed down because the
+      // fact it reports is about the terminal, not about this component: the
+      // Alt chord whose ESC and letter arrived as two keypresses. The shell
+      // acts on the same fact, and it is deliberately the shell that records
+      // the Escape — so the letter is erased only in the states where the
+      // chord it belongs to actually fires.
+      if (
+        shouldRollBackChord(
+          composerState,
+          key,
+          input,
+          isEscapePrefixed(input),
+        )
+      ) {
         handleChange(currentValue);
       }
     },

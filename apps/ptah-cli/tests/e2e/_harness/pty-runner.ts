@@ -74,6 +74,21 @@ export interface PtySession {
   clear(): void;
   /** Send keys, then wait for the repaint to finish. */
   press(keys: string): Promise<string>;
+  /**
+   * Send Alt+<letter> as TWO reads — the ESC first, the letter `gapMs` later.
+   *
+   * Not a synthetic case. Ink assembles `ESC` + key into one meta keypress only
+   * while both bytes are still in flight: `components/App.tsx` arms a 20ms
+   * timer on a dangling ESC and, when it fires, emits the ESC on its own and
+   * the letter after it as a plain character. So whenever the two bytes reach
+   * `stdin` in separate reads more than that apart — a busy event loop is
+   * enough, since the timers phase runs before poll — the chord arrives as
+   * "Escape, then a letter" and every `key.meta` handler is bypassed.
+   *
+   * `press(KEYS.alt('m'))` writes both bytes at once and can never show this.
+   * The default gap is deliberately just past the window.
+   */
+  pressMetaSplit(letter: string, gapMs?: number): Promise<string>;
   /** Wait until the screen matches, or throw with the last frame attached. */
   waitForText(pattern: RegExp, timeoutMs?: number): Promise<string>;
   /** Quit the way a user does, falling back to a kill. Always safe to call. */
@@ -261,6 +276,15 @@ export async function startTui(opts: StartTuiOptions): Promise<PtySession> {
       // A key that legitimately paints nothing (Ctrl+M) simply exhausts the
       // window and returns ''. That is a real result, and the specs that rely
       // on it prove liveness with a second keystroke rather than trusting it.
+      await waitForFirstByte(NO_REPAINT_MS);
+      await settle();
+      return screen();
+    },
+    async pressMetaSplit(letter: string, gapMs = 40): Promise<string> {
+      buffer = '';
+      child.write(KEYS.escape);
+      await new Promise((resolve) => setTimeout(resolve, gapMs));
+      child.write(letter);
       await waitForFirstByte(NO_REPAINT_MS);
       await settle();
       return screen();
