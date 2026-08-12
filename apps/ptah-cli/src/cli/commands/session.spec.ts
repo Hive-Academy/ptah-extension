@@ -49,18 +49,19 @@ import { EventEmitter } from 'node:events';
 // Mock the agent-sdk barrel — same pattern as auth.spec.ts. The session
 // command only reads SDK_TOKENS.SDK_PERMISSION_HANDLER at runtime, but the
 // transitive import chain through with-engine.ts → container.ts pulls in
-// auth-rpc.schema.ts which evaluates ANTHROPIC_PROVIDERS.map() at load.
+// auth-rpc.schema.ts, which resolves provider ids through
+// getAnthropicProvider() at parse time.
 jest.mock(
   '@ptah-extension/agent-sdk',
   () => {
     const {
-      mockAnthropicProviders,
+      mockProviderRegistryAccessors,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
       },
-      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      ...mockProviderRegistryAccessors(),
     };
   },
   { virtual: true },

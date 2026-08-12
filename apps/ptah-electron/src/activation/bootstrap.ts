@@ -19,6 +19,7 @@ import type {
 import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
 import {
   SETTINGS_TOKENS,
+  type CustomProviderStore,
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
@@ -126,7 +127,23 @@ export async function bootstrapElectron(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    console.log('[Ptah Electron] Settings registered and migrations applied');
+    // Publish user-defined providers to the shared registry cache BEFORE
+    // anything resolves a provider by id — until this runs,
+    // getAnthropicProvider() knows only the built-ins.
+    const customProviders = container.resolve<CustomProviderStore>(
+      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+    );
+    const { entries, dropped } = customProviders.load();
+    if (dropped.length > 0) {
+      console.warn(
+        `[Ptah Electron] Dropped ${dropped.length} malformed custom provider entr${
+          dropped.length === 1 ? 'y' : 'ies'
+        }`,
+      );
+    }
+    console.log(
+      `[Ptah Electron] Settings registered and migrations applied (${entries.length} custom providers)`,
+    );
   } catch (settingsError) {
     console.warn(
       '[Ptah Electron] Settings registration / migration failed (non-fatal):',

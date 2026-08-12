@@ -29,21 +29,23 @@ import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 // entire SDK transitive graph (pre-existing Zod schema TS errors in
 // libs/shared otherwise prevent the import from resolving in jest).
 // jest.mock factories run before module-scope vars, so SDK_TOKENS Symbols
-// are inlined and the `ANTHROPIC_PROVIDERS` fixture is loaded via
+// are inlined and the provider-registry fixture is loaded via
 // `require()` inside the factory (shared with `auth.spec.ts` —
 // see `test-utils/agent-sdk-mock.ts`).
 jest.mock(
   '@ptah-extension/agent-sdk',
   () => {
     const {
-      mockAnthropicProviders,
+      mockProviderRegistryAccessors,
+      mockAllTierEnvKeys,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
         SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
       },
-      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      ...mockProviderRegistryAccessors(),
+      ALL_TIER_ENV_KEYS: mockAllTierEnvKeys(),
     };
   },
   { virtual: true },

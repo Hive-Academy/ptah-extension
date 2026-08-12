@@ -31,13 +31,13 @@ jest.mock(
   '@ptah-extension/agent-sdk',
   () => {
     const {
-      mockAnthropicProviders,
+      mockProviderRegistryAccessors,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
       },
-      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      ...mockProviderRegistryAccessors(),
     };
   },
   { virtual: true },
