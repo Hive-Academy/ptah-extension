@@ -35,7 +35,6 @@ describe('resolveColorDepth', () => {
   it('reads COLORTERM and TERM', () => {
     expect(resolveColorDepth({ COLORTERM: 'truecolor' })).toBe('truecolor');
     expect(resolveColorDepth({ COLORTERM: '24bit' })).toBe('truecolor');
-    expect(resolveColorDepth({ TERM: 'xterm-256color' })).toBe('truecolor');
     expect(resolveColorDepth({ TERM: 'xterm-direct' })).toBe('truecolor');
     expect(resolveColorDepth({ TERM: 'xterm' })).toBe('ansi16');
     expect(resolveColorDepth({ TERM: 'linux' })).toBe('ansi16');
@@ -44,6 +43,18 @@ describe('resolveColorDepth', () => {
 
   it('assumes truecolor when nothing is declared', () => {
     expect(resolveColorDepth({})).toBe('truecolor');
+  });
+
+  it('does not read an indexed 256-colour TERM as truecolor', () => {
+    // macOS Terminal.app: 256 indexed entries, no COLORTERM, no 24-bit SGR.
+    // Reading this as truecolor flattened the whole palette to one foreground.
+    expect(resolveColorDepth({ TERM: 'xterm-256color' })).toBe('ansi16');
+    expect(resolveColorDepth({ TERM: 'screen-256color' })).toBe('ansi16');
+    // ...but the same terminal under a multiplexer that does declare 24-bit
+    // still gets the full palette, because COLORTERM is checked first.
+    expect(
+      resolveColorDepth({ TERM: 'xterm-256color', COLORTERM: 'truecolor' }),
+    ).toBe('truecolor');
   });
 });
 

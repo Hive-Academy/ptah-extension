@@ -29,6 +29,46 @@ describe('parseInline', () => {
     expect(parseInline('_a_')).toEqual([{ kind: 'italic', text: 'a' }]);
   });
 
+  it('leaves an intraword underscore alone', () => {
+    // The defect this pins deleted characters: `my` + italic `file` +
+    // `name.py here`, with both underscores gone from the rendered line.
+    expect(parseInline('use my_file_name.py here')).toEqual([
+      { kind: 'text', text: 'use my_file_name.py here' },
+    ]);
+    expect(spansToPlainText(parseInline('a_b_c'))).toBe('a_b_c');
+    expect(spansToPlainText(parseInline('call do_thing_now(x)'))).toBe(
+      'call do_thing_now(x)',
+    );
+  });
+
+  it('applies the flanking test to non-ASCII identifiers too', () => {
+    expect(spansToPlainText(parseInline('café_au_lait'))).toBe('café_au_lait');
+    expect(spansToPlainText(parseInline('имя_файла_тут'))).toBe(
+      'имя_файла_тут',
+    );
+  });
+
+  it('still parses word-bounded underscore emphasis', () => {
+    expect(parseInline('a _b_ c')).toEqual([
+      { kind: 'text', text: 'a ' },
+      { kind: 'italic', text: 'b' },
+      { kind: 'text', text: ' c' },
+    ]);
+    expect(parseInline('(_b_)')).toEqual([
+      { kind: 'text', text: '(' },
+      { kind: 'italic', text: 'b' },
+      { kind: 'text', text: ')' },
+    ]);
+  });
+
+  it('keeps `*` intraword, which is the delimiter CommonMark allows there', () => {
+    expect(parseInline('a*b*c')).toEqual([
+      { kind: 'text', text: 'a' },
+      { kind: 'italic', text: 'b' },
+      { kind: 'text', text: 'c' },
+    ]);
+  });
+
   it('parses inline code', () => {
     expect(parseInline('run `npm test` now')).toEqual([
       { kind: 'text', text: 'run ' },
@@ -73,6 +113,36 @@ describe('parseMarkdown blocks', () => {
     expect(blocks).toEqual([
       { kind: 'heading', level: 1, spans: [{ kind: 'text', text: 'One' }] },
       { kind: 'heading', level: 3, spans: [{ kind: 'text', text: 'Three' }] },
+    ]);
+  });
+
+  it('parses CRLF input as blocks, not as one flat paragraph', () => {
+    // `HEADING_RE` and friends all end `(.*)$`, and `.` does not match `\r`.
+    // Nothing here strips CR by name — it survives only because
+    // `stripTerminalControls` exempts TAB and LF alone, so a CR is a control
+    // character like any other. That is load-bearing, and this pins it: any
+    // Windows-authored file echoed into a turn arrives CRLF, and before the
+    // strip landed the whole reply rendered as a paragraph reading `## Plan`.
+    const blocks = parseMarkdown('## Plan\r\n\r\n- step one\r\n');
+    expect(kinds(blocks)).toEqual(['heading', 'list-item']);
+    expect(blocks[0]).toEqual({
+      kind: 'heading',
+      level: 2,
+      spans: [{ kind: 'text', text: 'Plan' }],
+    });
+    expect(blocks[1]).toEqual({
+      kind: 'list-item',
+      ordered: false,
+      marker: '',
+      depth: 0,
+      spans: [{ kind: 'text', text: 'step one' }],
+    });
+  });
+
+  it('keeps CRLF out of fenced code content', () => {
+    const blocks = parseMarkdown('```ts\r\nconst a = 1;\r\n```\r\n');
+    expect(blocks).toEqual([
+      { kind: 'code', language: 'ts', lines: ['const a = 1;'], closed: true },
     ]);
   });
 
