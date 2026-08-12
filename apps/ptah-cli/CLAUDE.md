@@ -42,6 +42,8 @@ Headless Node CLI that hosts the full Ptah agent backend in-process and exposes 
 - `nx dev ptah-cli` — `npx tsx apps/ptah-cli/src/main.ts`.
 - `nx serve ptah-cli` — build then `node dist/apps/ptah-cli/main.mjs`.
 - `nx test ptah-cli` (jest); `nx run ptah-cli:e2e` (separate `jest.e2e.config.cjs`, `--runInBand`).
+- `nx run ptah-cli:e2e-pty` — TUI specs that press real keys on a real pseudo-terminal (`jest.pty.config.cjs`, `tests/e2e/**/*.pty.spec.ts`). Split from `e2e` solely because node-pty leaks a PIPEWRAP that needs `forceExit`; the JSON-RPC suite stays without it so a future leak there still surfaces.
+- **Rebuild the bundle with `--skip-nx-cache` before trusting an e2e run against changed source.** `restore-cli-manifest` will happily serve a cached `tui.mjs` from a previous source state, and the specs then pass against code you did not write.
 - `nx run ptah-cli:publish:dry-run` / `:publish` — runs from `dist/apps/ptah-cli`. Distribution is gated by the `publish-cli` GitHub workflow on `cli-v*` tag flow.
 - `package.json` declares `"bin": { "ptah": "./main.mjs" }`. Assets copied into dist: `package.json`, `README.md`, `docs/jsonrpc-schema.md`, `docs/migration.md`, repo-root `LICENSE.md`.
 
