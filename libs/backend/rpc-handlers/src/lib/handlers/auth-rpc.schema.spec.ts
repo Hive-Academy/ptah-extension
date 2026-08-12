@@ -8,9 +8,10 @@
  *
  * Coverage strategy:
  *   - authMethod literal union — only the three documented strategies parse.
- *   - anthropicProviderId z.enum — gated against the live `ANTHROPIC_PROVIDERS`
- *     registry (we sample the first one rather than hardcoding an id, so this
- *     spec survives provider-list churn).
+ *   - anthropicProviderId — gated against the live MERGED registry (built-ins
+ *     plus whatever custom entries the backend has loaded). We sample the
+ *     first built-in rather than hardcoding an id, so this spec survives
+ *     provider-list churn.
  *   - Optional fields — absent AND empty-string both parse (empty string is a
  *     sentinel for "clear credential" at the handler layer).
  *   - Safe-parse error path — `success: false` with a ZodError containing the
@@ -22,7 +23,12 @@
 
 import 'reflect-metadata';
 
-import { ANTHROPIC_PROVIDERS } from '@ptah-extension/agent-sdk';
+import {
+  ANTHROPIC_PROVIDERS,
+  CustomProviderEntrySchema,
+  clearCustomProviderEntries,
+  setCustomProviderEntries,
+} from '@ptah-extension/agent-sdk';
 
 import { AuthSettingsSchema, parseAuthMethod } from './auth-rpc.schema';
 
@@ -98,6 +104,103 @@ describe('AuthSettingsSchema', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.anthropicProviderId).toBeUndefined();
+      }
+    });
+
+    it('rejects an empty-string provider id', () => {
+      const result = AuthSettingsSchema.safeParse({
+        authMethod: 'apiKey',
+        anthropicProviderId: '',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_236 — the hard runtime blocker.
+  //
+  // This field used to be a `z.enum` built at MODULE LOAD from the static
+  // `ANTHROPIC_PROVIDERS` array, so `auth:saveSettings` rejected every
+  // user-defined provider id unconditionally — no amount of registry work
+  // downstream was observable while that enum stood. The refinement now runs
+  // per parse against the merged registry.
+  // -------------------------------------------------------------------------
+  describe('anthropicProviderId — user-defined entries', () => {
+    const CUSTOM_ID = 'my-vllm-box';
+
+    afterEach(() => {
+      clearCustomProviderEntries();
+    });
+
+    it('accepts a custom id once the backend has registered the entry', () => {
+      setCustomProviderEntries([
+        CustomProviderEntrySchema.parse({
+          id: CUSTOM_ID,
+          name: 'My vLLM Box',
+          baseUrl: 'http://192.168.1.50:8000',
+          lane: 'openai',
+        }),
+      ]);
+
+      const result = AuthSettingsSchema.safeParse({
+        authMethod: 'thirdParty',
+        anthropicProviderId: CUSTOM_ID,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.anthropicProviderId).toBe(CUSTOM_ID);
+      }
+    });
+
+    it('rejects that same id again once the entry is removed', () => {
+      // Validation is resolved per parse, not captured at module load — the
+      // whole point of the change.
+      setCustomProviderEntries([
+        CustomProviderEntrySchema.parse({
+          id: CUSTOM_ID,
+          name: 'My vLLM Box',
+          baseUrl: 'http://192.168.1.50:8000',
+          lane: 'openai',
+        }),
+      ]);
+      expect(
+        AuthSettingsSchema.safeParse({
+          authMethod: 'thirdParty',
+          anthropicProviderId: CUSTOM_ID,
+        }).success,
+      ).toBe(true);
+
+      clearCustomProviderEntries();
+
+      const result = AuthSettingsSchema.safeParse({
+        authMethod: 'thirdParty',
+        anthropicProviderId: CUSTOM_ID,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const paths = result.error.issues.map((i) => i.path.join('.'));
+        expect(paths).toContain('anthropicProviderId');
+      }
+    });
+
+    it('still rejects an unknown id while custom entries are registered', () => {
+      setCustomProviderEntries([
+        CustomProviderEntrySchema.parse({
+          id: CUSTOM_ID,
+          name: 'My vLLM Box',
+          baseUrl: 'http://192.168.1.50:8000',
+          lane: 'openai',
+        }),
+      ]);
+
+      const result = AuthSettingsSchema.safeParse({
+        authMethod: 'thirdParty',
+        anthropicProviderId: '__definitely-not-a-real-provider-id__',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const paths = result.error.issues.map((i) => i.path.join('.'));
+        expect(paths).toContain('anthropicProviderId');
       }
     });
   });

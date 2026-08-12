@@ -64,7 +64,7 @@ import {
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   getModelContextWindow,
   includesUserSettingSource,
 } from '@ptah-extension/shared';
@@ -166,12 +166,18 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
     return 'openrouter';
   }
-  for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
-    const provider = getAnthropicProvider(id);
-    if (provider && provider.baseUrl) {
+  // Merged list — a session running through a user-defined entry must still
+  // resolve back to its provider id, or the model-identity system prompt is
+  // never injected for that session.
+  for (const provider of getAllAnthropicProviders()) {
+    if (!provider.baseUrl) continue;
+    try {
       if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-        return id;
+        return provider.id;
       }
+    } catch {
+      // A malformed base URL on one entry must not abort the whole scan.
+      continue;
     }
   }
 

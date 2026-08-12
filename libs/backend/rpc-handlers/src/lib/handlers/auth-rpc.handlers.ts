@@ -24,7 +24,7 @@ import type {
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   DEFAULT_PROVIDER_ID,
   getAnthropicProvider,
   TIER_ENV_VAR_MAP,
@@ -226,15 +226,21 @@ export class AuthRpcHandlers {
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);
         let hasAnyProviderKey = hasOpenRouterKey;
+        // Merged list — built-ins plus user-defined entries. A custom provider
+        // holding the only configured key must still flip this flag.
+        const allProviders = getAllAnthropicProviders();
         if (!hasAnyProviderKey) {
-          for (const p of ANTHROPIC_PROVIDERS) {
+          for (const p of allProviders) {
             if (await this.authSecretsService.hasProviderKey(p.id)) {
               hasAnyProviderKey = true;
               break;
             }
           }
         }
-        const availableProviders = ANTHROPIC_PROVIDERS.map((p) => ({
+        // The read model behind BOTH the webview tile grid and the TUI tile
+        // list. Sourcing it from the static array is what made user-defined
+        // entries invisible everywhere at once.
+        const availableProviders = allProviders.map((p) => ({
           id: p.id,
           name: p.name,
           description: p.description,
@@ -745,7 +751,7 @@ export class AuthRpcHandlers {
           DEFAULT_PROVIDER_ID,
         );
         const providers = await Promise.all(
-          ANTHROPIC_PROVIDERS.map(async (p) => ({
+          getAllAnthropicProviders().map(async (p) => ({
             provider: p.id,
             displayName: p.name,
             hasApiKey: await this.authSecretsService.hasProviderKey(p.id),
