@@ -38,6 +38,10 @@ import {
 import { SpecHarvesterService } from '../spec-harvester.service';
 import { SubagentMetricsExtractor } from '../subagent-metrics-extractor';
 import { SkillScorecardService } from '../skill-scorecard.service';
+import { SkillQueueStore } from '../queue/skill-queue.store';
+import { SkillBudgetStore } from '../queue/skill-budget.store';
+import { ForegroundActivityTracker } from '../queue/foreground-activity.tracker';
+import { SkillDrainService } from '../queue/skill-drain.service';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
@@ -67,6 +71,10 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SpecHarvesterService);
   container.registerSingleton(SubagentMetricsExtractor);
   container.registerSingleton(SkillScorecardService);
+  container.registerSingleton(SkillQueueStore);
+  container.registerSingleton(SkillBudgetStore);
+  container.registerSingleton(ForegroundActivityTracker);
+  container.registerSingleton(SkillDrainService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -123,6 +131,18 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
     useToken: SkillScorecardService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, {
+    useToken: SkillQueueStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE, {
+    useToken: SkillBudgetStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER, {
+    useToken: ForegroundActivityTracker,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE, {
+    useToken: SkillDrainService,
   });
   container.register(SKILL_REPROPAGATION_TOKEN, {
     useClass: NoOpSkillRepropagation,

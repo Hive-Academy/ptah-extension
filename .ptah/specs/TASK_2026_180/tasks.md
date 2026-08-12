@@ -2073,3 +2073,128 @@ needed and the tray control is honoured by every runtime, not just Electron.
 
 If Option B is preferred, B0.4's gate order and B0.5's key table both need one
 addition; say so before C0 is implemented, since the key list ships there.
+
+---
+
+## 6. Orchestrator hand-off notes (added during execution)
+
+Findings raised by a completed batch that change what a LATER batch must build.
+Read the note for your batch before starting it.
+
+### → B1.5: add `requeue(id, notBefore, reason)` to `SkillQueueStore`
+
+Raised by B0.3. B1.5's lane-timeout path needs "queue row back to `queued` with
+`not_before = now + backoff`" — a **requeue**, not a terminal mark. B0.3
+deliberately did not add it (it was not in B0.3's method list, and `markFailed`
+is terminal by design with no backoff parameter). **Do not reuse `markUnscored`
+for this** — `unscored` is Phase 1's judge verdict and overloading it would
+conflate a judge outcome with a transport failure. Add the method.
+
+### → whoever owns `persistence-sqlite` next: `isUniqueConstraintError` is binding-specific
+
+Raised by B0.3. `isUniqueConstraintError` matches
+`err.code === 'SQLITE_CONSTRAINT_UNIQUE'` (`sqlite-errors.ts:26`), which is
+better-sqlite3's shape. Node's built-in `node:sqlite` reports the identical
+violation as `code: 'ERR_SQLITE_ERROR'` with the detail in the message.
+
+This is CORRECT for production — the app ships better-sqlite3. It only bites in
+specs, because `better-sqlite3` in this worktree is built against Electron's ABI
+and cannot load under Node, so every native-gated spec falls back to
+`node:sqlite`. B0.3 handled it by re-labelling that one error case inside
+`queue/queue-db.test-support.ts`, keeping the store under test calling the real
+production predicate. **Do not "fix" this by widening the production predicate**
+unless the app actually starts using the built-in binding; widening it would add
+a production code path that nothing exercises.
+
+### → B0.6 and later: queue semantics established by B0.3
+
+- `touchClaim(id, now)` returns `boolean`. `false` means this worker lost the row
+  and MUST stop writing.
+- `markFailed` is terminal, no backoff. A failed row re-opens only via `enqueue`
+  once the session grows.
+- `enqueue` is idempotent: a plain INSERT whose `UNIQUE(session_id, stage)`
+  violation becomes a guarded re-open gated on `turn_count`. Never
+  `INSERT OR IGNORE`, never UPSERT.
+- `markWorkspaceDrained(root, at)` exists for B0.4's round-robin; without bumping
+  the cursor, `listEligibleWorkspaces` never advances and R4 is unmitigated.
+- `enqueue`/`tryClaim` use explicit `BEGIN IMMEDIATE` … `COMMIT`/`ROLLBACK` via
+  `db.exec` rather than better-sqlite3's `db.transaction()`. The CAS requires
+  `BEGIN IMMEDIATE` anyway, it matches `migration-runner.ts:221`, and
+  `db.transaction()` does not exist on the fallback binding — using it would make
+  P0-2 unassertable on any machine where better-sqlite3 cannot load.
+
+### → B1.4 / B1.8: `lane` is missing from the file-settings tier routing regex
+
+Raised by B1.3, verified directly. `libs/backend/platform-core/src/file-settings-keys.ts:360`:
+
+```ts
+const PROVIDER_SCOPED_TIER_PATTERN = /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
+```
+
+`lane` is not in that alternation, so `provider.<id>.lane.modelTier.<tier>` is
+**not routed to `~/.ptah/settings.json`**.
+
+B1.3 is unaffected — reads return null and `buildTierValues` falls through to
+`defaultTiers`, which is the documented Phase-1 behaviour and what its tests
+assert. The break appears the moment anything **writes** a lane tier: the write
+silently does not persist. Whichever of B1.4 (lane config) or B1.8 (lane
+settings keys + `setLanes` RPC) lands the write path MUST add `|lane` to that
+alternation and to the doc comment above it at `:354`. Add a spec pinning that a
+`provider.<id>.lane.modelTier.haiku` key round-trips through the file settings
+store, or this regresses silently.
+
+### → consolidation pass after B0.4 releases `skill-synthesis` (do before B1.6)
+
+Raised by B1.2, which was file-scoped to `skill-candidate.store.ts` + spec while
+B0.4 held `types.ts`, `di/*` and `index.ts`. Four items it could not land:
+
+1. **Fold `JudgeVerdictFields` into `SkillCandidateRow`** in `src/lib/types.ts`.
+   B1.2 expressed it as the intersection `JudgedCandidateRow` instead —
+   behaviourally identical today, but the field block belongs on the row type.
+2. **Export the new judge symbols from `src/index.ts`**: `JUDGE_STATUSES`,
+   `JudgeStatus`, `JudgeCriterionScores`, `JudgeVerdict`, `JudgeVerdictFields`,
+   `JudgedCandidateRow`. B1.6 and the RPC handler batch need them. No DI token
+   required.
+3. **`RegisterCandidateResult.candidate`** stays typed `SkillCandidateRow` (it
+   lives in `types.ts`). Harmless — a fresh candidate has all-null judge fields —
+   but re-point it when (1) lands.
+4. **`skill-synthesis/CLAUDE.md`** needs a line on the `unscored` verdict and the
+   rule that the TS union is the ONLY enforcement of `judge_status` (migration
+   `0033` deliberately carries no `CHECK`).
+
+### → B1.6 and the RPC batch: the judge write path already rejects the old defect
+
+`recordJudgeVerdict` throws on `scored` with a non-finite/null score, and on any
+non-`scored` status carrying a number. `{status:'unscored', score:10}` — the
+exact fail-open shape this phase exists to remove — throws at the store boundary.
+Do not add a second validation layer above it; do not catch and downgrade.
+
+On read, `toJudgeStatus` maps `null`/`''` to `null` ("never judged") and
+downgrades any unrecognised stored string to `'unscored'` with a `logger.warn`.
+
+`recordJudgeVerdict` writes the nine judge columns as ONE fixed UPDATE, not a
+dynamic fragment. This is deliberate and must not be "optimised" into a partial
+update: a fragment-style write leaves the previous pass's per-criterion scores
+sitting beside a new headline score, which is the same class of quietly-wrong
+verdict the phase exists to remove. Pinned by a spec that re-judges a 9/9/9/9/9/9
+candidate as `unscored` and asserts all five criteria read back `null`.
+
+`judge_panel_rationales` is deliberately NOT written here — phase 3 owns it.
+
+### → anyone reading a red `agent-sdk` suite: one failure is environment, not code
+
+`agent-sdk/src/lib/helpers/sdk-query-runner.service.spec.ts:368` ("derives env /
+settingSources / beta flag from the override, not this.authEnv") asserts
+`expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined()`. A shell that exports
+`ANTHROPIC_AUTH_TOKEN=""` / `ANTHROPIC_API_KEY=""` / `ANTHROPIC_BASE_URL=""`
+delivers `""` instead, and the test fails. Pre-existing, unrelated to this task.
+Reproduce green with those three unset. Worth a separate fix — an empty string is
+not a credential, and the spec should treat it as absent.
+
+### → any batch writing a spec that needs a real database
+
+Reuse `src/lib/queue/queue-db.test-support.ts`. `better-sqlite3` here is built
+against Electron's ABI (`NODE_MODULE_VERSION 143` vs Node's `137`), so copying
+the house native-gated pattern makes specs skip **silently** — they report green
+while asserting nothing. Migrations `0032` and `0033` both use a `node:sqlite`
+fallback for the same reason.

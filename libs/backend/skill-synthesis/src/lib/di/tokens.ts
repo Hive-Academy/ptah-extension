@@ -31,6 +31,20 @@ export const USER_LAYER_MIRROR_SERVICE_TOKEN = Symbol.for(
   'PtahUserLayerMirrorService',
 );
 
+/**
+ * Cross-library DI token for agent-sdk's SessionActivityRegistry.
+ * Matches SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY =
+ * Symbol.for('SdkSessionActivityRegistry').
+ *
+ * Declared here rather than imported for the same reason as
+ * INTERNAL_QUERY_SERVICE_TOKEN above, and injected `{isOptional: true}` so a
+ * CLI or e2e host that never registers the SDK still resolves
+ * `ForegroundActivityTracker`.
+ */
+export const SESSION_ACTIVITY_REGISTRY_TOKEN = Symbol.for(
+  'SdkSessionActivityRegistry',
+);
+
 export const SKILL_SYNTHESIS_TOKENS = {
   /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
   SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
@@ -70,6 +84,14 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SUBAGENT_METRICS_EXTRACTOR: Symbol.for('PtahSubagentMetricsExtractor'),
   /** SkillScorecardService — composes subagent metric aggregates + verdicts. */
   SKILL_SCORECARD_SERVICE: Symbol.for('PtahSkillScorecardService'),
+  /** SkillQueueStore — durable synthesis queue: enqueue, CAS claim, reap. */
+  SKILL_QUEUE_STORE: Symbol.for('PtahSkillSynthesisQueueStore'),
+  /** SkillBudgetStore — per-UTC-day token/cost ledger behind the drain gate. */
+  SKILL_BUDGET_STORE: Symbol.for('PtahSkillSynthesisBudgetStore'),
+  /** SkillDrainService — gated, round-robin drain of the synthesis queue. */
+  SKILL_DRAIN_SERVICE: Symbol.for('PtahSkillSynthesisDrainService'),
+  /** ForegroundActivityTracker — ms since the last chat turn, for the backoff gate. */
+  FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

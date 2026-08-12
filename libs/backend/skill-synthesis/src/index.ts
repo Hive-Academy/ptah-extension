@@ -31,6 +31,7 @@ export {
   SKILL_SYNTHESIS_TOKENS,
   INTERNAL_QUERY_SERVICE_TOKEN,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
+  SESSION_ACTIVITY_REGISTRY_TOKEN,
   type SkillSynthesisDIToken,
 } from './lib/di/tokens';
 export { registerSkillSynthesisServices } from './lib/di/register';
@@ -122,6 +123,51 @@ export {
   type SpecBatchStatus,
 } from './lib/spec-extractor';
 export { SkillScorecardService } from './lib/skill-scorecard.service';
+export {
+  SkillQueueStore,
+  STALE_CLAIM_REASON,
+} from './lib/queue/skill-queue.store';
+export {
+  SkillBudgetStore,
+  utcDayKey,
+  type SkillBudgetUsage,
+  type SkillBudgetDay,
+} from './lib/queue/skill-budget.store';
+export {
+  SKILL_QUEUE_STAGES,
+  SKILL_QUEUE_STATUSES,
+  type SkillQueueStage,
+  type SkillQueueStatus,
+  type SkillQueueSource,
+  type SkillQueueRow,
+  type EnqueueInput,
+  type EnqueueOutcome,
+  type EnqueueResult,
+  type MarkOptions,
+  type MarkUnscoredOptions,
+} from './lib/queue/skill-queue.types';
+export {
+  ForegroundActivityTracker,
+  type ForegroundActivityPayload,
+  type ForegroundActivitySource,
+} from './lib/queue/foreground-activity.tracker';
+export {
+  SkillDrainService,
+  DRAIN_TIER_STAGES,
+  SKILL_DRAIN_DEFAULTS,
+  SKILL_DRAIN_KEYS,
+  SKILL_DRAIN_SECTION,
+  MAX_STAGE_TIMEOUT_MS,
+  STALE_CLAIM_TTL_SAFETY_FACTOR,
+  type DrainTier,
+  type DrainOptions,
+  type DrainSkipReason,
+  type DrainSummary,
+  type SkillDrainConfig,
+  type SkillStageContext,
+  type SkillStageHandler,
+  type SkillStageResult,
+} from './lib/queue/skill-drain.service';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,
