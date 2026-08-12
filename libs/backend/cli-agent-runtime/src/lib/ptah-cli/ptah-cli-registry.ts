@@ -32,6 +32,7 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   buildSafeEnv,
+  buildFlagSettings,
   type AnthropicProvider,
   type ModelTier,
   type Options,
@@ -627,6 +628,19 @@ export class PtahCliRegistry {
           preset: 'claude_code' as const,
         },
         mcpServers: assembly.mcpServers,
+        // Output-style FLAG tier (TASK_2026_197). `buildFlagSettings` is the
+        // ONE builder of this object — hand-rolling `{ outputStyle: name }`
+        // here would be a second flag-tier definition, and it omits the
+        // `outputStyle`-key-absent rule that stops a spawn from clobbering a
+        // style the user chose for their own CLI sessions (G4b).
+        //
+        // It also carries `PTAH_DISABLE_SDK_AUTO_MEMORY`, which spawns did not
+        // send before. That is deliberate: Ptah runs its own memory curator,
+        // and a spawned agent writing SDK auto-memory was an inconsistency
+        // with every other session Ptah starts.
+        settings: buildFlagSettings({
+          outputStyleName: assembly.outputStyleName,
+        }),
         ...this.resolvePermissionOptions(
           options?.resumeSessionId ??
             options?.parentSessionId ??

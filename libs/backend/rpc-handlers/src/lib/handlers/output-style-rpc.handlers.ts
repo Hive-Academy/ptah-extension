@@ -56,30 +56,28 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
-  LOCALHOST_BASE_URL_RE,
   OUTPUT_STYLE_TOKENS,
+  normalizeOutputStyleSelection,
+  readOutputStyleSelection,
+  resolveProviderBaseUrl,
+  writeOutputStyleSelection,
   type ClaudeSettingsWriter,
   type OutputStyleActivationResolver,
   type OutputStyleDiscoveryService,
   type OutputStyleFileWriter,
+  type OutputStyleSelectionContext,
 } from '@ptah-extension/output-styles';
 import {
   SETTINGS_TOKENS,
   type ISettingsStore,
   type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
-import {
-  normalizeOutputStyleSelection,
-  readOutputStyleSelection,
-  resolveProviderBaseUrl,
-  writeOutputStyleSelection,
-  type OutputStyleSelectionContext,
-} from '../utils/output-style-selection';
 // Re-exported by `auth-providers`, which this lib already depends on. The
 // zero-dep `auth-providers-tokens` package would be the narrower import, but it
 // is not in this project's declared dependencies and every other handler here
 // reaches the tokens through the same barrel — one import path, not two.
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
+import { includesUserSettingSource } from '@ptah-extension/shared';
 import type {
   ActivationDecision,
   AuthEnv,
@@ -531,8 +529,10 @@ export class OutputStyleRpcHandlers {
   // Selection — Ptah's own settings, never a `.claude/` file.
   //
   // Every read, write and normalisation below delegates to
-  // `utils/output-style-selection.ts`, which `ChatOutputStyleActivationService`
-  // also calls. That is deliberate and load-bearing: this class's view of what
+  // `output-style-selection.ts` in `output-styles`, which
+  // `OutputStyleSessionActivationService` also calls — for a chat session and
+  // for a spawned CLI agent alike. That is deliberate and load-bearing: this
+  // class's view of what
   // is ACTIVE drives the UI checkmark, and that service's view of what to
   // ACTIVATE drives the actual SDK call. One implementation is what stops the
   // picker from showing one style while a different one reaches the session.
@@ -595,8 +595,21 @@ export class OutputStyleRpcHandlers {
   private decisionFor(style: OutputStyleEntry | null): ActivationDecision {
     return this.activation.resolve({
       style,
-      providerBaseUrl: this.providerBaseUrl(),
+      userSettingSourceIncluded: this.userSettingSourceIncluded(),
     });
+  }
+
+  /**
+   * Whether a chat session started right now would keep the `'user'` tier.
+   *
+   * This surface REPORTS on the interactive chat path, so it predicts that
+   * path's `settingSources` the same way the path itself does — through the
+   * shared `includesUserSettingSource`, which is also what
+   * `SdkQueryOptionsBuilder` builds `settingSources` from. It never reports on
+   * a spawned CLI agent, which keeps all three sources unconditionally.
+   */
+  private userSettingSourceIncluded(): boolean {
+    return includesUserSettingSource(this.providerBaseUrl());
   }
 
   private providerBaseUrl(): string | undefined {
@@ -612,14 +625,14 @@ export class OutputStyleRpcHandlers {
    * not enumerate that tier at all (P5 deferred); reporting it as visible would
    * claim a capability the surface does not have.
    *
-   * The predicate is `@ptah-extension/output-styles`'s exported
-   * `LOCALHOST_BASE_URL_RE` — the same constant `OutputStyleActivationResolver`
-   * decides with, and the one the resolver's spec holds byte-identical to the
-   * builder's literal. This only REPORTS; it never decides.
+   * The predicate is the shared `includesUserSettingSource` — the same
+   * function the resolver is fed from and the SDK builder builds
+   * `settingSources` with. This only REPORTS; it never decides.
    */
   private visibleTiers(): readonly OutputStyleTier[] {
-    const localhost = LOCALHOST_BASE_URL_RE.test(this.providerBaseUrl() ?? '');
-    return localhost ? ['builtin', 'project'] : ['builtin', 'user', 'project'];
+    return this.userSettingSourceIncluded()
+      ? ['builtin', 'user', 'project']
+      : ['builtin', 'project'];
   }
 
   // -------------------------------------------------------------------------

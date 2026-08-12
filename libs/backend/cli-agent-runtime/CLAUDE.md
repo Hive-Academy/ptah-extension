@@ -35,12 +35,13 @@ DI: `CLI_AGENT_RUNTIME_TOKENS`, `registerCliAgentRuntimeServices`.
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/agent-sdk` (public API only), `@ptah-extension/vscode-core` (Logger), `@ptah-extension/platform-core` (ports)
+**Internal**: `@ptah-extension/agent-sdk` (public API only), `@ptah-extension/vscode-core` (Logger), `@ptah-extension/platform-core` (ports), `@ptah-extension/output-styles` (`OutputStyleSessionActivationService`)
 **External**: `tsyringe`, `eventemitter3`, `rxjs`
 
 ## Guidelines
 
 - Depend on `agent-sdk` only via its public barrel — no deep imports.
+- **Every spawn carries the user's output style.** `PtahCliSpawnOptions` resolves it through `OutputStyleSessionActivationService` and `PtahCliRegistry` sends it as `settings: buildFlagSettings(...)`. Two rules hold it together: pass `userSettingSourceIncluded: true` (this path hardcodes `settingSources: ['user', 'project', 'local']`, so deriving it would take the inject fallback and apply the style twice), and never hand-roll `{ outputStyle: name }` — `buildFlagSettings` is the one builder and it owns the key-absent rule that stops a spawn clobbering a style chosen for the user's own CLI sessions.
 - No imports from `platform-{cli,electron,vscode}` adapter libs.
 - `catch (error: unknown)`; narrow with `instanceof Error`.
 - Boundary inputs validated via zod.

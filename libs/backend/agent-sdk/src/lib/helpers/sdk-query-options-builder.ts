@@ -66,6 +66,7 @@ import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
   getModelContextWindow,
+  includesUserSettingSource,
 } from '@ptah-extension/shared';
 import {
   SdkModelService,
@@ -733,11 +734,15 @@ export class SdkQueryOptionsBuilder {
         // subagent handling), but plumbed so a caller can disable it — see the
         // QueryOptionsInput.forwardSubagentText killswitch note.
         forwardSubagentText: forwardSubagentText ?? true,
-        settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
-          effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+        // `includesUserSettingSource` (shared) is the ONE definition of this
+        // predicate. `output-styles` calls the same function to decide whether
+        // a user-tier style file will be visible to the binary — the two must
+        // agree, and now they cannot disagree.
+        settingSources: includesUserSettingSource(
+          effectiveAuthEnv.ANTHROPIC_BASE_URL,
         )
-          ? ['project', 'local']
-          : ['user', 'project', 'local'],
+          ? ['user', 'project', 'local']
+          : ['project', 'local'],
         env: {
           ...process.env,
           ...buildTierEnvDefaults(effectiveAuthEnv),

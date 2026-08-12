@@ -159,6 +159,10 @@ export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,
+  // The one builder of the output-style FLAG tier. Exported so the CLI-agent
+  // spawn path in `cli-agent-runtime` reuses it instead of growing a second
+  // definition of `Options.settings`.
+  buildFlagSettings,
   getActiveProviderId,
 } from './lib/helpers';
 export type {

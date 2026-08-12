@@ -24,6 +24,13 @@ export const OUTPUT_STYLE_TOKENS = {
   CLAUDE_SETTINGS_WRITER: Symbol.for('OutputStyleClaudeSettingsWriter'),
   /** OutputStyleActivationResolver — the single flag-vs-inject decision point. */
   ACTIVATION_RESOLVER: Symbol.for('OutputStyleActivationResolver'),
+  /**
+   * OutputStyleSessionActivationService — the composition that turns "a session
+   * is starting" into the two `AISessionConfig` fields. Shared by the chat path
+   * (`rpc-handlers`) and the CLI-agent spawn path (`cli-agent-runtime`), which
+   * cannot see each other.
+   */
+  SESSION_ACTIVATION: Symbol.for('OutputStyleSessionActivation'),
 } as const;
 
 export type OutputStyleDIToken = keyof typeof OUTPUT_STYLE_TOKENS;

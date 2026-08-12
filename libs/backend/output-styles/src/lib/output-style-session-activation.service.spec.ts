@@ -1,5 +1,5 @@
 /**
- * `ChatOutputStyleActivationService` — the per-session activation composition
+ * `OutputStyleSessionActivationService` — the per-session activation composition
  * (TASK_2026_197 Batch 5, Req 5.1/5.2/5.3/5.6).
  *
  * The REAL `OutputStyleActivationResolver` is used rather than a mock: the
@@ -10,11 +10,11 @@
 
 import 'reflect-metadata';
 
-import { OutputStyleActivationResolver } from '@ptah-extension/output-styles';
+import { OutputStyleActivationResolver } from './output-style-activation.resolver';
 import { OUTPUT_STYLE_SELECTED_NAME_DEF } from '@ptah-extension/settings-core';
 import type { OutputStyleEntry } from '@ptah-extension/shared';
 
-import { ChatOutputStyleActivationService } from './chat-output-style-activation.service';
+import { OutputStyleSessionActivationService } from './output-style-session-activation.service';
 
 const SELECTED_KEY = OUTPUT_STYLE_SELECTED_NAME_DEF.key;
 const LOCALHOST = 'http://127.0.0.1:51830';
@@ -33,7 +33,7 @@ function entry(patch: Partial<OutputStyleEntry> = {}): OutputStyleEntry {
 }
 
 interface Harness {
-  service: ChatOutputStyleActivationService;
+  service: OutputStyleSessionActivationService;
   discover: jest.Mock;
   warn: jest.Mock;
 }
@@ -60,7 +60,7 @@ function makeService(options: {
     }),
   };
 
-  const service = new ChatOutputStyleActivationService(
+  const service = new OutputStyleSessionActivationService(
     logger as never,
     { discover } as never,
     new OutputStyleActivationResolver(),
@@ -74,12 +74,14 @@ function makeService(options: {
   return { service, discover, warn };
 }
 
-describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
+describe('OutputStyleSessionActivationService.resolveSessionFields', () => {
   describe('no style', () => {
     it('returns no fields when nothing is selected', async () => {
       const { service, discover } = makeService({ selected: '' });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
       // Not even a directory scan — nothing to resolve.
       expect(discover).not.toHaveBeenCalled();
     });
@@ -87,7 +89,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
     it('treats the literal "default" as no selection (Req 2.4 / G4b)', async () => {
       const { service, discover } = makeService({ selected: 'default' });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
       expect(discover).not.toHaveBeenCalled();
     });
 
@@ -97,7 +101,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         styles: [entry({ name: 'Terse' })],
       });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
     });
 
     it('ignores a shadowed entry — the SDK would use the higher tier', async () => {
@@ -106,7 +112,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         styles: [entry({ tier: 'user', shadowed: true })],
       });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
     });
   });
 
@@ -118,7 +126,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         baseUrl: LOCALHOST,
       });
 
-      const fields = await service.resolveSessionFields('/repo');
+      const fields = await service.resolveSessionFields({
+        workspaceRoot: '/repo',
+      });
 
       expect(fields).toEqual({ outputStyleName: 'Terse' });
       expect('outputStyleBody' in fields).toBe(false);
@@ -131,7 +141,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         baseUrl: 'https://api.anthropic.com',
       });
 
-      const fields = await service.resolveSessionFields('/repo');
+      const fields = await service.resolveSessionFields({
+        workspaceRoot: '/repo',
+      });
 
       expect(fields).toEqual({ outputStyleName: 'Terse' });
     });
@@ -142,7 +154,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         styles: [entry({ tier: 'user' })],
       });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({
         outputStyleName: 'Terse',
       });
     });
@@ -162,7 +176,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         baseUrl: LOCALHOST,
       });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({
         outputStyleName: 'Explanatory',
       });
     });
@@ -176,7 +192,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         baseUrl: LOCALHOST,
       });
 
-      const fields = await service.resolveSessionFields('/repo');
+      const fields = await service.resolveSessionFields({
+        workspaceRoot: '/repo',
+      });
 
       expect(fields).toEqual({ outputStyleBody: 'Answer tersely.' });
       // R3: the two paths are complements of one boolean and must stay
@@ -191,7 +209,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         baseUrl: 'http://localhost:4000/v1',
       });
 
-      const fields = await service.resolveSessionFields('/repo');
+      const fields = await service.resolveSessionFields({
+        workspaceRoot: '/repo',
+      });
 
       expect(fields).toEqual({ outputStyleBody: 'Answer tersely.' });
     });
@@ -203,7 +223,9 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         baseUrl: LOCALHOST,
       });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
     });
   });
 
@@ -214,21 +236,27 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         discoveryThrows: true,
       });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
       expect(warn).toHaveBeenCalled();
     });
 
     it('degrades to no style when the settings store throws', async () => {
       const { service, warn } = makeService({ selectionThrows: true });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
       expect(warn).toHaveBeenCalled();
     });
 
     it('degrades to no style when the stored value is not a string', async () => {
       const { service } = makeService({ selected: 42 });
 
-      await expect(service.resolveSessionFields('/repo')).resolves.toEqual({});
+      await expect(
+        service.resolveSessionFields({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({});
     });
   });
 
@@ -239,8 +267,8 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         styles: [entry({ tier: 'project' })],
       });
 
-      await service.resolveSessionFields('/repo');
-      await service.resolveSessionFields('/repo');
+      await service.resolveSessionFields({ workspaceRoot: '/repo' });
+      await service.resolveSessionFields({ workspaceRoot: '/repo' });
 
       expect(discover).toHaveBeenCalledTimes(2);
     });
@@ -251,11 +279,58 @@ describe('ChatOutputStyleActivationService.resolveSessionFields', () => {
         styles: [entry({ tier: 'project' })],
       });
 
-      await service.resolveSessionFields('/other-repo');
+      await service.resolveSessionFields({ workspaceRoot: '/other-repo' });
 
       expect(discover).toHaveBeenCalledWith({
         workspaceRoot: '/other-repo',
         activeName: 'Terse',
+      });
+    });
+  });
+
+  describe('callers that state their own settingSources (the spawn path)', () => {
+    it('takes the flag path for a user-tier style even on a local proxy', async () => {
+      const { service } = makeService({
+        selected: 'Terse',
+        styles: [entry({ tier: 'user' })],
+        baseUrl: LOCALHOST,
+      });
+
+      const fields = await service.resolveSessionFields({
+        workspaceRoot: '/repo',
+        userSettingSourceIncluded: true,
+      });
+
+      // Derived from the base URL this is the inject branch. Injecting for a
+      // caller that keeps the 'user' source would append the body ON TOP of
+      // the file the SDK already reads — the style applied twice (R3).
+      expect(fields).toEqual({ outputStyleName: 'Terse' });
+      expect('outputStyleBody' in fields).toBe(false);
+    });
+
+    it('honours an explicit false even on a remote provider', async () => {
+      const { service } = makeService({
+        selected: 'Terse',
+        styles: [entry({ tier: 'user' })],
+        baseUrl: 'https://api.anthropic.com',
+      });
+
+      await expect(
+        service.resolveSessionFields({ userSettingSourceIncluded: false }),
+      ).resolves.toEqual({ outputStyleBody: 'Answer tersely.' });
+    });
+  });
+
+  describe('derivation when the caller stays silent (the chat path)', () => {
+    it('derives from the injected auth snapshot', async () => {
+      const { service } = makeService({
+        selected: 'Terse',
+        styles: [entry({ tier: 'user' })],
+        baseUrl: LOCALHOST,
+      });
+
+      await expect(service.resolveSessionFields()).resolves.toEqual({
+        outputStyleBody: 'Answer tersely.',
       });
     });
   });

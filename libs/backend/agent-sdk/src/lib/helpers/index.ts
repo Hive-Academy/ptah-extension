@@ -139,6 +139,7 @@ export {
   SdkQueryOptionsBuilder,
   assembleSystemPrompt,
   buildModelIdentityPrompt,
+  buildFlagSettings,
   getActiveProviderId,
   type AssembleSystemPromptInput,
   type SystemPromptAssemblyResult,

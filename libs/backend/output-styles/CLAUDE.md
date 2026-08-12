@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Owns the agent CLI's **output-style** surface inside Ptah (TASK_2026_197): tier discovery of `.md` style files, the strict frontmatter contract, safe create/edit/delete of those files, and the **single decision** about how a chosen style actually reaches a session. Four injectable services plus three pure modules; the pure modules do no I/O and the services do all of theirs through `IFileSystemProvider`.
+Owns the agent CLI's **output-style** surface inside Ptah (TASK_2026_197): tier discovery of `.md` style files, the strict frontmatter contract, safe create/edit/delete of those files, and the **single decision** about how a chosen style actually reaches a session — plus the one composition that applies that decision at a session start. Five injectable services plus four pure modules; the pure modules do no I/O and the services do all of theirs through `IFileSystemProvider` or `ISettingsStore`.
 
 An output style is a markdown file with at most four frontmatter keys and a body. The body becomes the agent's style prompt. Styles live in three places Ptah cares about: four **built-ins** baked into the SDK binary, `~/.claude/output-styles/*.md` (**user** tier) and `<workspaceRoot>/.claude/output-styles/*.md` (**project** tier).
 
@@ -32,13 +32,15 @@ There are **two** ways a style reaches a session, and they are complements of on
 - Style-file upsert / delete / stat, including the concurrent-edit guard (`output-style-file.writer.ts`)
 - The merge-preserving, opt-in CLI-parity settings write (`claude-settings.writer.ts`)
 - The one activation decision (`output-style-activation.resolver.ts`)
+- The one read/write/normalisation of the persisted selection (`output-style-selection.ts`)
+- The one composition of selection + discovery + decision into the two `AISessionConfig` fields (`output-style-session-activation.service.ts`)
 
 **Does NOT belong**:
 
 - The RPC surface — `OutputStyleRpcHandlers` and its Zod param schemas live in `rpc-handlers`
-- Session wiring — `ChatOutputStyleActivationService` and `chat-session.service.ts` (`rpc-handlers`) call the resolver and set the two `AISessionConfig` fields
+- Deciding WHEN a session starts, or what else rides its config — `chat-session.service.ts` (`rpc-handlers`) and `ptah-cli-spawn-options.service.ts` (`cli-agent-runtime`) call `resolveSessionFields` and spread the result
 - The flag-tier spread itself — `buildFlagSettings` / `assembleSystemPrompt` live in `agent-sdk`
-- Persisting the user's choice — that is `settings-core`'s `outputStyle.selectedName` (`~/.ptah/settings.json`, `''` = none)
+- Persisting the user's choice — that is `settings-core`'s `outputStyle.selectedName` (`~/.ptah/settings.json`, `''` = none). This lib READS it through `output-style-selection.ts`; the schema and store stay in `settings-core`
 - Frontend rendering — `libs/frontend/chat/src/lib/settings/output-style/`
 - Platform adapters, and any dependency on `agent-sdk`
 - Plugin-tier enumeration — deferred, see below
@@ -52,7 +54,9 @@ Built-ins: `BUILT_IN_OUTPUT_STYLES`, `DEFAULT_OUTPUT_STYLE_NAME`, `isBuiltInOutp
 Discovery + shared path helpers: `OutputStyleDiscoveryService`, `OUTPUT_STYLES_DIR_SEGMENTS`, `FILE_OUTPUT_STYLE_TIERS`, `resolveHomeDirectory`, `userOutputStyleDirectory`, `projectOutputStyleDirectory`, `outputStyleDirectoryFor`, `toDisplayPath`, `FileOutputStyleTier`, `DiscoverOutputStylesOptions`, `OutputStyleDiscoveryResult`.
 File writer: `OutputStyleFileWriter` (+ `OutputStyleFileLocation`, `OutputStyleGuardStamp`, `OutputStyleFileTarget`, `SaveOutputStyleParams`/`Result`, `DeleteOutputStyleParams`/`Result`, `StatOutputStyleParams`/`Result`).
 Parity writer: `ClaudeSettingsWriter`, `SetOutputStyleParityParams`.
-Activation: `resolveActivation`, `OutputStyleActivationResolver`, `LOCALHOST_BASE_URL_RE`, `ResolveActivationInput`.
+Activation: `resolveActivation`, `OutputStyleActivationResolver`, `ResolveActivationInput`.
+Selection: `normalizeOutputStyleSelection`, `readOutputStyleSelection`, `writeOutputStyleSelection`, `resolveProviderBaseUrl`, `OutputStyleSelectionContext`.
+Session activation: `OutputStyleSessionActivationService`, `OutputStyleSessionFields`, `ResolveSessionFieldsOptions`.
 DI: `OUTPUT_STYLE_TOKENS`, `OutputStyleDIToken`, `registerOutputStyleServices`.
 
 Wire types (`OutputStyleEntry`, `ActivationDecision`, `InvalidOutputStyle`, `ActiveOutputStyleState`, `OutputStyleOperationError`, `OutputStyleValidationError`, `OutputStyleParityOutcome`, `SettingsTier`, `WritableOutputStyleTier`) live in `@ptah-extension/shared`, not here.
@@ -68,12 +72,14 @@ Wire types (`OutputStyleEntry`, `ActivationDecision`, `InvalidOutputStyle`, `Act
 - `src/lib/output-style-file.writer.ts` — upsert / delete / stat of user- and project-tier files
 - `src/lib/claude-settings.writer.ts` — read-modify-write of `.claude/settings*.json` for opt-in CLI parity
 - `src/lib/output-style-activation.resolver.ts` — `resolveActivation` + its injectable wrapper
+- `src/lib/output-style-selection.ts` — the one read/write/normalisation of `outputStyle.selectedName`, shared by `OutputStyleRpcHandlers` (what is active) and `OutputStyleSessionActivationService` (what to activate). Two implementations means the picker can show one style while another reaches the SDK — do not re-inline either half
+- `src/lib/output-style-session-activation.service.ts` — the one composition: selection → tier scan → decision → the two `AISessionConfig` fields
 - `src/lib/di/{tokens,register}.ts` — `OUTPUT_STYLE_TOKENS`, `registerOutputStyleServices`
 - `src/lib/__fixtures__/output-style.fixtures.ts` — fixtures as **inline TS string constants**, deliberately not `.md` files
 
 ## Key Files
 
-- `src/lib/output-style-activation.resolver.ts` — the flag-vs-inject decision, and the duplicated `LOCALHOST_BASE_URL_RE`
+- `src/lib/output-style-activation.resolver.ts` — the flag-vs-inject decision. Takes `userSettingSourceIncluded` as a FACT from the caller; it does not infer visibility from a base URL
 - `src/lib/output-style-frontmatter.schema.ts` — pinned to **SDK v0.3.150**; the R4 upgrade checkpoint lives in its header
 - `src/lib/claude-settings.writer.ts` — the only place Ptah writes a **co-owned** foreign settings file
 - `src/lib/output-style-slug.ts` — the path-traversal boundary
@@ -81,7 +87,7 @@ Wire types (`OutputStyleEntry`, `ActivationDecision`, `InvalidOutputStyle`, `Act
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared` (wire types), `@ptah-extension/platform-core` (`IFileSystemProvider`, `IWorkspaceProvider`, `PLATFORM_TOKENS`), `@ptah-extension/vscode-core` (`Logger`, `TOKENS`).
+**Internal**: `@ptah-extension/shared` (wire types), `@ptah-extension/platform-core` (`IFileSystemProvider`, `IWorkspaceProvider`, `PLATFORM_TOKENS`), `@ptah-extension/vscode-core` (`Logger`, `TOKENS`), `@ptah-extension/settings-core` (`ISettingsStore`, `WorkspaceScopeResolver`, `OUTPUT_STYLE_SELECTED_NAME_DEF` — the persisted selection), `@ptah-extension/auth-providers-tokens` (`SDK_AUTH_ENV`, zero-dep by design; never the full `auth-providers` barrel).
 **External**: `gray-matter`, `zod`, `tsyringe`.
 **Forbidden**: `agent-sdk` (would invert the lib graph — `rpc-handlers` composes the two instead), any `platform-{cli,electron,vscode}` adapter, any frontend lib, `node:fs`.
 
@@ -99,12 +105,25 @@ Wire types (`OutputStyleEntry`, `ActivationDecision`, `InvalidOutputStyle`, `Act
 - **The parity write treats `.claude/settings*.json` as co-owned.** Malformed pre-existing JSON **aborts without ever calling `writeFile`** — a deliberate divergence from `PtahFileSettingsManager.loadSync`, which resets a corrupt file to `{}` (correct for a file Ptah owns, destructive here). The merge is a spread so unrelated keys and their order survive; a `.ptah-bak` copy is written before and removed after, because `IFileSystemProvider` has no `rename` and a real tmp+rename atomic write is not expressible through the port; a pre-write re-read that differs aborts as `SETTINGS_CONFLICT`. That narrows the loss window, it does not close it.
 - `catch (error: unknown)`, narrow with `instanceof Error`. All I/O through `IFileSystemProvider`; `node:path` is pure string computation and needs no port.
 
-### The two drift guards — do not relax them to make CI green
+### The two wiring guards — do not relax them to make CI green
 
-This lib deliberately duplicates a small amount of `agent-sdk` logic rather than importing it, because depending on `agent-sdk` would invert the lib graph. Two specs hold the duplication honest by **reading the builder's source**:
+This lib cannot import `agent-sdk` (that would invert the lib graph), so two specs
+assert the SDK builder still _uses_ what this lib assumes, by **reading the builder's
+source**. Both are USE checks, not duplication checks — the duplication they used to
+police is gone:
 
-1. **Predicate drift** — `output-style-activation.resolver.spec.ts` asserts that `LOCALHOST_BASE_URL_RE.source` still equals the literal used for the same decision in `agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`. If the builder's regex moves, this resolver must move with it.
-2. **Wiring** — `agent-sdk/src/lib/helpers/sdk-query-options-builder.output-style.spec.ts` asserts that `build()` contains `settings: buildFlagSettings(sessionConfig)` and **not** the bare shared constant, and that the inject body is forwarded into `assembleSystemPrompt`. A correct helper is worthless if the builder still hands the SDK the bare constant, and a unit test of the helper cannot see that.
+1. **Predicate use** — `output-style-activation.resolver.spec.ts` asserts the builder
+   still derives `settingSources` from `includesUserSettingSource` (`shared`), and that
+   it carries no localhost regex of its own. That function is the ONE definition:
+   `agent-sdk` calls it to BUILD `settingSources`, this lib's callers call it to PREDICT
+   the same value. There used to be two regex literals here kept in step by comparing
+   source text; the resolver now takes `userSettingSourceIncluded` as a fact from the
+   caller and knows nothing about URLs.
+2. **Flag-tier use** — `agent-sdk/src/lib/helpers/sdk-query-options-builder.output-style.spec.ts`
+   asserts `build()` contains `settings: buildFlagSettings(sessionConfig)` and **not**
+   the bare shared constant, and that the inject body is forwarded into
+   `assembleSystemPrompt`. A correct helper is worthless if the builder still hands the
+   SDK the bare constant, and a unit test of the helper cannot see that.
 
 Both fail CI if the builder changes without this lib changing. That is the point.
 
@@ -124,8 +143,15 @@ The extension scanner rejects **non-JS** files containing trademarked AI product
 
 ## Cross-Lib Rules
 
-Consumed by `rpc-handlers` (`rpc-handlers → output-styles`, acyclic), which owns the `outputStyle:` RPC namespace — `list`, `get`, `activate`, `save`, `delete`, `diagnose`. That namespace is triple-registered: `libs/shared/.../rpc.types.ts`, the `ALLOWED_METHOD_PREFIXES` runtime guard in `vscode-core/src/messaging/rpc-handler.ts`, and the handler manifest. Missing any one of them fails either CI or the call at runtime.
+Consumed by **two** libs that cannot see each other — `rpc-handlers → cli-agent-runtime`, so anything both need lives here:
 
-`registerOutputStyleServices(container, logger)` must be called in **all three** composition roots, because `OutputStyleRpcHandlers` is a `requires: []` manifest entry fanned to every host: `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`, and `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts`. Pre-conditions: `TOKENS.LOGGER`, `PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER` and `PLATFORM_TOKENS.WORKSPACE_PROVIDER` are already registered.
+- `rpc-handlers` (`rpc-handlers → output-styles`, acyclic) — the `outputStyle:` RPC namespace, and `ChatSessionService`, which calls `resolveSessionFields({ workspaceRoot })` at session start and resume.
+- `cli-agent-runtime` (`cli-agent-runtime → output-styles`, acyclic) — `PtahCliSpawnOptions`, which calls `resolveSessionFields({ workspaceRoot, userSettingSourceIncluded: true })` for every agent spawned through `ptah_agent_spawn`, including the tribunal's `ptah-cli` lanes. **`userSettingSourceIncluded: true` is mandatory on that path**: `PtahCliRegistry` hardcodes `settingSources: ['user', 'project', 'local']`, so a user-tier style file is never invisible there and deriving the answer would take the inject branch and apply the style twice (R3).
+
+`rpc-handlers` owns the `outputStyle:` RPC namespace — `list`, `get`, `activate`, `save`, `delete`, `diagnose`. That namespace is triple-registered: `libs/shared/.../rpc.types.ts`, the `ALLOWED_METHOD_PREFIXES` runtime guard in `vscode-core/src/messaging/rpc-handler.ts`, and the handler manifest. Missing any one of them fails either CI or the call at runtime.
+
+`registerOutputStyleServices(container, logger)` must be called in **all three** composition roots, because `OutputStyleRpcHandlers` is a `requires: []` manifest entry fanned to every host: `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`, and `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts`. Pre-conditions: `TOKENS.LOGGER`, `PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER`, `PLATFORM_TOKENS.WORKSPACE_PROVIDER` and `SETTINGS_TOKENS.SETTINGS_STORE` are registered. Injection is lazy, so relative call order does not matter — only that all of them ran before the first resolve.
+
+It is now also a **chat** pre-condition, not just an RPC one: `ChatSessionService` injects `SESSION_ACTIVATION` non-optionally. `registerChatServices` no longer registers a chat-local copy. A host that registers chat services without this one fails at the first session start, not at bootstrap.
 
 Imports `platform-core` / `vscode-core` / `shared` only. Frontend libs MUST NOT import this.

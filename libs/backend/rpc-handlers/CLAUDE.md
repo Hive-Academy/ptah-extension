@@ -41,7 +41,7 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - `src/lib/harness/` — `HarnessRpcHandlers` sub-services + `HARNESS_TOKENS`
 - `src/lib/chat/` — `ChatRpcHandlers` sub-services + `CHAT_TOKENS`
 - `src/lib/utils/workspace-authorization.ts` — shared `isAuthorizedWorkspace` (PR-267)
-- `src/lib/utils/output-style-selection.ts` — the one read/write/normalisation of `outputStyle.selectedName`, shared by `OutputStyleRpcHandlers` (what is active) and `ChatOutputStyleActivationService` (what to activate). Two implementations means the picker can show one style while another reaches the SDK — do not re-inline either half.
+- Output-style selection and activation are NOT here. Both moved to `output-styles` when `cli-agent-runtime` started needing the same composition for spawned CLI agents and could not import this lib (`rpc-handlers → cli-agent-runtime`). `OutputStyleRpcHandlers` and `ChatSessionService` import `readOutputStyleSelection` / `OutputStyleSessionActivationService` from `@ptah-extension/output-styles` — do not re-inline either.
 - `src/lib/host-profile/` — `Capability` vocabulary, `RPC_HANDLER_MANIFEST`, `HostProfile`, `registerRpcSurface`
 - `src/lib/verify-and-report.ts` — runtime verification of registration completeness
 

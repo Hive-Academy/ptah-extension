@@ -8,18 +8,30 @@
  * reach the session. It deliberately does no I/O. But a session start has
  * neither of those inputs in hand: the selection lives in Ptah's own settings
  * store and the entry only exists after a tier scan. Composing those two reads
- * with the predicate is what this class does, and it lives here rather than
- * inside `ChatSessionService` so that class does not grow five more injected
- * collaborators for one field.
+ * with the predicate is what this class does.
+ *
+ * ## Why it lives in `output-styles`
+ *
+ * Two independent session starters need the same answer:
+ *
+ *  - `ChatSessionService` (rpc-handlers) for an interactive chat session, on
+ *    every host — canvas, VS Code, Electron, `ptah-cli` and `ptah-tui`.
+ *  - `PtahCliSpawnOptions` (cli-agent-runtime) for a spawned CLI agent, which
+ *    is what `ptah_agent_spawn` and the tribunal's `ptah-cli` lanes go through.
+ *
+ * `cli-agent-runtime` cannot import `rpc-handlers` — `rpc-handlers` depends on
+ * it — so a service that lived there would have to be reimplemented for the
+ * spawn path, and two compositions of the same three steps drift exactly the
+ * way `output-style-selection.ts` was written to stop.
  *
  * ## The contract with the SDK layer
  *
  * The result is returned as the two `AISessionConfig` fields, already mapped
  * one-per-branch — `outputStyleName` for `path: 'flag'`, `outputStyleBody` for
  * `path: 'inject'`, neither for `path: 'none'`. Because the mapping happens
- * exactly once, here, the two call sites in `ChatSessionService` cannot
- * disagree and cannot set both (R3 / Req 5.3). `SdkQueryOptionsBuilder` still
- * asserts the invariant defensively at the point of use.
+ * exactly once, here, no two call sites can disagree and none can set both
+ * (R3 / Req 5.3). `SdkQueryOptionsBuilder` still asserts the invariant
+ * defensively at the point of use.
  *
  * ## Never cached (Req 5.6)
  *
@@ -32,29 +44,31 @@
  *
  * An unreadable settings store or an unreadable style directory degrades to
  * "no style". A cosmetic preference must not be able to stop a chat from
- * starting.
+ * starting, or a spawned agent from running.
  */
 
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
-  OUTPUT_STYLE_TOKENS,
-  type OutputStyleActivationResolver,
-  type OutputStyleDiscoveryService,
-} from '@ptah-extension/output-styles';
-import {
   SETTINGS_TOKENS,
   type ISettingsStore,
   type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
-import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
-import type { ActivationDecision, AuthEnv } from '@ptah-extension/shared';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import {
+  includesUserSettingSource,
+  type ActivationDecision,
+  type AuthEnv,
+} from '@ptah-extension/shared';
+import type { OutputStyleActivationResolver } from './output-style-activation.resolver';
+import type { OutputStyleDiscoveryService } from './output-style-discovery.service';
+import { OUTPUT_STYLE_TOKENS } from './di/tokens';
 import {
   readOutputStyleSelection,
   resolveProviderBaseUrl,
   type OutputStyleSelectionContext,
-} from '../../utils/output-style-selection';
+} from './output-style-selection';
 
 /**
  * The slice of `AISessionConfig` this service owns.
@@ -67,11 +81,35 @@ export interface OutputStyleSessionFields {
   readonly outputStyleBody?: string;
 }
 
+/** Per-call inputs. All optional; the chat path passes only `workspaceRoot`. */
+export interface ResolveSessionFieldsOptions {
+  /**
+   * Scopes the project-tier scan. `undefined` lets discovery fall back to the
+   * workspace provider's primary root.
+   */
+  readonly workspaceRoot?: string;
+  /**
+   * Whether THIS session's `Options.settingSources` will include `'user'`.
+   *
+   * Omit it and the value is derived from the injected auth snapshot with
+   * `includesUserSettingSource` — the same function `SdkQueryOptionsBuilder`
+   * uses to build `settingSources`, so the chat path's prediction is the
+   * builder's own rule rather than a copy of it.
+   *
+   * State it when the caller knows its own answer and the snapshot cannot
+   * predict it. `PtahCliRegistry` hardcodes all three sources for every spawn,
+   * so that path passes `true` — deriving there would take the inject branch
+   * on a local proxy and apply the style twice: once from the file the binary
+   * reads through the user source, once from the appended body (R3).
+   */
+  readonly userSettingSourceIncluded?: boolean;
+}
+
 /** Nothing selected, nothing resolvable, or a read failed. */
 const NO_OUTPUT_STYLE: OutputStyleSessionFields = Object.freeze({});
 
 @injectable()
-export class ChatOutputStyleActivationService {
+export class OutputStyleSessionActivationService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(OUTPUT_STYLE_TOKENS.DISCOVERY)
@@ -89,32 +127,27 @@ export class ChatOutputStyleActivationService {
     @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, { isOptional: true })
     private readonly scopeResolver?: WorkspaceScopeResolver,
     /**
-     * Optional live auth snapshot. `ANTHROPIC_BASE_URL` is the single input
-     * that can turn the decision from `flag` into `inject`, and it is the same
-     * value `SdkQueryOptionsBuilder` tests when it decides whether to drop
-     * `'user'` from `settingSources` — so both sides read one source and
-     * cannot drift. Absent reads as "not localhost", which selects the flag
-     * tier: the primary mechanism, not the fallback.
+     * Optional live auth snapshot, used only when the caller does not state
+     * `userSettingSourceIncluded` itself. `ANTHROPIC_BASE_URL` is fed to the
+     * same `includesUserSettingSource` the SDK builder uses, so the predicted
+     * answer is the builder's actual rule. Absent reads as first-party
+     * Anthropic, which keeps the user tier and selects the flag path: the
+     * primary mechanism, not the fallback.
      */
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV, { isOptional: true })
     private readonly authEnv?: AuthEnv,
   ) {}
 
-  /**
-   * Resolve the activation for ONE session start or resume.
-   *
-   * @param workspaceRoot Scopes the project-tier scan. `undefined` lets
-   *   discovery fall back to the workspace provider's primary root.
-   */
+  /** Resolve the activation for ONE session start, resume or agent spawn. */
   async resolveSessionFields(
-    workspaceRoot?: string,
+    options: ResolveSessionFieldsOptions = {},
   ): Promise<OutputStyleSessionFields> {
     try {
       const selected = this.readSelectedName();
       if (selected === null) return NO_OUTPUT_STYLE;
 
       const { styles } = await this.discovery.discover({
-        workspaceRoot,
+        workspaceRoot: options.workspaceRoot,
         activeName: selected,
       });
 
@@ -128,15 +161,17 @@ export class ChatOutputStyleActivationService {
 
       const decision = this.activation.resolve({
         style: winner,
-        providerBaseUrl: this.providerBaseUrl(),
+        userSettingSourceIncluded:
+          options.userSettingSourceIncluded ??
+          includesUserSettingSource(this.providerBaseUrl()),
       });
 
       return this.toSessionFields(decision);
     } catch (error: unknown) {
       // Degrade to "no style" — see the class comment. A style is a
-      // preference; a chat session is the product.
+      // preference; a working session is the product.
       this.logger.warn(
-        '[ChatOutputStyleActivation] activation could not be resolved; starting without a style',
+        '[OutputStyleSessionActivation] activation could not be resolved; starting without a style',
         { error: error instanceof Error ? error.message : String(error) },
       );
       return NO_OUTPUT_STYLE;
@@ -185,7 +220,7 @@ export class ChatOutputStyleActivationService {
       settingsStore: this.settingsStore,
       scopeResolver: this.scopeResolver,
       logger: this.logger,
-      logTag: '[ChatOutputStyleActivation]',
+      logTag: '[OutputStyleSessionActivation]',
     };
   }
 

@@ -30,6 +30,10 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type { EnhancedPromptsService } from '@ptah-extension/agent-generation';
+import {
+  OUTPUT_STYLE_TOKENS,
+  type OutputStyleSessionActivationService,
+} from '@ptah-extension/output-styles';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -44,6 +48,16 @@ export interface PtahSpawnAssembly {
   readonly compactionControl:
     | { enabled: boolean; contextTokenThreshold: number }
     | undefined;
+  /**
+   * Output-style name for the FLAG tier (TASK_2026_197), or `undefined` when
+   * no style is active.
+   *
+   * The name rather than the body, because a spawn keeps `'user'` in
+   * `settingSources` — see `assembleSpawnOptions`. The caller spreads it
+   * through `buildFlagSettings` into `Options.settings`; the body path is
+   * already folded into `systemPromptContent` and never reaches here.
+   */
+  readonly outputStyleName: string | undefined;
 }
 
 @injectable()
@@ -62,6 +76,15 @@ export class PtahCliSpawnOptions {
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | undefined,
+    /**
+     * Optional so a host that never called `registerOutputStyleServices` still
+     * spawns agents — it just spawns them unstyled, which is the same
+     * degradation the chat path takes when the selection cannot be read.
+     */
+    @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { isOptional: true })
+    private readonly outputStyleActivation:
+      | OutputStyleSessionActivationService
+      | undefined,
   ) {}
 
   /**
@@ -86,11 +109,16 @@ export class PtahCliSpawnOptions {
     const enhancedPromptsContent =
       await this.resolveEnhancedPromptsContent(cwd);
     const activeProviderId = getActiveProviderId(authEnv);
+    const outputStyle = await this.resolveOutputStyle(cwd);
     const promptResult = assembleSystemPrompt({
       providerId: activeProviderId,
       resolvedModel,
       mcpServerRunning,
       enhancedPromptsContent,
+      // Empty in practice — see `resolveOutputStyle`. Forwarded anyway so the
+      // day a spawn stops including the user setting source, the fallback is
+      // already plumbed instead of silently dropping the style.
+      outputStyleBody: outputStyle.outputStyleBody,
     });
     const fullSystemPromptContent =
       [
@@ -137,6 +165,7 @@ export class PtahCliSpawnOptions {
       hasHooks: !!hooks,
       compactionEnabled: compactionConfig?.enabled ?? false,
       hasIdentityPrompt: !!activeProviderId,
+      outputStyleName: outputStyle.outputStyleName ?? null,
     });
 
     return {
@@ -146,7 +175,34 @@ export class PtahCliSpawnOptions {
       plugins: undefined,
       hooks,
       compactionControl,
+      outputStyleName: outputStyle.outputStyleName,
     };
+  }
+
+  /**
+   * The output-style activation for THIS spawn (TASK_2026_197).
+   *
+   * `userSettingSourceIncluded: true` is STATED rather than derived because
+   * `PtahCliRegistry` hardcodes `settingSources: ['user', 'project', 'local']`
+   * for every spawn, unlike the chat path which drops `'user'` on a local
+   * proxy. A user-tier style file is therefore always visible to the binary
+   * here, so the decision is always the flag tier. Deriving it from the
+   * spawn's own proxied `authEnv` would take the inject branch and append the
+   * body ON TOP of the file the SDK already reads — the style applied twice,
+   * which is the exact failure R3 exists to prevent.
+   *
+   * If that `settingSources` literal ever changes, this must change with it.
+   * They are three lines apart in the same subsystem, on purpose.
+   */
+  private async resolveOutputStyle(cwd: string): Promise<{
+    outputStyleName?: string;
+    outputStyleBody?: string;
+  }> {
+    if (!this.outputStyleActivation) return {};
+    return this.outputStyleActivation.resolveSessionFields({
+      workspaceRoot: cwd,
+      userSettingSourceIncluded: true,
+    });
   }
 
   private isMcpServerRunning(): boolean {

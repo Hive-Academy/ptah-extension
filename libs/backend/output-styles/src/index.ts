@@ -84,9 +84,28 @@ export {
 export {
   resolveActivation,
   OutputStyleActivationResolver,
-  LOCALHOST_BASE_URL_RE,
   type ResolveActivationInput,
 } from './lib/output-style-activation.resolver';
+
+// The single read/write of the persisted selection. Shared by the RPC surface
+// (`rpc-handlers`) and both session starters — re-inlining either half is how
+// the picker and the SDK come to name different styles.
+export {
+  normalizeOutputStyleSelection,
+  readOutputStyleSelection,
+  writeOutputStyleSelection,
+  resolveProviderBaseUrl,
+  type OutputStyleSelectionContext,
+} from './lib/output-style-selection';
+
+// The one composition of selection + discovery + decision. Used by
+// `ChatSessionService` (rpc-handlers) and `PtahCliSpawnOptions`
+// (cli-agent-runtime), which cannot import each other.
+export {
+  OutputStyleSessionActivationService,
+  type OutputStyleSessionFields,
+  type ResolveSessionFieldsOptions,
+} from './lib/output-style-session-activation.service';
 
 // DI.
 export { OUTPUT_STYLE_TOKENS, type OutputStyleDIToken } from './lib/di/tokens';

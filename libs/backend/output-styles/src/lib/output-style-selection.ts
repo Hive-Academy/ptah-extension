@@ -1,13 +1,16 @@
 /**
  * The ONE reading and writing of Ptah's output-style selection (TASK_2026_197).
  *
- * Two classes need it, and they need it to mean the same thing:
+ * Three callers need it, and they need it to mean the same thing:
  *
- *  - `OutputStyleRpcHandlers` reads it to answer "what is active?" — the UI's
- *    checkmark and the `outputStyle:diagnose` report — and writes it when a
- *    user activates, renames or deletes a style.
- *  - `ChatOutputStyleActivationService` reads it to answer "what do I activate?"
- *    — the value that actually reaches the SDK on a session start.
+ *  - `OutputStyleRpcHandlers` (rpc-handlers) reads it to answer "what is
+ *    active?" — the UI's checkmark and the `outputStyle:diagnose` report — and
+ *    writes it when a user activates, renames or deletes a style.
+ *  - `OutputStyleSessionActivationService` reads it to answer "what do I
+ *    activate?" — the value that actually reaches the SDK on a chat session
+ *    start.
+ *  - the same service, reached from `PtahCliSpawnOptions` (cli-agent-runtime),
+ *    answers it for a spawned CLI agent.
  *
  * Those were two independent implementations of the same normalisation rule,
  * each commented as mirroring the other with nothing enforcing it. The failure
@@ -15,6 +18,13 @@
  * stored value collapses, the picker shows one style as active while a
  * different one — or none — is sent to the SDK, which is the "two decision
  * points disagree" bug Req 5.3/R3 is built to prevent, one layer up.
+ *
+ * ## Why it lives here and not in `rpc-handlers`
+ *
+ * `cli-agent-runtime` needs the same answer for a spawned agent, and it cannot
+ * import `rpc-handlers` — `rpc-handlers` depends on it. This lib is the only
+ * one both can reach, and it already owns the activation decision the selection
+ * feeds.
  *
  * ## The normalisation rule, stated once
  *
@@ -43,7 +53,7 @@ import type { AuthEnv } from '@ptah-extension/shared';
 // "no style is chosen" (Req 2.4) — the same one `ClaudeSettingsWriter` clears
 // its key on. A second literal here is how the settings file and the session
 // would come to disagree about what `default` means.
-import { DEFAULT_OUTPUT_STYLE_NAME } from '@ptah-extension/output-styles';
+import { DEFAULT_OUTPUT_STYLE_NAME } from './built-in-output-styles';
 
 /** Everything the selection helpers need from their owning class. */
 export interface OutputStyleSelectionContext {
