@@ -500,6 +500,8 @@ import type {
   TasksGetArtifactResult,
   TasksCreateParams,
   TasksCreateResult,
+  TasksSweepParams,
+  TasksSweepResult,
   TasksUpdateStatusParams,
   TasksUpdateStatusResult,
   TasksUpdateMetadataParams,
@@ -1838,6 +1840,10 @@ export interface RpcMethodRegistry {
     result: TasksGetArtifactResult;
   };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
+  'tasks:sweepFinished': {
+    params: TasksSweepParams;
+    result: TasksSweepResult;
+  };
   'tasks:updateStatus': {
     params: TasksUpdateStatusParams;
     result: TasksUpdateStatusResult;
@@ -3053,6 +3059,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:get': true,
   'tasks:getArtifact': true,
   'tasks:create': true,
+  'tasks:sweepFinished': true,
   'tasks:updateStatus': true,
   'tasks:updateMetadata': true,
   'tasks:bulkUpdateStatus': true,

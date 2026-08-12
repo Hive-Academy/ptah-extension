@@ -53,16 +53,42 @@ interface TaskListGroup {
   readonly status: TaskStatus;
   readonly label: string;
   readonly badgeClass: string;
+  /** The WINDOW — what actually renders. See {@link PAGE_SIZE}. */
   readonly tasks: readonly TaskSpecSummary[];
+  /** How many this group holds after filtering, before windowing. */
+  readonly matched: number;
   readonly shown: number;
   readonly total: number;
   /** How many of this status the active filter is hiding. */
   readonly hidden: number;
+  /** Matched but not rendered yet — the "show more" remainder. */
+  readonly windowed: number;
   readonly countTitle: string;
   readonly collapsed: boolean;
   /** Terminal statuses cannot be started — the row hides its launch controls. */
   readonly terminal: boolean;
 }
+
+/**
+ * How many rows a group renders before it asks.
+ *
+ * Windowing, NOT pagination, and the distinction is deliberate: the board
+ * already holds every task from one `tasks:board` round trip, so there is no
+ * page to fetch and no request to make. This caps what the DOM carries and what
+ * the user has to scroll past — on a real board that is 72 done against 7
+ * everything-else, and the finished work buries the live work by an order of
+ * magnitude.
+ *
+ * Server-side paging would be the wrong tool at this size: it would put a round
+ * trip behind every "show more", and it would break the client-side filter,
+ * sort and select-all-matching, all of which reason over the whole set.
+ *
+ * The cap applies to EVERY group, not just the terminal ones. Done is the only
+ * group that exceeds it today, but a group that grows past the fold is the same
+ * problem whatever its status, and a rule with an exception is one somebody has
+ * to remember.
+ */
+const PAGE_SIZE = 25;
 
 /**
  * How many label chips a row shows before rolling the rest into `+N`.
@@ -161,9 +187,9 @@ const MAX_VISIBLE_LABELS = 1;
               [title]="group.countTitle"
             >
               @if (group.hidden > 0) {
-                {{ group.shown }} of {{ group.total }}
+                {{ group.matched }} of {{ group.total }}
               } @else {
-                {{ group.shown }}
+                {{ group.matched }}
               }
             </span>
             <div class="flex-1"></div>
@@ -637,6 +663,49 @@ const MAX_VISIBLE_LABELS = 1;
                   }
                 </tbody>
               </table>
+
+              <!-- The window's remainder, stated as a count and an action.
+                   Never a silent truncation: a group that renders 25 of 72
+                   with no note is a board claiming the other 47 do not exist.
+                   Both controls are offered because the two intents differ —
+                   "a few more" while scanning, and "all of it" before a
+                   select-all — and only the second is worth the DOM. -->
+              @if (group.windowed > 0) {
+                <div
+                  class="flex items-center gap-2 border-b border-base-300/60 px-3 py-1.5"
+                  [attr.data-testid]="'task-list-more-' + group.status"
+                >
+                  <span class="text-[11px] text-base-content-muted">
+                    Showing {{ group.shown }} of {{ group.matched }}
+                  </span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [attr.data-testid]="'task-list-more-btn-' + group.status"
+                    [attr.aria-label]="
+                      'Show ' +
+                      nextPageCount(group) +
+                      ' more ' +
+                      group.label +
+                      ' tasks'
+                    "
+                    (click)="showMore(group.status)"
+                  >
+                    Show {{ nextPageCount(group) }} more
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [attr.data-testid]="'task-list-all-btn-' + group.status"
+                    [attr.aria-label]="
+                      'Show all ' + group.matched + ' ' + group.label + ' tasks'
+                    "
+                    (click)="showAll(group.status, group.matched)"
+                  >
+                    Show all {{ group.matched }}
+                  </button>
+                </div>
+              }
             }
           }
         </section>
@@ -685,32 +754,54 @@ export class TaskListComponent {
 
   /** Statuses the user has folded away. Collapsed is a VIEW state, never a filter. */
   private readonly _collapsed = signal<ReadonlySet<TaskStatus>>(new Set());
+
+  /**
+   * Per-status render budget, defaulting to {@link PAGE_SIZE}.
+   *
+   * Keyed by status rather than held as one number, because expanding Done to
+   * see all 72 must not also expand every other group — the user asked about
+   * one pile of work, not all six.
+   *
+   * NOT reset when the board refreshes. A `tasks:changed` push arrives every
+   * time any carrier is written, and collapsing a group the user had just
+   * expanded, underneath them, because something unrelated moved, is worse than
+   * holding a slightly generous budget.
+   */
+  private readonly _limits = signal<ReadonlyMap<TaskStatus, number>>(new Map());
   private readonly _focusedTaskId = signal<string | null>(null);
 
   protected readonly statusOptions = TASK_STATUSES;
 
   protected readonly groups = computed<readonly TaskListGroup[]>(() => {
     const collapsed = this._collapsed();
+    const limits = this._limits();
     return this.columns().map((column) => {
       const label = TASK_STATUS_LABELS[column.status];
-      const shown = column.tasks.length;
+      const matched = column.tasks.length;
       const total = column.total;
       // Clamped, on the same rule the Kanban column uses: a payload whose
       // indexed total is smaller than the rendered list must fall back to the
       // plain count rather than let the header claim a negative number.
-      const hidden = Math.max(0, total - shown);
+      const hidden = Math.max(0, total - matched);
+      const limit = limits.get(column.status) ?? PAGE_SIZE;
+      const windowed = column.tasks.slice(0, limit);
       return {
         status: column.status,
         label,
         badgeClass: TASK_STATUS_BADGE[column.status],
-        tasks: column.tasks,
-        shown,
+        tasks: windowed,
+        matched,
+        shown: windowed.length,
         total,
         hidden,
+        windowed: matched - windowed.length,
+        // The header states the FILTERED count, never the window's. The window
+        // is a rendering budget; showing "25" over a group of 72 would be the
+        // board lying about how much work is in it.
         countTitle:
           hidden === 0
-            ? `${shown} ${label} task(s)`
-            : `${shown} of ${total} ${label} task(s) — ${hidden} hidden by the active filter`,
+            ? `${matched} ${label} task(s)`
+            : `${matched} of ${total} ${label} task(s) — ${hidden} hidden by the active filter`,
         collapsed: collapsed.has(column.status),
         terminal: column.status === 'done' || column.status === 'cancelled',
       };
@@ -847,6 +938,23 @@ export class TaskListComponent {
     if (raw === null || raw === undefined || raw === '') return null;
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  /** How many the next "show more" would add — the page, or what is left. */
+  protected nextPageCount(group: TaskListGroup): number {
+    return Math.min(PAGE_SIZE, group.windowed);
+  }
+
+  protected showMore(status: TaskStatus): void {
+    const next = new Map(this._limits());
+    next.set(status, (next.get(status) ?? PAGE_SIZE) + PAGE_SIZE);
+    this._limits.set(next);
+  }
+
+  protected showAll(status: TaskStatus, matched: number): void {
+    const next = new Map(this._limits());
+    next.set(status, matched);
+    this._limits.set(next);
   }
 
   /** Fold a status away, or bring it back. */

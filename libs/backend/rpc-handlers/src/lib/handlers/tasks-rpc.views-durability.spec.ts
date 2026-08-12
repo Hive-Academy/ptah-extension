@@ -55,6 +55,7 @@ import type {
   RegistryGeneratorService,
   TaskDoctorService,
   TaskIndexService,
+  TaskSweepService,
   TaskWriterService,
 } from '@ptah-extension/task-specs';
 import {
@@ -215,6 +216,7 @@ function buildHandlers(
     noopWriter as unknown as TaskWriterService,
     { generate: jest.fn() } as unknown as RegistryGeneratorService,
     { plan: jest.fn() } as unknown as TaskDoctorService,
+    createInertSweep() as unknown as TaskSweepService,
     settings,
   );
   handlers.register();
@@ -239,6 +241,23 @@ const VIEW: SavedTaskView = {
   sort: DEFAULT_TASK_SORT,
   order: 0,
 };
+
+/**
+ * A sweep double that matches nothing and deletes nothing.
+ *
+ * The default for every suite: a DESTRUCTIVE collaborator must be inert unless
+ * a spec explicitly arms it, so no unrelated test can reach a delete path.
+ */
+function createInertSweep(): { sweep: jest.Mock } {
+  return {
+    sweep: jest.fn().mockResolvedValue({
+      candidates: [],
+      deleted: [],
+      skipped: [],
+      previewOnly: true,
+    }),
+  };
+}
 
 describe('R7 — a saved view survives deleting the index and reindexing', () => {
   let tmp: string;

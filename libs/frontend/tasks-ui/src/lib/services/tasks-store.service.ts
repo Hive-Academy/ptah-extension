@@ -29,6 +29,7 @@ import {
   type TaskMetadataPatch,
   type TaskSortSpec,
   type DocFile,
+  type TasksSweepResult,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -440,6 +441,10 @@ export class TasksStore implements MessageHandler {
   private readonly _documentContent = signal<string | null>(null);
   private readonly _documentLoading = signal(false);
 
+  /** The last sweep preview or report — see {@link previewSweep}. */
+  private readonly _sweep = signal<TasksSweepResult | null>(null);
+  private readonly _sweeping = signal(false);
+
   /**
    * The active filter and sort. SESSION STATE — never persisted, never sent.
    *
@@ -610,6 +615,8 @@ export class TasksStore implements MessageHandler {
   public readonly openDocument = this._openDocument.asReadonly();
   public readonly documentContent = this._documentContent.asReadonly();
   public readonly documentLoading = this._documentLoading.asReadonly();
+  public readonly sweep = this._sweep.asReadonly();
+  public readonly sweeping = this._sweeping.asReadonly();
 
   /** The active filter spec — read-only; mutate through {@link setFilter}. */
   public readonly filter = this._filter.asReadonly();
@@ -1069,6 +1076,65 @@ export class TasksStore implements MessageHandler {
     } finally {
       if (seq === this.documentReqSeq) this._documentLoading.set(false);
     }
+  }
+
+  /**
+   * Preview the retention sweep. Writes NOTHING.
+   *
+   * Split from {@link applySweep} at the CALL SITE only — both reach the same
+   * method with the same policy, and the backend runs the same scan. The user
+   * therefore confirms the exact list the delete will act on.
+   */
+  public async previewSweep(olderThanDays: number): Promise<void> {
+    await this.runSweep(olderThanDays, false);
+  }
+
+  /**
+   * Run the sweep for real. DESTRUCTIVE.
+   *
+   * Only ever reached from the confirmation. The board is re-fetched afterwards
+   * because folders have left the index; `previewOnly: false` on the stored
+   * result is what turns the panel from "about to" into "did".
+   */
+  public async applySweep(olderThanDays: number): Promise<void> {
+    await this.runSweep(olderThanDays, true);
+    await this.loadBoard();
+  }
+
+  private async runSweep(olderThanDays: number, apply: boolean): Promise<void> {
+    if (this._sweeping()) return;
+    this._sweeping.set(true);
+    this._error.set(null);
+    try {
+      const result = await this.rpc.call('tasks:sweepFinished', {
+        olderThanDays,
+        apply,
+        ...this.workspaceParam(),
+      });
+      if (result.isSuccess() && result.data) {
+        this._sweep.set(result.data);
+      } else {
+        this._sweep.set(null);
+        this._error.set(result.error ?? 'Failed to sweep finished tasks.');
+      }
+    } catch (error: unknown) {
+      // A broken transport still throws. Left unhandled it escapes a template
+      // event handler as an unhandled rejection and the user sees a control
+      // that did nothing and said nothing — on the one control that deletes.
+      this._sweep.set(null);
+      this._error.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to sweep finished tasks.',
+      );
+    } finally {
+      this._sweeping.set(false);
+    }
+  }
+
+  /** Dismiss the sweep preview / report. */
+  public clearSweep(): void {
+    this._sweep.set(null);
   }
 
   /** Close the expanded document and invalidate any read still in flight. */

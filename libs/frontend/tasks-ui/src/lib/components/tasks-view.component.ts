@@ -17,6 +17,7 @@ import {
   LucideAngularModule,
   Plus,
   RefreshCw,
+  Trash2,
   X,
 } from 'lucide-angular';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
@@ -208,6 +209,22 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         >
           <lucide-angular [img]="FileTextIcon" class="w-3.5 h-3.5" />
           <span class="text-xs">Registry</span>
+        </button>
+
+        <!-- DESTRUCTIVE, and deliberately not a one-click control: it opens
+             a PREVIEW. The delete only happens from the confirmation inside,
+             against the list the preview showed. -->
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs gap-1"
+          [disabled]="store.busy() || store.sweeping()"
+          data-testid="tasks-sweep-trigger"
+          aria-haspopup="dialog"
+          title="Preview which finished tasks would be deleted"
+          (click)="openSweep()"
+        >
+          <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
+          <span class="text-xs">Tidy finished</span>
         </button>
 
         <button
@@ -629,6 +646,111 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
       </dialog>
     }
 
+
+    <!-- Retention sweep. Preview first, ALWAYS: the confirm button names the
+         exact count, and the list above it names every folder. A delete whose
+         scope the user has to infer is one they cannot meaningfully agree to. -->
+    @if (store.sweep(); as plan) {
+      <dialog class="modal modal-open">
+        <div class="modal-box max-w-2xl">
+          <h3 class="text-base font-semibold mb-1">
+            @if (plan.previewOnly) {
+              Delete finished tasks older than {{ sweepDays() }} days?
+            } @else {
+              Swept {{ plan.deleted.length }} finished task(s)
+            }
+          </h3>
+
+          @if (plan.previewOnly) {
+            <p class="text-xs text-base-content-muted mb-3">
+              This deletes the folders from disk. Committed folders stay
+              recoverable with <span class="font-mono">git show</span>; anything
+              git has not seen is skipped rather than destroyed.
+            </p>
+          }
+
+          @if (plan.candidates.length === 0) {
+            <p class="text-sm" data-testid="tasks-sweep-empty">
+              Nothing has aged out. No finished task is older than
+              {{ sweepDays() }} days.
+            </p>
+          } @else {
+            <div class="max-h-72 overflow-y-auto rounded border border-base-300">
+              <table class="w-full text-xs">
+                <tbody>
+                  @for (item of plan.candidates; track item.taskId) {
+                    <tr
+                      class="border-b border-base-300/60"
+                      [attr.data-testid]="'tasks-sweep-row-' + item.taskId"
+                    >
+                      <td class="px-2 py-1 font-mono">{{ item.taskId }}</td>
+                      <td class="px-2 py-1">{{ statusLabel(item.status) }}</td>
+                      <td class="px-2 py-1 tabular-nums text-base-content-muted">
+                        {{ item.ageDays }}d old
+                      </td>
+                      <td class="px-2 py-1">
+                        @if (!item.committed) {
+                          <span
+                            class="badge badge-xs badge-warning"
+                            title="git has no copy of this folder, so deleting it could not be undone. It will be skipped."
+                            >not in git — skipped</span
+                          >
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+
+          @if (!plan.previewOnly && plan.skipped.length > 0) {
+            <p
+              class="mt-3 text-xs text-warning"
+              data-testid="tasks-sweep-skipped"
+            >
+              {{ plan.skipped.length }} folder(s) were left alone — see the
+              badges above.
+            </p>
+          }
+
+          <div class="modal-action mt-4">
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              (click)="store.clearSweep()"
+            >
+              @if (plan.previewOnly) {
+                Cancel
+              } @else {
+                Close
+              }
+            </button>
+            @if (plan.previewOnly && deletableCount() > 0) {
+              <button
+                type="button"
+                class="btn btn-sm btn-error"
+                [disabled]="store.sweeping()"
+                data-testid="tasks-sweep-confirm"
+                (click)="confirmSweep()"
+              >
+                @if (store.sweeping()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                }
+                Delete {{ deletableCount() }} folder(s)
+              </button>
+            }
+          </div>
+        </div>
+        <button
+          type="button"
+          class="modal-backdrop"
+          aria-label="Close"
+          (click)="store.clearSweep()"
+        ></button>
+      </dialog>
+    }
+
     <!-- Excluded folders — every skipped folder BY NAME with its typed reason.
          A count alone is the failure mode this drawer replaces: it tells a user
          that folders vanished without telling them which, or why. -->
@@ -852,6 +974,31 @@ export class TasksViewComponent {
       })),
   );
 
+  /**
+   * How many days of finished work to keep. Not user-editable yet — a single
+   * stated default beats a field nobody sets, and the preview makes the
+   * consequence of the number visible before anything happens.
+   */
+  protected readonly sweepDays = signal(7);
+
+  /**
+   * How many the confirm button would actually delete.
+   *
+   * Uncommitted candidates are excluded, because the backend refuses them —
+   * a button offering to delete 12 when 3 will survive is the button lying.
+   */
+  protected readonly deletableCount = computed(
+    () => this.store.sweep()?.candidates.filter((c) => c.committed).length ?? 0,
+  );
+
+  protected async openSweep(): Promise<void> {
+    await this.store.previewSweep(this.sweepDays());
+  }
+
+  protected async confirmSweep(): Promise<void> {
+    await this.store.applySweep(this.sweepDays());
+  }
+
   protected modeLabel(mode: TaskViewMode): string {
     return TASK_VIEW_MODE_LABELS[mode];
   }
@@ -871,6 +1018,7 @@ export class TasksViewComponent {
   protected readonly FileTextIcon = FileText;
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly PlusIcon = Plus;
+  protected readonly Trash2Icon = Trash2;
   protected readonly XIcon = X;
 
   public constructor() {

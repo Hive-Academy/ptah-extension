@@ -89,6 +89,63 @@ export interface TasksGetArtifactResult {
   content: string | null;
 }
 
+/**
+ * Delete finished task folders that have aged out (`tasks:sweepFinished`).
+ *
+ * DESTRUCTIVE, and shaped so that it cannot be invoked destructively by
+ * accident: `apply` defaults to nothing — the caller states it — and the
+ * preview and the deletion are the SAME call with the same policy, so what the
+ * user confirmed is what runs. Two methods would let the plan and the act drift
+ * apart, which on a delete is the drift that matters.
+ */
+export interface TasksSweepParams extends TasksWorkspaceScopedParams {
+  /**
+   * Only sweep tasks whose last update is at least this many days old.
+   *
+   * Bounded at the Zod boundary. Zero is refused: "delete everything finished,
+   * including what I closed a minute ago" is never what a retention policy
+   * means, and it is one keystroke away from `7`.
+   */
+  olderThanDays: number;
+  /** `false` previews and writes nothing. `true` deletes. */
+  apply: boolean;
+}
+
+/** One folder the policy matched, and what is true about it. */
+export interface TaskSweepCandidate {
+  taskId: string;
+  status: TaskStatus;
+  /** The stamp the age was computed from. */
+  updated: string | null;
+  ageDays: number;
+  /**
+   * The carrier exists in `HEAD`, so deleting the folder is recoverable with
+   * `git show`. A folder that is NOT committed is never deleted — see
+   * {@link TasksSweepResult.skipped}.
+   */
+  committed: boolean;
+}
+
+export interface TasksSweepResult {
+  /** Everything the policy matched, whether or not it was deleted. */
+  candidates: TaskSweepCandidate[];
+  /** Folder names actually removed. Always empty when `apply` was false. */
+  deleted: string[];
+  /**
+   * Matched but deliberately left alone.
+   *
+   * `uncommitted` is the safety refusal: git has no copy, so the delete would
+   * be unrecoverable. It is reported rather than silently dropped, because a
+   * sweep that quietly skips work is one the user cannot reason about.
+   */
+  skipped: Array<{
+    taskId: string;
+    reason: 'uncommitted' | 'delete_failed';
+  }>;
+  /** True when nothing was written. */
+  previewOnly: boolean;
+}
+
 export interface TasksCreateParams extends TasksWorkspaceScopedParams {
   title: string;
   type: TaskType;

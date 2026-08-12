@@ -88,6 +88,22 @@ export const TasksGetArtifactParamsSchema = z.object({
   file: z.enum(DOC_FILES),
 });
 
+/**
+ * Sweep bounds, enforced here rather than trusted from the caller.
+ *
+ * `min(1)` refuses zero outright: "delete everything finished, including what
+ * I closed a minute ago" is never what a retention policy means, and `0` is one
+ * keystroke from `7`. `max(3650)` is a sanity ceiling, not a policy.
+ *
+ * `apply` has NO default. A destructive flag that defaults to anything is a
+ * flag a caller can omit into a deletion; this one must be stated.
+ */
+export const TasksSweepParamsSchema = z.object({
+  workspaceRoot,
+  olderThanDays: z.number().int().min(1).max(3650),
+  apply: z.boolean(),
+});
+
 export const TasksCreateParamsSchema = z.object({
   workspaceRoot,
   title: z.string().min(1),
@@ -297,6 +313,7 @@ export type TasksGetArtifactParamsParsed = z.infer<
   typeof TasksGetArtifactParamsSchema
 >;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;
+export type TasksSweepParamsParsed = z.infer<typeof TasksSweepParamsSchema>;
 export type TasksUpdateStatusParamsParsed = z.infer<
   typeof TasksUpdateStatusParamsSchema
 >;

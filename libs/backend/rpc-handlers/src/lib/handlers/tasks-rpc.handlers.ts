@@ -7,6 +7,7 @@
  *   - tasks:get              - single task detail (body + artifact NAMES)
  *   - tasks:getArtifact      - ONE workflow document's markdown, by DocFile
  *   - tasks:create           - create a new TASK_YYYY_NNN folder + task.md
+ *   - tasks:sweepFinished    - DESTRUCTIVE: delete aged-out finished folders
  *   - tasks:updateStatus     - byte-preserving status transition
  *   - tasks:bulkUpdateStatus - N independent status writes, one result each
  *   - tasks:bulkUpdateLabel  - add/remove ONE label across N tasks; no-ops are
@@ -46,6 +47,7 @@ import {
   type TaskIndexChangeEvent,
   type TaskWriterService,
   type TaskDoctorService,
+  type TaskSweepService,
   type DoctorAction,
   type RegistryGeneratorService,
   type UpdateMetadataResult,
@@ -73,6 +75,8 @@ import {
   type TasksGetArtifactResult,
   type TasksCreateParams,
   type TasksCreateResult,
+  type TasksSweepParams,
+  type TasksSweepResult,
   type TasksUpdateStatusParams,
   type TasksUpdateStatusResult,
   type TasksUpdateMetadataParams,
@@ -104,6 +108,7 @@ import {
   TasksGetParamsSchema,
   TasksGetArtifactParamsSchema,
   TasksCreateParamsSchema,
+  TasksSweepParamsSchema,
   TasksUpdateStatusParamsSchema,
   TasksUpdateMetadataParamsSchema,
   TasksBulkUpdateStatusParamsSchema,
@@ -258,6 +263,7 @@ export class TasksRpcHandlers {
     'tasks:get',
     'tasks:getArtifact',
     'tasks:create',
+    'tasks:sweepFinished',
     'tasks:updateStatus',
     'tasks:updateMetadata',
     'tasks:bulkUpdateStatus',
@@ -286,6 +292,8 @@ export class TasksRpcHandlers {
     private readonly registry: RegistryGeneratorService,
     @inject(TASK_SPECS_TOKENS.TASK_DOCTOR)
     private readonly doctor: TaskDoctorService,
+    @inject(TASK_SPECS_TOKENS.TASK_SWEEP)
+    private readonly sweep: TaskSweepService,
     @inject(SETTINGS_TOKENS.TASKS_SETTINGS)
     private readonly tasksSettings: TasksSettings,
   ) {
@@ -300,6 +308,7 @@ export class TasksRpcHandlers {
     this.registerGet();
     this.registerGetArtifact();
     this.registerCreate();
+    this.registerSweepFinished();
     this.registerUpdateStatus();
     this.registerUpdateMetadata();
     this.registerBulkUpdateStatus();
@@ -679,6 +688,47 @@ export class TasksRpcHandlers {
         );
       }
     });
+  }
+
+  /**
+   * Delete finished task folders that have aged out. DESTRUCTIVE.
+   *
+   * The preview and the deletion are the SAME call with the same policy —
+   * `apply: false` scans and returns the identical candidate list having
+   * written nothing. Two methods would let the plan the user confirmed drift
+   * from the act that follows it.
+   *
+   * The candidate set is computed from the CURRENT index, so it is the set the
+   * board is showing rather than a fresh scan that could disagree with what the
+   * user was looking at when they confirmed.
+   */
+  private registerSweepFinished(): void {
+    this.rpcHandler.registerMethod<TasksSweepParams, TasksSweepResult>(
+      'tasks:sweepFinished',
+      async (params) => {
+        const parsed = this.parse(TasksSweepParamsSchema, params);
+        const root = this.resolveRoot(parsed.workspaceRoot);
+        try {
+          await this.index.ensureStarted(root);
+          const { tasks } = await this.index.list(root);
+          const result = await this.sweep.sweep(
+            root,
+            tasks,
+            parsed.olderThanDays,
+            parsed.apply,
+          );
+          // Only a run that actually removed something invalidates the index.
+          if (result.deleted.length > 0) await this.index.reindex(root);
+          return result;
+        } catch (error: unknown) {
+          throw this.sanitize(
+            error,
+            'tasks:sweepFinished',
+            'Failed to sweep finished tasks.',
+          );
+        }
+      },
+    );
   }
 
   private registerCreate(): void {

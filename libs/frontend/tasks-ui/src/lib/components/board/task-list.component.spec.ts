@@ -129,6 +129,122 @@ describe('TaskListComponent', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Windowing — the render budget, NOT a filter and NOT a fetch
+  // ---------------------------------------------------------------------------
+
+  describe('windowing', () => {
+    function bigGroup(count: number, status: TaskStatus = 'done') {
+      return column(
+        status,
+        Array.from({ length: count }, (_, i) =>
+          makeTask(`TASK_2026_${400 + i}`, status),
+        ),
+      );
+    }
+
+    it('renders at most one page and offers the remainder', () => {
+      const view = render([bigGroup(72)]);
+      expect(view.rows()).toHaveLength(25);
+      expect(
+        view.host
+          .querySelector('[data-testid="task-list-more-done"]')
+          ?.textContent?.replace(/\s+/g, ' '),
+      ).toContain('Showing 25 of 72');
+    });
+
+    /**
+     * The header states the FILTERED count, never the window's. A group of 72
+     * whose header reads "25" is the board lying about how much work is in it —
+     * the window is a rendering budget, not a fact about the task list.
+     */
+    it('counts the whole group in the header, not the window', () => {
+      expect(render([bigGroup(72)]).count('done')).toBe('72');
+    });
+
+    it('adds one page per press, then stops offering more', () => {
+      const view = render([bigGroup(60)]);
+      const more = () =>
+        view.host.querySelector<HTMLButtonElement>(
+          '[data-testid="task-list-more-btn-done"]',
+        );
+
+      expect(more()?.textContent?.trim()).toBe('Show 25 more');
+      more()?.click();
+      view.fixture.detectChanges();
+      expect(view.rows()).toHaveLength(50);
+
+      // The last page offers only what is left, never a round 25.
+      expect(more()?.textContent?.trim()).toBe('Show 10 more');
+      more()?.click();
+      view.fixture.detectChanges();
+      expect(view.rows()).toHaveLength(60);
+      expect(
+        view.host.querySelector('[data-testid="task-list-more-done"]'),
+      ).toBeNull();
+    });
+
+    it('expands the whole group in one press', () => {
+      const view = render([bigGroup(72)]);
+      view.host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="task-list-all-btn-done"]',
+        )
+        ?.click();
+      view.fixture.detectChanges();
+      expect(view.rows()).toHaveLength(72);
+    });
+
+    /**
+     * Expanding one pile of work must not expand the others — the budget is
+     * per status because the question the user asked was about one group.
+     */
+    it('keeps each group’s budget independent', () => {
+      const view = render([bigGroup(40, 'done'), bigGroup(40, 'in_review')]);
+      view.host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="task-list-all-btn-done"]',
+        )
+        ?.click();
+      view.fixture.detectChanges();
+
+      expect(view.rowIds().filter((id) => id !== null)).toHaveLength(40 + 25);
+      expect(
+        view.host.querySelector('[data-testid="task-list-more-in_review"]'),
+      ).not.toBeNull();
+    });
+
+    it('offers nothing when the group fits', () => {
+      const view = render([bigGroup(25)]);
+      expect(view.rows()).toHaveLength(25);
+      expect(
+        view.host.querySelector('[data-testid="task-list-more-done"]'),
+      ).toBeNull();
+    });
+
+    /**
+     * The window must never be reachable-but-invisible: an arrow key cannot
+     * land on a row that is not rendered, so the roving tab stop stays inside
+     * what the user can actually see.
+     */
+    it('keeps the keyboard inside the rendered window', () => {
+      const view = render([bigGroup(72)]);
+      const rendered = new Set(view.rowIds());
+      view.host.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
+      );
+      view.fixture.detectChanges();
+
+      const focused = view
+        .rows()
+        .find((row) => row.getAttribute('tabindex') === '0');
+      expect(focused).toBeDefined();
+      expect(rendered.has(focused?.getAttribute('data-task-id') ?? '')).toBe(
+        true,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Collapsing
   // ---------------------------------------------------------------------------
 

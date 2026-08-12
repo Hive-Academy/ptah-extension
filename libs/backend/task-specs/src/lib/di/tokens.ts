@@ -20,6 +20,8 @@ export const TASK_SPECS_TOKENS = {
   REGISTRY_GENERATOR: Symbol.for('TaskSpecsRegistryGenerator'),
   /** TaskIndexStore — SQLite derived index (Batch B). */
   TASK_INDEX_STORE: Symbol.for('TaskSpecsIndexStore'),
+  /** TaskSweepService — deletes aged-out finished folders. Never automatic. */
+  TASK_SWEEP: Symbol.for('TaskSpecsSweep'),
   /** TaskIndexService — lazy start + watcher + debounce (Batch B). */
   TASK_INDEX_SERVICE: Symbol.for('TaskSpecsIndexService'),
 } as const;

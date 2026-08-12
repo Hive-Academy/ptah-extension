@@ -13,6 +13,7 @@ import {
   type TasksBoardResult,
   type TasksGetViewsResult,
   type TasksSaveViewsResult,
+  type TasksSweepResult,
 } from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskViewsService } from '../services/task-views.service';
@@ -158,6 +159,163 @@ describe('TasksViewComponent', () => {
     expect(text).toContain('New Task');
     expect(text).toContain('Reindex');
     expect(text).toContain('Registry');
+  });
+
+  // -------------------------------------------------------------------------
+  // Retention sweep — DESTRUCTIVE, so the preview is the contract
+  // -------------------------------------------------------------------------
+
+  describe('retention sweep', () => {
+    function sweepResult(
+      over: Partial<TasksSweepResult> = {},
+    ): TasksSweepResult {
+      return {
+        candidates: [],
+        deleted: [],
+        skipped: [],
+        previewOnly: true,
+        ...over,
+      };
+    }
+
+    async function renderWithSweep(result: TasksSweepResult) {
+      const fixture = await render();
+      rpcCall.mockImplementation(async (method: string) => {
+        if (method === 'tasks:sweepFinished') return ok(result);
+        if (method === 'tasks:getViews')
+          return ok({ views: [], activeViewId: null, skipped: 0 });
+        return ok(board({}, { specsDirExists: false }));
+      });
+      return fixture;
+    }
+
+    function click(fixture: ComponentFixture<TasksViewComponent>, id: string) {
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)
+        ?.click();
+    }
+
+    /** The button PREVIEWS. Nothing is deleted by pressing it. */
+    it('previews rather than deleting when the header button is pressed', async () => {
+      const fixture = await renderWithSweep(sweepResult());
+      click(fixture, 'tasks-sweep-trigger');
+      await fixture.whenStable();
+
+      expect(rpcCall).toHaveBeenCalledWith('tasks:sweepFinished', {
+        olderThanDays: 7,
+        apply: false,
+      });
+      expect(
+        rpcCall.mock.calls.filter(
+          (c) => c[0] === 'tasks:sweepFinished' && c[1].apply === true,
+        ),
+      ).toHaveLength(0);
+    });
+
+    it('lists every candidate by name before anything is deleted', async () => {
+      const fixture = await renderWithSweep(
+        sweepResult({
+          candidates: [
+            {
+              taskId: 'TASK_2026_100',
+              status: 'done',
+              updated: '2026-07-01T00:00:00.000Z',
+              ageDays: 41,
+              committed: true,
+            },
+          ],
+        }),
+      );
+      click(fixture, 'tasks-sweep-trigger');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(
+        host.querySelector('[data-testid="tasks-sweep-row-TASK_2026_100"]'),
+      ).not.toBeNull();
+      expect(host.textContent).toContain('41d old');
+    });
+
+    /**
+     * The confirm button names what it will actually delete. Uncommitted
+     * candidates are refused by the backend, so counting them here would be
+     * the button lying about its own effect.
+     */
+    it('counts only the deletable candidates on the confirm button', async () => {
+      const fixture = await renderWithSweep(
+        sweepResult({
+          candidates: [
+            {
+              taskId: 'TASK_A',
+              status: 'done',
+              updated: null,
+              ageDays: 40,
+              committed: true,
+            },
+            {
+              taskId: 'TASK_B',
+              status: 'done',
+              updated: null,
+              ageDays: 40,
+              committed: false,
+            },
+          ],
+        }),
+      );
+      click(fixture, 'tasks-sweep-trigger');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const confirm = host.querySelector('[data-testid="tasks-sweep-confirm"]');
+      expect(confirm?.textContent).toContain('1');
+      expect(host.textContent).toContain('not in git');
+    });
+
+    it('offers no confirm button when nothing is deletable', async () => {
+      const fixture = await renderWithSweep(sweepResult());
+      click(fixture, 'tasks-sweep-trigger');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(
+        host.querySelector('[data-testid="tasks-sweep-confirm"]'),
+      ).toBeNull();
+      expect(
+        host.querySelector('[data-testid="tasks-sweep-empty"]'),
+      ).not.toBeNull();
+    });
+
+    it('applies only from the confirmation, and reloads the board after', async () => {
+      const fixture = await renderWithSweep(
+        sweepResult({
+          candidates: [
+            {
+              taskId: 'TASK_A',
+              status: 'done',
+              updated: null,
+              ageDays: 40,
+              committed: true,
+            },
+          ],
+        }),
+      );
+      click(fixture, 'tasks-sweep-trigger');
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      rpcCall.mockClear();
+      click(fixture, 'tasks-sweep-confirm');
+      await fixture.whenStable();
+
+      expect(rpcCall).toHaveBeenCalledWith('tasks:sweepFinished', {
+        olderThanDays: 7,
+        apply: true,
+      });
+      expect(rpcCall).toHaveBeenCalledWith('tasks:board', {});
+    });
   });
 
   // -------------------------------------------------------------------------

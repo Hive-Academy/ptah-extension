@@ -57,6 +57,7 @@ import {
   type TaskWriterService,
   type RegistryGeneratorService,
   type TaskIndexChangeEvent,
+  type TaskSweepService,
 } from '@ptah-extension/task-specs';
 import type { TasksSettings } from '@ptah-extension/settings-core';
 import {
@@ -194,6 +195,23 @@ function makeView(overrides: Partial<SavedTaskView> = {}): SavedTaskView {
   };
 }
 
+/**
+ * A sweep double that matches nothing and deletes nothing.
+ *
+ * The default for every suite: a DESTRUCTIVE collaborator must be inert unless
+ * a spec explicitly arms it, so no unrelated test can reach a delete path.
+ */
+function createInertSweep(): { sweep: jest.Mock } {
+  return {
+    sweep: jest.fn().mockResolvedValue({
+      candidates: [],
+      deleted: [],
+      skipped: [],
+      previewOnly: true,
+    }),
+  };
+}
+
 interface Suite {
   handlers: TasksRpcHandlers;
   rpc: MockRpcHandler;
@@ -207,6 +225,7 @@ interface Suite {
   };
   registry: { generate: jest.Mock };
   doctor: { plan: jest.Mock; apply: jest.Mock; undo: jest.Mock };
+  sweep: { sweep: jest.Mock };
   webviewManager: MockWebviewManager;
   logger: MockLogger;
   tasksSettings: MockTasksSettings;
@@ -268,6 +287,17 @@ function buildSuite(
   const webviewManager: MockWebviewManager = {
     broadcastMessage: jest.fn().mockResolvedValue(undefined),
   };
+  // Default: matches nothing and deletes nothing. A destructive collaborator
+  // whose test double is inert by default cannot delete anything a spec did
+  // not explicitly ask it to.
+  const sweep = {
+    sweep: jest.fn().mockResolvedValue({
+      candidates: [],
+      deleted: [],
+      skipped: [],
+      previewOnly: true,
+    }),
+  };
 
   const handlers = new TasksRpcHandlers(
     logger as unknown as Logger,
@@ -278,6 +308,7 @@ function buildSuite(
     writer as unknown as TaskWriterService,
     registry as unknown as RegistryGeneratorService,
     doctor as unknown as TaskDoctorService,
+    sweep as unknown as TaskSweepService,
     tasksSettings as unknown as TasksSettings,
   );
   handlers.register();
@@ -290,6 +321,7 @@ function buildSuite(
     writer,
     registry,
     doctor,
+    sweep,
     webviewManager,
     logger,
     tasksSettings,
@@ -309,12 +341,13 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 15 tasks:* methods', () => {
+  it('owns exactly the 16 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
       'tasks:getArtifact',
       'tasks:create',
+      'tasks:sweepFinished',
       'tasks:updateStatus',
       'tasks:updateMetadata',
       'tasks:bulkUpdateStatus',
@@ -587,6 +620,7 @@ function buildRealSuite(store: ITaskIndexStore): {
       apply: jest.fn(),
       undo: jest.fn(),
     } as unknown as TaskDoctorService,
+    createInertSweep() as unknown as TaskSweepService,
     createMockTasksSettings() as unknown as TasksSettings,
   );
   handlers.register();
@@ -767,6 +801,7 @@ describe('tasks:create', () => {
       realWriter,
       { generate: jest.fn() } as unknown as RegistryGeneratorService,
       { plan: jest.fn() } as unknown as TaskDoctorService,
+      createInertSweep() as unknown as TaskSweepService,
       createMockTasksSettings() as unknown as TasksSettings,
     );
     handlers.register();
@@ -1308,6 +1343,7 @@ describe('tasks:doctorPlan', () => {
       realWriter,
       { generate: jest.fn() } as unknown as RegistryGeneratorService,
       realDoctor,
+      createInertSweep() as unknown as TaskSweepService,
       createMockTasksSettings() as unknown as TasksSettings,
     );
     handlers.register();
@@ -1571,6 +1607,7 @@ function buildParitySuite(store: ITaskIndexStore): {
       apply: jest.fn(),
       undo: jest.fn(),
     } as unknown as TaskDoctorService,
+    createInertSweep() as unknown as TaskSweepService,
     createMockTasksSettings() as unknown as TasksSettings,
   );
   handlers.register();
@@ -2437,6 +2474,7 @@ async function buildBulkSuite(
     writer,
     { generate: jest.fn() } as unknown as RegistryGeneratorService,
     { plan: jest.fn() } as unknown as TaskDoctorService,
+    createInertSweep() as unknown as TaskSweepService,
     createMockTasksSettings() as unknown as TasksSettings,
   );
   handlers.register();
@@ -2978,6 +3016,7 @@ async function buildLabelSuite(
     writer,
     { generate: jest.fn() } as unknown as RegistryGeneratorService,
     { plan: jest.fn() } as unknown as TaskDoctorService,
+    createInertSweep() as unknown as TaskSweepService,
     createMockTasksSettings() as unknown as TasksSettings,
   );
   handlers.register();
@@ -3768,6 +3807,7 @@ describe('tasks:* workspace authorization', () => {
       file: 'implementation-plan.md',
     },
     'tasks:create': { title: 'T', type: 'BUGFIX' },
+    'tasks:sweepFinished': { olderThanDays: 7, apply: false },
     'tasks:updateStatus': { taskId: 'TASK_2026_401', status: 'done' },
     'tasks:updateMetadata': {
       taskId: 'TASK_2026_401',

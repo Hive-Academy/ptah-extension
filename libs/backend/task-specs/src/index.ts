@@ -40,6 +40,10 @@ export {
   type AdoptFolderResult,
 } from './lib/task-writer.service';
 export {
+  TaskSweepService,
+  type ISweepGitProbe,
+} from './lib/task-sweep.service';
+export {
   TaskDoctorService,
   type AdoptAction,
   type RenameBatchesAction,
