@@ -1,0 +1,2075 @@
+# Development Tasks — TASK_2026_180
+
+**Agentic skill synthesis: queued execution, provider routing, session archaeologist, replay validation, proactive curator**
+
+**Total Batches**: 34 | **Total Tasks**: 118 | **Commits**: 6 | **Status**: 0/34 complete
+
+Source of truth: `.ptah/specs/TASK_2026_180/implementation-plan.md` (USER-APPROVED, 1,123 lines).
+All paths below are **worktree-relative** to
+`D:/projects/ptah-extension/.claude-worktrees/task180/`.
+
+---
+
+## 0. Delivery DAG
+
+Six commits. **A batch belongs to exactly one commit; no batch straddles a commit
+boundary.** Each commit is shippable without partial work from any later commit.
+
+```
+                   ┌──────────────────────────┐
+                   │ C0 — Phase 0             │
+                   │ queue + cron drain +     │
+                   │ Tier A survival          │
+                   │ B0.1 … B0.7              │
+                   └────┬──────────────┬──────┘
+                        │              │
+      ┌─────────────────┘              └──────────────┐
+      │                                               │
+┌─────▼────────────────────┐                   ┌──────▼──────────────────┐
+│ C1 — Phase 1             │                   │ C5 — Tier B tray        │
+│ trust + lane routing     │                   │ Electron keep-alive     │
+│ B1.1 … B1.11             │                   │ B5.1 … B5.2             │
+└────┬───────────┬─────────┘                   └─────────────────────────┘
+     │           │
+     │           └──────────────┬──────────────────────┐
+     │                          │                      │
+┌────▼─────────────────┐ ┌──────▼──────────────┐ ┌─────▼───────────────┐
+│ C2 — Phase 2         │ │ C3 — Phase 3        │ │ C4 — Phase 4        │
+│ session archaeologist│ │ empirical gates     │ │ proactive curator   │
+│ B2.1 … B2.4          │ │ B3.1 … B3.5         │ │ B4.1 … B4.5         │
+└──────────┬───────────┘ └─────────────────────┘ └─────────────────────┘
+           │  (soft: verdict shape)      ▲                    ▲
+           └─────────────────────────────┴────────────────────┘
+              C3/C4 consume C2's verdict WHEN PRESENT and
+              ship + pass CI with the documented fallback when it is absent.
+```
+
+**Hard edges**
+
+| Edge    | Reason                                                                                          |
+| ------- | ----------------------------------------------------------------------------------------------- |
+| C0 → C2 | The archaeologist runs only from the queue, never inline (plan §4 Phase 2, criterion P2-4).     |
+| C0 → C3 | Replay + judge-panel + trigger-eval are `weekly`-tier drain stages only (plan §4 Phase 3, R8).  |
+| C0 → C4 | Digest sweeps are nightly/weekly drain stages (context.md Phase 4).                             |
+| C0 → C5 | The tray gates on `skillSynthesis.trayKeepalive`, whose key + default-`false` ships in C0 (Q4). |
+| C1 → C2 | The archaeologist runs on the `archaeologist` lane through `LaneRunner`.                        |
+| C1 → C3 | Replay/comparator/judge-panel all run on lanes through `LaneRunner`.                            |
+| C1 → C4 | Digest sweeps that call an LLM go through `LaneRunner`.                                         |
+
+**Soft edges (fallback documented, CI green either way)**
+
+| Edge    | Fallback                                                                                                                                                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| C2 ⇢ C3 | Replay + trigger-eval prefer `skill_session_verdicts.routine` / `friction_map`; when the row is absent or `degraded_reason IS NOT NULL` they fall back to `ExtractedTrajectory.canonicalText` + `shortDescription` and set `payload.verdictFallback = true` (plan §4 Phase 3). |
+| C2 ⇢ C4 | Win rate degrades gracefully: sessions with no verdict row count as `unknown`, and `winRate` is `null` — never `0` — when the denominator is 0 (plan §2.5).                                                                                                                    |
+
+### 0.1 Recommended landing order
+
+**C0 → C1 → C2 → C3 → C4 → C5.**
+
+Phase 0 and Phase 1 are dependency-independent _at the design level_ — context.md
+line 8 explicitly permits them in parallel — but **one Phase-1 acceptance
+criterion (P1-7) is only assertable once the drain exists**: "a lane whose auth
+cannot resolve leaves its queue item `queued` with a surfaced reason and does not
+throw out of the drain." That criterion lives in batch **B1.7**, which therefore
+carries a cross-commit dependency on **B0.4**.
+
+Landing C0 first makes B1.7 buildable as written. If the orchestrator chooses to
+land C1 first instead, B1.7 must be deferred to the front of C0 — see
+**Questions for the user**, Q-A.
+
+### 0.2 Decisions already made — do NOT re-litigate
+
+Recorded in `context.md` § "Approved decisions (Checkpoint 2, user-approved)".
+
+| #   | Decision                                                                                                                                           | Where it binds |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Q1  | ONE shared `'lane'` `ProviderTierScope` member. Not four. Not reused `'cliAgent'`.                                                                 | B1.3           |
+| Q2  | Unresolvable lane auth **STALLS** — queue item back to `queued`, surfaced reason, 30-min backoff. **Never** falls back to the foreground provider. | B1.5, B1.7     |
+| Q3  | Orchestrated multi-pass retrieval via `TranscriptWindowReader` driven from TypeScript. **NOT** SDK tool calling (correction C7).                   | B2.2, B2.3     |
+| Q4  | Tier B Electron tray is a SEPARATE SIXTH COMMIT. C0 ships Tier A survival plus the `skillSynthesis.trayKeepalive` key defaulted `false`.           | B0.5, C5       |
+| Q5  | Frequent drain cadence `*/15 * * * *`.                                                                                                             | B0.5, B0.6     |
+
+---
+
+## 1. Plan validation summary
+
+**Validation status: PASSED WITH RISKS.** No blockers. The plan was
+stress-tested against the worktree at `1064bcafb`; every assumption below was
+checked by reading the cited file.
+
+### 1.1 Assumptions verified against code
+
+| #   | Assumption                                                                                            | Result                                                                                                                                                   |
+| --- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1  | Highest existing migration is `0031`; new work starts at `0032`.                                      | ✅ `libs/backend/persistence-sqlite/src/lib/migrations/` ends at `0031_task_specs_metadata.ts`.                                                          |
+| A2  | `IPowerMonitor` exposes only `onResume`/`onSuspend` — battery gating is unbuildable without widening. | ✅ Confirmed by reading `libs/backend/cron-scheduler/src/lib/power-monitor.interface.ts` in full. Correction **C6** is real and load-bearing → **B0.2**. |
+| A3  | `skillSynthesis.*` dotted settings keys already work (`skillSynthesis.triggers.*`).                   | ✅ `libs/backend/platform-core/src/file-settings-keys.ts:143-149`. The lane keys copy that proven shape.                                                 |
+| A4  | `triggers/skill-trigger-config.ts` is the house pattern for dotted settings sub-trees.                | ✅ Present at `libs/backend/skill-synthesis/src/lib/triggers/skill-trigger-config.ts`. **B1.4** is a structural copy.                                    |
+| A5  | `libs/frontend/ui/src/lib/native/` is the right home for the extracted picker.                        | ✅ Existing siblings: `autocomplete`, `card`, `drawer`, `dropdown`, `form`, `option`, `popover`, `shared`, `tab-group`.                                  |
+| A6  | `CuratorModelPickerComponent` exists in the Electron-only lib and must be DELETED, not forked.        | ✅ `libs/frontend/memory-curator-ui/src/lib/components/diagnostics/curator-model-picker.component.ts` (+ its spec) → **B1.10**.                          |
+| A7  | Electron `window-all-closed` quits unconditionally and there is no tray.                              | ✅ `apps/ptah-electron/src/main.ts:161` (`window-all-closed`), `:166` (`will-quit`); zero `Tray` references. Tier B is genuinely net-new → **C5**.       |
+| A8  | `apps/ptah-electron` has a `test` target, so the tray is unit-testable, not e2e-only.                 | ✅ Targets include `test`, `typecheck`, `lint`, `validate-deps`.                                                                                         |
+| A9  | `skillSynthesis:` is already in `ALLOWED_METHOD_PREFIXES`.                                            | ✅ Confirmed (correction C11). **Do NOT add a redundant entry.** Only the compile-time half of dual-registration applies per new method.                 |
+
+### 1.2 Risks carried into the batches
+
+| #   | Risk                                                                                                                                                                                                                                     | Severity              | Mitigating batch                                                                                                                                                         |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R1  | A background lane repoints the user's live chat session. `ProviderModelsService.applyPersistedTiers` (`:617-643`) writes `this.authEnv[k]` **and** `process.env[k]` with **no scope guard at all**.                                      | CRITICAL              | **B1.5** — byte-for-byte immutability spec + lib-scoped ESLint ban. Release-blocking on failure.                                                                         |
+| R2  | Silent auth-strip breakage. `buildLaneEnv` blanks `CHAT_AUTH_KEYS` by **assigning `undefined`, never `delete`**. Any `structuredClone` / `JSON` round-trip / `z.record(z.string())` / truthiness filter re-leaks foreground credentials. | CRITICAL              | **B1.3** (type is `Readonly<Record<string, string \| undefined>>`) + **B1.5** (presence-with-`undefined` assertion).                                                     |
+| R3  | Archaeologist cost scales linearly with session count.                                                                                                                                                                                   | HIGH                  | **B0.4** (per-item budget check, cheap-stages-first ordering above 80 % budget), **B2.4** (nightly tier only).                                                           |
+| R4  | Drain starvation — one busy project monopolizes every tick.                                                                                                                                                                              | HIGH                  | **B0.4** — round-robin over `skill_synthesis_workspace_cursor`, `perWorkspaceBatch = 1`.                                                                                 |
+| R5  | Stale-claim TTL mistuned — a live archaeologist run reaped mid-flight.                                                                                                                                                                   | MED-HIGH              | **B0.3** (`touchClaim` heartbeat), **B0.4** (startup assertion `staleClaimTtlMs >= 3 × max(lane.timeoutMs)`), **B2.3** (heartbeat between passes).                       |
+| R6  | A lane pointed at a small-context or non-tool-use model loops to timeout.                                                                                                                                                                | MEDIUM                | **B1.5** (`tool-use-unsupported` degrades **once**), **B1.9** (picker warns off `supportsToolUse`/`contextLength`), **B2.3** (`maxPasses = 1` collapse).                 |
+| R7  | Local-proxy lane mis-identified by hostname-substring matching.                                                                                                                                                                          | MEDIUM (pre-existing) | **B1.3** — lanes always set explicit `ANTHROPIC_DEFAULT_*_MODEL` via `buildTierValues` before identification. Fixing the matcher is out of scope; logged as a follow-up. |
+| R8  | Judge-panel + replay quadruple promotion cost.                                                                                                                                                                                           | MEDIUM                | **B3.4** (second judge only on a `scored` first verdict; escalation only above threshold), weekly tier only.                                                             |
+| R9  | SQLite `CHECK` constraints cannot be extended without a table rebuild.                                                                                                                                                                   | MEDIUM (designed out) | **B0.1** — `0032` enumerates **all eleven** stages and **all seven** statuses in one pass; spec asserts the full enum set.                                               |
+| R10 | Suppressing `window-all-closed` without a working tray leaves an unkillable process.                                                                                                                                                     | LOW-MED               | **B5.1** — default `false`, unconditional "Quit Ptah" item, `will-quit` teardown unchanged.                                                                              |
+
+### 1.3 Gaps found during decomposition — new tasks added
+
+Two artefacts the plan requires **do not exist yet** in the worktree. Both are
+carried as explicit tasks rather than assumed:
+
+1. **`libs/backend/skill-synthesis/eslint.config.mjs` does not exist.** R1's
+   mitigation (b) — an ESLint rule banning `setModelTier` / `applyPersistedTiers`
+   inside the lib — needs the file created from scratch. The per-lib-config
+   pattern is proven (`libs/web/members/eslint.config.mjs`, referenced at
+   `eslint.config.mjs:9`). → **Task B1.5.5**.
+2. **No `dependency-boundaries.spec.ts`-style check exists anywhere** (`find libs
+-name "dependency-boundaries*"` → empty). Criterion P1-9 part (b) asks for one
+   pinning `libs/frontend/ui` ↛ `@ptah-extension/core`. → **Task B1.9.4**.
+
+### 1.4 Acceptance-criterion coverage
+
+Every criterion in `context.md` § "Acceptance criteria (per phase)" maps to a
+named spec through plan §6, and every one of those specs is owned by exactly one
+batch below. **No criterion is orphaned.** Four criteria were flagged in §6 as
+UNTESTABLE AS WRITTEN and restated by the architect — the restatement is what the
+batch implements, and the batch says so:
+
+| Criterion                                  | Why untestable as written                                | Restated into                                                    |
+| ------------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------- |
+| P0-5 (battery)                             | No battery query existed on the port.                    | B0.2 + B0.4                                                      |
+| P0-7 (`JobRun` rows "visible in Activity") | Spans backend + frontend; "visible" is not an assertion. | B0.5 (RPC half) + B0.7 (component half)                          |
+| P1-9 (picker renders in BOTH hosts)        | Jest cannot distinguish the host.                        | B1.9 (injector-surface + boundary spec) + B1.11 (e2e both hosts) |
+| P1-10 (no prompt-echo titles "anywhere")   | Unbounded negative.                                      | B1.6 (namer) + B1.10 (title fallback)                            |
+
+---
+
+# COMMIT 0 — Phase 0: queue, cron drain, Tier A survival
+
+Commit message: `feat(skill-synthesis): phase 0 — durable synthesis queue drained by cron`
+
+---
+
+## Batch B0.1: Migration 0032 + shared SQLite error helper ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: none
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The `0032` DDL is the schema contract every later phase reads;
+  R9 means a missed `CHECK` member costs a table rebuild later. The
+  `isUniqueConstraintError` relocation is a cross-lib move that must not break
+  `cron-scheduler`. Architecture-bearing, not boilerplate.
+
+### Task B0.1.1: Create migration `0032_skill_synthesis_queue`
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0032_skill_synthesis_queue.ts`
+- **Spec**: `libs/backend/persistence-sqlite/src/lib/migrations/0032_skill_synthesis_queue.spec.ts`
+- **Spec ref**: implementation-plan.md §2.2 (lines 80–130)
+- **Pattern to follow**: `0030_skill_event_metrics.ts:13-24`, `0031_task_specs_metadata.ts:23-32`
+- **Details**: Three tables — `skill_synthesis_queue`, `skill_synthesis_workspace_cursor`,
+  `skill_synthesis_budget` — plus `idx_ssq_drain`, `idx_ssq_stale`, `idx_ssq_session`.
+  SQL **must** be static text in `export const sql = \`...\``(ESLint`no-template-curly-in-migration`+ Semgrep`sql-injection-in-migration`,
+`migrations/index.ts:14-18`).
+- **Validation notes**: **R9.** Enumerate ALL ELEVEN stages
+  (`prefilter`, `archaeology`, `synthesis`, `embedding`, `clustering`,
+  `cluster-synthesis`, `judge`, `judge-panel`, `replay`, `trigger-eval`, `digest`)
+  and ALL SEVEN statuses (`queued`, `claimed`, `running`, `done`, `failed`,
+  `unscored`, `skipped`) even though C0 exercises only ~4 of each. The spec must
+  assert the full enum set via `PRAGMA table_info` or an insert-per-member test.
+  `UNIQUE(session_id, stage)` is load-bearing for idempotent enqueue.
+
+### Task B0.1.2: Register `0032` in the migration registry
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/index.ts`
+- **Spec**: covered by B0.1.1's spec + existing registry specs
+- **Details**: Registry entry shape documented at `index.ts:62-110`. Version 32.
+
+### Task B0.1.3: Move `isUniqueConstraintError` into `persistence-sqlite`
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/` (new module; export from the lib's `index.ts`)
+- **Spec**: `libs/backend/persistence-sqlite/src/lib/<module>.spec.ts` (new)
+- **Details**: Move from `libs/backend/cron-scheduler/src/lib/run.store.ts:49-53`.
+  It is a pure better-sqlite3 concern.
+- **Validation notes**: This is what lets `skill-synthesis` reuse the helper
+  **without depending on `cron-scheduler`** — a hexagonal boundary requirement,
+  not a tidy-up.
+
+### Task B0.1.4: Re-point `cron-scheduler` at the moved helper
+
+- **File**: `libs/backend/cron-scheduler/src/lib/run.store.ts`
+- **Spec**: existing `run.store` spec — update the import, assert behaviour unchanged
+- **Details**: Delete the local copy; import from `persistence-sqlite`. `cron-scheduler`
+  already depends on `persistence-sqlite`, so no new edge is introduced.
+
+**Acceptance**:
+`nx test @ptah-extension/persistence-sqlite` — `0032` spec green, all 11 stage
+members and all 7 status members insertable, every non-member rejected by the
+`CHECK`; **and** `nx test @ptah-extension/cron-scheduler` — `run.store` specs
+green against the relocated helper; **and** `nx lint @ptah-extension/persistence-sqlite`
+passes (static-SQL rules).
+
+---
+
+## Batch B0.2: Widen `IPowerMonitor` with `isOnBattery()` (correction C6) ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: none
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: A port widening that ripples into every implementer across two
+  libs and an app. Small but cross-cutting; a missed implementer is a build break.
+
+### Task B0.2.1: Add `isOnBattery(): boolean` to the port
+
+- **File**: `libs/backend/cron-scheduler/src/lib/power-monitor.interface.ts`
+- **Spec**: `libs/backend/cron-scheduler/src/lib/power-monitor.interface.spec.ts` (new)
+- **Spec ref**: implementation-plan.md §4 Phase 0 "Modified"; correction C6 (lines 979–987)
+- **Details**: Widen `IPowerMonitor`; `NoopPowerMonitor.isOnBattery()` returns `false`.
+- **Validation notes**: **Without this, criterion P0-5 is unbuildable** — the port
+  exposes only `onResume`/`onSuspend` today (verified in full). Spec asserts
+  `NoopPowerMonitor.isOnBattery() === false`.
+
+### Task B0.2.2: Implement `isOnBattery()` in the Electron adapter
+
+- **File**: `apps/ptah-electron/src/services/platform/electron-power-monitor.ts`
+- **Spec**: co-located spec (create if absent)
+- **Details**: `powerMonitor.isOnBatteryPower()`.
+
+### Task B0.2.3: Sweep for any other `IPowerMonitor` implementer or stub
+
+- **File**: repo-wide — any spec fake, VS Code stub, or CLI adapter implementing the port
+- **Details**: Every implementer gains `isOnBattery()`. A missed one is a
+  compile error, so `typecheck` is the gate.
+
+**Acceptance**:
+`nx test @ptah-extension/cron-scheduler` — `NoopPowerMonitor.isOnBattery() === false`;
+**and** `nx typecheck ptah-electron` **and** `npm run typecheck:all` clean (proves
+no implementer was missed).
+
+---
+
+## Batch B0.3: Queue store, budget store, types, DI tokens ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: B0.1
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The CAS claim is the at-most-once primitive for the whole
+  feature. Concurrency-correctness work with a subtle guarded-re-open UPDATE —
+  the opposite of mechanical.
+
+### Task B0.3.1: Queue types
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-queue.types.ts`
+- **Spec**: exercised by B0.3.2's specs
+- **Details**: `SkillQueueStage`, `SkillQueueStatus`, `SkillQueueRow`, `EnqueueInput`.
+  Stage/status unions must be exactly the eleven + seven members from `0032`.
+
+### Task B0.3.2: `SkillQueueStore`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-queue.store.ts`
+- **Specs**:
+  - `libs/backend/skill-synthesis/src/lib/queue/skill-queue.store.spec.ts` (enqueue idempotency + guarded re-open)
+  - `libs/backend/skill-synthesis/src/lib/queue/skill-queue.store.claim.spec.ts` (**P0-2**)
+  - `libs/backend/skill-synthesis/src/lib/queue/skill-queue.store.reap.spec.ts` (**P0-3**)
+- **Spec ref**: implementation-plan.md §2.2 (lines 132–198), §6 P0-2 / P0-3
+- **Details**: `enqueue`, `tryClaim` (CAS), `touchClaim`, `markDone` / `markFailed` /
+  `markUnscored` / `markSkipped`, `reapStale`, `listEligibleWorkspaces`,
+  `listEligible(root, limit)`, `listRecent(limit)`.
+- **Validation notes**:
+  - **Enqueue is NOT the at-most-once primitive.** One `db.transaction`: plain
+    `INSERT`; on `isUniqueConstraintError` fall through to the guarded re-open
+    `UPDATE … WHERE session_id=? AND stage=? AND status IN ('done','failed','unscored','skipped') AND turn_count < ?`.
+    **No `INSERT OR IGNORE`, no UPSERT** (rule at `run.store.ts:6-9`).
+  - **Correction C5**: today's `analyzedSessions` is a `Map<string, number>` of
+    highest-analyzed turn count (`skill-synthesis.service.ts:111`, `:365-372`),
+    **not a Set**. The `turn_count` column + guarded re-open must preserve
+    "re-analyze only once the session grew" — durably and cross-window.
+  - **Claiming IS the primitive**: CAS `UPDATE … SET status='claimed' … WHERE id=:id AND status IN ('queued','unscored')`
+    inside `BEGIN IMMEDIATE`. `changes === 0` ⇒ another worker won ⇒ treat as
+    success-by-other-worker and move on, exactly as `JobRunner` treats
+    `SlotAlreadyClaimedError` (`job-runner.ts:119-125`). **Never throw.**
+  - P0-2 spec uses ONE `better-sqlite3` **file** DB and TWO store instances with
+    distinct `claimed_by`.
+  - P0-3 spec: claim → rewind `claimed_at` to `now - ttl - 1` → `reapStale(ttl)`
+    ⇒ `status='queued'`, `claimed_by IS NULL`. Companion case: `touchClaim`
+    before the rewind leaves the row claimed (**R5**).
+
+### Task B0.3.3: `SkillBudgetStore`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-budget.store.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/queue/skill-budget.store.spec.ts` (**P0-6**, store half)
+- **Details**: `spentToday()`, `record(usage)`, UTC `day_key` rollover.
+- **Validation notes**: Spec must assert rollover **at UTC midnight**, not local.
+
+### Task B0.3.4: DI tokens + registration
+
+- **Files**: `libs/backend/skill-synthesis/src/lib/di/tokens.ts`,
+  `libs/backend/skill-synthesis/src/lib/di/register.ts`
+- **Spec**: extend the existing register spec if present
+- **Details**: `SKILL_QUEUE_STORE = Symbol.for('PtahSkillSynthesisQueueStore')`,
+  `SKILL_BUDGET_STORE = Symbol.for('PtahSkillSynthesisBudgetStore')`.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P0-2 spec proves exactly one of two
+concurrent `tryClaim` calls returns a row (the other `null`); P0-3 proves reap +
+`touchClaim` behaviour; budget spec proves UTC rollover.
+
+---
+
+## Batch B0.4: Foreground tracker + drain service + gate order ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: B0.2, B0.3
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The drain is the single highest-complexity unit in the commit —
+  gate ordering, round-robin fairness, per-item budget accounting, and a
+  never-throws contract. Tightly coupled business logic.
+
+### Task B0.4.1: `ForegroundActivityTracker`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/foreground-activity.tracker.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/queue/foreground-activity.tracker.spec.ts`
+- **Details**: Subscribes to `SessionActivityRegistry`
+  (`Symbol.for('SdkSessionActivityRegistry')`, `agent-sdk/src/lib/di/tokens.ts:46`),
+  exposes `msSinceLastActivity()`. Cross-lib token declared locally the same way
+  `INTERNAL_QUERY_SERVICE_TOKEN` is (`di/tokens.ts:17-19`), injected `{isOptional: true}`.
+- **Validation notes**: The registry is **push-only** (`session-activity-registry.ts:55-57`)
+  — it has no "is active" query, which is why this small stateful tracker exists.
+  **No new port.**
+
+### Task B0.4.2: `SkillDrainService`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-drain.service.ts`
+- **Specs**:
+  - `libs/backend/skill-synthesis/src/lib/queue/skill-drain.gates.spec.ts` (**P0-4, P0-5, P0-6**)
+  - `libs/backend/skill-synthesis/src/lib/queue/skill-drain.idempotency.spec.ts` (**P4-3**, second half — lands here because it tests the drain, not the digest)
+- **Spec ref**: implementation-plan.md §4 Phase 0 (lines 504–511, 562–564), §6 P0-4…P0-6
+- **Details**: Signature
+  `drain(opts: { tier: 'frequent'|'nightly'|'weekly'; signal: AbortSignal; onBattery: boolean }): Promise<DrainSummary>`
+  — **never throws**.
+  Gate order, each yielding a `skipped` summary with a reason:
+  `enabled` → `budget.spentToday >= maxTokensPerDay` → `pauseOnBattery && onBattery`
+  → `msSinceLastActivity() < foregroundBackoffMs` → reap stale → per-workspace
+  round-robin → per-item CAS claim → stage dispatch.
+- **Validation notes**:
+  - **R4**: never `ORDER BY enqueued_at` globally. Read distinct eligible
+    `workspace_root` ordered by `skill_synthesis_workspace_cursor.last_drained_at ASC`
+    (missing cursor = 0 = highest priority), take ≤ `perWorkspaceBatch` from each,
+    stop at `maxItemsPerRun`, bump each visited cursor. Spec: three workspaces
+    with 10/1/1 queued items yield **1/1/1** in the first tick.
+  - **R3**: the budget check runs **per item**, not per drain, so cheap stages
+    continue after an expensive one exhausts the budget. Once ≥ 80 % of budget is
+    consumed, order the eligible set cheap-stages-first.
+  - **R5**: assert at startup that `staleClaimTtlMs >= 3 × max(lane.timeoutMs)`;
+    log a warning otherwise. Reaping runs at the head of every drain **and** at
+    `SkillSynthesisService.start()`.
+  - P0-4 spec: stub `msSinceLastActivity() → 1000` with `foregroundBackoffMs = 300000`
+    ⇒ `{skipped: true, reason: 'foreground-active'}` and `tryClaim` **never called**.
+  - P0-5 spec (restated per C6): `pauseOnBattery: true` + monitor stub `isOnBattery() → true`
+    ⇒ `{skipped: true, reason: 'on-battery'}`, zero claims.
+  - P0-6 spec: seed `spentToday = maxTokensPerDay`
+    ⇒ `{skipped: true, reason: 'daily-token-budget-exhausted'}`, zero claims.
+
+### Task B0.4.3: Register drain + tracker tokens
+
+- **Files**: `libs/backend/skill-synthesis/src/lib/di/tokens.ts`,
+  `libs/backend/skill-synthesis/src/lib/di/register.ts`
+- **Details**: `SKILL_DRAIN_SERVICE = Symbol.for('PtahSkillSynthesisDrainService')`,
+  `FOREGROUND_ACTIVITY_TRACKER = Symbol.for('PtahSkillForegroundActivityTracker')`.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — all four gate specs return the exact
+documented `reason` strings with zero claims; the fairness spec yields 1/1/1;
+`drain()` **resolves** in every failure path (assert no rejection).
+
+---
+
+## Batch B0.5: Settings keys + `skillSynthesis:queue` RPC ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: B0.3
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Dual-registration is order-dependent (contract before handler)
+  and one missing allow-map entry silently 404s the method at runtime.
+
+### Task B0.5.1: Eleven new settings keys + defaults
+
+- **File**: `libs/backend/platform-core/src/file-settings-keys.ts`
+- **Spec**: extend the existing `file-settings-keys` spec
+- **Spec ref**: implementation-plan.md §4 Phase 0 "New settings" (lines 539–556)
+- **Details**: Add to BOTH the key list (~`:114-133`, alongside the proven
+  `skillSynthesis.triggers.*` block at `:143-149`) and `FILE_BASED_SETTINGS_DEFAULTS`
+  (~`:266+`):
+
+  | Key                                        | Default                                         |
+  | ------------------------------------------ | ----------------------------------------------- |
+  | `skillSynthesis.drain.cronExpr`            | `'*/15 * * * *'` (Q5)                           |
+  | `skillSynthesis.drain.nightlyCronExpr`     | `'0 3 * * *'`                                   |
+  | `skillSynthesis.drain.weeklyCronExpr`      | `'0 4 * * 0'`                                   |
+  | `skillSynthesis.drain.maxItemsPerRun`      | `4`                                             |
+  | `skillSynthesis.drain.perWorkspaceBatch`   | `1`                                             |
+  | `skillSynthesis.drain.foregroundBackoffMs` | `300000`                                        |
+  | `skillSynthesis.drain.pauseOnBattery`      | `true`                                          |
+  | `skillSynthesis.drain.maxAttempts`         | `5`                                             |
+  | `skillSynthesis.drain.staleClaimTtlMs`     | `900000`                                        |
+  | `skillSynthesis.budget.maxTokensPerDay`    | `2000000` (`0` = unlimited)                     |
+  | `skillSynthesis.trayKeepalive`             | `false` (Q4 — key ships here, tray ships in C5) |
+
+- **Validation notes**: There is **no** `queueEnabled` flag. Phase 0 _replaces_
+  the inline path; a dual path is exactly the parallel-implementation pattern the
+  brief forbids. `skillSynthesis.enabled` remains the master switch.
+
+### Task B0.5.2: Extend `SkillSynthesisSettingsSchema`
+
+- **File**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.ts`
+- **Spec**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.spec.ts` (extend)
+- **Details**: Adding to the schema is sufficient — the schema-driven `getSettings`
+  loop at `skills-synthesis-rpc.handlers.ts:428-441` picks the keys up automatically.
+
+### Task B0.5.3: `skillSynthesis:queue` wire contract
+
+- **File**: `libs/shared/src/lib/types/rpc.types.ts`
+- **Details**: Method map (~`:1631`) **and** allow-map (~`:2990`).
+- **Validation notes**: **Correction C11** — `'skillSynthesis:'` is ALREADY in
+  `ALLOWED_METHOD_PREFIXES`. **Do NOT add a redundant runtime-guard entry.** Only
+  the compile-time half applies.
+
+### Task B0.5.4: `skillSynthesis:queue` handler
+
+- **File**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`
+- **Spec**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.queue.spec.ts` (new — **P0-7 part (a)**)
+- **Details**: Returns `{ items: QueueRow[]; recentRuns: JobRunSummary[] }`.
+- **Validation notes**: P0-7 was UNTESTABLE AS WRITTEN ("visible in Activity");
+  this is the backend half of the restatement. `job_runs` rows already record
+  status/duration/error (`0004_cron.ts`); surface them, do not re-derive them.
+
+**Acceptance**:
+`nx test @ptah-extension/rpc-handlers` — the queue spec returns seeded rows in
+both arrays; **and** `nx test @ptah-extension/platform-core` (defaults present);
+**and** `npm run typecheck:all` clean (proves the compile-time contract half).
+
+---
+
+## Batch B0.6: Enqueue-instead-of-analyze + cron registration ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: B0.4, B0.5
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: This is the behavioural switch-over — the moment the inline
+  pipeline dies. Cross-file, cross-lib, and it must preserve the `turn_count`
+  re-open semantic. Highest-regression-risk batch in C0.
+
+### Task B0.6.1: Session end enqueues; it no longer analyzes
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.enqueue.spec.ts` (new — **P0-1**)
+- **Spec ref**: implementation-plan.md §4 Phase 0 "Modified" (lines 515–517)
+- **Details**:
+  - `:222-233` — the session-end callback **enqueues** instead of calling `analyzeSession`.
+  - `:249-264` — `backfillEmbeddings` loses its `setTimeout(…, 5000)`; it becomes
+    an `embedding`-stage drain item.
+  - `:111`, `:277`, `:354-372` — `analyzedSessions` is **demoted to a same-process
+    fast path only**; correctness moves to `UNIQUE(session_id, stage)` + `turn_count`.
+- **Validation notes**: P0-1 spec fires the session-end callback with a stub
+  `IInternalQuery` and asserts `internalQuery.execute` has **0** calls and
+  `SkillQueueStore.enqueue` has exactly **1**, with `stage='prefilter'`.
+  Do **not** delete `analyzedSessions` — demote it. Correction C5 applies.
+
+### Task B0.6.2: Register three drain handlers + three jobs in `thoth-runtime`
+
+- **File**: `libs/backend/thoth-runtime/src/lib/start-thoth-cron.ts`
+- **Spec**: `libs/backend/thoth-runtime/src/lib/start-thoth-cron.spec.ts` (extend — **P0-extra**)
+- **Details**: Exact shape of the daily-backup block at `:76-131`. The handler
+  closure resolves `CRON_TOKENS.CRON_POWER_MONITOR` and
+  `SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE` from the container and calls
+  `drain({ tier, signal: ctx.signal, onBattery: monitor.isOnBattery() })`.
+  - `@ptah/skills-drain-frequent`, `*/15 * * * *`, `handler:skills:drain:frequent`
+  - `@ptah/skills-drain-nightly`, `0 3 * * *`, `handler:skills:drain:nightly`
+  - `@ptah/skills-drain-weekly`, `0 4 * * 0`, `handler:skills:drain:weekly`
+- **Validation notes**: **`skill-synthesis` must NEVER import `cron-scheduler`** —
+  `thoth-runtime` is the seam, exactly as it already is for backups. Spec: call
+  `startThothCron` twice; assert `handlerRegistry.register` called **once** per
+  handler name (guarded by `has()`, as at `:77`) and `jobStore.upsert` called with
+  the three fixed ids.
+
+### Task B0.6.3: Same registration for the CLI tier
+
+- **File**: `libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts` (~`:366-380`)
+- **Spec**: `libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.spec.ts` (extend)
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P0-1 proves **zero** LLM calls at
+session end; **and** `nx test @ptah-extension/thoth-runtime` — double-invocation
+registers each handler once and upserts three fixed job ids; **and**
+`nx test @ptah-extension/cli-engine` green.
+
+---
+
+## Batch B0.7: Activity surface for drain runs ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C0 (Phase 0)
+- **Depends on**: B0.5
+- **Recommended Executor**: `frontend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Angular signals + OnPush component work in the Skills tab; the
+  only frontend batch in C0.
+
+### Task B0.7.1: Render drain runs in the pipeline-status component
+
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.ts`
+- **Spec**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.spec.ts` (new — **P0-7 part (b)**)
+- **Details**: Given N runs in state, render N `[data-testid="skills-drain-run"]`
+  elements carrying status + duration. Replaces the bare rate-limit banner.
+- **Validation notes**: `ChangeDetectionStrategy.OnPush` mandatory; signals +
+  `inject()`. **R3**: ship a per-stage token counter here from day one so real
+  cost is observable before it is tuned.
+
+### Task B0.7.2: `skillSynthesis:queue` client method + state wiring
+
+- **Files**: `libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-rpc.service.ts`,
+  `libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-state.service.ts`
+- **Specs**: the co-located existing specs (extend)
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis-ui` — N seeded runs render N
+`[data-testid="skills-drain-run"]` nodes with status + duration text.
+
+---
+
+# COMMIT 1 — Phase 1: trust + per-stage provider routing
+
+Commit message: `feat(skill-synthesis): phase 1 — unscored verdicts + provider-agnostic lanes`
+
+**CLI delegation is scoped to this commit only** (context.md line 11:
+`cli_delegation: allowed for Phase 1 grunt work only`). Exactly one batch below
+(B1.1) is recommended for a CLI executor. No batch outside C1 recommends one.
+
+---
+
+## Batch B1.1: Migration 0033 — judge columns + `display_name` ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B0.1 (registry ordering: 0032 must be registered first)
+- **Recommended Executor**: `ptah-cli` CLI agent (`ptah-cli > gemini > codex > copilot`)
+- **Fallback Executor**: `backend-developer`
+- **Execution Mode**: sequential (single-file scaffolding)
+- **Rationale**: Pure mechanical scaffolding — a structural copy of
+  `0030_skill_event_metrics.ts` / `0031_task_specs_metadata.ts` with a fixed,
+  fully-specified column list and static SQL. Zero architecture decisions. This is
+  the Phase-1 grunt work the delegation allowance exists for. The CLI prompt must
+  be fully self-contained with absolute paths and the verbatim DDL from plan §2.3.
+
+### Task B1.1.1: Create `0033_skill_candidate_verdicts`
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0033_skill_candidate_verdicts.ts`
+- **Spec**: `libs/backend/persistence-sqlite/src/lib/migrations/0033_skill_candidate_verdicts.spec.ts`
+- **Spec ref**: implementation-plan.md §2.3 (lines 202–219)
+- **Details**: Eleven `ALTER TABLE skill_candidates ADD COLUMN` statements
+  (`judge_score`, `judge_status`, `judge_reason`, `judge_novelty`,
+  `judge_actionability`, `judge_scope`, `judge_generalization`,
+  `judge_trigger_clarity`, `judge_panel_rationales`, `judged_at`, `display_name`)
+  plus `idx_skill_candidates_judge ON skill_candidates(status, judge_status)`.
+- **Validation notes**: Every column nullable or DEFAULTed, so `registerCandidate`'s
+  fixed 14-column INSERT (`skill-candidate.store.ts:130-137`) is **untouched** —
+  the same guarantee `pinned` (`0011_skills_v2.ts:2`) and `residency`
+  (`0026_skill_residency.ts:11`) already rely on. `judge_panel_rationales` is
+  created here, not in `0035`, because it is a judge column; Phase 3 only starts
+  writing it. `skill_suggestions.judge_score` stays `REAL NOT NULL`
+  (`0025_skill_suggestions.ts:16`) — **only the candidate score is nullable**.
+
+### Task B1.1.2: Register `0033` in the registry
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/index.ts`
+
+**Acceptance**:
+`nx test @ptah-extension/persistence-sqlite` — `0033` applies to a DB already at
+version 32, all eleven columns present via `PRAGMA table_info`, and an existing
+14-column `registerCandidate` INSERT still succeeds unchanged; **and**
+`nx lint @ptah-extension/persistence-sqlite` (static-SQL rules) passes.
+
+---
+
+## Batch B1.2: `SkillCandidateStore` — read the new columns, write verdicts ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.1
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Reads use `SELECT *`, so a column is **invisible** to the store
+  until both `RawCandidateRow` and `toCandidateRow` are updated — a silent-data-loss
+  trap, not boilerplate.
+
+### Task B1.2.1: Extend the row types
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/skill-candidate.store.spec.ts` (extend)
+- **Details**: `RawCandidateRow` (`:37-54`) + `toCandidateRow` (`:871-899`).
+
+### Task B1.2.2: `recordJudgeVerdict(id, verdict)` and `setDisplayName(id, name)`
+
+- **File**: same
+- **Spec**: same
+- **Details**: Use the dynamic-fragment style of `updateStatus` (`:304-323`).
+- **Validation notes**: Add **sibling** methods — do **not** overload `updateStatus`.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — round-trip spec: write a verdict with
+all five criteria, read the candidate back, assert every field survives; assert a
+`NULL` `judge_score` reads back as `null` and not `0`.
+
+---
+
+## Batch B1.3: Generalize the curator auth resolver → provider auth resolver ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: none
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: A cross-lib rename touching `agent-sdk`, `auth-providers` and
+  `libs/shared` with **no compatibility alias**. One missed call site is a build
+  break; one wrong `scope` value is risk R1. Architecture-bearing — explicitly
+  not CLI work.
+
+### Task B1.3.1: Move + rename the port
+
+- **File**: `libs/backend/agent-sdk/src/lib/auth/provider-auth-resolver.port.ts` (moved from `curator-llm-adapter/curator-auth-resolver.port.ts`)
+- **Spec**: covered by B1.3.5's call-site specs
+- **Spec ref**: implementation-plan.md §3.3 (lines 410–453); correction C1
+- **Details**: `ICuratorAuthResolver` → `IProviderAuthResolver`. Signature widens
+  by **one optional parameter**:
+  `resolve(providerId: string, scope?: ProviderTierScope): Promise<OneShotAuthOverride | null>`.
+- **Validation notes**: **Correction C1** — the _port_ lives in `agent-sdk`, the
+  _impl_ in `auth-providers`. That direction is what keeps the dependency one-way
+  and the generalization must preserve it. Because the new parameter is optional,
+  the existing curator call site (`sdk-internal-query.curator-llm.ts:80`) compiles
+  unchanged and behaves identically. **Do NOT add a second parallel resolver.**
+
+### Task B1.3.2: Rename the DI token
+
+- **File**: `libs/backend/agent-sdk/src/lib/di/tokens.ts` (~`:77`)
+- **Details**: `SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER` = `Symbol.for('SdkCuratorAuthResolver')`
+  → `SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER` = `Symbol.for('SdkProviderAuthResolver')`.
+  **No compatibility alias.**
+
+### Task B1.3.3: Rename the implementation, error and helpers
+
+- **File**: `libs/backend/auth-providers/src/lib/auth/provider-auth-resolver.ts` (renamed from `curator-auth-resolver.ts`)
+- **Spec**: the co-located existing spec (rename + extend)
+- **Details**:
+  - `CuratorAuthResolver` → `ProviderAuthResolver` (five-way dispatch off
+    `resolveStrategy('thirdParty', provider)` unchanged: direct-anthropic / cli /
+    proxy / local-native / third-party-key).
+  - `CuratorAuthError` (name `'CuratorAuthError'`) → `ProviderAuthError`
+    (name `'ProviderAuthError'`); update the name check at
+    `sdk-internal-query.curator-llm.ts:36,86`.
+  - `buildCuratorEnv` → `buildLaneEnv` (`:317-323`) — **semantics unchanged**.
+  - `buildTierValues(providerId)` → `buildTierValues(providerId, scope)` (`:255-279`),
+    forwarding `scope` to `getModelTiers`.
+- **Validation notes**: **R2 (CRITICAL, subtle).** `buildLaneEnv` blanks
+  `CHAT_AUTH_KEYS` by **assigning `undefined`, never `delete`**, because
+  `SdkQueryRunner` re-spreads the whole ambient `process.env` first (`:295`) and
+  the override lands last — a _deleted_ key lets the chat provider's value survive
+  into the lane. **Move the `buildCuratorEnv` doc comment (`:289-316`) verbatim to
+  `buildLaneEnv`.** Never serialize, Zod-parse, `structuredClone`, or
+  truthiness-filter a lane env.
+
+### Task B1.3.4: `ProviderTierScope` gains `'lane'`
+
+- **File**: `libs/shared/src/lib/types/rpc/rpc-providers.types.ts` (`:23`)
+- **Spec**: co-located / consumer specs
+- **Details**: `'mainAgent' | 'cliAgent'` → `'mainAgent' | 'cliAgent' | 'lane'`.
+- **Validation notes**: **This is the cheapest correct move in the whole plan.**
+  `ProviderModelsService.setModelTier` already guards its
+  `this.authEnv[envVar] = …; process.env[envVar] = …` writes with
+  `if (scope === 'mainAgent')` (`provider-models.service.ts:495-500`), so `'lane'`
+  is **inert with respect to globals by construction**, not by discipline.
+  `getModelTiers(id, 'lane')` reads `provider.<id>.lane.modelTier.<tier>`; with
+  nothing persisted it returns all-nulls and `buildTierValues` falls back to
+  `provider.defaultTiers` (`:266-268`) — precisely the "haiku tier of the selected
+  provider" semantics, **with no hardcoded model id anywhere**.
+  **Correction C2**: the method is `setModelTier` (singular) at
+  `provider-models.service.ts:473-508`. There is no `setModelTiers`.
+  **Q1 is settled**: ONE shared `'lane'` member. Per-lane model pinning is
+  expressed by the lane's own `model` setting, not by four tier scopes.
+
+### Task B1.3.5: Update every call site + DI registration
+
+- **Files**: `libs/backend/agent-sdk/src/lib/curator-llm-adapter/sdk-internal-query.curator-llm.ts`,
+  `libs/backend/auth-providers/src/lib/di/register.ts` (`:143-147`)
+- **Specs**: the co-located existing specs
+- **Details**: Register `ProviderAuthResolver` under `SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER`.
+- **Validation notes**: The memory curator's **fallback** behaviour
+  (`sdk-internal-query.curator-llm.ts:84-91`) is unchanged by this batch. Lanes
+  deliberately diverge (Q2 — they stall); that divergence is implemented in B1.5
+  and documented in B1.6.
+
+**Acceptance**:
+`nx test @ptah-extension/agent-sdk @ptah-extension/auth-providers @ptah-extension/shared`
+green; **and** `npm run typecheck:all` clean; **and**
+`grep -r "ICuratorAuthResolver\|SDK_CURATOR_AUTH_RESOLVER\|CuratorAuthError\|buildCuratorEnv" libs apps`
+returns **zero** hits (proves no compatibility alias survived).
+
+---
+
+## Batch B1.4: Lane contract — types, config, resolver, widened `IInternalQuery` ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.3
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The lane contract is the abstraction every later phase is written
+  against. Getting `LaneAuthOverride`'s type wrong re-leaks foreground credentials
+  (R2). Architecture-bearing.
+
+### Task B1.4.1: `lane.types.ts`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/lane.types.ts`
+- **Spec**: exercised by B1.4.3 / B1.5 specs
+- **Spec ref**: implementation-plan.md §3.1 (lines 309–365)
+- **Details**: `SkillLaneId = 'archaeologist' | 'synthesis' | 'judge' | 'replay'`;
+  `SkillLaneConfig` (`id`, `provider`, `model`, `defaultTier`, `structuredOutput`,
+  `toolUse`, `timeoutMs`, `maxInputChars`, `maxPasses`); `LaneAuthOverride`;
+  `ResolvedSkillLane`; `SkillLaneFailureKind`; `SkillLaneFailure`; `SkillLaneResolution`.
+- **Validation notes**: **R2** —
+  `LaneAuthOverride.env: Readonly<Record<string, string | undefined>>`.
+  The `| undefined` is **LOAD-BEARING**; typing it `Record<string, string>` is a
+  defect. **No provider id may appear as a literal anywhere in this file** — the
+  `provider` field's doc comment must say so.
+
+### Task B1.4.2: `skill-lane-config.ts`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/skill-lane-config.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/lanes/skill-lane-config.spec.ts`
+- **Details**: `SKILL_LANE_KEYS`, `SKILL_LANE_DEFAULTS`, `SKILL_LANE_PREFIXES`,
+  `readSkillLanes(ws)`, `flattenSkillLanes(partial)`.
+- **Pattern to follow**: **Direct structural copy** of
+  `libs/backend/skill-synthesis/src/lib/triggers/skill-trigger-config.ts`
+  (`:6-24`, `:26-44`, `:46-54`, `:73-140`, `:142-166`) — the house pattern for
+  dotted settings sub-trees (verified present).
+
+### Task B1.4.3: `LaneResolverService`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/lane-resolver.service.ts`
+- **Specs**:
+  - `libs/backend/skill-synthesis/src/lib/lanes/lane-resolver.service.spec.ts` (**P1-3**, resolver half)
+  - `libs/backend/skill-synthesis/src/lib/lanes/lane-resolver.providers.spec.ts` (**P1-4**)
+- **Spec ref**: implementation-plan.md §3.3 (lines 455–489), §6 P1-3 / P1-4
+- **Details**: `resolve(laneId): Promise<SkillLaneResolution>`. Injects
+  `PROVIDER_AUTH_RESOLVER_TOKEN` `{isOptional: true}` (no-op in CLI/e2e, matching
+  `sdk-internal-query.curator-llm.ts:47`). Model resolution is exactly three lines:
+  ```ts
+  if (cfg.model.trim()) return cfg.model.trim();
+  if (!cfg.provider.trim()) return resolveJudgeModel(settings.judgeModel, ws); // legacy inherit
+  return cfg.defaultTier; // bare tier alias
+  ```
+- **Validation notes**:
+  - Line 2 is the **untouched-existing-installs guarantee** (`model-resolver.ts:20-35`).
+    With both lane `provider` and `model` at `''` the resolver returns
+    `{auth: undefined, model: resolveJudgeModel(...)}` — **byte-identical to today's
+    call** (`skill-judge.service.ts:59`, `skill-synthesizer.service.ts:107-110`).
+  - A **bare tier alias is the correct value to send**: per
+    `sdk-internal-query.curator-llm.ts:38-55` it resolves through both
+    `ANTHROPIC_DEFAULT_<TIER>_MODEL` and the provider entry's `defaultTiers`,
+    whereas a pinned dated Claude id 404s against a non-Anthropic endpoint.
+  - **R7**: always set explicit `ANTHROPIC_DEFAULT_*_MODEL` values via
+    `buildTierValues` **before** any provider identification happens, so the tier
+    lookup never depends on `getActiveProviderId`'s known-defective hostname-substring
+    match (`curator-auth-resolver.ts:236-253`). Log the resolved
+    `(providerId, baseUrl, tier models)` triple per lane run.
+  - **P1-4 spec is parameterized over the registry, and its body must contain
+    ZERO provider-id literals**: `it.each(ANTHROPIC_PROVIDERS.map(p => p.id))`.
+    For each id assert `auth.env.ANTHROPIC_BASE_URL === getProviderBaseUrl(id)`
+    (or the proxy handle url), that `ANTHROPIC_API_KEY` is present-with-`undefined`
+    or `''`, and that no key of `auth.env` equals a chat-tier value seeded into
+    `process.env`.
+  - `requiresProxy: true` providers work unchanged via
+    `resolveProxyProvider` → `CuratorProxyManager.ensureProxy`
+    (`curator-auth-resolver.ts:167-186`). **Lanes must never bypass the resolver.**
+
+### Task B1.4.4: Widen the local `IInternalQuery`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/internal-query.interface.ts`
+- **Spec**: exercised by B1.5 specs
+- **Spec ref**: implementation-plan.md §3.2 (lines 367–408)
+- **Details**: Add `auth?: LaneAuthOverride`, `outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> }`,
+  and on the stream: `structured_output?`, `usage?`, `total_cost_usd?`.
+- **Validation notes**: **KEEP THE FILE LOCAL** — its header at `:1-9` explains why
+  (no circular dep). `libs/backend/skill-synthesis` keeps **ZERO direct SDK
+  imports**. Assignability is already verified: `InternalQueryConfig` declares
+  `outputFormat?: OutputFormat` (`internal-query.types.ts:61`) and
+  `auth?: OneShotAuthOverride` (`:69`); `InternalQueryService.execute` is a pure
+  field-by-field forward to `SdkQueryRunner.runOneShot`.
+
+### Task B1.4.5: Lane DI tokens
+
+- **Files**: `libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `di/register.ts`
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P1-3 asserts
+`IProviderAuthResolver.resolve` is called once per lane with that lane's id and
+`scope === 'lane'`; P1-4 passes for **every** id in `ANTHROPIC_PROVIDERS` with no
+provider-id literal in the spec body; a lane with `provider: ''` and `model: ''`
+resolves to `{auth: undefined}` and the legacy model string.
+
+---
+
+## Batch B1.5: `LaneRunner` + the R1/R2 guards ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.4, B0.3 (budget store)
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: **The single highest-risk batch in the task.** It owns the
+  structured-output→manual-parse ladder, the four failure modes, and the
+  byte-for-byte env-immutability guard against R1. A failure here is
+  release-blocking.
+
+### Task B1.5.1: `LaneRunnerService`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/lane-runner.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/lanes/lane-runner.service.spec.ts`
+- **Spec ref**: implementation-plan.md §3.4 (lines 470–489), §4 Phase 1 (line 593)
+- **Details**: **One place** owns: build `AbortController` + `cfg.timeoutMs` timer;
+  call `internalQuery.execute` with `auth` / `outputFormat`; drain the stream;
+  apply the structured-output→manual-parse ladder; record usage into
+  `SkillBudgetStore`; map thrown/aborted outcomes to `SkillLaneFailure`.
+  **Every stage goes through it; no stage builds its own timeout again.**
+  The four failure modes:
+
+  | Kind                            | Detection                                                                                                                                       | Behaviour                                                                                                                                                                                                            |
+  | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `auth-unresolvable`             | resolver throws `ProviderAuthError` for a **non-empty** configured provider                                                                     | queue row → `queued`, `not_before = now + 30 min`, `reason = "Lane <id>: <message>"`. **Never** falls back to the active provider (Q2).                                                                              |
+  | `structured-output-unsupported` | lane declares `'parse'`; **or** `'sdk'` declared but the `result` message carried no `structured_output` and `JSON.parse(message.result)` threw | re-run the same prompt **without** `outputFormat`, parse with the manual extractors. **At most ONE re-run per item per drain.** If the fallback also fails: stage → `unscored`, candidate `judge_status='unscored'`. |
+  | `tool-use-unsupported`          | lane declares `toolUse: 'none'`; **or** pass 1 ends with `subtype === 'error_max_turns'` or returns no parseable `requestTurns`                 | collapse to a **single tail-window pass** (`maxPasses = 1`), persist `degraded_reason`. **Never loop to timeout.** Degrade **once**.                                                                                 |
+  | `timeout`                       | per-lane `AbortController` fires after `cfg.timeoutMs`                                                                                          | `abort()`, `handle.close()`, queue → `queued`, `not_before = now + min(2^attempt × 60s, 6h)`. At `attempt_count >= maxAttempts` (5) → `failed` + `last_error` + one Activity event.                                  |
+
+- **Validation notes**: `timeoutMs` and `maxInputChars` become **parameters**,
+  replacing the module constants `JUDGE_TIMEOUT_MS = 15_000`
+  (`skill-judge.service.ts:26`), `SYNTHESIS_TIMEOUT_MS = 30_000`
+  (`skill-synthesizer.service.ts:15`), the `8000`/`3000` slices
+  (`skill-synthesizer.service.ts:193,151`) and the `3000` body slice
+  (`skill-judge.service.ts:69`). On truncation append a `…(truncated)…` marker and
+  set `payload.truncated = true`.
+
+### Task B1.5.2: Env-immutability spec (**P1-5** — release-blocking)
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/lane-runner.env-immutability.spec.ts`
+- **Details**: Snapshot `JSON.stringify(process.env)` and a deep clone of the
+  injected `AuthEnv` singleton **before** the run; execute a full lane run against
+  a fake `IInternalQuery`; assert both compare **strictly equal** afterwards. Run
+  once per lane id **and** once for a `requiresProxy` provider.
+- **Validation notes**: **This is the guard against R1.** `ProviderModelsService`
+  has TWO global-mutating paths: `setModelTier` (`:495-500`, scope-guarded) and
+  **`applyPersistedTiers` (`:617-643`, NO scope guard at all — correction C4)**.
+  Any lane path touching either is a defect. Treat a failure here as
+  release-blocking.
+
+### Task B1.5.3: Parse-fallback spec (**P1-6**)
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/lane-runner.parse-fallback.spec.ts`
+- **Details**: Case 1 — lane declares `'parse'`: assert `internalQuery.execute`
+  was called **without** `outputFormat`; feed a stream whose assistant text wraps
+  JSON in prose + a code fence; assert `extractJsonObject` recovered it. Case 2 —
+  lane declares `'sdk'` but the `result` message has no `structured_output` and a
+  non-JSON `result`: assert **exactly one** re-run without `outputFormat`.
+- **Validation notes**: **KEEP the manual parsers.** `extractJsonObject`
+  (`skill-synthesizer.service.ts:210-231`) and the judge's `/\{[^{}]*\}/`
+  (`skill-judge.service.ts:118`) are **load-bearing and MUST NOT be deleted** —
+  they are the only path for a `'parse'` lane.
+
+### Task B1.5.4: Limits spec (**P1-8**)
+
+- **File**: `libs/backend/skill-synthesis/src/lib/lanes/lane-runner.limits.spec.ts`
+- **Details**: Fake timers — a stream that never yields is aborted at exactly
+  `cfg.timeoutMs`, producing `{kind: 'timeout'}`. Separately, a 50,000-char
+  trajectory with `maxInputChars: 6000` yields a prompt of length ≤ 6000 + marker
+  and `payload.truncated === true`.
+
+### Task B1.5.5: Lib-scoped ESLint ban on the global-mutating methods ⚠️ NET-NEW FILE
+
+- **File**: `libs/backend/skill-synthesis/eslint.config.mjs` (**does not exist — create it**)
+- **Details**: `no-restricted-syntax` / `no-restricted-imports` banning
+  `applyPersistedTiers` and `setModelTier` anywhere in the lib.
+- **Validation notes**: **Gap found during decomposition** (§1.3 item 1). The plan
+  (R1 mitigation b) assumes this file exists; it does not. The per-lib-config
+  pattern is proven by `libs/web/members/eslint.config.mjs`, referenced at the
+  root `eslint.config.mjs:9`. Add a fixture proving the rule actually fires.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P1-5 passes for all four lane ids and
+for a `requiresProxy` provider; P1-6 both cases; P1-8 both cases; **and**
+`nx lint @ptah-extension/skill-synthesis` fails on a deliberately-added
+`setModelTier(` call and passes once removed.
+
+---
+
+## Batch B1.6: Judge unscored + promotion + lane-routed synthesis + naming ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.2, B1.5
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Changes the judge's return **shape**, which ripples into promotion
+  semantics. Tightly coupled cross-file business logic — the core trust fix.
+
+### Task B1.6.1: Judge returns a status, never a fabricated score
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-judge.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/skill-judge.service.spec.ts` (extend — **P1-1, P1-11**)
+- **Spec ref**: implementation-plan.md §4 Phase 1 "Modified" (lines 598–604); correction C8
+- **Details**: Return type becomes
+  `{ status: 'scored'|'unscored'|'disabled'; score: number | null; criteria: JudgeCriteria | null; reason: string }`.
+  All **three** sites that currently `return { passed: true, score: 10, … }` —
+  `:124` (no JSON match), **`:152` (invalid score values)**, `:176` (thrown error)
+  — return `status: 'unscored', score: null` with a **distinct** `reason`.
+  Delete `JUDGE_TIMEOUT_MS` in favour of the lane's `timeoutMs`.
+- **Validation notes**: **Correction C8** — context.md cites only two fail-open
+  sites (`:124`, `:176`); the third is **`:152`**. All three must convert.
+  P1-11 adds a regression assertion that the literal `score: 10` **never** appears
+  in a judge-verdict result. `unscored` is **neither pass nor block**: the
+  candidate stays `candidate`, its queue row goes to `status='unscored'` with
+  backoff, and the next drain retries.
+  **Do not conflate the two `unscored` meanings** (plan §2.2):
+  `skill_candidates.judge_status='unscored'` = no trustworthy score (the UI badge);
+  `skill_synthesis_queue.status='unscored'` = the stage produced no usable verdict
+  and the row stays re-eligible.
+
+### Task B1.6.2: Promotion consumes the new decision shape
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-promotion.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/skill-promotion.service.spec.ts` (extend)
+- **Details**: Persist via `SkillCandidateStore.recordJudgeVerdict`. P1-1 asserts
+  a rate-limited judge leaves `status='candidate'`.
+
+### Task B1.6.3: Synthesizer routes through `LaneRunner`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.spec.ts` (extend)
+- **Details**: Take `maxInputChars` from the lane; route through `LaneRunner`; add
+  `outputFormat` (JSON Schema mirroring `SynthesizedSkillSchema`, `:17-21`).
+- **Validation notes**: **KEEP `extractJsonObject` (`:210-231`)** — it is the
+  `'parse'` lane's only path.
+
+### Task B1.6.4: Curator routes through `LaneRunner`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-curator.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/skill-curator.service.spec.ts` (extend)
+- **Details**: Its own `internalQuery.execute` calls move onto the `synthesis`
+  lane; `CURATOR_TIMEOUT_MS` becomes lane config.
+
+### Task B1.6.5: `CandidateNamerService`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/naming/candidate-namer.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/naming/candidate-namer.service.spec.ts` (**P1-10 part (a)**)
+- **Details**: A cheap `{name, description}`-only pass on the `judge` lane; writes
+  `display_name`.
+- **Validation notes**: P1-10 was UNTESTABLE AS WRITTEN (unbounded negative).
+  Restated: given a 400-char first user message, the produced `display_name` is
+  ≠ `trajectory.slug` and ≤ 60 chars; when the naming lane is unavailable,
+  `display_name` stays `NULL`. The slugified first message
+  (`trajectory-extractor.ts:136-138`) is retained as an internal id **ONLY**.
+
+### Task B1.6.6: Document the deliberate divergence from the memory curator
+
+- **File**: `libs/backend/skill-synthesis/CLAUDE.md`
+- **Details**: Record that lanes **stall** on unresolvable auth while the memory
+  curator **falls back** (`sdk-internal-query.curator-llm.ts:84-91`), and why:
+  falling back here would put background work straight back onto the foreground
+  quota — the exact defect Phase 1 exists to fix (Q2).
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — all three former fail-open paths
+return `{status:'unscored', score:null}` with distinct reasons and **no** case
+returns `score: 10`; promotion leaves a rate-limited candidate at
+`status='candidate'`; the namer spec passes both branches.
+
+---
+
+## Batch B1.7: Lane failures inside the drain (**P1-7**) ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.5, B1.6, **B0.4 (cross-commit — see §0.1)**
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The only Phase-1 criterion that cannot be asserted without the
+  Phase-0 drain. Small, but it is the seam where Q2's stall semantics become real.
+
+### Task B1.7.1: Map `SkillLaneFailure` onto queue-row transitions
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-drain.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/queue/skill-drain.failures.spec.ts` (**P1-7**)
+- **Spec ref**: implementation-plan.md §3.4, §6 P1-7
+- **Details**: `auth-unresolvable` → row back to `queued`, `not_before = now + 30 min`,
+  `reason = "Lane <id>: <message>"`. **The drain catches this and continues to the
+  next item — it must NEVER propagate out of `drain()`.**
+- **Validation notes**: Spec asserts `drain()` **resolves** (does not reject), the
+  row is `status='queued'` with `not_before > now` and a non-empty `reason`
+  containing the lane id, **and that a following eligible item in the same tick
+  still ran**. No fallback to the foreground provider, ever (Q2).
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — `skill-drain.failures.spec.ts` green,
+including the "next item still ran" assertion.
+
+---
+
+## Batch B1.8: Lane settings keys + `getLanes` / `setLanes` RPC ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.4, B1.2
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Order-dependent dual-registration plus a wire-contract widening
+  the frontend batches consume. Mirrors an existing pair, but the summary-type
+  change ripples into the UI.
+
+### Task B1.8.1: 28 lane settings keys + defaults
+
+- **File**: `libs/backend/platform-core/src/file-settings-keys.ts`
+- **Spec**: extend the existing spec
+- **Details**: Four lanes × seven fields, dotted under
+  `skillSynthesis.<lane>.{provider,model,defaultTier,structuredOutput,toolUse,timeoutMs,maxInputChars}`
+  (+ `maxPasses` where applicable). Added to BOTH the key list and
+  `FILE_BASED_SETTINGS_DEFAULTS`.
+- **Validation notes**: Dotted keys are proven — `skillSynthesis.triggers.*`
+  already lives at `:143-149`. Every lane default is `provider: ''`, `model: ''`
+  ⇒ "Inherit from active provider" ⇒ byte-identical to today's behaviour.
+
+### Task B1.8.2: `skillSynthesis:getLanes` / `setLanes`
+
+- **Files**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`,
+  `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.ts`
+- **Specs**: `skills-synthesis-rpc.handlers.spec.ts`, `skills-synthesis-rpc.schema.spec.ts` (extend)
+- **Pattern to follow**: the existing `getTriggers` / `setTriggers` pair —
+  structurally identical.
+
+### Task B1.8.3: Widen `SkillSynthesisCandidateSummary`
+
+- **File**: `libs/shared/src/lib/types/rpc.types.ts` (`:1908-1920`, plus method map and allow-map)
+- **Details**: Add `displayName: string | null`, `judgeScore: number | null`,
+  `judgeStatus: 'scored'|'unscored'|'disabled'|null`, `judgeReason: string | null`,
+  `judgeCriteria: {novelty;actionability;scope;generalization;triggerClarity} | null`.
+- **Validation notes**: **Correction C11** — compile-time half only. `skillSynthesis:`
+  is already in `ALLOWED_METHOD_PREFIXES`; do NOT add a runtime-guard entry.
+
+**Acceptance**:
+`nx test @ptah-extension/rpc-handlers @ptah-extension/platform-core` green —
+`getLanes` round-trips through `setLanes` with all 28 keys; **and**
+`npm run typecheck:all` clean.
+
+---
+
+## Batch B1.9: Extract `ptah-provider-model-picker` into `libs/frontend/ui` ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: none (frontend-only; independent of the backend batches)
+- **Recommended Executor**: `frontend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The injected-loader port is an Nx **boundary requirement**, not a
+  style choice — getting it wrong is a lint error, not a preference. Architecture-bearing.
+
+### Task B1.9.1: `provider-models-loader.port.ts`
+
+- **File**: `libs/frontend/ui/src/lib/native/provider-model-picker/provider-models-loader.port.ts`
+- **Details**: `PROVIDER_MODELS_LOADER` `InjectionToken` + `ProviderModelsLoader` interface.
+- **Validation notes**: **Why the picker MUST take an injected loader**:
+  `libs/frontend/ui` is tagged `["scope:webview","type:ui"]` and the Nx boundary
+  rule at `eslint.config.mjs:232-234` restricts `type:ui` to `['type:ui','type:util']`.
+  `@ptah-extension/core` (which owns `VSCodeService`) is `type:core` — **importing
+  it from `ui` is a lint error**. `@ptah-extension/shared` is `type:util`, so
+  `ANTHROPIC_PROVIDERS` / `ProviderModelInfo` are legal.
+
+### Task B1.9.2: `ProviderModelPickerComponent`
+
+- **File**: `libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-picker.component.ts`
+- **Spec**: `libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-picker.component.spec.ts` (**P1-9 part (a)**)
+- **Details**: Inputs `{provider, model, label}`, a change output. Enumerates
+  `ANTHROPIC_PROVIDERS`. Signals + `inject()`, `ChangeDetectionStrategy.OnPush`.
+- **Validation notes**:
+  - **R6 mitigation layer 1**: surface `ProviderModelInfo.supportsToolUse` and
+    `contextLength` (`rpc-providers.types.ts:34-36`) — **warn** when a model chosen
+    for a `toolUse: 'required'` lane reports `supportsToolUse: false`, and
+    **suggest** `maxInputChars` from `contextLength`. **Zero provider-id branching.**
+  - P1-9 (a) restatement: the component mounts with **only** `PROVIDER_MODELS_LOADER`
+    provided, and the spec asserts the injector requests **no other token** — no
+    `VSCodeService`, no `isElectron` gate.
+
+### Task B1.9.3: Export from the native barrel
+
+- **Files**: `libs/frontend/ui/src/lib/native/provider-model-picker/index.ts`,
+  `libs/frontend/ui/src/lib/native/index.ts`
+
+### Task B1.9.4: Dependency-boundary spec (**P1-9 part (b)**) ⚠️ NET-NEW PATTERN
+
+- **File**: `libs/frontend/ui/src/lib/dependency-boundaries.spec.ts` (**no such spec exists anywhere — create it**)
+- **Details**: Assert `libs/frontend/ui` does not depend on `@ptah-extension/core`.
+- **Validation notes**: **Gap found during decomposition** (§1.3 item 2). The plan
+  says the rule is "already enforced by `eslint.config.mjs:232-234`, pinned by a
+  `dependency-boundaries.spec.ts`-style check" — the ESLint rule exists; the spec
+  does not (`find libs -name "dependency-boundaries*"` → empty). This task creates
+  the first one.
+
+**Acceptance**:
+`nx test @ptah-extension/ui` — the picker mounts with only `PROVIDER_MODELS_LOADER`
+and the boundary spec passes; **and** `nx lint @ptah-extension/ui` clean (proves
+no `type:core` import crept in).
+
+---
+
+## Batch B1.10: Re-point consumers, DELETE the forked picker, render trust UI ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.8, B1.9
+- **Recommended Executor**: `frontend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: A deletion plus two consumer rewrites across two libs. The delete
+  is the point — a fork would strand VS Code users.
+
+### Task B1.10.1: DELETE the local curator picker and re-point `memory-curator-ui`
+
+- **Files to DELETE**:
+  - `libs/frontend/memory-curator-ui/src/lib/components/diagnostics/curator-model-picker.component.ts`
+  - `libs/frontend/memory-curator-ui/src/lib/components/diagnostics/curator-model-picker.component.spec.ts`
+- **File to modify**: `libs/frontend/memory-curator-ui/src/lib/components/diagnostics/memory-diagnostics-accordion.component.ts`
+- **Spec**: `memory-diagnostics-accordion.component.spec.ts` (extend)
+- **Details**: Provide `PROVIDER_MODELS_LOADER` → `MemoryDiagnosticsRpcService`
+  (its `listModels` at `memory-diagnostics-rpc.service.ts:79-95` already calls the
+  generic `provider:listModels`) and render
+  `<ptah-provider-model-picker label="Curator model">`.
+- **Validation notes**: **DELETE, do not fork.** Also delete the stale footer note
+  at the old `curator-model-picker.component.ts:105` ("full provider routing coming
+  soon") — routing has shipped.
+
+### Task B1.10.2: Lanes section + Phase-0 knobs in the Skills settings panel
+
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-settings-panel.component.ts`
+- **Spec**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-settings-panel.component.spec.ts` (new)
+- **Details**: Four picker instances (archaeologist / synthesis / judge / replay),
+  each defaulting to **"Inherit from active provider"**, plus the Phase-0 knobs:
+  daily token budget, foreground backoff, battery gating, tray-keepalive toggle
+  (Electron only), drain schedule.
+- **Validation notes**: The general Settings view **LINKS** to the Thoth settings
+  tab rather than duplicating the controls. One source of truth.
+
+### Task B1.10.3: `listModels` on the Skills RPC service
+
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-rpc.service.ts`
+- **Spec**: `skill-synthesis-rpc.service.spec.ts` (extend)
+- **Details**: `listModels(providerId?)`, provided as `PROVIDER_MODELS_LOADER`.
+
+### Task B1.10.4: Unscored badge, scorecard, and non-echo titles
+
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-candidates-table.component.ts`
+- **Spec**: `skill-candidates-table.component.spec.ts` (extend — **P1-1, P1-2, P1-10 part (b)**)
+- **Details**:
+  - `judgeStatus:'unscored', judgeScore:null` ⇒ `[data-testid="skills-candidate-judge-badge"]`
+    with text `unscored` and **NO** numeric score node.
+  - A `scored` summary ⇒ five `[data-testid="skills-candidate-criterion"]` nodes
+    with correct labels/values.
+  - Title renders `displayName` when set, `Captured workflow · {formattedDate}`
+    when `null` — **NEVER** the raw `name` slug. Assert the slug string does not
+    appear in the title node for a summary whose `displayName` is `null`.
+
+**Acceptance**:
+`nx test @ptah-extension/memory-curator-ui @ptah-extension/skill-synthesis-ui`
+green; **and** `git status` shows the two `curator-model-picker.component.*` files
+**deleted**; **and** `grep -rn "curator-model-picker" libs apps` returns zero hits.
+
+---
+
+## Batch B1.11: Cross-host e2e for the extracted picker (**P1-9 part (c)**) ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C1 (Phase 1)
+- **Depends on**: B1.10
+- **Recommended Executor**: `senior-tester`
+- **Execution Mode**: parallel (the two assertions are file-disjoint and target different harnesses)
+- **Rationale**: Pure test authoring against two existing harnesses; no production
+  code. The Jest half of P1-9 cannot distinguish the host, so this is the only
+  place the "BOTH hosts" criterion is genuinely proved.
+
+### Task B1.11.1: Electron e2e — Skills > Settings lane pickers render
+
+- **File**: `apps/ptah-electron-e2e/src/**` (extend the Skills-tab spec)
+
+### Task B1.11.2: Webview harness — the same pickers render in the VS Code webview
+
+- **File**: `libs/frontend/webview-e2e-harness/src/**`
+
+**Acceptance**:
+`nx e2e ptah-electron-e2e` (Skills-tab spec) **and**
+`nx test @ptah-extension/webview-e2e-harness` — the four lane pickers are present
+and enumerate providers in both hosts.
+
+---
+
+# COMMIT 2 — Phase 2: session archaeologist
+
+Commit message: `feat(skill-synthesis): phase 2 — session archaeologist replaces the regex verdict`
+
+**Depends on C0 + C1.** Q3 is settled: orchestrated multi-pass retrieval driven
+from TypeScript via `TranscriptWindowReader`, **NOT** SDK tool calling
+(correction C7 — `OneShotRunInput` has no `allowedTools`/`disallowedTools` and
+`buildOneShotOptions` hardcodes `tools: { type: 'preset', preset: 'claude_code' }`
+at `:284-287`).
+
+---
+
+## Batch B2.1: Migration 0034 + verdict types + verdict store ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C2 (Phase 2)
+- **Depends on**: B1.1 (registry ordering)
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The verdict row's nullability contract is the graceful-degradation
+  record; getting it wrong makes the drain retry indefinitely.
+
+### Task B2.1.1: Migration `0034_skill_session_verdicts`
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0034_skill_session_verdicts.ts`
+- **Spec**: `libs/backend/persistence-sqlite/src/lib/migrations/0034_skill_session_verdicts.spec.ts`
+- **Spec ref**: implementation-plan.md §2.4 (lines 244–270)
+- **Details**: `skill_session_verdicts` + `idx_ssv_ws` + `idx_ssv_evidence`.
+  `evidence_class` `CHECK IN ('tests-green','user-accepted','no-correction','explicit-confirmation','unverified')`.
+- **Validation notes**: **Nullability contract** — `intent`, `outcome`,
+  `evidence_class`, `routine` are ALL nullable. A row with
+  `degraded_reason NOT NULL` and `intent IS NULL` is the graceful-degradation
+  record: it exists so the drain does not re-attempt indefinitely and so the UI
+  can say _why_ there is no verdict. Register in `migrations/index.ts`.
+
+### Task B2.1.2: Verdict types + output schema
+
+- **File**: `libs/backend/skill-synthesis/src/lib/archaeology/session-verdict.types.ts`
+- **Details**: `SessionVerdict`, `EvidenceClass`, `FrictionEntry`, `RoutineDraft`,
+  plus `SESSION_VERDICT_JSON_SCHEMA` (the `outputFormat` schema).
+
+### Task B2.1.3: `SessionVerdictStore`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/archaeology/session-verdict.store.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/archaeology/session-verdict.store.spec.ts` (**P2-1**, store half)
+- **Details**: Round-trip through the store preserves JSON shape for
+  `friction_map` and `routine`.
+
+**Acceptance**:
+`nx test @ptah-extension/persistence-sqlite @ptah-extension/skill-synthesis` —
+`0034` applies at version 33; all five `evidence_class` members insertable and
+every non-member rejected; a degraded row (`intent IS NULL`,
+`degraded_reason NOT NULL`) persists and round-trips.
+
+---
+
+## Batch B2.2: `TranscriptWindowReader` ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C2 (Phase 2)
+- **Depends on**: none (pure function over an existing reader)
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Pure, deterministic, fully unit-testable — and it is the whole of
+  Q3's answer. Isolating it makes the archaeologist batch tractable.
+
+### Task B2.2.1: Windowed, turn-index-addressed transcript reader
+
+- **File**: `libs/backend/skill-synthesis/src/lib/archaeology/transcript-window.reader.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/archaeology/transcript-window.reader.spec.ts`
+- **Spec ref**: implementation-plan.md §4 Phase 2 "Created" (line 666)
+- **Details**: `head(n)`, `tail(n)`, `range(from, to)`, `search(regex)` — all
+  turn-index addressed and `maxInputChars`-bounded, over
+  `JsonlReaderService.readJsonlMessages` (`jsonl-reader.service.ts:124`).
+- **Validation notes**: **Pure and deterministic — no LLM, no I/O beyond the
+  reader.** This is what makes the archaeologist work on a lane with no tool
+  calling at all. Spec must cover the `maxInputChars` re-bound on an
+  over-large requested range.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — all four accessors return
+turn-index-correct slices; an over-large `range()` is re-bounded to
+`maxInputChars` with the truncation marker.
+
+---
+
+## Batch B2.3: `SessionArchaeologistService` — orchestrated multi-pass ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C2 (Phase 2)
+- **Depends on**: B2.1, B2.2, B1.5
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: The multi-pass loop with heartbeating, degradation, and a hard
+  pass ceiling. Complex control flow; the highest-risk batch in C2.
+
+### Task B2.3.1: The multi-pass analyzer
+
+- **File**: `libs/backend/skill-synthesis/src/lib/archaeology/session-archaeologist.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/archaeology/session-archaeologist.service.spec.ts` (**P2-1**)
+- **Spec ref**: implementation-plan.md §4 Phase 2 (lines 669–689)
+- **Details**:
+  - **Pass 1** — tail window (default 40 % of `maxInputChars`) + head window (10 %),
+    with an `outputFormat`-constrained reply carrying optional
+    `requestTurns: Array<{from:number;to:number}>` and `requestSearch: string[]`.
+  - **Passes 2..`maxPasses`** — `TranscriptWindowReader` serves exactly the
+    requested ranges / search hits, re-bounded by `maxInputChars`.
+  - **Terminal pass** — a verdict with no further requests, or `maxPasses` reached.
+  - Between passes call `SkillQueueStore.touchClaim(id)`.
+- **Validation notes**: **R5** — the heartbeat is what makes a legitimate long run
+  self-defending regardless of TTL. **R6** — `toolUse: 'none'` forces
+  `maxPasses = 1`: **one code path, two configurations, no provider branching.**
+  P2-1 spec: given a scripted two-pass stream, the stored row has `intent`,
+  `evidence_class`, `friction_map` with **integer** `turnIndex` values, and
+  `routine.citations` as a non-empty `number[]`.
+
+### Task B2.3.2: Graceful null degradation
+
+- **Spec**: `libs/backend/skill-synthesis/src/lib/archaeology/session-archaeologist.degraded.spec.ts` (**P2-3**)
+- **Details**: Case 1 — with `INTERNAL_QUERY_SERVICE_TOKEN` unregistered, a verdict
+  row exists with `intent === null` and `degraded_reason === 'no-query-path'`, the
+  call **resolves** (no throw), and synthesis fell back to the extractor path.
+  Case 2 — `toolUse:'none'` lane ⇒ `passes === 1` and
+  `degraded_reason === 'tool-use-unsupported'`.
+- **Validation notes**: **No exception, no retry storm.**
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P2-1 and both P2-3 cases green;
+assert `touchClaim` was called between passes.
+
+---
+
+## Batch B2.4: Demote the regex, feed the verdict to synthesis, wire the stage ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C2 (Phase 2)
+- **Depends on**: B2.3
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Changes what "success" **means** across the pipeline. Cross-file
+  semantic change — the payoff of the whole phase.
+
+### Task B2.4.1: Demote `SUCCESS_MARKERS` to prefilter signal only
+
+- **File**: `libs/backend/skill-synthesis/src/lib/trajectory-extractor.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/archaeology/regex-demotion.spec.ts` (**P2-2**)
+- **Details**: `SUCCESS_MARKERS` (`:17-26`) and `hasSuccessMarker` (`:269-281`)
+  are removed from **every** promotion/eligibility decision.
+  `ExtractedTrajectory.hasSuccessMarker` is already documented "Informational
+  signal" (`:49`) — this makes that true. **Also: the dead `void minTurns;` at
+  `:106` is deleted and `minTurns` is honoured, or the parameter is removed —
+  pick one, do not leave it dead.**
+- **Validation notes**: P2-2 spec — a trajectory whose final assistant turn matches
+  `SUCCESS_MARKERS` (`:19`) gives `hasSuccessMarker === true`; the archaeologist
+  returns `evidence_class: 'unverified'`; assert promotion/ranking treats the
+  session as unverified **and that no code path reads `hasSuccessMarker` to decide
+  success** (assert via the injected verdict, not via the flag).
+
+### Task B2.4.2: Synthesis consumes the verdict, not the 8k slice
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.ts`
+- **Spec**: `skill-synthesizer.service.spec.ts` (extend)
+- **Details**: `buildPrompt` (`:187-196`) consumes `intent` + `routine` + turn
+  citations instead of `canonicalText.slice(0, 8000)`. **`canonicalText` stays —
+  for embedding/dedup only.**
+
+### Task B2.4.3: Widen prefilter eligibility to friction-rich sessions
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts` (`passesPrefilter`, `:711-727`)
+- **Spec**: `skill-synthesis.service.spec.ts` (extend)
+- **Details**: `passesPrefilter` becomes eligibility-to-spend-tokens only.
+  **Failure sessions with eventual success become ELIGIBLE** — a friction-rich
+  verdict is valuable material. This deliberately widens today's
+  smooth-success-only harvest.
+
+### Task B2.4.4: Wire the `archaeology` stage into the drain
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-drain.service.ts`
+- **Spec**: `skill-synthesis.service.enqueue.spec.ts` (extend — **P2-4**)
+- **Details**: `archaeology` is a **nightly**-tier stage (R3), never frequent.
+  Canonical chain: `prefilter → archaeology → synthesis → embedding`.
+- **Validation notes**: P2-4 — assert `SessionArchaeologistService.analyze` has
+  **0** calls after a session-end event, and **≥ 1** call after `drain()` processes
+  the `archaeology` stage.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P2-2 proves a `"done."` tail no longer
+suffices against an `unverified` verdict; P2-4 proves zero inline invocations and
+≥ 1 from the drain; the synthesizer spec proves the prompt is built from the
+verdict, not from a `canonicalText` slice.
+
+---
+
+# COMMIT 3 — Phase 3: empirical gates
+
+Commit message: `feat(skill-synthesis): phase 3 — replay confidence, measured trigger score, judge panel`
+
+**Depends on C0 + C1. Consumes C2's verdict when present, with a documented
+fallback — C3 ships and passes CI whether or not C2 has landed.**
+
+---
+
+## Batch B3.1: Migration 0035 + store writers + gate settings ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C3 (Phase 3)
+- **Depends on**: B1.2
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Same `SELECT *` invisibility trap as B1.2 — the columns are dark
+  until both row types are updated.
+
+### Task B3.1.1: Migration `0035_skill_empirical_gates`
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0035_skill_empirical_gates.ts`
+- **Spec**: `.../0035_skill_empirical_gates.spec.ts`
+- **Spec ref**: implementation-plan.md §2.3 (lines 221–230)
+- **Details**: `replay_confidence`, `replay_holdout_session_id`, `replay_at`,
+  `trigger_score`, `trigger_precision`, `trigger_recall`, `trigger_eval_at`.
+  Register in `migrations/index.ts`.
+- **Validation notes**: `judge_panel_rationales` is NOT here — it shipped in
+  `0033`. Phase 3 only starts writing it.
+
+### Task B3.1.2: Store readers + writers
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts`
+- **Spec**: `skill-candidate.store.spec.ts` (extend)
+- **Details**: Extend `RawCandidateRow` + `toCandidateRow`; add sibling
+  `recordReplay(id, …)` and `recordTriggerEval(id, …)` in the `updateStatus`
+  dynamic-fragment style. **Do not overload `updateStatus`.**
+
+### Task B3.1.3: Five gate settings keys + defaults
+
+- **Files**: `libs/backend/platform-core/src/file-settings-keys.ts`,
+  `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.ts`
+- **Details**: `skillSynthesis.replay.enabled` (`true`),
+  `skillSynthesis.replay.minConfidence` (`0.5`),
+  `skillSynthesis.triggerEval.enabled` (`true`),
+  `skillSynthesis.judgePanel.enabled` (`true`),
+  `skillSynthesis.judgePanel.disagreementThreshold` (`3`).
+
+**Acceptance**:
+`nx test @ptah-extension/persistence-sqlite @ptah-extension/skill-synthesis @ptah-extension/platform-core`
+— `0035` applies at version 34; a `NULL` `replay_confidence` reads back as `null`,
+not `0`.
+
+---
+
+## Batch B3.2: `ReplayValidatorService` + the verdict-absent fallback ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C3 (Phase 3)
+- **Depends on**: B3.1, B1.5
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Hold-out selection plus a plan-only safety contract; the fallback
+  is what decouples C3 from C2.
+
+### Task B3.2.1: Replay validator
+
+- **File**: `libs/backend/skill-synthesis/src/lib/gates/replay-validator.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/gates/replay-validator.service.spec.ts` (**P3-1**, replay half)
+- **Spec ref**: implementation-plan.md §4 Phase 3 (line 718)
+- **Details**: Hold out one cluster member; give a fresh `replay`-lane call the
+  drafted skill + the held-out session's **opening user prompt**; a comparator
+  call scores plan-vs-actual alignment 0–1. Persist `replay_confidence` +
+  `replay_holdout_session_id`.
+- **Validation notes**: **PLAN-ONLY, NO FILE WRITES** — enforced by the prompt
+  contract **and** by setting `cwd` to `os.homedir()`, exactly as the judge already
+  does at `skill-judge.service.ts:99`. **R8**: weekly tier only; gated by
+  `replay.enabled`.
+
+### Task B3.2.2: Verdict-absent fallback
+
+- **Spec**: `libs/backend/skill-synthesis/src/lib/gates/verdict-fallback.spec.ts` (**P3-extra**)
+- **Details**: With no `skill_session_verdicts` row (or `degraded_reason NOT NULL`),
+  replay and trigger-eval fall back to `ExtractedTrajectory.canonicalText` +
+  `shortDescription` and set `payload.verdictFallback = true` on the queue row.
+- **Validation notes**: **This is the C2 ⇢ C3 soft edge.** It is what lets C3 ship
+  and pass CI whether or not C2 has landed, and it lets the Activity tab show that
+  the gate ran on weaker evidence.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — a scripted replay stream yields a 0–1
+confidence written to `replay_confidence` with `replay_holdout_session_id` set to
+the excluded member; the fallback spec passes with the verdict table empty.
+
+---
+
+## Batch B3.3: `TriggerEvalService` — measured, zero-LLM retrieval eval ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C3 (Phase 3)
+- **Depends on**: B3.1
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Self-contained scoring logic over local embeddings; no lane
+  dependency for the retrieval itself.
+
+### Task B3.3.1: Trigger retrieval eval
+
+- **File**: `libs/backend/skill-synthesis/src/lib/gates/trigger-eval.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/gates/trigger-eval.service.spec.ts` (**P3-1**, trigger half)
+- **Spec ref**: implementation-plan.md §4 Phase 3 (line 719)
+- **Details**: Generate ~5 should-trigger + ~5 near-miss prompts; run
+  **description-only retrieval against the ACTIVE library using local embeddings**
+  (`IEmbedder` + `SkillCandidateStore.searchActiveByEmbedding`, `:784`). Persist
+  `trigger_precision`, `trigger_recall`, `trigger_score`. Also emit
+  description-collision findings that cosine dedup misses.
+- **Validation notes**: **Zero LLM cost for the retrieval itself** — only the
+  prompt generation touches a lane. Spec uses a stub embedder.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — trigger-eval over a stub embedder
+yields precision/recall and a derived `trigger_score`; a deliberate description
+collision is reported.
+
+---
+
+## Batch B3.4: `JudgePanelService` + the new promotion rule ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C3 (Phase 3)
+- **Depends on**: B3.2, B3.3, B1.6
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Escalation logic plus a promotion-rule change — the gate that
+  decides what ships to users.
+
+### Task B3.4.1: Two-judge panel with disagreement escalation
+
+- **File**: `libs/backend/skill-synthesis/src/lib/gates/judge-panel.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/gates/judge-panel.service.spec.ts` (**P3-2**)
+- **Details**: **Two plain `IInternalQuery` calls on the `judge` lane.** On any
+  per-criterion delta > `disagreementThreshold` (3), escalate that candidate to
+  the `synthesis` lane with both rationales; persist all rationales to
+  `judge_panel_rationales`.
+- **Validation notes**: **NO `tribunal` import** (hard constraint). P3-2 spec:
+  judge A `novelty: 9`, judge B `novelty: 4` (delta 5 > 3) ⇒ a **third**
+  `internalQuery.execute` call whose lane is `synthesis`, whose prompt contains
+  both rationales, and all three rationales land in `judge_panel_rationales`.
+  Control case delta 2 ⇒ **exactly two** calls. **Also assert
+  `@ptah-extension/tribunal*` is not imported anywhere in
+  `libs/backend/skill-synthesis`.** **R8**: the second judge only runs when the
+  first produced a `scored` verdict.
+
+### Task B3.4.2: Promotion rule + measured ranking
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-promotion.service.ts`
+- **Spec**: `skill-promotion.service.spec.ts` (extend)
+- **Details**: `promoted` requires
+  `judgeStatus === 'scored' && judgeScore >= minJudgeScore`
+  **AND** (`replayConfidence >= minReplayConfidence` **OR** `replayConfidence IS NULL`).
+  Ranking uses the **measured** `trigger_score` in place of the judged
+  `triggerClarity` (which is still persisted, for comparison).
+- **Validation notes**: **Replay is an evidence booster, never a hard blocker**,
+  until telemetry proves it stable.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — P3-2 both cases; a candidate with
+`replayConfidence === null` still promotes on a passing judge score; a candidate
+with `replayConfidence` below `minConfidence` does not.
+
+---
+
+## Batch B3.5: Weekly stage wiring + gate results in the UI ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C3 (Phase 3)
+- **Depends on**: B3.4
+- **Recommended Executor**: `frontend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: One small backend wiring task plus the display half of P3-1;
+  frontend-dominant.
+
+### Task B3.5.1: Wire `judge-panel`, `replay`, `trigger-eval` into the weekly drain
+
+- **File**: `libs/backend/skill-synthesis/src/lib/queue/skill-drain.service.ts`
+- **Spec**: `skill-drain.gates.spec.ts` (extend)
+- **Details**: Cluster chain
+  `clustering → cluster-synthesis → judge → judge-panel → replay`
+  with `workspace_root = ''` (clustering is cross-project — Phase 0 item 8).
+  `trigger-eval` is a dependency-free weekly root.
+
+### Task B3.5.2: Render replay confidence + measured trigger score
+
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-candidates-table.component.ts`
+- **Spec**: `skill-candidates-table.component.spec.ts` (extend — **P3-1**, display half)
+- **Details**: Both values render, and render as **"not measured"** when `null`.
+
+### Task B3.5.3: Extend the candidate summary contract
+
+- **File**: `libs/shared/src/lib/types/rpc.types.ts`
+- **Details**: `replayConfidence: number | null`, `triggerScore: number | null`,
+  `judgePanelRationales` on `SkillSynthesisCandidateSummary`. Compile-time half
+  only (correction C11).
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis-ui @ptah-extension/skill-synthesis` —
+`null` gate values render "not measured" and never `0` or `0.0`; the weekly drain
+spec dispatches the three new stages.
+
+---
+
+# COMMIT 4 — Phase 4: proactive gap-detection curator
+
+Commit message: `feat(skill-synthesis): phase 4 — win-rate join and ranked weekly digest`
+
+**Depends on C0 + C1. Win rate degrades gracefully without C2.**
+
+---
+
+## Batch B4.1: Migration 0036 + the workspace-root thread-through (correction C10) ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C4 (Phase 4)
+- **Depends on**: B3.1 (registry ordering)
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Fixes a live silent-data-loss bug (C10) and adds the index the
+  whole phase's join depends on.
+
+### Task B4.1.1: Migration `0036_skill_invocation_session_join`
+
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0036_skill_invocation_session_join.ts`
+- **Spec**: `.../0036_skill_invocation_session_join.spec.ts`
+- **Spec ref**: implementation-plan.md §2.5 (lines 272–303); correction C10
+- **Details**: `ALTER TABLE skill_invocation_events ADD COLUMN workspace_root TEXT;`
+  - `CREATE INDEX idx_skill_inv_events_session ON skill_invocation_events(session_id);`
+    Register in `migrations/index.ts`.
+- **Validation notes**: `session_id` already exists (`0021:5`, `TEXT NOT NULL`) but
+  carries **no index** — the only indexes are on `skill_slug`, `context_id`,
+  `(skill_slug, source, reconciled_at)` and `(skill_slug, task_id)`.
+
+### Task B4.1.2: Stop dropping `workspaceRoot`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-invocation-recorder.ts` (`:45-55`)
+- **Spec**: `skill-invocation-recorder.spec.ts` (extend)
+- **Details**: `RecordSkillEventInput` declares `workspaceRoot` (`:10-22`) and the
+  recorder **silently discards it** before calling the store. Forward it.
+- **Validation notes**: **Correction C10.** context.md's Phase 4 assumed the join
+  was only missing the session outcome; it is also missing workspace scoping and
+  the `session_id` index. Spec asserts the value reaches the store.
+
+### Task B4.1.3: Store INSERT + `getWinRates()`
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/digest/win-rate.spec.ts` (**P4-2**)
+- **Details**: `recordSkillEvent` INSERT (`:451-475`) gains `workspace_root`; add
+  `getWinRates()` implementing the §2.5 query.
+- **Validation notes**: `winRate = wins / (invocations - unknown)`, and it is
+  **`null` when the denominator is 0 — never `0`**, so an unmeasured skill is not
+  ranked below a measured loser. `no-correction` counts as **neither** win nor
+  unknown. P4-2 spec: seed 3 invocation rows (one session with no verdict) and two
+  verdicts (`tests-green`, `unverified`); assert
+  `invocations: 3, wins: 1, unknown: 2` and `winRate === 1`. A slug with only
+  unverified/absent sessions yields `winRate === null`, **not `0`**.
+
+**Acceptance**:
+`nx test @ptah-extension/persistence-sqlite @ptah-extension/skill-synthesis` —
+`0036` applies at version 35; P4-2 exact numbers; the recorder spec proves
+`workspaceRoot` is no longer dropped.
+
+---
+
+## Batch B4.2: `SkillGapCuratorService` — the four sweeps ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C4 (Phase 4)
+- **Depends on**: B4.1
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Four interacting sweeps producing one ranked output; the analytic
+  core of the phase.
+
+### Task B4.2.1: Digest types
+
+- **File**: `libs/backend/skill-synthesis/src/lib/digest/digest.types.ts`
+- **Details**: `DigestItem { kind; title; rationale; score; evidence: { sessionIds: string[]; counts: Record<string, number>; winRate: number | null } }`.
+
+### Task B4.2.2: The gap curator
+
+- **File**: `libs/backend/skill-synthesis/src/lib/digest/skill-gap-curator.service.ts`
+- **Spec**: `libs/backend/skill-synthesis/src/lib/digest/skill-gap-curator.service.spec.ts`
+- **Spec ref**: implementation-plan.md §4 Phase 4 (line 753)
+- **Details**: (a) succeeded sessions where a relevant skill existed but was never
+  invoked → description-rewrite suggestion via the **existing**
+  `SkillSuggestionStore.updatePending` path; (b) friction clusters with no success
+  → skill opportunities from failure; (c) per-skill win rate (§2.5);
+  (d) memory-conditioned relevance via
+  `IMemoryReader.search(query, topK, workspaceRoot)`
+  (`memory-contracts/src/lib/memory-reader.port.ts:30-36`), injected
+  `{isOptional: true}`.
+- **Validation notes**: `skill-synthesis` **already depends on `memory-contracts`**
+  — no new edge. Sweep (b) depends on C2's `friction_map`; when the verdict table
+  is empty the sweep yields zero items rather than throwing (C2 ⇢ C4 soft edge).
+  **Autonomy boundary preserved**: the system ranks, evidences and nudges; the
+  user still accepts/dismisses.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — all four sweeps produce `DigestItem`s
+with non-empty `evidence.sessionIds`; with the verdict table empty the service
+still resolves and sweep (b) returns `[]`.
+
+---
+
+## Batch B4.3: Win rate feeds scorecard, enhancer and dormancy ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C4 (Phase 4)
+- **Depends on**: B4.1
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Three consumers of one new signal; each changes a ranking or
+  eligibility decision, so `null` handling must be identical in all three.
+
+### Task B4.3.1: Scorecard exposes win rate
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-scorecard.service.ts`
+- **Spec**: `skill-scorecard.service.spec.ts` (extend)
+
+### Task B4.3.2: Win rate as an auto-enhance eligibility input
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-enhancer.service.ts`
+- **Spec**: `skill-enhancer.service.spec.ts` (extend)
+- **Details**: Alongside the existing `MIN_INVOCATIONS_TO_ENHANCE`.
+
+### Task B4.3.3: Dormancy demotion orders by win rate ascending, **nulls last**
+
+- **File**: `libs/backend/skill-synthesis/src/lib/skill-promotion.service.ts`
+- **Spec**: `skill-promotion.service.spec.ts` (extend)
+- **Validation notes**: **Nulls last** is the whole point — an unmeasured skill
+  must not be demoted ahead of a measured loser.
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis` — a `null`-win-rate skill sorts **after**
+a `0.2`-win-rate skill in the demotion order; the enhancer spec covers both a
+`null` and a numeric win rate.
+
+---
+
+## Batch B4.4: `skillSynthesis:digest` RPC ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C4 (Phase 4)
+- **Depends on**: B4.2
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+
+### Task B4.4.1: Wire contract
+
+- **File**: `libs/shared/src/lib/types/rpc.types.ts`
+- **Details**: Method map + allow-map + `DigestItem` wire type.
+- **Validation notes**: Correction C11 — compile-time half only.
+
+### Task B4.4.2: Handler + schema
+
+- **Files**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`,
+  `.../skills-synthesis-rpc.schema.ts`
+- **Spec**: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.digest.spec.ts` (**P4-1**)
+- **Details**: P4-1 — seeded DB; the result is sorted by `score` **descending** and
+  every item carries a non-empty `evidence.sessionIds`, a `counts` map, and a
+  `winRate` that is `number | null`.
+
+**Acceptance**:
+`nx test @ptah-extension/rpc-handlers` — P4-1 green, including the descending-sort
+assertion; **and** `npm run typecheck:all` clean.
+
+---
+
+## Batch B4.5: "This week" panel + nudges ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C4 (Phase 4)
+- **Depends on**: B4.4
+- **Recommended Executor**: `frontend-developer`
+- **Execution Mode**: sequential
+
+### Task B4.5.1: Digest panel on the Activity sub-view
+
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/components/` (new `skill-digest-panel.component.ts`)
+- **Spec**: co-located spec (new)
+- **Details**: Ranked items, each rendering its evidence links (session ids,
+  counts, win-rate). Signals + OnPush.
+
+### Task B4.5.2: Nudges ride the existing event push
+
+- **Files**: `libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-live.service.ts`,
+  `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts` (`:600-620`)
+- **Spec**: `skill-synthesis-live.service.spec.ts` (extend)
+- **Validation notes**: Ride the existing `pushEvent` →
+  `MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT` broadcast. **NO new notification channel.**
+
+**Acceptance**:
+`nx test @ptah-extension/skill-synthesis-ui` — the panel renders N ranked items in
+score-descending order with evidence links; a `null` win rate renders as
+"not measured".
+
+---
+
+# COMMIT 5 — Tier B: Electron tray keep-alive
+
+Commit message: `feat(electron): tray keep-alive for background skill synthesis`
+
+**Depends on C0** (the `skillSynthesis.trayKeepalive` key and its `false` default
+ship there). **Purely additive** — with the flag off, `window-all-closed`
+behaviour is byte-identical to today (Q4, R10).
+
+---
+
+## Batch B5.1: Tray surface + gated quit suppression ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C5 (Tray)
+- **Depends on**: B0.5
+- **Recommended Executor**: `backend-developer`
+- **Execution Mode**: sequential
+- **Rationale**: Net-new Electron main-process surface touching the quit path.
+  Platform-specific and risk-bearing (R10) — not delegable.
+
+### Task B5.1.1: Tray service
+
+- **File**: `apps/ptah-electron/src/services/tray/tray.service.ts` (new)
+- **Spec**: `apps/ptah-electron/src/services/tray/tray.service.spec.ts` (new)
+- **Spec ref**: implementation-plan.md §4 Phase 0 "Tier B" (lines 571–578); Q4
+- **Details**: A `Tray` with a **"Pause background learning"** checkbox and
+  **"Quit Ptah"**. Verified: there is currently **no `Tray` anywhere** in the app.
+- **Validation notes**: **R10** — the tray menu always carries an **unconditional**
+  "Quit Ptah" item. Without it, suppressing `window-all-closed` leaves an
+  unkillable background process.
+
+### Task B5.1.2: Gate `window-all-closed` on the setting
+
+- **File**: `apps/ptah-electron/src/main.ts` (`:161-165`)
+- **Spec**: `apps/ptah-electron/src/main.spec.ts` or a co-located quit-path spec (new)
+- **Details**: When `skillSynthesis.trayKeepalive` is `false` (the default),
+  behaviour is **byte-identical to today** — `app.quit()` on non-darwin. When
+  `true`, suppress the quit and keep the tray alive.
+- **Validation notes**: The `will-quit` teardown chain (`:166+`) is **unchanged**.
+  Spec must assert the default-off path calls `app.quit()` exactly as today.
+
+### Task B5.1.3: "Pause background learning" toggles the master switch
+
+- **File**: `apps/ptah-electron/src/services/tray/tray.service.ts`
+- **Details**: The checkbox writes `skillSynthesis.enabled`, which the drain's
+  first gate already reads (B0.4). No new pause mechanism.
+
+**Acceptance**:
+`nx test ptah-electron` — with `trayKeepalive: false`, `window-all-closed` calls
+`app.quit()` on non-darwin (identical to the pre-change assertion); with `true`,
+it does not and the tray exists with an enabled "Quit Ptah" item; **and**
+`nx typecheck ptah-electron` clean.
+
+---
+
+## Batch B5.2: Tray e2e — default-off parity and explicit-on survival ⏸️ PENDING
+
+- **Status**: PENDING
+- **Commit**: C5 (Tray)
+- **Depends on**: B5.1
+- **Recommended Executor**: `senior-tester`
+- **Execution Mode**: sequential
+- **Rationale**: Test-only authoring against the existing Electron harness; the
+  quit-path regression is only observable end-to-end.
+
+### Task B5.2.1: Default-off quit parity
+
+- **File**: `apps/ptah-electron-e2e/src/**` (new spec)
+- **Details**: With the shipped default, closing all windows quits the app on
+  non-darwin — proving R10's "byte-identical default path".
+
+### Task B5.2.2: Flag-on keep-alive + tray quit
+
+- **File**: same
+- **Details**: With `trayKeepalive: true`, closing all windows leaves the process
+  alive and the tray's "Quit Ptah" terminates it.
+
+**Acceptance**:
+`nx e2e ptah-electron-e2e` — both specs green; no orphaned process after the
+flag-on spec.
+
+---
+
+## 2. Batch index
+
+| Batch | Commit | Depends on           | Executor                 | Mode         | Tasks |
+| ----- | ------ | -------------------- | ------------------------ | ------------ | ----- |
+| B0.1  | C0     | —                    | backend-developer        | sequential   | 4     |
+| B0.2  | C0     | —                    | backend-developer        | sequential   | 3     |
+| B0.3  | C0     | B0.1                 | backend-developer        | sequential   | 4     |
+| B0.4  | C0     | B0.2, B0.3           | backend-developer        | sequential   | 3     |
+| B0.5  | C0     | B0.3                 | backend-developer        | sequential   | 4     |
+| B0.6  | C0     | B0.4, B0.5           | backend-developer        | sequential   | 3     |
+| B0.7  | C0     | B0.5                 | frontend-developer       | sequential   | 2     |
+| B1.1  | C1     | B0.1                 | **`ptah-cli` CLI agent** | sequential   | 2     |
+| B1.2  | C1     | B1.1                 | backend-developer        | sequential   | 2     |
+| B1.3  | C1     | —                    | backend-developer        | sequential   | 5     |
+| B1.4  | C1     | B1.3                 | backend-developer        | sequential   | 5     |
+| B1.5  | C1     | B1.4, B0.3           | backend-developer        | sequential   | 5     |
+| B1.6  | C1     | B1.2, B1.5           | backend-developer        | sequential   | 6     |
+| B1.7  | C1     | B1.5, B1.6, **B0.4** | backend-developer        | sequential   | 1     |
+| B1.8  | C1     | B1.4, B1.2           | backend-developer        | sequential   | 3     |
+| B1.9  | C1     | —                    | frontend-developer       | sequential   | 4     |
+| B1.10 | C1     | B1.8, B1.9           | frontend-developer       | sequential   | 4     |
+| B1.11 | C1     | B1.10                | senior-tester            | **parallel** | 2     |
+| B2.1  | C2     | B1.1                 | backend-developer        | sequential   | 3     |
+| B2.2  | C2     | —                    | backend-developer        | sequential   | 1     |
+| B2.3  | C2     | B2.1, B2.2, B1.5     | backend-developer        | sequential   | 2     |
+| B2.4  | C2     | B2.3                 | backend-developer        | sequential   | 4     |
+| B3.1  | C3     | B1.2                 | backend-developer        | sequential   | 3     |
+| B3.2  | C3     | B3.1, B1.5           | backend-developer        | sequential   | 2     |
+| B3.3  | C3     | B3.1                 | backend-developer        | sequential   | 1     |
+| B3.4  | C3     | B3.2, B3.3, B1.6     | backend-developer        | sequential   | 2     |
+| B3.5  | C3     | B3.4                 | frontend-developer       | sequential   | 3     |
+| B4.1  | C4     | B3.1                 | backend-developer        | sequential   | 3     |
+| B4.2  | C4     | B4.1                 | backend-developer        | sequential   | 2     |
+| B4.3  | C4     | B4.1                 | backend-developer        | sequential   | 3     |
+| B4.4  | C4     | B4.2                 | backend-developer        | sequential   | 2     |
+| B4.5  | C4     | B4.4                 | frontend-developer       | sequential   | 2     |
+| B5.1  | C5     | B0.5                 | backend-developer        | sequential   | 3     |
+| B5.2  | C5     | B5.1                 | senior-tester            | sequential   | 2     |
+
+**34 batches, 118 tasks.** One CLI-delegated batch (B1.1), inside Phase 1, as
+context.md scopes it. One parallel batch (B1.11 — two file-disjoint e2e specs
+against different harnesses).
+
+---
+
+## 3. Global invariants — every batch must preserve these
+
+Carried verbatim into each affected batch's Validation Notes. Any violation is a
+review rejection regardless of test status.
+
+1. **No provider id in any code path.** Lanes differ only by capability fields
+   (`structuredOutput`, `toolUse`, `timeoutMs`, `maxInputChars`). If a code path
+   names a provider id, it is wrong. P1-4's spec body must itself contain zero
+   provider-id literals.
+2. **A lane MUST NOT mutate global `AuthEnv` or `process.env`.** R1's live hazard
+   is `ProviderModelsService.applyPersistedTiers` (`:617-643`), which writes both
+   **unconditionally, with no scope guard**. B1.5's byte-for-byte immutability
+   spec is the guard; treat a failure as release-blocking.
+3. **`libs/backend/skill-synthesis` keeps ZERO direct SDK imports.** Widen the
+   local `IInternalQuery` in place (`internal-query.interface.ts` — keep the file
+   local; its header at `:1-9` explains why).
+4. **Generalize `ICuratorAuthResolver`; do not add a second resolver.** Port in
+   `agent-sdk`, impl in `auth-providers` — that direction keeps the dependency
+   one-way (correction C1). No compatibility alias.
+5. **Extract `CuratorModelPickerComponent` into `libs/frontend/ui` and DELETE the
+   local copy.** Do not fork it — `skill-synthesis-ui` ships to VS Code AND
+   Electron, and a fork strands VS Code users.
+6. **Keep the manual JSON parsers.** `extractJsonObject`
+   (`skill-synthesizer.service.ts:210-231`) and the judge's `/\{[^{}]*\}/`
+   (`skill-judge.service.ts:118`) are the **only** path when a lane declares
+   `structuredOutput: 'parse'`.
+7. **`skillSynthesis:` is ALREADY in `ALLOWED_METHOD_PREFIXES`** — no runtime-guard
+   change. The **compile-time** half of dual-registration still applies per new
+   method (`rpc.types.ts` method map + allow-map).
+8. **`skill-synthesis` NEVER imports `cron-scheduler`.** `thoth-runtime` is the
+   seam, exactly as it already is for backups. This is why
+   `isUniqueConstraintError` moves to `persistence-sqlite` in B0.1.
+9. **No tribunal import** anywhere in `libs/backend/skill-synthesis`. "Panel" is
+   two internal-query calls (asserted in B3.4).
+10. **No new frontend lib.** The picker goes into the existing `libs/frontend/ui`;
+    everything else stays inside `skill-synthesis-ui`.
+11. **`drain()` never throws.** Every gate and every failure mode yields a
+    `DrainSummary`.
+12. **No `INSERT OR IGNORE`, no UPSERT** in the queue store (rule at
+    `run.store.ts:6-9`).
+
+---
+
+## 4. Out of scope — do NOT build here
+
+Recorded so no batch quietly absorbs them (context.md § Follow-ups):
+
+- **Tier C daemon** — `ptah daemon` drain mode on `cli-engine` + OS autostart.
+  `cli-engine` is `scope:cli` and `ptah-extension-vscode` is lint-forbidden from
+  depending on it.
+- **Codex lane adapter** — the lane contract must not assume the one-shot
+  Claude-SDK path, so adding one later is additive; building it is a follow-up.
+- **Ollama Cloud free-tier verification** — the ~30K req/mo figure is a
+  source-comment assertion (correction C12). Nothing in this plan depends on it:
+  capacity is governed by `maxTokensPerDay` and cron cadence.
+- **Fixing `getActiveProviderId`'s hostname-substring matcher** (R7,
+  `curator-auth-resolver.ts:236-253`) — mitigated here, fixed in a follow-up.
+- **Correcting the root `CLAUDE.md`'s stale claim that `ProviderModelsService`
+  lives in `agent-sdk`** (correction C3) — it lives in `auth-providers`. Follow-up
+  doc pass.
+- **SDK tool restriction** on the one-shot path (correction C7 / Q3 Option C) —
+  the plan is structured so it is purely additive later, never a rewrite.
+
+---
+
+## 5. Questions for the user
+
+Neither blocks decomposition. Both batches below are written under the stated
+assumption and labelled as such.
+
+### Q-A — Confirm the C0-before-C1 landing order
+
+**Assumption taken**: C0 lands before C1.
+
+context.md line 8 permits Phase 0 and Phase 1 in parallel, and they are genuinely
+dependency-independent at the design level. But criterion **P1-7** ("a lane whose
+auth cannot resolve leaves its queue item `queued` ... and does not throw out of
+the drain") is only assertable once the drain exists. Batch **B1.7** therefore
+carries a cross-commit dependency on **B0.4**.
+
+- **Option A (assumed)** — land C0 → C1. B1.7 is buildable exactly as written. No
+  batch changes.
+- **Option B** — land C1 → C0. B1.7 moves to the front of C0 as a new batch B0.0,
+  and C1 ships with P1-7 unproven until C0 lands. Requires the orchestrator to
+  renumber and to accept a temporarily-unproven Phase-1 criterion.
+
+Only Option B requires action; Option A is already reflected above.
+
+### Q-B — Where should the "Pause background learning" tray checkbox write?
+
+**Assumption taken**: it writes `skillSynthesis.enabled` (task B5.1.3).
+
+That key is already the drain's first gate (B0.4), so no new pause mechanism is
+needed and the tray control is honoured by every runtime, not just Electron.
+
+- **Option A (assumed)** — write `skillSynthesis.enabled`. Zero new machinery; the
+  pause is global and persists across restarts. _Trade-off:_ pausing from the tray
+  also stops synthesis for a VS Code window running against the same
+  `~/.ptah/settings.json`.
+- **Option B** — a separate Electron-local `skillSynthesis.trayPaused` key that the
+  drain gates on in addition. Keeps the tray pause host-local. _Trade-off:_ a
+  twelfth settings key, a second pause concept, and two ways to mean "off" — the
+  kind of dual path the brief forbids elsewhere.
+
+If Option B is preferred, B0.4's gate order and B0.5's key table both need one
+addition; say so before C0 is implemented, since the key list ships there.
