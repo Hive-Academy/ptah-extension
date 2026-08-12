@@ -195,38 +195,51 @@ function AppShell({
 
   useInput(
     (input, key) => {
-      // Ctrl+Q is gone: it is XON in every terminal's default flow control, so
-      // on the terminals that swallow it the advertised quit key simply did
-      // nothing. Quitting is Ctrl+C twice or `/quit`, both in the keymap.
-      if (key.ctrl && input === 'b') {
+      // Alt, not Ctrl. `Ctrl+<letter>` belongs to readline, and four of these
+      // used to sit on line-editing defaults: Ctrl+E (end-of-line), Ctrl+K
+      // (kill-to-end), Ctrl+N/Ctrl+P (history). In a composer that IS a text
+      // input, the documented way to jump to the end of what you were typing
+      // opened the sessions panel instead. `RESERVED_CHORDS` in `keymap.ts`
+      // now fails the spec on that class; the layout follows Gemini CLI's.
+      //
+      // Ink reports Alt+<key> as `{ meta: true, input: '<key>' }` and plain
+      // Escape as `{ escape: true }` with no meta, so the two never collide.
+      // Verified on a real pty, not assumed.
+      //
+      // Ctrl+Q is also gone: XON in every terminal's default flow control, so
+      // on the terminals that swallow it the advertised quit key did nothing.
+      // Quitting is Ctrl+C twice or `/quit`, both in the keymap.
+      if (key.meta && input === 'a') {
         setAgentPanelVisible((prev) => !prev);
       }
 
-      if (key.ctrl && input === 'e') {
+      if (key.meta && input === 'l') {
         setSidebarVisible((prev) => !prev);
       }
 
-      if (key.ctrl && input === 'n') {
+      if (key.meta && input === 'n') {
         setActiveSession(null);
       }
 
-      if (key.ctrl && input === 's') {
+      if (key.meta && input === 's') {
         setActiveView((prev) => (prev === 'settings' ? 'chat' : 'settings'));
       }
 
-      if (key.ctrl && input === 't') {
+      if (key.meta && input === 't') {
         setActiveView((prev) => (prev === 'thoth' ? 'chat' : 'thoth'));
       }
 
-      if (key.ctrl && input === 'r') {
+      if (key.meta && input === 'e') {
         void agentConfig.cycleEffort();
       }
 
-      if (key.ctrl && input === 'p') {
+      // Shift+Tab, matching Gemini's `app.cycleApprovalMode`. Ink reports it
+      // as `{ shift: true, tab: true }` with empty input.
+      if (key.shift && key.tab) {
         void agentConfig.cyclePermission();
       }
 
-      if (key.ctrl && input === 'k') {
+      if (key.meta && input === 'k') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
@@ -244,9 +257,9 @@ function AppShell({
         ]);
       }
 
-      // 'o', not 'm': Ctrl+M is carriage return, so this branch could never be
-      // reached and pressing it sent the message instead. See `keymap.ts`.
-      if (key.ctrl && input === 'o') {
+      // Alt+M. Ctrl+M is carriage return (undeliverable) and Ctrl+O is
+      // VDISCARD, so neither could carry this. See `keymap.ts`.
+      if (key.meta && input === 'm') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };

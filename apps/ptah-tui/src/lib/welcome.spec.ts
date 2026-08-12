@@ -1,4 +1,5 @@
 import { resolveGlyphSet } from './glyphs.js';
+import { KEYMAP } from './keymap.js';
 import {
   WELCOME_ACTION_COUNT,
   buildWelcome,
@@ -27,7 +28,9 @@ describe('buildWelcome', () => {
     );
     expect(model.provider.ready).toBe(false);
     expect(model.provider.label).toBe('not configured');
-    expect(model.actions[0]?.keys).toBe('Ctrl+S');
+    expect(model.actions[0]?.keys).toBe(
+      KEYMAP.find((b) => b.id === 'app.settings')?.keys,
+    );
   });
 
   it('surfaces the auth error when there is one', () => {

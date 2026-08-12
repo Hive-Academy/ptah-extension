@@ -105,8 +105,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   // -- navigation -------------------------------------------------------
   {
     id: 'nav.palette',
-    keys: 'Ctrl+K',
-    hint: '^K',
+    keys: 'Alt+K',
+    hint: 'M-k',
     description: 'Open the command palette',
     footerLabel: 'palette',
     scope: 'global',
@@ -146,8 +146,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   // -- session ----------------------------------------------------------
   {
     id: 'session.new',
-    keys: 'Ctrl+N',
-    hint: '^N',
+    keys: 'Alt+N',
+    hint: 'M-n',
     description: 'Start a new session',
     footerLabel: 'new',
     scope: 'global',
@@ -156,8 +156,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'session.list',
-    keys: 'Ctrl+E',
-    hint: '^E',
+    keys: 'Alt+L',
+    hint: 'M-l',
     description: 'Toggle the sessions panel',
     footerLabel: 'sessions',
     scope: 'global',
@@ -168,8 +168,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   // -- agent ------------------------------------------------------------
   {
     id: 'agent.monitor',
-    keys: 'Ctrl+B',
-    hint: '^B',
+    keys: 'Alt+A',
+    hint: 'M-a',
     description: 'Toggle the agent activity panel',
     footerLabel: 'agents',
     scope: 'global',
@@ -178,12 +178,11 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'agent.model',
-    // Not Ctrl+M. Ctrl+M *is* carriage return, so Ink resolves it to
-    // `{name:'return'}` and the handler's `input === 'm'` can never be true —
-    // the binding was advertised in `?` and did nothing but send the message.
-    // See `findControlCodeAliases`, which now fails the spec on that class.
-    keys: 'Ctrl+O',
-    hint: '^O',
+    // Not Ctrl+M (carriage return — undeliverable, see
+    // `findControlCodeAliases`) and not Ctrl+O (VDISCARD, and Gemini's
+    // `app.showMoreLines`). Alt+M is the mnemonic that is actually free.
+    keys: 'Alt+M',
+    hint: 'M-m',
     description: 'Switch the active model',
     footerLabel: 'model',
     scope: 'global',
@@ -191,8 +190,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'agent.effort',
-    keys: 'Ctrl+R',
-    hint: '^R',
+    keys: 'Alt+E',
+    hint: 'M-e',
     description: 'Cycle the reasoning effort',
     footerLabel: 'effort',
     scope: 'global',
@@ -200,8 +199,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'agent.permission',
-    keys: 'Ctrl+P',
-    hint: '^P',
+    keys: 'Shift+Tab',
+    hint: 'S-tab',
     description: 'Cycle the permission level',
     footerLabel: 'perms',
     scope: 'global',
@@ -211,8 +210,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   // -- app --------------------------------------------------------------
   {
     id: 'app.settings',
-    keys: 'Ctrl+S',
-    hint: '^S',
+    keys: 'Alt+S',
+    hint: 'M-s',
     description: 'Open settings',
     footerLabel: 'settings',
     scope: 'global',
@@ -221,8 +220,8 @@ export const KEYMAP: readonly KeyBinding[] = [
   },
   {
     id: 'app.thoth',
-    keys: 'Ctrl+T',
-    hint: '^T',
+    keys: 'Alt+T',
+    hint: 'M-t',
     description: 'Open Thoth — memory, skills, schedules, gateway',
     footerLabel: 'thoth',
     scope: 'global',
@@ -290,6 +289,82 @@ export function findKeymapConflicts(
     }
   }
 
+  return conflicts;
+}
+
+/**
+ * Chords the terminal or the line editor already owns.
+ *
+ * The rule, taken from Gemini CLI's binding table: **`Ctrl+<letter>` belongs to
+ * readline**, and app-level features live on `Alt+<key>`, `Shift+Tab` or
+ * function keys. Gemini binds `ctrl+a`/`ctrl+e` to home/end, `ctrl+k`/`ctrl+u`
+ * to the kill commands and `ctrl+p`/`ctrl+n` to history — then puts approval
+ * cycling on `shift+tab` and markdown toggling on `alt+m`.
+ *
+ * We had drifted the other way. Four bindings sat directly on line-editing
+ * defaults — `Ctrl+E` on end-of-line, `Ctrl+K` on kill-to-end, `Ctrl+P` and
+ * `Ctrl+N` on history — so in a composer that is a text input, the documented
+ * way to move around the text you were typing did something else entirely.
+ *
+ * Three groups, all unavailable:
+ *
+ *   - **Line editing.** What a user types into the composer expecting readline.
+ *   - **Terminal control.** Signals and flow control the tty eats before the
+ *     process sees them. `Ctrl+S`/`Ctrl+Q` are XON/XOFF; `Ctrl+O` is VDISCARD.
+ *   - **Aliases.** Handled separately by {@link findControlCodeAliases},
+ *     because those are not merely taken — they are undeliverable.
+ *
+ * `Ctrl+C` is the deliberate exception: it is claimed here as quit, exactly as
+ * Gemini claims it for `basic.quit`, and Ink is rendered with
+ * `exitOnCtrlC: false` so this module owns it.
+ */
+export const RESERVED_CHORDS: Readonly<Record<string, string>> = {
+  'Ctrl+A': 'readline: beginning-of-line',
+  'Ctrl+B': 'readline: backward-char',
+  'Ctrl+D': 'terminal: EOF',
+  'Ctrl+E': 'readline: end-of-line',
+  'Ctrl+F': 'readline: forward-char',
+  'Ctrl+K': 'readline: kill-to-end',
+  'Ctrl+N': 'readline: next-history',
+  'Ctrl+P': 'readline: previous-history',
+  'Ctrl+R': 'readline: reverse-search-history',
+  'Ctrl+T': 'readline: transpose-chars',
+  'Ctrl+U': 'readline: kill-to-start',
+  'Ctrl+W': 'readline: kill-word-backward',
+  'Ctrl+Y': 'readline: yank',
+  'Ctrl+O': 'terminal: VDISCARD (flush output)',
+  'Ctrl+Q': 'terminal: XON (flow control)',
+  'Ctrl+S': 'terminal: XOFF (flow control)',
+  'Ctrl+Z': 'terminal: SIGTSTP',
+};
+
+export interface ReservedChordConflict {
+  readonly keys: string;
+  readonly id: string;
+  /** What already owns the chord. */
+  readonly ownedBy: string;
+}
+
+/**
+ * Bindings claiming a chord readline or the tty already owns.
+ *
+ * Distinct from both other checks: `findKeymapConflicts` only sees collisions
+ * *within* this registry, and `findControlCodeAliases` only sees chords that
+ * cannot be delivered. A chord can be perfectly deliverable, unique in our
+ * table, and still wrong because the line editor got there first.
+ */
+export function findReservedChordConflicts(
+  bindings: readonly KeyBinding[] = KEYMAP,
+): ReservedChordConflict[] {
+  const conflicts: ReservedChordConflict[] = [];
+  for (const binding of bindings) {
+    // Ctrl+C is ours on purpose; see the note on RESERVED_CHORDS.
+    if (binding.id === 'app.quit') continue;
+    const ownedBy = RESERVED_CHORDS[binding.keys];
+    if (ownedBy !== undefined) {
+      conflicts.push({ keys: binding.keys, id: binding.id, ownedBy });
+    }
+  }
   return conflicts;
 }
 

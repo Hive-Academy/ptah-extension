@@ -16,6 +16,19 @@
  */
 
 import type { GlyphSet } from './glyphs.js';
+import { KEYMAP } from './keymap.js';
+
+/**
+ * Chords are looked up, never written out here.
+ *
+ * The header above describes a welcome screen whose chord list had drifted
+ * from the shell's real bindings — which is why `keymap.ts` exists. It then
+ * drifted again: this module hard-coded `Ctrl+S` for settings, and survived
+ * the whole move to Alt chords with a spec still pinning the stale string.
+ */
+function chordFor(id: string, fallback: string): string {
+  return KEYMAP.find((binding) => binding.id === id)?.keys ?? fallback;
+}
 
 export interface WelcomeInput {
   readonly workspacePath: string;
@@ -87,7 +100,10 @@ export function buildWelcome(
         { keys: '?', label: 'show every keyboard shortcut' },
       ]
     : [
-        { keys: 'Ctrl+S', label: 'connect a provider to get started' },
+        {
+          keys: chordFor('app.settings', 'Alt+S'),
+          label: 'connect a provider to get started',
+        },
         { keys: '/', label: 'run a command — /help lists them all' },
         { keys: '?', label: 'show every keyboard shortcut' },
       ];
