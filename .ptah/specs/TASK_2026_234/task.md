@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_234
-status: in_progress
+status: in_review
 type: bugfix
 title: 'Six TUI defects found by the TASK_2026_198 logic review'
 description: >-
