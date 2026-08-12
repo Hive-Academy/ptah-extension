@@ -57,6 +57,7 @@ import { sql as sql0028GatewayConversationWorkspaceRoot } from './0028_gateway_c
 import { sql as sql0029TaskSpecs } from './0029_task_specs';
 import { sql as sql0030SkillEventMetrics } from './0030_skill_event_metrics';
 import { sql as sql0031TaskSpecsMetadata } from './0031_task_specs_metadata';
+import { sql as sql0032SkillSynthesisQueue } from './0032_skill_synthesis_queue';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -256,5 +257,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 31,
     name: '0031_task_specs_metadata',
     sql: sql0031TaskSpecsMetadata,
+  },
+  {
+    version: 32,
+    name: '0032_skill_synthesis_queue',
+    sql: sql0032SkillSynthesisQueue,
   },
 ];

@@ -24,7 +24,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 ## Public API
 
-`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
+`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
 
 ## Internal Structure
 
@@ -32,6 +32,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 - `src/lib/migration-runner.ts` — applies pending migrations in order
 - `src/lib/migrations/` — `MIGRATIONS` tuple (forward-only, append-only)
 - `src/lib/backup.service.ts` — `SqliteBackupService` (uses VACUUM INTO / online backup API)
+- `src/lib/sqlite-errors.ts` — `isUniqueConstraintError`, the driver-level predicate behind every at-most-once claim (cron slot claim, synthesis-queue enqueue)
 - `src/lib/embedder/embedder.interface.ts` — `IEmbedder` contract
 - `src/lib/di/{tokens,register}.ts`
 
