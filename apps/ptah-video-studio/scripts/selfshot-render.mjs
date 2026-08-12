@@ -30,6 +30,7 @@ import {
   resolveBeats,
 } from './lib/selfshot-resolve.mjs';
 import { getMediaDurationMs, getVideoSize } from './lib/media.mjs';
+import { masterAudio, describeMasterResult } from './lib/master-audio.mjs';
 
 const ROOT_ENTRY = 'src/Root.tsx';
 const WHOOSH_ASSET = path.join(APP_ROOT, 'assets', 'sfx', 'whoosh.mp3');
@@ -211,6 +212,10 @@ function main() {
 
     console.log(`[selfshot] ${slug} [${format}] → ${outFile}${args.range ? ` (frames ${args.range})` : ''}`);
     execFileSync('npx', cmd, { cwd: APP_ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
+
+    // Absolute-level master (see lib/master-audio.mjs) — Remotion only sets the
+    // mix balance, so without this the file plays ~8 dB under platform target.
+    console.log(`[selfshot] ${slug} [${format}] master: ${describeMasterResult(masterAudio(outFile))}`);
   }
 
   console.log(`[selfshot] Done. Rendered ${formats.length} format(s) for ${slug}.`);

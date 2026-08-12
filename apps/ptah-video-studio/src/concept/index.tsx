@@ -45,6 +45,16 @@ import {
   StoryCtaV2,
 } from './story-scenes-v2';
 import {
+  AnswerSprawl,
+  AnswerSilo,
+  AnswerAsk,
+  AnswerIdent,
+  AnswerVendors,
+  AnswerStatement,
+  AnswerWipe,
+  AnswerEndCard,
+} from './answer-scenes';
+import {
   BuildersHook,
   BuildersPromise,
   BuildersCohort,
@@ -107,4 +117,13 @@ export const CONCEPT_SCENES: Record<string, ConceptScene> = {
   'builders-room': BuildersRoom,
   'builders-proof': BuildersProof,
   'builders-offer': BuildersOffer,
+  // "Ptah answers Xirp" — flat 2D, hard cuts, no 3D (see answer-scenes.tsx).
+  'answer-sprawl': AnswerSprawl,
+  'answer-silo': AnswerSilo,
+  'answer-ask': AnswerAsk,
+  'answer-ident': AnswerIdent,
+  'answer-vendors': AnswerVendors,
+  'answer-statement': AnswerStatement,
+  'answer-wipe': AnswerWipe,
+  'answer-endcard': AnswerEndCard,
 };

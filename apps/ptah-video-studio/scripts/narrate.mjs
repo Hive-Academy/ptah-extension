@@ -116,7 +116,10 @@ function buildMappingNormalizer() {
   const dictPath = path.join(__dirname, 'text-normalization.json');
   /** @type {Record<string,string>} */
   const dict = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
-  const terms = Object.keys(dict).sort((a, b) => b.length - a.length);
+  // `_`-prefixed keys are notes for whoever edits the dict, not terms to match.
+  const terms = Object.keys(dict)
+    .filter((k) => !k.startsWith('_'))
+    .sort((a, b) => b.length - a.length);
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const re = new RegExp(`(?<![\\w-])(?:${escaped.join('|')})(?![\\w-])`, 'g');
 

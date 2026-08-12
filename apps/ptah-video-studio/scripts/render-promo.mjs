@@ -25,6 +25,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { APP_ROOT, sceneDir, parseArgs, loadStudioEnv } from './paths.mjs';
+import { masterAudio, describeMasterResult } from './lib/master-audio.mjs';
 
 loadStudioEnv();
 
@@ -108,11 +109,77 @@ function copyDir(src, dest) {
  */
 function stagePublicAssets(dir) {
   if (!fs.existsSync(PUBLIC_DIR)) return;
-  for (const sub of ['models', 'hdri']) {
+  for (const sub of ['models', 'hdri', 'brand']) {
     const src = path.join(PUBLIC_DIR, sub);
     if (!fs.existsSync(src)) continue;
     copyDir(src, path.join(dir, sub));
   }
+}
+
+/**
+ * Stage `kind: 'capture'` footage into the promo's public dir and rewrite each
+ * slide's `src` to the staged filename, so staticFile() resolves it under
+ * --public-dir. A spec references source footage by scene slug
+ * (`"capture": "chat-code-edit"`), which resolves to that scene's RAW Playwright
+ * recording — no re-capture, no Playwright, no Electron.
+ *
+ * Raw is the default on purpose. The rendered `out/<slug>.mp4` has already been
+ * through the showcase compositor, so it carries baked-in lower-third captions,
+ * a DeviceFrame inset and the corner watermark — all of which fight a full-bleed
+ * product act and double up with this reel's own narration. Set
+ * `"captureRendered": true` on a slide to deliberately use that treatment.
+ */
+function stageCaptures(spec, dir) {
+  let staged = 0;
+  for (const slide of spec.slides) {
+    if (slide.kind !== 'capture') continue;
+    const source = slide.capture;
+    if (!source) throw new Error(`Promo ${spec.slug}: a capture slide has no "capture" scene slug.`);
+    const src = path.isAbsolute(source)
+      ? source
+      : slide.captureRendered
+        ? path.join(sceneDir(source), 'out', `${source}.mp4`)
+        : path.join(sceneDir(source), 'raw.webm');
+    if (!fs.existsSync(src)) {
+      throw new Error(
+        `Promo ${spec.slug}: capture footage not found at ${src}. ` +
+          `Capture that scene first (ptah-electron-e2e:showcase --grep "${source}").`,
+      );
+    }
+    const destName = `capture-${source}-${path.basename(src)}`;
+    fs.copyFileSync(src, path.join(dir, destName));
+    slide.src = destName;
+    staged++;
+  }
+  if (staged > 0) console.log(`[promo] staged ${staged} capture clip(s).`);
+}
+
+/**
+ * Inline the per-frame TUI grids for `kind: 'terminal'` slides.
+ *
+ * These go into the props file rather than the public dir on purpose: the grid
+ * data is the SUBJECT of the shot, not an asset the page fetches, and inlining
+ * keeps TerminalPlayer synchronous — no delayRender/continueRender dance, and
+ * therefore no way for a slow fetch to race a frame render.
+ */
+function inlineTerminals(spec) {
+  let inlined = 0;
+  for (const slide of spec.slides) {
+    if (slide.kind !== 'terminal') continue;
+    const source = slide.terminal;
+    if (!source) throw new Error(`Promo ${spec.slug}: a terminal slide has no "terminal" scene slug.`);
+    const framesPath = path.join(sceneDir(source), 'tui-frames.json');
+    if (!fs.existsSync(framesPath)) {
+      throw new Error(
+        `Promo ${spec.slug}: no TUI frames at ${framesPath}. Record and grid it first:\n` +
+          `  node apps/ptah-video-studio/scripts/record-tui.mjs --scene ${source} --live\n` +
+          `  node apps/ptah-video-studio/scripts/tui-frames.mjs  --scene ${source}`,
+      );
+    }
+    slide.frames = JSON.parse(fs.readFileSync(framesPath, 'utf8'));
+    inlined++;
+  }
+  if (inlined > 0) console.log(`[promo] inlined ${inlined} terminal recording(s).`);
 }
 
 function loadSpec(slug) {
@@ -252,6 +319,10 @@ function render(spec, dir) {
 
   // Mirror public/ 3D assets into this scene's public dir before render.
   stagePublicAssets(dir);
+  // Copy any real product footage the spec references (mutates slide.src).
+  stageCaptures(spec, dir);
+  // Inline any recorded TUI grids (mutates slide.frames).
+  inlineTerminals(spec);
 
   const props = {
     spec,
@@ -282,6 +353,11 @@ function render(spec, dir) {
     ],
     { cwd: APP_ROOT, stdio: 'inherit', shell: process.platform === 'win32' },
   );
+
+  // Remotion sets the mix BALANCE but never the absolute level, so an unmastered
+  // render lands ~8 dB under the -14 LUFS platforms normalize to. Master in place
+  // (video stream-copied) so the file is publishable as rendered.
+  console.log(`[promo] master: ${describeMasterResult(masterAudio(outFile))}`);
   console.log(`[promo] Done: ${outFile}`);
 }
 
