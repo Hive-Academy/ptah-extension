@@ -28,8 +28,23 @@ Nothing here was filed as a carrier at the time; this allocates one.
 | 5   | Escape closes two surfaces per press          | `sidebar/SessionList.tsx:56`, `settings/AuthSection.tsx:1134` |
 | 6   | Mid-stream view switch leaks a running turn   | `chat/ChatPanel.tsx:99-104`, `hooks/use-chat.ts:187-194`      |
 
-## Verification limit
+## Verification limit — partly closed
 
-There is no PTY in the test environment, so keystrokes never reach `useInput`.
-Items 2, 5 and 6 are interaction defects: the reducer/handler is provable, _that
-pressing the key calls it_ is not. State the gap rather than claiming coverage.
+Originally: no PTY, so keystrokes never reached `useInput`, and for items 2, 5
+and 6 only the reducer underneath was provable.
+
+`nx run ptah-cli:e2e-pty` now drives the built bundle on a real pseudo-terminal
+(`tests/e2e/_harness/pty-runner.ts`). Covered end-to-end, mutation-checked
+against a rebuilt bundle:
+
+- **Item 2** — Ctrl+O opens the model selector; Ctrl+M does not, because it is
+  the same byte as Enter.
+- **Item 5 (AuthSection half)** — Escape backs out of the provider configurator
+  and stays in Settings; only a second press leaves.
+
+Still unit-level, and reachable only with a live provider:
+
+- **Item 5 (SessionList half)** — needs a session to delete, and the list is
+  empty until a turn has run. Covered by `escape-claims.spec.ts`.
+- **Item 6** — needs a streaming turn. e2e strips every credential by design.
+  Covered by `use-chat.spec.ts`.
