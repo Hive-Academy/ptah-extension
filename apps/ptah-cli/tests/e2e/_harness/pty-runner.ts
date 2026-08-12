@@ -53,6 +53,18 @@ export const KEYS = {
     const code = letter.toLowerCase().charCodeAt(0) - 96;
     return String.fromCharCode(code);
   },
+  /**
+   * Alt+<key> is ESC followed by the key. Ink reports it as
+   * `{ meta: true, input: '<key>' }` — verified on a real pty, and distinct
+   * from bare Escape, which arrives as `{ escape: true }` with no meta. That
+   * distinction is what lets the app bindings live on Alt without colliding
+   * with the Escape-to-close behaviour.
+   */
+  alt(letter: string): string {
+    return `\x1b${letter}`;
+  },
+  /** CSI Z. Ink reports `{ shift: true, tab: true }` with empty input. */
+  shiftTab: '\x1b[Z',
 } as const;
 
 export interface PtySession {
@@ -78,6 +90,27 @@ export interface StartTuiOptions {
   readonly rows?: number;
   /** How long to allow for DI bootstrap and the first painted frame. */
   readonly bootTimeoutMs?: number;
+  /**
+   * Boot CONFIGURED rather than cold.
+   *
+   * Without this the TUI has no credentials, so `resolveInitialView` opens
+   * Settings → Authentication and the session list is permanently empty —
+   * which means every surface that lives behind "the user has actually set
+   * this up" is unreachable. That is a real limit on what a cold-start
+   * harness can prove, not a detail.
+   *
+   * The key is fake and never reaches upstream; it exists so SDK init
+   * succeeds, exactly as `bootstrap` / `headless-task` / `permission-gates`
+   * already do it. Seeds `~/.ptah/settings.json` with the provider and model
+   * so the app boots the way a set-up user's does.
+   */
+  readonly configured?: {
+    readonly apiKey?: string;
+    readonly provider?: string;
+    readonly model?: string;
+  };
+  /** Real project folder to run in, so `workspacePath` is a genuine repo. */
+  readonly workspace?: string;
 }
 
 /** Quiet period that counts as "the repaint finished". */
@@ -86,11 +119,19 @@ const SETTLE_MS = 1200;
 const NO_REPAINT_MS = 4_000;
 const DEFAULT_BOOT_TIMEOUT_MS = 60_000;
 
+/**
+ * Fake, and deliberately self-describing: if this ever shows up in a request
+ * log, the leak is obvious. Same value the JSON-RPC e2e specs use.
+ */
+export const PTY_FAKE_API_KEY =
+  'sk-ant-e2e-fake-key-not-real-do-not-call-upstream';
+
 function ptyEnv(home: string, extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  // Never let a developer's real credentials reach a spec — with a key
-  // present the TUI opens on chat instead of Settings and the auth specs
-  // would silently assert against a different surface.
+  // Strip FIRST, always. A developer's real key in the ambient environment
+  // would flip the initial view from Settings to chat, and the cold-start
+  // specs would assert against a surface they never meant to test. Anything
+  // the caller wants back is re-added below, explicitly.
   delete env['ANTHROPIC_API_KEY'];
   delete env['ANTHROPIC_AUTH_TOKEN'];
   delete env['OPENAI_API_KEY'];
@@ -124,7 +165,33 @@ export function stripAnsi(text: string): string {
 }
 
 export async function startTui(opts: StartTuiOptions): Promise<PtySession> {
-  fs.mkdirSync(path.join(opts.home, '.ptah'), { recursive: true });
+  const ptahDir = path.join(opts.home, '.ptah');
+  fs.mkdirSync(ptahDir, { recursive: true });
+
+  const configured = opts.configured;
+  if (configured !== undefined) {
+    // Seed the same file a set-up user would have. Written before spawn so
+    // the settings store reads it during bootstrap rather than after the
+    // first frame — a post-boot write would race the initial view.
+    const provider = configured.provider ?? 'claude';
+    const settings = {
+      llm: { defaultProvider: provider },
+      auth: { defaultProvider: provider, authMethod: 'apiKey' },
+      ...(configured.model !== undefined
+        ? { mainAgent: { model: configured.model } }
+        : {}),
+    };
+    fs.writeFileSync(
+      path.join(ptahDir, 'settings.json'),
+      JSON.stringify(settings, null, 2),
+      'utf8',
+    );
+  }
+
+  const extraEnv: NodeJS.ProcessEnv = { ...(opts.env ?? {}) };
+  if (configured !== undefined) {
+    extraEnv['ANTHROPIC_API_KEY'] = configured.apiKey ?? PTY_FAKE_API_KEY;
+  }
 
   const child = ptyModule.spawn(process.execPath, [opts.mainMjs, 'tui'], {
     name: 'xterm-256color',
@@ -132,8 +199,8 @@ export async function startTui(opts: StartTuiOptions): Promise<PtySession> {
     // a content change that never happened.
     cols: opts.cols ?? 100,
     rows: opts.rows ?? 30,
-    cwd: opts.home,
-    env: ptyEnv(opts.home, opts.env) as Record<string, string>,
+    cwd: opts.workspace ?? opts.home,
+    env: ptyEnv(opts.home, extraEnv) as Record<string, string>,
   });
 
   let buffer = '';
@@ -252,10 +319,11 @@ export async function startTui(opts: StartTuiOptions): Promise<PtySession> {
     },
   };
 
-  // The provider list is the first stable frame with no credentials present:
-  // `resolveInitialView` opens Settings → Authentication when auth is missing.
+  // Which frame counts as "booted" depends on how it was started, because
+  // `resolveInitialView` routes on whether auth is present: cold lands on
+  // Settings → Authentication, configured lands on the chat welcome.
   await session.waitForText(
-    /Authentication/,
+    configured !== undefined ? /The Coding Orchestra/ : /Authentication/,
     opts.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS,
   );
   return session;

@@ -75,10 +75,12 @@ describe('ptah tui interaction (pty)', () => {
     expect(afterSecondEscape).toMatch(/The Coding Orchestra/);
   });
 
-  it('opens the model selector on Ctrl+O and never on Ctrl+M', async () => {
-    // The defect: the binding was Ctrl+M, which IS carriage return, so Ink
-    // delivered `{name:'return'}` and `key.ctrl && input === 'm'` could never
-    // be true. The help overlay advertised a chord that only sent the message.
+  it('opens the model selector on Alt+M and never on Ctrl+M', async () => {
+    // Two defects in one binding. It was Ctrl+M, which IS carriage return, so
+    // Ink delivered `{name:'return'}` and the handler could never fire. It was
+    // then moved to Ctrl+O — deliverable, but VDISCARD at the tty and Gemini's
+    // `app.showMoreLines`. Alt+M is the first version that is both reachable
+    // and unclaimed.
     //
     // Both halves live in one spec on purpose. Asserting the negative alone is
     // worthless: a dead or hung TUI repaints nothing, `screen()` returns '',
@@ -91,11 +93,51 @@ describe('ptah tui interaction (pty)', () => {
     const afterCtrlM = await tui.press(KEYS.ctrl('m'));
     expect(afterCtrlM).not.toMatch(/per Mtok/);
 
-    const afterCtrlO = await tui.press(KEYS.ctrl('o'));
-    expect(afterCtrlO).toMatch(/per Mtok/);
+    const afterAltM = await tui.press(KEYS.alt('m'));
+    expect(afterAltM).toMatch(/per Mtok/);
 
     // The equality `findControlCodeAliases` encodes as a rule: one byte, so no
     // handler could ever have claimed it.
     expect(KEYS.ctrl('m')).toBe(KEYS.enter);
+  });
+});
+
+describe('ptah tui interaction (pty, configured workspace)', () => {
+  let home: string;
+  let tui: PtySession | null = null;
+
+  beforeEach(() => {
+    home = makePtyHome('ptah-pty-configured-');
+  });
+
+  afterEach(async () => {
+    await tui?.dispose();
+    tui = null;
+    await fsp.rm(home, { recursive: true, force: true, maxRetries: 3 });
+  });
+
+  it('boots past Settings into chat when a provider and model are configured', async () => {
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+    const screen = tui.screen();
+    // The cold-start harness could never see this frame — it is the whole
+    // reason a configured fixture exists.
+    expect(screen).toMatch(/The Coding Orchestra/);
+    expect(screen).not.toMatch(/Not configured/);
+  });
+
+  it('opens the sessions panel on Alt+L from a configured boot', async () => {
+    tui = await startTui({
+      mainMjs: CliRunner.DIST_BIN,
+      home,
+      workspace: process.cwd(),
+      configured: { provider: 'claude', model: 'claude-sonnet-5' },
+    });
+    const sidebar = await tui.press(KEYS.alt('l'));
+    expect(sidebar).toMatch(/Sessions/);
   });
 });
