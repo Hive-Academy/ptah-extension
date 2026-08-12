@@ -67,10 +67,13 @@ describe('migration 0032_skill_synthesis_queue — registry entry', () => {
     expect(entry?.run).toBeUndefined();
   });
 
-  it('is registered exactly once, appended after 31, and is the tail', () => {
+  it('is registered exactly once and follows 31 with no gap', () => {
     expect(MIGRATIONS.filter((m) => m.version === 32)).toHaveLength(1);
     expect(MIGRATIONS.map((m) => m.version)).toContain(31);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(32);
+    // 0032 is no longer the tail — the same task's phase 1 appended 0033. The
+    // invariant that survives is "32 exists exactly once and 31 precedes it";
+    // the highest version is asserted by whichever migration is currently last.
+    expect(MIGRATIONS.map((m) => m.version)).toContain(33);
   });
 });
 

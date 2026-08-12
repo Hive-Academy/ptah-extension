@@ -74,7 +74,7 @@ export const SDK_TOKENS = {
 
   SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
 
-  SDK_CURATOR_AUTH_RESOLVER: Symbol.for('SdkCuratorAuthResolver'),
+  SDK_PROVIDER_AUTH_RESOLVER: Symbol.for('SdkProviderAuthResolver'),
 
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 

@@ -7,16 +7,16 @@ import {
   CURATOR_DEFAULT_MODEL_TIER,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
-import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
+import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { InternalQueryService } from '../internal-query';
 import type { AuthEnv } from '@ptah-extension/shared';
 
-class FakeCuratorAuthError extends Error {
+class FakeProviderAuthError extends Error {
   readonly providerId: string;
   constructor(providerId: string, message: string) {
     super(message);
-    this.name = 'CuratorAuthError';
+    this.name = 'ProviderAuthError';
     this.providerId = providerId;
   }
 }
@@ -112,8 +112,8 @@ function makeInternalQuery(opts: {
 
 function makeResolver(
   impl: (id: string) => Promise<OneShotAuthOverride | null>,
-): ICuratorAuthResolver & { resolve: jest.Mock } {
-  return { resolve: jest.fn(impl) } as unknown as ICuratorAuthResolver & {
+): IProviderAuthResolver & { resolve: jest.Mock } {
+  return { resolve: jest.fn(impl) } as unknown as IProviderAuthResolver & {
     resolve: jest.Mock;
   };
 }
@@ -323,7 +323,7 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     expect(capture.model).toBe('glm-4.6');
   });
 
-  it('proceeds with auth=undefined and warns when the resolver throws CuratorAuthError', async () => {
+  it('proceeds with auth=undefined and warns when the resolver throws ProviderAuthError', async () => {
     const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -331,7 +331,7 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     });
     const logger = makeLogger();
     const resolver = makeResolver(async () => {
-      throw new FakeCuratorAuthError(
+      throw new FakeProviderAuthError(
         'github-copilot',
         'curator provider not authenticated',
       );
@@ -399,7 +399,7 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     expect(capture.model).toBe('claude-sonnet-4-5-20250101');
   });
 
-  it('rethrows non-CuratorAuthError resolver failures', async () => {
+  it('rethrows non-ProviderAuthError resolver failures', async () => {
     const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
     const resolver = makeResolver(async () => {
       throw new Error('unexpected resolver crash');

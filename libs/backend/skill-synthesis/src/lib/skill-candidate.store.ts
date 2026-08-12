@@ -34,6 +34,85 @@ import {
 } from './types';
 import { cosineSimilarity } from './cosine-similarity';
 
+/**
+ * The judge verdict vocabulary (migration `0033`).
+ *
+ * THIS UNION IS THE ONLY ENFORCEMENT THERE IS. `0033` deliberately ships
+ * `judge_status` with NO `CHECK` constraint: SQLite cannot widen a CHECK with
+ * `ALTER TABLE`, and phases 3/4 add scoring paths, so the vocabulary is not
+ * knowable up front. The price of that choice is that the store — the single
+ * gate every read and write passes through — has to do the enforcing, on BOTH
+ * edges: `recordJudgeVerdict` rejects a non-member, and `toCandidateRow`
+ * refuses to hand an unrecognized string to a consumer that has been told the
+ * type is this union.
+ */
+export const JUDGE_STATUSES = ['scored', 'unscored', 'disabled'] as const;
+
+export type JudgeStatus = (typeof JUDGE_STATUSES)[number];
+
+/**
+ * The five criteria `SkillJudgeService` scores. Persisted individually rather
+ * than only as an average so the UI can render a scorecard, and so a verdict
+ * that is strong on novelty but weak on scope is legible instead of collapsed
+ * into one number. `null` per criterion means "this criterion was not scored".
+ */
+export interface JudgeCriterionScores {
+  novelty: number | null;
+  actionability: number | null;
+  scope: number | null;
+  generalization: number | null;
+  triggerClarity: number | null;
+}
+
+/**
+ * A judge outcome as written by the promotion gate.
+ *
+ * `score: null` IS THE `unscored` VERDICT — it is not a low score and it is not
+ * zero. It is the representation that phase 1 exists to introduce: before it,
+ * an LLM error, a rate limit, or an unparseable reply made the judge fail OPEN
+ * and fabricate `{ passed: true, score: 10 }`, which the UI then rendered as a
+ * genuine perfect verdict. A candidate whose judge call failed must read back
+ * as "we do not know", carry the reason, and stay eligible for a retry.
+ */
+export interface JudgeVerdict {
+  status: JudgeStatus;
+  /** `null` for every non-`scored` status. Never coalesce this to 0. */
+  score: number | null;
+  /** Why. For `unscored` this is the failure ("rate limited"), not a critique. */
+  reason: string | null;
+  /** Omit entirely when the judge produced no per-criterion breakdown. */
+  criteria?: JudgeCriterionScores;
+  /** Defaults to `Date.now()`. */
+  judgedAt?: number;
+}
+
+/** The `0033` judge columns as they appear on a read row. */
+export interface JudgeVerdictFields {
+  /** `null` = never judged (every row predating `0033`). */
+  judgeStatus: JudgeStatus | null;
+  /** `null` = unscored. Distinct from a genuine `0`. */
+  judgeScore: number | null;
+  judgeReason: string | null;
+  judgeCriteria: JudgeCriterionScores;
+  /** Raw JSON text; phase 3 owns the shape and the parse. Read-only here. */
+  judgePanelRationales: string | null;
+  judgedAt: number | null;
+  /**
+   * Human-readable title. `name` is a slug derived from the first 140
+   * characters of the first user message — it is an internal id and the
+   * SKILL.md folder name, and must never be rendered as a title.
+   */
+  displayName: string | null;
+}
+
+/**
+ * A `skill_candidates` row including its judge verdict.
+ *
+ * This is a widening of `SkillCandidateRow`, not a replacement: every existing
+ * consumer that takes a `SkillCandidateRow` keeps compiling unchanged.
+ */
+export type JudgedCandidateRow = SkillCandidateRow & JudgeVerdictFields;
+
 interface RawCandidateRow {
   id: string;
   name: string;
@@ -51,6 +130,22 @@ interface RawCandidateRow {
   rejected_reason: string | null;
   pinned: number;
   residency: string;
+  // ── 0033 ──────────────────────────────────────────────────────────────────
+  // Reads are `SELECT *`, so a column that is missing from this interface is
+  // silently invisible to the store no matter what the DDL says. Adding a
+  // column to `0033` without adding it here is a silent-data-loss bug, not a
+  // compile error.
+  judge_score: number | null;
+  judge_status: string | null;
+  judge_reason: string | null;
+  judge_novelty: number | null;
+  judge_actionability: number | null;
+  judge_scope: number | null;
+  judge_generalization: number | null;
+  judge_trigger_clarity: number | null;
+  judge_panel_rationales: string | null;
+  judged_at: number | null;
+  display_name: string | null;
 }
 
 interface RawInvocationRow {
@@ -155,13 +250,13 @@ export class SkillCandidateStore {
     return { candidate: row, reused: false };
   }
 
-  findById(id: CandidateId): SkillCandidateRow | null {
+  findById(id: CandidateId): JudgedCandidateRow | null {
     const stmt = this.db.prepare(`SELECT * FROM skill_candidates WHERE id = ?`);
     const raw = stmt.get(id) as RawCandidateRow | undefined;
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  findByTrajectoryHash(hash: string): SkillCandidateRow | null {
+  findByTrajectoryHash(hash: string): JudgedCandidateRow | null {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates WHERE trajectory_hash = ?`,
     );
@@ -169,7 +264,7 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  findByName(name: string): SkillCandidateRow | null {
+  findByName(name: string): JudgedCandidateRow | null {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates WHERE name = ? ORDER BY created_at DESC LIMIT 1`,
     );
@@ -177,7 +272,7 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  listByStatus(status: SkillStatus): SkillCandidateRow[] {
+  listByStatus(status: SkillStatus): JudgedCandidateRow[] {
     const stmt = this.db.prepare(
       `SELECT * FROM skill_candidates
        WHERE status = ?
@@ -200,12 +295,12 @@ export class SkillCandidateStore {
   listActiveOrderedByDecayScore(
     now: number,
     decayRate: number,
-  ): SkillCandidateRow[] {
+  ): JudgedCandidateRow[] {
     const promoted = this.listByStatus('promoted').filter(
       (r) => !r.pinned && r.residency === 'resident',
     );
     if (promoted.length === 0) return [];
-    const scored: Array<{ row: SkillCandidateRow; score: number }> = [];
+    const scored: Array<{ row: JudgedCandidateRow; score: number }> = [];
     for (const row of promoted) {
       const invocations = this.listInvocations(row.id, 1000);
       let score = 0;
@@ -224,7 +319,7 @@ export class SkillCandidateStore {
    * junction layer (description+body no longer fed to the model) but keep their
    * row and SKILL.md for future re-promotion; `resident` is the default.
    */
-  setResidency(id: CandidateId, residency: SkillResidency): SkillCandidateRow {
+  setResidency(id: CandidateId, residency: SkillResidency): JudgedCandidateRow {
     const stmt = this.db.prepare(
       `UPDATE skill_candidates SET residency = ? WHERE id = ?`,
     );
@@ -257,7 +352,7 @@ export class SkillCandidateStore {
    * Active = status='promoted'. Ordered by recency-weighted invocation
    * activity for LRU eviction (most-active first → eviction takes the tail).
    */
-  listActiveOrderedByActivity(now: number): SkillCandidateRow[] {
+  listActiveOrderedByActivity(now: number): JudgedCandidateRow[] {
     const stmt = this.db.prepare(
       `SELECT c.*,
               (
@@ -288,7 +383,7 @@ export class SkillCandidateStore {
       rejectedAt?: number;
       bodyPath?: string;
     } = {},
-  ): SkillCandidateRow {
+  ): JudgedCandidateRow {
     const current = this.findById(id);
     if (!current) {
       throw new Error(`[skill-synthesis] updateStatus: ${id} not found`);
@@ -327,6 +422,101 @@ export class SkillCandidateStore {
       throw new Error(
         `[skill-synthesis] updateStatus: row ${id} disappeared after update`,
       );
+    }
+    return updated;
+  }
+
+  /**
+   * Persist a judge verdict. A SIBLING of `updateStatus`, deliberately not an
+   * option on it: the lifecycle status (`candidate`/`promoted`/`rejected`) and
+   * the judge verdict are independent axes, and an `unscored` verdict is
+   * precisely the case where the lifecycle status must NOT move.
+   *
+   * The nine judge columns are written as one fixed set rather than as the
+   * dynamic fragments `updateStatus` builds, because a verdict is a whole
+   * object: a partial update would leave last pass's per-criterion scores
+   * sitting beside this pass's headline score, which is the same class of
+   * quietly-wrong verdict this phase exists to remove. Absent criteria are
+   * written NULL. `judge_panel_rationales` is untouched — phase 3 owns it.
+   *
+   * Throws on a status outside the union (there is no DB `CHECK` behind it) and
+   * on the two contradictions that would reintroduce a fabricated score: a
+   * `scored` verdict with no number, and a non-`scored` verdict carrying one.
+   */
+  recordJudgeVerdict(
+    id: CandidateId,
+    verdict: JudgeVerdict,
+  ): JudgedCandidateRow {
+    if (!(JUDGE_STATUSES as readonly string[]).includes(verdict.status)) {
+      throw new Error(
+        `[skill-synthesis] recordJudgeVerdict: unknown judge status '${String(
+          verdict.status,
+        )}' (expected ${JUDGE_STATUSES.join(' | ')})`,
+      );
+    }
+    if (verdict.status === 'scored') {
+      if (verdict.score === null || !Number.isFinite(verdict.score)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgeVerdict: a 'scored' verdict for ${id} needs a finite score`,
+        );
+      }
+    } else if (verdict.score !== null) {
+      throw new Error(
+        `[skill-synthesis] recordJudgeVerdict: a '${verdict.status}' verdict for ${id} must carry score=null, got ${verdict.score}`,
+      );
+    }
+
+    const criteria = verdict.criteria;
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates
+       SET judge_score           = ?,
+           judge_status          = ?,
+           judge_reason          = ?,
+           judge_novelty         = ?,
+           judge_actionability   = ?,
+           judge_scope           = ?,
+           judge_generalization  = ?,
+           judge_trigger_clarity = ?,
+           judged_at             = ?
+       WHERE id = ?`,
+    );
+    stmt.run(
+      verdict.score,
+      verdict.status,
+      verdict.reason,
+      criteria?.novelty ?? null,
+      criteria?.actionability ?? null,
+      criteria?.scope ?? null,
+      criteria?.generalization ?? null,
+      criteria?.triggerClarity ?? null,
+      verdict.judgedAt ?? Date.now(),
+      id,
+    );
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordJudgeVerdict: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Set the human-readable title a naming pass produced. `name` stays the slug
+   * — it is the SKILL.md folder name and carries a UNIQUE index, so it is an
+   * internal id and is never what a human should read. An empty or
+   * whitespace-only name clears the column so the UI falls back rather than
+   * rendering a blank title.
+   */
+  setDisplayName(id: CandidateId, displayName: string): JudgedCandidateRow {
+    const trimmed = displayName.trim();
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates SET display_name = ? WHERE id = ?`,
+    );
+    stmt.run(trimmed.length > 0 ? trimmed : null, id);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] setDisplayName: ${id} not found`);
     }
     return updated;
   }
@@ -780,11 +970,11 @@ export class SkillCandidateStore {
   searchActiveByEmbedding(
     embedding: Float32Array,
     limit = 5,
-  ): Array<{ row: SkillCandidateRow; similarity: number }> {
+  ): Array<{ row: JudgedCandidateRow; similarity: number }> {
     if (!this.vecStatus.available) return [];
     const promoted = this.listByStatus('promoted');
     if (promoted.length === 0) return [];
-    const scored: Array<{ row: SkillCandidateRow; similarity: number }> = [];
+    const scored: Array<{ row: JudgedCandidateRow; similarity: number }> = [];
     for (const row of promoted) {
       if (row.embeddingRowid === null) continue;
       const stored = this.readEmbedding(row.embeddingRowid);
@@ -868,7 +1058,26 @@ export class SkillCandidateStore {
     }
   }
 
-  private toCandidateRow(raw: RawCandidateRow): SkillCandidateRow {
+  /**
+   * Read edge of the `judge_status` union. `null` and `''` mean "never judged".
+   * Anything else that is not a union member is downgraded to `'unscored'` —
+   * the value that means "no trustworthy verdict" — and logged. There is no DB
+   * `CHECK` to have caught it, and the alternative (passing the raw string
+   * through a field typed as the union) would lie to every consumer.
+   */
+  private toJudgeStatus(raw: string | null): JudgeStatus | null {
+    if (raw === null || raw === '') return null;
+    if ((JUDGE_STATUSES as readonly string[]).includes(raw)) {
+      return raw as JudgeStatus;
+    }
+    this.logger.warn(
+      '[skill-synthesis] unknown judge_status read from skill_candidates; treating as unscored',
+      { judgeStatus: raw },
+    );
+    return 'unscored';
+  }
+
+  private toCandidateRow(raw: RawCandidateRow): JudgedCandidateRow {
     let sources: string[] = [];
     try {
       const parsed = JSON.parse(raw.source_session_ids) as unknown;
@@ -895,6 +1104,22 @@ export class SkillCandidateStore {
       rejectedReason: raw.rejected_reason,
       pinned: raw.pinned === 1,
       residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
+      judgeStatus: this.toJudgeStatus(raw.judge_status),
+      // `?? null` normalizes a driver's `undefined` for an absent column. It
+      // does NOT coalesce a stored NULL to 0 — that would resurrect the exact
+      // fabricated-score defect this column exists to kill.
+      judgeScore: raw.judge_score ?? null,
+      judgeReason: raw.judge_reason ?? null,
+      judgeCriteria: {
+        novelty: raw.judge_novelty ?? null,
+        actionability: raw.judge_actionability ?? null,
+        scope: raw.judge_scope ?? null,
+        generalization: raw.judge_generalization ?? null,
+        triggerClarity: raw.judge_trigger_clarity ?? null,
+      },
+      judgePanelRationales: raw.judge_panel_rationales ?? null,
+      judgedAt: raw.judged_at ?? null,
+      displayName: raw.display_name ?? null,
     };
   }
 

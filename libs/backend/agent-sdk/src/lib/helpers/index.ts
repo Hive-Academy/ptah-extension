@@ -158,7 +158,7 @@ export {
 export { MemoryPromptInjector } from './memory-prompt-injector';
 export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
-export type { ICuratorAuthResolver } from '../curator-llm-adapter';
+export type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 export {
   SdkModelService,
   TIER_ENV_VAR_MAP,

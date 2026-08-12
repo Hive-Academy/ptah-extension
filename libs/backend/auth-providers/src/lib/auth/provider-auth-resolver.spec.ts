@@ -5,7 +5,10 @@ import type {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import { getAnthropicProvider } from '@ptah-extension/shared';
+import {
+  getAnthropicProvider,
+  type ProviderTierScope,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -17,8 +20,8 @@ import {
   type MockAuthSecretsService,
 } from '@ptah-extension/vscode-core/testing';
 
-import { CuratorAuthResolver } from './curator-auth-resolver';
-import { CuratorAuthError } from './curator-auth.error';
+import { ProviderAuthResolver } from './provider-auth-resolver';
+import { ProviderAuthError } from './provider-auth.error';
 import type { CuratorProxyManager } from './curator-proxy-manager';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
@@ -45,12 +48,14 @@ type ProxyManagerSurface = Pick<
 >;
 
 interface Harness {
-  resolver: CuratorAuthResolver;
+  resolver: ProviderAuthResolver;
   authSecrets: MockAuthSecretsService;
   config: MockConfigManager;
   ensureProxy: jest.Mock;
   copilotAuthed: jest.Mock;
   copilotRestore: jest.Mock;
+  /** Records the `(providerId, scope)` pairs the resolver read tiers for. */
+  getModelTiers: jest.Mock;
 }
 
 function createHarness(opts: {
@@ -60,8 +65,12 @@ function createHarness(opts: {
   configValues?: Record<string, unknown>;
   proxyUrl?: string;
   copilotAuthed?: boolean;
-  /** Persisted `mainAgent` tier overrides, keyed by provider id. */
-  tierOverrides?: Record<string, TierMap>;
+  /**
+   * Persisted tier overrides, keyed by provider id then scope. A scope with
+   * no entry reads back as all-nulls, which is what a lane sees before the
+   * user has pinned anything.
+   */
+  tierOverrides?: Record<string, Partial<Record<ProviderTierScope, TierMap>>>;
 }): Harness {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: opts.configValues ?? {} });
@@ -70,16 +79,19 @@ function createHarness(opts: {
     providerKeys: opts.providerKeys,
   });
 
-  const providerModels: ProviderModelsSurface = {
-    resolveActiveProviderId: jest.fn(() => opts.activeProviderId),
-    getModelTiers: jest.fn((providerId: string) => {
-      const overrides = opts.tierOverrides?.[providerId] ?? {};
+  const getModelTiers = jest.fn(
+    (providerId: string, scope: ProviderTierScope) => {
+      const overrides = opts.tierOverrides?.[providerId]?.[scope] ?? {};
       return {
         sonnet: overrides.sonnet ?? null,
         opus: overrides.opus ?? null,
         haiku: overrides.haiku ?? null,
       };
-    }),
+    },
+  );
+  const providerModels: ProviderModelsSurface = {
+    resolveActiveProviderId: jest.fn(() => opts.activeProviderId),
+    getModelTiers,
   };
 
   const ensureProxy = jest.fn(async () => ({
@@ -105,7 +117,7 @@ function createHarness(opts: {
     isAuthenticated: jest.fn(async () => true),
   } as unknown as IOpenRouterAuthService;
 
-  const resolver = new CuratorAuthResolver(
+  const resolver = new ProviderAuthResolver(
     asLogger(logger),
     asConfig(config),
     authSecrets as unknown as IAuthSecretsService,
@@ -123,16 +135,17 @@ function createHarness(opts: {
     ensureProxy,
     copilotAuthed,
     copilotRestore,
+    getModelTiers,
   };
 }
 
-describe('CuratorAuthResolver.resolve', () => {
-  it('returns null for an empty curator provider id', async () => {
+describe('ProviderAuthResolver.resolve', () => {
+  it('returns null for an empty provider id (ride the active provider)', async () => {
     const { resolver } = createHarness({ activeProviderId: 'anthropic' });
     await expect(resolver.resolve('')).resolves.toBeNull();
   });
 
-  it('returns null when curator provider equals the active provider', async () => {
+  it('returns null when the requested provider IS the active provider', async () => {
     const { resolver } = createHarness({ activeProviderId: 'moonshot' });
     await expect(resolver.resolve('moonshot')).resolves.toBeNull();
   });
@@ -149,10 +162,10 @@ describe('CuratorAuthResolver.resolve', () => {
     expect(result?.baseUrl).toBeUndefined();
   });
 
-  it('api-key (Anthropic direct) throws CuratorAuthError when key missing', async () => {
+  it('api-key (Anthropic direct) throws ProviderAuthError when key missing', async () => {
     const { resolver } = createHarness({ activeProviderId: 'moonshot' });
     await expect(resolver.resolve('anthropic')).rejects.toBeInstanceOf(
-      CuratorAuthError,
+      ProviderAuthError,
     );
   });
 
@@ -184,10 +197,10 @@ describe('CuratorAuthResolver.resolve', () => {
     expect(result?.baseUrl).toBe('https://custom.example/');
   });
 
-  it('third-party api-key throws CuratorAuthError when provider key missing', async () => {
+  it('third-party api-key throws ProviderAuthError when provider key missing', async () => {
     const { resolver } = createHarness({ activeProviderId: 'anthropic' });
     await expect(resolver.resolve('moonshot')).rejects.toBeInstanceOf(
-      CuratorAuthError,
+      ProviderAuthError,
     );
   });
 
@@ -205,13 +218,13 @@ describe('CuratorAuthResolver.resolve', () => {
     expect(result?.baseUrl).toBe('http://127.0.0.1:60001');
   });
 
-  it('proxy class throws CuratorAuthError when unauthenticated', async () => {
+  it('proxy class throws ProviderAuthError when unauthenticated', async () => {
     const { resolver, ensureProxy } = createHarness({
       activeProviderId: 'anthropic',
       copilotAuthed: false,
     });
     await expect(resolver.resolve('github-copilot')).rejects.toBeInstanceOf(
-      CuratorAuthError,
+      ProviderAuthError,
     );
     expect(ensureProxy).not.toHaveBeenCalled();
   });
@@ -255,7 +268,7 @@ describe('CuratorAuthResolver.resolve', () => {
   });
 });
 
-describe('CuratorAuthResolver.buildCuratorEnv', () => {
+describe('ProviderAuthResolver.buildLaneEnv', () => {
   const ORIGINAL_ENV = process.env;
 
   afterEach(() => {
@@ -271,7 +284,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
       ANTHROPIC_BASE_URL: 'http://chat-proxy',
     };
     const { resolver } = createHarness({ activeProviderId: 'anthropic' });
-    const env = resolver.buildCuratorEnv({
+    const env = resolver.buildLaneEnv({
       ANTHROPIC_API_KEY: 'curator-key',
     }) as Record<string, string | undefined>;
 
@@ -289,10 +302,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
       ANTHROPIC_BASE_URL: 'http://chat-proxy',
     };
     const { resolver } = createHarness({ activeProviderId: 'anthropic' });
-    const env = resolver.buildCuratorEnv({}) as Record<
-      string,
-      string | undefined
-    >;
+    const env = resolver.buildLaneEnv({}) as Record<string, string | undefined>;
     expect(env['ANTHROPIC_API_KEY']).toBeUndefined();
     expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
     expect(env['ANTHROPIC_BASE_URL']).toBeUndefined();
@@ -335,10 +345,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
   it("strips the chat provider's nine tier-metadata vars", () => {
     process.env = chatAmbientEnv();
     const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
-    const env = resolver.buildCuratorEnv({}) as Record<
-      string,
-      string | undefined
-    >;
+    const env = resolver.buildLaneEnv({}) as Record<string, string | undefined>;
 
     for (const key of TIER_METADATA_KEYS) {
       expect([key, env[key]]).toEqual([key, undefined]);
@@ -348,7 +355,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
   it("strips the chat provider's _SUPPORTED_CAPABILITIES allowlist", () => {
     process.env = chatAmbientEnv();
     const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
-    const env = resolver.buildCuratorEnv({
+    const env = resolver.buildLaneEnv({
       ANTHROPIC_DEFAULT_HAIKU_MODEL: 'curator-haiku',
     }) as Record<string, string | undefined>;
 
@@ -377,7 +384,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
     it('keeps every stripped key PRESENT with an undefined value', () => {
       process.env = chatAmbientEnv();
       const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
-      const env = resolver.buildCuratorEnv({}) as Record<
+      const env = resolver.buildLaneEnv({}) as Record<
         string,
         string | undefined
       >;
@@ -404,7 +411,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
     it('survives a later re-spread of ambient process.env', () => {
       process.env = chatAmbientEnv();
       const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
-      const curatorEnv = resolver.buildCuratorEnv({}) as Record<
+      const curatorEnv = resolver.buildLaneEnv({}) as Record<
         string,
         string | undefined
       >;
@@ -426,12 +433,12 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
     it('a filtered copy does NOT survive it — this is what the contract guards', () => {
       process.env = chatAmbientEnv();
       const { resolver } = createHarness({ activeProviderId: 'ollama-cloud' });
-      const curatorEnv = resolver.buildCuratorEnv({}) as Record<
+      const curatorEnv = resolver.buildLaneEnv({}) as Record<
         string,
         string | undefined
       >;
 
-      // The refactor the comment at `buildCuratorEnv` warns about, applied
+      // The refactor the comment at `buildLaneEnv` warns about, applied
       // here so the failure mode is demonstrated rather than only described.
       const filtered = Object.fromEntries(
         Object.entries(curatorEnv).filter(([, value]) => value !== undefined),
@@ -449,7 +456,7 @@ describe('CuratorAuthResolver.buildCuratorEnv', () => {
   });
 });
 
-describe('CuratorAuthResolver — curator tier mapping (TASK_2026_159)', () => {
+describe('ProviderAuthResolver — curator tier mapping (TASK_2026_159)', () => {
   const ORIGINAL_ENV = process.env;
 
   afterEach(() => {
@@ -460,7 +467,9 @@ describe('CuratorAuthResolver — curator tier mapping (TASK_2026_159)', () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
       providerKeys: { moonshot: 'moon-key' },
-      tierOverrides: { moonshot: { haiku: 'kimi-k2-turbo-preview' } },
+      tierOverrides: {
+        moonshot: { mainAgent: { haiku: 'kimi-k2-turbo-preview' } },
+      },
     });
     const result = await resolver.resolve('moonshot');
 
@@ -476,7 +485,9 @@ describe('CuratorAuthResolver — curator tier mapping (TASK_2026_159)', () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
       providerKeys: { moonshot: 'moon-key' },
-      tierOverrides: { moonshot: { haiku: 'kimi-k2-turbo-preview' } },
+      tierOverrides: {
+        moonshot: { mainAgent: { haiku: 'kimi-k2-turbo-preview' } },
+      },
     });
     const result = await resolver.resolve('moonshot');
 
@@ -505,10 +516,171 @@ describe('CuratorAuthResolver — curator tier mapping (TASK_2026_159)', () => {
   it('gives a tier-less provider a haiku mapping once the user overrides it', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'ollama-cloud',
-      tierOverrides: { 'lm-studio': { haiku: 'qwen3-4b' } },
+      tierOverrides: { 'lm-studio': { mainAgent: { haiku: 'qwen3-4b' } } },
     });
     const result = await resolver.resolve('lm-studio');
 
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('qwen3-4b');
+  });
+});
+
+/**
+ * TASK_2026_180 B1.3. The port widened by one OPTIONAL `scope` parameter so
+ * background lanes can read their own persisted tier mapping without a second
+ * resolver and without the pre-existing curator call site changing at all.
+ */
+describe('ProviderAuthResolver — tier scope (TASK_2026_180)', () => {
+  const ORIGINAL_ENV = process.env;
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it("defaults to the 'mainAgent' scope when the caller passes none", async () => {
+    const { resolver, getModelTiers } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+    });
+
+    await resolver.resolve('moonshot');
+
+    expect(getModelTiers).toHaveBeenCalledWith('moonshot', 'mainAgent');
+  });
+
+  it("forwards an explicit 'lane' scope to the tier lookup", async () => {
+    const { resolver, getModelTiers } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+    });
+
+    await resolver.resolve('moonshot', 'lane');
+
+    expect(getModelTiers).toHaveBeenCalledWith('moonshot', 'lane');
+    expect(getModelTiers).not.toHaveBeenCalledWith('moonshot', 'mainAgent');
+  });
+
+  it("reads the lane mapping, not the user's mainAgent remap", async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      tierOverrides: {
+        moonshot: {
+          mainAgent: { haiku: 'foreground-haiku' },
+          lane: { haiku: 'background-haiku' },
+        },
+      },
+    });
+
+    const result = await resolver.resolve('moonshot', 'lane');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('background-haiku');
+  });
+
+  /**
+   * The "haiku tier of the selected provider" semantics, with no hardcoded
+   * model id: an install that has never touched the lane pickers persists
+   * nothing on the lane scope, so every tier falls through to the provider
+   * entry's own `defaultTiers`.
+   */
+  it("falls back to the provider entry's defaultTiers when the lane scope is empty", async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      tierOverrides: { moonshot: { mainAgent: { haiku: 'foreground-haiku' } } },
+    });
+
+    const result = await resolver.resolve('moonshot', 'lane');
+    const defaults = getAnthropicProvider('moonshot')?.defaultTiers;
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(defaults?.haiku);
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(defaults?.sonnet);
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).not.toBe(
+      'foreground-haiku',
+    );
+  });
+
+  /**
+   * Risk R7. `getActiveProviderId` matches registry entries by hostname
+   * SUBSTRING of `ANTHROPIC_BASE_URL`, ignoring port, so a local-proxy lane can
+   * be identified as another provider entirely. Fixing that matcher is a
+   * tracked follow-up; the mitigation carried here is that a lane always
+   * leaves with explicit `ANTHROPIC_DEFAULT_*_MODEL` values, so downstream tier
+   * resolution never has to consult the match at all.
+   */
+  it('leaves a proxy-class lane with explicit tier model values (R7 mitigation)', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      proxyUrl: 'http://127.0.0.1:60001',
+      tierOverrides: {
+        'github-copilot': {
+          lane: { haiku: 'lane-haiku', sonnet: 'lane-sonnet' },
+        },
+      },
+    });
+
+    const result = await resolver.resolve('github-copilot', 'lane');
+
+    expect(result?.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:60001');
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('lane-haiku');
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('lane-sonnet');
+  });
+
+  /**
+   * Risk R2, asserted end-to-end through `resolve` rather than only on
+   * `buildLaneEnv`: the strip that keeps the user's foreground credentials out
+   * of a background lane is carried by keys that are PRESENT with the value
+   * `undefined`. `toBeUndefined()` alone passes for an absent key too, which is
+   * exactly the regression this guards.
+   */
+  it('returns the unused chat auth keys PRESENT-with-undefined on a lane resolve', async () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      ANTHROPIC_API_KEY: 'foreground-key',
+      ANTHROPIC_AUTH_TOKEN: 'foreground-token',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES: 'foreground-caps',
+    };
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+    });
+
+    const result = await resolver.resolve('moonshot', 'lane');
+    const env = result?.env as Record<string, string | undefined>;
+
+    // Keys the lane itself supplies carry the LANE's value, never the
+    // foreground one.
+    expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('moon-key');
+
+    // Every key the lane does not supply is blanked by presence, not absence.
+    for (const key of [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+    ]) {
+      expect([
+        key,
+        Object.prototype.hasOwnProperty.call(env, key),
+        env[key],
+      ]).toEqual([key, true, undefined]);
+    }
+  });
+
+  /** A lane builds a snapshot. It never repoints the live chat session. */
+  it('does not mutate process.env while resolving a lane', async () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      ANTHROPIC_API_KEY: 'foreground-key',
+      ANTHROPIC_BASE_URL: 'https://foreground.example',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'foreground-haiku',
+    };
+    const before = { ...process.env };
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      tierOverrides: { moonshot: { lane: { haiku: 'lane-haiku' } } },
+    });
+
+    await resolver.resolve('moonshot', 'lane');
+
+    expect({ ...process.env }).toEqual(before);
   });
 });

@@ -27,7 +27,7 @@ import { CodexTranslationProxy } from '../providers/codex';
 import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
-import { CuratorAuthResolver } from '../auth/curator-auth-resolver';
+import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -141,8 +141,8 @@ export function registerCuratorAuthServices(
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
-    SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER,
-    { useClass: CuratorAuthResolver },
+    SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER,
+    { useClass: ProviderAuthResolver },
     { lifecycle: Lifecycle.Singleton },
   );
 
