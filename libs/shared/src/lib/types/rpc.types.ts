@@ -125,6 +125,16 @@ import type {
   ProviderGetModelTiersResult,
   ProviderClearModelTierParams,
   ProviderClearModelTierResult,
+  ProviderListCustomEntriesParams,
+  ProviderListCustomEntriesResult,
+  ProviderAddCustomEntryParams,
+  ProviderAddCustomEntryResult,
+  ProviderUpdateCustomEntryParams,
+  ProviderUpdateCustomEntryResult,
+  ProviderRemoveCustomEntryParams,
+  ProviderRemoveCustomEntryResult,
+  ProviderTestCustomEntryParams,
+  ProviderTestCustomEntryResult,
   LlmGetProviderStatusParams,
   LlmProviderStatusResponse,
   LlmSetApiKeyParams,
@@ -822,6 +832,26 @@ export interface RpcMethodRegistry {
   'provider:clearModelTier': {
     params: ProviderClearModelTierParams;
     result: ProviderClearModelTierResult;
+  };
+  'provider:listCustomEntries': {
+    params: ProviderListCustomEntriesParams;
+    result: ProviderListCustomEntriesResult;
+  };
+  'provider:addCustomEntry': {
+    params: ProviderAddCustomEntryParams;
+    result: ProviderAddCustomEntryResult;
+  };
+  'provider:updateCustomEntry': {
+    params: ProviderUpdateCustomEntryParams;
+    result: ProviderUpdateCustomEntryResult;
+  };
+  'provider:removeCustomEntry': {
+    params: ProviderRemoveCustomEntryParams;
+    result: ProviderRemoveCustomEntryResult;
+  };
+  'provider:testCustomEntry': {
+    params: ProviderTestCustomEntryParams;
+    result: ProviderTestCustomEntryResult;
   };
   'chat:subagent-query': {
     params: SubagentQueryParams;
@@ -2795,6 +2825,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:setModelTier': true,
   'provider:getModelTiers': true,
   'provider:clearModelTier': true,
+  'provider:listCustomEntries': true,
+  'provider:addCustomEntry': true,
+  'provider:updateCustomEntry': true,
+  'provider:removeCustomEntry': true,
+  'provider:testCustomEntry': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,

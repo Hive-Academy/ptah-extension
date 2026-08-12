@@ -181,6 +181,7 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     moonshot: 'api-key', // authType undefined (defaults to key)
     'z-ai': 'api-key', // authType undefined (defaults to key)
     sakana: 'api-key', // apiKey + requiresProxy true → proxy started inside ApiKeyStrategy
+    requesty: 'api-key', // apiKey + requiresProxy FALSE → native Messages passthrough (TASK_2026_236)
     // OAuth + translation proxy — unchanged.
     'github-copilot': 'oauth-proxy',
     'openai-codex': 'oauth-proxy',
@@ -214,13 +215,19 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     expect(nativeAuthProviders).toEqual(['claude-cli']);
   });
 
-  it('the API-key provider set is exactly {openrouter, moonshot, z-ai, sakana} — regression guard for acceptance criterion 2', () => {
+  it('the API-key provider set is exactly {openrouter, moonshot, z-ai, sakana, requesty} — regression guard for acceptance criterion 2', () => {
     const apiKeyRouted = REGISTRY.filter(
       (p) => resolveStrategy('thirdParty', p) === 'api-key',
     )
       .map((p) => p.id)
       .sort();
-    expect(apiKeyRouted).toEqual(['moonshot', 'openrouter', 'sakana', 'z-ai']);
+    expect(apiKeyRouted).toEqual([
+      'moonshot',
+      'openrouter',
+      'requesty',
+      'sakana',
+      'z-ai',
+    ]);
   });
 
   it('the local-* provider set is exactly {ollama, ollama-cloud, lm-studio} — claude-cli is no longer among them', () => {
