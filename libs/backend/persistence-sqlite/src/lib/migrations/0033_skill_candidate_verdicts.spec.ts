@@ -64,10 +64,13 @@ describe('migration 0033_skill_candidate_verdicts — registry entry', () => {
     expect(entry?.run).toBeUndefined();
   });
 
-  it('is registered exactly once, appended after 32, and is the tail', () => {
+  it('is registered exactly once and follows 32 with no gap', () => {
     expect(MIGRATIONS.filter((m) => m.version === 33)).toHaveLength(1);
     expect(MIGRATIONS.map((m) => m.version)).toContain(32);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(33);
+    // 0033 is no longer the tail — the same task's phase 2 appended 0034. The
+    // invariant that survives is "33 exists exactly once and 32 precedes it";
+    // the highest version is asserted by whichever migration is currently last.
+    expect(MIGRATIONS.map((m) => m.version)).toContain(34);
   });
 });
 

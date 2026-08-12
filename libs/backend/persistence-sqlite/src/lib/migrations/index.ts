@@ -59,6 +59,7 @@ import { sql as sql0030SkillEventMetrics } from './0030_skill_event_metrics';
 import { sql as sql0031TaskSpecsMetadata } from './0031_task_specs_metadata';
 import { sql as sql0032SkillSynthesisQueue } from './0032_skill_synthesis_queue';
 import { sql as sql0033SkillCandidateVerdicts } from './0033_skill_candidate_verdicts';
+import { sql as sql0034SkillSessionVerdicts } from './0034_skill_session_verdicts';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -268,5 +269,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 33,
     name: '0033_skill_candidate_verdicts',
     sql: sql0033SkillCandidateVerdicts,
+  },
+  {
+    version: 34,
+    name: '0034_skill_session_verdicts',
+    sql: sql0034SkillSessionVerdicts,
   },
 ];
