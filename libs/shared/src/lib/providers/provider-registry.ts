@@ -108,6 +108,19 @@ export interface AnthropicProvider {
    */
   isLocal?: boolean;
   /**
+   * How the user pays for inference on this provider.
+   *
+   * - `'usage'` (default): billed per token.
+   * - `'subscription'`: billed a flat fee. Turns are still costed at published
+   *   per-token rates — that is the figure `claude /usage` and the Codex CLI
+   *   report, and the one users expect — but such providers must be kept OUT
+   *   of the shared pricing map, because seeding their models at $0 would pin
+   *   a bare slug like `gpt-5.4` (a Codex model AND an OpenRouter one) to zero
+   *   for whoever looked it up next. The flag rides along on cost lookups so
+   *   surfaces can label the fee as flat; it never changes the number.
+   */
+  pricingModel?: 'usage' | 'subscription';
+  /**
    * Default model tier mappings for this provider.
    * When present, auto-applied on first provider selection so
    * "Default (recommended)" resolves to the provider's best model.
@@ -848,14 +861,35 @@ export function getProviderAuthEnvVar(id: string): ProviderAuthEnvVar {
 }
 
 /**
+ * Whether a provider bills a flat subscription instead of per token.
+ *
+ * The one place this policy is read. Always asked about the ACTIVE provider —
+ * never about the model id, which is ambiguous across providers.
+ *
+ * @param providerId - Provider ID, or null/undefined for direct Anthropic auth
+ */
+export function isSubscriptionCoveredProvider(
+  providerId: string | null | undefined,
+): boolean {
+  if (!providerId) return false;
+  return getAnthropicProvider(providerId)?.pricingModel === 'subscription';
+}
+
+/**
  * Seed the pricing map with static model pricing from a provider.
  *
  * Called during provider activation as a fallback for models not on OpenRouter.
  * Creates pricing map entries with both exact and normalized keys.
  *
+ * Subscription-billed providers are skipped: their static entries carry $0,
+ * and publishing that under a bare model id makes the next session on a
+ * usage-billed provider serving the same id read as free. They take their
+ * rates from the catalog like everyone else.
+ *
  * @param providerId - Provider ID to seed pricing for
  */
 export function seedStaticModelPricing(providerId: string): void {
+  if (isSubscriptionCoveredProvider(providerId)) return;
   const provider = getAnthropicProvider(providerId);
   if (!provider?.staticModels) return;
 

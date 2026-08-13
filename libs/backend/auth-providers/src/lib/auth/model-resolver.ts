@@ -2,8 +2,11 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   type AuthEnv,
+  type ModelPricing,
   isDirectAnthropic,
   getAnthropicProvider,
+  isSubscriptionCoveredProvider,
+  findModelPricing,
 } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import {
@@ -104,6 +107,44 @@ export class ModelResolver {
     }
 
     return resolved;
+  }
+
+  /**
+   * Whether the active provider bills a flat subscription instead of per token.
+   *
+   * Derived from the auth env on every call rather than cached, so it can never
+   * disagree with the provider the session is actually running against.
+   */
+  isSubscriptionCovered(envOverride?: AuthEnv): boolean {
+    const env = envOverride ?? this.authEnv;
+    if (isDirectAnthropic(env)) return false;
+    return isSubscriptionCoveredProvider(getActiveProviderId(env));
+  }
+
+  /**
+   * Resolve a model id to the rates that apply to it, under the active provider.
+   *
+   * The single chokepoint for "what does this turn cost". Every provider —
+   * subscription or usage-billed — is costed from the same published rates, so
+   * the dashboard reports consumption the way `claude /usage` and the Codex CLI
+   * do. `subscriptionCovered` rides along so surfaces can say the fee is flat;
+   * it never changes the number.
+   */
+  resolveForCost(
+    modelId: string,
+    envOverride?: AuthEnv,
+  ): {
+    modelId: string;
+    pricing: ModelPricing | null;
+    subscriptionCovered: boolean;
+  } {
+    const env = envOverride ?? this.authEnv;
+    const resolved = this.resolveForPricing(modelId, env);
+    return {
+      modelId: resolved,
+      pricing: findModelPricing(resolved),
+      subscriptionCovered: this.isSubscriptionCovered(env),
+    };
   }
 
   detectTier(model: string): 'opus' | 'sonnet' | 'haiku' | undefined {

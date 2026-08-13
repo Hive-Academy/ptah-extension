@@ -230,15 +230,17 @@ export class SessionReplayService {
         if (msgUsage) {
           const tokenUsage = extractTokenUsage(msgUsage);
           if (tokenUsage) {
+            const priced = this.modelResolver.resolveForCost(msgModel);
             const cost =
               calculateMessageCost(
-                this.modelResolver.resolveForPricing(msgModel),
+                priced.modelId,
                 {
                   input: tokenUsage.input,
                   output: tokenUsage.output,
                   cacheHit: tokenUsage.cacheRead,
                   cacheCreation: tokenUsage.cacheCreation,
                 },
+                priced.pricing,
               ) ?? 0;
             if (!currentMessageUsage) {
               currentMessageUsage = {
@@ -552,18 +554,20 @@ export class SessionReplayService {
         const tokenUsage = extractTokenUsage(agentMsgUsage);
         if (tokenUsage) {
           const agentMsgModel = msg.message.model || '';
+          const priced = this.modelResolver.resolveForCost(agentMsgModel);
           agentMessageUsage = {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
             model: agentMsgModel || undefined,
             cost:
               calculateMessageCost(
-                this.modelResolver.resolveForPricing(agentMsgModel),
+                priced.modelId,
                 {
                   input: tokenUsage.input,
                   output: tokenUsage.output,
                   cacheHit: tokenUsage.cacheRead,
                   cacheCreation: tokenUsage.cacheCreation,
                 },
+                priced.pricing,
               ) ?? 0,
           };
         }

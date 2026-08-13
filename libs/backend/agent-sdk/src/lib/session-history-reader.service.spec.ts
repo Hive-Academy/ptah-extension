@@ -30,6 +30,7 @@ import type { SessionHistoryMessage } from './helpers/history/history.types';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
 import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
+import { findModelPricing } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -54,7 +55,12 @@ interface Stubs {
   replayService: jest.Mocked<
     Pick<SessionReplayService, 'replayToStreamEvents'>
   >;
-  modelResolver: jest.Mocked<Pick<IModelResolver, 'resolveForPricing'>>;
+  modelResolver: jest.Mocked<
+    Pick<
+      IModelResolver,
+      'resolveForPricing' | 'resolveForCost' | 'isSubscriptionCovered'
+    >
+  >;
   pricingProvider: jest.Mocked<IPricingProvider>;
   authEnv: AuthEnv;
   logger: MockLogger;
@@ -72,6 +78,12 @@ function makeStubs(): Stubs {
     },
     modelResolver: {
       resolveForPricing: jest.fn((m: string) => m || 'unknown'),
+      isSubscriptionCovered: jest.fn(() => false),
+      resolveForCost: jest.fn((m: string) => ({
+        modelId: m || 'unknown',
+        pricing: findModelPricing(m || 'unknown'),
+        subscriptionCovered: false,
+      })),
     },
     pricingProvider: {
       getPricing: jest.fn().mockResolvedValue(null),

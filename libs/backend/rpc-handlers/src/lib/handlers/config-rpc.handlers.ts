@@ -433,6 +433,12 @@ export class ConfigRpcHandlers {
             tierOverrides: tierOverrides ?? 'null',
             savedModel,
           });
+          // Rates are the published ones either way; the active provider's
+          // billing policy only decides whether the line says they are
+          // charged per token or absorbed by a flat fee.
+          const pricingOptions = {
+            subscriptionCovered: this.modelResolver.isSubscriptionCovered(),
+          };
           const sdkModelIds = new Set(sdkModels.map((m) => m.value));
           const models: Array<{
             id: string;
@@ -462,7 +468,7 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
+                ? getModelPricingDescription(providerModelId, pricingOptions)
                 : m.description,
               isSelected:
                 m.value === savedModel ||
@@ -487,8 +493,8 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
-                : getModelPricingDescription(m.value),
+                ? getModelPricingDescription(providerModelId, pricingOptions)
+                : getModelPricingDescription(m.value, pricingOptions),
               isSelected:
                 m.value === savedModel ||
                 (savedModel.startsWith('claude-') &&

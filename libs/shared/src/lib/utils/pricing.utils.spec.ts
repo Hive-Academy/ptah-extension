@@ -272,6 +272,43 @@ describe('pricing.utils', () => {
         'Input: $0.00/1M, Output: $0.00/1M',
       );
     });
+
+    it('keeps the published rates and adds the flat-fee note', () => {
+      updatePricingMap({
+        'gpt-5.6-sol': { inputCostPerToken: 5e-6, outputCostPerToken: 30e-6 },
+      });
+
+      expect(
+        getModelPricingDescription('gpt-5.6-sol', {
+          subscriptionCovered: true,
+        }),
+      ).toBe('Input: $5.00/1M, Output: $30.00/1M · covered by subscription');
+    });
+  });
+
+  describe('subscription-billed providers', () => {
+    it('costs a turn at published rates, exactly like a usage-billed one', () => {
+      // Deliberate: Ptah reports consumption the way `claude /usage` and the
+      // Codex CLI do — what the tokens are worth, not what was invoiced today.
+      updatePricingMap({
+        'gpt-5.6-sol': {
+          inputCostPerToken: 5e-6,
+          outputCostPerToken: 30e-6,
+          maxTokens: 400_000,
+        },
+      });
+
+      const tokens = { input: 1_000_000, output: 1_000_000 };
+      const usageCost = calculateMessageCost('gpt-5.6-sol', tokens);
+      const subscriptionCost = calculateMessageCost(
+        'gpt-5.6-sol',
+        tokens,
+        findModelPricing('gpt-5.6-sol'),
+      );
+
+      expect(usageCost).toBe(35);
+      expect(subscriptionCost).toBe(35);
+    });
   });
 
   describe('formatClaudeModelDisplayName regex', () => {

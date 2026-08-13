@@ -29,9 +29,12 @@ import {
   getCustomProviderEntries,
   getCustomProviderEntry,
   isCustomProviderId,
+  isSubscriptionCoveredProvider,
+  seedStaticModelPricing,
   setCustomProviderEntries,
   type CustomProviderEntry,
 } from './provider-registry';
+import { getPricingMap } from '../utils/pricing.utils';
 
 /** Build a valid entry through the schema, so defaults are applied for real. */
 function makeEntry(
@@ -336,5 +339,29 @@ describe('custom provider entries', () => {
       expect(isCustomProviderId('openrouter')).toBe(false);
       expect(isCustomProviderId('unknown')).toBe(false);
     });
+  });
+});
+
+describe('subscription-billed providers', () => {
+  it('flags the two flat-fee providers and nothing else', () => {
+    expect(isSubscriptionCoveredProvider('openai-codex')).toBe(true);
+    expect(isSubscriptionCoveredProvider('github-copilot')).toBe(true);
+    expect(isSubscriptionCoveredProvider('openrouter')).toBe(false);
+    expect(isSubscriptionCoveredProvider(null)).toBe(false);
+    expect(isSubscriptionCoveredProvider('unknown')).toBe(false);
+  });
+
+  it('never publishes their $0 rates under a bare model id', () => {
+    // `gpt-5.4` is a Codex static model AND an OpenRouter usage-billed model.
+    // Seeding it at $0 would make the next OpenRouter session read as free —
+    // and would zero out the Codex session's own reference figure.
+    seedStaticModelPricing('openai-codex');
+    seedStaticModelPricing('github-copilot');
+
+    const map = getPricingMap();
+    for (const model of getAnthropicProvider('openai-codex')?.staticModels ??
+      []) {
+      expect(map[model.id]).toBeUndefined();
+    }
   });
 });
