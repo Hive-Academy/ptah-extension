@@ -2123,7 +2123,12 @@ a production code path that nothing exercises.
   `db.transaction()` does not exist on the fallback binding — using it would make
   P0-2 unassertable on any machine where better-sqlite3 cannot load.
 
-### → B1.4 / B1.8: `lane` is missing from the file-settings tier routing regex
+### → B1.4 / B1.8: `lane` is missing from the file-settings tier routing regex — ✅ RESOLVED by B1.4
+
+**RESOLVED.** B1.4 landed `|lane` in the alternation; `file-settings-keys.ts:409-410`
+now reads `(mainAgent|cliAgent|lane)` and the round-trip is pinned through two
+manager instances against the on-disk JSON. B1.8 needs to do nothing here.
+Original note preserved below for context.
 
 Raised by B1.3, verified directly. `libs/backend/platform-core/src/file-settings-keys.ts:360`:
 
@@ -2198,3 +2203,213 @@ against Electron's ABI (`NODE_MODULE_VERSION 143` vs Node's `137`), so copying
 the house native-gated pattern makes specs skip **silently** — they report green
 while asserting nothing. Migrations `0032` and `0033` both use a `node:sqlite`
 fallback for the same reason.
+
+### → B1.7: what B1.5 and B1.6 deliberately left for you
+
+Raised by B1.5 and B1.6. Three things, all intentional:
+
+1. **The terminal mark is yours.** `LaneRunner` does NOT `markFailed` at
+   `attempt_count >= maxAttempts` (5). Plan §3.4's timeout row asks for the
+   terminal mark **and** one Activity event together; B1.5 owns neither the
+   drain nor the Activity surface, and landing the mark without the event would
+   ship a row that dies silently. Land both, in `skill-drain.service.ts`.
+2. **`requeue` is opt-in via `LaneRunRequest.queueItemId`.** The runner writes
+   the queue transition for `timeout` and `auth-unresolvable` **only when handed
+   a row id**, and does nothing when not — the judge also runs at the foreground
+   promotion gate, which has no row. If you instead map `SkillLaneFailure` onto
+   row transitions inside the drain, simply **do not pass `queueItemId`** or the
+   row is written twice. `requeue` is idempotent under repeat application, so
+   either seam works; pick one and be consistent.
+3. **`structured-output-unsupported` deliberately does NOT write the queue.**
+   That transition also sets the candidate's `judge_status`, and splitting a row
+   write from its candidate write across two owners is how the two end up
+   disagreeing. Both halves are yours.
+
+Also inherited, not introduced: `requeue`'s guard is on `status IN
+('claimed','running')`, not on `claimed_by` — the same bar `touchClaim` set in
+B0.3. A reaped-then-re-claimed row can still be stomped by the stale worker.
+Widening only `requeue` would create a second, inconsistent contract; close both
+together or not at all. Logged as a follow-up, not a blocker.
+
+### → B1.10 (UI): `PromotionDecision` gained a `judge-unscored` reason
+
+Raised by B1.6. Promotion now returns `reason: 'judge-unscored'` when the judge
+could not produce a trustworthy score. The frontend's `promoteReasonText` switch
+has a `default`, so this does **not** break — it renders as "not eligible" until
+you add the case. That is a real UI gap, not a cosmetic one: "not eligible"
+reads as a verdict when the truth is "we do not know". Pair it with the unscored
+badge in task B1.10.4.
+
+### → follow-up (not a batch): four container-construction sites in one RPC spec
+
+Raised by B0.5. `skills-synthesis-rpc.handlers.spec.ts` builds its tsyringe
+container in **four** places — two named builders plus two ad-hoc inline
+containers at `:719` and `:1138`. Every new constructor parameter on
+`SkillsSynthesisRpcHandlers` therefore breaks the spec in four places, which is
+exactly how B0.5 arrived with 23 DI failures. B0.5 fixed all four sites but was
+explicitly told not to consolidate them inside a batch that is not about that.
+Worth one small cleanup task of its own; do not fold it into a feature batch.
+
+### → B1.10 (and any frontend batch consuming the candidate summary): fixture drift
+
+Raised by B1.8. Widening `SkillSynthesisCandidateSummary` with five required
+fields left two frontend spec fixtures describing a shape that no longer exists:
+
+- `libs/frontend/skill-synthesis-ui/.../skill-invocations-panel.component.spec.ts:9` (`const CANDIDATE`)
+- `libs/frontend/skill-synthesis-ui/.../skill-candidates-table.component.spec.ts:12` (the `candidate()` factory)
+
+Add `displayName: null, judgeScore: null, judgeStatus: null, judgeReason: null,
+judgeCriteria: null` to both.
+
+**Neither fails today, and that is the hazard, not a reassurance.** Angular libs
+typecheck through `tsconfig.lib.json`, which **excludes specs**, and
+`jest-preset-angular` here does not hard-fail on missing members. Verified green:
+`skill-synthesis-ui` 21 suites / 208 passed, `dashboard` 2 suites / 23 passed. So
+this class of drift is invisible to both CI gates in this repo — the only way it
+surfaces is someone reading the fixture. Worth remembering whenever a shared DTO
+grows a required field.
+
+### → B1.8: it is 32 lane settings keys, not the 28 the batch text says
+
+The batch text ("four lanes × seven fields, + `maxPasses` where applicable")
+predates the committed lane config. `SKILL_LANE_FIELDS`
+(`lanes/skill-lane-config.ts:34-43`) is **eight** fields; `laneKeys()` gives all
+eight to all four lanes; `readSkillLane` reads `maxPasses` unconditionally for
+every lane (`:227`) and `flattenSkillLanes` writes it for every lane (`:272`).
+
+Routing only 28 would leave `skillSynthesis.{synthesis,judge,replay}.maxPasses`
+unrouted, and **an unrouted key fails in the write direction only** — the read
+falls through to the default and looks correct while the write is handed to a
+store that does not own the key and is dropped with no error. Same failure mode
+`PROVIDER_SCOPED_TIER_PATTERN` already documents. B1.8 routed all 32 and pinned
+the count in two specs. The number here wins over the batch text.
+
+### → anyone adding a lane field: `platform-core` CANNOT import `skill-lane-config.ts`
+
+`platform-core` is the leaf that `skill-synthesis` depends on (`readSkillLane`
+takes an `IWorkspaceProvider`), so importing the lane config from it closes a
+dependency cycle. B1.8 therefore **restates** the lane defaults in
+`file-settings-keys.ts`, following the house precedent set by
+`KNOWN_AUTH_KEYS_FOR_FILE_ROUTING` (`:17-20`) and the Phase-0 `SKILL_DRAIN_DEFAULTS`
+table (`:305-310`).
+
+The restatement is guarded **mechanically, not by a lockstep comment**: a spec in
+`rpc-handlers` (which legally imports both sides) derives all 32 keys from the
+real `SKILL_LANE_IDS` × `SKILL_LANE_FIELDS` and asserts each is present in
+`FILE_BASED_SETTINGS_KEYS`, passes `isFileBasedSettingKey`, matches
+`SKILL_LANE_DEFAULTS` value-for-value, and that no stray `skillSynthesis.<lane>.*`
+key exists in `platform-core` that `SKILL_LANE_KEYS` lacks. **Add a lane field and
+that spec goes red** — which is the intended behaviour. Do not "fix" it by
+loosening the spec; update both tables.
+
+### → NEW BATCH B0.9 (C0): nothing drains, and the inline pipeline never died — USER-APPROVED
+
+Raised by B0.6, verified by the orchestrator, decided by the user on 2026-08-13.
+**A hole in the decomposition, not a defect in any batch's code.**
+
+Two facts, both confirmed by direct grep over the worktree AND over all 34
+batches in this file:
+
+1. **`registerStageHandler` (`queue/skill-drain.service.ts:297`) is never called
+   in production** — only from spec files. `SkillDrainService` marks an item
+   whose stage has no handler as `skipped`. The ONLY stage-wiring task in the
+   entire plan is **B2.4.4** (`archaeology`, Commit 2). `prefilter` and
+   `embedding` had no owner at all.
+2. **`triggers/skill-trigger.service.ts:592` and `:629` still call
+   `analyzeSession` inline**, and **no batch anywhere owns that file.** Grep the
+   decomposition: `skill-trigger` appears only twice, both times referring to
+   `skill-trigger-config.ts` as a settings pattern to copy.
+
+**Why this mattered enough to add a batch.** After B0.6, session end enqueues
+instead of analyzing. With no handler registered, those rows go `skipped` — so
+session-end analysis and the embedding backfill both go **dark from C0 onward**,
+while the trigger service keeps running the inline pipeline Phase 0 exists to
+replace. Embeddings feed clustering and retrieval, so that is not a cosmetic
+gap. It also makes the DAG's own contract at line 15 untrue: _"Each commit is
+shippable without partial work from any later commit."_
+
+**B0.9 scope**: register the `prefilter` and `embedding` stage handlers
+(dispatching to the existing, still-public `analyzeSession` / `backfillEmbeddings`
+workers — B0.6 left them public for exactly this), re-point both trigger call
+sites to `enqueue`, and pin the round trip end to end with zero rows left
+`skipped` for want of a handler.
+
+**The invariant it establishes**: after B0.9 there is exactly ONE path to
+`analyzeSession` — through the `prefilter` stage handler. Any future batch that
+adds a second inline caller is reintroducing the dual path `context.md` forbids.
+Guard it with a grep in review.
+
+**The `turn_count` trap, inherited from B0.6** — `enqueue`'s guarded re-open
+fires only on `turn_count < ?`, so enqueuing `0` compiles, passes a naive test,
+and permanently wedges every finished row. B0.6 solved it by calling
+`extractor.extract(...)` first (pure local JSONL + regex, zero LLM) and
+enqueuing `trajectory.turnCount`. Every new enqueue site must do the same, and
+its spec must assert the real number, not just that `enqueue` was called.
+
+**Sequencing**: B0.9, B0.8 and B1.7 all touch `skill-drain.service.ts`. Run them
+strictly in series — B0.9 → B0.8 → B1.7 — never concurrently.
+
+### → NEW BATCH B0.8 (C0): make the per-stage counter measure tokens — USER-APPROVED
+
+Raised by B0.7, decided by the user on 2026-08-13. **This is a scope addition to
+C0, not a re-litigation.**
+
+**The defect in the plan.** Task B0.7.1 assigned R3's mitigation ("ship a
+per-stage token counter here from day one so real cost is observable before it
+is tuned") to `libs/frontend/skill-synthesis-ui` — a lib that has no access to
+token data. Verified directly: `skill_synthesis_queue` (migration `0032`) has
+**no token columns**, and the only token storage is `skill_synthesis_budget`,
+whose primary key is `day_key` **alone** — day-level, not per-stage, and on no
+RPC the frontend can reach. The only token figure that crosses the boundary
+today is the cap, `budget.maxTokensPerDay`. A cap with no spend beside it is
+worse than nothing.
+
+**What B0.7 shipped instead.** Dispatches-per-stage (`attemptCount` summed by
+`stage`), plus rows / in-flight / failed, bars scaled to the heaviest stage. It
+is an honest proxy — one dispatch of an LLM-backed stage is one model call, so a
+stage whose dispatches outrun its rows is retrying — and it answers R3's actual
+question today. It is NOT a token counter and must not be described as one.
+
+**What B0.8 must do.** Land before C0 closes, so cost is observable before C2's
+archaeologist (B2.3) becomes the thing spending it:
+
+1. **Migration `0035`** — add a `stage` column to `skill_synthesis_budget` and
+   re-key it `(day_key, stage)`. Adding a column via `ALTER TABLE` is fine; do
+   NOT edit the already-shipped `0032`.
+2. **`SkillBudgetStore`** — `record(usage)` takes a stage; `spentToday()` keeps
+   its current day-level meaning so **B0.4's budget gate is unchanged**. Add a
+   per-stage read.
+3. **The write site** — attribution must happen where the stage is known. The
+   `LaneRunner` knows only the lane id (`archaeologist|synthesis|judge|replay`),
+   which is a DIFFERENT taxonomy from the eleven queue stages. Thread the stage
+   from the drain; do not try to infer stage from lane.
+4. **Wire + UI** — one token field on `SkillSynthesisQueueItem` (or a per-stage
+   spend array on the queue response), then one extra `+=` in the component's
+   `stageCosts()`. B0.7 wrote `StageCostView` so this lands as one field and
+   nothing else moves.
+
+**Migration renumber, consequent and mandatory**: B0.8 takes `0035`, so
+**B3.1's migration becomes `0036`** and **B4.1's becomes `0037`**. Both batch
+texts still say the old numbers — the numbers here win. Update the batch text
+when you pick each up, and remember every new migration requires bumping the
+version ratchets in older migration specs (run the FULL `persistence-sqlite`
+suite to find them; the wording differs between specs so grep misses some).
+
+**Sequencing**: B0.8 touches `skill-drain.service.ts`, which **B1.7 also owns**.
+Run them in series, never concurrently, and whichever lands second rebases onto
+the first.
+
+### → C0/C1 landing state as of the lane-runner commit
+
+Committed working commits so far, newest first: `1bd2a0e74` (C1 — B1.5 + B1.6),
+`c9b2fe4e5` (C0 — B0.5), `79f28c1e8` (C2 — B2.2), `ca04e3446` (C1 — B1.4),
+`bb97255a5` (C2 — B2.1), `964c668c6` (C1 — B1.3), `3e8f6ef19` (C0 — B0.4),
+`4fa288f6a` (C0 — B0.1/B0.2/B0.3), `d4c0153e9` (docs).
+
+**Working commits are interleaved across phases by design** — the six-commit
+contract is honoured at the END by collapsing each phase with
+`git reset --soft <phase-base>`, not by committing in phase order along the way.
+No single commit mixes two phases, which is the property the collapse depends
+on. Preserve that: stage by path (`libs/backend/skill-synthesis/**` has been C1
+so far; `platform-core` + `rpc-handlers` + `libs/shared` were C0) and never let
+one commit straddle.

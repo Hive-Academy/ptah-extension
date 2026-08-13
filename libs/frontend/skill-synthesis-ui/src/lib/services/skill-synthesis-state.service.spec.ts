@@ -1,5 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import type { SkillSuggestionSummary } from '@ptah-extension/shared';
+import type {
+  SkillSuggestionSummary,
+  SkillSynthesisDrainRun,
+  SkillSynthesisQueueItem,
+} from '@ptah-extension/shared';
 
 import { SkillSynthesisStateService } from './skill-synthesis-state.service';
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -112,5 +116,129 @@ describe('SkillSynthesisStateService — suggestions', () => {
 
     expect(rpc.dismissSuggestion).toHaveBeenCalledWith('sg-1', 'not-reusable');
     expect(rpc.listSuggestions).toHaveBeenCalledTimes(1);
+  });
+});
+
+function queueItem(
+  overrides: Partial<SkillSynthesisQueueItem> = {},
+): SkillSynthesisQueueItem {
+  return {
+    id: 'q-1',
+    sessionId: 'sess-1',
+    workspaceRoot: '/w',
+    stage: 'archaeology',
+    status: 'queued',
+    attemptCount: 1,
+    enqueuedAt: 1_700_000_000_000,
+    notBefore: 0,
+    finishedAt: null,
+    lane: null,
+    reason: null,
+    candidateId: null,
+    ...overrides,
+  };
+}
+
+function drainRun(
+  overrides: Partial<SkillSynthesisDrainRun> = {},
+): SkillSynthesisDrainRun {
+  return {
+    id: 'run-1',
+    jobId: '@ptah/skills-drain-nightly',
+    tier: 'nightly',
+    scheduledFor: 1_700_000_000_000,
+    startedAt: 1_700_000_000_000,
+    endedAt: 1_700_000_003_000,
+    status: 'succeeded',
+    durationMs: 3_000,
+    summary: null,
+    ...overrides,
+  };
+}
+
+describe('SkillSynthesisStateService — drain queue', () => {
+  function setupQueue(
+    result: {
+      items: SkillSynthesisQueueItem[];
+      recentRuns: SkillSynthesisDrainRun[];
+    } = { items: [], recentRuns: [] },
+  ) {
+    const rpc = {
+      queue: jest.fn(async () => result),
+    } as unknown as jest.Mocked<Pick<SkillSynthesisRpcService, 'queue'>>;
+    TestBed.configureTestingModule({
+      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+    });
+    const svc = TestBed.inject(SkillSynthesisStateService);
+    return { svc, rpc };
+  }
+
+  it('writes both halves of the payload from one call', async () => {
+    const { svc, rpc } = setupQueue({
+      items: [queueItem(), queueItem({ id: 'q-2', stage: 'judge' })],
+      recentRuns: [drainRun(), drainRun({ id: 'run-2', tier: 'frequent' })],
+    });
+
+    await svc.refreshQueue();
+
+    expect(rpc.queue).toHaveBeenCalledWith({});
+    expect(svc.queueItems().length).toBe(2);
+    expect(svc.drainRuns().length).toBe(2);
+    expect(svc.queueLoading()).toBe(false);
+    expect(svc.error()).toBeNull();
+  });
+
+  it('forwards the limits it was given', async () => {
+    const { svc, rpc } = setupQueue();
+
+    await svc.refreshQueue({ limit: 25, runLimit: 5 });
+
+    expect(rpc.queue).toHaveBeenCalledWith({ limit: 25, runLimit: 5 });
+  });
+
+  it('sums attempts across every queued stage', async () => {
+    const { svc } = setupQueue({
+      items: [
+        queueItem({ id: 'q-1', attemptCount: 3 }),
+        queueItem({ id: 'q-2', stage: 'judge', attemptCount: 2 }),
+        queueItem({ id: 'q-3', stage: 'digest', attemptCount: 0 }),
+      ],
+      recentRuns: [],
+    });
+
+    await svc.refreshQueue();
+
+    expect(svc.queuedAttemptTotal()).toBe(5);
+  });
+
+  it('keeps the last good snapshot when the refresh fails', async () => {
+    const { svc, rpc } = setupQueue({
+      items: [queueItem()],
+      recentRuns: [drainRun()],
+    });
+    await svc.refreshQueue();
+
+    rpc.queue.mockRejectedValueOnce(new Error('queue-store-unavailable'));
+    await svc.refreshQueue();
+
+    expect(svc.error()).toBe('queue-store-unavailable');
+    expect(svc.queueItems().length).toBe(1);
+    expect(svc.drainRuns().length).toBe(1);
+    expect(svc.queueLoading()).toBe(false);
+  });
+
+  it('tolerates a payload missing either half', async () => {
+    const { svc } = setupQueue(
+      {} as unknown as {
+        items: SkillSynthesisQueueItem[];
+        recentRuns: SkillSynthesisDrainRun[];
+      },
+    );
+
+    await svc.refreshQueue();
+
+    expect(svc.queueItems()).toEqual([]);
+    expect(svc.drainRuns()).toEqual([]);
+    expect(svc.queuedAttemptTotal()).toBe(0);
   });
 });

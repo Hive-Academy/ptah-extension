@@ -11,6 +11,8 @@ import type {
   SkillSynthesisStatsResult,
   SkillSynthesisSpecSummary,
   SkillSynthesisCandidateDetail,
+  SkillSynthesisDrainRun,
+  SkillSynthesisQueueItem,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -86,6 +88,25 @@ export class SkillSynthesisStateService {
 
   public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
   public readonly specsLoading = signal<boolean>(false);
+
+  /**
+   * The two halves of `skillSynthesis:queue`, kept as separate signals but
+   * only ever written together by {@link refreshQueue} — reading one without
+   * the other cannot distinguish "the drain never fired" from "the queue is
+   * up to date", and a partial write would make that ambiguity permanent.
+   */
+  public readonly queueItems = signal<SkillSynthesisQueueItem[]>([]);
+  public readonly drainRuns = signal<SkillSynthesisDrainRun[]>([]);
+  public readonly queueLoading = signal<boolean>(false);
+
+  /**
+   * Total queued attempts across every stage — the headline figure behind the
+   * per-stage cost strip. An attempt is one dispatch of one stage, so this
+   * grows with retries as well as with new work.
+   */
+  public readonly queuedAttemptTotal = computed(() =>
+    this.queueItems().reduce((sum, item) => sum + item.attemptCount, 0),
+  );
 
   public readonly staleSpecCount = computed(
     () => this.specs().filter((s) => s.status === 'harvested').length,
@@ -438,6 +459,30 @@ export class SkillSynthesisStateService {
       return 0;
     } finally {
       this.specsLoading.set(false);
+    }
+  }
+
+  /**
+   * Refresh the synthesis queue and the drain's recent run history.
+   *
+   * Both signals are written from the one response so the Activity surface
+   * never renders a queue snapshot against a stale run feed. On failure both
+   * are left untouched: showing the last good snapshot beside the error is
+   * more useful than blanking the panel.
+   */
+  public async refreshQueue(
+    options: { limit?: number; runLimit?: number } = {},
+  ): Promise<void> {
+    this.queueLoading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.queue(options);
+      this.queueItems.set(result.items ?? []);
+      this.drainRuns.set(result.recentRuns ?? []);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.queueLoading.set(false);
     }
   }
 

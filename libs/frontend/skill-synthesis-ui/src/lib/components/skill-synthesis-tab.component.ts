@@ -439,6 +439,8 @@ interface ActionDialogState {
                 [lastAnalyzeRunAt]="lastAnalyzeRunAt()"
                 [histogram]="eligibilityHistogram()"
                 [recentEvents]="recentEvents()"
+                [drainRuns]="drainRuns()"
+                [queueItems]="queueItems()"
               />
               <ptah-skill-diagnostics-accordion />
 
@@ -698,6 +700,9 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly specsLoading = this.state.specsLoading;
   public readonly staleSpecCount = this.state.staleSpecCount;
 
+  public readonly drainRuns = this.state.drainRuns;
+  public readonly queueItems = this.state.queueItems;
+
   public readonly candidateDetail = this.state.candidateDetail;
   public readonly candidateDetailLoading = this.state.candidateDetailLoading;
 
@@ -792,6 +797,7 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.refreshSuggestions();
     void this.state.loadStats();
     void this.diagnostics.refresh();
+    void this.state.refreshQueue();
     void this.state.refreshSpecs();
     void this.loadSettings();
   }

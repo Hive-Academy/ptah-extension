@@ -30,6 +30,8 @@ import type {
   SkillSynthesisSpecSummary,
   SkillSynthesisHarvestSpecsResult,
   SkillSynthesisClearStaleSpecsResult,
+  SkillSynthesisQueueParams,
+  SkillSynthesisQueueResult,
 } from '@ptah-extension/shared';
 
 export interface SkillAcceptSuggestionResult {
@@ -603,5 +605,33 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to clear stale specs');
+  }
+
+  /**
+   * Read the synthesis queue and the drain's recent `job_runs` history.
+   *
+   * One call returns both halves because neither is legible alone: an empty
+   * `items` list with no `recentRuns` is a drain that never fired, while an
+   * empty `items` list beside a healthy run feed is simply a queue that is up
+   * to date. Two separate calls could observe the two halves a tick apart and
+   * render that distinction wrongly.
+   *
+   * Both limits are optional — the backend applies its own defaults — so an
+   * absent value is omitted from the payload rather than sent as `undefined`.
+   */
+  public async queue(
+    params: SkillSynthesisQueueParams = {},
+  ): Promise<SkillSynthesisQueueResult> {
+    const payload: SkillSynthesisQueueParams = {};
+    if (params.limit !== undefined) payload.limit = params.limit;
+    if (params.runLimit !== undefined) payload.runLimit = params.runLimit;
+
+    const result = await this.rpcService.call('skillSynthesis:queue', payload, {
+      timeout: SKILL_RPC_TIMEOUTS.LIST_MS,
+    });
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to load the synthesis queue');
   }
 }

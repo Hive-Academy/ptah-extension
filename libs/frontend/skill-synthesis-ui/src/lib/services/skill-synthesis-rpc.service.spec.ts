@@ -155,4 +155,51 @@ describe('SkillSynthesisRpcService', () => {
       'store-unavailable',
     );
   });
+
+  it('queue() calls skillSynthesis:queue and returns both halves of the payload', async () => {
+    const payload = {
+      items: [{ id: 'q-1', stage: 'archaeology' }],
+      recentRuns: [{ id: 'run-1', tier: 'nightly' }],
+    };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.queue();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:queue',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toEqual(payload);
+  });
+
+  it('queue() forwards only the limits it was given', async () => {
+    rpcCall.mockResolvedValue(okResult({ items: [], recentRuns: [] }));
+
+    await service.queue({ runLimit: 5 });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:queue',
+      { runLimit: 5 },
+      expect.any(Object),
+    );
+  });
+
+  it('queue() forwards both limits when both are given', async () => {
+    rpcCall.mockResolvedValue(okResult({ items: [], recentRuns: [] }));
+
+    await service.queue({ limit: 50, runLimit: 10 });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:queue',
+      { limit: 50, runLimit: 10 },
+      expect.any(Object),
+    );
+  });
+
+  it('throws with the RPC error string when queue fails', async () => {
+    rpcCall.mockResolvedValue(errResult('queue-store-unavailable'));
+
+    await expect(service.queue()).rejects.toThrow('queue-store-unavailable');
+  });
 });
