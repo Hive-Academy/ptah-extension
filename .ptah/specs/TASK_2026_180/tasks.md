@@ -2250,6 +2250,26 @@ exactly how B0.5 arrived with 23 DI failures. B0.5 fixed all four sites but was
 explicitly told not to consolidate them inside a batch that is not about that.
 Worth one small cleanup task of its own; do not fold it into a feature batch.
 
+### → follow-up (NOT this task): the same `<select>` binding bug is latent in `json-schema-form`
+
+Found while fixing the provider picker. `libs/frontend/ui/src/lib/native/form/json-schema-form.component.ts:74-87` uses the identical construction the picker had — `[value]` on a `<select>` with no `[selected]` on its `@for` options.
+
+**The bug**: `[value]` is a property binding applied during the update pass, in
+which the `@for` options are still materialising. The browser silently rejects a
+`<select>` value matching no existing option, and Angular never re-applies it
+because the bound expression itself never changed. Net effect: a pre-set value
+renders as the first option instead.
+
+`json-schema-form`'s options are synchronous and schema-derived, so it may render
+correctly today **by ordering luck** rather than by construction. The picker's
+model select — whose options arrive from an async loader — failed _every_ time,
+which is why that one was caught. Same class, different odds.
+
+Fix is one line per option (`[selected]="opt === value()"`), and the house
+precedent is `chat/.../voice-config.component.ts:93-101`. Out of scope for
+TASK_2026_180; worth its own small task, because a form that silently discards a
+pre-set value is the kind of defect users report as "it didn't save".
+
 ### → whoever wires the `judge` / `synthesis` stage handlers: hand the failure over, do not flatten it
 
 Raised by B1.7. The drain now maps `SkillLaneFailure` onto row transitions, and a

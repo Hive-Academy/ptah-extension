@@ -225,18 +225,28 @@ describe('SkillSettingsPanelComponent', () => {
       expect(optionValues[0]).toBe('');
     });
 
-    it('forwards a lane that HAS been pinned to its picker', () => {
-      // Asserted through the loader call rather than the rendered `<select>`
-      // value: the shared picker binds `[value]` on the select before its
-      // `@for` materialises the options, so a PRE-pinned provider never becomes
-      // the selected option (verified against the component directly — the
-      // loader receives the id, `selectedIndex` stays 0). That is a defect in
-      // `libs/frontend/ui`, which this batch does not own; what IS owned here
-      // is that the lane's provider reaches the picker at all.
+    it('forwards a lane that HAS been pinned to its picker, and SHOWS it as pinned', () => {
+      // Both halves matter, and the second one used to be impossible: the
+      // shared picker bound `[value]` on the select before its `@for`
+      // materialised the options, so a pre-pinned provider was forwarded to the
+      // loader but never became the selected option — a pinned lane rendered as
+      // "Active provider (default)". Fixed in `libs/frontend/ui` by pairing
+      // `[value]` with `[selected]` on every option, and pinned there by its own
+      // specs. Asserted here too, from the consumer's side, because the loader
+      // call alone cannot tell a pinned lane from an inherited one.
       const pinned = ANTHROPIC_PROVIDERS[0].id;
-      render({ lanes: lanes({ judge: { provider: pinned } }) });
+      const { el } = render({ lanes: lanes({ judge: { provider: pinned } }) });
 
       expect(listModels).toHaveBeenCalledWith(pinned);
+
+      const judge = el.querySelector(
+        '[data-testid="skills-lane-picker"][data-lane="judge"]',
+      );
+      const select = judge?.querySelector<HTMLSelectElement>(
+        '[data-testid="provider-model-picker-provider"]',
+      );
+      expect(select?.value).toBe(pinned);
+      expect(select?.selectedIndex).toBeGreaterThan(0);
     });
 
     it('emits laneChange with the lane id and the new selection', () => {

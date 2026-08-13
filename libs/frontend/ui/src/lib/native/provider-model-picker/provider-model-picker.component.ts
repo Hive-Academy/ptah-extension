@@ -122,13 +122,20 @@ function buildDefaultModelLabel(
           <select
             class="select select-bordered select-sm"
             data-testid="provider-model-picker-provider"
-            [value]="provider()"
+            [value]="selectedProvider()"
             [attr.aria-label]="providerAriaLabel()"
             (change)="onProviderChange($event)"
           >
-            <option value="">{{ inheritProviderLabel }}</option>
+            <option value="" [selected]="selectedProvider() === ''">
+              {{ inheritProviderLabel }}
+            </option>
             @for (opt of providerOptions; track opt.id) {
-              <option [value]="opt.id">{{ opt.name }}</option>
+              <option
+                [value]="opt.id"
+                [selected]="opt.id === selectedProvider()"
+              >
+                {{ opt.name }}
+              </option>
             }
           </select>
         </label>
@@ -138,14 +145,18 @@ function buildDefaultModelLabel(
           <select
             class="select select-bordered select-sm"
             data-testid="provider-model-picker-model"
-            [value]="model()"
+            [value]="selectedModelId()"
             [disabled]="modelsLoading()"
             [attr.aria-label]="modelAriaLabel()"
             (change)="onModelChange($event)"
           >
-            <option value="">{{ defaultModelLabel() }}</option>
+            <option value="" [selected]="selectedModelId() === ''">
+              {{ defaultModelLabel() }}
+            </option>
             @for (m of models(); track m.id) {
-              <option [value]="m.id">{{ m.name }}</option>
+              <option [value]="m.id" [selected]="m.id === selectedModelId()">
+                {{ m.name }}
+              </option>
             }
           </select>
         </label>
@@ -231,6 +242,28 @@ export class ProviderModelPickerComponent {
   protected readonly models = this._models.asReadonly();
   protected readonly modelsLoading = this._modelsLoading.asReadonly();
   protected readonly modelsError = this._modelsError.asReadonly();
+
+  /**
+   * What the two `<select>`s render as selected — deliberately the INTERNAL
+   * state, not the raw inputs.
+   *
+   * Both are also mirrored onto each `<option>`'s `selected` property. A lone
+   * `[value]` on the `<select>` is applied in the same update pass that
+   * materialises the `@for` options, and a browser silently drops a `<select>`
+   * value matching no existing option; since the bound expression never
+   * changes afterwards, Angular never re-applies it. The result was a lane
+   * pinned to a real provider rendering as "Active provider (default)" — the
+   * control misreporting its own configuration. `[selected]` on the options
+   * has no such ordering hazard: an option carries its selectedness with it
+   * when it is inserted into the select. This is the same pairing the settings
+   * selects already use (`voice-config`, `elevenlabs-panel`).
+   *
+   * Reading internal state rather than the inputs also keeps the rendered
+   * control in agreement with what {@link selectionChange} would emit for a
+   * host that does not write the selection back.
+   */
+  protected readonly selectedProvider = this._provider.asReadonly();
+  protected readonly selectedModelId = this._model.asReadonly();
 
   protected readonly defaultModelLabel = computed(() =>
     buildDefaultModelLabel(this._provider(), this.defaultTier()),

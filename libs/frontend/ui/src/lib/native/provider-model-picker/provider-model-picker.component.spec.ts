@@ -128,10 +128,157 @@ describe('ProviderModelPickerComponent', () => {
     it('labels the sentinel as the active provider, in plain text', async () => {
       const fixture = await create();
       const providerSelect = select(fixture, 'provider-model-picker-provider');
-      expect(providerSelect.options[0].textContent).toBe(
+      expect(providerSelect.options[0].textContent?.trim()).toBe(
         'Active provider (default)',
       );
       expect(providerSelect.innerHTML).not.toContain('<script');
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Rendered selection — a pinned lane must LOOK pinned.
+  //
+  // The original template bound `[value]` on each `<select>` and nothing on
+  // the `<option>`s. `[value]` is applied in the same update pass that
+  // materialises the `@for` options, and a browser silently drops a `<select>`
+  // value matching no existing option — so a pre-pinned provider rendered as
+  // `selectedIndex === 0` ("Active provider (default)") while the loader was
+  // correctly called with the pinned id. The model select was worse: its
+  // options arrive from an async load, so the mismatch was guaranteed.
+  //
+  // Every assertion here reads the DOM. Asserting the loader call is what let
+  // the defect through the first time.
+  // ---------------------------------------------------------------------
+  describe('rendered selection', () => {
+    /** Index of a registry id in the rendered list, past the sentinel at 0. */
+    function expectedIndexOf(providerId: string): number {
+      return ANTHROPIC_PROVIDERS.findIndex((p) => p.id === providerId) + 1;
+    }
+
+    it('shows a pre-set provider as the selected option', async () => {
+      const [first] = ANTHROPIC_PROVIDERS;
+      const fixture = await create({ provider: first.id });
+
+      const providerSelect = select(fixture, 'provider-model-picker-provider');
+      expect(providerSelect.value).toBe(first.id);
+      expect(providerSelect.selectedIndex).toBe(expectedIndexOf(first.id));
+      expect(providerSelect.options[providerSelect.selectedIndex].value).toBe(
+        first.id,
+      );
+    });
+
+    it('shows a pre-set provider from the END of the registry too', async () => {
+      // Guards against a fix that happens to work only for the option the
+      // browser would have landed on anyway.
+      const last = ANTHROPIC_PROVIDERS[ANTHROPIC_PROVIDERS.length - 1];
+      const fixture = await create({ provider: last.id });
+
+      const providerSelect = select(fixture, 'provider-model-picker-provider');
+      expect(providerSelect.value).toBe(last.id);
+      expect(providerSelect.selectedIndex).toBe(expectedIndexOf(last.id));
+      expect(ANTHROPIC_PROVIDERS.length).toBeGreaterThan(1);
+    });
+
+    it('keeps the inherit sentinel selected when no provider is pinned', async () => {
+      const fixture = await create();
+
+      const providerSelect = select(fixture, 'provider-model-picker-provider');
+      expect(providerSelect.value).toBe('');
+      expect(providerSelect.selectedIndex).toBe(0);
+      expect(providerSelect.options[0].textContent?.trim()).toBe(
+        'Active provider (default)',
+      );
+    });
+
+    it('keeps the inherit sentinel selected for an explicit empty provider', async () => {
+      const fixture = await create({ provider: '', model: '' });
+
+      expect(select(fixture, 'provider-model-picker-provider').value).toBe('');
+      expect(
+        select(fixture, 'provider-model-picker-provider').selectedIndex,
+      ).toBe(0);
+    });
+
+    it('shows a pre-set model as selected once the async catalogue lands', async () => {
+      listModels.mockResolvedValue(
+        result([
+          model({ id: 'm-1', name: 'Model One' }),
+          model({ id: 'm-2', name: 'Model Two' }),
+        ]),
+      );
+      const fixture = await create({
+        provider: ANTHROPIC_PROVIDERS[0].id,
+        model: 'm-2',
+      });
+
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      expect(modelSelect.value).toBe('m-2');
+      expect(modelSelect.selectedIndex).toBe(2);
+      expect(modelSelect.options[modelSelect.selectedIndex].value).toBe('m-2');
+    });
+
+    it('keeps the default-tier sentinel selected when no model is pinned', async () => {
+      listModels.mockResolvedValue(
+        result([model({ id: 'm-1', name: 'Model One' })]),
+      );
+      const fixture = await create({ provider: ANTHROPIC_PROVIDERS[0].id });
+
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      expect(modelSelect.value).toBe('');
+      expect(modelSelect.selectedIndex).toBe(0);
+    });
+
+    it('re-reflects a provider the host writes back after first render', async () => {
+      const fixture = await create();
+      expect(select(fixture, 'provider-model-picker-provider').value).toBe('');
+
+      const [first] = ANTHROPIC_PROVIDERS;
+      fixture.componentRef.setInput('provider', first.id);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(select(fixture, 'provider-model-picker-provider').value).toBe(
+        first.id,
+      );
+    });
+
+    it('reflects a user provider choice without a host write-back', async () => {
+      const [, second] = ANTHROPIC_PROVIDERS;
+      const fixture = await create();
+
+      const providerSelect = select(fixture, 'provider-model-picker-provider');
+      providerSelect.value = second.id;
+      providerSelect.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // The inputs are still `''` — a re-render must not stomp the DOM back
+      // to the sentinel while the component would emit `second.id`.
+      expect(providerSelect.value).toBe(second.id);
+      expect(providerSelect.selectedIndex).toBe(expectedIndexOf(second.id));
+    });
+
+    it('drops the model select back to the sentinel when the provider changes', async () => {
+      listModels
+        .mockResolvedValueOnce(result([model({ id: 'old-1', name: 'Old' })]))
+        .mockResolvedValue(result([model({ id: 'new-1', name: 'New' })]));
+
+      const fixture = await create({ model: 'old-1' });
+      const modelSelect = select(fixture, 'provider-model-picker-model');
+      expect(modelSelect.value).toBe('old-1');
+
+      const providerSelect = select(fixture, 'provider-model-picker-provider');
+      providerSelect.value = ANTHROPIC_PROVIDERS[0].id;
+      providerSelect.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // The component emits `model: ''` here; the control must say so too.
+      expect(select(fixture, 'provider-model-picker-model').value).toBe('');
+      expect(select(fixture, 'provider-model-picker-model').selectedIndex).toBe(
+        0,
+      );
     });
   });
 
@@ -267,8 +414,10 @@ describe('ProviderModelPickerComponent', () => {
   describe('default-model label', () => {
     function labelOf(fixture: { nativeElement: unknown }): string {
       return (
-        select(fixture, 'provider-model-picker-model').options[0].textContent ??
-        ''
+        select(
+          fixture,
+          'provider-model-picker-model',
+        ).options[0].textContent?.trim() ?? ''
       );
     }
 
