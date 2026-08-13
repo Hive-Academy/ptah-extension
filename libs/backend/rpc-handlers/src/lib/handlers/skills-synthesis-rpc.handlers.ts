@@ -44,7 +44,14 @@ import {
   type SkillSuggestionRow,
   type SpecHarvesterService,
   type SkillScorecardService,
+  type SkillQueueStore,
+  type SkillQueueRow,
 } from '@ptah-extension/skill-synthesis';
+import {
+  CRON_TOKENS,
+  type CronScheduler,
+  type JobRun,
+} from '@ptah-extension/cron-scheduler';
 import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
 import type {
   RpcMethodName,
@@ -128,11 +135,18 @@ import type {
   SkillSynthesisHarvestSpecsResult,
   SkillSynthesisClearStaleSpecsParams,
   SkillSynthesisClearStaleSpecsResult,
+  SkillSynthesisQueueParams,
+  SkillSynthesisQueueResult,
+  SkillSynthesisQueueItem,
+  SkillSynthesisDrainRun,
+  SkillDrainTier,
+  JobId,
   SkillSuggestionSummary,
   SkillSuggestionDetail,
   CloneSummary,
   SkillCloneKind,
 } from '@ptah-extension/shared';
+import { SKILL_DRAIN_JOB_IDS, SKILL_DRAIN_TIERS } from '@ptah-extension/shared';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import { z } from 'zod';
 import {
@@ -163,9 +177,16 @@ import {
   PromoteBulkParamsSchema,
   RejectByPatternParamsSchema,
   ClearStaleSpecsParamsSchema,
+  SkillQueueParamsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
 } from './skills-synthesis-rpc.schema';
+
+/** Queue rows returned when the caller does not ask for a specific count. */
+const DEFAULT_QUEUE_ITEM_LIMIT = 50;
+
+/** Drain runs returned per tier, and after merging, when unspecified. */
+const DEFAULT_DRAIN_RUN_LIMIT = 20;
 
 interface ICuratorService {
   runManual(): Promise<{
@@ -224,6 +245,7 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:listSpecs',
     'skillSynthesis:harvestSpecs',
     'skillSynthesis:clearStaleSpecs',
+    'skillSynthesis:queue',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -257,6 +279,16 @@ export class SkillsSynthesisRpcHandlers {
       isOptional: true,
     })
     private readonly scorecard: SkillScorecardService | null,
+    // Not optional: the queue store is registered by the same
+    // `registerSkillSynthesisServices` call that registers the candidate store
+    // above, so a host that can serve this class can always serve the queue.
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE)
+    private readonly queue: SkillQueueStore,
+    // Optional: `startThothCron` catches its own failures and leaves the
+    // scheduler unregistered, and the CLI tier may run without cron at all.
+    // No scheduler simply means no run history to show — not an error.
+    @inject(CRON_TOKENS.CRON_SCHEDULER, { isOptional: true })
+    private readonly cron: CronScheduler | null,
   ) {}
 
   register(): void {
@@ -298,6 +330,7 @@ export class SkillsSynthesisRpcHandlers {
     this.registerListSpecs();
     this.registerHarvestSpecs();
     this.registerClearStaleSpecs();
+    this.registerQueue();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -1461,6 +1494,77 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
+  /**
+   * The Activity surface's read of the drain — criterion P0-7, backend half.
+   *
+   * Two independent feeds, because they answer different questions and neither
+   * can be derived from the other:
+   *
+   *  - `items` is WHAT is waiting, from `skill_synthesis_queue`: the stage, its
+   *    status, how many attempts it has cost and the short reason the drain
+   *    surfaced for a stall or a skip.
+   *  - `recentRuns` is WHETHER THE DRAIN IS RUNNING AT ALL, from `job_runs`.
+   *    Those rows already record status, timing and outcome for every cron
+   *    slot, so they are read, not re-derived — a second bookkeeping table for
+   *    drain history would be a parallel implementation of the cron scheduler's
+   *    own.
+   *
+   * The pairing is what makes an empty queue legible: no items and no runs is a
+   * drain that never fired, while no items and a healthy run feed is simply a
+   * queue that is up to date.
+   */
+  private registerQueue(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisQueueParams,
+      SkillSynthesisQueueResult
+    >('skillSynthesis:queue', async (params) => {
+      const parsed = this.parseParams(
+        SkillQueueParamsSchema,
+        params,
+        'skillSynthesis:queue',
+      );
+      try {
+        const items = this.queue
+          .listRecent(parsed?.limit ?? DEFAULT_QUEUE_ITEM_LIMIT)
+          .map(toQueueItem);
+        return {
+          items,
+          recentRuns: this.readDrainRuns(
+            parsed?.runLimit ?? DEFAULT_DRAIN_RUN_LIMIT,
+          ),
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerQueue');
+        throw this.toUserError('skillSynthesis:queue');
+      }
+    });
+  }
+
+  /**
+   * Merge the three tiers' run histories into one newest-first feed.
+   *
+   * Each tier is a separate `scheduled_jobs` row, so there is no single query
+   * that spans them; `limit` is applied per tier and again after the merge, so
+   * a busy frequent tier cannot crowd the nightly and weekly runs out of the
+   * window the user is looking at.
+   */
+  private readDrainRuns(limit: number): SkillSynthesisDrainRun[] {
+    if (!this.cron) return [];
+    const runs: SkillSynthesisDrainRun[] = [];
+    for (const tier of SKILL_DRAIN_TIERS) {
+      // A drain job id is a stable handle, not a ULID, so `JobId.from` — which
+      // validates ULID shape — would reject it. These ids are ours and fixed;
+      // there is no untrusted input on this path.
+      const jobId = SKILL_DRAIN_JOB_IDS[tier] as JobId;
+      for (const run of this.cron.listRuns(jobId, { limit })) {
+        runs.push(toDrainRun(run, tier));
+      }
+    }
+    runs.sort((a, b) => b.scheduledFor - a.scheduledFor);
+    return runs.slice(0, limit);
+  }
+
   private parseParams<T>(
     schema: { parse: (input: unknown) => T },
     params: unknown,
@@ -1661,6 +1765,65 @@ function toSuggestionDetail(row: SkillSuggestionRow): SkillSuggestionDetail {
   return {
     ...toSuggestionSummary(row),
     body: row.body,
+  };
+}
+
+/**
+ * Queue row → wire item.
+ *
+ * `lastError` is dropped, not forgotten. It carries whatever a stage threw —
+ * a provider payload, an SDK message, a SQLite driver string — and forwarding
+ * that to a renderer is precisely the raw-error-message leak the house rule
+ * forbids. `reason` is the short line the drain authored for display; the full
+ * error is already in the log via `SkillDrainService`.
+ *
+ * `payload` is dropped for the same class of reason: it is stage scratch space
+ * (prompts, truncation markers, verdict fragments), not a display surface.
+ *
+ * The two assignments below are a compile-time drift guard. `row.stage` and
+ * `row.status` are the backend's unions; if migration `0032` gains a member
+ * that `SkillSynthesisQueueStage`/`Status` in `libs/shared` does not have, this
+ * function stops compiling instead of shipping a value the renderer cannot name.
+ */
+function toQueueItem(row: SkillQueueRow): SkillSynthesisQueueItem {
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    workspaceRoot: row.workspaceRoot,
+    stage: row.stage,
+    status: row.status,
+    attemptCount: row.attemptCount,
+    enqueuedAt: row.enqueuedAt,
+    notBefore: row.notBefore,
+    finishedAt: row.finishedAt,
+    lane: row.lane,
+    reason: row.reason,
+    candidateId: row.candidateId,
+  };
+}
+
+/**
+ * `job_runs` row → wire run.
+ *
+ * `errorMessage` is NOT surfaced: it is the verbatim text of whatever the job
+ * handler threw. `resultSummary` is the drain's own sentence and is safe.
+ * `durationMs` is computed here rather than in the renderer so an in-flight run
+ * reads as `null` instead of arithmetic on a missing `endedAt`.
+ */
+function toDrainRun(run: JobRun, tier: SkillDrainTier): SkillSynthesisDrainRun {
+  return {
+    id: run.id as string,
+    jobId: run.jobId as string,
+    tier,
+    scheduledFor: run.scheduledFor,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt,
+    status: run.status,
+    durationMs:
+      run.startedAt !== null && run.endedAt !== null
+        ? run.endedAt - run.startedAt
+        : null,
+    summary: run.resultSummary,
   };
 }
 

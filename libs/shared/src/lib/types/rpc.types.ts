@@ -46,6 +46,7 @@ import type {
   SubagentTranscriptResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
+import type { SkillDrainTier } from '../constants/skill-drain.constants';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -1632,6 +1633,10 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisClearStaleSpecsParams;
     result: SkillSynthesisClearStaleSpecsResult;
   };
+  'skillSynthesis:queue': {
+    params: SkillSynthesisQueueParams;
+    result: SkillSynthesisQueueResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -2027,6 +2032,99 @@ export interface SkillSynthesisClearStaleSpecsResult {
   taskIds: string[];
 }
 
+/**
+ * Every `skill_synthesis_queue.stage` member (migration `0032`).
+ *
+ * This union is the wire-side restatement of `SkillQueueStage` in
+ * `@ptah-extension/skill-synthesis`, which `libs/shared` may not import (it is
+ * the foundation layer). Drift is caught at COMPILE TIME in the direction that
+ * matters: the handler maps a backend row into this type, so a stage added to
+ * `0032` and to the backend union but not here fails `nx typecheck rpc-handlers`.
+ */
+export type SkillSynthesisQueueStage =
+  | 'prefilter'
+  | 'archaeology'
+  | 'synthesis'
+  | 'embedding'
+  | 'clustering'
+  | 'cluster-synthesis'
+  | 'judge'
+  | 'judge-panel'
+  | 'replay'
+  | 'trigger-eval'
+  | 'digest';
+
+/** Every `skill_synthesis_queue.status` member (migration `0032`). */
+export type SkillSynthesisQueueStatus =
+  | 'queued'
+  | 'claimed'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'unscored'
+  | 'skipped';
+
+/**
+ * One queue row as the Activity surface sees it.
+ *
+ * `last_error` is deliberately ABSENT. It holds whatever a stage threw —
+ * an SDK message, a provider payload, a SQLite driver string — and forwarding
+ * that verbatim to a renderer is the "never expose a raw error message across
+ * the boundary" rule. `reason` is the short, deliberately-authored sentence the
+ * drain writes for exactly this purpose; the full error stays in the log.
+ */
+export interface SkillSynthesisQueueItem {
+  id: string;
+  sessionId: string;
+  /** Round-robin fairness key. `''` for cross-project stages. */
+  workspaceRoot: string;
+  stage: SkillSynthesisQueueStage;
+  status: SkillSynthesisQueueStatus;
+  attemptCount: number;
+  enqueuedAt: number;
+  /** Epoch ms before which the row is not eligible. `0` = eligible now. */
+  notBefore: number;
+  finishedAt: number | null;
+  /** Which provider lane ran (or will run) the row. `null` before Phase 1. */
+  lane: string | null;
+  /** Short and user-facing — a stall reason, a skip reason, a backoff note. */
+  reason: string | null;
+  candidateId: string | null;
+}
+
+/**
+ * One drain `job_runs` row, resolved to its tier.
+ *
+ * `durationMs` is precomputed rather than left to the renderer: a run that is
+ * still in flight has no end, and `null` says that unambiguously where
+ * `endedAt - startedAt` would silently produce `NaN`.
+ */
+export interface SkillSynthesisDrainRun {
+  id: string;
+  jobId: string;
+  tier: SkillDrainTier;
+  scheduledFor: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+  /** `null` while the run has not finished. */
+  durationMs: number | null;
+  /** The drain's own summary line. Never a raw error message. */
+  summary: string | null;
+}
+
+export interface SkillSynthesisQueueParams {
+  /** Queue rows to return, newest-enqueued first. */
+  limit?: number;
+  /** Drain runs to return, most-recently-scheduled first. */
+  runLimit?: number;
+}
+
+export interface SkillSynthesisQueueResult {
+  items: SkillSynthesisQueueItem[];
+  recentRuns: SkillSynthesisDrainRun[];
+}
+
 export interface SkillSynthesisInvocationsParams {
   skillId: string;
   limit?: number;
@@ -2069,6 +2167,24 @@ export interface SkillSynthesisSettingsDto {
   curatorIntervalHours: number;
   suggestionMinClusterSize: number;
   suggestionMaxCandidates: number;
+  // TASK_2026_180 Phase 0 — the drain knobs.
+  //
+  // The keys are DOTTED because `skillSynthesis:getSettings` builds its config
+  // key as `skillSynthesis.${schemaKey}` and `updateSettings` writes back the
+  // same way. A key of `'drain.cronExpr'` is therefore literally the settings
+  // path `skillSynthesis.drain.cronExpr`; renaming it to `drainCronExpr` would
+  // silently read and write a key that no host stores.
+  'drain.cronExpr': string;
+  'drain.nightlyCronExpr': string;
+  'drain.weeklyCronExpr': string;
+  'drain.maxItemsPerRun': number;
+  'drain.perWorkspaceBatch': number;
+  'drain.foregroundBackoffMs': number;
+  'drain.pauseOnBattery': boolean;
+  'drain.maxAttempts': number;
+  'drain.staleClaimTtlMs': number;
+  'budget.maxTokensPerDay': number;
+  trayKeepalive: boolean;
 }
 
 export type SkillSynthesisGetSettingsParams = Record<string, never>;
@@ -2991,6 +3107,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:listSpecs': true,
   'skillSynthesis:harvestSpecs': true,
   'skillSynthesis:clearStaleSpecs': true,
+  'skillSynthesis:queue': true,
 
   'cron:list': true,
   'cron:get': true,

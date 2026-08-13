@@ -270,6 +270,79 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('synthesis drain + budget keys (TASK_2026_180, Phase 0)', () => {
+    /**
+     * The values on the right are the SAME numbers as `SKILL_DRAIN_DEFAULTS`
+     * in `skill-synthesis/src/lib/queue/skill-drain.service.ts`. They cannot be
+     * imported here — `platform-core` is the leaf every backend lib depends on,
+     * so importing `skill-synthesis` would invert the graph. This table is the
+     * literal restatement, and it is why the drain behaves identically before
+     * and after a user has ever written `~/.ptah/settings.json`.
+     */
+    const drainDefaults: Record<string, string | number | boolean> = {
+      'skillSynthesis.drain.cronExpr': '*/15 * * * *',
+      'skillSynthesis.drain.nightlyCronExpr': '0 3 * * *',
+      'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
+      'skillSynthesis.drain.maxItemsPerRun': 4,
+      'skillSynthesis.drain.perWorkspaceBatch': 1,
+      'skillSynthesis.drain.foregroundBackoffMs': 300000,
+      'skillSynthesis.drain.pauseOnBattery': true,
+      'skillSynthesis.drain.maxAttempts': 5,
+      'skillSynthesis.drain.staleClaimTtlMs': 900000,
+      'skillSynthesis.budget.maxTokensPerDay': 2000000,
+      'skillSynthesis.trayKeepalive': false,
+    };
+
+    const drainKeys = Object.keys(drainDefaults);
+
+    it.each(drainKeys)('registers %s in FILE_BASED_SETTINGS_KEYS', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+    });
+
+    it.each(drainKeys)('routes %s through isFileBasedSettingKey', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    });
+
+    it.each(Object.entries(drainDefaults))(
+      'declares default %s = %s',
+      (key, expected) => {
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    // Decision Q-B. The tray's "Pause background learning" writes
+    // `skillSynthesis.enabled` — the drain's first gate — rather than a second
+    // pause key. A `trayPaused`/`queueEnabled` key appearing here would mean
+    // two ways to say "off" and a gate order that no longer matches the
+    // documented contract.
+    it('adds no second pause switch beside skillSynthesis.enabled', () => {
+      const pauseLike = [...FILE_BASED_SETTINGS_KEYS].filter(
+        (key) =>
+          key.startsWith('skillSynthesis.') && /paused|queueEnabled/i.test(key),
+      );
+      expect(pauseLike).toEqual([]);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.enabled']).toBe(true);
+    });
+
+    it('ships the tray keep-alive OFF so commit C5 is purely additive', () => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.trayKeepalive']).toBe(
+        false,
+      );
+    });
+
+    it('uses the quarter-hour cadence for the frequent tier (Q5)', () => {
+      expect(
+        FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.drain.cronExpr'],
+      ).toBe('*/15 * * * *');
+    });
+  });
+
   describe('curator provider/model keys (TASK_2026_CURATOR_MODEL_CONFIG)', () => {
     it('registers memory.curatorProvider with default ""', () => {
       expect(FILE_BASED_SETTINGS_KEYS.has('memory.curatorProvider')).toBe(true);

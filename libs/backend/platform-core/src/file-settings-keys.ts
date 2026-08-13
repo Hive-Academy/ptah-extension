@@ -131,6 +131,25 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.curatorIntervalHours',
   'skillSynthesis.suggestionMinClusterSize',
   'skillSynthesis.suggestionMaxCandidates',
+  // TASK_2026_180 Phase 0 — the queued synthesis drain. Dotted sub-trees under
+  // `skillSynthesis.` are the proven shape (`skillSynthesis.triggers.*` below).
+  //
+  // There is deliberately NO pause/queueEnabled key here:
+  // `skillSynthesis.enabled` above is the drain's FIRST gate and therefore the
+  // single master switch. The Electron tray's "Pause background learning"
+  // (commit C5) writes that same key rather than introducing a second way to
+  // mean "off".
+  'skillSynthesis.drain.cronExpr',
+  'skillSynthesis.drain.nightlyCronExpr',
+  'skillSynthesis.drain.weeklyCronExpr',
+  'skillSynthesis.drain.maxItemsPerRun',
+  'skillSynthesis.drain.perWorkspaceBatch',
+  'skillSynthesis.drain.foregroundBackoffMs',
+  'skillSynthesis.drain.pauseOnBattery',
+  'skillSynthesis.drain.maxAttempts',
+  'skillSynthesis.drain.staleClaimTtlMs',
+  'skillSynthesis.budget.maxTokensPerDay',
+  'skillSynthesis.trayKeepalive',
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -283,6 +302,27 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.curatorIntervalHours': 24,
   'skillSynthesis.suggestionMinClusterSize': 2,
   'skillSynthesis.suggestionMaxCandidates': 200,
+  // TASK_2026_180 Phase 0. Every numeric value here MUST equal its counterpart
+  // in `SKILL_DRAIN_DEFAULTS` (`skill-synthesis/src/lib/queue/skill-drain.service.ts`).
+  // That constant is the fallback the drain passes to `getConfiguration`, so a
+  // divergence makes the drain behave one way in a host that has never written
+  // a settings file and another way in a host that has — the hardest class of
+  // configuration bug to see. Change one, change both.
+  'skillSynthesis.drain.cronExpr': '*/15 * * * *',
+  'skillSynthesis.drain.nightlyCronExpr': '0 3 * * *',
+  'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
+  'skillSynthesis.drain.maxItemsPerRun': 4,
+  'skillSynthesis.drain.perWorkspaceBatch': 1,
+  // `0` disables the foreground gate entirely.
+  'skillSynthesis.drain.foregroundBackoffMs': 300000,
+  'skillSynthesis.drain.pauseOnBattery': true,
+  'skillSynthesis.drain.maxAttempts': 5,
+  'skillSynthesis.drain.staleClaimTtlMs': 900000,
+  // `0` = unlimited.
+  'skillSynthesis.budget.maxTokensPerDay': 2000000,
+  // Ships default-OFF in commit C0 so the Electron tray (commit C5) is purely
+  // additive: nothing reads this key until the tray exists.
+  'skillSynthesis.trayKeepalive': false,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,

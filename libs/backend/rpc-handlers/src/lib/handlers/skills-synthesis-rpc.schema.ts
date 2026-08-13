@@ -7,6 +7,25 @@
  */
 import { z } from 'zod';
 
+/**
+ * A croner-compatible 5- or 6-field expression.
+ *
+ * Deliberately shape-only: croner is the authority on whether an expression is
+ * schedulable, and it produces a far better diagnostic than a regex can. What
+ * this guards is the boundary concern Zod exists for — that the value is a
+ * non-empty string of the right arity, so a `null`, a number, or an empty
+ * string never reaches `jobStore.upsert` and disarms a tier silently.
+ */
+const CronExprSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .refine((expr) => {
+    const fields = expr.split(/\s+/);
+    return fields.length === 5 || fields.length === 6;
+  }, 'cron expression must have 5 or 6 fields');
+
 export const SkillSynthesisSettingsSchema = z.object({
   enabled: z.boolean(),
   successesToPromote: z.coerce.number().int().min(1).max(100),
@@ -28,6 +47,37 @@ export const SkillSynthesisSettingsSchema = z.object({
   curatorIntervalHours: z.coerce.number().int().min(1).max(8760),
   suggestionMinClusterSize: z.coerce.number().int().min(2).max(100),
   suggestionMaxCandidates: z.coerce.number().int().min(1).max(5000),
+
+  // TASK_2026_180 Phase 0 — the queued drain.
+  //
+  // The keys are DOTTED on purpose. `registerGetSettings` reads
+  // `skillSynthesis.${schemaKey}` and `registerUpdateSettings` writes the same
+  // path, so declaring the key here is the whole of the work: the schema-driven
+  // loop picks it up with no handler change. Renaming `'drain.cronExpr'` to
+  // `drainCronExpr` would read and write a settings path no host stores.
+  //
+  // Bounds are behavioural, not cosmetic:
+  //  - `maxItemsPerRun` caps how much work one tick can take; unbounded, a
+  //    single tick could hold the SQLite write lock for minutes.
+  //  - `foregroundBackoffMs` accepts `0`, which DISABLES the foreground gate.
+  //    That is a supported setting, so the floor is 0 and not a minimum delay.
+  //  - `maxTokensPerDay` accepts `0`, which means UNLIMITED (not "spend
+  //    nothing" — `skillSynthesis.enabled` is how you stop the drain).
+  //  - `staleClaimTtlMs` has a 60s floor because a TTL below the longest stage
+  //    reaps live work; the drain warns about the same condition at run time
+  //    (`assertStaleClaimTtl`), and this floor keeps the absurd cases out.
+  'drain.cronExpr': CronExprSchema,
+  'drain.nightlyCronExpr': CronExprSchema,
+  'drain.weeklyCronExpr': CronExprSchema,
+  'drain.maxItemsPerRun': z.coerce.number().int().min(1).max(100),
+  'drain.perWorkspaceBatch': z.coerce.number().int().min(1).max(100),
+  'drain.foregroundBackoffMs': z.coerce.number().int().min(0).max(86_400_000),
+  'drain.pauseOnBattery': z.boolean(),
+  'drain.maxAttempts': z.coerce.number().int().min(1).max(50),
+  'drain.staleClaimTtlMs': z.coerce.number().int().min(60_000).max(86_400_000),
+  'budget.maxTokensPerDay': z.coerce.number().int().min(0).max(1_000_000_000),
+  // Key ships in commit C0 so the Electron tray (commit C5) is purely additive.
+  trayKeepalive: z.boolean(),
 });
 
 export type SkillSynthesisSettingsInput = z.infer<
@@ -260,6 +310,26 @@ export const RejectByPatternParamsSchema = z.object({
 });
 
 export type RejectByPatternParams = z.infer<typeof RejectByPatternParamsSchema>;
+
+/**
+ * Params for `skillSynthesis:queue` — the Activity surface's read of the drain.
+ *
+ * Both limits are bounded rather than merely positive: the queue table grows
+ * one row per (session, stage) and the caller is a renderer that only ever
+ * paints a short list, so an unbounded `limit` would be a way to ask the host
+ * to serialize the entire table over the RPC bridge.
+ *
+ * `.optional()` on the object, not just the fields: the Skills tab calls this
+ * with no params at all on first paint.
+ */
+export const SkillQueueParamsSchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+    runLimit: z.coerce.number().int().min(1).max(200).optional(),
+  })
+  .optional();
+
+export type SkillQueueParams = z.infer<typeof SkillQueueParamsSchema>;
 
 export const ListSpecsParamsSchema = z.object({}).strict().optional();
 

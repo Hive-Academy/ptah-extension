@@ -182,6 +182,18 @@ function makeScorecard() {
   };
 }
 
+/**
+ * The queue store is injected non-optionally (it ships with the same
+ * `registerSkillSynthesisServices` call as the candidate store), so every
+ * container that resolves the handler class must provide it. The queue method
+ * itself is exercised in `skills-synthesis-rpc.queue.spec.ts`.
+ */
+function makeQueueStore() {
+  return {
+    listRecent: jest.fn().mockReturnValue([]),
+  };
+}
+
 function makeDiagnostics() {
   return {
     getSnapshot: jest.fn().mockResolvedValue({
@@ -219,6 +231,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const mirror = makeMirror();
   const contentDownload = makeContentDownload();
   const scorecard = makeScorecard();
+  const queueStore = makeQueueStore();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -247,6 +260,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
     scorecard,
   );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
@@ -267,6 +281,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     mirror,
     contentDownload,
     scorecard,
+    queueStore,
     workspaceProvider,
     logger,
   };
@@ -724,6 +739,12 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
     );
+    // The registry is what this test leaves unbound; the queue store is not
+    // optional, so it must be present even in a deliberately-sparse container.
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -1137,6 +1158,12 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
     );
+    // The scorecard service is what this test leaves unbound; the queue store
+    // is not optional, so it must be present even in a sparse container.
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -1355,6 +1382,7 @@ function buildHandlersWithSuggestions(
   const contentDownload = makeContentDownload();
   const suggestionStore = makeSuggestionStore();
   const curator = makeCurator();
+  const queueStore = makeQueueStore();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -1385,6 +1413,7 @@ function buildHandlersWithSuggestions(
     suggestionStore,
   );
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, curator);
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
   });
@@ -1407,6 +1436,7 @@ function buildHandlersWithSuggestions(
     logger,
     suggestionStore,
     curator,
+    queueStore,
   };
 }
 
