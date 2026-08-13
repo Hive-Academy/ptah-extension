@@ -296,16 +296,33 @@ export class SkillEnhancerService {
         judgeReason: decision.reason,
       };
 
-      const autoRequiresVerdict = !options.manual;
-      const passedForWrite =
-        decision.passed &&
-        (!autoRequiresVerdict || decision.reason === 'judge-verdict');
+      /**
+       * The judge reports; the threshold is applied HERE.
+       *
+       * `scored` is the only status carrying a number, so it is the only one
+       * that can clear the bar. The other two are split by who asked:
+       *
+       *  - AUTOMATIC enhancement demands a genuine verdict. `unscored` (the
+       *    judge could not tell us) and `disabled` (no gate configured) both
+       *    stop it, which is the behaviour the pre-lane code got by testing
+       *    `reason === 'judge-verdict'` — except that it used to arrive here
+       *    with a fabricated `score: 10` attached.
+       *  - A MANUAL request is the user asking for this specific change, so
+       *    only an explicit low score refuses them.
+       */
+      const scoredPass =
+        decision.status === 'scored' &&
+        decision.score !== null &&
+        decision.score >= settings.minJudgeScore;
+      const passedForWrite = options.manual
+        ? decision.status !== 'scored' || scoredPass
+        : scoredPass;
 
       if (!passedForWrite) {
         this.logger.info('[skill-enhancer] candidate not written', {
           slug,
           kind,
-          judgePassed: decision.passed,
+          judgeStatus: decision.status,
           judgeReason: decision.reason,
           judgeScore: decision.score,
           manual: options.manual ?? false,

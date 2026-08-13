@@ -113,8 +113,12 @@ export const SKILL_SYNTHESIS_TOKENS = {
   FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
   /** LaneResolverService — lane id → {auth snapshot, model} via the shared auth chain. */
   LANE_RESOLVER_SERVICE: Symbol.for('PtahSkillLaneResolverService'),
+  /** LaneRunnerService — the ONE place a background LLM call happens. */
+  LANE_RUNNER_SERVICE: Symbol.for('PtahSkillLaneRunnerService'),
   /** SessionVerdictStore — the archaeologist's structured per-session verdict (`0034`). */
   SESSION_VERDICT_STORE: Symbol.for('PtahSkillSessionVerdictStore'),
+  /** CandidateNamerService — cheap {name,description} pass that fills `display_name`. */
+  CANDIDATE_NAMER_SERVICE: Symbol.for('PtahSkillCandidateNamerService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

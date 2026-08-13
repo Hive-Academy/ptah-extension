@@ -286,6 +286,51 @@ export class SkillQueueStore {
       );
   }
 
+  /**
+   * Put a CLAIMED row back on the queue behind a backoff. This is the transport
+   * half of the failure taxonomy: a lane that timed out, or whose configured
+   * provider is present but unusable (Q2), has produced no verdict at all and
+   * must simply be tried again later.
+   *
+   * ## Why this is not `markUnscored`, and not `markFailed`
+   *
+   * `unscored` is a JUDGE outcome — "we ran, and we do not know". Reusing it for
+   * a transport failure would make `skill_synthesis_queue.status = 'unscored'`
+   * mean two unrelated things, and the Activity surface could no longer tell a
+   * model that declined to score from an endpoint that never answered.
+   * `markFailed` is terminal with no backoff: a `failed` row re-opens only
+   * through `enqueue` once the session grows, which is exactly wrong for an
+   * endpoint that will probably work in half an hour.
+   *
+   * ## The status guard
+   *
+   * `status IN ('claimed', 'running')` for the same reason `touchClaim` has it:
+   * only an in-flight row may be requeued. A worker whose claim `reapStale`
+   * already returned to `queued` gets `false` and must stop writing — otherwise
+   * it would overwrite the reap reason and push `not_before` out on a row it no
+   * longer owns. Like `touchClaim`, the guard is on STATUS, not on `claimed_by`;
+   * B0.3 set that bar and widening it here alone would be a second contract.
+   *
+   * `last_error` is deliberately left as it was — it is diagnostic-only, never
+   * rendered, and clearing it on every retry would erase the trail of what the
+   * previous attempts hit. `reason` IS user-facing and is overwritten.
+   */
+  requeue(id: string, notBefore: number, reason: string): boolean {
+    return this.inImmediateTransaction<boolean>(() => {
+      const changes = Number(
+        this.db
+          .prepare(
+            `UPDATE skill_synthesis_queue
+                SET status = 'queued', not_before = ?, reason = ?,
+                    claimed_by = NULL, claimed_at = NULL, finished_at = NULL
+              WHERE id = ? AND status IN ('claimed', 'running')`,
+          )
+          .run(notBefore, reason, id).changes,
+      );
+      return changes > 0;
+    });
+  }
+
   /** The stage was not worth running (prefilter rejection, disabled feature). */
   markSkipped(id: string, opts: MarkOptions = {}): void {
     this.db
@@ -403,8 +448,16 @@ export class SkillQueueStore {
   /**
    * `BEGIN IMMEDIATE` … `COMMIT` around `fn`, rolling back if it throws.
    *
-   * IMMEDIATE (not DEFERRED) because both callers read-then-write: a deferred
-   * transaction takes its write lock late and can lose the row it just read.
+   * IMMEDIATE (not DEFERRED) because `enqueue` and `tryClaim` read-then-write: a
+   * deferred transaction takes its write lock late and can lose the row it just
+   * read. `requeue` uses it too — a single guarded UPDATE does not strictly need
+   * it, but taking the write lock up front is what keeps two hosts draining the
+   * same `~/.ptah/state/ptah.sqlite` off each other's `SQLITE_BUSY` path.
+   *
+   * `db.exec('BEGIN IMMEDIATE')` rather than better-sqlite3's `db.transaction()`:
+   * the latter does not exist on the built-in `node:sqlite` binding the specs
+   * fall back to, so using it would make these transitions unassertable on any
+   * machine where the Electron-ABI `better-sqlite3` cannot load.
    */
   private inImmediateTransaction<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');

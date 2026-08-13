@@ -231,7 +231,12 @@ describe('SkillEnhancerService', () => {
 
   it('judge PASS (verdict): snapshots+writes+markEnhanced+repropagation once', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText:
         '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
     });
@@ -254,7 +259,12 @@ describe('SkillEnhancerService', () => {
 
   it('judge REJECT: no write, no markEnhanced, no repropagation', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: false, score: 3, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 3,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved body',
     });
     const result = await h.svc.enhance('deep-research', makeSettings());
@@ -265,12 +275,13 @@ describe('SkillEnhancerService', () => {
     expect(h.repropagation.repropagate).not.toHaveBeenCalled();
   });
 
-  it('fail-open pass (judge-error-passthrough) does NOT auto-write', async () => {
+  it('an unscored verdict does NOT auto-write', async () => {
     const h = makeHarness({
       judgeDecision: {
-        passed: true,
-        score: 10,
-        reason: 'judge-error-passthrough',
+        status: 'unscored',
+        score: null,
+        criteria: null,
+        reason: 'judge-call-threw',
       },
       candidateText: 'Improved body',
     });
@@ -280,12 +291,13 @@ describe('SkillEnhancerService', () => {
     expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
   });
 
-  it('manual enhance WRITES on a fail-open pass (verdict not required)', async () => {
+  it('manual enhance WRITES on an unscored verdict — only an explicit low score refuses', async () => {
     const h = makeHarness({
       judgeDecision: {
-        passed: true,
-        score: 10,
-        reason: 'judge-error-passthrough',
+        status: 'unscored',
+        score: null,
+        criteria: null,
+        reason: 'judge-call-threw',
       },
       candidateText:
         '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
@@ -299,7 +311,12 @@ describe('SkillEnhancerService', () => {
 
   it('R2: cwd passed to InternalQuery is NOT process.cwd()', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved body',
       workspaceRoot: '/home/u/project',
     });
@@ -312,7 +329,12 @@ describe('SkillEnhancerService', () => {
 
   it('spec findings: graded review verdict is injected into the enhance prompt', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved body',
       specFindings: 'REVIEW: missing error handling on the write path',
     });
@@ -327,7 +349,12 @@ describe('SkillEnhancerService', () => {
 
   it('cooldown: skips when lastEnhancedAt is recent', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved body',
       lastEnhancedAt: Date.now(),
     });
@@ -339,7 +366,12 @@ describe('SkillEnhancerService', () => {
 
   it('below-threshold: skips when total invocations under minimum', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved body',
       stats: { total: 2, succeeded: 1, failed: 1, distinctContexts: 1 },
     });
@@ -348,9 +380,14 @@ describe('SkillEnhancerService', () => {
     expect(result.skipReason).toBe('below-threshold');
   });
 
-  it('judge-disabled fail-open does NOT auto-write', async () => {
+  it('a disabled judge does NOT auto-write', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 10, reason: 'judge-disabled' },
+      judgeDecision: {
+        status: 'disabled',
+        score: null,
+        criteria: null,
+        reason: 'judge-disabled',
+      },
       candidateText:
         '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
     });
@@ -364,7 +401,12 @@ describe('SkillEnhancerService', () => {
 
   it('no-change: identical candidate short-circuits before judge, no write', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText:
         '---\nname: deep-research\ndescription: Research deeply\n---\nBody',
     });
@@ -379,7 +421,12 @@ describe('SkillEnhancerService', () => {
 
   it('invalid-candidate: judge passes but candidate lacks frontmatter → no write, clone untouched', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 9, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 9,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved body with no frontmatter at all',
     });
     const result = await h.svc.enhance('deep-research', makeSettings());
@@ -393,7 +440,12 @@ describe('SkillEnhancerService', () => {
 
   it('invalid-candidate: frontmatter present but missing description → no write', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 9, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 9,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: '---\nname: deep-research\n---\nImproved body',
     });
     const result = await h.svc.enhance('deep-research', makeSettings());
@@ -404,7 +456,12 @@ describe('SkillEnhancerService', () => {
 
   it('revert: restores via mirror, marks enhanced, re-propagates', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'x',
     });
     const result = await h.svc.revert('deep-research', '1700000000000');
@@ -420,7 +477,12 @@ describe('SkillEnhancerService', () => {
 
   it('kind=agent: judge PASS writes via writeEnhancedFileClone + markEnhanced/repropagate agent', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText:
         '---\nname: deep-research\ndescription: Research deeply\n---\nImproved agent body',
     });
@@ -451,7 +513,12 @@ describe('SkillEnhancerService', () => {
 
   it('kind=agent: candidate lacking frontmatter is rejected (invalid-candidate)', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 9, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 9,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'agent body with no frontmatter',
     });
     const result = await h.svc.enhance('deep-research', makeSettings(), {
@@ -464,7 +531,12 @@ describe('SkillEnhancerService', () => {
 
   it('kind=command: frontmatter relaxed — writes even without name/description', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved command prompt without any frontmatter',
     });
     const result = await h.svc.enhance('deep-research', makeSettings(), {
@@ -492,7 +564,12 @@ describe('SkillEnhancerService', () => {
 
   it('kind=command: cooldown lookup uses the command registry row', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved command body',
       lastEnhancedAt: Date.now(),
     });
@@ -508,7 +585,12 @@ describe('SkillEnhancerService', () => {
 
   it('revert kind=agent restores the flat clone and re-propagates as agent', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'x',
     });
     h.mirror.revert.mockResolvedValueOnce({
@@ -569,7 +651,12 @@ describe('SkillEnhancerService', () => {
 
   it('agent + scorecard data: bounded block injected into prompt AND judge context', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: AGENT_CANDIDATE,
       scorecardCard: scorecardWithData(),
     });
@@ -591,7 +678,12 @@ describe('SkillEnhancerService', () => {
 
   it('agent + scorecard data: injected block is ≤1,200 chars (R8.3)', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: AGENT_CANDIDATE,
       scorecardCard: scorecardWithData(),
     });
@@ -603,7 +695,12 @@ describe('SkillEnhancerService', () => {
 
   it('agent + NO scorecard data: prompt byte-identical to scorecard-service-absent (R8.2)', async () => {
     const withService = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: AGENT_CANDIDATE,
       // default emptyScorecard → no data
     });
@@ -614,7 +711,12 @@ describe('SkillEnhancerService', () => {
       .prompt as string;
 
     const absent = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: AGENT_CANDIDATE,
       scorecardAbsent: true,
     });
@@ -632,7 +734,12 @@ describe('SkillEnhancerService', () => {
 
   it('kind=skill: scorecard never consulted and no block injected', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText:
         '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
       scorecardCard: scorecardWithData(),
@@ -645,7 +752,12 @@ describe('SkillEnhancerService', () => {
 
   it('kind=command: scorecard never consulted and no block injected', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'Improved command prompt',
       scorecardCard: scorecardWithData(),
     });
@@ -655,7 +767,12 @@ describe('SkillEnhancerService', () => {
 
   it('gates untouched: agent cooldown short-circuits before scorecard/LLM', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: AGENT_CANDIDATE,
       scorecardCard: scorecardWithData(),
       lastEnhancedAt: Date.now(),
@@ -670,7 +787,12 @@ describe('SkillEnhancerService', () => {
 
   it('gates untouched: agent below-threshold short-circuits before scorecard/LLM', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: AGENT_CANDIDATE,
       scorecardCard: scorecardWithData(),
       stats: { total: 2, succeeded: 1, failed: 1, distinctContexts: 1 },
@@ -685,7 +807,12 @@ describe('SkillEnhancerService', () => {
 
   it('revert kind=command restores the flat clone', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: 'x',
     });
     h.mirror.revert.mockResolvedValueOnce({
@@ -715,8 +842,9 @@ describe('SkillEnhancerService — preview-before-apply', () => {
   beforeEach(() => jest.clearAllMocks());
 
   const PASS: JudgeDecision = {
-    passed: true,
+    status: 'scored',
     score: 8,
+    criteria: null,
     reason: 'judge-verdict',
   };
   const IMPROVED =
@@ -981,7 +1109,12 @@ describe('SkillEnhancerService — preview-before-apply', () => {
 
   it('judge-rejected preview still returns the diff plus the reason', async () => {
     const h = makeHarness({
-      judgeDecision: { passed: false, score: 3, reason: 'judge-verdict' },
+      judgeDecision: {
+        status: 'scored',
+        score: 3,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
       candidateText: IMPROVED,
     });
     const result = await h.svc.generateProposal(

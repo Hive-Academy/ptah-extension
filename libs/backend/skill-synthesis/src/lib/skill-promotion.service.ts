@@ -37,7 +37,15 @@ export interface PromotionDecision {
     | 'already-promoted'
     | 'already-rejected'
     | 'not-found'
-    | 'below-judge-score';
+    | 'below-judge-score'
+    /**
+     * The judge could not produce a trustworthy score. NEITHER a pass NOR a
+     * block, and deliberately not folded into `below-judge-score`: the
+     * candidate is left at `status='candidate'` — not rejected — so the next
+     * drain re-judges it. Conflating "we do not know" with "we know it is bad"
+     * is the exact class of quietly-wrong verdict phase 1 removes.
+     */
+    | 'judge-unscored';
   candidate: SkillCandidateRow | null;
   /** Filled when promotion demoted another skill to dormant via the residency cap. */
   evictedSkillId?: CandidateId;
@@ -118,23 +126,8 @@ export class SkillPromotionService {
       }
     }
     if (this.judge) {
-      const body = this.readCandidateBody(candidate);
-      const judgeDecision = await this.judge.judge(candidate, body, settings);
-      if (!judgeDecision.passed) {
-        this.logger.info('[skill-synthesis] judge rejected candidate', {
-          candidateId: candidate.id,
-          score: judgeDecision.score,
-          minScore: settings.minJudgeScore,
-        });
-        const rejected = this.store.updateStatus(candidate.id, 'rejected', {
-          reason: 'below-judge-score',
-        });
-        return {
-          promoted: false,
-          reason: 'below-judge-score',
-          candidate: rejected,
-        };
-      }
+      const judged = await this.applyJudgeGate(candidate, settings);
+      if (judged) return judged;
     }
 
     let evictedSkillId: CandidateId | undefined;
@@ -203,6 +196,72 @@ export class SkillPromotionService {
       closestMatchSimilarity: dedupResult.similarity,
       filePath: bodyPath,
     };
+  }
+
+  /**
+   * Run the judge, PERSIST whatever it said, and answer with a terminal
+   * decision — or `null` to mean "carry on promoting".
+   *
+   * Three statuses, three outcomes, and the middle one is the point of phase 1:
+   *
+   *  - `scored`   — below `minJudgeScore` rejects; at or above it promotes.
+   *  - `unscored` — no trustworthy verdict. The candidate STAYS `candidate`
+   *                 (no `updateStatus` call at all) and the next drain retries
+   *                 it. Previously this path fabricated `score: 10` and
+   *                 promoted.
+   *  - `disabled` — no gate is configured, so there is nothing to fail. Promote.
+   *
+   * The verdict is written through `SkillCandidateStore.recordJudgeVerdict`,
+   * which is the single enforcing gate for `judge_status` and already throws on
+   * a `scored` verdict with a non-finite score and on any non-`scored` status
+   * carrying a number. Nothing here re-validates it and nothing catches it: an
+   * `{status:'unscored', score:10}` MUST reach the store and MUST throw, because
+   * that shape is the defect this phase exists to make impossible.
+   */
+  private async applyJudgeGate(
+    candidate: SkillCandidateRow,
+    settings: SkillSynthesisSettings,
+  ): Promise<PromotionDecision | null> {
+    if (!this.judge) return null;
+
+    const body = this.readCandidateBody(candidate);
+    const decision = await this.judge.judge(candidate, body, settings);
+    const judged = this.store.recordJudgeVerdict(candidate.id, {
+      status: decision.status,
+      score: decision.score,
+      reason: decision.reason,
+      criteria: decision.criteria ?? undefined,
+    });
+
+    if (decision.status === 'unscored') {
+      this.logger.info(
+        '[skill-synthesis] judge produced no trustworthy score; candidate left pending',
+        { candidateId: candidate.id, reason: decision.reason },
+      );
+      return { promoted: false, reason: 'judge-unscored', candidate: judged };
+    }
+
+    if (
+      decision.status === 'scored' &&
+      decision.score !== null &&
+      decision.score < settings.minJudgeScore
+    ) {
+      this.logger.info('[skill-synthesis] judge rejected candidate', {
+        candidateId: candidate.id,
+        score: decision.score,
+        minScore: settings.minJudgeScore,
+      });
+      const rejected = this.store.updateStatus(candidate.id, 'rejected', {
+        reason: 'below-judge-score',
+      });
+      return {
+        promoted: false,
+        reason: 'below-judge-score',
+        candidate: rejected,
+      };
+    }
+
+    return null;
   }
 
   private authoredSlugs(): Set<string> {

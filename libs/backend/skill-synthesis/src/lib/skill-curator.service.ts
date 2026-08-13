@@ -6,16 +6,23 @@
  * are always exempt from all Curator actions.
  *
  * Reports are written to ~/.ptah/curator-reports/<ISO-timestamp>.md.
+ *
+ * ## The overlap pass runs on the `synthesis` lane
+ *
+ * `CURATOR_TIMEOUT_MS` is gone — the lane's `timeoutMs` and `maxInputChars`
+ * bound the pass, as they do for every other LLM call in this library.
+ *
+ * The pass deliberately requests NO `outputSchema`. Its answer is a JSON
+ * ARRAY of findings, and the runner's structured-output ladder resolves objects
+ * only; asking for a schema it cannot read back would turn every successful
+ * array answer into a `structured-output-unsupported` failure. `parseFindings`
+ * reads the array out of the assistant text, which is what it has always done.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import {
-  PLATFORM_TOKENS,
-  type IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   type CuratorRateLimitService,
@@ -41,20 +48,13 @@ import {
   type ClusterMemberInput,
 } from './skill-synthesizer.service';
 import { SkillJudgeService } from './skill-judge.service';
-import type { IInternalQuery } from './internal-query.interface';
+import type { LaneRunnerService } from './lanes/lane-runner.service';
 import type {
   SkillCandidateRow,
   SkillSuggestionRow,
   SkillSynthesisSettings,
 } from './types';
-import {
-  INTERNAL_QUERY_SERVICE_TOKEN,
-  SKILL_SYNTHESIS_TOKENS,
-} from './di/tokens';
-import { resolveJudgeModel } from './model-resolver';
-
-/** Timeout for a single Curator LLM pass (60s — lists all promoted skills). */
-const CURATOR_TIMEOUT_MS = 60_000;
+import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 
 /** Rate-limit bucket key + cap for auto-enhancement passes. */
 const ENHANCE_RATE_LIMIT_KEY = 'skill.enhance';
@@ -117,10 +117,8 @@ export class SkillCuratorService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SkillCandidateStore)
     private readonly store: SkillCandidateStore,
-    @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
-    private readonly internalQuery: IInternalQuery | null,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE)
+    private readonly laneRunner: LaneRunnerService,
     @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
     private readonly rateLimiter: CuratorRateLimitService,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
@@ -195,13 +193,6 @@ export class SkillCuratorService {
   ): Promise<CuratorReport> {
     this.onEvent?.({ kind: 'curator-pass-start', timestamp: Date.now() });
 
-    if (!this.internalQuery) {
-      this.logger.warn(
-        '[skill-curator] InternalQueryService not available; skipping pass',
-      );
-      return this.emptyReport();
-    }
-
     const promoted = this.store.listByStatus('promoted');
     if (promoted.length === 0) {
       this.logger.info(
@@ -243,45 +234,31 @@ export class SkillCuratorService {
       `If there are no issues, reply with: []`,
     ].join('\n');
 
-    const abortController = new AbortController();
-    const timeoutHandle = setTimeout(
-      () => abortController.abort(),
-      CURATOR_TIMEOUT_MS,
-    );
-
-    let findings: CuratorFinding[] = [];
+    let result;
     try {
-      const model = this.resolveModel(settings);
-      const handle = await this.internalQuery.execute({
-        cwd: os.homedir(),
-        model,
-        prompt,
-        mcpServerRunning: false,
-        maxTurns: 1,
-        abortController,
-      });
-
-      let collected = '';
-      for await (const msg of handle.stream) {
-        if (msg.type === 'assistant') {
-          for (const block of msg.message?.content ?? []) {
-            if (block.type === 'text' && typeof block.text === 'string') {
-              collected += block.text;
-            }
-          }
-        }
-        if (msg.type === 'result') break;
-      }
-
-      findings = this.parseFindings(collected);
+      result = await this.laneRunner.run({ laneId: 'synthesis', prompt });
     } catch (err: unknown) {
-      this.logger.warn('[skill-curator] LLM call failed', {
+      this.logger.warn('[skill-curator] lane call threw', {
         error: err instanceof Error ? err.message : String(err),
       });
       return this.emptyReport();
-    } finally {
-      clearTimeout(timeoutHandle);
     }
+    if (result.status === 'unavailable') {
+      this.logger.warn(
+        '[skill-curator] no synthesis lane in this host; skipping pass',
+        { reason: result.reason },
+      );
+      return this.emptyReport();
+    }
+    if (result.status === 'failed') {
+      this.logger.warn('[skill-curator] lane failed', {
+        kind: result.failure.kind,
+        reason: result.failure.reason,
+      });
+      return this.emptyReport();
+    }
+
+    const findings = this.parseFindings(result.run.text);
     const pinnedIds = new Set(
       promoted.filter((s) => s.pinned).map((s) => s.id as string),
     );
@@ -436,7 +413,19 @@ export class SkillCuratorService {
           synthesized.body,
           settings,
         );
-        if (!verdict.passed) {
+        // A suggestion row carries a NUMBER in `judge_score`, so only a genuine
+        // `scored` verdict may create one. Before phase 1 an unparseable or
+        // failed judge call fabricated a 10 here and the suggestion was filed
+        // with a perfect score nobody had awarded it; `unscored` and `disabled`
+        // now skip the cluster instead, and the next pass re-clusters it.
+        if (verdict.status !== 'scored' || verdict.score === null) {
+          this.logger.info(
+            '[skill-curator] suggestion skipped — no trustworthy judge score',
+            { status: verdict.status, reason: verdict.reason },
+          );
+          continue;
+        }
+        if (verdict.score < settings.minJudgeScore) {
           this.logger.info('[skill-curator] suggestion judged below score', {
             score: verdict.score,
             minScore: settings.minJudgeScore,
@@ -748,18 +737,6 @@ export class SkillCuratorService {
       });
       return '';
     }
-  }
-
-  /**
-   * Resolve the model to use for the Curator LLM pass.
-   *
-   * Uses `settings.judgeModel` so the Curator respects the same model
-   * preference as the Judge. When `judgeModel` is `'inherit'` (the default),
-   * falls back to the workspace `llm.vscode.model` setting, and further to
-   * the built-in default.
-   */
-  private resolveModel(settings: SkillSynthesisSettings): string {
-    return resolveJudgeModel(settings.judgeModel, this.workspaceProvider);
   }
 
   private emptyReport(): CuratorReport {

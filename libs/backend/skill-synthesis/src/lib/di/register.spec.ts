@@ -64,6 +64,12 @@ describe('registerSkillSynthesisServices', () => {
     );
   });
 
+  it('gives the lane runner its planned description', () => {
+    expect(SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE.description).toBe(
+      'PtahSkillLaneRunnerService',
+    );
+  });
+
   it('gives the session-verdict store its planned description', () => {
     expect(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE.description).toBe(
       'PtahSkillSessionVerdictStore',

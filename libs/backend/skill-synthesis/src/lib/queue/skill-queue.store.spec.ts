@@ -10,7 +10,7 @@
  * tests pin both directions — grown re-opens, un-grown does not.
  */
 import 'reflect-metadata';
-import { SkillQueueStore } from './skill-queue.store';
+import { SkillQueueStore, STALE_CLAIM_REASON } from './skill-queue.store';
 import {
   SKILL_QUEUE_STAGES,
   SKILL_QUEUE_STATUSES,
@@ -208,6 +208,112 @@ maybe('SkillQueueStore', () => {
       expect(unscored?.status).toBe('unscored');
       expect(unscored?.notBefore).toBe(1_770_000_100_000);
       expect(store.findById(rows.skipped?.id ?? '')?.reason).toBe('too thin');
+    });
+  });
+
+  describe('requeue — the transport retry, NOT a terminal mark', () => {
+    function claimed(overrides: Partial<EnqueueInput> = {}): string {
+      const id = store.enqueue(input(overrides)).row?.id ?? '';
+      store.tryClaim(id, 'worker-a', 1_000);
+      return id;
+    }
+
+    it('returns the row to queued behind the backoff, with the reason surfaced', () => {
+      const id = claimed();
+
+      expect(
+        store.requeue(id, 1_770_000_500_000, 'Lane judge: timed out'),
+      ).toBe(true);
+
+      expect(store.findById(id)).toMatchObject({
+        status: 'queued',
+        notBefore: 1_770_000_500_000,
+        reason: 'Lane judge: timed out',
+        claimedBy: null,
+        claimedAt: null,
+        finishedAt: null,
+      });
+    });
+
+    it('does NOT mark the row unscored — that status is the judge s verdict', () => {
+      // Overloading `unscored` would make the Activity surface unable to tell a
+      // model that declined to score from an endpoint that never answered.
+      const id = claimed();
+      store.requeue(id, 5_000, 'Lane judge: endpoint unreachable');
+
+      expect(store.findById(id)?.status).not.toBe('unscored');
+      expect(store.findById(id)?.status).toBe('queued');
+    });
+
+    it('leaves the row re-eligible once not_before passes', () => {
+      const id = claimed();
+      store.requeue(id, 5_000, 'Lane synthesis: timed out');
+
+      expect(store.listEligible('D:/repo-a', 10, 4_999)).toHaveLength(0);
+      expect(
+        store.listEligible('D:/repo-a', 10, 5_000).map((r) => r.id),
+      ).toEqual([id]);
+    });
+
+    it('keeps the attempt count the claim already incremented', () => {
+      // The backoff ladder is `2^attempt`; resetting the counter here would flatten
+      // it and hammer a dead endpoint at 60 s forever.
+      const id = claimed();
+      expect(store.findById(id)?.attemptCount).toBe(1);
+
+      store.requeue(id, 0, 'Lane judge: timed out');
+      expect(store.findById(id)?.attemptCount).toBe(1);
+
+      store.tryClaim(id, 'worker-a', 2_000);
+      expect(store.findById(id)?.attemptCount).toBe(2);
+    });
+
+    it('preserves last_error, which is diagnostic and not user-facing', () => {
+      // Clearing it on every retry would erase the trail of what the earlier
+      // attempts actually hit, which is the only thing that field is for.
+      const id = store.enqueue(input()).row?.id ?? '';
+      db.prepare(
+        'UPDATE skill_synthesis_queue SET last_error = ? WHERE id = ?',
+      ).run('ECONNRESET', id);
+      store.tryClaim(id, 'worker-a', 1_000);
+
+      store.requeue(id, 0, 'Lane judge: timed out');
+
+      expect(store.findById(id)?.lastError).toBe('ECONNRESET');
+      expect(store.findById(id)?.reason).toBe('Lane judge: timed out');
+    });
+
+    it.each(['queued', 'done', 'failed', 'unscored', 'skipped'] as const)(
+      'is a no-op on a %s row the caller does not hold',
+      (status) => {
+        const id = store.enqueue(input()).row?.id ?? '';
+        if (status !== 'queued') {
+          store.tryClaim(id, 'worker-a', 1_000);
+          if (status === 'done') store.markDone(id);
+          if (status === 'failed') store.markFailed(id, 'boom');
+          if (status === 'unscored') store.markUnscored(id, { notBefore: 42 });
+          if (status === 'skipped') store.markSkipped(id, { reason: 'thin' });
+        }
+
+        expect(store.requeue(id, 9_999, 'Lane judge: timed out')).toBe(false);
+        expect(store.findById(id)?.status).toBe(status);
+        expect(store.findById(id)?.reason).not.toBe('Lane judge: timed out');
+      },
+    );
+
+    it('is a no-op for a worker whose claim was already reaped', () => {
+      // The same lost-the-row contract `touchClaim` returns a boolean for:
+      // `reapStale` put the row back to `queued`, so the reaped worker's
+      // requeue must not overwrite the reap reason or push out `not_before`.
+      const id = claimed();
+      expect(store.reapStale(0, 60_000)).toBe(1);
+
+      expect(store.requeue(id, 9_999, 'Lane judge: timed out')).toBe(false);
+      expect(store.findById(id)).toMatchObject({
+        status: 'queued',
+        notBefore: 0,
+        reason: STALE_CLAIM_REASON,
+      });
     });
   });
 

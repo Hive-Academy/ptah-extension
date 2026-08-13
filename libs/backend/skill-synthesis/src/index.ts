@@ -69,6 +69,19 @@ export {
   LaneResolverService,
   resolveLaneModel,
 } from './lib/lanes/lane-resolver.service';
+export {
+  LaneRunnerService,
+  LANE_TRUNCATION_MARKER,
+  LANE_DEGRADED_RETRY_MS,
+  LANE_RETRY_BACKOFF_BASE_MS,
+  LANE_MAX_RETRY_BACKOFF_MS,
+  LANE_MAX_EXECUTIONS_PER_RUN,
+  timeoutBackoffMs,
+  type LaneRunRequest,
+  type LaneRun,
+  type LaneRunResult,
+  type LaneDegradedReason,
+} from './lib/lanes/lane-runner.service';
 export { registerSkillSynthesisServices } from './lib/di/register';
 export {
   migrateSkillMdFiles,
@@ -76,6 +89,7 @@ export {
 } from './lib/skill-md-migration';
 export {
   SkillSynthesizerService,
+  SYNTHESIZED_SKILL_JSON_SCHEMA,
   type SynthesizedSkill,
   type ClusterMemberInput,
 } from './lib/skill-synthesizer.service';
@@ -85,7 +99,20 @@ export {
   type SkillCandidateCluster,
 } from './lib/skill-clustering.service';
 export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
-export { SkillJudgeService } from './lib/skill-judge.service';
+export {
+  SkillJudgeService,
+  JUDGE_REASONS,
+  JUDGE_VERDICT_JSON_SCHEMA,
+  type JudgeDecision,
+  type JudgeCriteria,
+} from './lib/skill-judge.service';
+export {
+  CandidateNamerService,
+  CANDIDATE_DISPLAY_NAME_MAX_CHARS,
+  CANDIDATE_NAMING_JSON_SCHEMA,
+  type CandidateNaming,
+  type CandidateNamingSource,
+} from './lib/naming/candidate-namer.service';
 export {
   SkillCuratorService,
   type CuratorReport,
