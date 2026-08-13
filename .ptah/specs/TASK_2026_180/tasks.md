@@ -2250,6 +2250,62 @@ exactly how B0.5 arrived with 23 DI failures. B0.5 fixed all four sites but was
 explicitly told not to consolidate them inside a batch that is not about that.
 Worth one small cleanup task of its own; do not fold it into a feature batch.
 
+### → whoever wires the `judge` / `synthesis` stage handlers: hand the failure over, do not flatten it
+
+Raised by B1.7. The drain now maps `SkillLaneFailure` onto row transitions, and a
+stage hands its failure over **verbatim** through the `SkillStageResult` variant
+`{ outcome: 'lane-failed'; failure: SkillLaneFailure }`.
+
+**Today that channel has no production producer.**
+`SkillSynthesisService.registerStageHandlers()` registers only `prefilter` and
+`embedding` (B0.9), so nothing can currently emit a `SkillLaneFailure` to the
+drain. The mapping is complete and exercised against real SQL, but P1-7 is proven
+against a synthetic handler rather than a live one until those handlers exist.
+
+When you wire them: **return `{outcome: 'lane-failed', failure}`. Do NOT flatten
+the failure into `unscored` / `failed` inside the handler.** Only the drain reads
+`maxAttempts`, so a handler that pre-decides the outcome is re-deciding the
+ceiling and the backoff in a place that cannot see either.
+
+**The single-owner seam, and why it is not a coin flip.** `LaneRunner` writes
+`requeue` only when handed `LaneRunRequest.queueItemId`; **no production caller
+passes it**, so the drain is the sole owner of every queue transition. This is
+not stylistic: `requeue` releases the claim, so a runner-side requeue would let
+another worker take the row before the drain's terminal mark landed — and
+`requeue` being idempotent **hides** that race rather than fixing it. Pinned
+mechanically: `skill-drain.failures.spec.ts` scans every production `.ts` under
+`skill-synthesis/src` and asserts the only file naming `queueItemId` is
+`lanes/lane-runner.service.ts`, which declares it.
+
+**Mapping**: transport (`timeout`, `auth-unresolvable`) → `requeue`; capability
+(`structured-output-unsupported`, `tool-use-unsupported`) → `markUnscored`.
+
+### → the attempt ceiling is asymmetric on purpose — USER-DECIDED
+
+Decided by the user on 2026-08-13, after B1.7 proposed the opposite.
+
+`maxAttempts` (default 5) terminates **`timeout` only**. **`auth-unresolvable`
+stalls indefinitely** behind its 30-minute backoff and never reaches
+`markFailed`.
+
+B1.7 originally applied the ceiling to both, reasoning that an unbounded requeue
+loop on a permanently misconfigured lane is a leak — a fair argument, and it does
+not weaken Q2, since dying visibly is not a fallback. It was overruled on
+recoverability: `markFailed` is terminal and a row re-opens **only** via
+`enqueue` once the session grows, so ~2.5 hours of misconfiguration (5 × 30 min)
+would permanently kill every row queued in that window. A **finished** session
+never grows again, so that work is unrecoverable even after the user fixes the
+provider config — and there is no manual re-enqueue affordance today.
+
+The asymmetry is the point: a timeout is a transport fault that may never clear;
+unresolvable auth is a **user-fixable configuration** fault, and killing the row
+means the fix arrives too late to matter. Pinned by a spec asserting an
+`auth-unresolvable` row **above** the ceiling still returns to `queued` — so a
+future re-widening breaks a test instead of passing quietly.
+
+If the ceiling is ever wanted on both, land the re-open affordance first (lane
+settings change makes terminal rows eligible again). That is its own batch.
+
 ### → B1.10 (and any frontend batch consuming the candidate summary): fixture drift
 
 Raised by B1.8. Widening `SkillSynthesisCandidateSummary` with five required

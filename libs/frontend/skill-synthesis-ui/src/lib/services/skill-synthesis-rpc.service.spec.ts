@@ -202,4 +202,105 @@ describe('SkillSynthesisRpcService', () => {
 
     await expect(service.queue()).rejects.toThrow('queue-store-unavailable');
   });
+
+  // ── Lanes + model catalogue (TASK_2026_180 B1.10.3) ───────────────────────
+
+  it('getLanes() calls skillSynthesis:getLanes and unwraps the lanes map', async () => {
+    const lanes = { archaeologist: { id: 'archaeologist' } };
+    rpcCall.mockResolvedValue(okResult({ lanes }));
+
+    const result = await service.getLanes();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:getLanes',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(lanes);
+  });
+
+  it('throws with the RPC error string when getLanes fails', async () => {
+    rpcCall.mockResolvedValue(errResult('lanes-unreadable'));
+
+    await expect(service.getLanes()).rejects.toThrow('lanes-unreadable');
+  });
+
+  it('setLanes() forwards the sparse patch untouched under a `lanes` key', async () => {
+    rpcCall.mockResolvedValue(okResult({ lanes: {} }));
+
+    await service.setLanes({ judge: { model: 'some-model-id' } });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:setLanes',
+      { lanes: { judge: { model: 'some-model-id' } } },
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
+  it('setLanes() sends only the touched lane, leaving the other three absent', async () => {
+    rpcCall.mockResolvedValue(okResult({ lanes: {} }));
+
+    await service.setLanes({ synthesis: { provider: '' } });
+
+    const payload = rpcCall.mock.calls[0][1] as {
+      lanes: Record<string, unknown>;
+    };
+    expect(Object.keys(payload.lanes)).toEqual(['synthesis']);
+  });
+
+  it('throws with the RPC error string when setLanes fails', async () => {
+    rpcCall.mockResolvedValue(errResult('lane-write-rejected'));
+
+    await expect(service.setLanes({ replay: {} })).rejects.toThrow(
+      'lane-write-rejected',
+    );
+  });
+
+  it('listModels() calls the GENERIC provider:listModels with no provider id', async () => {
+    const payload = { models: [], totalCount: 0, isStatic: true };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.listModels();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'provider:listModels',
+      { toolUseOnly: false },
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(payload);
+  });
+
+  it('listModels(providerId) forwards the id it was handed', async () => {
+    rpcCall.mockResolvedValue(okResult({ models: [], totalCount: 0 }));
+
+    await service.listModels('some-registry-id');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'provider:listModels',
+      { toolUseOnly: false, providerId: 'some-registry-id' },
+      expect.any(Object),
+    );
+  });
+
+  it('listModels("") omits providerId rather than sending an empty string', async () => {
+    rpcCall.mockResolvedValue(okResult({ models: [], totalCount: 0 }));
+
+    // `''` is the picker's "inherit" sentinel, not a provider id. Forwarding it
+    // would ask the backend to resolve a provider named the empty string.
+    await service.listModels('');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'provider:listModels',
+      { toolUseOnly: false },
+      expect.any(Object),
+    );
+  });
+
+  it('throws with the RPC error string when listModels fails', async () => {
+    rpcCall.mockResolvedValue(errResult('no-provider-configured'));
+
+    await expect(service.listModels()).rejects.toThrow(
+      'no-provider-configured',
+    );
+  });
 });

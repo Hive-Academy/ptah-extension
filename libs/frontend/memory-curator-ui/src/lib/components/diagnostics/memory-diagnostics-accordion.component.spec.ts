@@ -390,19 +390,48 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(setTriggersMock).toHaveBeenCalledWith({ maxCuratesPerHour: 120 });
   });
 
-  it('renders the curator model picker and forwards its change to setTriggers', () => {
+  it('renders the SHARED provider-model picker, not a local fork', () => {
     const fixture = TestBed.createComponent(
       MemoryDiagnosticsAccordionComponent,
     );
     fixture.detectChanges();
 
-    const picker = (fixture.nativeElement as HTMLElement).querySelector(
-      'ptah-curator-model-picker',
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('ptah-provider-model-picker')).not.toBeNull();
+
+    // The fork is DELETED, not renamed: its two selects are gone from the DOM
+    // and exactly one picker is rendered here. (The fork's own element name is
+    // deliberately not written anywhere in the tree any more, so that a
+    // repo-wide grep for it returns nothing.)
+    expect(
+      root.querySelector('[data-testid="curator-provider-select"]'),
+    ).toBeNull();
+    expect(
+      root.querySelector('[data-testid="curator-model-select"]'),
+    ).toBeNull();
+    expect(root.querySelectorAll('ptah-provider-model-picker').length).toBe(1);
+  });
+
+  it('labels the shared picker "Curator model"', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
     );
-    expect(picker).not.toBeNull();
+    fixture.detectChanges();
+
+    const label = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="provider-model-picker-label"]',
+    );
+    expect(label?.textContent?.trim()).toBe('Curator model');
+  });
+
+  it('forwards a picker selection to setTriggers as curatorProvider/curatorModel', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
 
     const providerSelect = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="curator-provider-select"]',
+      '[data-testid="provider-model-picker-provider"]',
     ) as HTMLSelectElement;
     providerSelect.value = 'z-ai';
     providerSelect.dispatchEvent(new Event('change'));
@@ -411,6 +440,31 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       curatorProvider: 'z-ai',
       curatorModel: '',
     });
+  });
+
+  it('supplies MemoryDiagnosticsRpcService as the picker model loader', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    // The picker loads its catalogue through the injected port on mount; if
+    // PROVIDER_MODELS_LOADER were not wired to this tab's RPC service the
+    // component would have failed to construct at all.
+    expect(listModelsMock).toHaveBeenCalled();
+  });
+
+  it('drops the stale "full provider routing coming soon" footer note', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent ?? '').not.toContain('coming soon');
+    expect(
+      root.querySelector('[data-testid="curator-phase1-note"]'),
+    ).toBeNull();
   });
 
   it('renders read-only cue list textarea joined by newlines', () => {

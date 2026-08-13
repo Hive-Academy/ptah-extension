@@ -6,11 +6,17 @@ import {
   computed,
   inject,
 } from '@angular/core';
+import {
+  PROVIDER_MODELS_LOADER,
+  ProviderModelPickerComponent,
+  type ProviderModelSelection,
+} from '@ptah-extension/ui';
 
 import {
   MemoryDiagnosticsStateService,
   type LastRunSnapshot,
 } from '../../services/memory-diagnostics-state.service';
+import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-rpc.service';
 
 import {
   MemoryTriggerToggleComponent,
@@ -18,10 +24,6 @@ import {
 } from './memory-trigger-toggle.component';
 import { DbHealthPanelComponent } from './db-health-panel.component';
 import { EventFeedComponent } from './event-feed.component';
-import {
-  CuratorModelPickerComponent,
-  type CuratorModelChange,
-} from './curator-model-picker.component';
 
 @Component({
   selector: 'ptah-memory-diagnostics-accordion',
@@ -31,7 +33,19 @@ import {
     MemoryTriggerToggleComponent,
     DbHealthPanelComponent,
     EventFeedComponent,
-    CuratorModelPickerComponent,
+    ProviderModelPickerComponent,
+  ],
+  /**
+   * The picker is domain-free and takes its transport as a port, so the Memory
+   * tab supplies its OWN RPC service here. `MemoryDiagnosticsRpcService.listModels`
+   * already calls the generic `provider:listModels`, so it satisfies
+   * `ProviderModelsLoader` structurally with no adapter.
+   */
+  providers: [
+    {
+      provide: PROVIDER_MODELS_LOADER,
+      useExisting: MemoryDiagnosticsRpcService,
+    },
   ],
   template: `
     <div class="flex flex-col gap-3">
@@ -145,10 +159,11 @@ import {
       </section>
 
       @if (triggers(); as t) {
-        <ptah-curator-model-picker
-          [curatorProvider]="t.curatorProvider ?? ''"
-          [curatorModel]="t.curatorModel ?? ''"
-          (curatorChange)="onCuratorModelChange($event)"
+        <ptah-provider-model-picker
+          label="Curator model"
+          [provider]="t.curatorProvider ?? ''"
+          [model]="t.curatorModel ?? ''"
+          (selectionChange)="onCuratorModelChange($event)"
         />
       }
 
@@ -300,10 +315,10 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     void this.state.setTriggers({ maxCuratesPerHour: value });
   }
 
-  protected onCuratorModelChange(change: CuratorModelChange): void {
+  protected onCuratorModelChange(change: ProviderModelSelection): void {
     void this.state.setTriggers({
-      curatorProvider: change.curatorProvider,
-      curatorModel: change.curatorModel,
+      curatorProvider: change.provider,
+      curatorModel: change.model,
     });
   }
 }

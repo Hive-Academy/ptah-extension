@@ -62,6 +62,65 @@
  * checks `ttl >= 3 × max(stage timeout)` at the head of every tick and warns
  * loudly; it does not throw, because a misconfigured TTL degrades throughput
  * rather than corrupting data.
+ *
+ * ## Q2 — the drain, not the runner, writes the row for a lane failure
+ *
+ * `LaneRunnerService` can write `SkillQueueStore.requeue` itself, but only when
+ * a caller hands it `LaneRunRequest`'s optional queue-row id. **No caller in
+ * this library does, and none may start** — pinned mechanically by a source scan
+ * in `skill-drain.failures.spec.ts`, which is also why that field is not named
+ * literally anywhere in this file. The drain is the single owner of the row
+ * transition for a `SkillLaneFailure`, via the `lane-failed` stage outcome.
+ *
+ * That is not a coin flip between two equivalent seams. Only the drain reads
+ * `maxAttempts`, so only the drain can decide `requeue` versus the TERMINAL
+ * `markFailed` — and those two are alternatives for the same row, not a
+ * sequence. A runner that requeued first would put the row back at `queued`
+ * (claim released, another worker free to take it) and the drain's terminal
+ * mark would then land on a row it no longer holds. Supplying that field AND
+ * mapping here would double-write; `requeue` is idempotent so it would not
+ * corrupt anything, but the attempt ladder would have two owners and they would
+ * disagree the first time either changed.
+ *
+ * The mapping itself (`applyLaneFailure`):
+ *
+ *  - `timeout` / `auth-unresolvable` are TRANSPORT — nothing ran, so there is no
+ *    verdict. The row goes back to `queued` behind `failure.retryAfterMs`
+ *    (30 min for auth, exponential for a timeout) carrying the lane's own
+ *    user-facing reason.
+ *  - `structured-output-unsupported` / `tool-use-unsupported` are CAPABILITY —
+ *    the endpoint answered, we just cannot use the answer. That is `unscored`,
+ *    which is what the judge half of the same transition writes onto the
+ *    candidate.
+ *
+ * ## The attempt ceiling applies to `timeout` ONLY — the asymmetry is deliberate
+ *
+ * A timed-out lane is marked terminally failed once `attempt_count >=
+ * maxAttempts`. An `auth-unresolvable` lane is NOT: it requeues on its 30-minute
+ * backoff forever, with no ceiling and no terminal path.
+ *
+ * The two failures differ in WHO CAN FIX THEM, and that is what decides it. A
+ * timeout is a transport fault nobody may ever clear — an endpoint that is gone,
+ * a model that cannot answer inside the lane's budget — so retrying it without
+ * end is work that never lands. Unresolvable auth is a CONFIGURATION fault the
+ * user can fix, and will, the moment they notice the stalled rows.
+ *
+ * Killing those rows means the fix arrives too late to recover them.
+ * `markFailed` is terminal, and a failed row re-opens ONLY through `enqueue`
+ * once the session grows past its `turn_count` — so a FINISHED session that
+ * never grows again never re-enqueues, and there is no manual re-enqueue
+ * affordance anywhere in the product today. Five attempts at a 30-minute backoff
+ * is about two and a half hours of misconfiguration to lose that work
+ * permanently. Retrying instead costs almost nothing: `not_before` gates
+ * eligibility, so a stalled row is one skipped `listEligible` match every half
+ * hour and no tokens at all. It is also what Q2 says literally — unresolvable
+ * lane auth **stalls**.
+ *
+ * **A lane whose auth is unresolvable NEVER falls back to the foreground
+ * provider** (Q2). It stalls, visibly, and that is the entire reason this phase
+ * exists — a fallback would put background work straight back onto the user's
+ * foreground quota. There is no fallback branch below and there must never be
+ * one.
  */
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
@@ -71,6 +130,7 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
+import type { SkillLaneFailure } from '../lanes/lane.types';
 import type { SkillQueueRow, SkillQueueStage } from './skill-queue.types';
 import type { SkillQueueStore } from './skill-queue.store';
 import type { SkillBudgetStore } from './skill-budget.store';
@@ -111,6 +171,13 @@ export interface DrainSummary {
   failed: number;
   unscored: number;
   skippedItems: number;
+  /**
+   * Rows put back to `queued` by a TRANSPORT lane failure (`timeout` /
+   * `auth-unresolvable`). Counted apart from `unscored` because they are the
+   * Q2 stall: nothing ran, no quota was borrowed from the foreground, and the
+   * row is eligible again after its backoff.
+   */
+  stalled: number;
   /** Token-spending items deferred because the budget ran out mid-tick. */
   budgetDeferred: number;
   budgetExhausted: boolean;
@@ -131,12 +198,23 @@ export interface SkillStageContext {
   touch(): boolean;
 }
 
-/** What a stage handler reports back. Mirrors the store's terminal states. */
+/**
+ * What a stage handler reports back. Mirrors the store's terminal states, plus
+ * `lane-failed`.
+ *
+ * `lane-failed` is the channel a stage uses to hand the drain a
+ * `SkillLaneFailure` VERBATIM instead of pre-deciding the row transition for
+ * it. A handler that flattened a lane failure into `unscored` or `failed` would
+ * be choosing the backoff and the terminal ceiling on its own, in a place that
+ * cannot read `maxAttempts` — which is exactly the split ownership this outcome
+ * exists to prevent.
+ */
 export type SkillStageResult =
   | { outcome: 'done'; reason?: string; candidateId?: string }
   | { outcome: 'skipped'; reason: string }
   | { outcome: 'unscored'; reason: string; retryInMs?: number }
-  | { outcome: 'failed'; error: string; reason?: string };
+  | { outcome: 'failed'; error: string; reason?: string }
+  | { outcome: 'lane-failed'; failure: SkillLaneFailure };
 
 export type SkillStageHandler = (
   ctx: SkillStageContext,
@@ -344,6 +422,7 @@ export class SkillDrainService {
       failed: 0,
       unscored: 0,
       skippedItems: 0,
+      stalled: 0,
       budgetDeferred: 0,
       budgetExhausted: false,
       durationMs: 0,
@@ -475,15 +554,21 @@ export class SkillDrainService {
       // the ledger write — sees only a lane id, a different taxonomy from the
       // eleven queue stages. The scope carries `claimed.stage` down the handler's
       // await chain so every token this dispatch spends is booked to it.
-      const result = await this.budget.withStage(claimed.stage, () =>
-        handler({
+      //
+      // The mapping runs INSIDE the scope too. It spends nothing itself, but a
+      // `lane-failed` outcome is precisely the case where the lane already
+      // spent before it gave up, and keeping the whole dispatch under one scope
+      // means no part of a failing stage's cost can leak into the unattributed
+      // `''` bucket.
+      await this.budget.withStage(claimed.stage, async () => {
+        const result = await handler({
           row: claimed,
           tier: opts.tier,
           signal: opts.signal,
           touch: () => this.queue.touchClaim(claimed.id),
-        }),
-      );
-      this.applyResult(claimed, result, summary);
+        });
+        this.applyResult(claimed, cfg, result, summary);
+      });
     } catch (error: unknown) {
       this.applyThrow(claimed, cfg, error, summary);
     }
@@ -491,6 +576,7 @@ export class SkillDrainService {
 
   private applyResult(
     row: SkillQueueRow,
+    cfg: SkillDrainConfig,
     result: SkillStageResult,
     summary: DrainSummary,
   ): void {
@@ -518,7 +604,124 @@ export class SkillDrainService {
         this.queue.markFailed(row.id, result.error, { reason: result.reason });
         summary.failed++;
         return;
+      case 'lane-failed':
+        this.applyLaneFailure(row, cfg, result.failure, summary);
+        return;
     }
+  }
+
+  /**
+   * `SkillLaneFailure` → row transition. The Q2 seam.
+   *
+   * Two families, and the split is "did the endpoint answer at all", not "how
+   * bad was it":
+   *
+   *  - TRANSPORT (`timeout`, `auth-unresolvable`) — nothing ran. `requeue`, so
+   *    the row is `queued` again behind the lane's own `retryAfterMs` with the
+   *    lane's user-facing reason. Never `markUnscored`: `unscored` is the
+   *    JUDGE's verdict ("we ran and we do not know"), and spending it on an
+   *    endpoint that never answered would make one status mean two unrelated
+   *    things on the Activity surface.
+   *  - CAPABILITY (`structured-output-unsupported`, `tool-use-unsupported`) —
+   *    the endpoint answered and the answer is unusable. That IS `unscored`,
+   *    and it is the same transition the judge writes onto the candidate.
+   *
+   * Only `timeout` carries the attempt ceiling. `auth-unresolvable` requeues
+   * unconditionally — see the asymmetry section in this file's header: the row
+   * is waiting on a fix the USER makes, and a terminal mark would land before
+   * the fix does, with no way to bring the work back.
+   *
+   * There is deliberately no third branch that retries the work somewhere else.
+   * An unresolvable lane STALLS (Q2); falling back to the foreground provider
+   * would move background cost onto the user's live quota, which is the defect
+   * this phase exists to remove.
+   */
+  private applyLaneFailure(
+    row: SkillQueueRow,
+    cfg: SkillDrainConfig,
+    failure: SkillLaneFailure,
+    summary: DrainSummary,
+  ): void {
+    if (failure.kind !== 'timeout' && failure.kind !== 'auth-unresolvable') {
+      this.queue.markUnscored(row.id, {
+        reason: failure.reason,
+        notBefore:
+          Date.now() + (failure.retryAfterMs || DEFAULT_UNSCORED_BACKOFF_MS),
+      });
+      summary.unscored++;
+      return;
+    }
+
+    // The attempt ladder, and it is `timeout`-only ON PURPOSE. `attemptCount`
+    // was incremented by the CAS claim, so the claimed row already carries THIS
+    // attempt's number.
+    //
+    // Do not widen this condition to `auth-unresolvable` without re-reading the
+    // asymmetry section in this file's header — an auth stall is waiting on a
+    // user's configuration fix, and `markFailed` is terminal for a session that
+    // may never grow again. `skill-drain.failures.spec.ts` asserts the row
+    // survives well past `maxAttempts`, so a re-widening breaks a test rather
+    // than quietly discarding work.
+    if (failure.kind === 'timeout' && row.attemptCount >= cfg.maxAttempts) {
+      this.failTerminally(row, failure, summary);
+      return;
+    }
+
+    const applied = this.queue.requeue(
+      row.id,
+      Date.now() + failure.retryAfterMs,
+      failure.reason,
+    );
+    if (!applied) {
+      // The row was reaped (or finished elsewhere) while the stage ran. Same
+      // contract as `touchClaim` returning `false`: this worker has lost the
+      // row and stops writing rather than stomping whoever holds it now.
+      summary.lostClaims++;
+      this.logger.debug(
+        '[skill-synthesis] lane requeue skipped; the row is no longer claimed',
+        { id: row.id, stage: row.stage, kind: failure.kind },
+      );
+      return;
+    }
+    summary.stalled++;
+  }
+
+  /**
+   * The terminal mark and its ONE Activity event, landed together.
+   *
+   * `LaneRunnerService` deliberately does not do this: it cannot read
+   * `maxAttempts`, and a terminal mark without a legible event is a row that
+   * dies silently — a stage that simply stops appearing, with no way to tell it
+   * from one that finished.
+   *
+   * The pairing is one `markFailed` statement writing BOTH halves the Activity
+   * surface reads — `last_error` (the lane's own message, diagnostic) and the
+   * user-facing `reason` naming the stage, the attempt count and why it gave up
+   * — plus exactly one `warn`, emitted here and nowhere else on this path. The
+   * per-attempt stalls above log at `debug` only, so a row produces one loud
+   * line in its whole lifetime: the one where it died.
+   *
+   * `markFailed` is TERMINAL and takes no backoff. The row re-opens only through
+   * `enqueue`, once the session grows past its `turn_count`.
+   */
+  private failTerminally(
+    row: SkillQueueRow,
+    failure: SkillLaneFailure,
+    summary: DrainSummary,
+  ): void {
+    const reason = `${row.stage} gave up after ${row.attemptCount} attempts — ${failure.reason}`;
+    this.queue.markFailed(row.id, failure.reason, { reason });
+    summary.failed++;
+    this.logger.warn(
+      '[skill-synthesis] lane failure exhausted its attempts; the row is now terminal',
+      {
+        id: row.id,
+        stage: row.stage,
+        kind: failure.kind,
+        attempt: row.attemptCount,
+        reason: failure.reason,
+      },
+    );
   }
 
   /**

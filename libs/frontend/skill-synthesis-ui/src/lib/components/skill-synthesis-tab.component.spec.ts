@@ -503,6 +503,12 @@ describe('SkillSynthesisTabComponent', () => {
         promotedAt: null,
         rejectedAt: null,
         rejectedReason: null,
+        pinned: false,
+        displayName: 'Share one Jest preset across libs',
+        judgeScore: null,
+        judgeStatus: null,
+        judgeReason: null,
+        judgeCriteria: null,
       },
     ]);
     const diag = makeDiagnosticsStub();
@@ -522,7 +528,10 @@ describe('SkillSynthesisTabComponent', () => {
     openSessions(fixture);
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('refactor-tests');
+    // The TITLE, not the `name` slug — the slug is a prompt fragment and is
+    // never rendered (P1-10).
+    expect(text).toContain('Share one Jest preset across libs');
+    expect(text).not.toContain('refactor-tests');
     expect(text).toContain('Promote');
     expect(text).toContain('Reject');
   });
