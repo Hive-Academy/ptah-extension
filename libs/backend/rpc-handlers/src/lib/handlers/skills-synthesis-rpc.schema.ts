@@ -159,6 +159,73 @@ export const SkillSetTriggersParamsSchema = z.object({
 
 export const SkillGetTriggersParamsSchema = z.object({}).strict().optional();
 
+// ── Lanes (TASK_2026_180, Phase 1) ──────────────────────────────────────────
+//
+// `provider` is validated as an OPAQUE string and is deliberately NOT checked
+// against any provider allowlist. Global invariant 1: lanes differ only by
+// capability fields, and a provider-id enum here would be the first place the
+// registry stops being the source of truth — a newly registered provider would
+// be rejected at the boundary with no code change anywhere near it.
+//
+// The numeric bounds are not decoration. `readPositiveNumber` in
+// `skill-lane-config.ts` silently discards a non-positive `timeoutMs`, because
+// a `0` would arm an `AbortController` that fires before the request leaves and
+// every call on the lane would fail as a timeout indistinguishable from a real
+// one. Rejecting it here is what turns that into a legible INVALID_PARAMS at
+// the edge instead of a lane that quietly never works.
+
+const SkillLaneTierSchema = z.enum(['haiku', 'sonnet', 'opus']);
+
+/** One lane's writable fields. `id` is excluded — identity is the map key. */
+export const SkillLaneSchema = z.object({
+  provider: z.string().max(200),
+  model: z.string().max(400),
+  defaultTier: SkillLaneTierSchema,
+  structuredOutput: z.enum(['sdk', 'parse']),
+  toolUse: z.enum(['required', 'none']),
+  timeoutMs: z.number().int().min(1000).max(3600000),
+  maxInputChars: z.number().int().min(100).max(1000000),
+  maxPasses: z.number().int().min(1).max(20),
+});
+
+export const SKILL_LANE_ID_VALUES = [
+  'archaeologist',
+  'synthesis',
+  'judge',
+  'replay',
+] as const;
+
+const SkillLanePatchSchema = SkillLaneSchema.partial().strict();
+
+/**
+ * A sparse patch: any subset of lanes, any subset of their fields.
+ *
+ * Spelled out as four optional members rather than a `z.record` keyed by an
+ * enum, because a Zod 4 record with an enum key is EXHAUSTIVE — it would demand
+ * all four lanes on every call and turn "change one field on the judge lane"
+ * into a full-tree write.
+ *
+ * `.strict()` at both levels so a typo'd lane id or field name is an
+ * INVALID_PARAMS rather than a write that lands on a key nothing reads:
+ * `flattenSkillLanes` drops unknown members silently, which is right for it and
+ * wrong for a boundary.
+ */
+export const SkillSetLanesParamsSchema = z.object({
+  lanes: z
+    .object({
+      archaeologist: SkillLanePatchSchema.optional(),
+      synthesis: SkillLanePatchSchema.optional(),
+      judge: SkillLanePatchSchema.optional(),
+      replay: SkillLanePatchSchema.optional(),
+    })
+    .strict()
+    .refine((lanes) => Object.values(lanes).some((v) => v !== undefined), {
+      message: 'lanes must name at least one lane',
+    }),
+});
+
+export const SkillGetLanesParamsSchema = z.object({}).strict().optional();
+
 const SkillCloneKindSchema = z.enum(['skill', 'agent', 'command']);
 
 const SlugSchema = z

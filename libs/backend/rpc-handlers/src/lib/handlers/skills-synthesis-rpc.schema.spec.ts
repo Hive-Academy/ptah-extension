@@ -18,6 +18,10 @@ import {
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
   SkillQueueParamsSchema,
+  SkillLaneSchema,
+  SkillSetLanesParamsSchema,
+  SkillGetLanesParamsSchema,
+  SKILL_LANE_ID_VALUES,
 } from './skills-synthesis-rpc.schema';
 
 describe('SkillQueueParamsSchema', () => {
@@ -851,5 +855,160 @@ describe('SkillSynthesisSettingsSchema — suggestionMaxCandidates boundary', ()
   it('rejects missing suggestionMaxCandidates (required field)', () => {
     const { suggestionMaxCandidates: _omit, ...rest } = validFull;
     expect(() => SkillSynthesisSettingsSchema.parse(rest)).toThrow();
+  });
+});
+
+describe('SkillGetLanesParamsSchema', () => {
+  it.each([
+    ['undefined', undefined],
+    ['an empty object', {}],
+  ])('accepts %s', (_label, params) => {
+    expect(() => SkillGetLanesParamsSchema.parse(params)).not.toThrow();
+  });
+
+  it('rejects unknown params', () => {
+    expect(() => SkillGetLanesParamsSchema.parse({ lane: 'judge' })).toThrow();
+  });
+});
+
+describe('SkillLaneSchema', () => {
+  const validLane = {
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 45000,
+    maxInputChars: 3000,
+    maxPasses: 1,
+  };
+
+  it('accepts a fully specified lane', () => {
+    expect(() => SkillLaneSchema.parse(validLane)).not.toThrow();
+  });
+
+  it('accepts empty provider and model — the "inherit" default', () => {
+    const parsed = SkillLaneSchema.parse(validLane);
+    expect(parsed.provider).toBe('');
+    expect(parsed.model).toBe('');
+  });
+
+  it('accepts any opaque provider id without an allowlist', () => {
+    // Global invariant 1: lanes differ ONLY by capability fields. An enum of
+    // known provider ids here would reject a newly registered provider at the
+    // boundary, with nothing near the registry to explain why.
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, provider: 'some-new-endpoint' }),
+    ).not.toThrow();
+  });
+
+  it.each([0, -1, 999])(
+    'rejects timeoutMs=%s (below the 1000ms floor)',
+    (ms) => {
+      // A non-positive timeout arms an AbortController that fires before the
+      // request leaves, so every call on the lane fails as a timeout that cannot
+      // be told apart from a real one.
+      expect(() =>
+        SkillLaneSchema.parse({ ...validLane, timeoutMs: ms }),
+      ).toThrow();
+    },
+  );
+
+  it('rejects a non-integer timeoutMs', () => {
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, timeoutMs: 45000.5 }),
+    ).toThrow();
+  });
+
+  it.each([0, -1])('rejects maxPasses=%s', (passes) => {
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, maxPasses: passes }),
+    ).toThrow();
+  });
+
+  it.each([
+    ['defaultTier', 'ultra'],
+    ['structuredOutput', 'yaml'],
+    ['toolUse', 'optional'],
+  ])('rejects an out-of-vocabulary %s', (field, value) => {
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, [field]: value }),
+    ).toThrow();
+  });
+});
+
+describe('SkillSetLanesParamsSchema', () => {
+  it('accepts a single-field patch on a single lane', () => {
+    const parsed = SkillSetLanesParamsSchema.parse({
+      lanes: { judge: { timeoutMs: 60000 } },
+    });
+    expect(parsed.lanes.judge).toEqual({ timeoutMs: 60000 });
+  });
+
+  it.each(SKILL_LANE_ID_VALUES)('accepts a patch on the %s lane', (id) => {
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { [id]: { maxPasses: 2 } } }),
+    ).not.toThrow();
+  });
+
+  it('accepts all four lanes with all eight fields at once', () => {
+    const full = {
+      provider: 'lane-provider',
+      model: 'lane-model',
+      defaultTier: 'sonnet' as const,
+      structuredOutput: 'parse' as const,
+      toolUse: 'required' as const,
+      timeoutMs: 60000,
+      maxInputChars: 6000,
+      maxPasses: 2,
+    };
+    const lanes = Object.fromEntries(
+      SKILL_LANE_ID_VALUES.map((id) => [id, full]),
+    );
+    const parsed = SkillSetLanesParamsSchema.parse({ lanes });
+    expect(Object.keys(parsed.lanes).sort()).toEqual(
+      [...SKILL_LANE_ID_VALUES].sort(),
+    );
+  });
+
+  it('does NOT demand every lane — the patch is sparse', () => {
+    // A Zod 4 record keyed by an enum is exhaustive; spelling the four lanes as
+    // optional members is what keeps "change one field" from becoming a
+    // full-tree write.
+    const parsed = SkillSetLanesParamsSchema.parse({
+      lanes: { synthesis: { model: 'lane-model' } },
+    });
+    expect(parsed.lanes.judge).toBeUndefined();
+    expect(parsed.lanes.archaeologist).toBeUndefined();
+    expect(parsed.lanes.replay).toBeUndefined();
+  });
+
+  it('rejects an unknown lane id', () => {
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { curator: { maxPasses: 1 } } }),
+    ).toThrow();
+  });
+
+  it('rejects an unknown field inside a known lane', () => {
+    // flattenSkillLanes drops unknown fields silently — correct for it, wrong
+    // for a boundary, where a typo must surface as INVALID_PARAMS instead of a
+    // write that vanishes.
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { judge: { temperature: 1 } } }),
+    ).toThrow();
+  });
+
+  it('rejects a patch that names no lane at all', () => {
+    expect(() => SkillSetLanesParamsSchema.parse({ lanes: {} })).toThrow();
+  });
+
+  it('rejects a missing lanes key', () => {
+    expect(() => SkillSetLanesParamsSchema.parse({})).toThrow();
+  });
+
+  it('rejects an id field — lane identity is the map key, not writable', () => {
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { judge: { id: 'judge' } } }),
+    ).toThrow();
   });
 });

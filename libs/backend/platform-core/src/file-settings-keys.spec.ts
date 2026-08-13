@@ -343,6 +343,148 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('skill-synthesis lane keys (TASK_2026_180, Phase 1)', () => {
+    /**
+     * The literal restatement of `SKILL_LANE_DEFAULTS`
+     * (`skill-synthesis/src/lib/lanes/skill-lane-config.ts`). It cannot be
+     * imported: `platform-core` is the leaf `skill-synthesis` depends on, so
+     * the import would close a cycle — the same constraint that produced the
+     * drain-defaults table above.
+     *
+     * This spec pins the SHAPE (all four lanes × all eight fields present,
+     * routed, and defaulted). The cross-lib equality against the real
+     * `SKILL_LANE_KEYS` / `SKILL_LANE_DEFAULTS` is asserted in
+     * `rpc-handlers/.../skills-synthesis-rpc.handlers.spec.ts`, which is the
+     * one place that may legally import both sides.
+     */
+    const laneDefaults: Record<string, Record<string, string | number>> = {
+      archaeologist: {
+        provider: '',
+        model: '',
+        defaultTier: 'haiku',
+        structuredOutput: 'sdk',
+        toolUse: 'required',
+        timeoutMs: 120000,
+        maxInputChars: 12000,
+        maxPasses: 4,
+      },
+      synthesis: {
+        provider: '',
+        model: '',
+        defaultTier: 'haiku',
+        structuredOutput: 'sdk',
+        toolUse: 'none',
+        timeoutMs: 90000,
+        maxInputChars: 8000,
+        maxPasses: 1,
+      },
+      judge: {
+        provider: '',
+        model: '',
+        defaultTier: 'haiku',
+        structuredOutput: 'sdk',
+        toolUse: 'none',
+        timeoutMs: 45000,
+        maxInputChars: 3000,
+        maxPasses: 1,
+      },
+      replay: {
+        provider: '',
+        model: '',
+        defaultTier: 'haiku',
+        structuredOutput: 'sdk',
+        toolUse: 'none',
+        timeoutMs: 90000,
+        maxInputChars: 8000,
+        maxPasses: 1,
+      },
+    };
+
+    const laneEntries: Array<[string, string | number]> = Object.entries(
+      laneDefaults,
+    ).flatMap(([lane, fields]) =>
+      Object.entries(fields).map(
+        ([field, value]): [string, string | number] => [
+          `skillSynthesis.${lane}.${field}`,
+          value,
+        ],
+      ),
+    );
+
+    const laneKeys = laneEntries.map(([key]) => key);
+
+    it('registers 32 lane keys — four lanes × eight fields', () => {
+      expect(laneKeys).toHaveLength(32);
+      for (const key of laneKeys) {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      }
+    });
+
+    it.each(laneKeys)('routes %s through isFileBasedSettingKey', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    });
+
+    it.each(laneEntries)('declares default %s = %s', (key, expected) => {
+      expect(
+        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+    });
+
+    it('carries a maxPasses key for EVERY lane, not only the multi-pass one', () => {
+      // A missing `maxPasses` fails in the write direction only: the read
+      // falls through to the default and looks correct while the write is
+      // handed to a store that does not own the key and is dropped silently.
+      for (const lane of Object.keys(laneDefaults)) {
+        expect(
+          FILE_BASED_SETTINGS_KEYS.has(`skillSynthesis.${lane}.maxPasses`),
+        ).toBe(true);
+      }
+    });
+
+    it('defaults every lane to "inherit" — provider and model both empty', () => {
+      // The untouched-existing-installs guarantee. A lane defaulted to a
+      // concrete provider would repoint background work on upgrade, with no
+      // user action and nothing in the UI to explain it.
+      for (const lane of Object.keys(laneDefaults)) {
+        expect(
+          FILE_BASED_SETTINGS_DEFAULTS[`skillSynthesis.${lane}.provider`],
+        ).toBe('');
+        expect(
+          FILE_BASED_SETTINGS_DEFAULTS[`skillSynthesis.${lane}.model`],
+        ).toBe('');
+      }
+    });
+
+    it('names no provider id in any lane default', () => {
+      // Global invariant 1: lanes differ ONLY by capability fields. A provider
+      // id reaching a default here is the first step to a lane that behaves
+      // differently because of WHO the provider is rather than WHAT it
+      // declared.
+      const laneValues = laneKeys.map(
+        (key) => FILE_BASED_SETTINGS_DEFAULTS[key],
+      );
+      const providerish =
+        /anthropic|openai|copilot|codex|openrouter|moonshot|z-ai|ollama|lm-studio|cursor/i;
+      for (const value of laneValues) {
+        if (typeof value === 'string') {
+          expect(providerish.test(value)).toBe(false);
+        }
+      }
+    });
+
+    it('adds no lane key outside the four declared lanes', () => {
+      const declared = new Set(laneKeys);
+      const stray = [...FILE_BASED_SETTINGS_KEYS].filter(
+        (key) =>
+          /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(
+            key,
+          ) && !declared.has(key),
+      );
+      expect(stray).toEqual([]);
+    });
+  });
+
   describe('curator provider/model keys (TASK_2026_CURATOR_MODEL_CONFIG)', () => {
     it('registers memory.curatorProvider with default ""', () => {
       expect(FILE_BASED_SETTINGS_KEYS.has('memory.curatorProvider')).toBe(true);

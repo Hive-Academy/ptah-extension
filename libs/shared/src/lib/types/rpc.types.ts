@@ -491,6 +491,10 @@ import type {
   SkillSetTriggersResult,
   SkillGetTriggersParams,
   SkillGetTriggersResult,
+  SkillSetLanesParams,
+  SkillSetLanesResult,
+  SkillGetLanesParams,
+  SkillGetLanesResult,
 } from './rpc/rpc-curator-diagnostics.types';
 import type {
   TasksListParams,
@@ -1541,6 +1545,14 @@ export interface RpcMethodRegistry {
     params: SkillGetTriggersParams;
     result: SkillGetTriggersResult;
   };
+  'skillSynthesis:setLanes': {
+    params: SkillSetLanesParams;
+    result: SkillSetLanesResult;
+  };
+  'skillSynthesis:getLanes': {
+    params: SkillGetLanesParams;
+    result: SkillGetLanesResult;
+  };
   'skillSynthesis:listClones': {
     params: SkillSynthesisListClonesParams;
     result: SkillSynthesisListClonesResult;
@@ -1910,8 +1922,36 @@ export interface RpcMethodRegistry {
   };
 }
 
+/**
+ * The judge verdict vocabulary on the wire (TASK_2026_180, Phase 1).
+ *
+ * Structural mirror of `JudgeStatus` in
+ * `skill-synthesis/src/lib/types.ts` — declared here rather than imported
+ * because `libs/shared` is the foundation layer and may not import a backend
+ * lib. `SkillCandidateStore` remains the enforcing gate on both edges; this
+ * union is the wire restatement, not a second validation layer.
+ */
+export type SkillJudgeStatusDto = 'scored' | 'unscored' | 'disabled';
+
+/**
+ * The five criteria the judge scores. Carried individually rather than only as
+ * an average so the UI can render a scorecard instead of one collapsed number.
+ * `null` per criterion means "this criterion was not scored".
+ */
+export interface SkillJudgeCriteriaDto {
+  novelty: number | null;
+  actionability: number | null;
+  scope: number | null;
+  generalization: number | null;
+  triggerClarity: number | null;
+}
+
 export interface SkillSynthesisCandidateSummary {
   id: string;
+  /**
+   * The SLUG. An internal id and the `SKILL.md` folder name — never a title.
+   * Render `displayName` and fall back to this.
+   */
   name: string;
   description: string;
   status: 'candidate' | 'promoted' | 'rejected';
@@ -1922,6 +1962,26 @@ export interface SkillSynthesisCandidateSummary {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  // ── Judge verdict (TASK_2026_180, Phase 1) ────────────────────────────────
+  /** Human-readable title. `null` = none yet; the UI falls back to `name`. */
+  displayName: string | null;
+  /**
+   * `null` = the candidate was NOT scored — never judged, judged while the
+   * gate was off, or a judge call that failed. It is NOT a low score and it is
+   * NEVER `0`. Coalescing this to zero re-introduces exactly the defect this
+   * field exists to remove: before it, a failed judge call fabricated a verdict
+   * the UI then rendered as genuine. Read `judgeStatus` to tell the cases
+   * apart.
+   */
+  judgeScore: number | null;
+  /** `null` = no verdict has ever been recorded for this candidate. */
+  judgeStatus: SkillJudgeStatusDto | null;
+  /**
+   * Why. For `'unscored'` this is the FAILURE ("rate limited"), not a critique.
+   */
+  judgeReason: string | null;
+  /** `null` = the judge produced no per-criterion breakdown. */
+  judgeCriteria: SkillJudgeCriteriaDto | null;
 }
 
 export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {
@@ -3084,6 +3144,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:analyzeNow': true,
   'skillSynthesis:setTriggers': true,
   'skillSynthesis:getTriggers': true,
+  // TASK_2026_180 Phase 1. `skillSynthesis:` is ALREADY in
+  // `ALLOWED_METHOD_PREFIXES`, so only the compile-time half of
+  // dual-registration applies to these two: the registry entry above and this
+  // allow-map entry. Adding a runtime-guard entry per METHOD would be wrong —
+  // the guard is per PREFIX.
+  'skillSynthesis:setLanes': true,
+  'skillSynthesis:getLanes': true,
   'skillSynthesis:listClones': true,
   'skillSynthesis:getClone': true,
   'skillSynthesis:enhanceNow': true,

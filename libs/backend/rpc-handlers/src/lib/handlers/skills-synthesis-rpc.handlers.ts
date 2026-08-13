@@ -28,6 +28,9 @@ import {
   ProposalNotFoundError,
   flattenSkillTriggers,
   readSkillTriggers,
+  flattenSkillLanes,
+  readSkillLanes,
+  type JudgeCriterionScores,
   type SkillCandidateStore,
   type SkillSynthesisDiagnosticsService,
   type SkillSynthesisService,
@@ -63,6 +66,11 @@ import type {
   SkillGetTriggersResult,
   SkillSetTriggersParams,
   SkillSetTriggersResult,
+  SkillGetLanesParams,
+  SkillGetLanesResult,
+  SkillSetLanesParams,
+  SkillSetLanesResult,
+  SkillJudgeCriteriaDto,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
   SkillSynthesisGetCandidateParams,
@@ -156,6 +164,8 @@ import {
   SkillDiagnosticsParamsSchema,
   SkillGetTriggersParamsSchema,
   SkillSetTriggersParamsSchema,
+  SkillGetLanesParamsSchema,
+  SkillSetLanesParamsSchema,
   SkillSynthesisSettingsSchema,
   UnpinSkillParamsSchema,
   UpdateSkillSynthesisSettingsParamsSchema,
@@ -222,6 +232,8 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:analyzeNow',
     'skillSynthesis:setTriggers',
     'skillSynthesis:getTriggers',
+    'skillSynthesis:setLanes',
+    'skillSynthesis:getLanes',
     'skillSynthesis:listClones',
     'skillSynthesis:getClone',
     'skillSynthesis:enhanceNow',
@@ -307,6 +319,8 @@ export class SkillsSynthesisRpcHandlers {
     this.registerAnalyzeNow();
     this.registerSetTriggers();
     this.registerGetTriggers();
+    this.registerSetLanes();
+    this.registerGetLanes();
     this.registerListClones();
     this.registerGetClone();
     this.registerEnhanceNow();
@@ -789,6 +803,84 @@ export class SkillsSynthesisRpcHandlers {
       }
       return { triggers: readSkillTriggers(this.workspaceProvider) };
     });
+  }
+
+  /**
+   * `skillSynthesis:setLanes` — persist a sparse lane patch.
+   *
+   * Structurally identical to `setTriggers`: validate, flatten to dotted keys,
+   * write each one through `IWorkspaceProvider.setConfiguration`, then return
+   * the READ-BACK state rather than echoing the patch. The read-back matters —
+   * `readSkillLane` rejects a value it considers unusable and serves the
+   * default instead, so echoing the request would tell the UI a write landed
+   * that did not.
+   *
+   * Each key is written individually on purpose. `getConfiguration` /
+   * `setConfiguration` route per dotted key (file-based vs. VS Code settings),
+   * so a whole-object write would bypass that routing entirely.
+   */
+  private registerSetLanes(): void {
+    this.rpcHandler.registerMethod<SkillSetLanesParams, SkillSetLanesResult>(
+      'skillSynthesis:setLanes',
+      async (params) => {
+        let validated: z.infer<typeof SkillSetLanesParamsSchema>;
+        try {
+          validated = SkillSetLanesParamsSchema.parse(params);
+        } catch (err: unknown) {
+          this.logger.warn('[skill-synthesis] setLanes — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for skillSynthesis:setLanes',
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          for (const [flatKey, flatValue] of flattenSkillLanes(
+            validated.lanes,
+          )) {
+            await this.workspaceProvider.setConfiguration(
+              'ptah',
+              flatKey,
+              flatValue,
+            );
+          }
+          return { lanes: readSkillLanes(this.workspaceProvider) };
+        } catch (error: unknown) {
+          this.report(error, 'SkillsSynthesisRpcHandlers.registerSetLanes');
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error('[skill-synthesis] setLanes failed', {
+            error: message,
+          });
+          throw new RpcUserError(
+            'skillSynthesis:setLanes failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+  }
+
+  /** `skillSynthesis:getLanes` — all four lanes, resolved field by field. */
+  private registerGetLanes(): void {
+    this.rpcHandler.registerMethod<SkillGetLanesParams, SkillGetLanesResult>(
+      'skillSynthesis:getLanes',
+      async (params) => {
+        try {
+          SkillGetLanesParamsSchema.parse(params);
+        } catch (err: unknown) {
+          this.logger.warn('[skill-synthesis] getLanes — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for skillSynthesis:getLanes',
+            'INVALID_PARAMS',
+          );
+        }
+        return { lanes: readSkillLanes(this.workspaceProvider) };
+      },
+    );
   }
 
   private registerListClones(): void {
@@ -1713,6 +1805,34 @@ function clampLimit(raw: number | undefined, fallback: number): number {
   return Math.min(Math.floor(raw), 1000);
 }
 
+/**
+ * Project the row's five per-criterion scores onto the wire.
+ *
+ * `null` means "no per-criterion breakdown exists", which is exactly the state
+ * `unjudgedVerdictFields()` produces — an object whose five members are all
+ * `null`. Forwarding that object instead of `null` would render as a scorecard
+ * of five blanks and read as "scored, badly" rather than "not scored".
+ */
+function toJudgeCriteria(
+  criteria: JudgeCriterionScores | null | undefined,
+): SkillJudgeCriteriaDto | null {
+  if (!criteria) return null;
+  const scored =
+    criteria.novelty !== null ||
+    criteria.actionability !== null ||
+    criteria.scope !== null ||
+    criteria.generalization !== null ||
+    criteria.triggerClarity !== null;
+  if (!scored) return null;
+  return {
+    novelty: criteria.novelty,
+    actionability: criteria.actionability,
+    scope: criteria.scope,
+    generalization: criteria.generalization,
+    triggerClarity: criteria.triggerClarity,
+  };
+}
+
 function toSummary(row: SkillCandidateRow): SkillSynthesisCandidateSummary {
   return {
     id: row.id as string,
@@ -1726,6 +1846,15 @@ function toSummary(row: SkillCandidateRow): SkillSynthesisCandidateSummary {
     rejectedAt: row.rejectedAt,
     rejectedReason: row.rejectedReason,
     pinned: row.pinned,
+    displayName: row.displayName ?? null,
+    // `?? null` and NOT `?? 0`. `judgeScore: null` IS the `unscored` verdict —
+    // "we do not know" — and a zero here would be indistinguishable from a
+    // judge that scored the candidate and found it worthless. That distinction
+    // is the whole point of the phase.
+    judgeScore: row.judgeScore ?? null,
+    judgeStatus: row.judgeStatus ?? null,
+    judgeReason: row.judgeReason ?? null,
+    judgeCriteria: toJudgeCriteria(row.judgeCriteria),
   };
 }
 
