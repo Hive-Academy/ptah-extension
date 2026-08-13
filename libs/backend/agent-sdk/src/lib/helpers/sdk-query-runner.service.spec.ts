@@ -370,6 +370,56 @@ describe('SdkQueryRunner', () => {
       expect(env['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS']).toBe('1');
     });
 
+    it('does not leak an ambient chat-session token into an API-key override', async () => {
+      // `options.env` starts from `process.env`, and OAuthProxyStrategy writes
+      // ANTHROPIC_AUTH_TOKEN there for the ACTIVE chat provider. A one-shot
+      // that overrides to an API-key provider must not inherit it — the SDK
+      // would otherwise hold credentials for two different backends at once.
+      const previous = process.env['ANTHROPIC_AUTH_TOKEN'];
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'codex-proxy-managed';
+      try {
+        const h = makeRunner({ authEnv: {} as AuthEnv });
+
+        const options = await capturedOptions(h, {
+          env: {
+            ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+            ANTHROPIC_API_KEY: 'curator-key',
+          } as AuthEnv,
+        });
+        const env = options.env as Record<string, string | undefined>;
+
+        expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+        expect(env['ANTHROPIC_API_KEY']).toBe('curator-key');
+      } finally {
+        if (previous === undefined) {
+          delete process.env['ANTHROPIC_AUTH_TOKEN'];
+        } else {
+          process.env['ANTHROPIC_AUTH_TOKEN'] = previous;
+        }
+      }
+    });
+
+    it('leaves the ambient token in place when there is no override', async () => {
+      // The clearing is scoped to the override path. A normal run still
+      // inherits process.env exactly as it did before.
+      const previous = process.env['ANTHROPIC_AUTH_TOKEN'];
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'codex-proxy-managed';
+      try {
+        const h = makeRunner({ authEnv: {} as AuthEnv });
+
+        const options = await capturedOptions(h);
+        const env = options.env as Record<string, string | undefined>;
+
+        expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('codex-proxy-managed');
+      } finally {
+        if (previous === undefined) {
+          delete process.env['ANTHROPIC_AUTH_TOKEN'];
+        } else {
+          process.env['ANTHROPIC_AUTH_TOKEN'] = previous;
+        }
+      }
+    });
+
     it('honours an explicit override baseUrl for the derived decisions', async () => {
       const chatEnv: AuthEnv = {
         ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
