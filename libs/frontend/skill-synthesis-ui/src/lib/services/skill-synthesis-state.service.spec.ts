@@ -3,6 +3,7 @@ import type {
   SkillSuggestionSummary,
   SkillSynthesisDrainRun,
   SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisStateService } from './skill-synthesis-state.service';
@@ -161,6 +162,7 @@ describe('SkillSynthesisStateService — drain queue', () => {
     result: {
       items: SkillSynthesisQueueItem[];
       recentRuns: SkillSynthesisDrainRun[];
+      stageSpend?: SkillSynthesisStageSpend[];
     } = { items: [], recentRuns: [] },
   ) {
     const rpc = {
@@ -173,10 +175,19 @@ describe('SkillSynthesisStateService — drain queue', () => {
     return { svc, rpc };
   }
 
-  it('writes both halves of the payload from one call', async () => {
+  it('writes all three parts of the payload from one call', async () => {
     const { svc, rpc } = setupQueue({
       items: [queueItem(), queueItem({ id: 'q-2', stage: 'judge' })],
       recentRuns: [drainRun(), drainRun({ id: 'run-2', tier: 'frequent' })],
+      stageSpend: [
+        {
+          stage: 'judge',
+          inputTokens: 700,
+          outputTokens: 300,
+          totalTokens: 1_000,
+          costUsd: 0.02,
+        },
+      ],
     });
 
     await svc.refreshQueue();
@@ -184,6 +195,17 @@ describe('SkillSynthesisStateService — drain queue', () => {
     expect(rpc.queue).toHaveBeenCalledWith({});
     expect(svc.queueItems().length).toBe(2);
     expect(svc.drainRuns().length).toBe(2);
+    // The ledger rides the same response so the cost strip can never be read
+    // against a queue snapshot from a different tick.
+    expect(svc.stageSpend()).toEqual([
+      {
+        stage: 'judge',
+        inputTokens: 700,
+        outputTokens: 300,
+        totalTokens: 1_000,
+        costUsd: 0.02,
+      },
+    ]);
     expect(svc.queueLoading()).toBe(false);
     expect(svc.error()).toBeNull();
   });
@@ -227,7 +249,7 @@ describe('SkillSynthesisStateService — drain queue', () => {
     expect(svc.queueLoading()).toBe(false);
   });
 
-  it('tolerates a payload missing either half', async () => {
+  it('tolerates a payload missing any of the three parts', async () => {
     const { svc } = setupQueue(
       {} as unknown as {
         items: SkillSynthesisQueueItem[];
@@ -239,6 +261,30 @@ describe('SkillSynthesisStateService — drain queue', () => {
 
     expect(svc.queueItems()).toEqual([]);
     expect(svc.drainRuns()).toEqual([]);
+    expect(svc.stageSpend()).toEqual([]);
     expect(svc.queuedAttemptTotal()).toBe(0);
+  });
+
+  it('keeps the last good ledger when the refresh fails', async () => {
+    const { svc, rpc } = setupQueue({
+      items: [queueItem()],
+      recentRuns: [],
+      stageSpend: [
+        {
+          stage: 'archaeology',
+          inputTokens: 10,
+          outputTokens: 2,
+          totalTokens: 12,
+          costUsd: 0,
+        },
+      ],
+    });
+    await svc.refreshQueue();
+
+    rpc.queue.mockRejectedValueOnce(new Error('queue-store-unavailable'));
+    await svc.refreshQueue();
+
+    // Blanking the strip on a failed poll would read as "today cost nothing".
+    expect(svc.stageSpend()).toHaveLength(1);
   });
 });

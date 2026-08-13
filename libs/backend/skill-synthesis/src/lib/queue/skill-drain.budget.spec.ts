@@ -89,7 +89,11 @@ function makeBudget(initial: number): {
     set: (value: number) => {
       spent = value;
     },
-    store: { spentToday: () => spent } as unknown as SkillBudgetStore,
+    store: {
+      spentToday: () => spent,
+      // Must invoke `fn`: the drain runs every stage handler inside this scope.
+      withStage: <T>(_stage: string, fn: () => T): T => fn(),
+    } as unknown as SkillBudgetStore,
   };
 }
 

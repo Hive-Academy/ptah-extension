@@ -13,6 +13,7 @@ import type {
   SkillSynthesisCandidateDetail,
   SkillSynthesisDrainRun,
   SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -90,13 +91,18 @@ export class SkillSynthesisStateService {
   public readonly specsLoading = signal<boolean>(false);
 
   /**
-   * The two halves of `skillSynthesis:queue`, kept as separate signals but
+   * The three parts of `skillSynthesis:queue`, kept as separate signals but
    * only ever written together by {@link refreshQueue} — reading one without
-   * the other cannot distinguish "the drain never fired" from "the queue is
+   * the others cannot distinguish "the drain never fired" from "the queue is
    * up to date", and a partial write would make that ambiguity permanent.
+   *
+   * `stageSpend` is today's UTC token ledger. It is a sibling of `queueItems`
+   * rather than a field on one, because tokens are recorded per `(day, stage)`
+   * and never per row: a stage can have spent and have no rows left.
    */
   public readonly queueItems = signal<SkillSynthesisQueueItem[]>([]);
   public readonly drainRuns = signal<SkillSynthesisDrainRun[]>([]);
+  public readonly stageSpend = signal<SkillSynthesisStageSpend[]>([]);
   public readonly queueLoading = signal<boolean>(false);
 
   /**
@@ -463,12 +469,13 @@ export class SkillSynthesisStateService {
   }
 
   /**
-   * Refresh the synthesis queue and the drain's recent run history.
+   * Refresh the synthesis queue, the drain's recent run history and today's
+   * per-stage token ledger.
    *
-   * Both signals are written from the one response so the Activity surface
-   * never renders a queue snapshot against a stale run feed. On failure both
-   * are left untouched: showing the last good snapshot beside the error is
-   * more useful than blanking the panel.
+   * All three signals are written from the one response so the Activity
+   * surface never renders a queue snapshot against a stale run feed or a stale
+   * cost strip. On failure all three are left untouched: showing the last good
+   * snapshot beside the error is more useful than blanking the panel.
    */
   public async refreshQueue(
     options: { limit?: number; runLimit?: number } = {},
@@ -479,6 +486,7 @@ export class SkillSynthesisStateService {
       const result = await this.rpc.queue(options);
       this.queueItems.set(result.items ?? []);
       this.drainRuns.set(result.recentRuns ?? []);
+      this.stageSpend.set(result.stageSpend ?? []);
     } catch (err) {
       this.error.set(this.toMessage(err));
     } finally {

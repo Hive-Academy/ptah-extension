@@ -63,11 +63,17 @@ export function makeQueueStub(): QueueStub {
 export function makeBudgetStub(spentToday = 0): {
   store: SkillBudgetStore;
   spentToday: jest.Mock;
+  withStage: jest.Mock;
 } {
   const spent = jest.fn(() => spentToday);
+  // `withStage` must actually INVOKE `fn` and return its value: the drain
+  // dispatches every stage handler through it, so a stub that only records the
+  // call would make every drain spec pass with no handler ever running.
+  const withStage = jest.fn(<T>(_stage: string, fn: () => T): T => fn());
   return {
     spentToday: spent,
-    store: { spentToday: spent } as unknown as SkillBudgetStore,
+    withStage,
+    store: { spentToday: spent, withStage } as unknown as SkillBudgetStore,
   };
 }
 

@@ -14,6 +14,7 @@ import type {
   SkillSynthesisStatsResult,
   SkillSynthesisDrainRun,
   SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
@@ -190,6 +191,7 @@ interface StubState {
   readonly loadCandidateDetail: jest.Mock<Promise<void>, [string | null]>;
   readonly drainRuns: ReturnType<typeof signal<SkillSynthesisDrainRun[]>>;
   readonly queueItems: ReturnType<typeof signal<SkillSynthesisQueueItem[]>>;
+  readonly stageSpend: ReturnType<typeof signal<SkillSynthesisStageSpend[]>>;
   readonly queueLoading: ReturnType<typeof signal<boolean>>;
   readonly queuedAttemptTotal: ReturnType<typeof computed<number>>;
   readonly refreshQueue: jest.Mock<Promise<void>, []>;
@@ -200,6 +202,7 @@ function makeStub(
   queueValue: {
     items?: SkillSynthesisQueueItem[];
     runs?: SkillSynthesisDrainRun[];
+    stageSpend?: SkillSynthesisStageSpend[];
   } = {},
 ): StubState {
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
@@ -208,6 +211,7 @@ function makeStub(
   return {
     drainRuns: signal<SkillSynthesisDrainRun[]>(queueValue.runs ?? []),
     queueItems,
+    stageSpend: signal<SkillSynthesisStageSpend[]>(queueValue.stageSpend ?? []),
     queueLoading: signal<boolean>(false),
     queuedAttemptTotal: computed(() =>
       queueItems().reduce((sum, item) => sum + item.attemptCount, 0),

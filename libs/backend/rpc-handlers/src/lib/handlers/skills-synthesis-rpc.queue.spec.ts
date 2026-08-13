@@ -6,6 +6,12 @@
  * it in two, and this file is the first half — the method returns the seeded
  * queue rows AND the seeded drain runs. The component half lives in
  * `skill-synthesis-ui/.../skill-pipeline-status.component.spec.ts` (batch B0.7).
+ *
+ * B0.8 added a third feed, `stageSpend`, and it comes from a different table
+ * than the other two: queue rows carry DISPATCHES, `skill_synthesis_budget`
+ * carries TOKENS, and it is keyed `(UTC day, stage)` rather than by row. The
+ * tests below therefore pin what the handler must NOT do to it — clip it to
+ * `limit`, drop the unattributed bucket, or re-order it.
  */
 import 'reflect-metadata';
 import { container } from 'tsyringe';
@@ -88,11 +94,34 @@ function jobRun(jobId: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * One `skill_synthesis_budget` entry as `SkillBudgetStore.todayStageUsage`
+ * returns it — already narrowed, aggregated and ordered heaviest-first by the
+ * store, which is why the handler only reshapes it.
+ */
+function stageUsage(
+  stage: string,
+  inputTokens: number,
+  outputTokens = 0,
+  costUsd = 0,
+) {
+  return {
+    dayKey: '2026-08-13',
+    stage,
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    costUsd,
+    updatedAt: 1_700_000_000_000,
+  };
+}
+
 interface BuildOptions {
   rows?: ReturnType<typeof queueRow>[];
   runsByJobId?: Record<string, ReturnType<typeof jobRun>[]>;
   /** Omit the cron scheduler entirely — the "cron failed to boot" host. */
   withCron?: boolean;
+  stageUsage?: ReturnType<typeof stageUsage>[];
 }
 
 function buildHandlers(opts: BuildOptions = {}) {
@@ -104,6 +133,9 @@ function buildHandlers(opts: BuildOptions = {}) {
   const rpcHandler = makeRpcHandler();
   const sentry = { captureException: jest.fn() };
   const queueStore = { listRecent: jest.fn().mockReturnValue(rows) };
+  const budgetStore = {
+    todayStageUsage: jest.fn().mockReturnValue(opts.stageUsage ?? []),
+  };
   const cron = {
     listRuns: jest.fn((jobId: string) => runsByJobId[jobId] ?? []),
   };
@@ -129,6 +161,10 @@ function buildHandlers(opts: BuildOptions = {}) {
     getSnapshot: jest.fn(),
   });
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+    budgetStore,
+  );
   if (withCron) {
     child.registerInstance(CRON_TOKENS.CRON_SCHEDULER, cron);
   }
@@ -149,7 +185,7 @@ function buildHandlers(opts: BuildOptions = {}) {
       params,
     ) as Promise<SkillSynthesisQueueResult>;
 
-  return { call, queueStore, cron, logger, sentry };
+  return { call, queueStore, budgetStore, cron, logger, sentry };
 }
 
 describe('skillSynthesis:queue — queue items', () => {
@@ -355,6 +391,99 @@ describe('skillSynthesis:queue — drain runs', () => {
 
     expect(result.recentRuns).toEqual([]);
     expect(result.items).toHaveLength(1);
+  });
+});
+
+describe('skillSynthesis:queue — per-stage spend (B0.8)', () => {
+  it('returns the ledger in wire shape, dropping the row timestamp', async () => {
+    // `updatedAt` is not on the wire: the strip renders "what today cost", and
+    // a per-stage timestamp invites a "last spent" label that is wrong the
+    // moment two stages share a tick.
+    const { call } = buildHandlers({
+      stageUsage: [stageUsage('archaeology', 12_000, 3_000, 0.18)],
+    });
+
+    const result = await call();
+
+    expect(result.stageSpend).toEqual([
+      {
+        stage: 'archaeology',
+        inputTokens: 12_000,
+        outputTokens: 3_000,
+        totalTokens: 15_000,
+        costUsd: 0.18,
+      },
+    ]);
+  });
+
+  it('preserves the store s heaviest-first order', async () => {
+    const { call } = buildHandlers({
+      stageUsage: [
+        stageUsage('synthesis', 8_000),
+        stageUsage('judge', 2_000),
+        stageUsage('', 100),
+      ],
+    });
+
+    const { stageSpend } = await call();
+
+    expect(stageSpend.map((s) => s.stage)).toEqual(['synthesis', 'judge', '']);
+  });
+
+  /**
+   * The unattributed bucket is spend that no queue stage owned — the foreground
+   * promotion gate's judge call. It rides the wire rather than being dropped
+   * because the entries must sum to the day total the daily cap is compared
+   * against; a list that summed to less would read as headroom nobody has.
+   */
+  it('carries the unattributed bucket rather than dropping it', async () => {
+    const { call } = buildHandlers({
+      stageUsage: [stageUsage('judge', 400), stageUsage('', 600)],
+    });
+
+    const { stageSpend } = await call();
+
+    expect(stageSpend.map((s) => s.stage)).toContain('');
+    expect(stageSpend.reduce((n, s) => n + s.totalTokens, 0)).toBe(1_000);
+  });
+
+  /**
+   * `limit` bounds how many QUEUE ROWS cross the bridge. Clipping the ledger to
+   * match would make the cost strip disagree with the daily cap the moment the
+   * queue grew past one page — and the ledger is at most twelve rows a day.
+   */
+  it('reads the whole day ledger regardless of the row limit', async () => {
+    const { call, budgetStore } = buildHandlers({
+      stageUsage: [stageUsage('judge', 1)],
+    });
+
+    const { stageSpend } = await call({ limit: 1, runLimit: 1 });
+
+    expect(budgetStore.todayStageUsage).toHaveBeenCalledWith();
+    expect(stageSpend).toHaveLength(1);
+  });
+
+  it('returns an empty ledger on a day nothing has spent', async () => {
+    const { call } = buildHandlers({ rows: [queueRow()] });
+
+    const result = await call();
+
+    // A queue with work and an empty ledger is a true and legible state: the
+    // rows are waiting and nothing has been dispatched yet.
+    expect(result.stageSpend).toEqual([]);
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('reports a sanitized error when the ledger read throws', async () => {
+    const { call, budgetStore, sentry } = buildHandlers();
+    budgetStore.todayStageUsage.mockImplementation(() => {
+      throw new Error('SQLITE_CORRUPT: database disk image is malformed');
+    });
+
+    await expect(call()).rejects.toThrow(
+      'skillSynthesis:queue failed; please try again.',
+    );
+    expect(sentry.captureException).toHaveBeenCalled();
   });
 });
 

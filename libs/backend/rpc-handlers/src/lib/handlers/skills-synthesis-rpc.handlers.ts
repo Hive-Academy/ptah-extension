@@ -49,6 +49,8 @@ import {
   type SkillScorecardService,
   type SkillQueueStore,
   type SkillQueueRow,
+  type SkillBudgetStore,
+  type SkillBudgetStageDay,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -146,6 +148,7 @@ import type {
   SkillSynthesisQueueParams,
   SkillSynthesisQueueResult,
   SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
   SkillSynthesisDrainRun,
   SkillDrainTier,
   JobId,
@@ -296,6 +299,13 @@ export class SkillsSynthesisRpcHandlers {
     // above, so a host that can serve this class can always serve the queue.
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE)
     private readonly queue: SkillQueueStore,
+    // Not optional for the same reason as the queue store above: both are
+    // registered by the one `registerSkillSynthesisServices` call. The ledger
+    // is the ONLY place tokens are recorded, so an optional binding here would
+    // silently degrade the Activity cost strip back to a dispatch counter in
+    // whichever host forgot it.
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE)
+    private readonly budget: SkillBudgetStore,
     // Optional: `startThothCron` catches its own failures and leaves the
     // scheduler unregistered, and the CLI tier may run without cron at all.
     // No scheduler simply means no run history to show — not an error.
@@ -1589,8 +1599,8 @@ export class SkillsSynthesisRpcHandlers {
   /**
    * The Activity surface's read of the drain — criterion P0-7, backend half.
    *
-   * Two independent feeds, because they answer different questions and neither
-   * can be derived from the other:
+   * Three independent feeds, because they answer different questions and none
+   * can be derived from the others:
    *
    *  - `items` is WHAT is waiting, from `skill_synthesis_queue`: the stage, its
    *    status, how many attempts it has cost and the short reason the drain
@@ -1600,10 +1610,16 @@ export class SkillsSynthesisRpcHandlers {
    *    slot, so they are read, not re-derived — a second bookkeeping table for
    *    drain history would be a parallel implementation of the cron scheduler's
    *    own.
+   *  - `stageSpend` is WHAT IT COST, from `skill_synthesis_budget`. Queue rows
+   *    carry dispatches, never tokens; the ledger is the only place a token is
+   *    recorded and it is keyed `(UTC day, stage)`, not by row. So this is a
+   *    sibling array rather than a field on `items`, and it can name a stage
+   *    that has no rows left — a stage that spent, then finished.
    *
    * The pairing is what makes an empty queue legible: no items and no runs is a
    * drain that never fired, while no items and a healthy run feed is simply a
-   * queue that is up to date.
+   * queue that is up to date. `stageSpend` is what makes an expensive one
+   * legible before anyone tunes the tier cadence or the daily cap (R3).
    */
   private registerQueue(): void {
     this.rpcHandler.registerMethod<
@@ -1624,6 +1640,11 @@ export class SkillsSynthesisRpcHandlers {
           recentRuns: this.readDrainRuns(
             parsed?.runLimit ?? DEFAULT_DRAIN_RUN_LIMIT,
           ),
+          // Deliberately NOT limited by `limit`: `limit` bounds how many queue
+          // rows cross the bridge, and clipping the ledger to match would make
+          // the cost strip disagree with the daily cap the moment the queue
+          // grew past one page. The ledger is at most twelve rows a day.
+          stageSpend: this.budget.todayStageUsage().map(toStageSpend),
         };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
@@ -1928,6 +1949,30 @@ function toQueueItem(row: SkillQueueRow): SkillSynthesisQueueItem {
     lane: row.lane,
     reason: row.reason,
     candidateId: row.candidateId,
+  };
+}
+
+/**
+ * Ledger row → wire spend.
+ *
+ * `updatedAt` is dropped: the strip renders "what today cost", and a per-stage
+ * timestamp invites a "last spent" label that would be wrong the moment two
+ * stages share a tick. `costUsd` IS carried — it is the store's own figure, not
+ * a renderer-side price calculation, and it is the only thing that stays
+ * meaningful when two providers price tokens differently.
+ *
+ * The `stage` assignment is a compile-time drift guard of the same kind
+ * {@link toQueueItem} keeps: `SkillBudgetStage` is the backend's union
+ * (`SkillQueueStage | ''`) and this stops compiling if `libs/shared` and the
+ * store ever disagree about what a stage key is.
+ */
+function toStageSpend(entry: SkillBudgetStageDay): SkillSynthesisStageSpend {
+  return {
+    stage: entry.stage,
+    inputTokens: entry.inputTokens,
+    outputTokens: entry.outputTokens,
+    totalTokens: entry.totalTokens,
+    costUsd: entry.costUsd,
   };
 }
 

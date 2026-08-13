@@ -41,6 +41,12 @@
  * 80 % of the budget onward the eligible window is ordered cheap-stages-first,
  * so the last of the budget buys the most work.
  *
+ * The drain is also where a spend LEARNS ITS STAGE: `runItem` dispatches the
+ * handler inside `SkillBudgetStore.withStage(row.stage, …)`, so the ledger write
+ * `LaneRunner` makes several frames down is attributed to the queue stage rather
+ * than to the lane it happened to run on. Those are different taxonomies and
+ * inferring one from the other would be quietly wrong.
+ *
  * ## R4 — starvation
  *
  * Selection NEVER orders by `enqueued_at` globally. It walks distinct eligible
@@ -465,12 +471,18 @@ export class SkillDrainService {
     }
 
     try {
-      const result = await handler({
-        row: claimed,
-        tier: opts.tier,
-        signal: opts.signal,
-        touch: () => this.queue.touchClaim(claimed.id),
-      });
+      // The stage is known HERE and nowhere below: `LaneRunner` — which makes
+      // the ledger write — sees only a lane id, a different taxonomy from the
+      // eleven queue stages. The scope carries `claimed.stage` down the handler's
+      // await chain so every token this dispatch spends is booked to it.
+      const result = await this.budget.withStage(claimed.stage, () =>
+        handler({
+          row: claimed,
+          tier: opts.tier,
+          signal: opts.signal,
+          touch: () => this.queue.touchClaim(claimed.id),
+        }),
+      );
       this.applyResult(claimed, result, summary);
     } catch (error: unknown) {
       this.applyThrow(claimed, cfg, error, summary);

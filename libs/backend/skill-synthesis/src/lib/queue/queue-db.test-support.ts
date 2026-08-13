@@ -46,6 +46,14 @@ type DbOpener = (file: string) => RawDatabase;
 
 export const sql0032 = MIGRATIONS.find((m) => m.version === 32)?.sql ?? '';
 
+/**
+ * The `(day_key, stage)` re-key of `skill_synthesis_budget`. Applied after
+ * `0032` because `SkillBudgetStore` writes the six-column shape: a harness
+ * stopping at `0032` would leave the budget specs asserting against a schema
+ * no host still has.
+ */
+export const sql0035 = MIGRATIONS.find((m) => m.version === 35)?.sql ?? '';
+
 export const noopLogger = {
   debug: jest.fn(),
   info: jest.fn(),
@@ -115,9 +123,10 @@ export function makeTempDbPath(): string {
 }
 
 /**
- * Open `file` and apply migration `0032`. Mirrors the production pragmas that
- * matter to these tests: foreign keys on (`depends_on` is a self-reference) and
- * a busy timeout (two connections share one file in the claim spec).
+ * Open `file` and apply migrations `0032` then `0035`. Mirrors the production
+ * pragmas that matter to these tests: foreign keys on (`depends_on` is a
+ * self-reference) and a busy timeout (two connections share one file in the
+ * claim spec).
  */
 export function openQueueDb(opener: DbOpener, file: string): TestDatabase {
   const db = adapt(opener(file));
@@ -125,6 +134,7 @@ export function openQueueDb(opener: DbOpener, file: string): TestDatabase {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
   db.exec(sql0032);
+  db.exec(sql0035);
   return db;
 }
 

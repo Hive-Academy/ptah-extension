@@ -40,7 +40,7 @@ Constants/types: `JUDGE_DEFAULT_MODEL_ID`, `MIN_TURNS_FOR_TRAJECTORY`, `SkillId`
 - `src/lib/cosine-similarity.ts`
 - `src/lib/lanes/` — the lane contract: `lane.types.ts` (capability record + failure kinds), `skill-lane-config.ts` (the `skillSynthesis.<lane>.*` settings sub-tree), `lane-auth-resolver.port.ts` (local mirror of `IProviderAuthResolver`), `lane-resolver.service.ts` (lane id → `{auth snapshot, model}`)
 - `src/lib/archaeology/` — the session archaeologist's structured verdict (migration `0034`): `session-verdict.types.ts`, `SessionVerdictStore`
-- `src/lib/queue/` — the durable synthesis queue (migration `0032`): `SkillQueueStore` (enqueue / CAS claim / heartbeat / reap), `SkillBudgetStore` (per-UTC-day token ledger), `SkillDrainService` (the gated, round-robin drain), `ForegroundActivityTracker` (ms since the last chat turn), and the row/stage/status types
+- `src/lib/queue/` — the durable synthesis queue (migration `0032`): `SkillQueueStore` (enqueue / CAS claim / heartbeat / reap), `SkillBudgetStore` (token ledger keyed per UTC day **and stage**, migration `0035`; `spentToday()` still returns the day total across every stage, which is what the drain's budget gate reads — stage `''` holds spend no queue stage owned, so the per-stage rows always sum to it), `SkillDrainService` (the gated, round-robin drain), `ForegroundActivityTracker` (ms since the last chat turn), and the row/stage/status types
 - `src/lib/di/{tokens,register}.ts`
 
 ## Dependencies

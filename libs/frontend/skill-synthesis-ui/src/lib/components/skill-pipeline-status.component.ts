@@ -10,7 +10,19 @@ import type {
   SkillSynthesisEventWire,
   SkillSynthesisQueueItem,
   SkillSynthesisQueueStage,
+  SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
+
+/**
+ * A stage key as the cost strip folds on it: the eleven queue stages plus the
+ * ledger's unattributed bucket. `''` is a real member — see
+ * {@link SkillSynthesisStageSpend} — so the strip's token total can equal the
+ * day total the daily cap is compared against.
+ */
+type CostStageKey = SkillSynthesisQueueStage | '';
+
+/** How the unattributed bucket is named in the strip. */
+const UNATTRIBUTED_LABEL = 'unattributed';
 
 /** One drain run flattened to the strings the template renders. */
 interface DrainRunView {
@@ -25,9 +37,9 @@ interface DrainRunView {
   readonly tone: string;
 }
 
-/** One stage's share of the queued work, for the cost strip. */
+/** One stage's share of the queued work and of today's bill, for the cost strip. */
 interface StageCostView {
-  readonly stage: SkillSynthesisQueueStage;
+  readonly stage: CostStageKey;
   readonly label: string;
   /** Queue rows currently sitting on this stage. */
   readonly rows: number;
@@ -37,11 +49,20 @@ interface StageCostView {
    * figure that tracks spend once retries start.
    */
   readonly attempts: number;
+  /**
+   * Tokens this stage has actually spent TODAY (input + output), from the
+   * `(UTC day, stage)` ledger. This is a measurement, not a proxy — and it is a
+   * different window from {@link attempts}, which counts dispatches over the
+   * lifetime of the rows currently in the queue. Both are shown because neither
+   * answers the other's question: tokens say what today cost, dispatches say
+   * which stage is retrying.
+   */
+  readonly tokens: number;
   /** Rows not yet finished (`queued` / `claimed` / `running`). */
   readonly inFlight: number;
   /** Rows that ended in `failed`. */
   readonly failed: number;
-  /** Share of total attempts, 0-100, for the bar width. */
+  /** Share of the heaviest stage's figure, 0-100, for the bar width. */
   readonly sharePct: number;
 }
 
@@ -70,21 +91,26 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
  *     which said nothing when the cron tier simply never fired.
  *  3. **What is it costing?** — the per-stage strip.
  *
- * ### On band 3 and the cost figure it shows
+ * ### On band 3 and the two cost figures it shows
  *
  * `archaeology` cost scales linearly with session count, so the Activity view
  * must make per-stage cost observable BEFORE anyone tunes the tier cadence or
- * the daily budget. `skillSynthesis:queue` carries no token counters today —
- * `SkillSynthesisQueueItem` exposes `stage`, `status` and `attemptCount`, and
- * the daily token ledger (`skill_synthesis_budget`) is not on the wire at all.
- * The strip therefore counts **dispatches per stage**, which is the honest
- * proxy the contract supports: one attempt on an LLM-backed stage is one model
- * call, so a stage whose attempts climb faster than its rows is retrying, and
- * a stage that dominates the attempt share is the one dominating the bill.
+ * the daily budget. The strip shows two figures per stage, and they are NOT
+ * interchangeable:
  *
- * When the wire grows a per-item token figure, it renders in the cell that
- * already exists here — `StageCostView.attempts` gains a sibling and the
- * aggregation in {@link stageCosts} sums one more field. Nothing else moves.
+ *  - **Tokens** — what the stage actually spent today, from
+ *    `skill_synthesis_budget`, which migration `0035` re-keyed to
+ *    `(UTC day, stage)`. A measurement, not a proxy. It arrives on
+ *    `stageSpend`, a sibling of `queueItems`, because a token is recorded per
+ *    day-and-stage and never per row; a stage can appear here with no rows
+ *    left, and `''` names spend that no queue stage owned.
+ *  - **Dispatches** — `attemptCount` summed over the rows CURRENTLY queued.
+ *    A different window and a different question: it is what says a stage is
+ *    retrying, which a token total on its own cannot.
+ *
+ * The bar is scaled on tokens whenever the day has any, and falls back to
+ * dispatches on a day that has spent nothing — a strip of flat zero bars would
+ * hide the retry signal that is the only thing left to see.
  */
 @Component({
   selector: 'ptah-skill-pipeline-status',
@@ -186,8 +212,17 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
           <h4 class="text-xs font-semibold uppercase tracking-wide">
             Stage cost
           </h4>
-          <span class="text-xs text-base-content-muted tabular-nums">
-            {{ totalAttempts() }} dispatches / {{ totalRows() }} queued
+          <span
+            class="text-xs text-base-content-muted tabular-nums"
+            data-testid="skills-stage-cost-total"
+          >
+            <span data-testid="skills-stage-cost-tokens-total"
+              >{{ totalTokens() }} tokens today</span
+            >
+            ·
+            <span data-testid="skills-stage-cost-dispatch-total"
+              >{{ totalAttempts() }} dispatches / {{ totalRows() }} queued</span
+            >
           </span>
         </div>
 
@@ -196,7 +231,7 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
             class="mt-2 text-xs text-base-content-muted"
             data-testid="skills-stage-cost-empty"
           >
-            Nothing queued.
+            Nothing queued, and nothing spent today.
           </p>
         } @else {
           <ul class="mt-2 flex flex-col gap-1.5" role="list">
@@ -209,7 +244,10 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
                 <div class="flex items-baseline justify-between gap-2">
                   <span class="font-medium">{{ stage.label }}</span>
                   <span class="tabular-nums text-base-content-muted">
-                    {{ stage.attempts }} dispatches · {{ stage.rows }} queued
+                    <span data-testid="skills-stage-cost-tokens"
+                      >{{ stage.tokens }} tokens</span
+                    >
+                    · {{ stage.attempts }} dispatches · {{ stage.rows }} queued
                     @if (stage.inFlight > 0) {
                       · {{ stage.inFlight }} in flight
                     }
@@ -244,8 +282,15 @@ export class SkillPipelineStatusComponent {
   /** Recent drain `job_runs`, most-recently-scheduled first. */
   public readonly drainRuns = input<readonly SkillSynthesisDrainRun[]>([]);
 
-  /** Current queue rows — the source of the per-stage cost strip. */
+  /** Current queue rows — the row / dispatch half of the per-stage cost strip. */
   public readonly queueItems = input<readonly SkillSynthesisQueueItem[]>([]);
+
+  /**
+   * Today's UTC token ledger, one entry per stage — the token half of the
+   * strip. Defaults to empty so a host that has not refreshed the queue yet
+   * renders "0 tokens today" rather than a broken row.
+   */
+  public readonly stageSpend = input<readonly SkillSynthesisStageSpend[]>([]);
 
   /**
    * Clock override. `null` — the default every host uses — reads the wall
@@ -297,25 +342,50 @@ export class SkillPipelineStatusComponent {
   );
 
   protected readonly stageCosts = computed<readonly StageCostView[]>(() => {
-    const byStage = new Map<SkillSynthesisQueueStage, StageAccumulator>();
-    for (const item of this.queueItems()) {
-      const acc = byStage.get(item.stage) ?? {
+    const byStage = new Map<CostStageKey, StageAccumulator>();
+    const accFor = (stage: CostStageKey): StageAccumulator => {
+      const existing = byStage.get(stage);
+      if (existing) return existing;
+      const fresh: StageAccumulator = {
         rows: 0,
         attempts: 0,
+        tokens: 0,
         inFlight: 0,
         failed: 0,
       };
+      byStage.set(stage, fresh);
+      return fresh;
+    };
+
+    for (const item of this.queueItems()) {
+      const acc = accFor(item.stage);
       acc.rows += 1;
       acc.attempts += item.attemptCount;
       if (IN_FLIGHT_STATUSES.has(item.status)) acc.inFlight += 1;
       if (item.status === 'failed') acc.failed += 1;
-      byStage.set(item.stage, acc);
     }
 
+    // The ledger seeds stages of its own: a stage that spent today and has no
+    // rows left is the single most interesting thing this strip can say, and
+    // folding only over `queueItems` would erase it the moment the drain
+    // finished the work it paid for.
+    for (const spend of this.stageSpend()) {
+      accFor(spend.stage).tokens += spend.totalTokens;
+    }
+
+    const maxTokens = Math.max(
+      0,
+      ...Array.from(byStage.values(), (acc) => acc.tokens),
+    );
     const maxAttempts = Math.max(
       0,
       ...Array.from(byStage.values(), (acc) => acc.attempts),
     );
+    // Tokens are the real measurement, so they own the bar whenever the day has
+    // any. On a day that has spent nothing they are all zero, and scaling on
+    // them would render a strip of flat bars that hides the retry signal.
+    const basis = maxTokens > 0 ? 'tokens' : 'attempts';
+    const max = maxTokens > 0 ? maxTokens : maxAttempts;
 
     return Array.from(byStage.entries())
       .map(([stage, acc]) => ({
@@ -323,16 +393,17 @@ export class SkillPipelineStatusComponent {
         label: this.stageLabel(stage),
         rows: acc.rows,
         attempts: acc.attempts,
+        tokens: acc.tokens,
         inFlight: acc.inFlight,
         failed: acc.failed,
         // Relative to the heaviest stage, not to the total: the point of the
         // bar is "which stage dominates", and a share-of-total bar flattens
         // to invisibility as soon as more than a handful of stages are live.
-        sharePct:
-          maxAttempts > 0 ? Math.round((acc.attempts / maxAttempts) * 100) : 0,
+        sharePct: max > 0 ? Math.round((acc[basis] / max) * 100) : 0,
       }))
       .sort(
         (a, b) =>
+          b.tokens - a.tokens ||
           b.attempts - a.attempts ||
           b.rows - a.rows ||
           a.stage.localeCompare(b.stage),
@@ -343,6 +414,14 @@ export class SkillPipelineStatusComponent {
     this.stageCosts().reduce((sum, stage) => sum + stage.attempts, 0),
   );
 
+  /**
+   * Today's whole bill. Summed from {@link stageCosts} rather than from
+   * `stageSpend` directly so it can never disagree with the rows beneath it.
+   */
+  protected readonly totalTokens = computed<number>(() =>
+    this.stageCosts().reduce((sum, stage) => sum + stage.tokens, 0),
+  );
+
   protected readonly totalRows = computed<number>(
     () => this.queueItems().length,
   );
@@ -351,7 +430,10 @@ export class SkillPipelineStatusComponent {
     return this.now() ?? Date.now();
   }
 
-  private stageLabel(stage: SkillSynthesisQueueStage): string {
+  private stageLabel(stage: CostStageKey): string {
+    // `''` is spend no queue stage owned — the foreground promotion gate's
+    // judge call. It needs a name a user can read, not a blank cell.
+    if (stage === '') return UNATTRIBUTED_LABEL;
     return stage.replace(/-/g, ' ');
   }
 
@@ -402,10 +484,11 @@ export class SkillPipelineStatusComponent {
   }
 }
 
-/** Mutable per-stage tally used only while folding the queue rows. */
+/** Mutable per-stage tally used only while folding the rows and the ledger. */
 interface StageAccumulator {
   rows: number;
   attempts: number;
+  tokens: number;
   inFlight: number;
   failed: number;
 }

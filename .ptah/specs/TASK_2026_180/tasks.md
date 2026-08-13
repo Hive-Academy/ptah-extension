@@ -1441,7 +1441,7 @@ fallback — C3 ships and passes CI whether or not C2 has landed.**
 
 ---
 
-## Batch B3.1: Migration 0035 + store writers + gate settings ⏸️ PENDING
+## Batch B3.1: Migration 0036 + store writers + gate settings ⏸️ PENDING
 
 - **Status**: PENDING
 - **Commit**: C3 (Phase 3)
@@ -1451,10 +1451,10 @@ fallback — C3 ships and passes CI whether or not C2 has landed.**
 - **Rationale**: Same `SELECT *` invisibility trap as B1.2 — the columns are dark
   until both row types are updated.
 
-### Task B3.1.1: Migration `0035_skill_empirical_gates`
+### Task B3.1.1: Migration `0036_skill_empirical_gates`
 
-- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0035_skill_empirical_gates.ts`
-- **Spec**: `.../0035_skill_empirical_gates.spec.ts`
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0036_skill_empirical_gates.ts`
+- **Spec**: `.../0036_skill_empirical_gates.spec.ts`
 - **Spec ref**: implementation-plan.md §2.3 (lines 221–230)
 - **Details**: `replay_confidence`, `replay_holdout_session_id`, `replay_at`,
   `trigger_score`, `trigger_precision`, `trigger_recall`, `trigger_eval_at`.
@@ -1482,7 +1482,7 @@ fallback — C3 ships and passes CI whether or not C2 has landed.**
 
 **Acceptance**:
 `nx test @ptah-extension/persistence-sqlite @ptah-extension/skill-synthesis @ptah-extension/platform-core`
-— `0035` applies at version 34; a `NULL` `replay_confidence` reads back as `null`,
+— `0036` applies at version 35; a `NULL` `replay_confidence` reads back as `null`,
 not `0`.
 
 ---
@@ -1651,7 +1651,7 @@ Commit message: `feat(skill-synthesis): phase 4 — win-rate join and ranked wee
 
 ---
 
-## Batch B4.1: Migration 0036 + the workspace-root thread-through (correction C10) ⏸️ PENDING
+## Batch B4.1: Migration 0037 + the workspace-root thread-through (correction C10) ⏸️ PENDING
 
 - **Status**: PENDING
 - **Commit**: C4 (Phase 4)
@@ -1661,10 +1661,10 @@ Commit message: `feat(skill-synthesis): phase 4 — win-rate join and ranked wee
 - **Rationale**: Fixes a live silent-data-loss bug (C10) and adds the index the
   whole phase's join depends on.
 
-### Task B4.1.1: Migration `0036_skill_invocation_session_join`
+### Task B4.1.1: Migration `0037_skill_invocation_session_join`
 
-- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0036_skill_invocation_session_join.ts`
-- **Spec**: `.../0036_skill_invocation_session_join.spec.ts`
+- **File**: `libs/backend/persistence-sqlite/src/lib/migrations/0037_skill_invocation_session_join.ts`
+- **Spec**: `.../0037_skill_invocation_session_join.spec.ts`
 - **Spec ref**: implementation-plan.md §2.5 (lines 272–303); correction C10
 - **Details**: `ALTER TABLE skill_invocation_events ADD COLUMN workspace_root TEXT;`
   - `CREATE INDEX idx_skill_inv_events_session ON skill_invocation_events(session_id);`
@@ -1699,7 +1699,7 @@ Commit message: `feat(skill-synthesis): phase 4 — win-rate join and ranked wee
 
 **Acceptance**:
 `nx test @ptah-extension/persistence-sqlite @ptah-extension/skill-synthesis` —
-`0036` applies at version 35; P4-2 exact numbers; the recorder spec proves
+`0037` applies at version 36; P4-2 exact numbers; the recorder spec proves
 `workspaceRoot` is no longer dropped.
 
 ---

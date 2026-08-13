@@ -2173,6 +2173,33 @@ export interface SkillSynthesisDrainRun {
   summary: string | null;
 }
 
+/**
+ * What one stage has actually SPENT today, from `skill_synthesis_budget`
+ * (migration `0035`, keyed `(day_key, stage)` in UTC).
+ *
+ * This is the real token counter, not a proxy. Queue rows carry dispatches;
+ * only the ledger carries tokens, and the ledger is day-and-stage-keyed rather
+ * than row-keyed — so the cost figure rides the RESPONSE, not
+ * {@link SkillSynthesisQueueItem}. A stage can appear here with no queue rows
+ * left (it spent, then finished), and rows can exist for a stage that has spent
+ * nothing; both are true statements and neither is derivable from the other.
+ *
+ * `stage: ''` is the unattributed bucket — spend no queue stage owned, such as
+ * the foreground promotion gate's judge call. It is reported rather than
+ * dropped because the entries must sum to the day total the daily cap
+ * (`skillSynthesis.budget.maxTokensPerDay`) is compared against; an entry list
+ * that summed to less would read as headroom the user does not have.
+ */
+export interface SkillSynthesisStageSpend {
+  /** A queue stage, or `''` for spend no queue stage owned. */
+  stage: SkillSynthesisQueueStage | '';
+  inputTokens: number;
+  outputTokens: number;
+  /** `inputTokens + outputTokens` — the figure the daily cap gates on. */
+  totalTokens: number;
+  costUsd: number;
+}
+
 export interface SkillSynthesisQueueParams {
   /** Queue rows to return, newest-enqueued first. */
   limit?: number;
@@ -2183,6 +2210,8 @@ export interface SkillSynthesisQueueParams {
 export interface SkillSynthesisQueueResult {
   items: SkillSynthesisQueueItem[];
   recentRuns: SkillSynthesisDrainRun[];
+  /** Today's UTC token ledger, one entry per stage, heaviest first. */
+  stageSpend: SkillSynthesisStageSpend[];
 }
 
 export interface SkillSynthesisInvocationsParams {

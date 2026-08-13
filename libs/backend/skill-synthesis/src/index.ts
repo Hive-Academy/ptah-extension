@@ -192,8 +192,12 @@ export {
 export {
   SkillBudgetStore,
   utcDayKey,
+  UNATTRIBUTED_STAGE,
   type SkillBudgetUsage,
   type SkillBudgetDay,
+  type SkillBudgetStage,
+  type SkillBudgetStageDay,
+  type SkillBudgetRecordOptions,
 } from './lib/queue/skill-budget.store';
 export {
   SKILL_QUEUE_STAGES,
