@@ -35,6 +35,10 @@ import {
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
 import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  CodexAuthService,
+} from '@ptah-extension/auth-providers';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -83,6 +87,8 @@ export class AgentRpcHandlers {
     private readonly stateStorage: IStateStorage,
     @inject(TOKENS.MODEL_DISCOVERY)
     private readonly modelDiscovery: IModelDiscovery,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
+    private readonly codexAuthService: CodexAuthService,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly runtimeContainer: DependencyContainer,
   ) {}
@@ -364,7 +370,13 @@ export class AgentRpcHandlers {
 
           const modelMap = await this.cliDetection.listModelsForAll();
 
-          const codex = (modelMap['codex'] ?? []) as CliModelOption[];
+          // The Codex adapter only knows a curated list baked into the build.
+          // `~/.codex/auth.json` is the same account the CLI uses, so the
+          // account's live model menu is authoritative when it resolves.
+          let codex = await this.getCodexModelsFromAuth();
+          if (codex.length === 0) {
+            codex = (modelMap['codex'] ?? []) as CliModelOption[];
+          }
           // Hosts with a Language Model API (VS Code) report the models the
           // user actually has; everywhere else this is empty and the curated
           // per-CLI list stands in.
@@ -422,6 +434,23 @@ export class AgentRpcHandlers {
       return models.map((model) => ({
         id: model.id,
         name: this.formatModelDisplayName(model.id),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Codex models for the account in `~/.codex/auth.json`, as reported by the
+   * provider `/models` endpoint. Empty when unauthenticated or offline, in
+   * which case the adapter's curated list stands in.
+   */
+  private async getCodexModelsFromAuth(): Promise<CliModelOption[]> {
+    try {
+      const models = await this.codexAuthService.listModels();
+      return models.map((model) => ({
+        id: model.id,
+        name: model.name || this.formatModelDisplayName(model.id),
       }));
     } catch {
       return [];
