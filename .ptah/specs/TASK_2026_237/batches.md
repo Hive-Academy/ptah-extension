@@ -558,22 +558,53 @@ paraphrase, not an obvious omission.
 
 ## B7 — Release step (NOT a code change)
 
-**Status**: `PARTIAL` — Steps 1–3 done by the orchestrator. Steps 4–5 await the user.
+**Status**: `COMPLETE for this task` — Steps 1–3 done and committed. Steps 4–5 **deferred by the user** as a
+separate release decision.
 
 | Step                                           | State                                                                                        |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | 1. `node scripts/generate-content-manifest.js` | ✅ 214 plugin + 15 template files, 229 total                                                 |
 | 2. `crucible.md` in `plugins.files`            | ✅ tribunal now lists **7** files, was 6                                                     |
 | 3. `contentHash` changed                       | ✅ `sha256:45fc296e…` → `sha256:8bee40f9…` (a real content change, not a `generatedAt` bump) |
-| 4. Merge to `main`                             | ⏸ **user decision** — outward-facing; `ContentDownloadService` reads `main` and only `main`  |
-| 5. Clean-profile verification                  | ⏸ **user decision** — deletes `~/.ptah/.content-cache.json` and `~/.ptah/plugins/ptah-core/` |
+| 4. Merge to `main`                             | ⏭ **DEFERRED by the user** — not part of this task's completion                             |
+| 5. Clean-profile verification                  | ⏭ **DEFERRED with step 4** — it verifies the download only `main` serves                    |
 
-Nothing is committed. Step 5 is executable today (it exercises `ContentDownloadService`, not a CLI lane), so it is
-**not** blocked by TASK_2026_238 — unlike live Relay/Crucible QA.
-**Recommended Executor**: `devops-engineer`, **or the orchestrator directly** (plan §7)
-**Execution Mode**: `sequential`
-**Dependencies**: **B0–B6 all complete**
-**Disjoint with**: —
+**Steps 4–5 are deliberately deferred, not forgotten.** The manifest is regenerated and committed, but
+`ContentDownloadService` reads `main` and only `main` — so **Crucible still reaches zero users until this branch
+merges**. That is a release decision the user is taking separately, not an unfinished part of the build.
+
+---
+
+## Completion
+
+**All eight batches delivered.** Committed to `ak/tui-defects` as `06cf3ed68`
+_"feat(webview): launch Relay and Crucible from the Tribunal panel"_ — 53 files, +9437/−127.
+
+| Gate                                  | Result                                                                |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| `nx test tribunal-panel`              | **16 suites / 330 passed** (baseline 11/196)                          |
+| `nx affected -t typecheck`            | 90 projects, exit 0                                                   |
+| `nx lint tribunal-panel`              | clean                                                                 |
+| `nx test task-specs` / `rpc-handlers` | 404 / 1910 passed — contract guard and allowlist partition both green |
+| `[innerHTML]` grep over the lib       | zero matches across 42 files                                          |
+| Skill-copy `cmp` (7 files)            | identical, re-verified **after** the pre-commit formatter ran         |
+
+Re-verified post-commit: the hooks ran `nx format:write` across all 53 staged files, so both the skill-copy
+byte-equality and the full test suite were re-run afterwards. Both hold.
+
+**Carried out of this task, by design:**
+
+- **TASK_2026_238** — codex adapter path fix. Gates live end-to-end QA of a real Relay or Crucible run; everything
+  here is unit-verified only. Owned in a separate session.
+- **Public docs** (`apps/ptah-docs/src/content/docs/tribunal/`) — needs a written Crucible page plus Starlight
+  sidebar wiring, sequenced after the UI ships (requirements §10).
+- **CI wiring for `generate-content-manifest.js`** — a DEVOPS task. This task is the evidence for it: the manifest
+  sat stale from 2026-08-09 with nothing in 16 workflows to catch it, and `pruneStaleFiles` would have deleted
+  `crucible.md` had it arrived by any other route.
+  **Recommended Executor**: `devops-engineer`, **or the orchestrator directly** (plan §7)
+  **Execution Mode**: `sequential`
+  **Dependencies**: **B0–B6 all complete**
+  **Disjoint with**: —
 
 **This batch ships no TypeScript.** It is the release procedure from requirements §8 Finding 1, without which
 Crucible reaches **zero users** — `ContentDownloadService` reads the manifest from `main` and only `main`, and

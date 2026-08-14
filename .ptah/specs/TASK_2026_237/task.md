@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_237
-status: in_progress
+status: done
 type: feature
 title: Wire Tribunal Relay and Crucible moves into the panel UI
 description: >-
