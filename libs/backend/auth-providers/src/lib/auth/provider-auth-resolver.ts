@@ -7,8 +7,8 @@ import {
 } from '@ptah-extension/vscode-core';
 import { ALL_TIER_ENV_KEYS } from '@ptah-extension/agent-sdk';
 import type { OneShotAuthOverride } from '@ptah-extension/agent-sdk';
-import type { ICuratorAuthResolver } from '@ptah-extension/agent-sdk';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { IProviderAuthResolver } from '@ptah-extension/agent-sdk';
+import type { AuthEnv, ProviderTierScope } from '@ptah-extension/shared';
 import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
@@ -19,34 +19,35 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
 import { CuratorProxyManager } from './curator-proxy-manager';
-import { CuratorAuthError } from './curator-auth.error';
+import { ProviderAuthError } from './provider-auth.error';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
 
 /**
- * Ambient env the curator must NOT inherit when it runs on its own provider.
+ * Ambient env a resolved provider must NOT inherit when it runs somewhere
+ * other than the active chat provider.
  *
  * The tier keys belong on this list for the same reason the credential keys do:
  * they are the *chat* provider's mapping. Leaving them in place aims the
- * curator's `haiku` tier at a model only the chat provider can serve — a
- * curator pinned to LM Studio would inherit Ollama Cloud's `ministral-3:cloud`.
- * Every key is cleared unconditionally and then re-populated by
- * {@link CuratorAuthResolver.buildTierValues} from the curator provider's own
- * mapping, so absence here is a real "this provider has no haiku tier" signal
- * rather than a leftover.
+ * resolved provider's `haiku` tier at a model only the chat provider can serve
+ * — a curator pinned to LM Studio would inherit Ollama Cloud's
+ * `ministral-3:cloud`. Every key is cleared unconditionally and then
+ * re-populated by {@link ProviderAuthResolver.buildTierValues} from the
+ * resolved provider's own mapping, so absence here is a real "this provider
+ * has no haiku tier" signal rather than a leftover.
  *
  * ## Why the tier half is SPREAD from `ALL_TIER_ENV_KEYS`, not restated
  *
  * TASK_2026_159 hand-listed the three `_MODEL` vars and stopped there, which
  * left the nine `_NAME` / `_DESCRIPTION` / `_SUPPORTED_CAPABILITIES` vars
  * `ProviderModelsService.applyTierMetadata` writes for the CHAT provider
- * crossing into the curator subprocess. Those are not credentials, but
- * `_SUPPORTED_CAPABILITIES` is documented at its own definition as an SDK
+ * crossing into the resolved provider's subprocess. Those are not credentials,
+ * but `_SUPPORTED_CAPABILITIES` is documented at its own definition as an SDK
  * ALLOWLIST — the SDK reports anything absent from it as unsupported — so the
- * chat provider's capability list was silently gating the curator provider's
- * features, and `_NAME` / `_DESCRIPTION` were labelling the curator's tiers
- * with the chat provider's model names.
+ * chat provider's capability list was silently gating the resolved provider's
+ * features, and `_NAME` / `_DESCRIPTION` were labelling its tiers with the
+ * chat provider's model names.
  *
  * Spreading the ONE definition rather than adding nine more literals is the
  * point: `ALL_TIER_ENV_KEYS` is what `clearAllTierEnvVars` and
@@ -61,8 +62,18 @@ const CHAT_AUTH_KEYS: ReadonlyArray<keyof AuthEnv> = [
   ...ALL_TIER_ENV_KEYS,
 ];
 
+/**
+ * Builds the credential + tier snapshot for running one query on a provider
+ * that is not the active chat provider.
+ *
+ * Serves every caller that needs an off-foreground provider: the memory
+ * curator today, background skill-synthesis lanes next. Nothing here is
+ * caller-specific — the only caller-visible knob is `scope`, which selects
+ * WHICH persisted tier mapping is read. Provider behaviour is driven entirely
+ * off `resolveStrategy` and the registry entry, never off a caller identity.
+ */
 @injectable()
-export class CuratorAuthResolver implements ICuratorAuthResolver {
+export class ProviderAuthResolver implements IProviderAuthResolver {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
@@ -80,10 +91,15 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
     private readonly openRouterAuth: IOpenRouterAuthService,
   ) {}
 
+  /**
+   * @param scope defaults to `'mainAgent'` so the pre-existing curator call
+   *   site, which passes nothing, reads exactly the mapping it always read.
+   */
   async resolve(
-    curatorProviderId: string,
+    requestedProviderId: string,
+    scope: ProviderTierScope = 'mainAgent',
   ): Promise<OneShotAuthOverride | null> {
-    const providerId = (curatorProviderId ?? '').trim();
+    const providerId = (requestedProviderId ?? '').trim();
     if (providerId.length === 0) {
       return null;
     }
@@ -106,83 +122,88 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
       return this.resolveCli();
     }
     if (strategy === 'oauth-proxy' || strategy === 'local-proxy') {
-      return this.resolveProxyProvider(providerId);
+      return this.resolveProxyProvider(providerId, scope);
     }
     if (providerId === 'openrouter') {
-      return this.resolveProxyProvider(providerId);
+      return this.resolveProxyProvider(providerId, scope);
     }
     if (strategy === 'local-native') {
-      return this.resolveLocalNative(providerId);
+      return this.resolveLocalNative(providerId, scope);
     }
-    return this.resolveThirdPartyApiKey(providerId);
+    return this.resolveThirdPartyApiKey(providerId, scope);
   }
 
   private async resolveDirectAnthropic(): Promise<OneShotAuthOverride> {
     const apiKey = await this.authSecrets.getCredential('apiKey');
     if (!apiKey?.trim()) {
-      throw new CuratorAuthError(
+      throw new ProviderAuthError(
         ANTHROPIC_DIRECT_PROVIDER_ID,
-        'Anthropic API key is not configured for the curator provider.',
+        'Anthropic API key is not configured.',
       );
     }
-    const env = this.buildCuratorEnv({ ANTHROPIC_API_KEY: apiKey.trim() });
+    const env = this.buildLaneEnv({ ANTHROPIC_API_KEY: apiKey.trim() });
     return { env };
   }
 
   private resolveCli(): OneShotAuthOverride {
-    return { env: this.buildCuratorEnv({}) };
+    return { env: this.buildLaneEnv({}) };
   }
 
   private async resolveThirdPartyApiKey(
     providerId: string,
+    scope: ProviderTierScope,
   ): Promise<OneShotAuthOverride> {
     const providerKey = await this.authSecrets.getProviderKey(providerId);
     if (!providerKey?.trim()) {
-      throw new CuratorAuthError(
+      throw new ProviderAuthError(
         providerId,
-        `API key is not configured for curator provider: ${providerId}`,
+        `API key is not configured for provider: ${providerId}`,
       );
     }
     const baseUrl = this.resolveProviderBaseUrl(providerId);
     const authEnvVar = getProviderAuthEnvVar(providerId);
-    const curatorValues: AuthEnv = {
+    const values: AuthEnv = {
       ANTHROPIC_BASE_URL: baseUrl,
       [authEnvVar]: providerKey.trim(),
-      ...this.buildTierValues(providerId),
+      ...this.buildTierValues(providerId, scope),
     };
-    return { env: this.buildCuratorEnv(curatorValues), baseUrl };
+    return { env: this.buildLaneEnv(values), baseUrl };
   }
 
-  private resolveLocalNative(providerId: string): OneShotAuthOverride {
+  private resolveLocalNative(
+    providerId: string,
+    scope: ProviderTierScope,
+  ): OneShotAuthOverride {
     const baseUrl = this.resolveProviderBaseUrl(providerId);
-    const curatorValues: AuthEnv = {
+    const values: AuthEnv = {
       ANTHROPIC_BASE_URL: baseUrl,
-      ...this.buildTierValues(providerId),
+      ...this.buildTierValues(providerId, scope),
     };
-    return { env: this.buildCuratorEnv(curatorValues), baseUrl };
+    return { env: this.buildLaneEnv(values), baseUrl };
   }
 
   private async resolveProxyProvider(
     providerId: string,
+    scope: ProviderTierScope,
   ): Promise<OneShotAuthOverride> {
     await this.assertProxyAuthenticated(providerId);
     let handle: { url: string; token: string };
     try {
       handle = await this.curatorProxyManager.ensureProxy(providerId);
     } catch (error: unknown) {
-      throw new CuratorAuthError(
+      throw new ProviderAuthError(
         providerId,
-        `Failed to start curator proxy for ${providerId}: ${
+        `Failed to start the local proxy for ${providerId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
     }
-    const curatorValues: AuthEnv = {
+    const values: AuthEnv = {
       ANTHROPIC_BASE_URL: handle.url,
       ANTHROPIC_AUTH_TOKEN: handle.token,
-      ...this.buildTierValues(providerId),
+      ...this.buildTierValues(providerId, scope),
     };
-    return { env: this.buildCuratorEnv(curatorValues), baseUrl: handle.url };
+    return { env: this.buildLaneEnv(values), baseUrl: handle.url };
   }
 
   private async assertProxyAuthenticated(providerId: string): Promise<void> {
@@ -191,9 +212,9 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
         (await this.copilotAuth.isAuthenticated()) ||
         (await this.copilotAuth.tryRestoreAuth());
       if (!ok) {
-        throw new CuratorAuthError(
+        throw new ProviderAuthError(
           providerId,
-          'GitHub Copilot is not authenticated for the curator provider.',
+          'GitHub Copilot is not authenticated.',
         );
       }
       return;
@@ -202,18 +223,18 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
       const authed = await this.codexAuth.isAuthenticated();
       const fresh = authed ? await this.codexAuth.ensureTokensFresh() : false;
       if (!authed || !fresh) {
-        throw new CuratorAuthError(
+        throw new ProviderAuthError(
           providerId,
-          'OpenAI Codex is not authenticated for the curator provider.',
+          'OpenAI Codex is not authenticated.',
         );
       }
       return;
     }
     if (providerId === 'openrouter') {
       if (!(await this.openRouterAuth.isAuthenticated())) {
-        throw new CuratorAuthError(
+        throw new ProviderAuthError(
           providerId,
-          'OpenRouter is not authenticated for the curator provider.',
+          'OpenRouter is not authenticated.',
         );
       }
       return;
@@ -221,43 +242,53 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
   }
 
   /**
-   * The curator provider's tier mapping, resolved the same way the main agent
-   * resolves its own (`ProviderModelsService.applyPersistedTiers`): the user's
-   * persisted `mainAgent` override wins, the provider entry's `defaultTiers`
+   * The resolved provider's tier mapping, read the same way the main agent
+   * reads its own (`ProviderModelsService.applyPersistedTiers`): the user's
+   * persisted override for `scope` wins, the provider entry's `defaultTiers`
    * back it, and an unmapped tier stays absent.
    *
    * Reading the override matters because it is the only place a provider
    * without `defaultTiers` can get a haiku tier at all, and because a user who
-   * remapped haiku expects the curator to follow that remap rather than the
+   * remapped haiku expects the caller to follow that remap rather than the
    * snapshot frozen into the provider entry at release time.
+   *
+   * `scope` selects WHICH persisted mapping. `'lane'` reads
+   * `provider.<id>.lane.modelTier.<tier>`; with nothing persisted every tier
+   * comes back null and the `defaultTiers` fallback below supplies the values
+   * — which is exactly "the haiku tier of the selected provider", with no
+   * hardcoded model id anywhere. Reading a scope never writes globals; only
+   * `ProviderModelsService.setModelTier` on the `mainAgent` scope does that.
    *
    * ## The tier-less case is NOT benign — the warning says so explicitly
    *
-   * The earlier wording ("the curator will send the bare tier alias") is false
+   * The earlier wording ("the caller will send the bare tier alias") is false
    * and was actively misleading to debug against. Traced downstream: an absent
    * `ANTHROPIC_DEFAULT_HAIKU_MODEL` means `ModelResolver.resolve('haiku')`
    * falls to `getDefaultTiers(env)` → `getActiveProviderId(env)`
    * (`agent-sdk/.../sdk-query-options-builder.ts`), which matches provider
    * entries by hostname SUBSTRING of `ANTHROPIC_BASE_URL`, ignoring port. For a
-   * local-proxy curator that base url is `http://127.0.0.1:<ephemeral>`, and
+   * local-proxy provider that base url is `http://127.0.0.1:<ephemeral>`, and
    * the first registry entry whose hostname is contained in it is the
-   * `127.0.0.1:11434` (Ollama) entry — so a curator pinned to LM Studio with no
+   * `127.0.0.1:11434` (Ollama) entry — so a caller pinned to LM Studio with no
    * haiku override is asked for Ollama's default haiku model. Only where NO
-   * hostname matches (e.g. an OpenRouter curator) does the literal string
+   * hostname matches (e.g. an OpenRouter provider) does the literal string
    * `haiku` reach the provider, which then 400s.
    *
-   * Left as a warning rather than a throw here on purpose: which of the two
-   * (hard-fail vs. a curator-scoped default) is right is a product decision
-   * about the tier-less provider, and the substitution itself is a defect in
-   * `getActiveProviderId`'s port-blind hostname match, not in this mapping.
-   * The message must at least not claim the benign outcome.
+   * This is TASK_2026_180 risk R7. The mitigation is structural rather than a
+   * fix: every caller sets explicit `ANTHROPIC_DEFAULT_*_MODEL` values from
+   * this method BEFORE any identification happens, so the substring match is
+   * never consulted on the path that matters. Fixing
+   * `getActiveProviderId`'s port-blind hostname match is a tracked follow-up
+   * and deliberately out of scope here — which of hard-fail or a
+   * caller-scoped default is right is a product decision about the tier-less
+   * provider. The message must at least not claim the benign outcome.
    */
-  private buildTierValues(providerId: string): AuthEnv {
+  private buildTierValues(
+    providerId: string,
+    scope: ProviderTierScope,
+  ): AuthEnv {
     const defaults = getAnthropicProvider(providerId)?.defaultTiers;
-    const overrides = this.providerModels.getModelTiers(
-      providerId,
-      'mainAgent',
-    );
+    const overrides = this.providerModels.getModelTiers(providerId, scope);
 
     const tiers: AuthEnv = {};
     const sonnet = overrides.sonnet ?? defaults?.sonnet;
@@ -269,10 +300,10 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
 
     if (!haiku) {
       this.logger.warn(
-        '[memory-curator] curator provider has no haiku tier; downstream tier ' +
+        '[provider-auth] resolved provider has no haiku tier; downstream tier ' +
           'resolution will substitute ANOTHER provider default or send the bare ' +
           'alias — map a haiku model for this provider',
-        { providerId },
+        { providerId, scope },
       );
     }
     return tiers;
@@ -287,9 +318,9 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
   }
 
   /**
-   * The curator's process env: ambient `process.env` with every
-   * {@link CHAT_AUTH_KEYS} entry neutralised, then the curator's own values on
-   * top.
+   * The resolved provider's process env: ambient `process.env` with every
+   * {@link CHAT_AUTH_KEYS} entry neutralised, then the resolved provider's own
+   * values on top.
    *
    * ## The strip is carried by PRESENT keys whose value is `undefined`
    *
@@ -305,20 +336,22 @@ export class CuratorAuthResolver implements ICuratorAuthResolver {
    * untouched and the strip silently becomes a no-op.
    *
    * Anything that drops undefined-valued keys from this return breaks the
-   * strip with no type error and no observable failure until a curation runs
-   * on the chat provider's credentials: a JSON round-trip,
+   * strip with no type error and no observable failure until a background run
+   * happens on the chat provider's credentials: a JSON round-trip,
    * `Object.fromEntries(Object.entries(env).filter(([, v]) => v))`, a Zod
    * `.parse()` with a `Record<string, string>` shape, or a `structuredClone`
-   * through an IPC boundary all do it. `buildCuratorEnv` pins this in
-   * `curator-auth-resolver.spec.ts` with an explicit
+   * through an IPC boundary all do it. This is why the lane-side type is
+   * `Readonly<Record<string, string | undefined>>` and never
+   * `Record<string, string>`. `buildLaneEnv` pins the contract in
+   * `provider-auth-resolver.spec.ts` with an explicit
    * `Object.prototype.hasOwnProperty` assertion rather than only
    * `toBeUndefined()`, because `toBeUndefined()` passes either way.
    */
-  buildCuratorEnv(curatorValues: AuthEnv): AuthEnv {
+  buildLaneEnv(values: AuthEnv): AuthEnv {
     const base: Record<string, string | undefined> = { ...process.env };
     for (const key of CHAT_AUTH_KEYS) {
       base[key] = undefined;
     }
-    return { ...base, ...curatorValues } as AuthEnv;
+    return { ...base, ...values } as AuthEnv;
   }
 }

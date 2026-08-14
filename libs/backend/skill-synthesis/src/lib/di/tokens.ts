@@ -31,6 +31,39 @@ export const USER_LAYER_MIRROR_SERVICE_TOKEN = Symbol.for(
   'PtahUserLayerMirrorService',
 );
 
+/**
+ * Cross-library DI token for agent-sdk's SessionActivityRegistry.
+ * Matches SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY =
+ * Symbol.for('SdkSessionActivityRegistry').
+ *
+ * Declared here rather than imported for the same reason as
+ * INTERNAL_QUERY_SERVICE_TOKEN above, and injected `{isOptional: true}` so a
+ * CLI or e2e host that never registers the SDK still resolves
+ * `ForegroundActivityTracker`.
+ */
+export const SESSION_ACTIVITY_REGISTRY_TOKEN = Symbol.for(
+  'SdkSessionActivityRegistry',
+);
+
+/**
+ * Cross-library DI token for the provider auth resolver.
+ * Matches SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER =
+ * Symbol.for('SdkProviderAuthResolver').
+ *
+ * The port is declared in `agent-sdk` and implemented in `auth-providers`,
+ * two libs away; referenced by symbol here for the same reason as
+ * INTERNAL_QUERY_SERVICE_TOKEN, and injected `{isOptional: true}` so a CLI or
+ * e2e host that registers neither still resolves `LaneResolverService` — with
+ * every lane riding the active provider, which is the pre-lane behaviour.
+ *
+ * A typo here does NOT fail loudly: the optional injection resolves `null` and
+ * every lane silently ignores its configured provider. `di/register.spec.ts`
+ * pins the symbol for that reason.
+ */
+export const PROVIDER_AUTH_RESOLVER_TOKEN = Symbol.for(
+  'SdkProviderAuthResolver',
+);
+
 export const SKILL_SYNTHESIS_TOKENS = {
   /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
   SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
@@ -70,6 +103,24 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SUBAGENT_METRICS_EXTRACTOR: Symbol.for('PtahSubagentMetricsExtractor'),
   /** SkillScorecardService — composes subagent metric aggregates + verdicts. */
   SKILL_SCORECARD_SERVICE: Symbol.for('PtahSkillScorecardService'),
+  /** SkillQueueStore — durable synthesis queue: enqueue, CAS claim, reap. */
+  SKILL_QUEUE_STORE: Symbol.for('PtahSkillSynthesisQueueStore'),
+  /** SkillBudgetStore — per-UTC-day token/cost ledger behind the drain gate. */
+  SKILL_BUDGET_STORE: Symbol.for('PtahSkillSynthesisBudgetStore'),
+  /** SkillDrainService — gated, round-robin drain of the synthesis queue. */
+  SKILL_DRAIN_SERVICE: Symbol.for('PtahSkillSynthesisDrainService'),
+  /** ForegroundActivityTracker — ms since the last chat turn, for the backoff gate. */
+  FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
+  /** LaneResolverService — lane id → {auth snapshot, model} via the shared auth chain. */
+  LANE_RESOLVER_SERVICE: Symbol.for('PtahSkillLaneResolverService'),
+  /** LaneRunnerService — the ONE place a background LLM call happens. */
+  LANE_RUNNER_SERVICE: Symbol.for('PtahSkillLaneRunnerService'),
+  /** SessionVerdictStore — the archaeologist's structured per-session verdict (`0034`). */
+  SESSION_VERDICT_STORE: Symbol.for('PtahSkillSessionVerdictStore'),
+  /** SessionArchaeologistService — the orchestrated multi-pass session analyzer. */
+  SESSION_ARCHAEOLOGIST_SERVICE: Symbol.for('PtahSkillSessionArchaeologist'),
+  /** CandidateNamerService — cheap {name,description} pass that fills `display_name`. */
+  CANDIDATE_NAMER_SERVICE: Symbol.for('PtahSkillCandidateNamerService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

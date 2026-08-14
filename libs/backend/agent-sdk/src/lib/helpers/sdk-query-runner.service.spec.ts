@@ -496,19 +496,19 @@ describe('SdkQueryRunner', () => {
     });
   });
 
-  describe('runOneShot — curator env strip at the subprocess boundary (S-2)', () => {
+  describe('runOneShot — lane env strip at the subprocess boundary (S-2)', () => {
     const CHAT_AUTH_KEYS = [
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_AUTH_TOKEN',
       'ANTHROPIC_BASE_URL',
     ] as const;
 
-    function buildCuratorEnvLike(curatorValues: AuthEnv): AuthEnv {
+    function buildLaneEnvLike(laneValues: AuthEnv): AuthEnv {
       const base: Record<string, string | undefined> = { ...process.env };
       for (const key of CHAT_AUTH_KEYS) {
         base[key] = undefined;
       }
-      return { ...base, ...curatorValues } as AuthEnv;
+      return { ...base, ...laneValues } as AuthEnv;
     }
 
     async function capturedEnv(
@@ -541,7 +541,7 @@ describe('SdkQueryRunner', () => {
       try {
         const h = makeRunner({ authEnv: {} as AuthEnv });
         const env = await capturedEnv(h, {
-          env: buildCuratorEnvLike({} as AuthEnv),
+          env: buildLaneEnvLike({} as AuthEnv),
         });
 
         for (const key of CHAT_AUTH_KEYS) {
@@ -568,7 +568,7 @@ describe('SdkQueryRunner', () => {
       try {
         const h = makeRunner({ authEnv: {} as AuthEnv });
         const env = await capturedEnv(h, {
-          env: buildCuratorEnvLike({} as AuthEnv),
+          env: buildLaneEnvLike({} as AuthEnv),
         });
 
         const child = spawnSync(

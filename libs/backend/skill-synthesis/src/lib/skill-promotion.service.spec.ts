@@ -5,6 +5,7 @@
  */
 import 'reflect-metadata';
 import { SkillPromotionService } from './skill-promotion.service';
+import { JUDGE_REASONS, type JudgeDecision } from './skill-judge.service';
 import type { SkillCandidateStore } from './skill-candidate.store';
 import type { SkillMdGenerator } from './skill-md-generator';
 import type {
@@ -12,6 +13,7 @@ import type {
   SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
+import { unjudgedVerdictFields } from './types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -61,6 +63,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    ...unjudgedVerdictFields(),
     ...overrides,
   };
 }
@@ -91,6 +94,24 @@ function makeStore(
     searchActiveByEmbedding: jest.fn(() => []),
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
+    /**
+     * A stand-in for the real store's write, minus its validation — the
+     * throwing guard is `skill-candidate.store.spec.ts`'s to prove, and
+     * duplicating it here would let this spec pass against a promotion service
+     * that had quietly grown its own second validation layer.
+     */
+    recordJudgeVerdict: jest.fn((id: CandidateId, verdict) => {
+      current = {
+        ...current,
+        id,
+        judgeStatus: verdict.status,
+        judgeScore: verdict.score,
+        judgeReason: verdict.reason,
+        judgeCriteria: verdict.criteria ?? current.judgeCriteria,
+        judgedAt: verdict.judgedAt ?? Date.now(),
+      };
+      return current;
+    }),
     setResidency: jest.fn((id: CandidateId, residency) => ({
       ...current,
       id,
@@ -272,6 +293,199 @@ describe('SkillPromotionService', () => {
     expect(decision.promoted).toBe(true);
     expect(decision.evictedSkillId).toBeUndefined();
     expect(store.setResidency).not.toHaveBeenCalled();
+  });
+
+  // ─── B1.6.2: the judge gate persists a verdict and never fabricates one ────
+
+  describe('judge gate', () => {
+    const JUDGED = { ...SETTINGS, judgeEnabled: true };
+
+    function makeJudge(decision: JudgeDecision) {
+      const judge = { judge: jest.fn(async () => decision) };
+      return judge as unknown as ConstructorParameters<
+        typeof SkillPromotionService
+      >[4] & { judge: jest.Mock };
+    }
+
+    function scored(score: number): JudgeDecision {
+      return {
+        status: 'scored',
+        score,
+        criteria: {
+          novelty: score,
+          actionability: score,
+          scope: score,
+          generalization: score,
+          triggerClarity: score,
+        },
+        reason: JUDGE_REASONS.verdict,
+      };
+    }
+
+    it('P1-1 — a judge that could not score leaves the candidate at `candidate`', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const judge = makeJudge({
+        status: 'unscored',
+        score: null,
+        criteria: null,
+        reason: 'Lane judge: rate limited',
+      });
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        judge,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(false);
+      expect(decision.reason).toBe('judge-unscored');
+      // Neither pass nor block: nothing moved the row off `candidate`.
+      expect(decision.candidate?.status).toBe('candidate');
+      expect(store.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('P1-1 — the unscored verdict is persisted with score=null and its reason', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const judge = makeJudge({
+        status: 'unscored',
+        score: null,
+        criteria: null,
+        reason: 'Lane judge: rate limited',
+      });
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        judge,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(store.recordJudgeVerdict).toHaveBeenCalledWith('cand_test', {
+        status: 'unscored',
+        score: null,
+        reason: 'Lane judge: rate limited',
+        criteria: undefined,
+      });
+      expect(decision.candidate?.judgeScore).toBeNull();
+      expect(decision.candidate?.judgeScore).not.toBe(10);
+      expect(decision.candidate?.judgeStatus).toBe('unscored');
+    });
+
+    it('rejects a scored verdict below minJudgeScore', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        makeJudge(scored(3)),
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.reason).toBe('below-judge-score');
+      expect(store.updateStatus).toHaveBeenCalledWith(
+        'cand_test',
+        'rejected',
+        expect.objectContaining({ reason: 'below-judge-score' }),
+      );
+    });
+
+    it('promotes on a scored verdict at or above minJudgeScore, criteria and all', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        makeJudge(scored(8)),
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+      expect(store.recordJudgeVerdict).toHaveBeenCalledWith(
+        'cand_test',
+        expect.objectContaining({
+          status: 'scored',
+          score: 8,
+          criteria: expect.objectContaining({ novelty: 8 }),
+        }),
+      );
+    });
+
+    it('promotes when the gate is disabled, and records that rather than a score', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        makeJudge({
+          status: 'disabled',
+          score: null,
+          criteria: null,
+          reason: JUDGE_REASONS.disabled,
+        }),
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+      expect(store.recordJudgeVerdict).toHaveBeenCalledWith(
+        'cand_test',
+        expect.objectContaining({ status: 'disabled', score: null }),
+      );
+    });
+
+    it('does NOT catch or downgrade the store guard — a bad verdict propagates', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      (store.recordJudgeVerdict as jest.Mock).mockImplementation(() => {
+        throw new Error(
+          "[skill-synthesis] recordJudgeVerdict: a 'unscored' verdict must carry score=null",
+        );
+      });
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        makeJudge({
+          status: 'unscored',
+          score: null,
+          criteria: null,
+          reason: 'whatever',
+        }),
+      );
+
+      // A second validation layer here, or a catch, would turn the store's
+      // guard into a silent downgrade — which is the defect, not the fix.
+      await expect(
+        svc.evaluate('cand_test' as CandidateId, JUDGED),
+      ).rejects.toThrow('recordJudgeVerdict');
+      expect(store.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('skips the gate entirely when no judge is registered', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+      expect(store.recordJudgeVerdict).not.toHaveBeenCalled();
+    });
   });
 
   it('continues with original bodyPath when SKILL.md materialization fails', async () => {

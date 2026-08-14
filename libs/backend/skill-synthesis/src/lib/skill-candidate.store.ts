@@ -21,7 +21,10 @@ import {
   type SqliteStatement,
 } from '@ptah-extension/persistence-sqlite';
 import {
+  JUDGE_STATUSES,
   type CandidateId,
+  type JudgeStatus,
+  type JudgeVerdict,
   type NewCandidateInput,
   type RegisterCandidateResult,
   type SkillCandidateRow,
@@ -51,6 +54,22 @@ interface RawCandidateRow {
   rejected_reason: string | null;
   pinned: number;
   residency: string;
+  // ── 0033 ──────────────────────────────────────────────────────────────────
+  // Reads are `SELECT *`, so a column that is missing from this interface is
+  // silently invisible to the store no matter what the DDL says. Adding a
+  // column to `0033` without adding it here is a silent-data-loss bug, not a
+  // compile error.
+  judge_score: number | null;
+  judge_status: string | null;
+  judge_reason: string | null;
+  judge_novelty: number | null;
+  judge_actionability: number | null;
+  judge_scope: number | null;
+  judge_generalization: number | null;
+  judge_trigger_clarity: number | null;
+  judge_panel_rationales: string | null;
+  judged_at: number | null;
+  display_name: string | null;
 }
 
 interface RawInvocationRow {
@@ -327,6 +346,101 @@ export class SkillCandidateStore {
       throw new Error(
         `[skill-synthesis] updateStatus: row ${id} disappeared after update`,
       );
+    }
+    return updated;
+  }
+
+  /**
+   * Persist a judge verdict. A SIBLING of `updateStatus`, deliberately not an
+   * option on it: the lifecycle status (`candidate`/`promoted`/`rejected`) and
+   * the judge verdict are independent axes, and an `unscored` verdict is
+   * precisely the case where the lifecycle status must NOT move.
+   *
+   * The nine judge columns are written as one fixed set rather than as the
+   * dynamic fragments `updateStatus` builds, because a verdict is a whole
+   * object: a partial update would leave last pass's per-criterion scores
+   * sitting beside this pass's headline score, which is the same class of
+   * quietly-wrong verdict this phase exists to remove. Absent criteria are
+   * written NULL. `judge_panel_rationales` is untouched — phase 3 owns it.
+   *
+   * Throws on a status outside the union (there is no DB `CHECK` behind it) and
+   * on the two contradictions that would reintroduce a fabricated score: a
+   * `scored` verdict with no number, and a non-`scored` verdict carrying one.
+   */
+  recordJudgeVerdict(
+    id: CandidateId,
+    verdict: JudgeVerdict,
+  ): SkillCandidateRow {
+    if (!(JUDGE_STATUSES as readonly string[]).includes(verdict.status)) {
+      throw new Error(
+        `[skill-synthesis] recordJudgeVerdict: unknown judge status '${String(
+          verdict.status,
+        )}' (expected ${JUDGE_STATUSES.join(' | ')})`,
+      );
+    }
+    if (verdict.status === 'scored') {
+      if (verdict.score === null || !Number.isFinite(verdict.score)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgeVerdict: a 'scored' verdict for ${id} needs a finite score`,
+        );
+      }
+    } else if (verdict.score !== null) {
+      throw new Error(
+        `[skill-synthesis] recordJudgeVerdict: a '${verdict.status}' verdict for ${id} must carry score=null, got ${verdict.score}`,
+      );
+    }
+
+    const criteria = verdict.criteria;
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates
+       SET judge_score           = ?,
+           judge_status          = ?,
+           judge_reason          = ?,
+           judge_novelty         = ?,
+           judge_actionability   = ?,
+           judge_scope           = ?,
+           judge_generalization  = ?,
+           judge_trigger_clarity = ?,
+           judged_at             = ?
+       WHERE id = ?`,
+    );
+    stmt.run(
+      verdict.score,
+      verdict.status,
+      verdict.reason,
+      criteria?.novelty ?? null,
+      criteria?.actionability ?? null,
+      criteria?.scope ?? null,
+      criteria?.generalization ?? null,
+      criteria?.triggerClarity ?? null,
+      verdict.judgedAt ?? Date.now(),
+      id,
+    );
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordJudgeVerdict: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Set the human-readable title a naming pass produced. `name` stays the slug
+   * — it is the SKILL.md folder name and carries a UNIQUE index, so it is an
+   * internal id and is never what a human should read. An empty or
+   * whitespace-only name clears the column so the UI falls back rather than
+   * rendering a blank title.
+   */
+  setDisplayName(id: CandidateId, displayName: string): SkillCandidateRow {
+    const trimmed = displayName.trim();
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates SET display_name = ? WHERE id = ?`,
+    );
+    stmt.run(trimmed.length > 0 ? trimmed : null, id);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] setDisplayName: ${id} not found`);
     }
     return updated;
   }
@@ -868,6 +982,25 @@ export class SkillCandidateStore {
     }
   }
 
+  /**
+   * Read edge of the `judge_status` union. `null` and `''` mean "never judged".
+   * Anything else that is not a union member is downgraded to `'unscored'` —
+   * the value that means "no trustworthy verdict" — and logged. There is no DB
+   * `CHECK` to have caught it, and the alternative (passing the raw string
+   * through a field typed as the union) would lie to every consumer.
+   */
+  private toJudgeStatus(raw: string | null): JudgeStatus | null {
+    if (raw === null || raw === '') return null;
+    if ((JUDGE_STATUSES as readonly string[]).includes(raw)) {
+      return raw as JudgeStatus;
+    }
+    this.logger.warn(
+      '[skill-synthesis] unknown judge_status read from skill_candidates; treating as unscored',
+      { judgeStatus: raw },
+    );
+    return 'unscored';
+  }
+
   private toCandidateRow(raw: RawCandidateRow): SkillCandidateRow {
     let sources: string[] = [];
     try {
@@ -895,6 +1028,22 @@ export class SkillCandidateStore {
       rejectedReason: raw.rejected_reason,
       pinned: raw.pinned === 1,
       residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
+      judgeStatus: this.toJudgeStatus(raw.judge_status),
+      // `?? null` normalizes a driver's `undefined` for an absent column. It
+      // does NOT coalesce a stored NULL to 0 — that would resurrect the exact
+      // fabricated-score defect this column exists to kill.
+      judgeScore: raw.judge_score ?? null,
+      judgeReason: raw.judge_reason ?? null,
+      judgeCriteria: {
+        novelty: raw.judge_novelty ?? null,
+        actionability: raw.judge_actionability ?? null,
+        scope: raw.judge_scope ?? null,
+        generalization: raw.judge_generalization ?? null,
+        triggerClarity: raw.judge_trigger_clarity ?? null,
+      },
+      judgePanelRationales: raw.judge_panel_rationales ?? null,
+      judgedAt: raw.judged_at ?? null,
+      displayName: raw.display_name ?? null,
     };
   }
 

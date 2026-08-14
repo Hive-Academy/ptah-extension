@@ -17,6 +17,8 @@ import {
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  type DrainTier,
+  type SkillDrainService,
   type SkillSynthesisService,
   type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
@@ -25,6 +27,7 @@ import {
   type CronScheduler,
   type IJobStore,
   type IHandlerRegistry,
+  type IPowerMonitor,
 } from '@ptah-extension/cron-scheduler';
 import {
   GATEWAY_TOKENS,
@@ -60,6 +63,51 @@ export interface ThothRefs {
 
 const BACKUP_HANDLER_NAME = 'backup:daily';
 let vecDiagnosticEmitted = false;
+
+/**
+ * The three skill-synthesis drain tiers, as cron jobs. Same table, same seam
+ * and same reasoning as `thoth-runtime/src/lib/start-thoth-cron.ts`: this file
+ * is the CLI tier's copy of the boundary where `cron-scheduler` and
+ * `skill-synthesis` are allowed to meet, which is why `drain()` takes
+ * `onBattery` as a parameter instead of injecting `IPowerMonitor`.
+ *
+ * The two hosts are deliberately not merged — `cli-engine` runs its own
+ * `activateThoth`/`disposeThoth` tier model, and converging them is a separate
+ * task. Keep the two tables in step by hand until then.
+ */
+const SKILL_DRAIN_JOBS: ReadonlyArray<{
+  readonly tier: DrainTier;
+  readonly jobId: string;
+  readonly name: string;
+  readonly handlerName: string;
+  readonly cronExprKey: string;
+  readonly defaultCronExpr: string;
+}> = [
+  {
+    tier: 'frequent',
+    jobId: '@ptah/skills-drain-frequent',
+    name: 'Skill Synthesis Drain (frequent)',
+    handlerName: 'skills:drain:frequent',
+    cronExprKey: 'skillSynthesis.drain.cronExpr',
+    defaultCronExpr: '*/15 * * * *',
+  },
+  {
+    tier: 'nightly',
+    jobId: '@ptah/skills-drain-nightly',
+    name: 'Skill Synthesis Drain (nightly)',
+    handlerName: 'skills:drain:nightly',
+    cronExprKey: 'skillSynthesis.drain.nightlyCronExpr',
+    defaultCronExpr: '0 3 * * *',
+  },
+  {
+    tier: 'weekly',
+    jobId: '@ptah/skills-drain-weekly',
+    name: 'Skill Synthesis Drain (weekly)',
+    handlerName: 'skills:drain:weekly',
+    cronExprKey: 'skillSynthesis.drain.weeklyCronExpr',
+    defaultCronExpr: '0 4 * * 0',
+  },
+];
 
 export function resetVecDiagnosticForTest(): void {
   vecDiagnosticEmitted = false;
@@ -318,6 +366,7 @@ async function startCron(
       return;
     }
     registerBackupJob(container, refs, logger);
+    registerSkillDrainJobs(container, logger);
 
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -409,6 +458,80 @@ function registerBackupJob(
   } catch (error: unknown) {
     logger.warn(
       '[CLI Thoth] Daily backup cron registration failed (non-fatal)',
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+/**
+ * Register the three drain handlers and upsert their jobs for the CLI tier.
+ *
+ * `has()` guards registration because `HandlerRegistry.register` THROWS on a
+ * duplicate name and `activateThoth` can run more than once in a long-lived
+ * CLI process. `upsert` is idempotent, so it is not guarded. Non-fatal by
+ * construction: a CLI host without skill-synthesis simply gets no drain jobs.
+ */
+function registerSkillDrainJobs(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  try {
+    if (
+      !container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) ||
+      !container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY) ||
+      !container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE)
+    ) {
+      return;
+    }
+    const jobStore = container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE);
+    const handlerRegistry = container.resolve<IHandlerRegistry>(
+      CRON_TOKENS.CRON_HANDLER_REGISTRY,
+    );
+    const workspaceProvider = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    for (const job of SKILL_DRAIN_JOBS) {
+      if (!handlerRegistry.has(job.handlerName)) {
+        handlerRegistry.register(job.handlerName, async (ctx) => {
+          const drain = container.resolve<SkillDrainService>(
+            SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
+          );
+          // Resolved per run, not captured: a laptop can move on and off mains
+          // between two ticks.
+          const monitor = container.resolve<IPowerMonitor>(
+            CRON_TOKENS.CRON_POWER_MONITOR,
+          );
+          const summary = await drain.drain({
+            tier: job.tier,
+            signal: ctx.signal,
+            onBattery: monitor.isOnBattery(),
+          });
+          return {
+            summary: summary.skipped
+              ? `skipped: ${summary.reason ?? 'unknown'}`
+              : `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
+          };
+        });
+      }
+      jobStore.upsert({
+        id: job.jobId,
+        name: job.name,
+        cronExpr:
+          workspaceProvider.getConfiguration<string>(
+            'ptah',
+            job.cronExprKey,
+            job.defaultCronExpr,
+          ) || job.defaultCronExpr,
+        timezone: 'UTC',
+        prompt: `handler:${job.handlerName}`,
+        enabled: true,
+      });
+    }
+  } catch (error: unknown) {
+    logger.warn(
+      '[CLI Thoth] Skill drain cron registration failed (non-fatal)',
       {
         error: error instanceof Error ? error.message : String(error),
       },

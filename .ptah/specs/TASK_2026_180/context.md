@@ -453,3 +453,53 @@ Nightly/weekly cron jobs (Phase 0 infrastructure) producing a ranked
   disagreement escalation covered by a spec with a scripted judge pair.
 - **P4**: digest RPC returns ranked items with evidence links; win-rate join
   covered by spec; nightly + weekly slots registered and idempotent.
+
+## Approved decisions (Checkpoint 2, user-approved)
+
+`implementation-plan.md` APPROVED as written. All five open questions resolved to
+the architect's recommended option:
+
+- **Q1** — one shared `'lane'` `ProviderTierScope` member (not four, not reused
+  `'cliAgent'`).
+- **Q2** — unresolvable lane auth STALLS: queue item returns to `queued` with a
+  surfaced reason + backoff. No fallback to the foreground provider, ever —
+  falling back would silently reintroduce the defect Phase 1 exists to fix.
+- **Q3** — orchestrated multi-pass retrieval driven from TypeScript
+  (`TranscriptWindowReader`), NOT SDK tool calling. See correction C7.
+  Structured so SDK tool restriction is additive later, never a rewrite.
+- **Q4** — Tier B Electron tray keep-alive SPLITS into a sixth commit. Phase 0
+  ships Tier A survival plus the `skillSynthesis.trayKeepalive` setting key
+  defaulted off, so the tray commit is purely additive.
+- **Q5** — frequent drain tier cadence `*/15 * * * *`.
+
+**Delivery is therefore SIX commits, not five.**
+
+Two corrections in the plan change scope versus this document as originally
+written, both verified directly against the code:
+
+- **C6** — `IPowerMonitor` (`cron-scheduler`) exposes only `onResume`/`onSuspend`.
+  It MUST be widened with `isOnBattery(): boolean` (Electron
+  `powerMonitor.isOnBatteryPower()`; `NoopPowerMonitor` → `false`) or the P0
+  battery-gating criterion is unbuildable.
+- **C7** — `OneShotRunInput` has no `allowedTools`/`disallowedTools` and
+  `buildOneShotOptions` hardcodes the full `claude_code` preset, so "a bounded
+  tool set" is not available on the one-shot path. Hence Q3.
+
+See `implementation-plan.md` §7 for the full 12 corrections.
+
+### Decomposition questions (tasks.md §5) — orchestrator-decided
+
+The user delegated these to the orchestrator's recommendation:
+
+- **Q-A** — Option A: **C0 lands before C1.** Keeps B1.7 buildable as written
+  (criterion P1-7 is only assertable once the drain exists). No renumbering.
+  Most of C1 is still design-independent of C0; only B1.7 carries the
+  cross-commit edge to B0.4.
+- **Q-B** — Option A: the tray "Pause background learning" checkbox writes
+  **`skillSynthesis.enabled`**, the drain's existing first gate. No new pause
+  mechanism, no twelfth settings key, and the pause is honoured by every runtime
+  rather than Electron alone. Accepted trade-off: pausing from the tray also
+  pauses a VS Code window sharing the same `~/.ptah/settings.json`, which
+  matches the user intent "stop background learning".
+
+**Landing order: C0 → C1 → C2 → C3 → C4 → C5.**

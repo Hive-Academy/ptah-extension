@@ -251,7 +251,7 @@ export class SkillTriggerService {
       return;
     }
 
-    void this.invokeAnalyze(sessionId, state.workspaceRoot, 'turn-complete');
+    void this.enqueueAnalyze(sessionId, state.workspaceRoot, 'turn-complete');
     void this.fireHarvest(state.workspaceRoot);
   }
 
@@ -324,7 +324,7 @@ export class SkillTriggerService {
       timestamp: payload.timestamp,
       sessionId: payload.subagentSessionId,
     });
-    void this.invokeAnalyze(
+    void this.enqueueAnalyze(
       payload.subagentSessionId,
       payload.workspaceRoot,
       'subagent-stop',
@@ -433,7 +433,7 @@ export class SkillTriggerService {
       sessionId: payload.sessionId,
       stats: { editCount: state.editCount },
     });
-    void this.invokeAnalyze(
+    void this.enqueueAnalyze(
       payload.sessionId,
       state.workspaceRoot,
       'edit-then-test',
@@ -574,10 +574,27 @@ export class SkillTriggerService {
       timestamp,
       sessionId,
     });
-    void this.invokeAnalyze(sessionId, state.workspaceRoot, 'idle');
+    void this.enqueueAnalyze(sessionId, state.workspaceRoot, 'idle');
   }
 
-  private async invokeAnalyze(
+  /**
+   * Every trigger's one exit. It ENQUEUES a `prefilter` row; it never analyzes.
+   *
+   * Before B0.9 this called `SkillSynthesisService.analyzeSession` inline,
+   * which meant Phase 0 had two live pipelines at once: session end went
+   * through the queue while idle / subagent-stop / edit-then-test /
+   * turn-complete kept spending on the foreground quota exactly as before.
+   *
+   * `enqueueAnalyze` is the shared entry point rather than a local
+   * `queue.enqueue` call for one specific reason: the row's `turn_count` must
+   * be the FRESHLY OBSERVED trajectory turn count. `SkillQueueStore.enqueue`
+   * re-opens a finished row only `WHERE turn_count < ?`, so enqueuing `0` —
+   * which compiles and passes any test that only counts calls — would wedge
+   * every finished row permanently. That extraction is pure local JSONL plus
+   * regex and costs no tokens, and it lives in one place so it can only be got
+   * wrong once.
+   */
+  private async enqueueAnalyze(
     sessionId: string,
     workspaceRoot: string,
     source:
@@ -587,12 +604,13 @@ export class SkillTriggerService {
       | 'edit-then-test'
       | 'turn-complete',
     transcriptPath?: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     try {
-      await this.synthesis.analyzeSession(sessionId, workspaceRoot, {
-        force: false,
-        transcriptPath,
+      await this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
         source,
+        transcriptPath,
+        signal,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -602,7 +620,7 @@ export class SkillTriggerService {
         sessionId,
         error: message,
       });
-      this.logger.warn('[skill-synthesis] trigger analyze failed', {
+      this.logger.warn('[skill-synthesis] trigger enqueue failed', {
         source,
         sessionId,
         error: message,
@@ -625,10 +643,17 @@ export class SkillTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
+        // Enqueue, do not analyze. The boot scan finds every session newer
+        // than the watermark at once, so the inline version was the single
+        // largest burst of unbudgeted LLM work in the product. Queuing them
+        // puts that burst behind the drain's gates and its `maxItemsPerRun`
+        // instead of behind a 200 ms sleep. `source: 'boot'` rides the row, so
+        // the stage handler still reaches `analyzeSession` with the boot
+        // source and its template-only, no-LLM behaviour is preserved.
         run: (sessionId, workspaceRoot, runSignal) =>
-          this.synthesis.analyzeSession(sessionId, workspaceRoot, {
-            signal: runSignal,
+          this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
             source: 'boot',
+            signal: runSignal,
           }),
       });
       this.synthesis.pushEvent({

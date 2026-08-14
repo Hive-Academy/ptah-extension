@@ -46,6 +46,8 @@ interface RuntimeDoubles {
   cronScheduler: { start: jest.Mock; stop: jest.Mock };
   jobStore: { upsert: jest.Mock };
   handlerRegistry: { has: jest.Mock; register: jest.Mock };
+  skillDrain: { drain: jest.Mock };
+  powerMonitor: { isOnBattery: jest.Mock };
   gateway: { start: jest.Mock; stop: jest.Mock };
   chatBridge: { start: jest.Mock; stop: jest.Mock };
   indexingControl: { getStatus: jest.Mock };
@@ -103,6 +105,24 @@ function makeRuntimeDoubles(
     },
     jobStore: { upsert: jest.fn() },
     handlerRegistry: { has: jest.fn(() => false), register: jest.fn() },
+    skillDrain: {
+      drain: jest.fn(async () => ({
+        tier: 'frequent',
+        skipped: false,
+        reaped: 0,
+        workspacesVisited: 1,
+        claimed: 1,
+        lostClaims: 0,
+        done: 1,
+        failed: 0,
+        unscored: 0,
+        skippedItems: 0,
+        budgetDeferred: 0,
+        budgetExhausted: false,
+        durationMs: 3,
+      })),
+    },
+    powerMonitor: { isOnBattery: jest.fn(() => false) },
     gateway: {
       start: jest.fn(async () => order.push('gateway.start')),
       stop: jest.fn(async () => order.push('gateway.stop')),
@@ -155,6 +175,10 @@ function makeRuntimeContainer(
           return doubles.jobStore;
         case CRON_TOKENS.CRON_HANDLER_REGISTRY:
           return doubles.handlerRegistry;
+        case CRON_TOKENS.CRON_POWER_MONITOR:
+          return doubles.powerMonitor;
+        case SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE:
+          return doubles.skillDrain;
         case GATEWAY_TOKENS.GATEWAY_SERVICE:
           return doubles.gateway;
         case GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE:
@@ -181,6 +205,8 @@ const ALL_RUNTIME_TOKENS = new Set<symbol>([
   CRON_TOKENS.CRON_SCHEDULER,
   CRON_TOKENS.CRON_JOB_STORE,
   CRON_TOKENS.CRON_HANDLER_REGISTRY,
+  CRON_TOKENS.CRON_POWER_MONITOR,
+  SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
   GATEWAY_TOKENS.GATEWAY_SERVICE,
   GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE,
   PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -240,19 +266,25 @@ describe('activateThoth — runtime tier', () => {
 
     await activateThoth(container as never, 'runtime', makeLogger() as never);
 
-    expect(doubles.handlerRegistry.register).toHaveBeenCalledTimes(1);
-    expect(doubles.handlerRegistry.register.mock.calls[0]?.[0]).toBe(
-      'backup:daily',
-    );
-    expect(doubles.jobStore.upsert).toHaveBeenCalledTimes(1);
-    expect(doubles.jobStore.upsert.mock.calls[0]?.[0]).toMatchObject({
-      id: '@ptah/daily-backup',
-      prompt: 'handler:backup:daily',
-      enabled: true,
-    });
+    expect(
+      doubles.handlerRegistry.register.mock.calls.filter(
+        (call) => call[0] === 'backup:daily',
+      ),
+    ).toHaveLength(1);
+    expect(
+      doubles.jobStore.upsert.mock.calls
+        .map((call) => call[0] as { id: string })
+        .filter((job) => job.id === '@ptah/daily-backup'),
+    ).toEqual([
+      expect.objectContaining({
+        id: '@ptah/daily-backup',
+        prompt: 'handler:backup:daily',
+        enabled: true,
+      }),
+    ]);
   });
 
-  it('does not re-register the backup handler when one already exists', async () => {
+  it('does not re-register any handler when one already exists', async () => {
     const doubles = makeRuntimeDoubles();
     doubles.handlerRegistry.has = jest.fn(() => true);
     const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
@@ -260,6 +292,125 @@ describe('activateThoth — runtime tier', () => {
     await activateThoth(container as never, 'runtime', makeLogger() as never);
 
     expect(doubles.handlerRegistry.register).not.toHaveBeenCalled();
+    // Upsert is idempotent, so it still runs for the backup + three drain jobs.
+    expect(doubles.jobStore.upsert).toHaveBeenCalledTimes(4);
+  });
+
+  it('registers the three drain handlers and upserts their fixed job ids', async () => {
+    const doubles = makeRuntimeDoubles();
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(
+      doubles.handlerRegistry.register.mock.calls
+        .map((call) => String(call[0]))
+        .filter((name) => name.startsWith('skills:drain:')),
+    ).toEqual([
+      'skills:drain:frequent',
+      'skills:drain:nightly',
+      'skills:drain:weekly',
+    ]);
+    expect(
+      doubles.jobStore.upsert.mock.calls
+        .map((call) => call[0] as { id: string; cronExpr: string })
+        .filter((job) => job.id.startsWith('@ptah/skills-')),
+    ).toEqual([
+      expect.objectContaining({
+        id: '@ptah/skills-drain-frequent',
+        cronExpr: '*/15 * * * *',
+        prompt: 'handler:skills:drain:frequent',
+        timezone: 'UTC',
+        enabled: true,
+      }),
+      expect.objectContaining({
+        id: '@ptah/skills-drain-nightly',
+        cronExpr: '0 3 * * *',
+        prompt: 'handler:skills:drain:nightly',
+      }),
+      expect.objectContaining({
+        id: '@ptah/skills-drain-weekly',
+        cronExpr: '0 4 * * 0',
+        prompt: 'handler:skills:drain:weekly',
+      }),
+    ]);
+  });
+
+  it('drain handlers pass their tier and the live battery reading through', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.powerMonitor.isOnBattery = jest.fn(() => true);
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    const signal = new AbortController().signal;
+    const registered = new Map<string, (ctx: unknown) => Promise<unknown>>(
+      doubles.handlerRegistry.register.mock.calls.map((call) => [
+        String(call[0]),
+        call[1] as (ctx: unknown) => Promise<unknown>,
+      ]),
+    );
+    for (const name of [
+      'skills:drain:frequent',
+      'skills:drain:nightly',
+      'skills:drain:weekly',
+    ]) {
+      const handler = registered.get(name);
+      expect(handler).toBeDefined();
+      await (handler as (ctx: unknown) => Promise<unknown>)({
+        job: { id: name },
+        scheduledFor: 0,
+        signal,
+      });
+    }
+
+    expect(
+      doubles.skillDrain.drain.mock.calls.map(
+        (call) => (call[0] as { tier: string }).tier,
+      ),
+    ).toEqual(['frequent', 'nightly', 'weekly']);
+    for (const call of doubles.skillDrain.drain.mock.calls) {
+      expect(call[0]).toMatchObject({ onBattery: true, signal });
+    }
+  });
+
+  it('reads the drain cron expressions from settings when they are configured', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.workspaceProvider.getConfiguration = jest.fn(
+      (_s: string, key: string, dflt: unknown) => {
+        if (key === 'skillSynthesis.drain.cronExpr') return '*/45 * * * *';
+        if (key === 'skillSynthesis.drain.nightlyCronExpr') return '0 1 * * *';
+        if (key === 'skillSynthesis.drain.weeklyCronExpr') return '0 6 * * 1';
+        return dflt;
+      },
+    );
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    const exprById = new Map(
+      doubles.jobStore.upsert.mock.calls.map((call) => {
+        const job = call[0] as { id: string; cronExpr: string };
+        return [job.id, job.cronExpr];
+      }),
+    );
+    expect(exprById.get('@ptah/skills-drain-frequent')).toBe('*/45 * * * *');
+    expect(exprById.get('@ptah/skills-drain-nightly')).toBe('0 1 * * *');
+    expect(exprById.get('@ptah/skills-drain-weekly')).toBe('0 6 * * 1');
+  });
+
+  it('registers no drain jobs when the host has no SkillDrainService', async () => {
+    const doubles = makeRuntimeDoubles();
+    const withoutDrain = new Set(ALL_RUNTIME_TOKENS);
+    withoutDrain.delete(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE);
+    const container = makeRuntimeContainer(doubles, withoutDrain);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(
+      doubles.handlerRegistry.register.mock.calls.filter((call) =>
+        String(call[0]).startsWith('skills:drain:'),
+      ),
+    ).toHaveLength(0);
     expect(doubles.jobStore.upsert).toHaveBeenCalledTimes(1);
   });
 

@@ -57,6 +57,10 @@ import { sql as sql0028GatewayConversationWorkspaceRoot } from './0028_gateway_c
 import { sql as sql0029TaskSpecs } from './0029_task_specs';
 import { sql as sql0030SkillEventMetrics } from './0030_skill_event_metrics';
 import { sql as sql0031TaskSpecsMetadata } from './0031_task_specs_metadata';
+import { sql as sql0032SkillSynthesisQueue } from './0032_skill_synthesis_queue';
+import { sql as sql0033SkillCandidateVerdicts } from './0033_skill_candidate_verdicts';
+import { sql as sql0034SkillSessionVerdicts } from './0034_skill_session_verdicts';
+import { sql as sql0035SkillSynthesisBudgetStage } from './0035_skill_synthesis_budget_stage';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -256,5 +260,25 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 31,
     name: '0031_task_specs_metadata',
     sql: sql0031TaskSpecsMetadata,
+  },
+  {
+    version: 32,
+    name: '0032_skill_synthesis_queue',
+    sql: sql0032SkillSynthesisQueue,
+  },
+  {
+    version: 33,
+    name: '0033_skill_candidate_verdicts',
+    sql: sql0033SkillCandidateVerdicts,
+  },
+  {
+    version: 34,
+    name: '0034_skill_session_verdicts',
+    sql: sql0034SkillSessionVerdicts,
+  },
+  {
+    version: 35,
+    name: '0035_skill_synthesis_budget_stage',
+    sql: sql0035SkillSynthesisBudgetStage,
   },
 ];

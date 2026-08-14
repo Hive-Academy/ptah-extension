@@ -3,6 +3,9 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   AgentScorecard,
   CloneSummary,
+  ProviderListModelsResult,
+  SkillLanesDto,
+  SkillSetLanesParams,
   SkillCloneInvocationStats,
   SkillCloneKind,
   SkillSynthesisGetScorecardDetailResult,
@@ -30,6 +33,8 @@ import type {
   SkillSynthesisSpecSummary,
   SkillSynthesisHarvestSpecsResult,
   SkillSynthesisClearStaleSpecsResult,
+  SkillSynthesisQueueParams,
+  SkillSynthesisQueueResult,
 } from '@ptah-extension/shared';
 
 export interface SkillAcceptSuggestionResult {
@@ -241,6 +246,72 @@ export class SkillSynthesisRpcService {
         result.error || 'Failed to update skill synthesis settings',
       );
     }
+  }
+
+  /**
+   * Read the four lane capability records.
+   *
+   * The read side is always complete — every lane comes back with every field,
+   * defaults filled in — so the settings UI never has to reason about a partial.
+   */
+  public async getLanes(): Promise<SkillLanesDto> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getLanes',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.lanes;
+    }
+    throw new Error(result.error || 'Failed to load skill synthesis lanes');
+  }
+
+  /**
+   * Patch any subset of lanes and any subset of their fields.
+   *
+   * Sparse by contract: an omitted field is left alone rather than blanked, so
+   * editing one lane's model never resets the other seven fields — or the other
+   * three lanes — to defaults.
+   */
+  public async setLanes(
+    lanes: SkillSetLanesParams['lanes'],
+  ): Promise<SkillLanesDto> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:setLanes',
+      { lanes },
+      { timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.lanes;
+    }
+    throw new Error(result.error || 'Failed to update skill synthesis lanes');
+  }
+
+  /**
+   * Model catalogue for one provider, or for the host's active provider when
+   * `providerId` is omitted.
+   *
+   * This is the `ProviderModelsLoader` port `ProviderModelPickerComponent`
+   * injects — the Skills tab's own transport for the shared picker, which is
+   * why it lives on this service rather than being reached across a lib
+   * boundary. `provider:listModels` is deliberately generic: no provider id is
+   * ever hardcoded here, and an absent id means "whatever the host settled on".
+   */
+  public async listModels(
+    providerId?: string,
+  ): Promise<ProviderListModelsResult> {
+    const result = await this.rpcService.call(
+      'provider:listModels',
+      {
+        toolUseOnly: false,
+        ...(providerId ? { providerId } : {}),
+      },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'provider:listModels failed');
   }
 
   /** Pin a promoted skill. Returns the new pinned state (true). */
@@ -603,5 +674,33 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to clear stale specs');
+  }
+
+  /**
+   * Read the synthesis queue and the drain's recent `job_runs` history.
+   *
+   * One call returns both halves because neither is legible alone: an empty
+   * `items` list with no `recentRuns` is a drain that never fired, while an
+   * empty `items` list beside a healthy run feed is simply a queue that is up
+   * to date. Two separate calls could observe the two halves a tick apart and
+   * render that distinction wrongly.
+   *
+   * Both limits are optional — the backend applies its own defaults — so an
+   * absent value is omitted from the payload rather than sent as `undefined`.
+   */
+  public async queue(
+    params: SkillSynthesisQueueParams = {},
+  ): Promise<SkillSynthesisQueueResult> {
+    const payload: SkillSynthesisQueueParams = {};
+    if (params.limit !== undefined) payload.limit = params.limit;
+    if (params.runLimit !== undefined) payload.runLimit = params.runLimit;
+
+    const result = await this.rpcService.call('skillSynthesis:queue', payload, {
+      timeout: SKILL_RPC_TIMEOUTS.LIST_MS,
+    });
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to load the synthesis queue');
   }
 }

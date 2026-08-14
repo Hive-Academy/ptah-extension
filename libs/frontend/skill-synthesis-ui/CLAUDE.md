@@ -11,9 +11,33 @@
 **Belongs here**: skills tab UI, candidate filtering, promote/reject dialogs.
 **Does NOT belong**: skill curation logic (backend), SKILL.md file writing (backend writes on promote), settings editing (handled elsewhere).
 
-## VS Code Parity
+## Runtime: ELECTRON-ONLY
 
-Unlike memory/cron/gateway tabs, this tab **works in both Electron and VS Code** — skills are not desktop-only.
+This tab is **Electron-only, exactly like Memory / Schedules / Gateway.** All four
+Thoth tabs are desktop-only by design.
+
+An earlier version of this file claimed the opposite ("works in both Electron and
+VS Code — skills are not desktop-only"). That was **wrong**, and it is contradicted
+by the code in three independent places:
+
+- `apps/ptah-extension-vscode/src/di/expected-absent.ts` lists
+  `SkillsSynthesisRpcHandlers` in `EXPECTED_ABSENT_HANDLERS` — the VS Code host
+  **must never construct it**, and a spec enforces that. The whole backend for this
+  tab is absent there.
+- `thoth-shell.component.ts` marks the `skills` tab `electronOnly: true`.
+- `skill-synthesis-tab.component.ts` renders a desktop-only placeholder when
+  `!isElectron()`.
+
+**The reason is structural, not a policy choice**: the subsystem needs
+`SqliteConnectionService` (better-sqlite3) and the embedder worker, neither of
+which exists in the VS Code extension host. `expected-absent.ts` exists precisely
+because "a subsystem added for Electron gets switched on everywhere" was a
+recurring activation crash.
+
+So: do not "restore parity" here, and do not cite this tab as evidence that a
+shared component has a VS Code consumer. Extracting shared components into
+`libs/frontend/ui` is still right — for single-definition reasons — but this tab
+is not the cross-runtime consumer.
 
 ## Public API
 

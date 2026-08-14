@@ -12,6 +12,9 @@ import type {
   SkillSynthesisPromoteResult,
   SkillSynthesisRejectByPatternResult,
   SkillSynthesisStatsResult,
+  SkillSynthesisDrainRun,
+  SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
@@ -186,14 +189,34 @@ interface StubState {
   readonly candidateDetail: ReturnType<typeof signal<unknown>>;
   readonly candidateDetailLoading: ReturnType<typeof signal<boolean>>;
   readonly loadCandidateDetail: jest.Mock<Promise<void>, [string | null]>;
+  readonly drainRuns: ReturnType<typeof signal<SkillSynthesisDrainRun[]>>;
+  readonly queueItems: ReturnType<typeof signal<SkillSynthesisQueueItem[]>>;
+  readonly stageSpend: ReturnType<typeof signal<SkillSynthesisStageSpend[]>>;
+  readonly queueLoading: ReturnType<typeof signal<boolean>>;
+  readonly queuedAttemptTotal: ReturnType<typeof computed<number>>;
+  readonly refreshQueue: jest.Mock<Promise<void>, []>;
 }
 
 function makeStub(
   candidatesValue: SkillSynthesisCandidateSummary[] = [],
+  queueValue: {
+    items?: SkillSynthesisQueueItem[];
+    runs?: SkillSynthesisDrainRun[];
+    stageSpend?: SkillSynthesisStageSpend[];
+  } = {},
 ): StubState {
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
   const suggestions = signal<SkillSuggestionSummary[]>([]);
+  const queueItems = signal<SkillSynthesisQueueItem[]>(queueValue.items ?? []);
   return {
+    drainRuns: signal<SkillSynthesisDrainRun[]>(queueValue.runs ?? []),
+    queueItems,
+    stageSpend: signal<SkillSynthesisStageSpend[]>(queueValue.stageSpend ?? []),
+    queueLoading: signal<boolean>(false),
+    queuedAttemptTotal: computed(() =>
+      queueItems().reduce((sum, item) => sum + item.attemptCount, 0),
+    ),
+    refreshQueue: jest.fn(async () => undefined),
     candidates,
     suggestions,
     suggestionsLoading: signal<boolean>(false),
@@ -278,6 +301,67 @@ describe('SkillSynthesisTabComponent', () => {
     expect(stub.refreshCandidates).toHaveBeenCalledTimes(1);
     expect(stub.loadStats).toHaveBeenCalledTimes(1);
     expect(diag.refresh).toHaveBeenCalledTimes(1);
+    expect(stub.refreshQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('feeds drain runs and queue rows from state into the pipeline strip', () => {
+    const stub = makeStub([], {
+      runs: [
+        {
+          id: 'run-a',
+          jobId: '@ptah/skills-drain-nightly',
+          tier: 'nightly',
+          scheduledFor: 1_700_000_000_000,
+          startedAt: 1_700_000_000_000,
+          endedAt: 1_700_000_004_000,
+          status: 'succeeded',
+          durationMs: 4_000,
+          summary: 'drained 3 items',
+        },
+      ],
+      items: [
+        {
+          id: 'q-1',
+          sessionId: 's-1',
+          workspaceRoot: '/w',
+          stage: 'archaeology',
+          status: 'queued',
+          attemptCount: 2,
+          enqueuedAt: 1_700_000_000_000,
+          notBefore: 0,
+          finishedAt: null,
+          lane: null,
+          reason: null,
+          candidateId: null,
+        },
+      ],
+    });
+    const diag = makeDiagnosticsStub();
+
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: SkillDiagnosticsStateService, useValue: diag },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    openActivity(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    const runs = root.querySelectorAll('[data-testid="skills-drain-run"]');
+    expect(runs.length).toBe(1);
+    expect(runs[0].textContent).toContain('succeeded');
+    expect(runs[0].textContent).toContain('4.0s');
+
+    const stages = root.querySelectorAll('[data-testid="skills-stage-cost"]');
+    expect(stages.length).toBe(1);
+    expect(stages[0].textContent).toContain('archaeology');
+    expect(stages[0].textContent).toContain('2 dispatches');
   });
 
   it('switches to the Activity sub-view when its tab is clicked', () => {
@@ -419,6 +503,12 @@ describe('SkillSynthesisTabComponent', () => {
         promotedAt: null,
         rejectedAt: null,
         rejectedReason: null,
+        pinned: false,
+        displayName: 'Share one Jest preset across libs',
+        judgeScore: null,
+        judgeStatus: null,
+        judgeReason: null,
+        judgeCriteria: null,
       },
     ]);
     const diag = makeDiagnosticsStub();
@@ -438,7 +528,10 @@ describe('SkillSynthesisTabComponent', () => {
     openSessions(fixture);
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('refactor-tests');
+    // The TITLE, not the `name` slug — the slug is a prompt fragment and is
+    // never rendered (P1-10).
+    expect(text).toContain('Share one Jest preset across libs');
+    expect(text).not.toContain('refactor-tests');
     expect(text).toContain('Promote');
     expect(text).toContain('Reject');
   });
@@ -465,6 +558,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     expect(stub.refreshCandidates).not.toHaveBeenCalled();
     expect(stub.loadStats).not.toHaveBeenCalled();
+    expect(stub.refreshQueue).not.toHaveBeenCalled();
 
     const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll(
       '[role="tab"]',

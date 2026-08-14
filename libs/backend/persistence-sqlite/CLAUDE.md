@@ -24,7 +24,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 ## Public API
 
-`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
+`SqliteConnectionService` + types (`SqliteDatabase`, `SqliteStatement`, `SqliteDatabaseFactory`, `SqliteVecPathResolver`); `IBackupService`, `BackupKind`, `SqliteBackupService`; `SqliteMigrationRunner` + `MigrationRunResult`; `MIGRATIONS` array + `Migration` type; `isUniqueConstraintError`; `IEmbedder` interface; `PERSISTENCE_TOKENS`, `PersistenceDIToken`, `registerPersistenceSqliteServices`.
 
 ## Internal Structure
 
@@ -32,6 +32,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 - `src/lib/migration-runner.ts` — applies pending migrations in order
 - `src/lib/migrations/` — `MIGRATIONS` tuple (forward-only, append-only)
 - `src/lib/backup.service.ts` — `SqliteBackupService` (uses VACUUM INTO / online backup API)
+- `src/lib/sqlite-errors.ts` — `isUniqueConstraintError`, the driver-level predicate behind every at-most-once claim (cron slot claim, synthesis-queue enqueue)
 - `src/lib/embedder/embedder.interface.ts` — `IEmbedder` contract
 - `src/lib/di/{tokens,register}.ts`
 
@@ -44,6 +45,7 @@ Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the for
 
 - **Single shared connection** — never open ad-hoc connections; always inject via `PERSISTENCE_TOKENS.SQLITE_CONNECTION`.
 - **Migrations are forward-only and append-only** — never rewrite or remove a migration that has shipped.
+- **A migration may rebuild a table, and a rebuild is not re-runnable.** `0035` drops and recreates `skill_synthesis_budget` to re-key it, because `0032` declared `day_key TEXT PRIMARY KEY` and SQLite cannot drop the implicit UNIQUE index any other way. No rebuild can be `IF NOT EXISTS`-guarded, so it relies on `SqliteMigrationRunner`'s exactly-once `schema_migrations` bookkeeping — the same guarantee `0033`'s bare `ADD COLUMN`s already depend on. Copy `0035`'s four-statement shape only for a table with no foreign keys, triggers or views; anything else needs the full twelve-step SQLite recipe.
 - `IEmbedder` is the only interface consumers can rely on for vector embeddings; concrete embedder is registered by `memory-curator`.
 - The DB path is host-injected via `PERSISTENCE_TOKENS.SQLITE_DB_PATH`; use the exported `resolvePtahDbPath()` helper, which resolves to `~/.ptah/state/ptah.sqlite` (`ptah-dev.sqlite` when `NODE_ENV=development`).
 - `catch (error: unknown)`.

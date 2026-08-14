@@ -22,7 +22,7 @@ Generic cron job scheduler backed by SQLite. Runs scheduled `JobHandler`s with s
 
 ## Public API
 
-`CronScheduler`, `JobRunner`, `CatchupCoordinator`, `JobStore`/`IJobStore`, `RunStore`/`IRunStore`, `HandlerRegistry`, `NoopPowerMonitor`/`IPowerMonitor`, `CronScheduler/JobNotFound/CronConfig Error`s, `CRON_TOKENS`, `registerCronSchedulerServices`. Types: `ScheduledJob`, `JobRun`, `JobRunStatus`, `CreateJobInput`, `UpsertJobInput`, `CronSchedulerOptions`, `CatchupPolicy`, `IHandlerRegistry`, `JobHandler`, `JobHandlerContext`, `JobHandlerResult`, `CATCHUP_WINDOW_MAX_MS`. Helper: `SlotAlreadyClaimedError`, `isUniqueConstraintError`.
+`CronScheduler`, `JobRunner`, `CatchupCoordinator`, `JobStore`/`IJobStore`, `RunStore`/`IRunStore`, `HandlerRegistry`, `NoopPowerMonitor`/`IPowerMonitor`, `CronScheduler/JobNotFound/CronConfig Error`s, `CRON_TOKENS`, `registerCronSchedulerServices`. Types: `ScheduledJob`, `JobRun`, `JobRunStatus`, `CreateJobInput`, `UpsertJobInput`, `CronSchedulerOptions`, `CatchupPolicy`, `IHandlerRegistry`, `JobHandler`, `JobHandlerContext`, `JobHandlerResult`, `CATCHUP_WINDOW_MAX_MS`. Helper: `SlotAlreadyClaimedError`. (`isUniqueConstraintError` now lives in `@ptah-extension/persistence-sqlite` — it is a driver concern and a second lib needs it.)
 
 ## Internal Structure
 
@@ -41,7 +41,7 @@ Generic cron job scheduler backed by SQLite. Runs scheduled `JobHandler`s with s
 
 ## Guidelines
 
-- Slot claim collisions are expected — handle `SlotAlreadyClaimedError` / `isUniqueConstraintError` as success-by-other-worker, not failure.
+- Slot claim collisions are expected — handle `SlotAlreadyClaimedError` / `isUniqueConstraintError` (from `persistence-sqlite`) as success-by-other-worker, not failure.
 - Long-running handlers must respect cancellation in `JobHandlerContext`.
 - No file IO outside the store layer.
 - `catch (error: unknown)`.

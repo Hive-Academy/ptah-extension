@@ -21,6 +21,11 @@ function candidate(
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    displayName: null,
+    judgeScore: null,
+    judgeStatus: null,
+    judgeReason: null,
+    judgeCriteria: null,
     ...overrides,
   };
 }
@@ -275,6 +280,283 @@ describe('SkillCandidatesTableComponent', () => {
       );
       expect(buttons.length).toBeGreaterThan(0);
       expect(Array.from(buttons).every((b) => b.disabled)).toBe(true);
+    });
+  });
+
+  // ── P1-1: an unscored candidate never renders a number ────────────────────
+
+  describe('judge badge (P1-1)', () => {
+    it('renders an "unscored" badge and NO score node when judgeScore is null', () => {
+      const { el } = render({
+        candidates: [candidate({ judgeStatus: 'unscored', judgeScore: null })],
+      });
+
+      const badge = el.querySelector(
+        '[data-testid="skills-candidate-judge-badge"]',
+      );
+      expect(badge).not.toBeNull();
+      expect(badge?.textContent?.trim()).toBe('unscored');
+
+      // The whole point of the phase: a fabricated 0 is indistinguishable from
+      // a genuine bottom score, so there must be no number at all.
+      expect(
+        el.querySelector('[data-testid="skills-candidate-judge-score"]'),
+      ).toBeNull();
+    });
+
+    it('never prints a 0 anywhere in the judge block of an unscored candidate', () => {
+      const { el } = render({
+        candidates: [
+          candidate({
+            judgeStatus: 'unscored',
+            judgeScore: null,
+            judgeReason: 'rate limited',
+            judgeCriteria: null,
+            successCount: 0,
+            failureCount: 0,
+          }),
+        ],
+      });
+
+      const badge = el.querySelector(
+        '[data-testid="skills-candidate-judge-badge"]',
+      );
+      const judgeBlock = badge?.closest('div')?.parentElement;
+      expect(judgeBlock?.textContent ?? '').not.toContain('0');
+    });
+
+    it('surfaces the failure text as the reason for an unscored candidate', () => {
+      const { el } = render({
+        candidates: [
+          candidate({
+            judgeStatus: 'unscored',
+            judgeScore: null,
+            judgeReason: 'judge call timed out',
+          }),
+        ],
+      });
+
+      expect(
+        el
+          .querySelector('[data-testid="skills-candidate-judge-reason"]')
+          ?.textContent?.trim(),
+      ).toBe('judge call timed out');
+    });
+
+    it('renders the score node with the exact score when the candidate IS scored', () => {
+      const { el } = render({
+        candidates: [candidate({ judgeStatus: 'scored', judgeScore: 7.5 })],
+      });
+
+      expect(
+        el
+          .querySelector('[data-testid="skills-candidate-judge-badge"]')
+          ?.textContent?.trim(),
+      ).toBe('scored');
+      expect(
+        el
+          .querySelector('[data-testid="skills-candidate-judge-score"]')
+          ?.textContent?.trim(),
+      ).toBe('7.5');
+    });
+
+    it('renders a genuine zero score, which is NOT the same as unscored', () => {
+      const { el } = render({
+        candidates: [candidate({ judgeStatus: 'scored', judgeScore: 0 })],
+      });
+
+      expect(
+        el
+          .querySelector('[data-testid="skills-candidate-judge-score"]')
+          ?.textContent?.trim(),
+      ).toBe('0');
+    });
+
+    it('renders a "disabled" badge with no score when the gate was off', () => {
+      const { el } = render({
+        candidates: [candidate({ judgeStatus: 'disabled', judgeScore: null })],
+      });
+
+      expect(
+        el
+          .querySelector('[data-testid="skills-candidate-judge-badge"]')
+          ?.textContent?.trim(),
+      ).toBe('disabled');
+      expect(
+        el.querySelector('[data-testid="skills-candidate-judge-score"]'),
+      ).toBeNull();
+    });
+
+    it('renders no judge block at all when judgeStatus is null', () => {
+      const { el } = render({ candidates: [candidate({ judgeStatus: null })] });
+
+      expect(
+        el.querySelector('[data-testid="skills-candidate-judge-badge"]'),
+      ).toBeNull();
+      expect(
+        el.querySelector('[data-testid="skills-candidate-judge-score"]'),
+      ).toBeNull();
+    });
+  });
+
+  // ── P1-2: the five-criterion scorecard ────────────────────────────────────
+
+  describe('judge scorecard (P1-2)', () => {
+    const SCORED = {
+      judgeStatus: 'scored' as const,
+      judgeScore: 8,
+      judgeCriteria: {
+        novelty: 7,
+        actionability: 9,
+        scope: 6,
+        generalization: 8,
+        triggerClarity: 10,
+      },
+    };
+
+    it('renders exactly five criterion nodes for a scored summary', () => {
+      const { el } = render({ candidates: [candidate(SCORED)] });
+
+      expect(
+        el.querySelectorAll('[data-testid="skills-candidate-criterion"]')
+          .length,
+      ).toBe(5);
+    });
+
+    it('renders the correct label and value for every criterion', () => {
+      const { el } = render({ candidates: [candidate(SCORED)] });
+
+      const rendered = Array.from(
+        el.querySelectorAll('[data-testid="skills-candidate-criterion"]'),
+      ).map((node) => ({
+        label: node.querySelector('dt')?.textContent?.trim(),
+        value: node.querySelector('dd')?.textContent?.trim(),
+      }));
+
+      expect(rendered).toEqual([
+        { label: 'Novelty', value: '7' },
+        { label: 'Actionability', value: '9' },
+        { label: 'Scope', value: '6' },
+        { label: 'Generalization', value: '8' },
+        { label: 'Trigger clarity', value: '10' },
+      ]);
+    });
+
+    it('renders an em dash for an individual criterion the judge left null', () => {
+      const { el } = render({
+        candidates: [
+          candidate({
+            ...SCORED,
+            judgeCriteria: { ...SCORED.judgeCriteria, scope: null },
+          }),
+        ],
+      });
+
+      const scope = el.querySelector(
+        '[data-testid="skills-candidate-criterion"][data-criterion="scope"]',
+      );
+      expect(scope?.querySelector('dd')?.textContent?.trim()).toBe('—');
+    });
+
+    it('renders no scorecard at all when judgeCriteria is null', () => {
+      const { el } = render({
+        candidates: [
+          candidate({
+            judgeStatus: 'scored',
+            judgeScore: 8,
+            judgeCriteria: null,
+          }),
+        ],
+      });
+
+      expect(
+        el.querySelectorAll('[data-testid="skills-candidate-criterion"]')
+          .length,
+      ).toBe(0);
+      expect(
+        el.querySelector('[data-testid="skills-candidate-scorecard"]'),
+      ).toBeNull();
+    });
+  });
+
+  // ── P1-10 (b): the title is never the prompt-echo slug ────────────────────
+
+  describe('candidate title (P1-10 part b)', () => {
+    it('renders displayName when the namer has produced one', () => {
+      const { el } = render({
+        candidates: [
+          candidate({
+            name: 'help-me-refactor-the-jest-configs-please',
+            displayName: 'Share one Jest preset across libs',
+          }),
+        ],
+      });
+
+      expect(
+        el
+          .querySelector('[data-testid="skills-candidate-title"]')
+          ?.textContent?.trim(),
+      ).toBe('Share one Jest preset across libs');
+    });
+
+    it('falls back to "Captured workflow · date" — NEVER the raw slug', () => {
+      const slug = 'help-me-refactor-the-jest-configs-please';
+      const createdAt = new Date(2026, 7, 13, 10, 30).getTime();
+      const { el } = render({
+        candidates: [candidate({ name: slug, displayName: null, createdAt })],
+      });
+
+      const title = el.querySelector('[data-testid="skills-candidate-title"]');
+      const text = title?.textContent ?? '';
+
+      expect(text).toContain('Captured workflow · 2026-08-13');
+      // The slug is a prompt fragment. It must not leak into the title.
+      expect(text).not.toContain(slug);
+      expect(text).not.toContain('refactor');
+    });
+
+    it('keeps the pinned marker alongside the fallback title', () => {
+      const { el } = render({
+        candidates: [candidate({ displayName: null, pinned: true })],
+      });
+
+      const text =
+        el.querySelector('[data-testid="skills-candidate-title"]')
+          ?.textContent ?? '';
+      expect(text).toContain('Captured workflow');
+      expect(text).toContain('pinned');
+    });
+
+    it('treats a whitespace-only displayName as absent', () => {
+      const { el } = render({
+        candidates: [candidate({ name: 'some-slug', displayName: '   ' })],
+      });
+
+      const text =
+        el.querySelector('[data-testid="skills-candidate-title"]')
+          ?.textContent ?? '';
+      expect(text).toContain('Captured workflow');
+      expect(text).not.toContain('some-slug');
+    });
+
+    it('uses the title, not the slug, in the row and checkbox aria labels', () => {
+      const slug = 'help-me-refactor-the-jest-configs-please';
+      const { el } = render({
+        candidates: [
+          candidate({ name: slug, displayName: 'Share one Jest preset' }),
+        ],
+      });
+
+      const card = el.querySelector('ptah-native-card [role="button"]');
+      expect(card).not.toBeNull();
+      expect(card?.getAttribute('aria-label')).toBe(
+        'Open details for Share one Jest preset',
+      );
+
+      const checkbox = el.querySelector('[data-testid="skills-select-row"]');
+      expect(checkbox?.getAttribute('aria-label')).toBe(
+        'Select Share one Jest preset',
+      );
     });
   });
 });

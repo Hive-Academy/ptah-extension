@@ -5,10 +5,10 @@
   "type": "commonjs",
   "sideEffects": false,
   "main": "./index.cjs",
-  "types": "./index.d.ts",
+  "types": "./src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
+      "types": "./src/index.d.ts",
       "default": "./index.cjs"
     },
     "./testing": {

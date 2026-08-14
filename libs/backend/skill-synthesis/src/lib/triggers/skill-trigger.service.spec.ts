@@ -266,7 +266,18 @@ function makeWorkspace(
 
 function makeSynthesis(): SkillSynthesisService {
   return {
-    analyzeSession: jest.fn().mockResolvedValue(null),
+    /**
+     * B0.9: no trigger may reach `analyzeSession` any more — the `prefilter`
+     * stage handler is its one background caller. This double is not inert; it
+     * REJECTS, so a regression to the inline path surfaces as a failure here
+     * instead of as a test that still passes while spending tokens.
+     */
+    analyzeSession: jest
+      .fn()
+      .mockRejectedValue(
+        new Error('B0.9 violated: a trigger reached analyzeSession inline'),
+      ),
+    enqueueAnalyze: jest.fn().mockResolvedValue('created'),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
@@ -428,8 +439,8 @@ describe('SkillTriggerService', () => {
     });
     jest.advanceTimersByTime(150);
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
-      force: false,
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith('s1', '/ws', {
+      signal: undefined,
       transcriptPath: undefined,
       source: 'idle',
     });
@@ -459,10 +470,10 @@ describe('SkillTriggerService', () => {
       timestamp: 2,
     });
     jest.advanceTimersByTime(100);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     jest.advanceTimersByTime(120);
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
   });
 
   it('stop() clears all timers', () => {
@@ -499,7 +510,7 @@ describe('SkillTriggerService', () => {
     sessionEnd.endActive.current?.({ sessionId: 's1', workspaceRoot: '/ws' });
     expect(jest.getTimerCount()).toBe(0);
     jest.advanceTimersByTime(200);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('settings race: re-reads idleMs on every event (R7)', async () => {
@@ -534,15 +545,15 @@ describe('SkillTriggerService', () => {
       timestamp: 2,
     });
     jest.advanceTimersByTime(150);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     jest.advanceTimersByTime(400);
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
   });
 
   it('records error event when analyzeSession throws', async () => {
     const synthesis = makeSynthesis();
-    (synthesis.analyzeSession as jest.Mock).mockRejectedValueOnce(
+    (synthesis.enqueueAnalyze as jest.Mock).mockRejectedValueOnce(
       new Error('boom'),
     );
     const { service, activity } = buildService({
@@ -581,7 +592,7 @@ describe('SkillTriggerService', () => {
     });
     expect(jest.getTimerCount()).toBe(0);
     jest.advanceTimersByTime(1000);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 });
 
@@ -598,11 +609,11 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     service.start();
     subagentStop.fire(subagentStopPayload());
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith(
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith(
       'sub-aaaa-bbbb-cccc-dddd',
       '/ws',
       {
-        force: false,
+        signal: undefined,
         transcriptPath: '/tmp/agents/sub-aaaa-bbbb-cccc-dddd.jsonl',
         source: 'subagent-stop',
       },
@@ -627,7 +638,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     subagentStop.fire(subagentStopPayload({ subagentSessionId: 'a' }));
     subagentStop.fire(subagentStopPayload({ subagentSessionId: 'b' }));
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'rate-limited',
@@ -643,7 +654,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     service.start();
     subagentStop.fire(subagentStopPayload({ subagentSessionId: '' }));
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     expect(synthesis.pushEvent).not.toHaveBeenCalled();
     expect(acquireSpy).not.toHaveBeenCalled();
   });
@@ -657,7 +668,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     service.start();
     subagentStop.fire(subagentStopPayload());
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     expect(synthesis.pushEvent).not.toHaveBeenCalled();
   });
 
@@ -744,7 +755,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     service.start();
     subagentStop.fire(subagentStopPayload({ agentType: 'frontend-developer' }));
     await flushMicrotasks();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         slug: 'frontend-developer',
@@ -782,11 +793,11 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     service.start();
     stop.fire(stopPayload());
     jest.advanceTimersByTime(89_000);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     jest.advanceTimersByTime(2_000);
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
-      force: false,
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith('s1', '/ws', {
+      signal: undefined,
       transcriptPath: undefined,
       source: 'turn-complete',
     });
@@ -799,10 +810,10 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     jest.advanceTimersByTime(60_000);
     stop.fire(stopPayload({ timestamp: 2 }));
     jest.advanceTimersByTime(60_000);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     jest.advanceTimersByTime(31_000);
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
   });
 
   it('respects the rate limit gate and emits rate-limited with source turn-complete', async () => {
@@ -818,7 +829,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     stop.fire(stopPayload());
     jest.advanceTimersByTime(91_000);
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'rate-limited',
@@ -844,7 +855,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     service.start();
     stop.fire(stopPayload({ hasBackgroundWork: true }));
     jest.advanceTimersByTime(120_000);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('empty sessionId Stop is ignored', () => {
@@ -852,7 +863,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     service.start();
     stop.fire(stopPayload({ sessionId: '' }));
     jest.advanceTimersByTime(120_000);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('session-end clears a pending turn-complete timer', () => {
@@ -862,7 +873,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     expect(jest.getTimerCount()).toBeGreaterThan(0);
     sessionEnd.endActive.current?.({ sessionId: 's1', workspaceRoot: '/ws' });
     jest.advanceTimersByTime(120_000);
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('stop() clears pending turn-complete timers', () => {
@@ -899,8 +910,8 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
-      force: false,
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith('s1', '/ws', {
+      signal: undefined,
       transcriptPath: undefined,
       source: 'edit-then-test',
     });
@@ -928,7 +939,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('3 Edits + Bash git status does NOT fire (not a test command)', async () => {
@@ -947,7 +958,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('11 minutes between edits and test causes window to expire (no fire)', async () => {
@@ -966,7 +977,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('SessionEnd between Edits and test clears state — no fire (R3)', async () => {
@@ -986,7 +997,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('rate-limited path emits rate-limited and clears edit state', async () => {
@@ -1020,7 +1031,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(syn2.analyzeSession).not.toHaveBeenCalled();
+    expect(syn2.enqueueAnalyze).not.toHaveBeenCalled();
     expect(syn2.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'rate-limited',
@@ -1059,7 +1070,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       );
     }
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(5);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(5);
   });
 
   it('postToolUse enabled=false short-circuits handler', async () => {
@@ -1082,7 +1093,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 
   it('empty sessionId in payload short-circuits before any FSM mutation', async () => {
@@ -1108,7 +1119,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
     expect(synthesis.pushEvent).not.toHaveBeenCalled();
     expect(acquireSpy).not.toHaveBeenCalled();
   });
@@ -1131,7 +1142,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 });
 
@@ -1419,7 +1430,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     // Task fires its recorder path and returns — edit state is preserved;
     // no analyzeSession should fire here (Bash test not yet seen).
     await flush();
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 });
 
@@ -1461,7 +1472,7 @@ describe('SkillTriggerService — lifecycle and rate-limit windows', () => {
       subagentStopPayload({ subagentSessionId: 'b', timestamp: t0 + 100 }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
     jest.setSystemTime(new Date(t0 + 3_600_001));
     subagentStop.fire(
       subagentStopPayload({
@@ -1470,6 +1481,6 @@ describe('SkillTriggerService — lifecycle and rate-limit windows', () => {
       }),
     );
     await Promise.resolve();
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(2);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(2);
   });
 });

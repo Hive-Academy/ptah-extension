@@ -1,58 +1,78 @@
 /**
- * SkillCandidateStore specs — uses better-sqlite3 in-memory DB.
+ * SkillCandidateStore specs — in-memory SQLite.
  *
  * Tests: setPin cap, transaction holds, countDistinctContexts, decay math,
- * pinned excluded from decay list, zero-invocation skills sort last.
+ * pinned excluded from decay list, zero-invocation skills sort last, and the
+ * `0033` judge verdict round-trip (per-criterion scores, the `unscored`
+ * verdict, `display_name`).
  *
- * Better-sqlite3 has no @types package in this repo, so we use require() with
- * a local type alias — consistent with how persistence-sqlite tests use it.
- * Tests are skipped when the native module is unavailable (e.g. CI without
- * rebuilt bindings), matching the pattern in sqlite-connection.service.spec.ts.
+ * WHICH BINDING. `better-sqlite3` is rebuilt against Electron's ABI by
+ * postinstall here, so it cannot load in the Jest/Node runner on a normal dev
+ * machine. Rather than permanently skip the assertions that matter, the opener
+ * falls back to Node's built-in `node:sqlite` — the same engine behind a
+ * different binding — exactly as the queue specs do. `resolveOpener` is reused
+ * from `queue/queue-db.test-support` so there is one such opener, not two.
+ * `node:sqlite` has no `transaction()`, so this file adds the BEGIN/COMMIT
+ * shim; that is the only behavioural difference the store can observe.
+ *
+ * THE SCHEMA IS NOT HAND-WRITTEN FOR `0033`. The base table is the pre-`0033`
+ * shape, and the eleven judge columns come from `MIGRATIONS` itself, so a
+ * column renamed in the migration fails these specs instead of silently
+ * disagreeing with them.
  */
 import 'reflect-metadata';
+import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import { SkillCandidateStore } from './skill-candidate.store';
-import type { CandidateId, NewCandidateInput } from './types';
+import {
+  JUDGE_STATUSES,
+  type CandidateId,
+  type JudgeStatus,
+  type NewCandidateInput,
+} from './types';
+import {
+  resolveOpener,
+  type TestDatabase,
+} from './queue/queue-db.test-support';
 
-interface BetterSqliteDb {
-  exec(sql: string): void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  prepare(sql: string): {
-    run(...args: any[]): any;
-    get(...args: any[]): any;
-    all(...args: any[]): any[];
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  transaction<T extends (...args: any[]) => any>(fn: T): T;
-  close(): void;
+type TransactionFn = <T extends (...args: never[]) => unknown>(fn: T) => T;
+
+type SpecDb = TestDatabase & { transaction: TransactionFn };
+
+const opener = resolveOpener();
+const maybe = opener ? it : it.skip;
+
+const SQL_0033 = MIGRATIONS.find((m) => m.version === 33)?.sql ?? '';
+
+/**
+ * `better-sqlite3` ships `transaction()`; `node:sqlite` does not. The store's
+ * only use of it (`setPin`) is synchronous and single-connection, for which
+ * BEGIN/COMMIT/ROLLBACK is equivalent.
+ */
+function transactionFor(db: TestDatabase): TransactionFn {
+  const native = (db as { transaction?: unknown }).transaction;
+  if (typeof native === 'function') {
+    return (native as TransactionFn).bind(db) as TransactionFn;
+  }
+  return (<T extends (...args: never[]) => unknown>(fn: T): T =>
+    ((...args: never[]) => {
+      db.exec('BEGIN');
+      try {
+        const result = fn(...args);
+        db.exec('COMMIT');
+        return result;
+      } catch (error: unknown) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    }) as unknown as T) as TransactionFn;
 }
-
-// Detect whether the native module can be loaded (ABI mismatch on Electron builds).
-let nativeAvailable = false;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-  const DB = require('better-sqlite3') as new (path: string) => {
-    close(): void;
-  };
-  const probe = new DB(':memory:');
-  probe.close();
-  nativeAvailable = true;
-} catch {
-  nativeAvailable = false;
-}
-
-const maybe = nativeAvailable ? it : it.skip;
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-const DatabaseCtor = nativeAvailable
-  ? (require('better-sqlite3') as new (path: string) => BetterSqliteDb)
-  : null;
 
 // ─── Minimal in-memory DB setup ─────────────────────────────────────────────
 
-function createInMemoryDb(): BetterSqliteDb {
-  if (!DatabaseCtor) throw new Error('native not available');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  const db = new DatabaseCtor(':memory:');
+function createInMemoryDb(): SpecDb {
+  if (!opener) throw new Error('no sqlite binding available');
+  const raw = opener(':memory:');
+  const db: SpecDb = Object.assign(raw, { transaction: transactionFor(raw) });
   db.exec(`
     CREATE TABLE skill_candidates (
       id TEXT PRIMARY KEY,
@@ -106,6 +126,7 @@ function createInMemoryDb(): BetterSqliteDb {
     CREATE INDEX idx_skill_inv_events_task
       ON skill_invocation_events(skill_slug, task_id);
   `);
+  db.exec(SQL_0033);
   return db;
 }
 
@@ -116,7 +137,7 @@ const noopLogger = {
   error: jest.fn(),
 };
 
-function makeConnection(db: BetterSqliteDb) {
+function makeConnection(db: SpecDb) {
   return {
     db,
     vecExtensionLoaded: false,
@@ -146,7 +167,7 @@ function makeVecStatus(available = false): unknown {
   };
 }
 
-function makeStore(db: BetterSqliteDb): SkillCandidateStore {
+function makeStore(db: SpecDb): SkillCandidateStore {
   const connection = makeConnection(db);
   return new SkillCandidateStore(
     noopLogger as never,
@@ -387,7 +408,7 @@ describe('SkillCandidateStore', () => {
       task_id: string | null;
     }
 
-    function readEvent(db: BetterSqliteDb, slug: string): EventRow {
+    function readEvent(db: SpecDb, slug: string): EventRow {
       return db
         .prepare(
           `SELECT input_tokens, output_tokens, cache_read_tokens,
@@ -548,11 +569,7 @@ describe('SkillCandidateStore', () => {
       });
     }
 
-    function rowByTask(
-      db: BetterSqliteDb,
-      slug: string,
-      taskId: string,
-    ): VerdictRow {
+    function rowByTask(db: SpecDb, slug: string, taskId: string): VerdictRow {
       return db
         .prepare(
           `SELECT succeeded, is_error, reconciled_at, verdict_source
@@ -1155,6 +1172,296 @@ describe('SkillCandidateStore', () => {
       expect(store.listGradedInvocations('nope', 10)).toEqual([]);
       recordAndGrade(store, 'agent-lim', 1000, 'TASK_2026_001', 5000, true);
       expect(store.listGradedInvocations('agent-lim', 0)).toEqual([]);
+    });
+  });
+
+  // ── 0033: judge verdicts + display_name ───────────────────────────────────
+
+  describe('recordJudgeVerdict', () => {
+    function seed(db: SpecDb, suffix: string): CandidateId {
+      const store = makeStore(db);
+      return store.registerCandidate(candidateInput(suffix)).candidate.id;
+    }
+
+    function rawJudge(
+      db: SpecDb,
+      id: CandidateId,
+    ): { judge_score: number | null; judge_status: string | null } {
+      return db
+        .prepare(
+          `SELECT judge_score, judge_status FROM skill_candidates WHERE id = ?`,
+        )
+        .get(id) as { judge_score: number | null; judge_status: string | null };
+    }
+
+    maybe('a fresh candidate carries no verdict at all', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-fresh');
+
+      const row = store.findById(id);
+      expect(row?.judgeStatus).toBeNull();
+      expect(row?.judgeScore).toBeNull();
+      expect(row?.judgeReason).toBeNull();
+      expect(row?.judgedAt).toBeNull();
+      expect(row?.judgePanelRationales).toBeNull();
+      expect(row?.displayName).toBeNull();
+      expect(row?.judgeCriteria).toEqual({
+        novelty: null,
+        actionability: null,
+        scope: null,
+        generalization: null,
+        triggerClarity: null,
+      });
+    });
+
+    maybe('round-trips a scored verdict with all five criteria', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-scored');
+
+      const returned = store.recordJudgeVerdict(id, {
+        status: 'scored',
+        score: 7.4,
+        reason: 'Generalizes past the originating repo.',
+        criteria: {
+          novelty: 8,
+          actionability: 7,
+          scope: 6.5,
+          generalization: 9,
+          triggerClarity: 6,
+        },
+        judgedAt: 1_700_000_000_000,
+      });
+
+      for (const row of [returned, store.findById(id)]) {
+        expect(row?.judgeStatus).toBe('scored');
+        expect(row?.judgeScore).toBeCloseTo(7.4);
+        expect(row?.judgeReason).toBe('Generalizes past the originating repo.');
+        expect(row?.judgedAt).toBe(1_700_000_000_000);
+        expect(row?.judgeCriteria).toEqual({
+          novelty: 8,
+          actionability: 7,
+          scope: 6.5,
+          generalization: 9,
+          triggerClarity: 6,
+        });
+      }
+    });
+
+    maybe(
+      'an unscored verdict reads back as NULL — not 0 — and keeps its reason',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const id = seed(db, 'verdict-unscored');
+
+        store.recordJudgeVerdict(id, {
+          status: 'unscored',
+          score: null,
+          reason: 'judge call rate-limited',
+        });
+
+        const row = store.findById(id);
+        expect(row?.judgeStatus).toBe('unscored');
+        expect(row?.judgeScore).toBeNull();
+        expect(row?.judgeScore).not.toBe(0);
+        expect(row?.judgeReason).toBe('judge call rate-limited');
+        // And the column itself is NULL, not a coerced zero.
+        expect(rawJudge(db, id).judge_score).toBeNull();
+      },
+    );
+
+    maybe('a genuine score of 0 is distinguishable from unscored', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const zero = seed(db, 'verdict-zero');
+      const none = seed(db, 'verdict-none');
+
+      store.recordJudgeVerdict(zero, {
+        status: 'scored',
+        score: 0,
+        reason: 'no reusable workflow here',
+      });
+      store.recordJudgeVerdict(none, {
+        status: 'unscored',
+        score: null,
+        reason: 'provider returned unparseable JSON',
+      });
+
+      expect(store.findById(zero)?.judgeScore).toBe(0);
+      expect(store.findById(none)?.judgeScore).toBeNull();
+      expect(rawJudge(db, zero).judge_score).toBe(0);
+      expect(rawJudge(db, none).judge_score).toBeNull();
+    });
+
+    maybe('a disabled verdict records that the gate was off', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-disabled');
+
+      const row = store.recordJudgeVerdict(id, {
+        status: 'disabled',
+        score: null,
+        reason: 'skillSynthesis.judgeEnabled=false',
+      });
+
+      expect(row.judgeStatus).toBe('disabled');
+      expect(row.judgeScore).toBeNull();
+      expect(rawJudge(db, id).judge_status).toBe('disabled');
+    });
+
+    maybe('the verdict does not move the lifecycle status', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-lifecycle');
+
+      store.recordJudgeVerdict(id, {
+        status: 'unscored',
+        score: null,
+        reason: 'timeout',
+      });
+
+      // An unscored verdict is precisely the case that must NOT promote or
+      // reject: the candidate stays pending and is retried on the next pass.
+      expect(store.findById(id)?.status).toBe('candidate');
+    });
+
+    maybe('re-judging replaces stale per-criterion scores', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-rejudge');
+
+      store.recordJudgeVerdict(id, {
+        status: 'scored',
+        score: 9,
+        reason: 'first pass',
+        criteria: {
+          novelty: 9,
+          actionability: 9,
+          scope: 9,
+          generalization: 9,
+          triggerClarity: 9,
+        },
+      });
+      store.recordJudgeVerdict(id, {
+        status: 'unscored',
+        score: null,
+        reason: 'second pass failed',
+      });
+
+      const row = store.findById(id);
+      expect(row?.judgeScore).toBeNull();
+      // No stale 9s left sitting beside the new verdict.
+      expect(row?.judgeCriteria).toEqual({
+        novelty: null,
+        actionability: null,
+        scope: null,
+        generalization: null,
+        triggerClarity: null,
+      });
+    });
+
+    maybe('rejects a judge_status outside the union', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-bad-status');
+
+      expect(() =>
+        store.recordJudgeVerdict(id, {
+          // There is no DB CHECK behind this column — the union is the only
+          // enforcement, so the store has to be the one that refuses.
+          status: 'passed' as JudgeStatus,
+          score: null,
+          reason: null,
+        }),
+      ).toThrow(/unknown judge status/i);
+      expect(rawJudge(db, id).judge_status).toBeNull();
+    });
+
+    maybe('rejects a scored verdict with no number', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-scored-null');
+
+      expect(() =>
+        store.recordJudgeVerdict(id, {
+          status: 'scored',
+          score: null,
+          reason: null,
+        }),
+      ).toThrow(/finite score/i);
+    });
+
+    maybe('rejects a non-scored verdict that carries a number', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-unscored-number');
+
+      // This is the shape of the old fail-open bug: an errored judge call
+      // arriving with a fabricated 10.
+      expect(() =>
+        store.recordJudgeVerdict(id, {
+          status: 'unscored',
+          score: 10,
+          reason: 'LLM error',
+        }),
+      ).toThrow(/must carry score=null/i);
+    });
+
+    maybe('accepts every member of JUDGE_STATUSES', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      for (const status of JUDGE_STATUSES) {
+        const id = seed(db, `verdict-each-${status}`);
+        const row = store.recordJudgeVerdict(id, {
+          status,
+          score: status === 'scored' ? 5 : null,
+          reason: null,
+        });
+        expect(row.judgeStatus).toBe(status);
+      }
+    });
+
+    maybe('downgrades an unrecognized stored status to unscored', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const id = seed(db, 'verdict-legacy-status');
+      noopLogger.warn.mockClear();
+      // No CHECK constraint guards this column, so a foreign writer (an older
+      // or newer build) can leave a value the union does not know.
+      db.prepare(
+        `UPDATE skill_candidates SET judge_status = ? WHERE id = ?`,
+      ).run('panel-pending', id);
+
+      expect(store.findById(id)?.judgeStatus).toBe('unscored');
+      expect(noopLogger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('setDisplayName', () => {
+    maybe('sets a human title without touching the slug', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('name-1'));
+
+      const row = store.setDisplayName(candidate.id, '  Bisect A Flaky Spec  ');
+
+      expect(row.displayName).toBe('Bisect A Flaky Spec');
+      expect(row.name).toBe('skill-name-1');
+      expect(store.findById(candidate.id)?.displayName).toBe(
+        'Bisect A Flaky Spec',
+      );
+      expect(store.findById(candidate.id)?.name).toBe('skill-name-1');
+    });
+
+    maybe('clears the column when given a blank name', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('name-2'));
+      store.setDisplayName(candidate.id, 'Something');
+
+      expect(store.setDisplayName(candidate.id, '   ').displayName).toBeNull();
     });
   });
 });

@@ -4,12 +4,12 @@ export {
   registerAuthProvidersServices,
   registerCuratorAuthServices,
 } from './lib/di/register';
-export { CuratorAuthResolver } from './lib/auth/curator-auth-resolver';
+export { ProviderAuthResolver } from './lib/auth/provider-auth-resolver';
 export {
   CuratorProxyManager,
   type CuratorProxyHandle,
 } from './lib/auth/curator-proxy-manager';
-export { CuratorAuthError } from './lib/auth/curator-auth.error';
+export { ProviderAuthError } from './lib/auth/provider-auth.error';
 export {
   AuthManager,
   type AuthResult,

@@ -20,8 +20,17 @@ import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
   ProposalNotFoundError,
+  SKILL_LANE_IDS,
+  SKILL_LANE_FIELDS,
+  SKILL_LANE_KEYS,
+  SKILL_LANE_DEFAULTS,
 } from '@ptah-extension/skill-synthesis';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  FILE_BASED_SETTINGS_KEYS,
+  FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
+} from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
@@ -182,6 +191,32 @@ function makeScorecard() {
   };
 }
 
+/**
+ * The queue store is injected non-optionally (it ships with the same
+ * `registerSkillSynthesisServices` call as the candidate store), so every
+ * container that resolves the handler class must provide it. The queue method
+ * itself is exercised in `skills-synthesis-rpc.queue.spec.ts`.
+ */
+function makeQueueStore() {
+  return {
+    listRecent: jest.fn().mockReturnValue([]),
+  };
+}
+
+/**
+ * The budget store is injected non-optionally for the same reason as the queue
+ * store, so it too must be present in EVERY container in this file — including
+ * the two deliberately-sparse ones. There are four construction sites here plus
+ * one in `skills-synthesis-rpc.queue.spec.ts`; a new constructor parameter
+ * breaks all five, which is a known cost and a filed follow-up, not something
+ * to fix by consolidating them inside a feature batch.
+ */
+function makeBudgetStore() {
+  return {
+    todayStageUsage: jest.fn().mockReturnValue([]),
+  };
+}
+
 function makeDiagnostics() {
   return {
     getSnapshot: jest.fn().mockResolvedValue({
@@ -219,6 +254,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const mirror = makeMirror();
   const contentDownload = makeContentDownload();
   const scorecard = makeScorecard();
+  const queueStore = makeQueueStore();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -247,6 +283,11 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
     scorecard,
   );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+    makeBudgetStore(),
+  );
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
@@ -267,6 +308,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     mirror,
     contentDownload,
     scorecard,
+    queueStore,
     workspaceProvider,
     logger,
   };
@@ -724,6 +766,17 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
     );
+    // The registry is what this test leaves unbound; the queue and budget
+    // stores are not optional, so both must be present even in a
+    // deliberately-sparse container.
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
+    );
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -1137,6 +1190,17 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
     );
+    // The scorecard service is what this test leaves unbound; the queue and
+    // budget stores are not optional, so both must be present even in a sparse
+    // container.
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
+    );
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -1296,6 +1360,422 @@ describe('SkillsSynthesisRpcHandlers — dual-registration smoke', () => {
       expect(ok).toBe(true);
     }
   });
+
+  // Correction C11. `skillSynthesis:` was already allowed before this batch,
+  // and the runtime guard is per PREFIX, not per method. A `getLanes` /
+  // `setLanes` entry appearing in that list would be a second, redundant way to
+  // say the same thing — and the next person to add a method would reasonably
+  // conclude they had to add one too.
+  it('adds no per-method entry to the runtime prefix guard', () => {
+    const perMethod = ALLOWED_METHOD_PREFIXES.filter(
+      (p) => p.startsWith('skillSynthesis:') && p !== 'skillSynthesis:',
+    );
+    expect(perMethod).toEqual([]);
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — lane settings keys (B1.8.1)', () => {
+  // `platform-core` cannot import `skill-synthesis` (it is the leaf that
+  // `skill-synthesis` depends on), so its lane key list and defaults are a
+  // literal restatement. `rpc-handlers` imports BOTH, which makes this the one
+  // place the restatement can be checked mechanically instead of by comment.
+  const laneEntries = SKILL_LANE_IDS.flatMap((id) =>
+    SKILL_LANE_FIELDS.map(
+      (field) =>
+        [id, field, SKILL_LANE_KEYS[id][field]] as [
+          (typeof SKILL_LANE_IDS)[number],
+          (typeof SKILL_LANE_FIELDS)[number],
+          string,
+        ],
+    ),
+  );
+
+  it('derives 32 dotted keys — four lanes × eight fields', () => {
+    expect(laneEntries).toHaveLength(32);
+  });
+
+  it.each(laneEntries)(
+    '%s.%s → routes %s to ~/.ptah/settings.json',
+    (_id, _field, key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    },
+  );
+
+  it.each(laneEntries)(
+    '%s.%s → platform-core default for %s equals SKILL_LANE_DEFAULTS',
+    (id, field, key) => {
+      expect(
+        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(
+        SKILL_LANE_DEFAULTS[id][field],
+      );
+    },
+  );
+
+  it('registers no lane key platform-core knows about and SKILL_LANE_KEYS does not', () => {
+    const declared = new Set(laneEntries.map(([, , key]) => key));
+    const stray = [...FILE_BASED_SETTINGS_KEYS].filter(
+      (key) =>
+        /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(key) &&
+        !declared.has(key),
+    );
+    expect(stray).toEqual([]);
+  });
+
+  it('defaults every lane to inherit — provider and model both empty', () => {
+    for (const id of SKILL_LANE_IDS) {
+      expect(SKILL_LANE_DEFAULTS[id].provider).toBe('');
+      expect(SKILL_LANE_DEFAULTS[id].model).toBe('');
+      expect(FILE_BASED_SETTINGS_DEFAULTS[SKILL_LANE_KEYS[id].provider]).toBe(
+        '',
+      );
+      expect(FILE_BASED_SETTINGS_DEFAULTS[SKILL_LANE_KEYS[id].model]).toBe('');
+    }
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getLanes / setLanes (B1.8.2)', () => {
+  it('returns the four inherit-by-default lanes when nothing is persisted', async () => {
+    const { rpcHandler } = buildHandlers();
+    const result = (await rpcHandler.call('skillSynthesis:getLanes', {})) as {
+      lanes: Record<string, Record<string, unknown>>;
+    };
+
+    expect(Object.keys(result.lanes).sort()).toEqual(
+      [...SKILL_LANE_IDS].sort(),
+    );
+    for (const id of SKILL_LANE_IDS) {
+      expect(result.lanes[id]).toEqual(SKILL_LANE_DEFAULTS[id]);
+    }
+  });
+
+  it('round-trips all 32 lane keys through setLanes → getLanes', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    // Deliberately no provider-id literal: `provider` is an opaque registry id
+    // and this spec must not become the place a vendor name leaks into a lane
+    // code path (global invariant 1).
+    const patch = {
+      archaeologist: {
+        provider: 'lane-provider-a',
+        model: 'lane-model-a',
+        defaultTier: 'opus' as const,
+        structuredOutput: 'parse' as const,
+        toolUse: 'none' as const,
+        timeoutMs: 111000,
+        maxInputChars: 11100,
+        maxPasses: 7,
+      },
+      synthesis: {
+        provider: 'lane-provider-b',
+        model: 'lane-model-b',
+        defaultTier: 'sonnet' as const,
+        structuredOutput: 'parse' as const,
+        toolUse: 'required' as const,
+        timeoutMs: 222000,
+        maxInputChars: 22200,
+        maxPasses: 2,
+      },
+      judge: {
+        provider: 'lane-provider-c',
+        model: 'lane-model-c',
+        defaultTier: 'haiku' as const,
+        structuredOutput: 'sdk' as const,
+        toolUse: 'required' as const,
+        timeoutMs: 33000,
+        maxInputChars: 3300,
+        maxPasses: 3,
+      },
+      replay: {
+        provider: 'lane-provider-d',
+        model: 'lane-model-d',
+        defaultTier: 'opus' as const,
+        structuredOutput: 'parse' as const,
+        toolUse: 'none' as const,
+        timeoutMs: 44000,
+        maxInputChars: 4400,
+        maxPasses: 4,
+      },
+    };
+
+    const setResult = (await rpcHandler.call('skillSynthesis:setLanes', {
+      lanes: patch,
+    })) as { lanes: Record<string, Record<string, unknown>> };
+
+    // Every one of the 32 dotted keys reached setConfiguration individually —
+    // per-key routing is what makes file-based settings work at all.
+    for (const id of SKILL_LANE_IDS) {
+      for (const field of SKILL_LANE_FIELDS) {
+        expect(setSpy).toHaveBeenCalledWith(
+          'ptah',
+          SKILL_LANE_KEYS[id][field],
+          patch[id][field],
+        );
+      }
+    }
+    expect(setSpy).toHaveBeenCalledTimes(32);
+
+    const getResult = (await rpcHandler.call(
+      'skillSynthesis:getLanes',
+      {},
+    )) as { lanes: Record<string, Record<string, unknown>> };
+
+    for (const id of SKILL_LANE_IDS) {
+      const expected = { id, ...patch[id] };
+      expect(setResult.lanes[id]).toEqual(expected);
+      expect(getResult.lanes[id]).toEqual(expected);
+    }
+  });
+
+  it('writes only the fields named in a sparse patch and leaves the rest alone', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = (await rpcHandler.call('skillSynthesis:setLanes', {
+      lanes: { judge: { timeoutMs: 60000 } },
+    })) as { lanes: Record<string, Record<string, unknown>> };
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      SKILL_LANE_KEYS.judge.timeoutMs,
+      60000,
+    );
+    expect(result.lanes['judge']).toEqual({
+      ...SKILL_LANE_DEFAULTS.judge,
+      timeoutMs: 60000,
+    });
+    expect(result.lanes['synthesis']).toEqual(SKILL_LANE_DEFAULTS.synthesis);
+  });
+
+  it('returns the READ-BACK state, not an echo of the patch', async () => {
+    // `readSkillLane` serves the default when a persisted value is unusable.
+    // Echoing the request would report a write that did not take effect.
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      SKILL_LANE_KEYS.judge.timeoutMs,
+      -5,
+    );
+    const result = (await rpcHandler.call('skillSynthesis:getLanes', {})) as {
+      lanes: Record<string, Record<string, unknown>>;
+    };
+    expect(result.lanes['judge']['timeoutMs']).toBe(
+      SKILL_LANE_DEFAULTS.judge.timeoutMs,
+    );
+  });
+
+  it('rejects a non-positive timeoutMs with INVALID_PARAMS and writes nothing', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { timeoutMs: 0 } },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown lane id with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { curator: { timeoutMs: 1000 } },
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects an unknown lane FIELD with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { temperature: 0.7 } },
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects an out-of-vocabulary structuredOutput mode', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { structuredOutput: 'yaml' } },
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects an empty patch that names no lane', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', { lanes: {} }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects unknown params on getLanes', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getLanes', { junk: 'value' } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('surfaces PERSISTENCE_UNAVAILABLE without leaking the underlying message', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    jest
+      .spyOn(workspaceProvider, 'setConfiguration')
+      .mockRejectedValue(new Error('EACCES: ~/.ptah/settings.json'));
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { timeoutMs: 60000 } },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    const rpcErr = thrown as RpcUserError;
+    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect(rpcErr.message).not.toContain('EACCES');
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)', () => {
+  function candidateRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'cand-1',
+      name: 'refactor-jest-configs',
+      description: 'Refactor jest configs into a shared preset',
+      bodyPath: '/tmp/cand-1/SKILL.md',
+      sourceSessionIds: ['s-1'],
+      trajectoryHash: 'hash-1',
+      embeddingRowid: null,
+      status: 'candidate' as const,
+      successCount: 3,
+      failureCount: 1,
+      createdAt: 1700000000000,
+      promotedAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      pinned: false,
+      residency: 'resident' as const,
+      judgeStatus: null,
+      judgeScore: null,
+      judgeReason: null,
+      judgeCriteria: {
+        novelty: null,
+        actionability: null,
+        scope: null,
+        generalization: null,
+        triggerClarity: null,
+      },
+      judgePanelRationales: null,
+      judgedAt: null,
+      displayName: null,
+      ...overrides,
+    };
+  }
+
+  async function listOne(row: Record<string, unknown>) {
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([row]);
+    const result = (await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+    })) as { candidates: Array<Record<string, unknown>> };
+    return result.candidates[0];
+  }
+
+  it('projects a never-judged candidate as all-null, never zero', async () => {
+    const summary = await listOne(candidateRow());
+    expect(summary['judgeStatus']).toBeNull();
+    expect(summary['judgeScore']).toBeNull();
+    expect(summary['judgeScore']).not.toBe(0);
+    expect(summary['judgeReason']).toBeNull();
+    expect(summary['judgeCriteria']).toBeNull();
+    expect(summary['displayName']).toBeNull();
+  });
+
+  it('carries an unscored verdict as status + reason with a NULL score', async () => {
+    // The defect this replaces: a failed judge call used to fabricate
+    // `{passed: true, score: 10}`, which the UI rendered as a genuine verdict.
+    const summary = await listOne(
+      candidateRow({
+        judgeStatus: 'unscored',
+        judgeScore: null,
+        judgeReason: 'judge-call-threw',
+      }),
+    );
+    expect(summary['judgeStatus']).toBe('unscored');
+    expect(summary['judgeScore']).toBeNull();
+    expect(summary['judgeReason']).toBe('judge-call-threw');
+  });
+
+  it('carries a genuine zero score as 0, distinct from unscored', async () => {
+    const summary = await listOne(
+      candidateRow({
+        judgeStatus: 'scored',
+        judgeScore: 0,
+        judgeReason: 'no reusable workflow',
+        judgeCriteria: {
+          novelty: 0,
+          actionability: 0,
+          scope: 0,
+          generalization: 0,
+          triggerClarity: 0,
+        },
+      }),
+    );
+    expect(summary['judgeScore']).toBe(0);
+    expect(summary['judgeScore']).not.toBeNull();
+    expect(summary['judgeCriteria']).toEqual({
+      novelty: 0,
+      actionability: 0,
+      scope: 0,
+      generalization: 0,
+      triggerClarity: 0,
+    });
+  });
+
+  it('forwards a scored verdict with its five criteria and display name', async () => {
+    const summary = await listOne(
+      candidateRow({
+        displayName: 'Share one Jest preset across libs',
+        judgeStatus: 'scored',
+        judgeScore: 7.4,
+        judgeReason: 'reusable and well triggered',
+        judgeCriteria: {
+          novelty: 7,
+          actionability: 8,
+          scope: 7,
+          generalization: 7,
+          triggerClarity: 8,
+        },
+      }),
+    );
+    expect(summary['displayName']).toBe('Share one Jest preset across libs');
+    expect(summary['judgeStatus']).toBe('scored');
+    expect(summary['judgeScore']).toBe(7.4);
+    expect(summary['judgeCriteria']).toEqual({
+      novelty: 7,
+      actionability: 8,
+      scope: 7,
+      generalization: 7,
+      triggerClarity: 8,
+    });
+  });
+
+  it('reports a disabled gate as a status, not as an absent verdict', async () => {
+    const summary = await listOne(
+      candidateRow({ judgeStatus: 'disabled', judgeReason: 'judge gate off' }),
+    );
+    expect(summary['judgeStatus']).toBe('disabled');
+    expect(summary['judgeScore']).toBeNull();
+  });
+
+  it('collapses an all-null criteria block to null rather than five blanks', async () => {
+    const summary = await listOne(candidateRow({ judgeStatus: 'unscored' }));
+    expect(summary['judgeCriteria']).toBeNull();
+  });
 });
 
 const fakeSuggestionRow = {
@@ -1355,6 +1835,7 @@ function buildHandlersWithSuggestions(
   const contentDownload = makeContentDownload();
   const suggestionStore = makeSuggestionStore();
   const curator = makeCurator();
+  const queueStore = makeQueueStore();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -1385,6 +1866,11 @@ function buildHandlersWithSuggestions(
     suggestionStore,
   );
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, curator);
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+    makeBudgetStore(),
+  );
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
   });
@@ -1407,6 +1893,7 @@ function buildHandlersWithSuggestions(
     logger,
     suggestionStore,
     curator,
+    queueStore,
   };
 }
 

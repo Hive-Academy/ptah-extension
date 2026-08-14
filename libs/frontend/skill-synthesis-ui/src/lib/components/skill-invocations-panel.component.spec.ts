@@ -18,6 +18,11 @@ const CANDIDATE: SkillSynthesisCandidateSummary = {
   rejectedAt: null,
   rejectedReason: null,
   pinned: false,
+  displayName: null,
+  judgeScore: null,
+  judgeStatus: null,
+  judgeReason: null,
+  judgeCriteria: null,
 };
 
 function invocation(

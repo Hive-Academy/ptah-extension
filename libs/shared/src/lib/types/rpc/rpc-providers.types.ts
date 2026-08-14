@@ -24,8 +24,27 @@ export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
  * - `cliAgent`: A Ptah CLI sub-agent with its own isolated `AuthEnv` built
  *   at spawn time. Tier writes are persisted to config only; they are read
  *   back by `resolveEffectiveTiers()` when the child process starts.
+ * - `lane`: A background work lane (skill synthesis, archaeology, judging,
+ *   replay). One shared scope serves every lane — per-lane model pinning is
+ *   expressed by the lane's own `model` setting, not by a scope per lane.
+ *
+ * ## `lane` is inert with respect to globals BY CONSTRUCTION
+ *
+ * `ProviderModelsService.setModelTier` and `clearModelTier` guard their
+ * `this.authEnv[...] = …` / `process.env[...] = …` writes with
+ * `if (scope === 'mainAgent')`, so a `lane`-scoped tier can only ever reach
+ * config. That is the point: a background lane must never repoint the user's
+ * live chat session, and this scope makes that a property of the code rather
+ * than a rule someone has to remember. Reads through
+ * `getModelTiers(id, 'lane')` return all-nulls until something is persisted,
+ * which is what lets the caller fall back to the provider entry's
+ * `defaultTiers` with no hardcoded model id anywhere.
+ *
+ * Note that `applyPersistedTiers` has no scope parameter at all and writes
+ * globals unconditionally — it reads the `mainAgent` scope by definition and
+ * must never be handed lane work.
  */
-export type ProviderTierScope = 'mainAgent' | 'cliAgent';
+export type ProviderTierScope = 'mainAgent' | 'cliAgent' | 'lane';
 
 /** Provider model information */
 export interface ProviderModelInfo {

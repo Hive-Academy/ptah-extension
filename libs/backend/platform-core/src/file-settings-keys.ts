@@ -43,6 +43,107 @@ const KNOWN_AUTH_KEYS_FOR_FILE_ROUTING = [
 ] as const;
 
 /**
+ * The background skill-synthesis LANES and their per-lane defaults
+ * (TASK_2026_180, Phase 1).
+ *
+ * MUST stay in sync with `SKILL_LANE_IDS`, `SKILL_LANE_FIELDS` and
+ * `SKILL_LANE_DEFAULTS` in
+ * `libs/backend/skill-synthesis/src/lib/lanes/skill-lane-config.ts`, which is
+ * the source of truth for both the lane vocabulary and every value below.
+ *
+ * It cannot be imported here for exactly the reason
+ * `KNOWN_AUTH_KEYS_FOR_FILE_ROUTING` above cannot import its counterpart:
+ * `platform-core` is the leaf every backend lib depends on, and
+ * `skill-synthesis` depends on IT (`readSkillLane` takes an
+ * `IWorkspaceProvider`), so the import would close a cycle.
+ *
+ * The restatement is therefore guarded MECHANICALLY rather than by comment.
+ * `skills-synthesis-rpc.handlers.spec.ts` lives in `rpc-handlers`, which
+ * legally imports BOTH sides, and asserts this table key-for-key and
+ * value-for-value against `SKILL_LANE_KEYS` / `SKILL_LANE_DEFAULTS` — including
+ * that neither side carries a lane or a field the other does not.
+ *
+ * Two properties of this table are contracts, not defaults that happen to be
+ * convenient:
+ *
+ *  - **Every lane ships `provider: ''` and `model: ''`** — "inherit the active
+ *    provider". `LaneResolverService` turns that pair into
+ *    `{auth: undefined, model: resolveJudgeModel(...)}`, which is byte-identical
+ *    to what the judge and the synthesizer already did before lanes existed. An
+ *    install that never touches these keys behaves exactly as it did before.
+ *    Defaulting any lane to a concrete provider would silently repoint existing
+ *    installs' background work.
+ *  - **Every lane carries all eight fields, `maxPasses` included.** `maxPasses`
+ *    is only ever `> 1` on the archaeologist, but `readSkillLane` reads it for
+ *    all four and `flattenSkillLanes` writes it for all four. A lane whose
+ *    `maxPasses` key were absent here would fail in the WRITE direction only —
+ *    the read falls through to the default and looks correct, while the write
+ *    is handed to a store that does not own the key and is discarded with no
+ *    error. That is the same failure mode `PROVIDER_SCOPED_TIER_PATTERN` below
+ *    documents.
+ */
+const SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING: Record<
+  string,
+  Record<string, string | number>
+> = {
+  archaeologist: {
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'required',
+    timeoutMs: 120000,
+    maxInputChars: 12000,
+    maxPasses: 4,
+  },
+  synthesis: {
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 90000,
+    maxInputChars: 8000,
+    maxPasses: 1,
+  },
+  judge: {
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 45000,
+    maxInputChars: 3000,
+    maxPasses: 1,
+  },
+  replay: {
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 90000,
+    maxInputChars: 8000,
+    maxPasses: 1,
+  },
+};
+
+/**
+ * `skillSynthesis.<lane>.<field>` → default, derived from the table above so
+ * the key list and the default map can never disagree about either half.
+ */
+const SKILL_LANE_SETTINGS_DEFAULTS: Record<string, string | number> =
+  Object.fromEntries(
+    Object.entries(SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING).flatMap(
+      ([lane, fields]) =>
+        Object.entries(fields).map(([field, value]) => [
+          `skillSynthesis.${lane}.${field}`,
+          value,
+        ]),
+    ),
+  );
+
+/**
  * Settings keys that route to file-based storage (~/.ptah/settings.json).
  *
  * Used by VscodeWorkspaceProvider and ElectronWorkspaceProvider for routing:
@@ -137,6 +238,35 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.curatorIntervalHours',
   'skillSynthesis.suggestionMinClusterSize',
   'skillSynthesis.suggestionMaxCandidates',
+  // TASK_2026_180 Phase 0 — the queued synthesis drain. Dotted sub-trees under
+  // `skillSynthesis.` are the proven shape (`skillSynthesis.triggers.*` below).
+  //
+  // There is deliberately NO pause/queueEnabled key here:
+  // `skillSynthesis.enabled` above is the drain's FIRST gate and therefore the
+  // single master switch. The Electron tray's "Pause background learning"
+  // (commit C5) writes that same key rather than introducing a second way to
+  // mean "off".
+  'skillSynthesis.drain.cronExpr',
+  'skillSynthesis.drain.nightlyCronExpr',
+  'skillSynthesis.drain.weeklyCronExpr',
+  'skillSynthesis.drain.maxItemsPerRun',
+  // The NIGHTLY tier's own item cap. It exists because the two tiers are
+  // throttled by different things: the frequent tier fires 96 times a day, so
+  // `maxItemsPerRun` is a per-tick slice of a cadence that gets many more
+  // slices; the nightly tier fires ONCE, so the same number is the whole day's
+  // supply for every nightly-only stage. Raising the shared key instead would
+  // multiply the frequent tier's load 96 times over to fix a once-a-day tick.
+  'skillSynthesis.drain.nightlyMaxItemsPerRun',
+  'skillSynthesis.drain.perWorkspaceBatch',
+  'skillSynthesis.drain.foregroundBackoffMs',
+  'skillSynthesis.drain.pauseOnBattery',
+  'skillSynthesis.drain.maxAttempts',
+  'skillSynthesis.drain.staleClaimTtlMs',
+  'skillSynthesis.budget.maxTokensPerDay',
+  'skillSynthesis.trayKeepalive',
+  // TASK_2026_180 Phase 1 — the four lane sub-trees, 8 fields each. Spread
+  // from the same table that supplies their defaults below.
+  ...Object.keys(SKILL_LANE_SETTINGS_DEFAULTS),
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -293,6 +423,35 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.curatorIntervalHours': 24,
   'skillSynthesis.suggestionMinClusterSize': 2,
   'skillSynthesis.suggestionMaxCandidates': 200,
+  // TASK_2026_180 Phase 0. Every numeric value here MUST equal its counterpart
+  // in `SKILL_DRAIN_DEFAULTS` (`skill-synthesis/src/lib/queue/skill-drain.service.ts`).
+  // That constant is the fallback the drain passes to `getConfiguration`, so a
+  // divergence makes the drain behave one way in a host that has never written
+  // a settings file and another way in a host that has — the hardest class of
+  // configuration bug to see. Change one, change both.
+  'skillSynthesis.drain.cronExpr': '*/15 * * * *',
+  'skillSynthesis.drain.nightlyCronExpr': '0 3 * * *',
+  'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
+  'skillSynthesis.drain.maxItemsPerRun': 4,
+  // Ten times the frequent cap, and the budget is still the real ceiling: ~40
+  // archaeology runs is roughly 30 % of `maxTokensPerDay`, so raising this
+  // number cannot outspend the budget gate — it only stops the queue from
+  // growing monotonically while the budget sits 70 % unused.
+  'skillSynthesis.drain.nightlyMaxItemsPerRun': 40,
+  'skillSynthesis.drain.perWorkspaceBatch': 1,
+  // `0` disables the foreground gate entirely.
+  'skillSynthesis.drain.foregroundBackoffMs': 300000,
+  'skillSynthesis.drain.pauseOnBattery': true,
+  'skillSynthesis.drain.maxAttempts': 5,
+  'skillSynthesis.drain.staleClaimTtlMs': 900000,
+  // `0` = unlimited.
+  'skillSynthesis.budget.maxTokensPerDay': 2000000,
+  // Ships default-OFF in commit C0 so the Electron tray (commit C5) is purely
+  // additive: nothing reads this key until the tray exists.
+  'skillSynthesis.trayKeepalive': false,
+  // TASK_2026_180 Phase 1 — see SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING. Both
+  // halves (key list + defaults) come from that one table on purpose.
+  ...SKILL_LANE_SETTINGS_DEFAULTS,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
@@ -363,14 +522,23 @@ const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 
 /**
  * Per-scope tier override keys written by ProviderModelsService:
- *   provider.<providerId>.<mainAgent|cliAgent>.modelTier.<sonnet|opus|haiku>
+ *   provider.<providerId>.<mainAgent|cliAgent|lane>.modelTier.<sonnet|opus|haiku>
  *
  * Must be file-routed for every provider id (including trademarked ones not
  * declarable in package.json contributes.configuration) so that the scoped
  * writes from the Model Mapping dialog actually persist to ~/.ptah/settings.json.
+ *
+ * The alternation must list EVERY member of `ProviderTierScope`
+ * (`libs/shared/src/lib/types/rpc/rpc-providers.types.ts`). A scope missing
+ * here fails silently in one direction only, which is why it is easy to miss:
+ * reads fall through to the provider entry's `defaultTiers` and look correct,
+ * and only a WRITE is lost — `set()` is routed to a store that does not own
+ * the key, no error is raised, and the next read serves the default as if the
+ * user had never remapped the tier. `'lane'` (TASK_2026_180, background skill
+ * lanes) was absent for exactly one batch for this reason.
  */
 const PROVIDER_SCOPED_TIER_PATTERN =
-  /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
+  /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent|lane)\.modelTier\.(sonnet|opus|haiku)$/;
 
 /**
  * Per-provider model / reasoning-effort keys for THIRD-PARTY providers:

@@ -13,7 +13,7 @@ import {
 import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
-import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
+import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
@@ -33,7 +33,12 @@ import { CuratorLlmQueryError } from './curator-llm-query.error';
 const CURATOR_MODEL_SECTION = 'ptah';
 const CURATOR_MODEL_KEY = 'memory.curatorModel';
 const CURATOR_PROVIDER_KEY = 'memory.curatorProvider';
-const CURATOR_AUTH_ERROR_NAME = 'CuratorAuthError';
+/**
+ * Matched by `name` rather than `instanceof` because the error class lives in
+ * `auth-providers`, which depends on this lib — importing it here would close
+ * the cycle. Kept in sync with `ProviderAuthError`'s constructor.
+ */
+const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
 
 /**
  * What the curator asks for when the user has pinned no explicit model.
@@ -63,8 +68,8 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     private readonly internalQuery: InternalQueryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER, { isOptional: true })
-    private readonly resolver: ICuratorAuthResolver | null = null,
+    @inject(SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER, { isOptional: true })
+    private readonly resolver: IProviderAuthResolver | null = null,
   ) {}
 
   private resolveCuratorProviderId(): string {
@@ -83,7 +88,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       const auth = await this.resolver.resolve(curatorProviderId);
       return auth ?? undefined;
     } catch (error: unknown) {
-      if (error instanceof Error && error.name === CURATOR_AUTH_ERROR_NAME) {
+      if (error instanceof Error && error.name === PROVIDER_AUTH_ERROR_NAME) {
         this.logger.warn(
           '[memory-curator] curator provider auth unavailable; riding active provider',
           { error: error.message, curatorProviderId },

@@ -46,6 +46,7 @@ import type {
   SubagentTranscriptResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
+import type { SkillDrainTier } from '../constants/skill-drain.constants';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -500,6 +501,10 @@ import type {
   SkillSetTriggersResult,
   SkillGetTriggersParams,
   SkillGetTriggersResult,
+  SkillSetLanesParams,
+  SkillSetLanesResult,
+  SkillGetLanesParams,
+  SkillGetLanesResult,
 } from './rpc/rpc-curator-diagnostics.types';
 import type {
   TasksListParams,
@@ -1572,6 +1577,14 @@ export interface RpcMethodRegistry {
     params: SkillGetTriggersParams;
     result: SkillGetTriggersResult;
   };
+  'skillSynthesis:setLanes': {
+    params: SkillSetLanesParams;
+    result: SkillSetLanesResult;
+  };
+  'skillSynthesis:getLanes': {
+    params: SkillGetLanesParams;
+    result: SkillGetLanesResult;
+  };
   'skillSynthesis:listClones': {
     params: SkillSynthesisListClonesParams;
     result: SkillSynthesisListClonesResult;
@@ -1663,6 +1676,10 @@ export interface RpcMethodRegistry {
   'skillSynthesis:clearStaleSpecs': {
     params: SkillSynthesisClearStaleSpecsParams;
     result: SkillSynthesisClearStaleSpecsResult;
+  };
+  'skillSynthesis:queue': {
+    params: SkillSynthesisQueueParams;
+    result: SkillSynthesisQueueResult;
   };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
@@ -1941,8 +1958,36 @@ export interface RpcMethodRegistry {
   };
 }
 
+/**
+ * The judge verdict vocabulary on the wire (TASK_2026_180, Phase 1).
+ *
+ * Structural mirror of `JudgeStatus` in
+ * `skill-synthesis/src/lib/types.ts` — declared here rather than imported
+ * because `libs/shared` is the foundation layer and may not import a backend
+ * lib. `SkillCandidateStore` remains the enforcing gate on both edges; this
+ * union is the wire restatement, not a second validation layer.
+ */
+export type SkillJudgeStatusDto = 'scored' | 'unscored' | 'disabled';
+
+/**
+ * The five criteria the judge scores. Carried individually rather than only as
+ * an average so the UI can render a scorecard instead of one collapsed number.
+ * `null` per criterion means "this criterion was not scored".
+ */
+export interface SkillJudgeCriteriaDto {
+  novelty: number | null;
+  actionability: number | null;
+  scope: number | null;
+  generalization: number | null;
+  triggerClarity: number | null;
+}
+
 export interface SkillSynthesisCandidateSummary {
   id: string;
+  /**
+   * The SLUG. An internal id and the `SKILL.md` folder name — never a title.
+   * Render `displayName` and fall back to this.
+   */
   name: string;
   description: string;
   status: 'candidate' | 'promoted' | 'rejected';
@@ -1953,6 +1998,26 @@ export interface SkillSynthesisCandidateSummary {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  // ── Judge verdict (TASK_2026_180, Phase 1) ────────────────────────────────
+  /** Human-readable title. `null` = none yet; the UI falls back to `name`. */
+  displayName: string | null;
+  /**
+   * `null` = the candidate was NOT scored — never judged, judged while the
+   * gate was off, or a judge call that failed. It is NOT a low score and it is
+   * NEVER `0`. Coalescing this to zero re-introduces exactly the defect this
+   * field exists to remove: before it, a failed judge call fabricated a verdict
+   * the UI then rendered as genuine. Read `judgeStatus` to tell the cases
+   * apart.
+   */
+  judgeScore: number | null;
+  /** `null` = no verdict has ever been recorded for this candidate. */
+  judgeStatus: SkillJudgeStatusDto | null;
+  /**
+   * Why. For `'unscored'` this is the FAILURE ("rate limited"), not a critique.
+   */
+  judgeReason: string | null;
+  /** `null` = the judge produced no per-criterion breakdown. */
+  judgeCriteria: SkillJudgeCriteriaDto | null;
 }
 
 export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {
@@ -2063,6 +2128,128 @@ export interface SkillSynthesisClearStaleSpecsResult {
   taskIds: string[];
 }
 
+/**
+ * Every `skill_synthesis_queue.stage` member (migration `0032`).
+ *
+ * This union is the wire-side restatement of `SkillQueueStage` in
+ * `@ptah-extension/skill-synthesis`, which `libs/shared` may not import (it is
+ * the foundation layer). Drift is caught at COMPILE TIME in the direction that
+ * matters: the handler maps a backend row into this type, so a stage added to
+ * `0032` and to the backend union but not here fails `nx typecheck rpc-handlers`.
+ */
+export type SkillSynthesisQueueStage =
+  | 'prefilter'
+  | 'archaeology'
+  | 'synthesis'
+  | 'embedding'
+  | 'clustering'
+  | 'cluster-synthesis'
+  | 'judge'
+  | 'judge-panel'
+  | 'replay'
+  | 'trigger-eval'
+  | 'digest';
+
+/** Every `skill_synthesis_queue.status` member (migration `0032`). */
+export type SkillSynthesisQueueStatus =
+  | 'queued'
+  | 'claimed'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'unscored'
+  | 'skipped';
+
+/**
+ * One queue row as the Activity surface sees it.
+ *
+ * `last_error` is deliberately ABSENT. It holds whatever a stage threw —
+ * an SDK message, a provider payload, a SQLite driver string — and forwarding
+ * that verbatim to a renderer is the "never expose a raw error message across
+ * the boundary" rule. `reason` is the short, deliberately-authored sentence the
+ * drain writes for exactly this purpose; the full error stays in the log.
+ */
+export interface SkillSynthesisQueueItem {
+  id: string;
+  sessionId: string;
+  /** Round-robin fairness key. `''` for cross-project stages. */
+  workspaceRoot: string;
+  stage: SkillSynthesisQueueStage;
+  status: SkillSynthesisQueueStatus;
+  attemptCount: number;
+  enqueuedAt: number;
+  /** Epoch ms before which the row is not eligible. `0` = eligible now. */
+  notBefore: number;
+  finishedAt: number | null;
+  /** Which provider lane ran (or will run) the row. `null` before Phase 1. */
+  lane: string | null;
+  /** Short and user-facing — a stall reason, a skip reason, a backoff note. */
+  reason: string | null;
+  candidateId: string | null;
+}
+
+/**
+ * One drain `job_runs` row, resolved to its tier.
+ *
+ * `durationMs` is precomputed rather than left to the renderer: a run that is
+ * still in flight has no end, and `null` says that unambiguously where
+ * `endedAt - startedAt` would silently produce `NaN`.
+ */
+export interface SkillSynthesisDrainRun {
+  id: string;
+  jobId: string;
+  tier: SkillDrainTier;
+  scheduledFor: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+  /** `null` while the run has not finished. */
+  durationMs: number | null;
+  /** The drain's own summary line. Never a raw error message. */
+  summary: string | null;
+}
+
+/**
+ * What one stage has actually SPENT today, from `skill_synthesis_budget`
+ * (migration `0035`, keyed `(day_key, stage)` in UTC).
+ *
+ * This is the real token counter, not a proxy. Queue rows carry dispatches;
+ * only the ledger carries tokens, and the ledger is day-and-stage-keyed rather
+ * than row-keyed — so the cost figure rides the RESPONSE, not
+ * {@link SkillSynthesisQueueItem}. A stage can appear here with no queue rows
+ * left (it spent, then finished), and rows can exist for a stage that has spent
+ * nothing; both are true statements and neither is derivable from the other.
+ *
+ * `stage: ''` is the unattributed bucket — spend no queue stage owned, such as
+ * the foreground promotion gate's judge call. It is reported rather than
+ * dropped because the entries must sum to the day total the daily cap
+ * (`skillSynthesis.budget.maxTokensPerDay`) is compared against; an entry list
+ * that summed to less would read as headroom the user does not have.
+ */
+export interface SkillSynthesisStageSpend {
+  /** A queue stage, or `''` for spend no queue stage owned. */
+  stage: SkillSynthesisQueueStage | '';
+  inputTokens: number;
+  outputTokens: number;
+  /** `inputTokens + outputTokens` — the figure the daily cap gates on. */
+  totalTokens: number;
+  costUsd: number;
+}
+
+export interface SkillSynthesisQueueParams {
+  /** Queue rows to return, newest-enqueued first. */
+  limit?: number;
+  /** Drain runs to return, most-recently-scheduled first. */
+  runLimit?: number;
+}
+
+export interface SkillSynthesisQueueResult {
+  items: SkillSynthesisQueueItem[];
+  recentRuns: SkillSynthesisDrainRun[];
+  /** Today's UTC token ledger, one entry per stage, heaviest first. */
+  stageSpend: SkillSynthesisStageSpend[];
+}
+
 export interface SkillSynthesisInvocationsParams {
   skillId: string;
   limit?: number;
@@ -2105,6 +2292,24 @@ export interface SkillSynthesisSettingsDto {
   curatorIntervalHours: number;
   suggestionMinClusterSize: number;
   suggestionMaxCandidates: number;
+  // TASK_2026_180 Phase 0 — the drain knobs.
+  //
+  // The keys are DOTTED because `skillSynthesis:getSettings` builds its config
+  // key as `skillSynthesis.${schemaKey}` and `updateSettings` writes back the
+  // same way. A key of `'drain.cronExpr'` is therefore literally the settings
+  // path `skillSynthesis.drain.cronExpr`; renaming it to `drainCronExpr` would
+  // silently read and write a key that no host stores.
+  'drain.cronExpr': string;
+  'drain.nightlyCronExpr': string;
+  'drain.weeklyCronExpr': string;
+  'drain.maxItemsPerRun': number;
+  'drain.perWorkspaceBatch': number;
+  'drain.foregroundBackoffMs': number;
+  'drain.pauseOnBattery': boolean;
+  'drain.maxAttempts': number;
+  'drain.staleClaimTtlMs': number;
+  'budget.maxTokensPerDay': number;
+  trayKeepalive: boolean;
 }
 
 export type SkillSynthesisGetSettingsParams = Record<string, never>;
@@ -3009,6 +3214,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:analyzeNow': true,
   'skillSynthesis:setTriggers': true,
   'skillSynthesis:getTriggers': true,
+  // TASK_2026_180 Phase 1. `skillSynthesis:` is ALREADY in
+  // `ALLOWED_METHOD_PREFIXES`, so only the compile-time half of
+  // dual-registration applies to these two: the registry entry above and this
+  // allow-map entry. Adding a runtime-guard entry per METHOD would be wrong —
+  // the guard is per PREFIX.
+  'skillSynthesis:setLanes': true,
+  'skillSynthesis:getLanes': true,
   'skillSynthesis:listClones': true,
   'skillSynthesis:getClone': true,
   'skillSynthesis:enhanceNow': true,
@@ -3032,6 +3244,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:listSpecs': true,
   'skillSynthesis:harvestSpecs': true,
   'skillSynthesis:clearStaleSpecs': true,
+  'skillSynthesis:queue': true,
 
   'cron:list': true,
   'cron:get': true,
