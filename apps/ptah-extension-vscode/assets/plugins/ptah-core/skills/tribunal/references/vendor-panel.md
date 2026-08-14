@@ -18,10 +18,19 @@ When the conductor prompt already contains explicit panelist lines of the form:
 [tribunal:<laneId>] <displayName> — ptah_agent_spawn({ <spawnArgs> }). <objective>
 ```
 
+or — for the **role moves** (Relay, Crucible) — the same line with an additive parenthesised role token:
+
+```
+[tribunal:<laneId>] (<role>) <displayName> — ptah_agent_spawn({ <spawnArgs> }) with the objective below as the task.
+[tribunal:<laneId>] (<role>) <displayName> — ptah_agent_spawn({ <spawnArgs> }). Phase: <role>. Deliverable: <specFolder>/<file>
+```
+
 the panel was **defined by the user in the Tribunal UI**. In that case:
 
 - **Skip §2 discovery/selection entirely.** Do NOT call `ptah_agent_list` to re-pick the panel, do NOT apply family-spread, and do NOT collapse duplicate vendors — the user may deliberately convene several lanes of the **same** vendor on **different models** (e.g. two `Ollama Cloud` lanes, one on `glm-5.2`, one on `kimi-k2.7-code`).
 - **Spawn exactly the lanes given, with exactly the `spawnArgs` shown.** Pass the `model` field through to `ptah_agent_spawn` unchanged — for `ptahCliId` lanes a raw `model` overrides the agent's tier mapping, so never substitute a tier or a different model id.
+- **When a `(<role>)` token is present it is AUTHORITATIVE.** The `[tribunal:<laneId>]` tag grammar is unchanged; the token is an addition to the human-readable remainder, sitting between the tag and the `<displayName>`, wrapped in round parentheses and lowercase. It is one of `plan` / `architect` / `implement` / `review` (Relay) or `executor` / `judge` (Crucible). Read each lane's role off its token — do **not** infer it from lane order, and do **not** spend a round-trip asking the user to confirm a role the token already states. The framing repeats this as a line of its own: "Each lane's ROLE is stated below and is authoritative — do not infer it from lane order." A lane line carrying **no** token belongs to a flat move (Council, Forge, Race), which has no roles.
+- **A `Spec folder:` line means the folder already exists — do not allocate another.** Role moves carry `Spec folder: TASK_YYYY_NNN (already created by the Tribunal UI). Use it. Do NOT scan for or allocate a new task id.` Take that task id as given, write every deliverable under `.ptah/specs/TASK_YYYY_NNN/`, and skip the folder-scan id allocation entirely. If the framing carries **no** `Spec folder:` line, the UI could not allocate one — then allocate per the move's own reference file.
 - Keep the `[tribunal:<laneId>]` tag as the literal first line of each sub-agent task. Everything else on this page (the spawn/poll/read loop §3, anonymization §4, synthesis §5) still applies.
 
 Only fall back to the discovery/selection algorithm below when the prompt does **not** carry explicit panelist lines (i.e. Tribunal was triggered conversationally, not from the UI).

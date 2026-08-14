@@ -547,6 +547,87 @@ describe('TribunalStateService', () => {
       expect(service.surfaceId()).toBeNull();
       expect(service.tribunalSessionId()).toBeNull();
     });
+
+    it('clears the phase/round/verdict state for free (AC-6.4)', () => {
+      // `reset()` writes EMPTY_SLICE wholesale, so every field added to the
+      // slice is cleared by `Close Tribunal` with no extra code. This test is
+      // what stops a future field from being added to the slice but not to
+      // EMPTY_SLICE, which would leak a stale run into the next one.
+      service.setSpecTaskId('TASK_2026_099');
+      service.setRoundCap(2);
+      service.setRubric('1. Every AC satisfied.');
+      service.setProgress({ kind: 'unavailable', reason: 'RPC failed' });
+
+      service.reset();
+
+      expect(service.specTaskId()).toBeNull();
+      expect(service.roundCap()).toBeNull();
+      expect(service.rubric()).toBeNull();
+      expect(service.progress()).toEqual({ kind: 'none' });
+    });
+  });
+
+  describe('phase/round/verdict slice fields', () => {
+    it('defaults to no spec folder, no cap, no rubric and "none" progress', () => {
+      expect(service.specTaskId()).toBeNull();
+      expect(service.roundCap()).toBeNull();
+      expect(service.rubric()).toBeNull();
+      expect(service.progress()).toEqual({ kind: 'none' });
+    });
+
+    it('round-trips each field through its setter', () => {
+      service.setSpecTaskId('TASK_2026_237');
+      service.setRoundCap(2);
+      service.setRubric('1. Type safety.');
+
+      expect(service.specTaskId()).toBe('TASK_2026_237');
+      expect(service.roundCap()).toBe(2);
+      expect(service.rubric()).toBe('1. Type safety.');
+    });
+
+    it('accepts a null specTaskId — allocation failure never blocks a launch', () => {
+      service.setSpecTaskId('TASK_2026_237');
+      service.setSpecTaskId(null);
+      expect(service.specTaskId()).toBeNull();
+    });
+
+    it('exposes a relay progress value verbatim', () => {
+      service.setProgress({
+        kind: 'relay',
+        phases: [
+          {
+            role: 'plan',
+            deliverable: 'task-description.md',
+            laneId: 'codex#0',
+            status: 'complete',
+          },
+        ],
+        runningIndex: null,
+      });
+
+      const progress = service.progress();
+      expect(progress.kind).toBe('relay');
+      if (progress.kind !== 'relay') throw new Error('unreachable');
+      expect(progress.runningIndex).toBeNull();
+      expect(progress.phases[0].deliverable).toBe('task-description.md');
+    });
+
+    it('keeps the new fields per-workspace like the rest of the slice (AC-6.1)', () => {
+      tabManagerStub.activeWorkspacePath$.set('/ws-a');
+      TestBed.tick();
+      service.setSpecTaskId('TASK_2026_001');
+      service.setRoundCap(2);
+
+      tabManagerStub.activeWorkspacePath$.set('/ws-b');
+      TestBed.tick();
+      expect(service.specTaskId()).toBeNull();
+      expect(service.roundCap()).toBeNull();
+
+      tabManagerStub.activeWorkspacePath$.set('/ws-a');
+      TestBed.tick();
+      expect(service.specTaskId()).toBe('TASK_2026_001');
+      expect(service.roundCap()).toBe(2);
+    });
   });
 
   describe('tribunalSessionId — reactive late-resolved session', () => {

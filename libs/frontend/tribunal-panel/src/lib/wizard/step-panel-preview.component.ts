@@ -25,6 +25,7 @@ import {
   type DiscoveredVendor,
   type TribunalModelOption,
 } from '../services/tribunal-discovery.service';
+import { estimateTurns } from '../services/tribunal-estimate';
 import {
   laneBaseKey,
   makeLaneId,
@@ -32,11 +33,12 @@ import {
   type VendorLane,
 } from '../types/tribunal-ui.types';
 
-const TURNS_PER_VENDOR: Record<TribunalMove, number> = {
-  council: 2,
-  forge: 3,
-  race: 3,
-};
+/**
+ * This step only ever edits a FLAT move's roster, and no flat move has a round
+ * cap. Passing zero is honest rather than a magic default: `estimateTurns`
+ * ignores the argument on every arm this component can reach.
+ */
+const NO_ROUND_CAP = 0;
 
 const EFFORT_LEVELS: readonly EffortLevel[] = [
   'low',
@@ -317,41 +319,54 @@ export class StepPanelPreviewComponent {
   protected readonly currentEffort = this.effortState.currentEffort;
   protected readonly maxVendors = this.discovery.maxVendors;
 
-  protected readonly estimatedTurns = computed(() => {
-    const count = Math.max(1, this.selectedLanes().length);
-    return count * TURNS_PER_VENDOR[this.move()] + 1;
-  });
+  protected readonly estimatedTurns = computed(() =>
+    estimateTurns(
+      this.move(),
+      Math.max(1, this.selectedLanes().length),
+      NO_ROUND_CAP,
+    ),
+  );
 
   protected onEffortChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     void this.effortState.setEffort(value ? (value as EffortLevel) : undefined);
   }
 
-  private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
   private readonly _loading = signal(false);
   private readonly _modelsByBase = signal<
     ReadonlyMap<string, readonly TribunalModelOption[]>
   >(new Map());
 
-  protected readonly vendors = this._vendors.asReadonly();
+  /**
+   * The SHARED discovery cache, not a private copy. The wizard mounts this step
+   * alongside the move picker and the role roster; three private caches meant
+   * three `agent:getConfig` round trips for one answer.
+   */
+  protected readonly vendors = this.discovery.vendors;
   protected readonly loading = this._loading.asReadonly();
 
   protected readonly selectedCount = computed(
     () => this.selectedLanes().length,
   );
   protected readonly availableCount = computed(
-    () => this._vendors().filter((v) => v.available).length,
+    () => this.vendors().filter((v) => v.available).length,
   );
 
   constructor() {
-    void this.refresh();
+    void this.load(() => this.discovery.ensureDiscovered());
   }
 
+  /** The explicit Refresh affordance — bypasses the cache on purpose. */
   async refresh(): Promise<void> {
+    await this.load(() => this.discovery.rediscover());
+  }
+
+  private async load(
+    source: () => Promise<readonly DiscoveredVendor[]>,
+  ): Promise<void> {
     this._loading.set(true);
     try {
-      const vendors = await this.discovery.discover();
-      this._vendors.set(vendors);
+      const vendors = await source();
       await Promise.all(
         vendors
           .filter((v) => v.available && v.supportsModelList)
@@ -464,7 +479,7 @@ export class StepPanelPreviewComponent {
 
   private findVendor(lane: VendorLane): DiscoveredVendor | undefined {
     const base = laneBaseKey(lane);
-    return this._vendors().find((v) => v.baseKey === base);
+    return this.vendors().find((v) => v.baseKey === base);
   }
 
   private instanceIndexOf(laneId: string): number {

@@ -37,6 +37,14 @@ export type TribunalTileStatus = 'idle' | 'running' | 'completed' | 'failed';
           [class.bg-error]="status() === 'failed'"
           [attr.aria-hidden]="true"
         ></span>
+        @if (role()) {
+          <span
+            class="shrink-0 rounded-full border border-base-content/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-base-content-muted"
+            data-testid="tribunal-tile-role"
+          >
+            {{ role() }}
+          </span>
+        }
         <span class="flex min-w-0 flex-col leading-tight">
           <span class="truncate text-xs font-semibold text-base-content">
             {{ label() }}
@@ -84,6 +92,11 @@ export class TribunalTileHostComponent {
   readonly tile = input.required<TribunalTile>();
   readonly focused = input<boolean>(false);
   readonly label = input<string>('');
+  /**
+   * The lane's named role, for the role moves. Empty for the flat moves, which
+   * have no roles — an empty badge would imply one exists and is unknown.
+   */
+  readonly role = input<string>('');
   readonly model = input<string>('');
   readonly status = input<TribunalTileStatus>('idle');
   readonly closable = input<boolean>(false);

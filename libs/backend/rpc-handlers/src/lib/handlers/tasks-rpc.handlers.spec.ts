@@ -117,6 +117,7 @@ interface FakeIndex {
   list: jest.Mock;
   getDetail: jest.Mock;
   readArtifact: jest.Mock;
+  readRoundJudge: jest.Mock;
   reindex: jest.Mock;
   fire: (event: TaskIndexChangeEvent) => void;
 }
@@ -137,6 +138,7 @@ function createFakeIndex(): FakeIndex {
     }),
     getDetail: jest.fn().mockResolvedValue(null),
     readArtifact: jest.fn().mockResolvedValue(null),
+    readRoundJudge: jest.fn().mockResolvedValue(null),
     reindex: jest
       .fn()
       .mockResolvedValue({ indexedCount: 0, excludedCount: 0, durationMs: 1 }),
@@ -341,11 +343,12 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 16 tasks:* methods', () => {
+  it('owns exactly the 17 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
       'tasks:getArtifact',
+      'tasks:getRoundJudge',
       'tasks:create',
       'tasks:sweepFinished',
       'tasks:updateStatus',
@@ -447,6 +450,102 @@ describe('tasks:getArtifact', () => {
       normalizeWorkspaceRoot('D:\\workspace\\'),
       'TASK_2026_401',
       'context.md',
+    );
+  });
+});
+
+describe('tasks:getRoundJudge', () => {
+  it('returns the report markdown and echoes the round back', async () => {
+    const { rpc, index } = buildSuite();
+    index.readRoundJudge.mockResolvedValue('## VERDICT\n\nREVISE');
+    const handler = getHandler(rpc, 'tasks:getRoundJudge');
+
+    await expect(
+      handler({ taskId: 'TASK_2026_401', round: 2 }),
+    ).resolves.toEqual({ round: 2, content: '## VERDICT\n\nREVISE' });
+  });
+
+  /**
+   * An unjudged round is the ORDINARY state of a Crucible in progress: round 2
+   * has no report while round 1 is still being revised. Reporting that as an
+   * error would make every live run look broken and send the user hunting a
+   * fault that is not there.
+   */
+  it('reports an unjudged round as content: null, not an error', async () => {
+    const { rpc, index } = buildSuite();
+    index.readRoundJudge.mockResolvedValue(null);
+    const handler = getHandler(rpc, 'tasks:getRoundJudge');
+
+    await expect(
+      handler({ taskId: 'TASK_2026_401', round: 1 }),
+    ).resolves.toEqual({ round: 1, content: null });
+  });
+
+  /**
+   * THE boundary for this method. `getArtifact` is kept safe by a closed enum;
+   * `round-N-judge.md` cannot be enumerated, so safety comes from the shape of
+   * the parameter instead — a NUMBER, from which no separator or `..` can be
+   * expressed. Each of these must die at Zod, before `readRoundJudge` runs.
+   */
+  it.each([
+    ['a filename', 'round-1-judge.md'],
+    ['a traversal string', '../../../../etc/passwd'],
+    ['a numeric string', '1'],
+    ['a fraction', 1.5],
+    ['zero', 0],
+    ['a negative round', -1],
+    ['null', null],
+  ])('refuses %s as `round` with INVALID_PARAMS', async (_label, round) => {
+    const { rpc, index } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getRoundJudge');
+
+    await expect(
+      handler({ taskId: 'TASK_2026_401', round }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(index.readRoundJudge).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The ceiling is 4 and NOT the panel's cap of 2, deliberately. The Conductor
+   * may run a third round when the user explicitly authorises one
+   * (`crucible.md:153`), and a fourth is a skill violation that must surface in
+   * the UI as a visible anomaly — not be swallowed as an RPC error nobody sees.
+   */
+  it('accepts rounds 1..4 and refuses 5', async () => {
+    const { rpc } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getRoundJudge');
+    for (const round of [1, 2, 3, 4]) {
+      await expect(
+        handler({ taskId: 'TASK_2026_401', round }),
+      ).resolves.toMatchObject({ round });
+    }
+    await expect(
+      handler({ taskId: 'TASK_2026_401', round: 5 }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('refuses a taskId that is a path rather than a folder name', async () => {
+    const { rpc, index } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getRoundJudge');
+
+    await expect(
+      handler({ taskId: '../../../etc', round: 1 }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(index.readRoundJudge).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the workspace root before delegating', async () => {
+    const { rpc, index } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:getRoundJudge');
+    await handler({
+      taskId: 'TASK_2026_401',
+      round: 1,
+      workspaceRoot: 'D:\\workspace\\',
+    });
+    expect(index.readRoundJudge).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace\\'),
+      'TASK_2026_401',
+      1,
     );
   });
 });
@@ -3806,6 +3905,7 @@ describe('tasks:* workspace authorization', () => {
       taskId: 'TASK_2026_401',
       file: 'implementation-plan.md',
     },
+    'tasks:getRoundJudge': { taskId: 'TASK_2026_401', round: 1 },
     'tasks:create': { title: 'T', type: 'BUGFIX' },
     'tasks:sweepFinished': { olderThanDays: 7, apply: false },
     'tasks:updateStatus': { taskId: 'TASK_2026_401', status: 'done' },

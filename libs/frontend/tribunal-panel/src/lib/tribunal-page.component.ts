@@ -12,9 +12,10 @@ import {
   GridstackItemComponent,
   nodesCB,
 } from 'gridstack/dist/angular';
-import { LucideAngularModule, Lock, Unlock } from 'lucide-angular';
+import { LucideAngularModule, Lock, RefreshCw, Unlock } from 'lucide-angular';
 import { TribunalStateService } from './services/tribunal-state.service';
 import { TribunalRunService } from './services/tribunal-run.service';
+import { TribunalProgressService } from './services/tribunal-progress.service';
 import {
   TribunalTileHostComponent,
   type TribunalTileStatus,
@@ -22,6 +23,8 @@ import {
 import { TribunalEmptyStateComponent } from './components/tribunal-empty-state.component';
 import { ConductorTileComponent } from './components/conductor-tile.component';
 import { VendorCardComponent } from './components/vendor-card.component';
+import { RelayPhaseRailComponent } from './components/relay-phase-rail.component';
+import { CrucibleVerdictPanelComponent } from './components/crucible-verdict-panel.component';
 import { TribunalWizardComponent } from './wizard/tribunal-wizard.component';
 import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
 
@@ -37,6 +40,8 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
     TribunalEmptyStateComponent,
     ConductorTileComponent,
     VendorCardComponent,
+    RelayPhaseRailComponent,
+    CrucibleVerdictPanelComponent,
     TribunalWizardComponent,
   ],
   template: `
@@ -104,6 +109,47 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
               </button>
             </div>
 
+            @if (showProgressStrip()) {
+              <div
+                class="flex shrink-0 flex-col gap-2 border-b border-base-300 px-4 py-2"
+                data-testid="tribunal-progress-strip"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+                  >
+                    Run progress
+                  </span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1"
+                    data-testid="tribunal-refresh-progress"
+                    title="Re-read the run's spec folder"
+                    [disabled]="refreshing()"
+                    (click)="onRefreshProgress()"
+                  >
+                    <lucide-angular [img]="RefreshIcon" class="h-3 w-3" />
+                    Refresh progress
+                  </button>
+                </div>
+
+                @switch (tribunalState.move()) {
+                  @case ('relay') {
+                    <ptah-relay-phase-rail
+                      [progress]="tribunalState.progress()"
+                      [lanes]="tribunalState.lanes()"
+                      [specTaskId]="tribunalState.specTaskId()"
+                    />
+                  }
+                  @case ('crucible') {
+                    <ptah-crucible-verdict-panel
+                      [progress]="tribunalState.progress()"
+                    />
+                  }
+                }
+              </div>
+            }
+
             <div class="min-h-0 flex-1 overflow-auto p-3">
               <gridstack
                 [options]="gsOptions"
@@ -124,6 +170,7 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
                       data-testid="tribunal-tile"
                       [tile]="tile"
                       [label]="tileLabel(tile)"
+                      [role]="tileRole(tile)"
                       [model]="tileModel(tile)"
                       [status]="tileStatus(tile)"
                       [focused]="focusedTileId() === tile.tileId"
@@ -170,15 +217,25 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
 export class TribunalPageComponent {
   protected readonly tribunalState = inject(TribunalStateService);
   private readonly runService = inject(TribunalRunService);
+  /**
+   * Injected for its constructor effect as much as for {@link onRefreshProgress}
+   * — the service derives progress off the agent roster, and injecting it here
+   * is what starts that derivation when the run view mounts. It is deliberately
+   * NOT registered in `MESSAGE_HANDLERS`: that is eager at webview bootstrap and
+   * would drag this component and gridstack into the initial bundle.
+   */
+  private readonly progressService = inject(TribunalProgressService);
 
   protected readonly convene = signal(false);
   protected readonly focusedTileId = signal<string | null>(null);
   protected readonly locked = signal(false);
+  protected readonly refreshing = signal(false);
 
   private readonly gridComp = viewChild(GridstackComponent);
 
   protected readonly LockIcon = Lock;
   protected readonly UnlockIcon = Unlock;
+  protected readonly RefreshIcon = RefreshCw;
 
   protected readonly gsOptions: GridStackOptions = {
     column: 12,
@@ -196,8 +253,39 @@ export class TribunalPageComponent {
 
   protected readonly tribunalSessionId = this.tribunalState.tribunalSessionId;
 
+  /**
+   * The strip belongs to the two moves that HAVE a phase/round model.
+   *
+   * Keyed on the move rather than on `progress().kind` so a relay run whose
+   * progress could not be derived still shows its "unavailable" arm and its
+   * Refresh button, instead of the strip quietly vanishing — which would read
+   * as "nothing to report" (AC-4.5). The flat moves have no strip at all.
+   */
+  protected readonly showProgressStrip = computed(() => {
+    const move = this.tribunalState.move();
+    return move === 'relay' || move === 'crucible';
+  });
+
   protected onLaunched(): void {
     this.convene.set(false);
+  }
+
+  /**
+   * Re-read the run's spec folder on demand (R1).
+   *
+   * Derivation otherwise rides on agent-status ticks, which covers every
+   * artifact a LANE writes. It does not cover one the conductor writes itself,
+   * and that is the only escape hatch there is — hence a button rather than a
+   * poll. Disabled for the await so a double click cannot queue two reads.
+   */
+  protected async onRefreshProgress(): Promise<void> {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      await this.progressService.refresh();
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   protected async onCloseRun(): Promise<void> {
@@ -236,6 +324,15 @@ export class TribunalPageComponent {
   protected tileLabel(tile: TribunalTile): string {
     const lane = this.laneFor(tile);
     return lane ? lane.displayName : 'Vendor';
+  }
+
+  /**
+   * The lane's named role, or `''` for the flat moves and for a lane the
+   * conductor spawned mid-run (which has no role by definition). The badge is
+   * additive: the tile's own status vocabulary is unchanged.
+   */
+  protected tileRole(tile: TribunalTile): string {
+    return this.laneFor(tile)?.role ?? '';
   }
 
   protected tileModel(tile: TribunalTile): string {

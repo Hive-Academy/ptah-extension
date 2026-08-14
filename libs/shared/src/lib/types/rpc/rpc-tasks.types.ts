@@ -90,6 +90,46 @@ export interface TasksGetArtifactResult {
 }
 
 /**
+ * Read ONE Crucible judge report out of a task folder (`tasks:getRoundJudge`).
+ *
+ * Separate from {@link TasksGetArtifactParams} because `round-N-judge.md` is
+ * not a {@link DocFile} and cannot become one — `N` is a parameter, so the set
+ * is open where `DocFile` is closed. Widening `getArtifact` to a free string
+ * would trade the enum boundary for a sanitiser; this method keeps the
+ * boundary by moving it onto a different shape.
+ *
+ * The caller supplies an INTEGER, never a filename. The server derives
+ * `round-${round}-judge.md` via the shared contract's `roundJudgeFile()`, so a
+ * separator or a `..` cannot be expressed in the input at all — path traversal
+ * is structurally impossible rather than validated away. That preserves
+ * exactly the property the `DocFile` restriction was written to protect.
+ */
+export interface TasksGetRoundJudgeParams extends TasksWorkspaceScopedParams {
+  taskId: string;
+  /**
+   * 1-based round index, Zod-bounded to an integer in 1..4.
+   *
+   * The bound is 1..4 and not 1..2 on purpose: the panel caps at 2, but the
+   * Conductor may run a third round when the user explicitly asks for one
+   * (`crucible.md:153`). A fourth is a skill violation the user should SEE as
+   * an anomaly in the UI, not one the RPC hides behind a validation error.
+   */
+  round: number;
+}
+export interface TasksGetRoundJudgeResult {
+  /** Echoed back so a late response cannot render under the wrong round. */
+  round: number;
+  /**
+   * The report's markdown, or `null` when the round has not been judged yet.
+   *
+   * `null` is a SUCCESS, not a fault. An unjudged round is the ordinary state
+   * of a run in progress; reporting it as an error would make every live
+   * Crucible look broken.
+   */
+  content: string | null;
+}
+
+/**
  * Delete finished task folders that have aged out (`tasks:sweepFinished`).
  *
  * DESTRUCTIVE, and shaped so that it cannot be invoked destructively by

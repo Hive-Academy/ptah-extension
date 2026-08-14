@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { getAllAnthropicProviders } from '@ptah-extension/shared';
 import type {
@@ -76,6 +76,84 @@ export class TribunalDiscoveryService {
   private readonly rpc = inject(ClaudeRpcService);
 
   readonly maxVendors = TRIBUNAL_MAX_VENDOR_TILES;
+
+  private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
+  private readonly _discovered = signal(false);
+  private inFlight: Promise<readonly DiscoveredVendor[]> | null = null;
+
+  /**
+   * The shared discovery result. One cache for every wizard step, so the move
+   * picker, the flat panel picker and the role roster all read the same vendor
+   * list instead of each firing their own `agent:getConfig` round trip.
+   */
+  readonly vendors = this._vendors.asReadonly();
+
+  /**
+   * True once discovery has RESOLVED at least once.
+   *
+   * R7 hangs off this: a card whose availability depends on discovery paints
+   * enabled while this is false and only then applies its rule. A failed
+   * discovery leaves it false, so an unreliable probe can never disable a move
+   * — the reverse flash (paint disabled, then enable) is the thing to avoid.
+   */
+  readonly discovered = this._discovered.asReadonly();
+
+  /**
+   * Distinct AVAILABLE vendor families. Crucible's gate (`crucible.md:55`)
+   * counts families, not lanes: two lanes of the same family cannot produce an
+   * independent judge.
+   */
+  readonly availableFamilyCount = computed(
+    () =>
+      new Set(
+        this._vendors()
+          .filter((vendor) => vendor.available)
+          .map((vendor) => vendor.lane.family),
+      ).size,
+  );
+
+  /**
+   * Discover once per service lifetime, then serve from the cache.
+   *
+   * Concurrent callers share the single in-flight promise rather than each
+   * issuing their own RPC — the wizard mounts several steps that all want the
+   * vendor list on the same tick.
+   *
+   * Never rejects: a failed probe resolves to the current (possibly empty)
+   * cache with {@link discovered} left false, because a detection failure must
+   * read as "we do not know", not as "there are no vendors".
+   */
+  ensureDiscovered(): Promise<readonly DiscoveredVendor[]> {
+    if (this._discovered()) {
+      return Promise.resolve(this._vendors());
+    }
+    return this.runDiscovery();
+  }
+
+  /** Bypass the cache — the wizard's explicit Refresh affordance. */
+  rediscover(): Promise<readonly DiscoveredVendor[]> {
+    return this.runDiscovery();
+  }
+
+  private runDiscovery(): Promise<readonly DiscoveredVendor[]> {
+    this.inFlight ??= this.discover()
+      .then((vendors) => {
+        this._vendors.set(vendors);
+        this._discovered.set(true);
+        return this._vendors();
+      })
+      .catch((error: unknown) => {
+        console.error(
+          '[TribunalDiscoveryService] discovery failed:',
+          error instanceof Error ? error.message : String(error),
+        );
+        return this._vendors();
+      })
+      .finally(() => {
+        this.inFlight = null;
+      });
+    return this.inFlight;
+  }
 
   async discover(): Promise<DiscoveredVendor[]> {
     const detectedClis = await this.loadDetectedClis();

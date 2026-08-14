@@ -17,10 +17,12 @@ import {
 } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import type { TileLayout } from '@ptah-extension/canvas';
-import type {
-  TribunalMove,
-  TribunalTile,
-  VendorLane,
+import {
+  NO_PROGRESS,
+  type TribunalMove,
+  type TribunalProgress,
+  type TribunalTile,
+  type VendorLane,
 } from '../types/tribunal-ui.types';
 
 export const TRIBUNAL_MAX_VENDOR_TILES = 8;
@@ -44,6 +46,19 @@ interface TribunalSlice {
   readonly lanes: readonly VendorLane[];
   readonly surfaceId: SurfaceId | null;
   readonly correlationId: string | null;
+
+  /**
+   * The `.ptah/specs/TASK_[ID]` folder allocated at prepare time, and the only
+   * source progress can be read from. `null` means no progress source — a flat
+   * move, or an allocation that failed (which never blocks a launch).
+   */
+  readonly specTaskId: string | null;
+  /** Crucible only. 1..2 at launch. `null` for every other move. */
+  readonly roundCap: number | null;
+  /** Crucible only. The user's rubric text, forwarded verbatim to the framing. */
+  readonly rubric: string | null;
+  /** Derived, recomputed on every agent tick. Never null — see the union. */
+  readonly progress: TribunalProgress;
 }
 
 const EMPTY_SLICE: TribunalSlice = {
@@ -52,6 +67,10 @@ const EMPTY_SLICE: TribunalSlice = {
   lanes: [],
   surfaceId: null,
   correlationId: null,
+  specTaskId: null,
+  roundCap: null,
+  rubric: null,
+  progress: NO_PROGRESS,
 };
 
 /**
@@ -99,6 +118,16 @@ export class TribunalStateService {
   );
   readonly correlationId = computed<string | null>(
     () => this.activeSlice().correlationId,
+  );
+  readonly specTaskId = computed<string | null>(
+    () => this.activeSlice().specTaskId,
+  );
+  readonly roundCap = computed<number | null>(
+    () => this.activeSlice().roundCap,
+  );
+  readonly rubric = computed<string | null>(() => this.activeSlice().rubric);
+  readonly progress = computed<TribunalProgress>(
+    () => this.activeSlice().progress,
   );
   readonly tribunalSessionId = computed<string | null>(() => {
     const tabId = this.correlationId();
@@ -202,6 +231,22 @@ export class TribunalStateService {
 
   setCorrelationId(correlationId: string | null): void {
     this.updateActiveSlice((slice) => ({ ...slice, correlationId }));
+  }
+
+  setSpecTaskId(specTaskId: string | null): void {
+    this.updateActiveSlice((slice) => ({ ...slice, specTaskId }));
+  }
+
+  setRoundCap(roundCap: number | null): void {
+    this.updateActiveSlice((slice) => ({ ...slice, roundCap }));
+  }
+
+  setRubric(rubric: string | null): void {
+    this.updateActiveSlice((slice) => ({ ...slice, rubric }));
+  }
+
+  setProgress(progress: TribunalProgress): void {
+    this.updateActiveSlice((slice) => ({ ...slice, progress }));
   }
 
   addTile(tile: TribunalTile): boolean {

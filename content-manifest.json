@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:45fc296e4bb52294dbfecf7fc783e4472aa2a0dbdfeaaa260d539b2562926dce",
-  "generatedAt": "2026-08-09T17:41:18.306Z",
+  "contentHash": "sha256:8bee40f9cae7b8d3a3046553bc10e82e226d3a1ce395b9f6c040d89891b13646",
+  "generatedAt": "2026-08-14T21:06:44.669Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -85,6 +85,7 @@
       "ptah-core/skills/technical-content-writer/VIDEO-SCRIPTS.md",
       "ptah-core/skills/tribunal/SKILL.md",
       "ptah-core/skills/tribunal/references/council.md",
+      "ptah-core/skills/tribunal/references/crucible.md",
       "ptah-core/skills/tribunal/references/forge.md",
       "ptah-core/skills/tribunal/references/race.md",
       "ptah-core/skills/tribunal/references/relay.md",

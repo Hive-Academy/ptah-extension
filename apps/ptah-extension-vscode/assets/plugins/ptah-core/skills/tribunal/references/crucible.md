@@ -48,7 +48,7 @@ Pick by **capability, not by brand** — the roster comes from `ptah_agent_list`
 
 If the user names the lanes, that overrides the heuristic — resolve each name against `ptah_agent_list` and use exactly what they asked for.
 
-Build the roster per [vendor-panel.md §2](vendor-panel.md), but select for **role fit**, not family spread. If the Tribunal UI supplied explicit lanes ([§0](vendor-panel.md)), the **first** lane is the executor and the **last** is the judge unless the user said otherwise — confirm that reading before spending a call.
+Build the roster per [vendor-panel.md §2](vendor-panel.md), but select for **role fit**, not family spread. If the Tribunal UI supplied explicit lanes ([§0](vendor-panel.md)), the **first** lane is the executor and the **last** is the judge unless the user said otherwise — confirm that reading before spending a call. When those lanes carry an explicit `(executor)` / `(judge)` role token, that token is authoritative per [vendor-panel.md §0](vendor-panel.md): the first-lane/last-lane heuristic does not apply and no confirmation round-trip is needed.
 
 The user may pin both roles explicitly, including a same-family-different-model judge. Address the lanes exactly as in [relay.md → Pinning the roster](relay.md#pinning-the-roster-per-phase-lane-assignment) — that section is the single source for what goes into `ptah_agent_spawn`, and for the rule that the vendor list is discovered rather than hardcoded. A same-family judge on a different model is permitted when asked for, but say so in the summary — it is a weaker independence signal than a cross-family judge, and independence is the whole basis of the loop.
 

@@ -508,6 +508,8 @@ import type {
   TasksGetResult,
   TasksGetArtifactParams,
   TasksGetArtifactResult,
+  TasksGetRoundJudgeParams,
+  TasksGetRoundJudgeResult,
   TasksCreateParams,
   TasksCreateResult,
   TasksSweepParams,
@@ -1869,6 +1871,10 @@ export interface RpcMethodRegistry {
     params: TasksGetArtifactParams;
     result: TasksGetArtifactResult;
   };
+  'tasks:getRoundJudge': {
+    params: TasksGetRoundJudgeParams;
+    result: TasksGetRoundJudgeResult;
+  };
   'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
   'tasks:sweepFinished': {
     params: TasksSweepParams;
@@ -3093,6 +3099,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:list': true,
   'tasks:get': true,
   'tasks:getArtifact': true,
+  'tasks:getRoundJudge': true,
   'tasks:create': true,
   'tasks:sweepFinished': true,
   'tasks:updateStatus': true,
