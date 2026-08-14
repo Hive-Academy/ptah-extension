@@ -422,6 +422,148 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('empirical-gate keys (TASK_2026_180, Phase 3)', () => {
+    /**
+     * WHY THIS DESCRIBE EXISTS AT ALL, given the generic
+     * "every key in FILE_BASED_SETTINGS_DEFAULTS is also in
+     * FILE_BASED_SETTINGS_KEYS" assertion further up.
+     *
+     * That generic pair only proves the two tables agree with EACH OTHER. It
+     * says nothing when a key is missing from BOTH, which is the actual failure
+     * mode: an unrouted key fails in the WRITE direction only. The read falls
+     * through to a `getConfiguration` default and looks correct, while the
+     * write goes to a store that does not own the key and is silently dropped —
+     * so the settings panel shows the gate off while the drain keeps running
+     * it. This task has already been bitten by exactly that twice (the missing
+     * `lane` scope in `PROVIDER_SCOPED_TIER_PATTERN`, and B1.8's four unrouted
+     * `maxPasses` keys). Naming the five keys literally here is what makes a
+     * forgotten one a red test instead of a silent behaviour.
+     */
+    const gateDefaults: Record<string, boolean | number> = {
+      'skillSynthesis.replayValidation.enabled': true,
+      'skillSynthesis.replayValidation.minConfidence': 0.5,
+      'skillSynthesis.triggerEval.enabled': true,
+      'skillSynthesis.judgePanel.enabled': true,
+      'skillSynthesis.judgePanel.disagreementThreshold': 3,
+    };
+
+    const gateKeys = Object.keys(gateDefaults);
+
+    it.each(gateKeys)('registers %s in FILE_BASED_SETTINGS_KEYS', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+    });
+
+    it.each(gateKeys)('routes %s through isFileBasedSettingKey', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    });
+
+    it.each(Object.entries(gateDefaults))(
+      'declares default %s = %s',
+      (key, expected) => {
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    /**
+     * All three gates ship ON. A gate defaulting off would mean every install
+     * that never opens the settings panel keeps phase 1's promotion rule while
+     * the code claims phase 3's — the hardest kind of behaviour to notice,
+     * because nothing errors and the UI is telling the truth about the setting.
+     */
+    it.each([
+      'skillSynthesis.replayValidation.enabled',
+      'skillSynthesis.triggerEval.enabled',
+      'skillSynthesis.judgePanel.enabled',
+    ])('ships %s ON', (key) => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(true);
+    });
+
+    /**
+     * NO GATE KEY MAY LAND INSIDE A LANE'S SUB-TREE.
+     *
+     * `replay` is one of the four lane ids, so `skillSynthesis.replay.*` is
+     * already the replay LANE's eight capability fields. The batch text for
+     * this phase asked for `skillSynthesis.replay.enabled` /
+     * `.minConfidence`, which would have made two gate switches look like
+     * ninth and tenth lane fields — to a human reading the settings file, and
+     * to `skillSynthesis:getLanes` / `setLanes`, which round-trip that
+     * sub-tree. B1.8's stray-lane-key guard (below, and its mirror in
+     * `rpc-handlers`) rejected both, which is exactly what it was written for.
+     *
+     * The keys were renamed to `replayValidation.*`; the lane is what the gate
+     * RUNS ON, the gate is a different thing. This assertion is what stops the
+     * collision being reintroduced by a later gate — `judgePanel` is already
+     * one character from the `judge` lane.
+     */
+    it('places no gate key inside one of the four lane sub-trees', () => {
+      const laneScoped = gateKeys.filter((key) =>
+        /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(key),
+      );
+      expect(laneScoped).toEqual([]);
+    });
+
+    /**
+     * `minConfidence` is compared against the stored `replay_confidence`, which
+     * migration `0036` and `SkillCandidateStore.recordReplay` both hold to
+     * 0–1. A threshold outside that range makes the comparison answer the same
+     * way for every candidate — always-promote at `< 0`, never at `> 1` — which
+     * is a disabled gate wearing an enabled gate's name.
+     */
+    it('keeps minConfidence on the same 0–1 scale as replay_confidence', () => {
+      const value = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.replayValidation.minConfidence'
+      ] as number;
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(1);
+    });
+
+    /**
+     * The disagreement threshold lives on the JUDGE's 0–10 scale, the same one
+     * `minJudgeScore` uses — it is a gap between two panellists' headline
+     * scores, not a probability. Pinning both here is what stops a later reader
+     * "harmonising" it onto the 0–1 replay scale, which would escalate every
+     * verdict and quadruple promotion cost (R8).
+     */
+    it('keeps disagreementThreshold on the judge 0–10 scale', () => {
+      const threshold = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.judgePanel.disagreementThreshold'
+      ] as number;
+      const minJudgeScore = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.minJudgeScore'
+      ] as number;
+      expect(threshold).toBeGreaterThan(1);
+      expect(threshold).toBeLessThanOrEqual(10);
+      expect(minJudgeScore).toBeLessThanOrEqual(10);
+    });
+
+    /**
+     * Each gate carries its OWN `enabled`. One shared `gates.enabled` would tie
+     * trigger-eval — whose retrieval is local-embedding only and spends nothing
+     * — to replay and judge-panel, which each cost a lane call per candidate
+     * (R8). A user who wants the free gate but not the expensive ones must be
+     * able to say so.
+     */
+    it('gives each gate its own switch rather than one shared flag', () => {
+      const enabledKeys = [...FILE_BASED_SETTINGS_KEYS].filter(
+        (key) =>
+          /^skillSynthesis\.(replayValidation|triggerEval|judgePanel)\./.test(
+            key,
+          ) && key.endsWith('.enabled'),
+      );
+      expect(enabledKeys.sort()).toEqual([
+        'skillSynthesis.judgePanel.enabled',
+        'skillSynthesis.replayValidation.enabled',
+        'skillSynthesis.triggerEval.enabled',
+      ]);
+    });
+  });
+
   describe('skill-synthesis lane keys (TASK_2026_180, Phase 1)', () => {
     /**
      * The literal restatement of `SKILL_LANE_DEFAULTS`

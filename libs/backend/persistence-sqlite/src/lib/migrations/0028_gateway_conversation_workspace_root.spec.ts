@@ -65,12 +65,12 @@ describe('migration 0028_gateway_conversation_workspace_root — registry entry'
   });
 
   it('is the highest bundled version', () => {
-    // Bumped to 35 when TASK_2026_180 appended
-    // 0035_skill_synthesis_budget_stage to the MIGRATIONS tuple (34, 33 and 32
-    // before that, for the same task's phases 2, 1 and 0). This assertion
-    // tracks the current highest version and moves forward with every appended
-    // migration (see 0027 → 0028 precedent).
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(35);
+    // Bumped to 36 when TASK_2026_180 appended 0036_skill_empirical_gates to
+    // the MIGRATIONS tuple (35, 34, 33 and 32 before that, for the same task's
+    // phases 3, 0, 2, 1 and 0). This assertion tracks the current highest
+    // version and moves forward with every appended migration (see 0027 → 0028
+    // precedent).
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(36);
   });
 });
 

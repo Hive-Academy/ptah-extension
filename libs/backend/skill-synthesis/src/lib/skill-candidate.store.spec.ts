@@ -42,6 +42,12 @@ const opener = resolveOpener();
 const maybe = opener ? it : it.skip;
 
 const SQL_0033 = MIGRATIONS.find((m) => m.version === 33)?.sql ?? '';
+/**
+ * The seven empirical-gate columns. Pulled from `MIGRATIONS` for the same
+ * reason `0033` is: a column renamed in the migration fails these specs instead
+ * of silently disagreeing with them.
+ */
+const SQL_0036 = MIGRATIONS.find((m) => m.version === 36)?.sql ?? '';
 
 /**
  * `better-sqlite3` ships `transaction()`; `node:sqlite` does not. The store's
@@ -127,6 +133,7 @@ function createInMemoryDb(): SpecDb {
       ON skill_invocation_events(skill_slug, task_id);
   `);
   db.exec(SQL_0033);
+  db.exec(SQL_0036);
   return db;
 }
 
@@ -1462,6 +1469,319 @@ describe('SkillCandidateStore', () => {
       store.setDisplayName(candidate.id, 'Something');
 
       expect(store.setDisplayName(candidate.id, '   ').displayName).toBeNull();
+    });
+  });
+
+  // ── 0036 empirical gates (B3.1.2) ─────────────────────────────────────────
+
+  describe('recordReplay', () => {
+    maybe('a fresh candidate carries no gate measurement at all', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('gate-0'));
+
+      const row = store.findById(candidate.id);
+      expect(row?.replayConfidence).toBeNull();
+      expect(row?.replayHoldoutSessionId).toBeNull();
+      expect(row?.replayAt).toBeNull();
+      expect(row?.triggerScore).toBeNull();
+      expect(row?.triggerPrecision).toBeNull();
+      expect(row?.triggerRecall).toBeNull();
+      expect(row?.triggerEvalAt).toBeNull();
+    });
+
+    maybe('round-trips a confidence with its hold-out session', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-1'));
+
+      const returned = store.recordReplay(candidate.id, {
+        confidence: 0.82,
+        holdoutSessionId: 'sess-9f3a',
+        replayAt: 1_770_000_000_000,
+      });
+
+      for (const row of [returned, store.findById(candidate.id)]) {
+        expect(row?.replayConfidence).toBeCloseTo(0.82);
+        expect(row?.replayHoldoutSessionId).toBe('sess-9f3a');
+        expect(row?.replayAt).toBe(1_770_000_000_000);
+      }
+    });
+
+    /**
+     * THE assertion this batch exists for, stated in BOTH directions in one
+     * test. A confidence of zero (replayed, aligned with nothing) and an
+     * unmeasured confidence (never replayed) must not be the same value.
+     *
+     * Either half alone is vacuous: a reader hard-wired to return `null` passes
+     * the first pair, and one hard-wired to return `0` passes the second. Only
+     * the pair distinguishes them, and only the raw-column read proves the
+     * distinction survives to SQL — which is where the promotion sweep's
+     * `replay_confidence < minConfidence` will read it.
+     */
+    maybe('a measured 0 and an unmeasured null are different values', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const measured = store.registerCandidate(candidateInput('replay-zero'))
+        .candidate.id;
+      const unmeasured = store.registerCandidate(candidateInput('replay-none'))
+        .candidate.id;
+
+      store.recordReplay(measured, {
+        confidence: 0,
+        holdoutSessionId: 'sess-held',
+        replayAt: 1_770_000_000_000,
+      });
+
+      const measuredRow = store.findById(measured);
+      expect(measuredRow?.replayConfidence).toBe(0);
+      expect(measuredRow?.replayConfidence).not.toBeNull();
+
+      const unmeasuredRow = store.findById(unmeasured);
+      expect(unmeasuredRow?.replayConfidence).toBeNull();
+      expect(unmeasuredRow?.replayConfidence).not.toBe(0);
+
+      // And the column itself, not just the mapped field: a coerced zero here
+      // would make the promotion sweep reject every never-replayed candidate.
+      const raw = (id: CandidateId): number | null =>
+        (
+          db
+            .prepare(
+              'SELECT replay_confidence FROM skill_candidates WHERE id = ?',
+            )
+            .get(id) as { replay_confidence: number | null }
+        ).replay_confidence;
+      expect(raw(measured)).toBe(0);
+      expect(raw(unmeasured)).toBeNull();
+
+      const belowThreshold = (
+        db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM skill_candidates WHERE replay_confidence < 0.5',
+          )
+          .get() as { n: number }
+      ).n;
+      expect(belowThreshold).toBe(1);
+    });
+
+    maybe('records a failed replay as null without a hold-out', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-2'));
+
+      const row = store.recordReplay(candidate.id, {
+        confidence: null,
+        holdoutSessionId: null,
+        replayAt: 1_770_000_000_000,
+      });
+
+      expect(row.replayConfidence).toBeNull();
+      expect(row.replayHoldoutSessionId).toBeNull();
+      // The timestamp still lands: we know WHEN we failed to measure.
+      expect(row.replayAt).toBe(1_770_000_000_000);
+    });
+
+    maybe('defaults replayAt to now when the caller omits it', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-3'));
+      const before = Date.now();
+
+      const row = store.recordReplay(candidate.id, {
+        confidence: 0.5,
+        holdoutSessionId: 'sess-x',
+      });
+
+      expect(row.replayAt).toBeGreaterThanOrEqual(before);
+    });
+
+    maybe.each([
+      ['above 1', 1.5],
+      ['below 0', -0.1],
+      ['not finite', Number.NaN],
+    ])('rejects a confidence %s', (_label, confidence) => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(
+        candidateInput(`replay-bad-${String(confidence)}`),
+      );
+
+      expect(() =>
+        store.recordReplay(candidate.id, {
+          confidence: confidence as number,
+          holdoutSessionId: 'sess-x',
+        }),
+      ).toThrow(/\[0, 1\]/);
+    });
+
+    // A confidence with nothing behind it is a fabricated measurement — there
+    // is no session it could have been scored against.
+    maybe('rejects a confidence with no hold-out session', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-4'));
+
+      expect(() =>
+        store.recordReplay(candidate.id, {
+          confidence: 0.7,
+          holdoutSessionId: '   ',
+        }),
+      ).toThrow(/hold-out session/);
+    });
+
+    maybe('leaves the 0033 judge columns untouched', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('replay-5'));
+      store.recordJudgeVerdict(candidate.id, {
+        status: 'scored',
+        score: 7.4,
+        reason: 'ok',
+        criteria: {
+          novelty: 8,
+          actionability: 7,
+          scope: 6.5,
+          generalization: 9,
+          triggerClarity: 6,
+        },
+        judgedAt: 1_700_000_000_000,
+      });
+
+      const row = store.recordReplay(candidate.id, {
+        confidence: 0.9,
+        holdoutSessionId: 'sess-y',
+      });
+
+      expect(row.judgeStatus).toBe('scored');
+      expect(row.judgeScore).toBeCloseTo(7.4);
+      expect(row.judgeCriteria.triggerClarity).toBe(6);
+      expect(row.judgedAt).toBe(1_700_000_000_000);
+    });
+  });
+
+  describe('recordTriggerEval', () => {
+    maybe('round-trips precision, recall and the derived score', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('trig-1'));
+
+      const returned = store.recordTriggerEval(candidate.id, {
+        score: 0.75,
+        precision: 0.8,
+        recall: 0.7,
+        evaluatedAt: 1_770_000_060_000,
+      });
+
+      for (const row of [returned, store.findById(candidate.id)]) {
+        expect(row?.triggerScore).toBeCloseTo(0.75);
+        expect(row?.triggerPrecision).toBeCloseTo(0.8);
+        expect(row?.triggerRecall).toBeCloseTo(0.7);
+        expect(row?.triggerEvalAt).toBe(1_770_000_060_000);
+      }
+    });
+
+    // Same null-vs-zero rule as replay, in both directions: a description that
+    // retrieved nothing measured 0, which is a result; an un-evaluated
+    // candidate has no number at all.
+    maybe('a measured 0 and an unmeasured null are different values', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const measured = store.registerCandidate(candidateInput('trig-zero'))
+        .candidate.id;
+      const unmeasured = store.registerCandidate(candidateInput('trig-none'))
+        .candidate.id;
+
+      store.recordTriggerEval(measured, {
+        score: 0,
+        precision: 0,
+        recall: 0,
+      });
+
+      for (const field of [
+        'triggerScore',
+        'triggerPrecision',
+        'triggerRecall',
+      ] as const) {
+        expect(store.findById(measured)?.[field]).toBe(0);
+        expect(store.findById(measured)?.[field]).not.toBeNull();
+        expect(store.findById(unmeasured)?.[field]).toBeNull();
+        expect(store.findById(unmeasured)?.[field]).not.toBe(0);
+      }
+    });
+
+    maybe.each([
+      ['precision above 1', { score: 0.5, precision: 1.4, recall: 0.5 }],
+      ['recall below 0', { score: 0.5, precision: 0.5, recall: -0.2 }],
+      [
+        'a non-finite recall',
+        { score: 0.5, precision: 0.5, recall: Number.NaN },
+      ],
+    ])('rejects %s', (_label, measurement) => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(
+        candidateInput(`trig-bad-${_label}`),
+      );
+
+      expect(() => store.recordTriggerEval(candidate.id, measurement)).toThrow(
+        /\[0, 1\]/,
+      );
+    });
+
+    // `score` is finiteness-checked only — its scale is B3.3's decision, and
+    // pinning a range from the store would pre-empt it from the wrong file.
+    maybe('accepts a score outside 0–1 but rejects a non-finite one', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('trig-2'));
+
+      expect(
+        store.recordTriggerEval(candidate.id, {
+          score: 7.5,
+          precision: 0.8,
+          recall: 0.7,
+        }).triggerScore,
+      ).toBeCloseTo(7.5);
+
+      expect(() =>
+        store.recordTriggerEval(candidate.id, {
+          score: Number.POSITIVE_INFINITY,
+          precision: 0.8,
+          recall: 0.7,
+        }),
+      ).toThrow(/finite/);
+    });
+
+    // The two gates are independent axes; neither may clobber the other.
+    maybe('does not disturb a replay measurement, and vice versa', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('trig-3'));
+
+      store.recordReplay(candidate.id, {
+        confidence: 0.82,
+        holdoutSessionId: 'sess-9f3a',
+        replayAt: 1_770_000_000_000,
+      });
+      const afterTrigger = store.recordTriggerEval(candidate.id, {
+        score: 0.75,
+        precision: 0.8,
+        recall: 0.7,
+        evaluatedAt: 1_770_000_060_000,
+      });
+
+      expect(afterTrigger.replayConfidence).toBeCloseTo(0.82);
+      expect(afterTrigger.replayHoldoutSessionId).toBe('sess-9f3a');
+      expect(afterTrigger.replayAt).toBe(1_770_000_000_000);
+
+      const afterReplay = store.recordReplay(candidate.id, {
+        confidence: 0.4,
+        holdoutSessionId: 'sess-other',
+      });
+      expect(afterReplay.triggerScore).toBeCloseTo(0.75);
+      expect(afterReplay.triggerPrecision).toBeCloseTo(0.8);
+      expect(afterReplay.triggerRecall).toBeCloseTo(0.7);
+      expect(afterReplay.triggerEvalAt).toBe(1_770_000_060_000);
     });
   });
 });

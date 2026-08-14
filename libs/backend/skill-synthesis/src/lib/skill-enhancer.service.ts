@@ -18,7 +18,7 @@ import type {
   SkillSynthesisSettings,
   CandidateId,
 } from './types';
-import { unjudgedVerdictFields } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 import {
   INTERNAL_QUERY_SERVICE_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
@@ -850,6 +850,7 @@ export class SkillEnhancerService {
       pinned: false,
       residency: 'resident',
       ...unjudgedVerdictFields(),
+      ...unmeasuredGateFields(),
     };
   }
 

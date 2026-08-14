@@ -119,6 +119,70 @@ export interface SkillCandidateRow {
    * SKILL.md folder name, and must never be rendered as a title.
    */
   displayName: string | null;
+  // ── 0036 empirical gates ──────────────────────────────────────────────────
+  // Every number below is `null` when the gate has not spoken, and that is NOT
+  // the same as the gate scoring zero. A replay that aligned with nothing, or a
+  // description that retrieved nothing, scores a genuine `0` and is evidence
+  // AGAINST promotion; `null` means unmeasured and must leave the candidate
+  // retry-eligible. Never coalesce one of these to 0 — the same rule
+  // `judgeScore` carries, for the same reason.
+  /** Plan-vs-actual alignment, 0–1. `null` = replay never ran. */
+  replayConfidence: number | null;
+  /** The cluster member excluded from synthesis and replayed against. */
+  replayHoldoutSessionId: string | null;
+  replayAt: number | null;
+  /** Derived from precision + recall by the trigger-eval stage. */
+  triggerScore: number | null;
+  /** Description-only retrieval precision, 0–1. */
+  triggerPrecision: number | null;
+  /** Description-only retrieval recall, 0–1. */
+  triggerRecall: number | null;
+  triggerEvalAt: number | null;
+}
+
+/**
+ * The replay-validation measurement, as `SkillCandidateStore.recordReplay`
+ * takes it. A whole object rather than four optional arguments: the confidence,
+ * the hold-out it was measured against, and the timestamp are one measurement,
+ * and a write that carried some of them would leave the previous run's hold-out
+ * sitting beside this run's confidence.
+ */
+export interface ReplayMeasurement {
+  /** 0–1, or `null` when the replay produced no trustworthy number. */
+  confidence: number | null;
+  /**
+   * The session held out of synthesis and replayed against. `null` only when
+   * the cluster had no member to hold out, in which case `confidence` is `null`
+   * too — the store rejects a confidence with no hold-out behind it.
+   */
+  holdoutSessionId: string | null;
+  /** Defaults to `Date.now()`. */
+  replayAt?: number;
+}
+
+/**
+ * The trigger-retrieval measurement, as `SkillCandidateStore.recordTriggerEval`
+ * takes it. One object for the same reason `ReplayMeasurement` is one: a
+ * precision without its recall is not a measurement.
+ */
+export interface TriggerEvalMeasurement {
+  /**
+   * The headline number the ranking reads, derived from `precision` and
+   * `recall`. `null` when the eval produced nothing trustworthy.
+   *
+   * Deliberately NOT range-checked by the store: `trigger_precision` and
+   * `trigger_recall` are definitionally 0–1, but the scale this is expressed on
+   * is B3.3's to decide (it replaces the judge's 0–10 `triggerClarity` in
+   * ranking). The store enforces finiteness only; pinning a range here would
+   * pre-empt that decision in a place that cannot be widened cheaply.
+   */
+  score: number | null;
+  /** 0–1. */
+  precision: number | null;
+  /** 0–1. */
+  recall: number | null;
+  /** Defaults to `Date.now()`. */
+  evaluatedAt?: number;
 }
 
 /**
@@ -167,6 +231,47 @@ export function unjudgedVerdictFields(): JudgeVerdictFields {
     judgePanelRationales: null,
     judgedAt: null,
     displayName: null,
+  };
+}
+
+/**
+ * The `0036` columns as a standalone block, projected off the row exactly as
+ * {@link JudgeVerdictFields} projects the `0033` block, so the two can never
+ * drift from the row they came off.
+ */
+export type GateMeasurementFields = Pick<
+  SkillCandidateRow,
+  | 'replayConfidence'
+  | 'replayHoldoutSessionId'
+  | 'replayAt'
+  | 'triggerScore'
+  | 'triggerPrecision'
+  | 'triggerRecall'
+  | 'triggerEvalAt'
+>;
+
+/**
+ * The gate block of a candidate no empirical gate has measured.
+ *
+ * A SEPARATE factory from {@link unjudgedVerdictFields} rather than seven more
+ * nulls folded into it, because the two blocks are independent axes written by
+ * different stages at different times: the judge scores at the promotion gate,
+ * the weekly drain replays and evaluates triggers. Folding them together would
+ * also have made the name a lie — these are not verdict fields, and the next
+ * reader would have had to discover that from the body.
+ *
+ * A fresh factory call rather than a shared frozen constant, for the same
+ * reason its sibling is one: callers spread this into a row they then own.
+ */
+export function unmeasuredGateFields(): GateMeasurementFields {
+  return {
+    replayConfidence: null,
+    replayHoldoutSessionId: null,
+    replayAt: null,
+    triggerScore: null,
+    triggerPrecision: null,
+    triggerRecall: null,
+    triggerEvalAt: null,
   };
 }
 

@@ -264,6 +264,42 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.drain.staleClaimTtlMs',
   'skillSynthesis.budget.maxTokensPerDay',
   'skillSynthesis.trayKeepalive',
+  // TASK_2026_180 Phase 3 — the three empirical gates on the weekly tier.
+  //
+  // EVERY ONE OF THESE MUST BE HERE, and the omission mode is the reason this
+  // comment exists. An unrouted key fails in the WRITE direction ONLY: the read
+  // falls through to `FILE_BASED_SETTINGS_DEFAULTS` and looks perfectly
+  // correct, while the write is handed to a store that does not own the key and
+  // is dropped with no error. A user turns a gate off in the settings panel, the
+  // panel redraws showing it off, and the next drain runs it anyway. This exact
+  // failure has already cost this task twice — `PROVIDER_SCOPED_TIER_PATTERN`'s
+  // missing `lane` scope and B1.8's four unrouted `maxPasses` keys.
+  //
+  // Each gate carries its own `enabled` rather than one shared switch because
+  // they have independent costs: replay and judge-panel each spend a lane call
+  // per candidate, while trigger-eval's retrieval is local-embedding only and
+  // spends nothing beyond its prompt generation (R8).
+  //
+  // WHY `replayValidation` AND NOT `replay`. `skillSynthesis.replay.*` is
+  // ALREADY TAKEN — `replay` is one of the four lane ids, so that sub-tree is
+  // the replay LANE's eight capability fields (`provider`, `model`,
+  // `timeoutMs`, …) spread from `SKILL_LANE_SETTINGS_DEFAULTS` below. Putting a
+  // gate switch inside it would make `skillSynthesis.replay.enabled` look like
+  // a ninth lane field to every reader and to `skillSynthesis:getLanes` /
+  // `setLanes`, which round-trip that sub-tree. Two specs written by B1.8
+  // exactly to catch this — here and in `rpc-handlers` — reject any
+  // `skillSynthesis.{archaeologist,synthesis,judge,replay}.*` key that
+  // `SKILL_LANE_KEYS` does not declare, and both fired on the first attempt.
+  //
+  // The distinction the name now carries is real and worth keeping: the
+  // `replay` LANE is the LLM lane the gate runs ON, `replayValidation` is the
+  // GATE. `triggerEval` and `judgePanel` collide with no lane id and keep their
+  // plain names.
+  'skillSynthesis.replayValidation.enabled',
+  'skillSynthesis.replayValidation.minConfidence',
+  'skillSynthesis.triggerEval.enabled',
+  'skillSynthesis.judgePanel.enabled',
+  'skillSynthesis.judgePanel.disagreementThreshold',
   // TASK_2026_180 Phase 1 — the four lane sub-trees, 8 fields each. Spread
   // from the same table that supplies their defaults below.
   ...Object.keys(SKILL_LANE_SETTINGS_DEFAULTS),
@@ -449,6 +485,32 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Ships default-OFF in commit C0 so the Electron tray (commit C5) is purely
   // additive: nothing reads this key until the tray exists.
   'skillSynthesis.trayKeepalive': false,
+  // TASK_2026_180 Phase 3 — the empirical gates. All three ship ON: they are
+  // the whole point of the phase, and a gate that defaults off would mean the
+  // promotion rule silently keeps its phase-1 behaviour on every install that
+  // never opens the settings panel.
+  // `replayValidation`, not `replay` — that sub-tree is the replay LANE's.
+  // See the key-list block above.
+  'skillSynthesis.replayValidation.enabled': true,
+  // The floor a replay must clear to count as corroborating evidence. On the
+  // same 0–1 scale as the stored `replay_confidence`, which is why the store
+  // range-checks that column: a threshold on one scale and a measurement on
+  // another is a comparison that always answers the same way.
+  //
+  // `0.5` is a deliberate midpoint, not a tuned number — no corpus has been
+  // measured yet. It is compared with `<`, so it also decides nothing about a
+  // candidate whose `replay_confidence` is NULL: unmeasured is not "below
+  // threshold", and SQL agrees (`NULL < 0.5` is NULL, never true).
+  'skillSynthesis.replayValidation.minConfidence': 0.5,
+  'skillSynthesis.triggerEval.enabled': true,
+  'skillSynthesis.judgePanel.enabled': true,
+  // The gap between two judges' headline scores that escalates a verdict. On
+  // the judge's 0–10 scale (`minJudgeScore` above lives on the same one), so
+  // `3` means "the two panellists disagree by more than three points out of
+  // ten". R8: the second judge only runs on a `scored` first verdict, and
+  // escalation only above this threshold, which is what keeps the panel from
+  // quadrupling promotion cost.
+  'skillSynthesis.judgePanel.disagreementThreshold': 3,
   // TASK_2026_180 Phase 1 — see SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING. Both
   // halves (key list + defaults) come from that one table on purpose.
   ...SKILL_LANE_SETTINGS_DEFAULTS,

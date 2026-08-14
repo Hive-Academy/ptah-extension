@@ -36,7 +36,7 @@ import type {
   SkillSynthesisSettings,
   CandidateId,
 } from './types';
-import { unjudgedVerdictFields } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 
 function makeSettings(
   overrides: Partial<SkillSynthesisSettings> = {},
@@ -85,6 +85,7 @@ function fakeCandidate(): SkillCandidateRow {
     pinned: false,
     residency: 'resident',
     ...unjudgedVerdictFields(),
+    ...unmeasuredGateFields(),
   };
 }
 

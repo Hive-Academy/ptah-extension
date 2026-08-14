@@ -27,6 +27,8 @@ import {
   type JudgeVerdict,
   type NewCandidateInput,
   type RegisterCandidateResult,
+  type ReplayMeasurement,
+  type TriggerEvalMeasurement,
   type SkillCandidateRow,
   type SkillInvocationRow,
   type SkillResidency,
@@ -70,6 +72,20 @@ interface RawCandidateRow {
   judge_panel_rationales: string | null;
   judged_at: number | null;
   display_name: string | null;
+  // ── 0036 ──────────────────────────────────────────────────────────────────
+  // Same `SELECT *` trap as the 0033 block above, and it bites harder here: a
+  // column missing from this interface reads back `undefined`, which
+  // `toCandidateRow`'s `?? null` then turns into `null` — indistinguishable
+  // from a gate that genuinely has not run. The failure looks exactly like the
+  // feature working. Adding a column to `0036` without adding it here is a
+  // silent-data-loss bug, not a compile error.
+  replay_confidence: number | null;
+  replay_holdout_session_id: string | null;
+  replay_at: number | null;
+  trigger_score: number | null;
+  trigger_precision: number | null;
+  trigger_recall: number | null;
+  trigger_eval_at: number | null;
 }
 
 interface RawInvocationRow {
@@ -441,6 +457,143 @@ export class SkillCandidateStore {
     const updated = this.findById(id);
     if (!updated) {
       throw new Error(`[skill-synthesis] setDisplayName: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Persist a replay-validation measurement (`0036`).
+   *
+   * A SIBLING of `updateStatus` and `recordJudgeVerdict`, and deliberately not
+   * an option on either: the lifecycle status, the judge verdict and the two
+   * empirical gates are four independent axes written by different stages at
+   * different times. A replay result must be recordable without moving the
+   * candidate's status and without touching a judge column.
+   *
+   * It is built with `updateStatus`'s fragment mechanics, but every fragment in
+   * ITS OWN group is unconditional — the three replay columns always move
+   * together. That is the same reasoning `recordJudgeVerdict` documents from
+   * the other direction: a partial write would leave the PREVIOUS replay's
+   * hold-out session sitting beside THIS replay's confidence, which reads as a
+   * measurement nobody took. The group is the unit; the fragment list is how
+   * two groups stay out of each other's UPDATE.
+   *
+   * `confidence: null` is a first-class value, not an omission — it is what a
+   * replay whose lane failed, or a cluster with no member to hold out, records.
+   * It must never be written as `0`, which means "replayed, aligned with
+   * nothing".
+   *
+   * Throws on the two shapes that would fabricate a measurement: a confidence
+   * outside 0–1 or non-finite, and a confidence with no hold-out session behind
+   * it (there is nothing it could have been measured against).
+   */
+  recordReplay(
+    id: CandidateId,
+    measurement: ReplayMeasurement,
+  ): SkillCandidateRow {
+    const { confidence } = measurement;
+    if (confidence !== null) {
+      if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+        throw new Error(
+          `[skill-synthesis] recordReplay: confidence for ${id} must be null or a finite number in [0, 1], got ${confidence}`,
+        );
+      }
+    }
+    const holdout = measurement.holdoutSessionId?.trim() ?? '';
+    const holdoutSessionId = holdout.length > 0 ? holdout : null;
+    if (confidence !== null && holdoutSessionId === null) {
+      throw new Error(
+        `[skill-synthesis] recordReplay: a confidence for ${id} needs the hold-out session it was measured against`,
+      );
+    }
+
+    const fragments: string[] = [
+      'replay_confidence = ?',
+      'replay_holdout_session_id = ?',
+      'replay_at = ?',
+    ];
+    const values: unknown[] = [
+      confidence,
+      holdoutSessionId,
+      measurement.replayAt ?? Date.now(),
+      id,
+    ];
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates SET ${fragments.join(', ')} WHERE id = ?`,
+      )
+      .run(...values);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordReplay: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Persist a trigger-retrieval measurement (`0036`). The sibling of
+   * {@link recordReplay}, same group-is-the-unit rule: precision, recall, the
+   * derived score and the timestamp move together, because a precision left
+   * beside the previous run's recall is not a measurement of anything.
+   *
+   * `precision` and `recall` are definitionally 0–1 and are range-checked here
+   * — the schema deliberately carries no `CHECK`, because SQLite cannot widen
+   * or drop one, so this is the enforcing edge. `score` is checked for
+   * finiteness only: it replaces the judge's 0–10 `triggerClarity` in ranking
+   * and the scale it is expressed on is B3.3's to decide, so pinning a range
+   * here would pre-empt that decision from the wrong file.
+   *
+   * All three may be `null` together — an eval that produced nothing
+   * trustworthy. `null` is not `0`; a 0 means the description retrieved nothing
+   * and IS a result.
+   */
+  recordTriggerEval(
+    id: CandidateId,
+    measurement: TriggerEvalMeasurement,
+  ): SkillCandidateRow {
+    const bounded: ReadonlyArray<readonly [string, number | null]> = [
+      ['precision', measurement.precision],
+      ['recall', measurement.recall],
+    ];
+    for (const [label, value] of bounded) {
+      if (value === null) continue;
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(
+          `[skill-synthesis] recordTriggerEval: ${label} for ${id} must be null or a finite number in [0, 1], got ${value}`,
+        );
+      }
+    }
+    if (measurement.score !== null && !Number.isFinite(measurement.score)) {
+      throw new Error(
+        `[skill-synthesis] recordTriggerEval: score for ${id} must be null or finite, got ${measurement.score}`,
+      );
+    }
+
+    const fragments: string[] = [
+      'trigger_score = ?',
+      'trigger_precision = ?',
+      'trigger_recall = ?',
+      'trigger_eval_at = ?',
+    ];
+    const values: unknown[] = [
+      measurement.score,
+      measurement.precision,
+      measurement.recall,
+      measurement.evaluatedAt ?? Date.now(),
+      id,
+    ];
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates SET ${fragments.join(', ')} WHERE id = ?`,
+      )
+      .run(...values);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordTriggerEval: ${id} not found`);
     }
     return updated;
   }
@@ -1044,6 +1197,19 @@ export class SkillCandidateStore {
       judgePanelRationales: raw.judge_panel_rationales ?? null,
       judgedAt: raw.judged_at ?? null,
       displayName: raw.display_name ?? null,
+      // `?? null` normalizes a driver's `undefined` for an absent column, and
+      // NOTHING here may coalesce to 0. A measured `0` — a replay that aligned
+      // with nothing, a description that retrieved nothing — is evidence
+      // against promotion; `null` is "this gate has not spoken" and leaves the
+      // candidate retry-eligible. Collapsing the two would silently reject
+      // every candidate the weekly drain has not reached yet.
+      replayConfidence: raw.replay_confidence ?? null,
+      replayHoldoutSessionId: raw.replay_holdout_session_id ?? null,
+      replayAt: raw.replay_at ?? null,
+      triggerScore: raw.trigger_score ?? null,
+      triggerPrecision: raw.trigger_precision ?? null,
+      triggerRecall: raw.trigger_recall ?? null,
+      triggerEvalAt: raw.trigger_eval_at ?? null,
     };
   }
 

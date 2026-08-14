@@ -273,6 +273,7 @@ export {
   JUDGE_DEFAULT_MODEL_ID,
   JUDGE_STATUSES,
   unjudgedVerdictFields,
+  unmeasuredGateFields,
 } from './lib/types';
 export type {
   JudgeStatus,
@@ -280,6 +281,9 @@ export type {
   JudgeVerdict,
   JudgeVerdictFields,
   JudgedCandidateRow,
+  GateMeasurementFields,
+  ReplayMeasurement,
+  TriggerEvalMeasurement,
   SkillId,
   CandidateId,
   SkillStatus,

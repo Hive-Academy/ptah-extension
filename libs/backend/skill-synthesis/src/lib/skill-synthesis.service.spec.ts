@@ -13,7 +13,7 @@ import type { SkillMdGenerator } from './skill-md-generator';
 import type { SkillPromotionService } from './skill-promotion.service';
 import type { TrajectoryExtractor } from './trajectory-extractor';
 import type { CandidateId, SkillCandidateRow } from './types';
-import { unjudgedVerdictFields } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 import type { SessionVerdict } from './archaeology/session-verdict.types';
 
 const noopLogger = {
@@ -44,6 +44,7 @@ function fakeRow(
     pinned: false,
     residency: 'resident',
     ...unjudgedVerdictFields(),
+    ...unmeasuredGateFields(),
     ...overrides,
   };
 }

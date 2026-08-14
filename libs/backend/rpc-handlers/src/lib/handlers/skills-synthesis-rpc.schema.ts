@@ -78,6 +78,38 @@ export const SkillSynthesisSettingsSchema = z.object({
   'budget.maxTokensPerDay': z.coerce.number().int().min(0).max(1_000_000_000),
   // Key ships in commit C0 so the Electron tray (commit C5) is purely additive.
   trayKeepalive: z.boolean(),
+
+  // TASK_2026_180 Phase 3 — the three empirical gates.
+  //
+  // Dotted for the same reason the drain keys are: the schema key IS the
+  // settings-path suffix that `registerGetSettings` reads and
+  // `registerUpdateSettings` writes. Declaring them here is the whole of the
+  // wiring, and the matching entries in `platform-core`'s
+  // `FILE_BASED_SETTINGS_KEYS` are what make the WRITE half actually land —
+  // without those, this schema would validate a value the store then drops.
+  //
+  // Bounds are behavioural:
+  //  - `replay.minConfidence` is 0–1 because it is compared against
+  //    `skill_candidates.replay_confidence`, which migration `0036` and
+  //    `SkillCandidateStore.recordReplay` both hold to that range. A threshold
+  //    off that scale answers identically for every candidate — a disabled gate
+  //    wearing an enabled gate's name. `0` is allowed and means "any measured
+  //    replay clears"; it does NOT promote unmeasured candidates, because a
+  //    NULL confidence is not below any threshold.
+  //  - `judgePanel.disagreementThreshold` is 0–10 because it is a gap between
+  //    two judges' headline scores on the same scale `minJudgeScore` uses. It
+  //    is NOT an integer: judge scores are reals (7.4), so a 2.5-point gap is a
+  //    meaningful setting and `.int()` would round the user's intent away.
+  // `replayValidation`, NOT `replay`: `skillSynthesis.replay.*` is the replay
+  // LANE's sub-tree (one of the four `SKILL_LANE_IDS`), round-tripped by
+  // `skillSynthesis:getLanes` / `setLanes`. A gate switch in there would read
+  // as a ninth lane field. The lane is what the gate runs ON; the gate is a
+  // separate thing. Pinned on the routing side by `file-settings-keys.spec.ts`.
+  'replayValidation.enabled': z.boolean(),
+  'replayValidation.minConfidence': z.coerce.number().min(0).max(1),
+  'triggerEval.enabled': z.boolean(),
+  'judgePanel.enabled': z.boolean(),
+  'judgePanel.disagreementThreshold': z.coerce.number().min(0).max(10),
 });
 
 export type SkillSynthesisSettingsInput = z.infer<

@@ -106,6 +106,13 @@ const validFull = {
   'drain.staleClaimTtlMs': 900000,
   'budget.maxTokensPerDay': 2000000,
   trayKeepalive: false,
+  // TASK_2026_180 Phase 3 — the empirical gates. Same shipped defaults as
+  // `file-settings-keys.spec.ts` pins on the other side of the boundary.
+  'replayValidation.enabled': true,
+  'replayValidation.minConfidence': 0.5,
+  'triggerEval.enabled': true,
+  'judgePanel.enabled': true,
+  'judgePanel.disagreementThreshold': 3,
 };
 
 describe('SkillSynthesisSettingsSchema', () => {
@@ -279,6 +286,129 @@ describe('SkillSynthesisSettingsSchema', () => {
     it('defaults the tray keep-alive off in the shipped settings object', () => {
       const result = SkillSynthesisSettingsSchema.parse(validFull);
       expect(result.trayKeepalive).toBe(false);
+    });
+  });
+
+  describe('empirical-gate knobs (TASK_2026_180 Phase 3)', () => {
+    /**
+     * The schema key IS the settings path suffix, exactly as for the drain
+     * keys: `registerGetSettings` reads `skillSynthesis.${key}` and
+     * `registerUpdateSettings` writes it back. A renamed key here would read
+     * and write a path no host stores, and nothing would raise — the wire would
+     * simply stop persisting. `file-settings-keys.spec.ts` pins the same five
+     * names from the routing side; this is the wire side of the same contract.
+     */
+    it('names its keys so `skillSynthesis.<key>` is the settings path', () => {
+      const keys = Object.keys(SkillSynthesisSettingsSchema.shape);
+      expect(keys).toEqual(
+        expect.arrayContaining([
+          'replayValidation.enabled',
+          'replayValidation.minConfidence',
+          'triggerEval.enabled',
+          'judgePanel.enabled',
+          'judgePanel.disagreementThreshold',
+        ]),
+      );
+    });
+
+    /**
+     * NO GATE KEY MAY SIT INSIDE A LANE'S SUB-TREE.
+     *
+     * The schema key is the settings-path suffix, so a `'replay.enabled'` here
+     * would write `skillSynthesis.replay.enabled` — inside the replay LANE's
+     * eight capability fields, which `getLanes` / `setLanes` round-trip. That
+     * is what the batch text asked for and what B1.8's stray-lane-key guards
+     * (in `platform-core` and in `skills-synthesis-rpc.handlers.spec.ts`)
+     * rejected. Derived from `SKILL_LANE_ID_VALUES` rather than a literal list
+     * so a fifth lane automatically extends the check.
+     */
+    it('places no gate key inside one of the lane sub-trees', () => {
+      const lanePrefixes = SKILL_LANE_ID_VALUES.map((id) => `${id}.`);
+      const gateKeys = Object.keys(SkillSynthesisSettingsSchema.shape).filter(
+        (k) =>
+          /^(replayValidation|triggerEval|judgePanel)\./.test(k) ||
+          k.startsWith('replay.'),
+      );
+      expect(gateKeys).not.toHaveLength(0);
+      for (const key of gateKeys) {
+        for (const prefix of lanePrefixes) {
+          expect(key.startsWith(prefix)).toBe(false);
+        }
+      }
+    });
+
+    // 0–1, because it is compared against `skill_candidates.replay_confidence`,
+    // which `0036` and the store both hold to that range.
+    it.each([
+      ['above 1', 1.5],
+      ['below 0', -0.1],
+    ])('rejects a minConfidence %s', (_label, value) => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'replayValidation.minConfidence': value,
+        }),
+      ).toThrow();
+    });
+
+    // `0` means "any measured replay clears". It does NOT promote unmeasured
+    // candidates: a NULL `replay_confidence` is not below any threshold.
+    it('accepts a minConfidence of 0, which clears any measured replay', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'replayValidation.minConfidence': 0,
+      });
+      expect(result['replayValidation.minConfidence']).toBe(0);
+    });
+
+    it('rejects a disagreement threshold above the judge 0–10 scale', () => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'judgePanel.disagreementThreshold': 11,
+        }),
+      ).toThrow();
+    });
+
+    /**
+     * Judge scores are reals (7.4), so a 2.5-point gap between two panellists
+     * is a meaningful setting. An `.int()` here would silently round the user's
+     * intent, which for a threshold means escalating strictly more or strictly
+     * fewer verdicts than they asked for.
+     */
+    it('accepts a fractional disagreement threshold', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'judgePanel.disagreementThreshold': 2.5,
+      });
+      expect(result['judgePanel.disagreementThreshold']).toBe(2.5);
+    });
+
+    it('coerces numeric strings from the settings form', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'replayValidation.minConfidence': '0.75',
+        'judgePanel.disagreementThreshold': '4',
+      });
+      expect(result['replayValidation.minConfidence']).toBe(0.75);
+      expect(result['judgePanel.disagreementThreshold']).toBe(4);
+    });
+
+    // Each gate has its own switch (R8): trigger-eval's retrieval is
+    // local-embedding only and spends nothing, while replay and judge-panel
+    // each cost a lane call per candidate. One shared flag would tie them.
+    it('declares a separate enabled flag per gate', () => {
+      const keys = Object.keys(SkillSynthesisSettingsSchema.shape);
+      expect(
+        keys
+          .filter((k) => /^(replayValidation|triggerEval|judgePanel)\./.test(k))
+          .filter((k) => k.endsWith('.enabled'))
+          .sort(),
+      ).toEqual([
+        'judgePanel.enabled',
+        'replayValidation.enabled',
+        'triggerEval.enabled',
+      ]);
     });
   });
 });
