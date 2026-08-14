@@ -1,0 +1,55 @@
+{
+  "slug": "tribunal-intro",
+  "mode": "talking-head",
+  "input": {
+    "cameraVideo": "camera.mp4"
+  },
+  "fps": 60,
+  "bodyMs": 64267,
+  "endCard": {
+    "enabled": false
+  },
+  "_note": "SPLICE-BACK SEGMENT, not a standalone video. This is the 0:00–1:04:16 talking-head head of 'tribunal trial.mp4' (the DaVinci cut), re-rendered with overlays so it can REPLACE the first clip on V1. Three rules follow from that: fps is 60 to match the host timeline (a 30fps render judders at the splice); bodyMs pins the output to exactly 3856 frames because the stream-copy extract overshoots to the next packet boundary at 3861; and there is no end card, no music bed and no captions — the rest of the cut has none, and adding them for one minute reads as a different video. Beat times are seconds read off a whisper transcript of the segment, NOT eyeballed. Graphics sit in the gaps between spoken points, so ~0–9.8s, 26.6–33.8s and 44.6–64.3s are deliberately clean.",
+  "beats": [
+    {
+      "type": "lower-third",
+      "at": 2.5,
+      "durationMs": 5500,
+      "title": "Abdallah Khalil",
+      "subtitle": "Creator of Ptah · Software Architect, 12 years"
+    },
+    {
+      "type": "graphic",
+      "at": 9.8,
+      "durationMs": 6600,
+      "name": "open-source",
+      "layout": "panel",
+      "note": "9.8–16.4s — 'البروجكت اللي بقالي سنة ونص شغال عليه بقى completely open source و free to use'. The reveal lands on the phrase, not before it."
+    },
+    {
+      "type": "graphic",
+      "at": 17.4,
+      "durationMs": 9200,
+      "name": "provider-switch",
+      "layout": "panel",
+      "note": "17.4–26.6s — 'مش بيشتغل مع provider subscription واحد بس، إحنا بندعم كذا provider ونخليهم يشتغلوا مع بعض ويراجعوا شغل بعض'."
+    },
+    {
+      "type": "graphic",
+      "at": 33.8,
+      "durationMs": 10800,
+      "name": "runtime-trio",
+      "layout": "panel",
+      "note": "33.8–44.6s — 'الـ business logic مشترك ما بين تلات environments: VS Code extension و desktop application و terminal user interface'. The graphic's platform-core hub IS the hexagonal point he makes at 27–33s, so that sentence needs no panel of its own."
+    },
+    {
+      "type": "keyword",
+      "at": 46.5,
+      "durationMs": 6000,
+      "text": "Official SDKs · your own subscription",
+      "corner": "tr",
+      "icon": "shield",
+      "note": "46.5–52.5s — bridges the SDK list (Claude agent SDK, Codex SDK, Cursor) to the payoff at 52–64s: 'بحيث إننا نمنع أي مشاكل ممكن تحصل للـ subscription بتاعت اليوزرز'. A chip, not a panel — no panel is on screen here, so the left third is free, but the point is one line and does not earn a full card."
+    }
+  ]
+}

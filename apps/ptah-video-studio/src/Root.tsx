@@ -122,18 +122,22 @@ const calculatePromoMetadata: CalculateMetadataFunction<PromoReelProps> = ({
 // scripts/selfshot-render.mjs (resolved from a beats manifest + words.json).
 // This fallback (no media) lets the studio open them showing just the backdrop
 // + end card — cameraSrc/screenSrc are optional and guarded in the components.
+// NO `endCard` here. Remotion MERGES defaultProps into the props passed on the
+// command line, so a key present only in this fallback survives its absence in
+// render-props.json — a manifest with `endCard.enabled: false` would silently
+// still get a 6s end card (and 346 extra frames) appended. Omission has to mean
+// omission for the disable to work at all.
 const FALLBACK_SELFSHOT: ResolvedSelfShotProps = {
   slug: 'preview',
   mode: 'talking-head',
   fps: 30,
   res: { width: 1920, height: 1080 },
   bodyMs: 4000,
-  durationMs: 10000,
+  durationMs: 4000,
   captions: [],
   shots: [{ fromMs: 0 }],
   overlays: [],
   layouts: [],
-  endCard: { atMs: 4000, durationMs: 6000 },
 };
 
 const calculateSelfShotMetadata: CalculateMetadataFunction<ResolvedSelfShotProps> = ({
