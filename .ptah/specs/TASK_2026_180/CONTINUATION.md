@@ -1,6 +1,6 @@
 # TASK_2026_180 — continuation handoff
 
-**Written 2026-08-13, updated 2026-08-14.** Everything below was verified by
+**Written 2026-08-13, updated 2026-08-15.** Everything below was verified by
 re-running it, not taken from an agent's report. Read this, then `tasks.md`
 **§2 Batch index**, **§3 Global invariants** and **§6 Orchestrator hand-off
 notes** — §6 has grown a lot and several notes are addressed to specific
@@ -11,15 +11,22 @@ unstarted batches.
 ## 1. Where
 
 - **Worktree**: `D:/projects/ptah-extension/.claude-worktrees/task180`
-- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`34e5aac04`**
+- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`c699bca9f`** (merged into `ak/tui-defects`)
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
-- `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. This worktree now tops out at `TASK_2026_238`; next free is `239`.
+- `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. This worktree now tops out at `TASK_2026_239`; next free is `240`.
 
-## 2. Status: Commits 0, 1 and 2 COMPLETE — Phase 3 is next
+## 2. Status: Commits 0, 1 and 2 COMPLETE and MERGED — Phase 3 is next
 
-**23 of 36 batches done** (34 planned + 2 added mid-flight). **Phases 0, 1 and 2
-are all closed.** The next session starts on B3.1 with nothing half-finished
-behind it — the first time that has been true.
+**24 of 37 batches done** (34 planned + 3 added mid-flight: B0.8, B0.9, B0.10).
+**Phases 0, 1 and 2 are all closed, fully gated, and merged into
+`ak/tui-defects`.** The next session starts on B3.1 with nothing half-finished
+behind it.
+
+**The six-commit collapse was abandoned, deliberately — see `tasks.md` §6.** It
+is not achievable by `git reset --soft`: 27 files are edited by both C0 and C1,
+so path-staging puts one phase's work inside another's commit. The working
+commits were merged as-is, which means the tested artifact and the merged
+artifact are the same object. Do not try to reconstruct the six commits.
 
 | Commit               | State                       |
 | -------------------- | --------------------------- |
@@ -33,6 +40,9 @@ behind it — the first time that has been true.
 ### Commits so far (working commits, deliberately interleaved by phase)
 
 ```
+c699bca9f  C2  corpus measurement harness
+84c4e24ea  C0  B0.10 (nightly tier cap)
+475540653  docs
 34e5aac04  C2  B2.4  (closes C2)
 5a0862bfc  docs
 53803a750  C1  B1.11  (closes C1)
@@ -54,27 +64,58 @@ bb97255a5  C2  B2.1
 d4c0153e9  docs
 ```
 
-**Working commits interleave phases ON PURPOSE.** The six-commit contract is
-honoured at the END by collapsing each phase with `git reset --soft <phase-base>`.
-**No single commit mixes two phases** — that is the property the collapse depends
-on. Preserve it: stage by path and never let one commit straddle.
+**Working commits interleave phases ON PURPOSE** — that is what let 3–4 agents
+run concurrently in one worktree. No single commit mixes two phases, and that
+discipline was worth keeping for reviewability.
 
-Path→phase split used so far: `libs/backend/skill-synthesis/**` has been C1 or C0
-depending on batch; `platform-core` + `rpc-handlers` + `libs/shared` were C0 for
-B0.5 and C1 for B1.8. **Check which batch owns a file before staging.**
+**But the collapse it was meant to enable DOES NOT WORK, and was abandoned.**
+27 files are edited by both C0 and C1 (10 by C0∩C2, 11 by C1∩C2), so
+`git reset --soft` plus path-staging necessarily puts one phase's work inside
+another phase's commit — the straddling unit is the **file**, not the commit.
+Full analysis in `tasks.md` §6. The working commits were merged as-is on the
+user's decision. **Do not attempt to reconstruct six commits.**
+
+Still stage by path when you commit, for review clarity: `libs/backend/skill-synthesis/**`
+has been C0, C1 and C2 depending on batch; `platform-core` + `rpc-handlers` +
+`libs/shared` were C0 for B0.5/B0.10 and C1 for B1.8. **Check which batch owns a
+file before staging.**
 
 ## 3. Verified baselines
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
-**Re-measured at `34e5aac04` by the orchestrator, with all agents idle:**
+**FULL pre-merge gate run by the orchestrator at `c699bca9f`, everything idle.**
+This is the first time the whole branch was gated rather than each batch:
 
 ```
-skill-synthesis     51 of 56   |  882 passed, 36 skipped, 918 total
+skill-synthesis     52 of 58   |  892 passed, 37 skipped, 929 total   ← see note
 rpc-handlers        75 suites  |  2013 passed, 31 skipped, 2044 total
-typecheck           skill-synthesis, webview-e2e-harness, skill-synthesis-ui,
-                    rpc-handlers, thoth-runtime → 5 projects clean
+platform-core       29 suites  |  466 passed, 4 todo, 470 total
+persistence-sqlite  15 of 23   |  148 passed, 65 skipped, 213 total
+shared / ui / skill-synthesis-ui / auth-providers / memory-curator-ui /
+cli-engine / cron-scheduler / thoth-runtime            → all green
+agent-sdk           1 FAILED   → pre-existing env, see §7 item 10
+npm run typecheck:all                                  → 90 projects clean
+nx e2e ptah-electron-e2e   130 passed, 13 skipped      → through the REAL
+                            build chain, incl. B1.11's lane-picker assertion
 ```
+
+**The `37 skipped` is NOT a dark suite — verify before you panic.** Moving
+`prefilter-corpus-measurement.spec.ts` out of the tree gives exactly `36
+skipped, 892 passed, 928 total`. That file is an **opt-in measurement harness**,
+`describe.skip` unless `PTAH_PREFILTER_CORPUS=1`, because it reads
+`~/.claude/projects/**` and is meaningless on a runner. **The real skill-synthesis
+skip count is still 36.**
+
+**`agent-sdk`'s single failure is your shell, not the code.** `sdk-query-runner.service.spec.ts:368`
+asserts `toBeUndefined()`; this machine exports `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` as **empty strings**. Verified by
+reading the env directly. Worth a one-line fix — an empty string is not a
+credential — because it makes every full sweep red exactly when you want
+signal.
+
+**`platform-core` can fail under `nx run-many` and pass in isolation** — temp-dir
+contention in the settings-manager benchmark spec. Re-run alone before believing it.
 
 **`webview-e2e-harness` is NOT a clean gate**: `nx e2e` there reports
 `37 passed, 32 failed`, and all 32 are pre-existing `chat/*` /
@@ -187,6 +228,7 @@ Also settled by the user this session:
 ## 9. Follow-ups filed, deliberately NOT in this task
 
 - **`TASK_2026_237`** — the `[value]`-without-`[selected]` select-binding sweep. One confirmed instance left (`json-schema-form.component.ts:74-87`).
+- **`TASK_2026_239`** — the Skills settings panel shows "Max items per run: 4" while the nightly tier ignores that key entirely (B0.10 routed `nightlyMaxItemsPerRun` through file settings but deliberately kept it off the RPC wire). A displayed number that is false for the one token-spending tier is worse than an absent control.
 - **`TASK_2026_238`** — the Skills tab is gated `electronOnly` in two independent places while `skill-synthesis-ui/CLAUDE.md:16` claims VS Code parity, so a real VS Code webview cannot reach the lane pickers at all. Filed 2026-08-14 from B1.11. Note what this does to global invariant #5: extracting the picker is still right, but its stated rationale ("a fork strands VS Code users") is currently vacuous, because those users are already stranded one layer up. Do not cite it as evidence the cross-host path works.
 - **`pass-budget-exhausted`** — a `toolUse: 'required'` lane that exhausts a configured `maxPasses` while still asking for evidence writes `degradedReason: null` and reads as fully usable. Pre-existing, not introduced by B2.3, and it wants its own reason member. Phase 3's fallback logic is where this surfaces; decide it there.
 - **Four-container spec smell** (`tasks.md` §6): `skills-synthesis-rpc.handlers.spec.ts` builds its tsyringe container in four places, plus a fifth in `skills-synthesis-rpc.queue.spec.ts:131`. Every new constructor param breaks all five. Cleanup task of its own; do not fold into a feature batch.

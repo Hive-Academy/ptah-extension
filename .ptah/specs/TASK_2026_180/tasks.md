@@ -2490,6 +2490,85 @@ on. Preserve that: stage by path (`libs/backend/skill-synthesis/**` has been C1
 so far; `platform-core` + `rpc-handlers` + `libs/shared` were C0) and never let
 one commit straddle.
 
+### → THE SIX-COMMIT COLLAPSE IS NOT ACHIEVABLE AS SPECIFIED — resolved 2026-08-15
+
+§0's delivery DAG and §2's commit note both say the six-commit contract is
+honoured at the end by collapsing each phase with `git reset --soft <phase-base>`,
+relying on the property that **no single commit mixes two phases**. That property
+does hold — every working commit was staged by path to preserve it — but **it is
+not sufficient**, and the method does not work.
+
+Measured directly across the phase commit sets:
+
+| overlap | files  | examples                                                          |
+| ------- | ------ | ----------------------------------------------------------------- |
+| C0 ∩ C1 | **27** | `skill-drain.service.ts`, `file-settings-keys.ts`, `rpc.types.ts` |
+| C0 ∩ C2 | 10     | `skill-synthesis.service.ts`, `di/tokens.ts`                      |
+| C1 ∩ C2 | 11     | `skill-synthesizer.service.ts`, `src/index.ts`                    |
+
+**A soft reset plus path-staging commits each file's FINAL content.** Stage
+`skill-drain.service.ts` into C0 and B1.7's Phase-1 work goes in with it; stage
+it into C1 and C0 loses B0.8, B0.9 and B0.10. `di/tokens.ts`, `src/index.ts`,
+`migrations/index.ts` and this lib's `CLAUDE.md` are each touched by **all
+three** phases. There is no path partition that separates them, because the unit
+that straddles is the **file**, not the commit.
+
+It is achievable by cherry-picking each phase's commits onto the base and
+squashing per phase — but that means real conflict resolution across 27 files
+and, more importantly, each resulting commit would be a tree **that was never
+tested in that exact form**. "Each commit is shippable" asserted from an
+untested reconstruction is worse than not asserting it.
+
+**Resolved by the user on 2026-08-15: merge the working commits as-is.** The
+tested artifact and the merged artifact are then the same object. The
+six-commit shape was a planning aspiration that interleaved execution on shared
+files made unreachable — and the interleaving was itself deliberate and correct,
+because it is what let 3–4 agents run concurrently.
+
+**For any future task that wants a phase-shaped history**: the constraint is not
+"no commit straddles a phase", it is **"no FILE is edited by two phases"**. That
+is a much stronger property, and it must be designed into the decomposition —
+batch ownership would have to partition files by phase, not just by batch. Say
+so up front or do not promise the collapse.
+
+### → NEW BATCH B0.10 (C0): the nightly tier was starving — USER-APPROVED
+
+Raised by a corpus measurement on 2026-08-14, approved and landed the same day.
+**A hole in the plan's throughput model, not a defect in any batch's code.**
+
+Measured against **849 real sessions**: nightly demand is ~30 rows/day and
+supply was **one**. The old `select()` visited each eligible workspace once and
+took `perWorkspaceBatch` (1) rows, so a single-workspace install drained **one
+row per tick** whatever `maxItemsPerRun` said — that knob only ever bound with
+≥4 eligible workspaces and was **near-vestigial**. `archaeology` is
+nightly-only and the nightly cron is `0 3 * * *`, so the queue grew
+monotonically while the token budget sat at **4%** of its ceiling.
+
+**Raising the cap alone would have bought nothing** — the governor was
+`perWorkspaceBatch × workspace count`. So the deal step now repeats in
+**rounds** (nightly only), which turns `perWorkspaceBatch` from a throughput
+ceiling into a **fairness quantum**: one workspace reaches the whole cap, two
+busy ones split it evenly.
+
+**Raising `perWorkspaceBatch` instead would have been actively harmful.** Every
+workspace visited on a tick is stamped with the same `last_drained_at`, so
+`ELIGIBLE_WORKSPACES_SQL`'s tiebreak falls to `workspace_root ASC`
+**permanently** — at one tick a day the alphabetically first project would eat
+the entire nightly budget every night. That is R4, and it is why the 1 is there.
+**It stays 1 on every tier.**
+
+Pinned by a mutation the orchestrator re-ran: keep the cap at 40, remove the
+rounds, and **5 tests go red**. That is exactly the "raising one number is
+sufficient" mistake, and without that spec the suite would pass against an
+implementation that ships the settings key and still delivers 1 row/night.
+
+**Weekly has the identical defect and is deliberately NOT fixed** — one tick a
+week, single round, cap 4. Harmless today because it has no producers, but
+**B4.x lands `judge-panel` / `replay` / `trigger-eval` and MUST revisit
+`DRAIN_TIER_LIMITS.weekly`.** Note three existing specs (`failures`,
+`idempotency`, `budget`) drain `tier: 'weekly'` while setting `maxItemsPerRun`,
+so changing which key weekly reads breaks them.
+
 ### → B2.4 found three things wrong in its own batch text — all verified
 
 **a. B2.4.4 names the wrong file.** `skill-drain.service.ts` needed **zero**
