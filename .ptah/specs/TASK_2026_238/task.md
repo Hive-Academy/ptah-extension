@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_238
-status: in_progress
+status: in_review
 type: bugfix
 title: Fix codex and opencode native binary path resolution
 description: >-
