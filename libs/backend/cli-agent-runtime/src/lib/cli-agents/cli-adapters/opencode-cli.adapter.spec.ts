@@ -110,7 +110,11 @@ jest.mock('fs/promises', () => ({
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
 }));
 
-import { OpencodeCliAdapter } from './opencode-cli.adapter';
+import path from 'path';
+import {
+  OpencodeCliAdapter,
+  resolveOpencodeNativeBinary,
+} from './opencode-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
 import type { CliOutputSegment } from '@ptah-extension/shared';
 
@@ -526,6 +530,76 @@ describe('OpencodeCliAdapter', () => {
 
       expect(spawnEnv()?.['OPENCODE_CONFIG_CONTENT']).toBeUndefined();
       expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // A module-resolved candidate can land inside `app.asar` in a packaged
+  // Electron build. existsSync passes through the asar shim there, but the file
+  // cannot be spawned — so every such candidate needs its `app.asar.unpacked`
+  // twin probed alongside it, exactly as the Codex adapter does.
+  describe('resolveOpencodeNativeBinary() — asar-unpacked twins', () => {
+    const ASAR_PKG_JSON = path.join(
+      path.sep,
+      'ptah-app',
+      'resources',
+      'app.asar',
+      'node_modules',
+      'opencode-windows-x64',
+      'package.json',
+    );
+    const asarCandidate = path.join(
+      path.dirname(ASAR_PKG_JSON),
+      'bin',
+      'opencode.exe',
+    );
+    const unpackedCandidate = asarCandidate.replace(
+      'app.asar',
+      'app.asar.unpacked',
+    );
+
+    const originalPlatform = process.platform;
+    const originalArch = process.arch;
+
+    function stub(key: 'platform' | 'arch', value: string): void {
+      Object.defineProperty(process, key, { value, configurable: true });
+    }
+
+    /** Stands in for require.resolve, which can never yield an asar path here. */
+    const resolveModulePath = (request: string): string => {
+      if (request === 'opencode-windows-x64/package.json') return ASAR_PKG_JSON;
+      throw new Error(`Cannot find module '${request}'`);
+    };
+
+    beforeEach(() => {
+      stub('platform', 'win32');
+      stub('arch', 'x64');
+    });
+
+    afterEach(() => {
+      stub('platform', originalPlatform);
+      stub('arch', originalArch);
+    });
+
+    it('probes the app.asar.unpacked twin right after the asar candidate', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      expect(
+        resolveOpencodeNativeBinary(undefined, resolveModulePath),
+      ).toBeUndefined();
+
+      const probed = mockExistsSync.mock.calls.map((c) => c[0] as string);
+      expect(probed).toContain(asarCandidate);
+      expect(probed.indexOf(unpackedCandidate)).toBe(
+        probed.indexOf(asarCandidate) + 1,
+      );
+    });
+
+    it('resolves the unpacked twin when only it exists on disk', () => {
+      mockExistsSync.mockImplementation((p: string) => p === unpackedCandidate);
+
+      expect(resolveOpencodeNativeBinary(undefined, resolveModulePath)).toBe(
+        unpackedCandidate,
+      );
     });
   });
 

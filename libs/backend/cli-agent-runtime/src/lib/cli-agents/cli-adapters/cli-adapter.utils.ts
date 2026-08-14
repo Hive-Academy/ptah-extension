@@ -293,6 +293,23 @@ export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
 }
 
 /**
+ * Expand a native-binary candidate into the paths worth probing on disk.
+ *
+ * Electron packs app code into `app.asar`; `electron-builder`'s `asarUnpack`
+ * copies native binaries into the sibling `app.asar.unpacked` tree. A path
+ * inside `app.asar` still satisfies `existsSync` through the asar shim but
+ * cannot be spawned, so any candidate landing there must also be probed as its
+ * unpacked twin. Returns the candidate alone when it is not inside an asar.
+ */
+export function withAsarUnpackedTwin(candidate: string): string[] {
+  const unpacked = candidate.replace(
+    /app\.asar(?!\.unpacked)/,
+    'app.asar.unpacked',
+  );
+  return unpacked === candidate ? [candidate] : [candidate, unpacked];
+}
+
+/**
  * Resolve a Windows `.cmd` npm wrapper to a direct `node <entrypoint>` spawn.
  *
  * `cross-spawn` runs `.cmd` wrappers through `cmd.exe /c`, which caps the whole
