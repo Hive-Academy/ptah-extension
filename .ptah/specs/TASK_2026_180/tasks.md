@@ -2490,6 +2490,77 @@ on. Preserve that: stage by path (`libs/backend/skill-synthesis/**` has been C1
 so far; `platform-core` + `rpc-handlers` + `libs/shared` were C0) and never let
 one commit straddle.
 
+### → B2.4 found three things wrong in its own batch text — all verified
+
+**a. B2.4.4 names the wrong file.** `skill-drain.service.ts` needed **zero**
+changes: `archaeology` was already in `NIGHTLY_ONLY_STAGES`,
+`TOKEN_SPENDING_STAGES` and `STAGE_COST_RANK`. The wiring seam is
+`SkillSynthesisService.registerStageHandlers()`, exactly as the lib CLAUDE.md
+says. The file every batch has had to serialize on was never in play.
+
+**b. B2.4.4 says nothing about who ENQUEUES an `archaeology` row**, without
+which the stage is wired and permanently unreachable. It is chained from the
+**successful end of the prefilter handler**, because the plan's own R3
+mitigation keeps the regex prefilter as the gate on spending: enqueuing it
+beside `prefilter` in `enqueueAnalyze` would pay the most expensive per-session
+stage for every session the prefilter was about to reject.
+
+**`dependsOn` is deliberately NULL on that chained row**, against the canonical-
+chain phrasing. `ELIGIBLE_SQL` (`skill-queue.store.ts:117`) is
+`AND (q.depends_on IS NULL OR d.status = 'done')`, so pointing it at the
+prefilter row adds a wedge rather than a guarantee: the first time that session
+re-opens and prefilter ends `skipped`, the archaeology row is permanently
+ineligible while still being scanned every tick. The ordering is already
+enforced by construction — the row does not exist until prefilter succeeded.
+
+**c. B2.4.1's headline premise was already true.** `hasSuccessMarker` had
+**zero** promotion/eligibility readers at HEAD; `passesPrefilter` never touched
+it. Its one production read in the monorepo was the `successMarker=` line in the
+synthesis prompt — i.e. B2.4.1's actual substance lived inside B2.4.2. The flag
+stays computed (the batch says make "informational signal" true, not delete it)
+and the demotion is pinned by a **source scan** rather than a deletion, which is
+what makes it stay demoted.
+
+**The source scan is a substring scan over file TEXT and cannot tell code from
+prose.** Doc comments naming `hasSuccessMarker` / `successMarker=` failed it —
+the same trap `queueItemId` set in B2.3. Production prose now describes the
+field as "the extractor's tail-regex success flag" without naming it. Two
+separate agents hit this in one session; assume the next one will too.
+
+### → `minTurns` is honoured now, and that NARROWED the enhancer — pinned
+
+`extract`'s `minTurns` was `void`-ed (added deliberately in `2991b72bf` when
+arithmetic curation gates were replaced), so the gate was
+`turns.length < MIN_ROLE_TURNS_FLOOR` — a hard **2**, whatever the caller
+passed. It is now `< max(2, minTurns)`.
+
+Honouring it as-written would have **narrowed the harvest in the same batch that
+widens it**: the default was `MIN_TURNS_FOR_TRAJECTORY` (5), which drops every
+2–4-turn session and turns `trajectory-extractor.spec.ts:65` red, directly
+contradicting B2.4.3. Removing the parameter — the other sanctioned option —
+forces arity edits in three files outside B2.4's ownership. So the default moved
+**down** to `MIN_ROLE_TURNS_FLOOR` (2), clamped up. The extractor now answers
+"is there a readable session here"; `eligibilityMinTurns` is spent in
+`passesPrefilter`, where the decision to spend tokens is actually made.
+
+**The consequence, which the batch report understated:** `skill-enhancer.service.ts:733`
+passes `TRAJECTORY_MIN_TURNS` (5) explicitly, so **the enhancer now genuinely
+requires 5 role turns where it used to get 2.** Enhancement candidates with 2–4
+turns are rejected where they previously passed. That is deliberate — it
+restores the constant's plainly stated intent — but it was **unpinned**, making
+it indistinguishable from an accident.
+
+It is now pinned in `trajectory-extractor.spec.ts`, NOT in
+`skill-enhancer.service.spec.ts`, because that spec stubs `trajectories.extract`
+with a jest mock (`:168-169`) so the real gate never executes there — pinning it
+in the obvious place would assert only that the argument was passed. The guard
+**regex-extracts the threshold out of `skill-enhancer.service.ts`** rather than
+copying the number, and asserts the enhancer still passes it into `extract(`, so
+it defends the caller's real value instead of a copy that can drift. Four cases,
+including the paired positive (5 turns extracts) and a check that the same
+4-turn session still extracts for callers passing nothing — so a future
+re-widening of the default goes red too.
+
 ### → B2.3.2 case 2 understates the contract — USER-DECIDED
 
 Raised by B2.3, decided by the user on 2026-08-14.

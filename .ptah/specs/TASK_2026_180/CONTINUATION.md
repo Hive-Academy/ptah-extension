@@ -11,26 +11,30 @@ unstarted batches.
 ## 1. Where
 
 - **Worktree**: `D:/projects/ptah-extension/.claude-worktrees/task180`
-- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`53803a750`**
+- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`34e5aac04`**
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
 - `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. This worktree now tops out at `TASK_2026_238`; next free is `239`.
 
-## 2. Status: Commits 0 and 1 COMPLETE, Commit 2 needs one batch
+## 2. Status: Commits 0, 1 and 2 COMPLETE — Phase 3 is next
 
-**22 of 36 batches done** (34 planned + 2 added mid-flight).
+**23 of 36 batches done** (34 planned + 2 added mid-flight). **Phases 0, 1 and 2
+are all closed.** The next session starts on B3.1 with nothing half-finished
+behind it — the first time that has been true.
 
-| Commit               | State                              |
-| -------------------- | ---------------------------------- |
-| **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9         |
-| **C1 — Phase 1**     | ✅ **Complete.** B1.1–B1.11        |
-| **C2 — Phase 2**     | B2.1–B2.3 done. **B2.4 remaining** |
-| **C3 — Phase 3**     | Not started (B3.1–B3.5)            |
-| **C4 — Phase 4**     | Not started (B4.1–B4.5)            |
-| **C5 — Tier B tray** | Not started (B5.1, B5.2)           |
+| Commit               | State                       |
+| -------------------- | --------------------------- |
+| **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9  |
+| **C1 — Phase 1**     | ✅ **Complete.** B1.1–B1.11 |
+| **C2 — Phase 2**     | ✅ **Complete.** B2.1–B2.4  |
+| **C3 — Phase 3**     | Not started (B3.1–B3.5)     |
+| **C4 — Phase 4**     | Not started (B4.1–B4.5)     |
+| **C5 — Tier B tray** | Not started (B5.1, B5.2)    |
 
 ### Commits so far (working commits, deliberately interleaved by phase)
 
 ```
+34e5aac04  C2  B2.4  (closes C2)
+5a0862bfc  docs
 53803a750  C1  B1.11  (closes C1)
 ddeaf14fb  C2  B2.3
 7a13483e0  docs
@@ -63,10 +67,10 @@ B0.5 and C1 for B1.8. **Check which batch owns a file before staging.**
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
-**Re-measured at `53803a750` by the orchestrator, with both agents idle:**
+**Re-measured at `34e5aac04` by the orchestrator, with all agents idle:**
 
 ```
-skill-synthesis     50 of 55   |  846 passed, 36 skipped, 882 total
+skill-synthesis     51 of 56   |  882 passed, 36 skipped, 918 total
 rpc-handlers        75 suites  |  2013 passed, 31 skipped, 2044 total
 typecheck           skill-synthesis, webview-e2e-harness, skill-synthesis-ui,
                     rpc-handlers, thoth-runtime → 5 projects clean
@@ -100,37 +104,40 @@ removed. See §7.
 
 ## 4. Next batches, in order
 
-### B2.4 — demote the regex, feed the verdict to synthesis, wire the `archaeology` stage
+### B3.1 — migration `0036` + store writers + gate settings
 
-**Next up. Depends on B2.3 (done), so it is unblocked.** Executor
-`backend-developer`, sequential. Closes C2.
+**Next up. Depends on B1.2 (done), so it is unblocked.** Executor
+`backend-developer`, sequential. Then B3.2 / B3.3 (both depend only on B3.1, and
+on B1.5 which is done — so they can run **concurrently** if given disjoint file
+ownership), then B3.4, then B3.5.
 
-**B2.4.4 is the only stage-wiring task in the whole plan** — read §6's note
-about the `lane-failed` producer before starting, and return
-`{outcome: 'lane-failed', failure}` rather than flattening the failure into
-`unscored`/`failed` inside the handler. Only the drain reads `maxAttempts`.
+**The migration is `0036`, NOT the number in the batch text** — B0.8 took
+`0035`, so B3.1 is `0036` and B4.1 is `0037`. Every new migration requires
+bumping version ratchets in older migration specs: run the FULL
+`persistence-sqlite` suite to find them, because the wording differs per spec
+and grep misses some. That suite also has 8 entirely dark suites (65 tests
+asserting nothing) — see §7 item 3 — so read its skipped count, not its exit
+code.
 
-It also owns `skill-drain.service.ts`, which B0.8, B0.9 and B1.7 all touched and
-which every batch so far has had to serialize on. Do not run anything else
-against that file concurrently.
+**Three decisions Phase 3 inherits and must not re-open:**
 
-Two things B2.3 leaves it:
+- `hasUsableVerdict` is `row !== null && row.degradedReason === null`. A clean
+  single-pass verdict from a non-tool-use lane has `degradedReason: null` and
+  **is usable** — user-decided this session, see §6.
+- The `maxAttempts` ceiling terminates `timeout` only; `auth-unresolvable`
+  stalls indefinitely. Also user-decided, see §6.
+- The drain is the sole owner of every queue transition. Nothing but
+  `lanes/lane-runner.service.ts` may name `queueItemId` — **including in a
+  comment**, because the guard is a substring scan over file text. This bit two
+  separate agents this session.
 
-- The archaeologist writes `degradedReason: null` on a clean single-pass verdict
-  from a non-tool-use lane, so `hasUsableVerdict()` is `true` for it. See §6's
-  "B2.3.2 case 2 understates the contract" note — this was a user decision, do
-  not re-litigate it.
-- `SessionArchaeologistService` never receives `queueItemId`; it heartbeats
-  through `SkillStageContext.touch`. The drain stays the sole owner of every
-  queue transition, pinned mechanically by `skill-drain.failures.spec.ts`.
+**One decision Phase 3 must actually MAKE**, recorded in §6 and §9: a
+`toolUse: 'required'` lane that exhausts a configured `maxPasses` while still
+requesting evidence writes `degradedReason: null` and reads as fully usable.
+Pre-existing, wrong, and it wants its own `pass-budget-exhausted` reason. B3.2's
+verdict-absent fallback is where it surfaces.
 
-### Then B3.x → B4.x → B5.x per §2.
-
-**Before B3.x**: B3.1's migration is **`0036`** and B4.1's is **`0037`** (B0.8
-took `0035`). Every new migration requires bumping version ratchets in older
-migration specs — run the FULL `persistence-sqlite` suite to find them, because
-the wording differs per spec and grep misses some. Phase 3 also has to decide
-the `pass-budget-exhausted` question in §6.
+### Then B4.x → B5.x per §2.
 
 ## 5. Sequencing constraints — violating these causes real collisions
 
@@ -164,6 +171,7 @@ Also settled by the user this session:
 9. **Every new migration requires bumping version ratchets in older migration specs.** Run the FULL `persistence-sqlite` suite to find them — the wording differs per spec, so grep misses some.
 10. One pre-existing `agent-sdk` spec (`sdk-query-runner.service.spec.ts:368`) fails if the shell exports `ANTHROPIC_AUTH_TOKEN=""` / `ANTHROPIC_API_KEY=""` / `ANTHROPIC_BASE_URL=""`. Not this task.
 11. `A worker process has failed to exit gracefully` in parallel Jest runs is **pre-existing**; it disappears under `--runInBand`.
+12. **An unattributed intermittent failure in `skill-synthesis.service.enqueue.spec.ts`, seen twice, never reproduced.** During B2.4 one full-suite run reported `1 failed` in that file at **27 s** (normal ~4 s), and an earlier one failed at the _suite_ level with **zero** test failures at 48 s. **Neither run captured the failing test name**, so it is not fully exonerated. Everything since has been green: 19 runs by the agent (13 parallel, 6 isolated, 2 `--runInBand`) plus 8 by the orchestrator **including deliberate contention** — a full suite running concurrently with four isolated runs of that file. Both sightings were under heavy box load, and nothing in the P2-4 block waits on wall-clock (`withClaimHeartbeat`'s only timer is a 60 s `unref`'d interval cleared in `finally`; `fireSessionEnd` is 8 × `await Promise.resolve()`), so a 27 s suite is a stalled machine rather than a 5 s jest timeout. Treated as item 11's flake. **If you see it again, capture the test name** — that is the one piece of evidence nobody has.
 
 ## 8. How to run this, based on what actually worked
 
