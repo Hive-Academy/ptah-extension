@@ -151,6 +151,7 @@ interface NxRunCommandsOptions {
 }
 
 interface NxTargetConfig {
+  executor?: string;
   cache?: boolean;
   inputs?: unknown;
   outputs?: unknown;
@@ -303,6 +304,35 @@ describe('apps/ptah-electron/project.json renderer cache key', () => {
   // skip that shell-out with nothing correct to restore.
   it('RI-10: copy-renderer-dev is not marked cacheable', () => {
     expect(config.targets['copy-renderer-dev']?.cache).not.toBe(true);
+  });
+
+  it('RI-11: Electron esbuild targets do not rebuild workspace dependencies', () => {
+    const esbuildTargets = [
+      'build-main',
+      'build-preload',
+      'build-embedder-worker',
+      'build-voice-worker',
+    ];
+
+    for (const targetName of esbuildTargets) {
+      const target = config.targets[targetName];
+      expect(target.executor).toBe('@nx/esbuild:esbuild');
+      expect(target.dependsOn).toEqual([]);
+    }
+  });
+
+  it('RI-12: serve builds each Electron artifact only through build-dev', () => {
+    const commands = config.targets['serve'].options?.commands ?? [];
+    expect(
+      commands.filter((command) => command.includes('build-dev')),
+    ).toHaveLength(1);
+    expect(
+      commands.some((command) => command.includes('build-embedder-worker')),
+    ).toBe(false);
+    expect(
+      commands.some((command) => command.includes('build-voice-worker')),
+    ).toBe(false);
+    expect(config.targets['serve'].cache).toBe(false);
   });
 });
 
