@@ -1,5 +1,5 @@
 ---
-id: TASK_2026_238
+id: TASK_2026_241
 status: done
 type: DOCUMENTATION
 title: Correct the stale VS Code parity claim in skill-synthesis-ui docs

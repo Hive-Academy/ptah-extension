@@ -2720,7 +2720,7 @@ this tab is absent in VS Code**, because the subsystem needs
 is downstream of that, not the cause.
 
 `libs/frontend/skill-synthesis-ui/CLAUDE.md` claimed the tab "works in both
-Electron and VS Code". That line has been rewritten; `TASK_2026_238` is `done`.
+Electron and VS Code". That line has been rewritten; `TASK_2026_241` is `done`.
 
 **Do not "restore parity."** And note the workspace memory store carries
 contradictory entries on this point — several older ones assert the tab is
