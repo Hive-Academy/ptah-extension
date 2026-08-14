@@ -1,35 +1,39 @@
 # TASK_2026_180 — continuation handoff
 
-**Written 2026-08-13.** Everything below was verified by re-running it, not taken
-from an agent's report. Read this, then `tasks.md` **§2 Batch index**, **§3
-Global invariants** and **§6 Orchestrator hand-off notes** — §6 has grown a lot
-and several notes are addressed to specific unstarted batches.
+**Written 2026-08-13, updated 2026-08-14.** Everything below was verified by
+re-running it, not taken from an agent's report. Read this, then `tasks.md`
+**§2 Batch index**, **§3 Global invariants** and **§6 Orchestrator hand-off
+notes** — §6 has grown a lot and several notes are addressed to specific
+unstarted batches.
 
 ---
 
 ## 1. Where
 
 - **Worktree**: `D:/projects/ptah-extension/.claude-worktrees/task180`
-- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`9e42f9c81`**
+- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`53803a750`**
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
-- `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one.
+- `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. This worktree now tops out at `TASK_2026_238`; next free is `239`.
 
-## 2. Status: Commit 0 COMPLETE, Commit 1 needs one batch
+## 2. Status: Commits 0 and 1 COMPLETE, Commit 2 needs one batch
 
-**19 of 36 batches done** (34 planned + 2 added mid-flight).
+**22 of 36 batches done** (34 planned + 2 added mid-flight).
 
-| Commit               | State                                                 |
-| -------------------- | ----------------------------------------------------- |
-| **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9                            |
-| **C1 — Phase 1**     | B1.1–B1.10 done, **B1.11 remaining** (cross-host e2e) |
-| **C2 — Phase 2**     | B2.1, B2.2 done. **B2.3, B2.4 remaining**             |
-| **C3 — Phase 3**     | Not started (B3.1–B3.5)                               |
-| **C4 — Phase 4**     | Not started (B4.1–B4.5)                               |
-| **C5 — Tier B tray** | Not started (B5.1, B5.2)                              |
+| Commit               | State                              |
+| -------------------- | ---------------------------------- |
+| **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9         |
+| **C1 — Phase 1**     | ✅ **Complete.** B1.1–B1.11        |
+| **C2 — Phase 2**     | B2.1–B2.3 done. **B2.4 remaining** |
+| **C3 — Phase 3**     | Not started (B3.1–B3.5)            |
+| **C4 — Phase 4**     | Not started (B4.1–B4.5)            |
+| **C5 — Tier B tray** | Not started (B5.1, B5.2)           |
 
 ### Commits so far (working commits, deliberately interleaved by phase)
 
 ```
+53803a750  C1  B1.11  (closes C1)
+ddeaf14fb  C2  B2.3
+7a13483e0  docs
 9e42f9c81  fix(ui): show a pinned provider as pinned in the model picker
 9a6e95720  C1  B1.7 + B1.10
 6eb4df566  C0  B0.8
@@ -55,13 +59,30 @@ Path→phase split used so far: `libs/backend/skill-synthesis/**` has been C1 or
 depending on batch; `platform-core` + `rpc-handlers` + `libs/shared` were C0 for
 B0.5 and C1 for B1.8. **Check which batch owns a file before staging.**
 
-## 3. Verified baselines at `9e42f9c81`
+## 3. Verified baselines
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
+**Re-measured at `53803a750` by the orchestrator, with both agents idle:**
+
+```
+skill-synthesis     50 of 55   |  846 passed, 36 skipped, 882 total
+rpc-handlers        75 suites  |  2013 passed, 31 skipped, 2044 total
+typecheck           skill-synthesis, webview-e2e-harness, skill-synthesis-ui,
+                    rpc-handlers, thoth-runtime → 5 projects clean
+```
+
+**`webview-e2e-harness` is NOT a clean gate**: `nx e2e` there reports
+`37 passed, 32 failed`, and all 32 are pre-existing `chat/*` /
+`sessions/session-create` scenarios failing on real network fetches to
+`fonts.gstatic.com`. Grep your own scenario out rather than reading the exit
+code. Note the target is `e2e` — that project has **no `test` target**.
+
+Older baselines at `9e42f9c81`, still current for the untouched libs:
+
 ```
 ui                  17 suites  |  315 passed, 0 failed, 0 skipped
-skill-synthesis     48 of 53   |  819 passed, 36 skipped, 855 total
+skill-synthesis     48 of 53   |  819 passed, 36 skipped, 855 total  (superseded)
 skill-synthesis-ui  22 suites  |  274 passed, 0 failed, 0 skipped
 memory-curator-ui   16 suites  |  167 passed, 0 failed, 0 skipped
 rpc-handlers        75 suites  |  2013 passed, 31 skipped, 2044 total
@@ -79,28 +100,37 @@ removed. See §7.
 
 ## 4. Next batches, in order
 
-### B1.11 — cross-host e2e (closes C1)
-
-Depends on B1.10 (done). Executor `senior-tester`, **parallel** — two file-disjoint
-e2e specs against different harnesses. Safe to write now: the picker renders
-pinned state correctly as of `9e42f9c81`. Writing it before that fix would have
-pinned broken rendering.
-
-### B2.3 — `SessionArchaeologistService` (the substance of Phase 2)
-
-Depends on B2.1, B2.2, B1.5 — **all done, unblocked now.**
-
-- Orchestrated multi-pass retrieval via `TranscriptWindowReader`, driven from TypeScript. **NOT SDK tool calling** (decision Q3).
-- `maxPasses = 1` collapse on `tool-use-unsupported`.
-- Heartbeat between passes — `touchClaim` returning `false` means the row was lost and this worker MUST stop writing.
-- This is the first batch that spends **real tokens per session**, so B0.8's per-stage counter starts earning its keep here. Watch it.
-
 ### B2.4 — demote the regex, feed the verdict to synthesis, wire the `archaeology` stage
 
-Depends on B2.3. **B2.4.4 is the only stage-wiring task in the whole plan** —
-see §6's note about the `lane-failed` producer.
+**Next up. Depends on B2.3 (done), so it is unblocked.** Executor
+`backend-developer`, sequential. Closes C2.
+
+**B2.4.4 is the only stage-wiring task in the whole plan** — read §6's note
+about the `lane-failed` producer before starting, and return
+`{outcome: 'lane-failed', failure}` rather than flattening the failure into
+`unscored`/`failed` inside the handler. Only the drain reads `maxAttempts`.
+
+It also owns `skill-drain.service.ts`, which B0.8, B0.9 and B1.7 all touched and
+which every batch so far has had to serialize on. Do not run anything else
+against that file concurrently.
+
+Two things B2.3 leaves it:
+
+- The archaeologist writes `degradedReason: null` on a clean single-pass verdict
+  from a non-tool-use lane, so `hasUsableVerdict()` is `true` for it. See §6's
+  "B2.3.2 case 2 understates the contract" note — this was a user decision, do
+  not re-litigate it.
+- `SessionArchaeologistService` never receives `queueItemId`; it heartbeats
+  through `SkillStageContext.touch`. The drain stays the sole owner of every
+  queue transition, pinned mechanically by `skill-drain.failures.spec.ts`.
 
 ### Then B3.x → B4.x → B5.x per §2.
+
+**Before B3.x**: B3.1's migration is **`0036`** and B4.1's is **`0037`** (B0.8
+took `0035`). Every new migration requires bumping version ratchets in older
+migration specs — run the FULL `persistence-sqlite` suite to find them, because
+the wording differs per spec and grep misses some. Phase 3 also has to decide
+the `pass-budget-exhausted` question in §6.
 
 ## 5. Sequencing constraints — violating these causes real collisions
 
@@ -149,6 +179,8 @@ Also settled by the user this session:
 ## 9. Follow-ups filed, deliberately NOT in this task
 
 - **`TASK_2026_237`** — the `[value]`-without-`[selected]` select-binding sweep. One confirmed instance left (`json-schema-form.component.ts:74-87`).
+- **`TASK_2026_238`** — the Skills tab is gated `electronOnly` in two independent places while `skill-synthesis-ui/CLAUDE.md:16` claims VS Code parity, so a real VS Code webview cannot reach the lane pickers at all. Filed 2026-08-14 from B1.11. Note what this does to global invariant #5: extracting the picker is still right, but its stated rationale ("a fork strands VS Code users") is currently vacuous, because those users are already stranded one layer up. Do not cite it as evidence the cross-host path works.
+- **`pass-budget-exhausted`** — a `toolUse: 'required'` lane that exhausts a configured `maxPasses` while still asking for evidence writes `degradedReason: null` and reads as fully usable. Pre-existing, not introduced by B2.3, and it wants its own reason member. Phase 3's fallback logic is where this surfaces; decide it there.
 - **Four-container spec smell** (`tasks.md` §6): `skills-synthesis-rpc.handlers.spec.ts` builds its tsyringe container in four places, plus a fifth in `skills-synthesis-rpc.queue.spec.ts:131`. Every new constructor param breaks all five. Cleanup task of its own; do not fold into a feature batch.
 - **`SkillsSynthesisRpcHandlers` injection surface** — 16+ constructor dependencies, well past the >8 smell threshold in the root `CLAUDE.md`. The five-container spec problem is a symptom. Wants a facade; real refactor, not a batch side-effect.
 - **`persistence-sqlite`'s 65 dark tests** (§7 item 3).

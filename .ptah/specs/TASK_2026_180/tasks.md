@@ -2489,3 +2489,106 @@ No single commit mixes two phases, which is the property the collapse depends
 on. Preserve that: stage by path (`libs/backend/skill-synthesis/**` has been C1
 so far; `platform-core` + `rpc-handlers` + `libs/shared` were C0) and never let
 one commit straddle.
+
+### → B2.3.2 case 2 understates the contract — USER-DECIDED
+
+Raised by B2.3, decided by the user on 2026-08-14.
+
+The batch text says a `toolUse:'none'` lane ⇒ `passes === 1` **and**
+`degraded_reason === 'tool-use-unsupported'`, which reads as one condition
+producing both. **It is two independent facts**, and conflating them is a real
+defect:
+
+- The collapse to `passes === 1` is **unconditional** on the capability (R6).
+- The reason is written **only when the collapse left the analyst's requests
+  unserved** — i.e. the terminating reply still carried `requestTurns` /
+  `requestSearch`. A `toolUse:'none'` pass that reaches a **terminal verdict
+  with no further requests** writes `degraded_reason: null`.
+
+**Why.** `hasUsableVerdict` is `row !== null && row.degradedReason === null`
+(`session-verdict.store.ts:208-211`), so implementing the batch text literally
+makes Phase 3 discard **every** verdict produced on a non-tool-use lane — which
+is exactly the cheap-provider lane Phase 1's routing exists to move background
+work onto. The archaeologist would spend tokens there nightly and buy nothing.
+The signal that matters is whether the analyst wanted more evidence, not what
+the lane was capable of; the capability flag was standing in as a proxy for
+incompleteness and on a clean single-pass verdict that proxy is simply wrong.
+
+Fixed at the **write site**, deliberately NOT by loosening the predicate —
+`session-verdict.store.ts` is untouched. Pinned by a two-way mutation test: the
+gate made unconditional fails exactly the two terminal-verdict tests, and the
+gate hard-wired off fails exactly the insatiable-reply test. Running it from
+both directions matters, because the first mutation alone also passes against
+an implementation that never writes the reason at all.
+
+**Open, NOT decided, and pre-existing:** a lane with `toolUse: 'required'` that
+exhausts a deliberately configured `maxPasses` while its reply still asks for
+more is by the same reasoning an incomplete verdict, but it writes
+`degraded_reason: null` and reads as fully usable. The gate is
+`collapsed && unservedRequests`, and that case is not `collapsed` — its tool use
+was never in question, so `tool-use-unsupported` would be a lie in a field the
+user reads. It probably wants its own open-vocabulary member
+(`pass-budget-exhausted`). **Phase 3's fallback logic will meet this** — decide
+it there rather than discovering it.
+
+### → B1.11's acceptance command is wrong: there is no `test` target on the harness
+
+`nx test @ptah-extension/webview-e2e-harness` **does not exist** — that project
+defines `lint`, `typecheck` and `e2e` only, and the command fails with
+`Cannot find configuration for task ...:test`. The real command is
+`nx e2e @ptah-extension/webview-e2e-harness`. The batch text is wrong; this
+wins.
+
+**And a full-suite run there is NOT a clean gate.** It reports `37 passed, 32
+failed`; all 32 are pre-existing `chat/*` and `sessions/session-create`
+scenarios failing on **real network fetches to `fonts.gstatic.com`** and
+"browser has been closed". Confirmed pre-existing by re-running with the new
+`thoth/` folder moved out — same failures. Anyone treating that suite's exit
+code as a gate will read it as their own breakage. Grep your own scenario out
+and assert on that.
+
+### → the picker's cross-host rationale is currently moot: VS Code CANNOT REACH the Skills settings
+
+Raised by B1.11, verified directly by the orchestrator. Three gates, all real:
+
+- `thoth-shell.component.ts:241` lists `skills` with **`electronOnly: true`**,
+  alongside memory/cron/gateway.
+- `skill-synthesis-tab.component.ts:82` independently gates its **entire**
+  template — Settings subview included — behind `isElectron()`
+  (`:689-690`, `config()?.isElectron === true`).
+- The real VS Code host never sets `ptahConfig.isElectron`
+  (`webview-html-generator.ts:399-401`), so it is falsy for a genuine webview.
+
+**This directly contradicts `libs/frontend/skill-synthesis-ui/CLAUDE.md:16`**,
+which claims the tab "**works in both Electron and VS Code** — skills are not
+desktop-only". One of the two is wrong and neither is load-bearing on this
+task, so **do not fix it here** — filed as `TASK_2026_238`.
+
+What it means for **global invariant #5**: extracting the picker into
+`libs/frontend/ui` and deleting the fork remains correct (single definition,
+and `libs/frontend/ui` has other consumers). But its stated rationale — "a fork
+strands VS Code users" — is **currently vacuous**, because those users are
+already stranded one layer up. Do not cite that rationale as evidence the
+cross-host path works; it does not.
+
+Consequently B1.11.2 proves what it can actually prove, and its spec header says
+so: the extracted `ProviderModelPickerComponent` **survives being bundled into
+the `ptah-extension-webview` app** and driven purely over the generic
+`postMessage` transport, with no Electron IPC and no native module. That is the
+real regression risk for the extraction. It does **not** prove an unmodified VS
+Code user can navigate to these pickers today, because they cannot.
+
+### → `nx e2e ptah-electron-e2e` needs the whole backend to typecheck, including in-flight work
+
+B1.11 could not run the plain command: the dependency chain
+(`build-dev` → `thoth-runtime:build`) failed on TS errors inside another
+agent's **in-progress** `archaeology/**` edits. It worked around this with
+`nx run ptah-electron:build-preload` + `copy-renderer.js` + a pre-existing
+`main.mjs`, which is sound **only** because `ui.mockRpc` intercepts the
+`ipcMain` RPC channel so the stale main process never executes the real
+backend path.
+
+Two lessons. First, the Electron e2e is **not** isolated from backend
+compilation — never schedule it concurrently with a backend batch and expect a
+clean run. Second, when it is worked around this way, the run proves the
+**renderer**, not the backend; say which one you proved.
