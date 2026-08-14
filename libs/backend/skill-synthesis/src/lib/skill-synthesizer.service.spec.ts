@@ -26,6 +26,7 @@ import {
 import { LANE_TRUNCATION_MARKER } from './lanes/lane-runner.service';
 import type { SkillLaneConfig } from './lanes/lane.types';
 import type { ExtractedTrajectory } from './trajectory-extractor';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
 import type { SkillSynthesisSettings } from './types';
 
 const SETTINGS = {
@@ -238,6 +239,118 @@ describe('SkillSynthesizerService', () => {
       );
       await svc.synthesize(trajectory(), SETTINGS);
       expect(resolver.resolve).toHaveBeenCalledWith('synthesis');
+    });
+  });
+
+  /**
+   * B2.4.2 — the prompt is the archaeologist's ANALYSIS when there is one.
+   *
+   * The lane's `maxInputChars` is left large in these cases on purpose: the
+   * claim is about WHAT is sent, and a clip would make "the transcript is not in
+   * the prompt" true for the wrong reason.
+   */
+  describe('the verdict prompt', () => {
+    function verdict(overrides: Partial<SessionVerdict> = {}): SessionVerdict {
+      return {
+        sessionId: 's1',
+        workspaceRoot: '/repo',
+        intent: 'Recover a stacked branch after a bad rebase',
+        outcome: 'The branch was recovered and the suite ran green',
+        evidenceClass: 'tests-green',
+        frictionMap: [
+          { turnIndex: 3, kind: 'correction', note: 'wrong base named' },
+        ],
+        routine: {
+          summary: 'Recover a stacked branch from the reflog',
+          steps: ['find the reflog entry', 'reset onto it'],
+          citations: [3, 9],
+        },
+        turnCount: 12,
+        lane: 'archaeologist',
+        model: 'a-tier-alias',
+        passes: 2,
+        degradedReason: null,
+        createdAt: 1,
+        updatedAt: 1,
+        ...overrides,
+      };
+    }
+
+    const bigLane = { maxInputChars: 100_000 };
+
+    it('sends intent, outcome, routine steps and turn citations', async () => {
+      const { svc, query } = makeSynthesizer(
+        [[resultMessage({ structured_output: SKILL_JSON })]],
+        bigLane,
+      );
+
+      await svc.synthesize(
+        trajectory({ canonicalText: 'RAW-TRANSCRIPT-MARKER' }),
+        SETTINGS,
+        verdict(),
+      );
+
+      const prompt = query.calls[0].prompt;
+      expect(prompt).toContain('Recover a stacked branch after a bad rebase');
+      expect(prompt).toContain(
+        'The branch was recovered and the suite ran green',
+      );
+      expect(prompt).toContain('1. find the reflog entry');
+      expect(prompt).toContain('turns 3, 9');
+      expect(prompt).toContain('[turn 3] correction: wrong base named');
+      expect(prompt).toContain('tests-green');
+      // The 8k slice is gone, and so is the transcript it sliced.
+      expect(prompt).not.toContain('RAW-TRANSCRIPT-MARKER');
+    });
+
+    it('says so plainly when the analyst found no transferable routine', async () => {
+      // `routine: null` is a real verdict ("most sessions are one-offs"), not a
+      // missing field, and the model has to be told which one it is.
+      const { svc, query } = makeSynthesizer(
+        [[resultMessage({ structured_output: SKILL_JSON })]],
+        bigLane,
+      );
+
+      await svc.synthesize(trajectory(), SETTINGS, verdict({ routine: null }));
+
+      expect(query.calls[0].prompt).toContain('found NO transferable routine');
+    });
+
+    it.each([
+      ['no verdict at all', null],
+      ['a degraded verdict', { degradedReason: 'no-query-path' }],
+      ['a verdict that settled nothing', { intent: null, routine: null }],
+    ])('falls back to the trajectory for %s', async (_label, overrides) => {
+      // The fallback is a CONTRACT, not a leftover: a host with no analysis
+      // lane writes a degraded row, and phase 2 must not make synthesis
+      // impossible where phase 2 cannot run.
+      const { svc, query } = makeSynthesizer(
+        [[resultMessage({ structured_output: SKILL_JSON })]],
+        bigLane,
+      );
+
+      await svc.synthesize(
+        trajectory({ canonicalText: 'RAW-TRANSCRIPT-MARKER' }),
+        SETTINGS,
+        overrides === null
+          ? null
+          : verdict(overrides as Partial<SessionVerdict>),
+      );
+
+      expect(query.calls[0].prompt).toContain('RAW-TRANSCRIPT-MARKER');
+    });
+
+    it('keeps canonicalText for embedding/dedup rather than deleting it', async () => {
+      // `analyzeSession` embeds `canonicalText` and `trajectoryHash` is derived
+      // from it, so "the prompt no longer sends it" must not become "it is no
+      // longer produced". The template fallback is the visible proof.
+      const { svc } = makeHostlessSynthesizer();
+      const out = await svc.synthesize(
+        trajectory({ canonicalText: 'RAW-TRANSCRIPT-MARKER' }),
+        SETTINGS,
+        verdict(),
+      );
+      expect(out?.body).toContain('RAW-TRANSCRIPT-MARKER');
     });
   });
 

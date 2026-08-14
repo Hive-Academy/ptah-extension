@@ -21,16 +21,21 @@
  *
  * ## …and this service is what makes the queue drain
  *
- * `registerStageHandler` is the drain's wiring seam, and B0.9 is where the two
- * Phase-0 stages get wired: `prefilter` dispatches to `analyzeSession` and
- * `embedding` dispatches to `backfillEmbeddings`. Without that registration an
- * enqueued row is marked `skipped` ("no handler for stage …") and Phase 0 is
- * a queue nobody reads. Both workers stay PUBLIC for exactly this reason.
+ * `registerStageHandler` is the drain's wiring seam. B0.9 wired the two Phase-0
+ * stages — `prefilter` dispatches to `analyzeSession`, `embedding` to
+ * `backfillEmbeddings` — and Phase 2 adds `archaeology`, which dispatches to
+ * `SessionArchaeologistService.analyze`. Without that registration an enqueued
+ * row is marked `skipped` ("no handler for stage …") and the queue is one
+ * nobody reads. The Phase-0 workers stay PUBLIC for exactly this reason.
  *
  * `analyzeSession` therefore has ONE background caller — the `prefilter` stage
  * handler below. The only other caller in the codebase is the explicit,
  * user-initiated `skillSynthesis:analyzeNow` RPC. A new inline caller is a
- * dual path and must not be added.
+ * dual path and must not be added. The analyzer has the same shape: the
+ * `archaeology` stage handler is its one background caller, and a session
+ * reaches that stage only through the chain `prefilter → archaeology`, written
+ * from the successful end of the prefilter handler so the cheap gate still
+ * decides whether the expensive stage runs at all.
  *
  * Settings are read on demand from the platform `IWorkspaceProvider`
  * (file-based settings) so changes apply without restart.
@@ -60,14 +65,18 @@ import { SkillMdGenerator } from './skill-md-generator';
 import { SkillPromotionService } from './skill-promotion.service';
 import { SkillCuratorService } from './skill-curator.service';
 import {
+  MIN_ROLE_TURNS_FLOOR,
   TrajectoryExtractor,
   type ExtractedTrajectory,
 } from './trajectory-extractor';
 import { SkillSynthesizerService } from './skill-synthesizer.service';
+import type { SessionArchaeologistService } from './archaeology/session-archaeologist.service';
+import type { SessionVerdictStore } from './archaeology/session-verdict.store';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
 import { SkillRegistryStore } from './skill-registry.store';
 import { migrateSkillMdFiles } from './skill-md-migration';
 import type { SkillQueueStore } from './queue/skill-queue.store';
-import type { EnqueueOutcome } from './queue/skill-queue.types';
+import type { EnqueueOutcome, SkillQueueRow } from './queue/skill-queue.types';
 import type {
   SkillDrainService,
   SkillStageContext,
@@ -251,6 +260,25 @@ export class SkillSynthesisService {
      */
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE, { isOptional: true })
     private readonly drain: SkillDrainService | null = null,
+    /**
+     * The phase-2 analyzer. Optional and injected BY TOKEN for the same reason
+     * the drain is: a CLI or e2e host that registers no analysis lane still
+     * resolves this service, and when it is absent the `archaeology` stage is
+     * simply not registered — the drain then marks such a row `skipped` with
+     * "no handler for stage archaeology", which is the honest answer for a host
+     * that cannot run it. There is no inline fallback; a missing analyzer means
+     * synthesis uses the trajectory prompt, exactly as it did before phase 2.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.SESSION_ARCHAEOLOGIST_SERVICE, {
+      isOptional: true,
+    })
+    private readonly archaeologist: SessionArchaeologistService | null = null,
+    /**
+     * Read-only here. `analyzeSession` looks the verdict up to hand it to the
+     * synthesizer; the archaeologist owns every write.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE, { isOptional: true })
+    private readonly verdicts: SessionVerdictStore | null = null,
   ) {}
 
   /**
@@ -419,10 +447,14 @@ export class SkillSynthesisService {
       return null;
     }
 
+    // The extractor's own FLOOR, not the eligibility threshold. Enqueuing is
+    // free and a short session may grow, so this path asks only "is there a
+    // readable session here"; `settings.eligibilityMinTurns` is spent in
+    // `passesPrefilter`, where the decision to spend tokens is actually made.
     const trajectory = await this.extractor.extract(
       sessionId,
       workspaceRoot,
-      settings.eligibilityMinTurns,
+      MIN_ROLE_TURNS_FLOOR,
       opts.transcriptPath,
     );
     if (!trajectory) {
@@ -495,7 +527,7 @@ export class SkillSynthesisService {
   }
 
   /**
-   * Wire the two Phase-0 stages onto the drain. Idempotent — `Map.set`.
+   * Wire the stages this host can run onto the drain. Idempotent — `Map.set`.
    *
    * `SkillDrainService` marks an item whose stage has no handler as `skipped`
    * rather than re-claiming it forever, which is the right behaviour for a
@@ -503,9 +535,17 @@ export class SkillSynthesisService {
    * for one that does. Before B0.9 nothing in production called
    * `registerStageHandler` at all, so every row B0.6 enqueued died `skipped`.
    *
-   * Both handlers dispatch to the existing public workers. Neither
-   * reimplements anything: `analyzeSession` and `backfillEmbeddings` were left
-   * public by B0.6 precisely so a stage handler could be their one caller.
+   * The handlers dispatch to existing public workers. None reimplements
+   * anything: `analyzeSession` and `backfillEmbeddings` were left public by B0.6
+   * precisely so a stage handler could be their one caller, and `archaeology`
+   * dispatches straight into `SessionArchaeologistService.analyze`.
+   *
+   * `archaeology` is registered CONDITIONALLY, unlike the other two. The other
+   * two always have a worker — they are this service's own methods — whereas the
+   * analyzer is an injected collaborator a CLI/e2e host legitimately does not
+   * have. Registering a handler that could only ever answer "I am not here"
+   * would spend a claim and an attempt to say what "no handler for stage
+   * archaeology" already says for free.
    */
   private registerStageHandlers(): void {
     if (!this.drain) return;
@@ -515,6 +555,11 @@ export class SkillSynthesisService {
     this.drain.registerStageHandler('embedding', (ctx) =>
       this.runEmbeddingStage(ctx),
     );
+    if (this.archaeologist) {
+      this.drain.registerStageHandler('archaeology', (ctx) =>
+        this.runArchaeologyStage(ctx),
+      );
+    }
   }
 
   /**
@@ -555,11 +600,137 @@ export class SkillSynthesisService {
       // finished row, not a failure and not a retry.
       return { outcome: 'skipped', reason: 'no candidate from this session' };
     }
+    this.enqueueArchaeology(row);
     return {
       outcome: 'done',
       candidateId: result.candidate.id as unknown as string,
       reason: result.reused ? 'reused existing candidate' : undefined,
     };
+  }
+
+  /**
+   * The `prefilter → archaeology` link of the canonical chain.
+   *
+   * ## Why the row is written HERE and not at enqueue time
+   *
+   * The regex prefilter is what gates ELIGIBILITY TO SPEND (R3): the analyzer is
+   * the only stage that runs once per session and it dominates the token budget
+   * at any real session rate. Enqueuing `archaeology` beside `prefilter` in
+   * `enqueueAnalyze` would pay for every session the prefilter was about to
+   * reject, which is precisely the cost R3 exists to bound. Writing it from the
+   * successful end of the prefilter handler means a session buys an analysis
+   * only once cheap local computation says there is something there.
+   *
+   * ## The turn-count trap, again
+   *
+   * `SkillQueueStore.enqueue`'s guarded re-open fires on `turn_count < ?`, so a
+   * row enqueued with `0` is a row that can never re-open — it compiles, it
+   * satisfies any call-counting test, and it wedges the session permanently.
+   * `row.turnCount` is the count `enqueueAnalyze` observed from the extractor for
+   * THIS row (and that `enqueue` re-wrote on every re-open), so it is a real
+   * observation rather than a placeholder. Re-extracting here to get a fresher
+   * number would re-read the JSONL on the drain path to move the count at most a
+   * few turns, and the analyzer re-reads the transcript itself anyway.
+   *
+   * ## `dependsOn` is deliberately null
+   *
+   * The ordering is already enforced by construction — this row does not exist
+   * until the prefilter row succeeded. Pointing `depends_on` at the prefilter row
+   * would ADD a failure mode rather than a guarantee: `listEligible` requires the
+   * ancestor to be `done`, so the first time that session re-opens and the
+   * prefilter ends `skipped` instead, the archaeology row becomes permanently
+   * ineligible while still being scanned on every tick.
+   */
+  private enqueueArchaeology(row: SkillQueueRow): void {
+    if (!this.queue || !this.archaeologist) return;
+    try {
+      const result = this.queue.enqueue({
+        sessionId: row.sessionId,
+        stage: 'archaeology',
+        source: row.source,
+        workspaceRoot: row.workspaceRoot,
+        transcriptPath: row.transcriptPath,
+        turnCount: row.turnCount,
+      });
+      this.logger.debug('[skill-synthesis] archaeology enqueued', {
+        sessionId: row.sessionId,
+        outcome: result.outcome,
+        turnCount: row.turnCount,
+      });
+    } catch (error: unknown) {
+      // The prefilter row itself succeeded and must still land `done`. A
+      // failure to chain is a lost analysis, not a lost candidate.
+      this.logger.warn(
+        '[skill-synthesis] could not enqueue the archaeology stage (non-fatal)',
+        {
+          sessionId: row.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * The `archaeology` stage — the ONE background path into the analyzer.
+   *
+   * It is a NIGHTLY-tier stage (R3): `DRAIN_TIER_STAGES` already places it there
+   * and `TOKEN_SPENDING_STAGES` already books it against the budget, so a
+   * `frequent` tick never claims one.
+   *
+   * ## The failure is HANDED OVER, not flattened
+   *
+   * A lane failure comes back as `{outcome: 'lane-failed', failure}` verbatim.
+   * Deciding here between a backoff requeue and a terminal mark would be
+   * deciding the attempt ceiling in the one place that cannot read
+   * `maxAttempts` — the drain reads it, the drain owns the row, and that
+   * single-owner seam is pinned mechanically. A `failed` result may still carry
+   * a verdict persisted from an earlier good pass; that is the analyzer's own
+   * "do not throw away tokens we already spent" behaviour and it changes nothing
+   * about the row transition.
+   *
+   * A DEGRADED verdict is `done`, not a failure. "Analyzed, no verdict, here is
+   * why" is a written row, and a written row is what stops the drain paying for
+   * the same session every night.
+   */
+  private async runArchaeologyStage(
+    ctx: SkillStageContext,
+  ): Promise<SkillStageResult> {
+    if (!this.archaeologist) {
+      return { outcome: 'skipped', reason: 'no analyzer in this host' };
+    }
+    const { row } = ctx;
+    const result = await this.archaeologist.analyze({
+      sessionId: row.sessionId,
+      workspaceRoot: row.workspaceRoot,
+      transcriptPath: row.transcriptPath ?? undefined,
+      // The analyzer heartbeats BETWEEN passes itself, so it takes the drain's
+      // own `touch` rather than being wrapped in `withClaimHeartbeat` — two
+      // heartbeat owners on one claim is two things that can decide to stop.
+      touch: () => ctx.touch(),
+      signal: ctx.signal,
+      attempt: row.attemptCount,
+    });
+
+    switch (result.status) {
+      case 'ok':
+        return {
+          outcome: 'done',
+          reason: result.verdict.degradedReason
+            ? `analyzed, degraded: ${result.verdict.degradedReason}`
+            : undefined,
+        };
+      case 'failed':
+        return { outcome: 'lane-failed', failure: result.failure };
+      case 'lost-claim':
+        // The analyzer stopped writing the moment the heartbeat said the row
+        // was reclaimed. `skipped` is the same answer the `prefilter` handler
+        // gives on claim loss (`withClaimHeartbeat` aborts and `analyzeSession`
+        // returns null), so the two stages behave identically here. There is no
+        // "report nothing" outcome, and inventing one would need the drain to
+        // stop marking rows it dispatched — a change to the single-owner seam,
+        // not to this handler.
+        return { outcome: 'skipped', reason: 'claim lost mid-analysis' };
+    }
   }
 
   /**
@@ -695,10 +866,12 @@ export class SkillSynthesisService {
       this.analyzedSessions.delete(sessionId);
     }
 
+    // Floor, not threshold — see `enqueueAnalyze`. `passesPrefilter` below is
+    // the one place `eligibilityMinTurns` is applied.
     const trajectory = await this.extractor.extract(
       sessionId,
       workspaceRoot,
-      settings.eligibilityMinTurns,
+      MIN_ROLE_TURNS_FLOOR,
       transcriptPath,
     );
     if (trajectory) {
@@ -792,6 +965,7 @@ export class SkillSynthesisService {
       const synthesized = await this.synthesizer.synthesize(
         trajectory,
         settings,
+        this.readVerdict(sessionId),
       );
       if (synthesized) {
         synthesizedBody = synthesized.body;
@@ -1048,19 +1222,81 @@ export class SkillSynthesisService {
     }
   }
 
+  /**
+   * The session's verdict, when this host has a store and a row exists.
+   *
+   * `null` covers three genuinely different things — no store in this host, the
+   * session was never analyzed, and a lookup that threw — and the caller treats
+   * all three the same way, because the answer to every one of them is "build
+   * the prompt from the trajectory instead". A degraded row is NOT filtered out
+   * here: `SkillSynthesizerService` applies the usability predicate itself, so
+   * this stays a plain read.
+   */
+  private readVerdict(sessionId: string): SessionVerdict | null {
+    if (!this.verdicts) return null;
+    try {
+      return this.verdicts.findBySession(sessionId);
+    } catch (error: unknown) {
+      this.logger.warn('[skill-synthesis] verdict lookup failed', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * ELIGIBILITY TO SPEND TOKENS. Nothing more (phase 2).
+   *
+   * This used to double as a quality verdict, and the two AND-ed halves of the
+   * tool branch are what made it one: a session was only worth keeping if it had
+   * been tool-active AND had produced a lot of text, which selects for work that
+   * went WELL. A session that fought its way to an answer — three failed
+   * attempts, a correction, then a fix — is the most valuable material the
+   * pipeline can get, and the whole point of the archaeologist's `frictionMap`
+   * is to capture it. It is also frequently SHORT, because a debugging loop is
+   * terse.
+   *
+   * So the branches are now independent signals of "there is something here",
+   * and any one of them is enough:
+   *
+   *  - `editOk`  — code changed hands.
+   *  - `toolOk`  — the assistant DID things. `prefilterMinChars` no longer
+   *                conjoins this, which is the widening: retries are tool calls,
+   *                and a friction-rich session is tool-dense before it is long.
+   *  - `testOk`  — a test command ran. NOT "tests passed" — the extractor cannot
+   *                know that, and pretending it does is the same regex-as-verdict
+   *                mistake `SUCCESS_MARKERS` was demoted for.
+   *  - `depthOk` — a sustained back-and-forth with real content in it. This is
+   *                where a corrective session with no edits lands: the user and
+   *                the assistant went round `eligibilityMinTurns` times, which is
+   *                friction by definition. `prefilterMinChars` conjoins HERE,
+   *                where "long conversation" needs to mean more than a dozen
+   *                one-word turns.
+   *
+   * Deliberately still a REJECTION, not a pass-through: the analyzer is the only
+   * stage that runs once per session and it dominates the token budget (R3). The
+   * regex gate keeps gating spend; it just stops pretending to judge outcomes.
+   *
+   * No branch below reads the extractor's tail-regex success flag, and none may
+   * start. `regex-demotion.spec.ts` proves that with a substring scan over
+   * production file text, so the field is not named here either — a scan cannot
+   * tell code from a comment about code.
+   */
   private passesPrefilter(
     trajectory: ExtractedTrajectory,
     settings: SkillSynthesisSettings,
   ): { ok: boolean; reason?: 'tooThin' | 'noWork' } {
-    if (trajectory.turnCount < 2) {
+    if (trajectory.turnCount < MIN_ROLE_TURNS_FLOOR) {
       return { ok: false, reason: 'tooThin' };
     }
     const editOk = trajectory.editCount >= settings.prefilterMinEdits;
-    const toolOk =
-      trajectory.toolUseCount >= settings.prefilterMinToolUses &&
-      trajectory.charLength >= settings.prefilterMinChars;
+    const toolOk = trajectory.toolUseCount >= settings.prefilterMinToolUses;
     const testOk = trajectory.bashTestPassed === true;
-    if (editOk || toolOk || testOk) {
+    const depthOk =
+      trajectory.turnCount >= settings.eligibilityMinTurns &&
+      trajectory.charLength >= settings.prefilterMinChars;
+    if (editOk || toolOk || testOk || depthOk) {
       return { ok: true };
     }
     return { ok: false, reason: 'noWork' };

@@ -14,6 +14,7 @@ import type { SkillPromotionService } from './skill-promotion.service';
 import type { TrajectoryExtractor } from './trajectory-extractor';
 import type { CandidateId, SkillCandidateRow } from './types';
 import { unjudgedVerdictFields } from './types';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -55,6 +56,8 @@ describe('SkillSynthesisService', () => {
       isOpen?: boolean;
       authoredSlugs?: string[];
       dominantSlug?: string | null;
+      /** When set, a verdict store is injected and serves this row. */
+      verdict?: SessionVerdict | null;
     } = {},
   ) {
     const vecLoaded = opts.vecLoaded ?? false;
@@ -160,6 +163,14 @@ describe('SkillSynthesisService', () => {
           } as unknown as ConstructorParameters<
             typeof SkillSynthesisService
           >[11]);
+    const verdicts =
+      opts.verdict === undefined
+        ? null
+        : ({
+            findBySession: jest.fn(() => opts.verdict ?? null),
+          } as unknown as ConstructorParameters<
+            typeof SkillSynthesisService
+          >[17]);
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
@@ -173,6 +184,12 @@ describe('SkillSynthesisService', () => {
       sessionEndRegistry,
       synthesizer,
       registry,
+      null,
+      null,
+      null,
+      null,
+      null,
+      verdicts,
     );
     return {
       svc,
@@ -184,6 +201,7 @@ describe('SkillSynthesisService', () => {
       extractor,
       synthesizer,
       registry,
+      verdicts,
     };
   }
 
@@ -432,6 +450,145 @@ describe('SkillSynthesisService', () => {
     const result = await svc.analyzeSession('s1', '/repo');
     expect(result?.reused).toBe(false);
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * B2.4.3 — the prefilter gates ELIGIBILITY TO SPEND and nothing else.
+   *
+   * It used to require tool activity AND a lot of text, which quietly selects
+   * for work that went well: a session that fought its way to an answer is
+   * tool-dense but frequently SHORT, because a debugging loop is terse. That is
+   * the most valuable material the pipeline can get — the archaeologist's
+   * `frictionMap` exists to capture exactly it — and it was being dropped before
+   * a single token was spent.
+   *
+   * Each case below is a session that today's gate REJECTS and phase 2 accepts,
+   * paired with a rejection that must survive the widening.
+   */
+  describe('prefilter widening (B2.4.3)', () => {
+    function shape(overrides: Record<string, unknown>) {
+      return {
+        hash: 'h',
+        canonicalText: 'canon',
+        turnCount: 4,
+        sessionTurnCount: 4,
+        shortDescription: 'do thing',
+        slug: 'do-thing',
+        editCount: 0,
+        toolUseCount: 0,
+        bashTestPassed: false,
+        charLength: 100,
+        hasSuccessMarker: false,
+        ...overrides,
+      };
+    }
+
+    it('accepts a tool-heavy session that is SHORT (the old AND rejected it)', async () => {
+      // Three tool calls, 120 characters: two failed greps and a fix. The old
+      // `toolUseCount >= 2 && charLength >= 800` threw this away.
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ toolUseCount: 3, charLength: 120 }),
+      );
+
+      const result = await svc.analyzeSession('s-short-tools', '/repo');
+
+      expect(result?.reused).toBe(false);
+      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+      expect(svc.getEligibilityHistogram().accepted).toBe(1);
+    });
+
+    it('accepts a long corrective conversation with no edits and no tools', async () => {
+      // Eight turns of back-and-forth, 900 characters, nothing written to disk.
+      // This is a session where the user corrected the assistant repeatedly —
+      // friction by definition — and it had no branch at all before phase 2.
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 8, sessionTurnCount: 8, charLength: 900 }),
+      );
+
+      const result = await svc.analyzeSession('s-corrective', '/repo');
+
+      expect(result?.reused).toBe(false);
+      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('still rejects a session with nothing in it', async () => {
+      // The widening is a widening, not a removal — the analyzer is the only
+      // stage that runs once per session (R3) and the gate still has to bound
+      // what it costs.
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 3, sessionTurnCount: 3, charLength: 40 }),
+      );
+
+      expect(await svc.analyzeSession('s-empty', '/repo')).toBeNull();
+      expect(store.registerCandidate).not.toHaveBeenCalled();
+      expect(svc.getEligibilityHistogram().prefilterRejected).toBe(1);
+    });
+
+    it('rejects a long conversation that is all one-word turns', async () => {
+      // `eligibilityMinTurns` alone would let "ok / ok / ok / ok / ok" through.
+      // The depth branch conjoins `prefilterMinChars` for exactly this.
+      const { svc, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 9, sessionTurnCount: 9, charLength: 60 }),
+      );
+
+      expect(await svc.analyzeSession('s-chatter', '/repo')).toBeNull();
+    });
+  });
+
+  describe('the verdict reaches synthesis (B2.4.2)', () => {
+    const VERDICT: SessionVerdict = {
+      sessionId: 's1',
+      workspaceRoot: '/repo',
+      intent: 'make the thing work',
+      outcome: 'it was made to work',
+      evidenceClass: 'tests-green',
+      frictionMap: [],
+      routine: null,
+      turnCount: 6,
+      lane: 'archaeologist',
+      model: 'a-tier-alias',
+      passes: 2,
+      degradedReason: null,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    it('hands the session verdict to the synthesizer', async () => {
+      const { svc, synthesizer, verdicts } = setup({ verdict: VERDICT });
+      await svc.start();
+
+      await svc.analyzeSession('s1', '/repo');
+
+      expect(
+        (verdicts as unknown as { findBySession: jest.Mock }).findBySession,
+      ).toHaveBeenCalledWith('s1');
+      expect(
+        (synthesizer as unknown as { synthesize: jest.Mock }).synthesize,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ hash: 'hash-1' }),
+        expect.anything(),
+        VERDICT,
+      );
+    });
+
+    it('passes null in a host with no verdict store, without throwing', async () => {
+      const { svc, synthesizer } = setup();
+      await svc.start();
+
+      await svc.analyzeSession('s1', '/repo');
+
+      expect(
+        (synthesizer as unknown as { synthesize: jest.Mock }).synthesize,
+      ).toHaveBeenCalledWith(expect.anything(), expect.anything(), null);
+    });
   });
 
   it('prefilter rejects a thin session (no edits, few tools, short)', async () => {

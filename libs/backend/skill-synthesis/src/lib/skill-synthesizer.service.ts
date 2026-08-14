@@ -16,11 +16,38 @@
  * ladder), and `extractJsonObject` below reads the answer out of prose. That
  * extractor is the ONLY path on a `structuredOutput: 'parse'` lane — deleting it
  * as "dead code" would silently disable synthesis for every such provider.
+ *
+ * ## PHASE 2 — THE PROMPT IS BUILT FROM THE VERDICT WHEN THERE IS ONE
+ *
+ * `synthesize` takes an optional `SessionVerdict`. When it is USABLE (a row
+ * exists, `degradedReason` is null, and it carries an intent or a routine) the
+ * prompt is the archaeologist's `intent` + `outcome` + `evidenceClass` +
+ * friction map + `routine` with its TURN CITATIONS — an analysis of the session
+ * rather than a dump of it. The archaeologist has already read the whole
+ * transcript across as many passes as it needed; re-pasting the raw log asks the
+ * synthesis lane to redo that work inside one pass and a `maxInputChars` clip.
+ *
+ * `canonicalText` STAYS, and stays load-bearing: it is the embedding/dedup text
+ * (`analyzeSession` embeds it, `trajectoryHash` is derived from it) and it is
+ * still the whole prompt on the FALLBACK path — a host with no analysis lane
+ * writes `degraded_reason: 'no-query-path'` and gets exactly today's behaviour.
+ * That fallback is a contract, not a leftover: phase 2 must not make synthesis
+ * impossible where phase 2 cannot run.
+ *
+ * Nothing here reads the extractor's tail-regex success flag. It used to ride
+ * the prompt as a boolean beside the trajectory, which handed a regex over a
+ * model's last sentence to another model as though it were evidence.
+ * `evidenceClass` replaces it, and the two are not the same claim.
+ *
+ * That flag is NOT NAMED anywhere in this file, deliberately: `regex-demotion.spec.ts`
+ * proves the demotion with a SUBSTRING SCAN over production file text, and a
+ * substring scan cannot tell code from a comment about code.
  */
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
 import type { LaneRun, LaneRunnerService } from './lanes/lane-runner.service';
 import type { ExtractedTrajectory } from './trajectory-extractor';
 import type { SkillSynthesisSettings } from './types';
@@ -78,14 +105,21 @@ export class SkillSynthesizerService {
     private readonly laneRunner: LaneRunnerService,
   ) {}
 
+  /**
+   * @param verdict The archaeologist's verdict for this session, when one has
+   *                been produced. `null`/omitted (and a DEGRADED row, which is
+   *                "analyzed, no verdict, here is why") falls back to the
+   *                trajectory prompt — see the file header.
+   */
   async synthesize(
     trajectory: ExtractedTrajectory,
     settings: SkillSynthesisSettings,
+    verdict: SessionVerdict | null = null,
   ): Promise<SynthesizedSkill | null> {
     void settings;
     const parsed = await this.runSynthesis(
       this.buildSystemPrompt(),
-      this.buildPrompt(trajectory),
+      this.buildPrompt(trajectory, verdict),
     );
     if (!parsed) {
       this.logger.warn(
@@ -208,18 +242,23 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
   }
 
   /**
-   * The trajectory is handed over WHOLE. The lane's `maxInputChars` is what
-   * bounds it, and the runner appends a truncation marker when it bites, so the
-   * model can tell a deliberate excerpt from a corrupt one.
+   * The verdict when there is a usable one, the raw trajectory otherwise.
+   *
+   * The two are not variants of one prompt. The verdict prompt is an ANALYSIS —
+   * what the user wanted, what happened, how strongly that is evidenced, where
+   * the work went backwards, and the transferable routine WITH the turn indices
+   * that back it. The fallback prompt is the SESSION, handed over whole and
+   * bounded by the lane's `maxInputChars` (the runner appends a truncation
+   * marker when it bites, so the model can tell a deliberate excerpt from a
+   * corrupt one).
    */
-  private buildPrompt(trajectory: ExtractedTrajectory): string {
-    return [
-      `Session signals: edits=${trajectory.editCount}, tools=${trajectory.toolUseCount}, testsPassed=${trajectory.bashTestPassed}, successMarker=${trajectory.hasSuccessMarker}.`,
-      ``,
-      `Normalized session trajectory (tool activity included):`,
-      `---`,
-      trajectory.canonicalText,
-    ].join('\n');
+  private buildPrompt(
+    trajectory: ExtractedTrajectory,
+    verdict: SessionVerdict | null,
+  ): string {
+    return isUsableVerdict(verdict)
+      ? buildVerdictPrompt(trajectory, verdict)
+      : buildTrajectoryPrompt(trajectory);
   }
 
   /**
@@ -292,5 +331,126 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
       '```',
       '',
     ].join('\n');
+  }
+}
+
+/**
+ * A verdict worth building a prompt from.
+ *
+ * `degradedReason !== null` is `SessionVerdictStore.hasUsableVerdict`'s own
+ * predicate — "analyzed, no verdict, here is why" is a first-class row and it
+ * carries nothing to synthesize from. The extra `intent || routine` clause is
+ * this file's own: a NON-degraded row whose analyst could settle neither the
+ * goal nor a routine would otherwise produce a prompt made entirely of nulls,
+ * which is strictly worse material than the transcript it replaced.
+ *
+ * The predicate is duplicated rather than imported because the store is a
+ * SQLite class and this service must stay constructible without one.
+ */
+function isUsableVerdict(
+  verdict: SessionVerdict | null,
+): verdict is SessionVerdict {
+  if (!verdict || verdict.degradedReason !== null) return false;
+  return verdict.intent !== null || verdict.routine !== null;
+}
+
+/**
+ * The phase-2 prompt: the analyst's reading of the session, with the turn
+ * indices that back each claim.
+ *
+ * `evidenceClass` travels with a plain-language gloss because it is the field
+ * most likely to be over-read: `unverified` must not become "it worked". That is
+ * the whole reason the tail-regex signal line was removed from this prompt — a
+ * skill authored as if a session succeeded, on evidence that says nothing, is
+ * the failure phase 2 exists to stop.
+ */
+function buildVerdictPrompt(
+  trajectory: ExtractedTrajectory,
+  verdict: SessionVerdict,
+): string {
+  const lines: string[] = [
+    `This session has ALREADY BEEN ANALYZED. Author the skill from the analysis below.`,
+    `It is not a transcript — do not ask for one and do not replay it.`,
+    ``,
+    `Intent (what the user actually wanted): ${verdict.intent ?? '(the analyst could not settle it)'}`,
+    `Outcome: ${verdict.outcome ?? '(undeterminable from the transcript)'}`,
+    `Evidence for that outcome: ${describeEvidence(verdict.evidenceClass)}`,
+    `Session signals: edits=${trajectory.editCount}, tools=${trajectory.toolUseCount}, testCommandRan=${trajectory.bashTestPassed}, turns=${trajectory.turnCount}.`,
+    ``,
+  ];
+
+  if (verdict.routine) {
+    lines.push(
+      `Transferable routine the analyst extracted${citations(verdict.routine.citations)}:`,
+      `  ${verdict.routine.summary}`,
+    );
+    verdict.routine.steps.forEach((step, i) =>
+      lines.push(`  ${i + 1}. ${step}`),
+    );
+  } else {
+    lines.push(
+      `The analyst found NO transferable routine in this session — most sessions are`,
+      `one-offs. Generalize from the intent and outcome as best you can; the reviewer`,
+      `judges the result.`,
+    );
+  }
+
+  if (verdict.frictionMap.length > 0) {
+    lines.push(
+      ``,
+      `Where the work went wrong or backwards. This is the most valuable material here:`,
+      `a routine that steers around a real dead end is worth more than one that`,
+      `describes the happy path.`,
+    );
+    for (const entry of verdict.frictionMap) {
+      lines.push(`  [turn ${entry.turnIndex}] ${entry.kind}: ${entry.note}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * The pre-phase-2 prompt, unchanged except that the tail-regex success flag is
+ * gone. This is what a host with no analysis lane gets, and what a session whose
+ * verdict is degraded gets — see the file header on why that path is a contract.
+ */
+function buildTrajectoryPrompt(trajectory: ExtractedTrajectory): string {
+  return [
+    `Session signals: edits=${trajectory.editCount}, tools=${trajectory.toolUseCount}, testCommandRan=${trajectory.bashTestPassed}.`,
+    ``,
+    `No analysis of this session is available, so here is the session itself.`,
+    ``,
+    `Normalized session trajectory (tool activity included):`,
+    `---`,
+    trajectory.canonicalText,
+  ].join('\n');
+}
+
+/** Turn indices backing the routine. Rendered, never silently dropped. */
+function citations(indices: readonly number[]): string {
+  if (indices.length === 0) return '';
+  return ` (demonstrated at turn${indices.length > 1 ? 's' : ''} ${indices.join(', ')})`;
+}
+
+/**
+ * The evidence class, spelled out. The gloss matters more than the token: a
+ * model handed the bare string `no-correction` reads it as approval, and it is
+ * the opposite — silence.
+ */
+function describeEvidence(evidenceClass: string | null): string {
+  switch (evidenceClass) {
+    case 'tests-green':
+      return `tests-green — a test suite ran and passed after the work. The strongest evidence available.`;
+    case 'user-accepted':
+      return `user-accepted — the user acted on the result and moved on.`;
+    case 'explicit-confirmation':
+      return `explicit-confirmation — the user said in words that it worked.`;
+    case 'no-correction':
+      return `no-correction — the user simply never pushed back. WEAK: silence is not success.`;
+    case 'unverified':
+      return `unverified — NOTHING in the transcript settles whether this worked. Do not write the skill as if it succeeded; capture the approach, not a claimed result.`;
+    default:
+      return `unrecorded — treat the outcome as unverified.`;
   }
 }

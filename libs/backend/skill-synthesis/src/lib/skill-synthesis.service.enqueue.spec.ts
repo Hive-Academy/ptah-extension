@@ -23,8 +23,29 @@ import type { SkillMdGenerator } from './skill-md-generator';
 import type { SkillPromotionService } from './skill-promotion.service';
 import type { TrajectoryExtractor } from './trajectory-extractor';
 import type { SkillQueueStore } from './queue/skill-queue.store';
-import type { EnqueueInput, EnqueueResult } from './queue/skill-queue.types';
+import type {
+  EnqueueInput,
+  EnqueueResult,
+  SkillQueueRow,
+} from './queue/skill-queue.types';
 import type { IInternalQuery } from './internal-query.interface';
+import {
+  SkillDrainService,
+  SKILL_DRAIN_KEYS,
+} from './queue/skill-drain.service';
+import {
+  liveSignal,
+  makeBudgetStub,
+  makeTracker,
+  makeWorkspace as makeDrainWorkspace,
+} from './queue/skill-drain.test-support';
+import { noopLogger } from './queue/queue-db.test-support';
+import type {
+  SessionArchaeologistService,
+  SessionArchaeologyResult,
+} from './archaeology/session-archaeologist.service';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
+import type { SkillLaneFailure } from './lanes/lane.types';
 
 type SessionEndCallback = (data: {
   sessionId: string;
@@ -329,5 +350,347 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
     await fireSessionEnd();
 
     expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * P2-4 — the analyzer runs from the DRAIN and from nowhere else.
+ *
+ * Same negative-criterion shape as P0-1 above, one layer up. The archaeologist
+ * is the most expensive stage in the library (R3: once per session, multi-pass),
+ * so an inline invocation on the session-end path would reintroduce exactly the
+ * cost phase 0 removed — with a bigger bill.
+ *
+ * The stub is not inert: `analyze` is a counted mock, so a regression that calls
+ * it from the trigger path fails the first assertion rather than passing quietly.
+ *
+ * The chain `prefilter → archaeology` is asserted on the ROW, not on the call
+ * count, and specifically on `turnCount`. `SkillQueueStore.enqueue`'s guarded
+ * re-open fires on `turn_count < ?`, so an archaeology row written with `0`
+ * satisfies "enqueue was called", satisfies "the stage is wired", and then can
+ * never re-open for the rest of that session's life.
+ */
+describe('SkillSynthesisService — the archaeology stage (P2-4)', () => {
+  const WS = 'D:/repo';
+
+  function queueRow(overrides: Partial<SkillQueueRow> = {}): SkillQueueRow {
+    return {
+      id: 'row-1',
+      sessionId: 's1',
+      workspaceRoot: WS,
+      transcriptPath: null,
+      source: 'session-end',
+      stage: 'prefilter',
+      dependsOn: null,
+      status: 'queued',
+      turnCount: 6,
+      attemptCount: 1,
+      enqueuedAt: 1_770_000_000_000,
+      notBefore: 0,
+      claimedBy: null,
+      claimedAt: null,
+      finishedAt: null,
+      lane: null,
+      reason: null,
+      lastError: null,
+      candidateId: null,
+      payload: {},
+      ...overrides,
+    };
+  }
+
+  function verdict(overrides: Partial<SessionVerdict> = {}): SessionVerdict {
+    return {
+      sessionId: 's1',
+      workspaceRoot: WS,
+      intent: 'make the thing work',
+      outcome: 'it was made to work',
+      evidenceClass: 'tests-green',
+      frictionMap: [],
+      routine: null,
+      turnCount: 6,
+      lane: 'archaeologist',
+      model: 'a-tier-alias',
+      passes: 2,
+      degradedReason: null,
+      createdAt: 1,
+      updatedAt: 1,
+      ...overrides,
+    };
+  }
+
+  /** A queue double that serves exactly one row to the drain, then nothing. */
+  function makeOneRowQueue(row: SkillQueueRow) {
+    let served = false;
+    const enqueued: EnqueueInput[] = [];
+    return {
+      enqueued,
+      enqueue: jest.fn((input: EnqueueInput): EnqueueResult => {
+        enqueued.push(input);
+        return { outcome: 'created', row: null };
+      }),
+      reapStale: jest.fn(() => 0),
+      listEligibleWorkspaces: jest.fn(() =>
+        served ? [] : [row.workspaceRoot],
+      ),
+      listEligible: jest.fn(() => (served ? [] : [row])),
+      markWorkspaceDrained: jest.fn(),
+      tryClaim: jest.fn(() => {
+        served = true;
+        return { ...row, status: 'claimed' as const };
+      }),
+      touchClaim: jest.fn(() => true),
+      markDone: jest.fn(),
+      markFailed: jest.fn(),
+      markUnscored: jest.fn(),
+      markSkipped: jest.fn(),
+      requeue: jest.fn(() => true),
+    };
+  }
+
+  function setupP24(
+    opts: {
+      row?: SkillQueueRow;
+      analyze?: () => Promise<SessionArchaeologyResult>;
+      withArchaeologist?: boolean;
+    } = {},
+  ) {
+    const row = opts.row ?? queueRow();
+    const queue = makeOneRowQueue(row);
+    const drain = new SkillDrainService(
+      noopLogger,
+      queue as unknown as SkillQueueStore,
+      makeBudgetStub(0).store,
+      makeTracker(),
+      makeDrainWorkspace({
+        [SKILL_DRAIN_KEYS.maxItemsPerRun]: 4,
+        [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 2,
+      }),
+    );
+
+    const analyze = jest.fn(
+      opts.analyze ??
+        (async (): Promise<SessionArchaeologyResult> => ({
+          status: 'ok',
+          verdict: verdict(),
+        })),
+    );
+    const archaeologist = { analyze } as unknown as SessionArchaeologistService;
+
+    let sessionEnd: SessionEndCallback | null = null;
+    const svc = new SkillSynthesisService(
+      noopLogger,
+      {
+        isOpen: true,
+        openAndMigrate: jest.fn().mockResolvedValue(undefined),
+      } as never,
+      { available: false } as never,
+      makeDrainWorkspace({}) as never,
+      {
+        findByTrajectoryHash: jest.fn(() => null),
+        registerCandidate: jest.fn(() => ({
+          candidate: { id: 'cand-1' },
+          reused: false,
+        })),
+        recordInvocation: jest.fn(),
+        getDominantSkillSlugForSessions: jest.fn(() => null),
+      } as unknown as jest.Mocked<SkillCandidateStore>,
+      {
+        candidatesRoot: jest.fn(() => '/tmp/cands'),
+        writeCandidate: jest.fn(() => ({
+          slug: 'do-thing',
+          dir: '/tmp/cands/do-thing',
+          filePath: '/tmp/cands/do-thing/SKILL.md',
+        })),
+      } as unknown as jest.Mocked<SkillMdGenerator>,
+      { evaluate: jest.fn() } as unknown as jest.Mocked<SkillPromotionService>,
+      {
+        extract: jest.fn().mockResolvedValue(trajectory(6)),
+      } as unknown as jest.Mocked<TrajectoryExtractor>,
+      null,
+      {
+        register: jest.fn((cb: SessionEndCallback) => {
+          sessionEnd = cb;
+          return jest.fn();
+        }),
+      } as never,
+      null,
+      null,
+      null,
+      null,
+      queue as never,
+      drain,
+      opts.withArchaeologist === false ? null : archaeologist,
+      null,
+    );
+
+    async function fireSessionEnd(sessionId = 's1'): Promise<void> {
+      if (!sessionEnd) throw new Error('session-end callback not registered');
+      (sessionEnd as SessionEndCallback)({ sessionId, workspaceRoot: WS });
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    }
+
+    return { svc, drain, queue, analyze, fireSessionEnd };
+  }
+
+  const drainOpts = () => ({
+    tier: 'nightly' as const,
+    signal: liveSignal(),
+    onBattery: false,
+  });
+
+  it('makes ZERO analyzer calls on the session-end path', async () => {
+    const { svc, analyze, fireSessionEnd } = setupP24();
+    await svc.start();
+
+    await fireSessionEnd();
+
+    expect(analyze).toHaveBeenCalledTimes(0);
+  });
+
+  it('runs the analyzer when the drain processes an archaeology row', async () => {
+    const { svc, drain, analyze } = setupP24({
+      row: queueRow({ id: 'row-arch', stage: 'archaeology' }),
+    });
+    await svc.start();
+    expect(analyze).toHaveBeenCalledTimes(0);
+
+    const summary = await drain.drain(drainOpts());
+
+    expect(summary.claimed).toBe(1);
+    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(analyze).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', workspaceRoot: WS }),
+    );
+    expect(summary.done).toBe(1);
+    expect(summary.skippedItems).toBe(0);
+  });
+
+  it('is a NIGHTLY stage — a frequent tick never claims one', async () => {
+    // R3. Registering the handler is not enough; the tier table is what stops
+    // the most expensive stage in the library running every fifteen minutes.
+    const { svc, drain, analyze } = setupP24({
+      row: queueRow({ id: 'row-arch', stage: 'archaeology' }),
+    });
+    await svc.start();
+
+    const summary = await drain.drain({ ...drainOpts(), tier: 'frequent' });
+
+    expect(summary.claimed).toBe(0);
+    expect(analyze).toHaveBeenCalledTimes(0);
+  });
+
+  it('chains prefilter → archaeology carrying the OBSERVED turn count', async () => {
+    const { svc, drain, queue } = setupP24({ row: queueRow({ turnCount: 9 }) });
+    await svc.start();
+    queue.enqueued.length = 0;
+
+    await drain.drain(drainOpts());
+
+    const [chained] = queue.enqueued.filter((r) => r.stage === 'archaeology');
+    expect(chained).toBeDefined();
+    expect(chained).toMatchObject({
+      sessionId: 's1',
+      stage: 'archaeology',
+      workspaceRoot: WS,
+    });
+    // `0` would satisfy every assertion above and wedge the re-open forever.
+    expect(chained.turnCount).toBe(9);
+    expect(chained.turnCount).not.toBe(0);
+  });
+
+  it('does not chain when the prefilter found nothing to promote', async () => {
+    // The negative control for the chain: without it, "an archaeology row is
+    // written" would also hold for an implementation that wrote one for every
+    // session and paid the analyzer for the ones the prefilter rejected.
+    const { svc, drain, queue } = setupP24();
+    await svc.start();
+    // `svc.start()` bailed on nothing, but the second drain has no row left,
+    // so re-run with a service whose extractor yields a rejected shape.
+    queue.enqueued.length = 0;
+    (
+      svc as unknown as { extractor: { extract: jest.Mock } }
+    ).extractor.extract.mockResolvedValue({
+      ...trajectory(2),
+      editCount: 0,
+      toolUseCount: 0,
+      turnCount: 2,
+      charLength: 10,
+    });
+
+    await drain.drain(drainOpts());
+
+    expect(queue.enqueued.filter((r) => r.stage === 'archaeology')).toEqual([]);
+  });
+
+  it('hands a lane failure to the drain VERBATIM instead of flattening it', async () => {
+    // The stage must not pre-decide the row transition: only the drain reads
+    // `maxAttempts`, so a handler that returned `unscored`/`failed` itself would
+    // be choosing the ceiling and the backoff where it can see neither. A
+    // TRANSPORT failure therefore has to come out as a requeue with the LANE's
+    // own backoff, which is only possible if the failure travelled untouched.
+    const failure: SkillLaneFailure = {
+      kind: 'auth-unresolvable',
+      reason: 'the archaeologist lane provider is configured but unusable',
+      retryAfterMs: 1_800_000,
+    };
+    const { svc, drain, queue } = setupP24({
+      row: queueRow({ id: 'row-arch', stage: 'archaeology' }),
+      analyze: async () => ({ status: 'failed', failure, verdict: null }),
+    });
+    await svc.start();
+
+    const summary = await drain.drain(drainOpts());
+
+    expect(summary.stalled).toBe(1);
+    expect(summary.unscored).toBe(0);
+    expect(summary.failed).toBe(0);
+    expect(queue.requeue).toHaveBeenCalledWith(
+      'row-arch',
+      expect.any(Number),
+      failure.reason,
+    );
+    expect(queue.markUnscored).not.toHaveBeenCalled();
+    expect(queue.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('marks a DEGRADED verdict done — a written row stops the retry', async () => {
+    const { svc, drain, queue } = setupP24({
+      row: queueRow({ id: 'row-arch', stage: 'archaeology' }),
+      analyze: async () => ({
+        status: 'ok',
+        verdict: verdict({ degradedReason: 'no-query-path', intent: null }),
+      }),
+    });
+    await svc.start();
+
+    const summary = await drain.drain(drainOpts());
+
+    expect(summary.done).toBe(1);
+    expect(queue.markDone).toHaveBeenCalledWith(
+      'row-arch',
+      expect.objectContaining({
+        reason: 'analyzed, degraded: no-query-path',
+      }),
+    );
+  });
+
+  it('NEGATIVE CONTROL — a host with no analyzer leaves the stage unwired', async () => {
+    // Without this, every "the analyzer ran" assertion above would also hold
+    // for a service that registered the handler unconditionally and answered
+    // "not here" at the cost of a claim and an attempt.
+    const { svc, drain, queue, analyze } = setupP24({
+      row: queueRow({ id: 'row-arch', stage: 'archaeology' }),
+      withArchaeologist: false,
+    });
+    await svc.start();
+
+    const summary = await drain.drain(drainOpts());
+
+    expect(analyze).toHaveBeenCalledTimes(0);
+    expect(summary.skippedItems).toBe(1);
+    expect(queue.markSkipped).toHaveBeenCalledWith('row-arch', {
+      reason: 'no handler for stage archaeology',
+    });
   });
 });
