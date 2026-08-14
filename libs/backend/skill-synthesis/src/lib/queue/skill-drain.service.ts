@@ -51,9 +51,24 @@
  *
  * Selection NEVER orders by `enqueued_at` globally. It walks distinct eligible
  * workspaces least-recently-drained first (`listEligibleWorkspaces`), takes at
- * most `perWorkspaceBatch` (default 1) from each, stops at `maxItemsPerRun`, and
- * bumps the cursor of every workspace it VISITED — including one whose rows all
- * belong to another tier, or the cursor would never advance past it.
+ * most `perWorkspaceBatch` (default 1) from each PER ROUND, stops at the tier's
+ * item cap, and bumps the cursor of every workspace it VISITED — including one
+ * whose rows all belong to another tier, or the cursor would never advance past
+ * it.
+ *
+ * ## The item cap is PER TIER, and so is the number of rounds
+ *
+ * `DRAIN_TIER_LIMITS` is the throughput half of `DRAIN_TIER_STAGES`. The
+ * frequent tier takes `maxItemsPerRun` in ONE round; the nightly tier takes
+ * `nightlyMaxItemsPerRun` dealt out over as many rounds as it needs. The reason
+ * is cadence, not preference: the frequent tier fires 96 times a day, so its
+ * round-robin fairness is delivered across ticks, while the nightly tier fires
+ * once and has to be fair inside the single tick it gets. Full rationale, and
+ * the measurement that forced it, sits on `DRAIN_TIER_LIMITS` below.
+ *
+ * The cap is a THROUGHPUT throttle, never a cost control. The daily token
+ * budget is the only cost ceiling and it is unchanged — a bigger cap simply
+ * stops the queue growing while the budget sits unused.
  *
  * ## R5 — stale-claim TTL
  *
@@ -225,6 +240,7 @@ export const SKILL_DRAIN_SECTION = 'ptah';
 export const SKILL_DRAIN_KEYS = {
   enabled: 'skillSynthesis.enabled',
   maxItemsPerRun: 'skillSynthesis.drain.maxItemsPerRun',
+  nightlyMaxItemsPerRun: 'skillSynthesis.drain.nightlyMaxItemsPerRun',
   perWorkspaceBatch: 'skillSynthesis.drain.perWorkspaceBatch',
   foregroundBackoffMs: 'skillSynthesis.drain.foregroundBackoffMs',
   pauseOnBattery: 'skillSynthesis.drain.pauseOnBattery',
@@ -241,6 +257,7 @@ export const SKILL_DRAIN_KEYS = {
 export const SKILL_DRAIN_DEFAULTS = {
   enabled: true,
   maxItemsPerRun: 4,
+  nightlyMaxItemsPerRun: 40,
   perWorkspaceBatch: 1,
   foregroundBackoffMs: 300_000,
   pauseOnBattery: true,
@@ -253,6 +270,7 @@ export const SKILL_DRAIN_DEFAULTS = {
 export interface SkillDrainConfig {
   enabled: boolean;
   maxItemsPerRun: number;
+  nightlyMaxItemsPerRun: number;
   perWorkspaceBatch: number;
   foregroundBackoffMs: number;
   pauseOnBattery: boolean;
@@ -273,7 +291,14 @@ export const MAX_STAGE_TIMEOUT_MS = 30_000;
 /** R5: a TTL below `3 ×` the longest stage reaps live work. */
 export const STALE_CLAIM_TTL_SAFETY_FACTOR = 3;
 
-/** Rows scanned per workspace before tier filtering + cheap-first ordering. */
+/**
+ * Floor for the rows scanned per workspace before tier filtering + cheap-first
+ * ordering. The effective limit is `max(this, tier item cap)`: a workspace can
+ * never contribute more rows to one tick than the cap, and scanning fewer than
+ * the cap would throttle the tick below its own configured ceiling. The floor
+ * survives so that a small cap still gives the cheap-first sort something to
+ * reorder.
+ */
 const ELIGIBLE_SCAN_LIMIT = 20;
 
 /** Fraction of the daily budget above which cheap stages are ordered first. */
@@ -321,6 +346,63 @@ export const DRAIN_TIER_STAGES: Record<
     ...NIGHTLY_ONLY_STAGES,
     ...WEEKLY_ONLY_STAGES,
   ]),
+};
+
+/**
+ * Tier → how much work one tick of it may take, and how it is dealt out.
+ *
+ * `DRAIN_TIER_STAGES` above says WHAT a tier may run; this says HOW MUCH. The
+ * two numbers differ per tier because the tiers are throttled by different
+ * things, and reading one number for all three is what starved `archaeology`.
+ *
+ * ## Why the nightly tier has its own cap
+ *
+ * `maxItemsPerRun` (4) is a per-TICK slice. The frequent tier gets 96 ticks a
+ * day (every 15 minutes), so 4 is 384 dispatches of head-room. The nightly tier
+ * gets ONE (`0 3 * * *`), so the same 4 is the entire day's supply for every
+ * nightly-only stage — and because the nightly tier is a SUPERSET of the
+ * frequent one and `ELIGIBLE_SQL` orders `enqueued_at ASC`, those four slots
+ * usually go to older frequent-stage rows before a nightly-only row is even
+ * reached. Measured against a real 849-session corpus that is ≤ 4 rows a day of
+ * supply against ~30 a day of demand: the queue grows without bound and the
+ * stage ships inert.
+ *
+ * Raising the SHARED key instead would apply the same multiplier to the
+ * frequent tier 96 times a day, which nothing measured asks for. So the nightly
+ * tier reads its own key and the frequent tier is untouched.
+ *
+ * `weekly` deliberately keeps `maxItemsPerRun`. Its own three stages
+ * (`judge-panel`, `replay`, `trigger-eval`) have no producers yet, and every
+ * stage it shares with the nightly tier was already drained by that night's
+ * 03:00 tick an hour earlier. Give it its own cap when those producers land,
+ * not before.
+ *
+ * ## Why `multiRound` is not simply `true` everywhere
+ *
+ * `multiRound` deals the cap out in round-robin ROUNDS of `perWorkspaceBatch`
+ * rather than in one pass — so a lone workspace can reach the whole cap while
+ * two busy workspaces split it evenly, instead of the first one in cursor order
+ * taking everything.
+ *
+ * The frequent tier does not need it and must not have it. Its round-robin
+ * fairness is delivered ACROSS its 96 ticks: one row per workspace per tick,
+ * cursor bumped, next tick starts elsewhere. The nightly tier has exactly one
+ * tick, so all of its fairness has to happen INSIDE that tick — there is no
+ * "next tick" for a day. Turning rounds on for the frequent tier would quadruple
+ * its dispatch rate (a lone workspace goes from 1 to 4 per tick) to fix a
+ * problem it does not have, and its stages include the token-spending
+ * `synthesis` and `judge`.
+ */
+export const DRAIN_TIER_LIMITS: Record<
+  DrainTier,
+  {
+    readonly itemCap: (cfg: SkillDrainConfig) => number;
+    readonly multiRound: boolean;
+  }
+> = {
+  frequent: { itemCap: (cfg) => cfg.maxItemsPerRun, multiRound: false },
+  nightly: { itemCap: (cfg) => cfg.nightlyMaxItemsPerRun, multiRound: true },
+  weekly: { itemCap: (cfg) => cfg.maxItemsPerRun, multiRound: false },
 };
 
 /**
@@ -493,6 +575,30 @@ export class SkillDrainService {
    * Every VISITED workspace has its cursor bumped, including one that yielded
    * nothing for this tier — otherwise it sits at the head of the order forever
    * and starves everyone behind it.
+   *
+   * Two passes, and the split is what lets the nightly tier be both fast and
+   * fair:
+   *
+   *  1. **Visit** workspaces in cursor order, taking one eligible window from
+   *     each, and stop once ROUND ONE alone would fill the tick. Visiting is
+   *     also what bumps the cursor, so this stop condition decides which
+   *     workspaces keep their earlier cursor and therefore sort first next
+   *     tick. It is measured on round-one supply — `min(window, batch)` — and
+   *     deliberately not on total supply: one workspace holding hundreds of
+   *     rows must not end the walk before its neighbours have had a turn.
+   *  2. **Deal** from those windows. A single-round tier takes at most
+   *     `perWorkspaceBatch` from each and stops; a `multiRound` tier keeps
+   *     going round until the cap is reached or a whole round yields nothing.
+   *
+   * `perWorkspaceBatch` therefore stays 1 for every tier. Under rounds it is a
+   * fairness QUANTUM, not a throughput cap: a lone workspace still reaches the
+   * whole cap because the rounds repeat, while two busy workspaces split the
+   * cap evenly instead of the first in cursor order taking all of it. Raising
+   * it to buy throughput would do the opposite — every workspace visited on one
+   * tick is stamped with the SAME `last_drained_at`, so the order among them
+   * falls back to `workspace_root ASC`, and a large batch would let the
+   * alphabetically first busy project eat the tick. That is R4 exactly, which
+   * is why the fix is rounds rather than a bigger slice.
    */
   private select(
     cfg: SkillDrainConfig,
@@ -501,26 +607,53 @@ export class SkillDrainService {
     summary: DrainSummary,
   ): SkillQueueRow[] {
     const stages = DRAIN_TIER_STAGES[tier];
+    const limits = DRAIN_TIER_LIMITS[tier];
+    const cap = limits.itemCap(cfg);
+    const batch = cfg.perWorkspaceBatch;
     const cheapFirst = this.shouldOrderCheapFirst(cfg, now);
-    const picked: SkillQueueRow[] = [];
+    const scanLimit = Math.max(ELIGIBLE_SCAN_LIMIT, cap);
 
+    // Pass 1 — visit.
+    const windows: Array<{ rows: SkillQueueRow[]; taken: number }> = [];
+    let firstRoundSupply = 0;
     for (const workspaceRoot of this.queue.listEligibleWorkspaces(now)) {
-      if (picked.length >= cfg.maxItemsPerRun) break;
+      if (firstRoundSupply >= cap) break;
 
-      const window = this.queue
-        .listEligible(workspaceRoot, ELIGIBLE_SCAN_LIMIT, now)
+      const rows = this.queue
+        .listEligible(workspaceRoot, scanLimit, now)
         .filter((row) => stages.has(row.stage));
       if (cheapFirst) {
-        window.sort(
+        rows.sort(
           (a, b) => STAGE_COST_RANK[a.stage] - STAGE_COST_RANK[b.stage],
         );
       }
 
-      const room = cfg.maxItemsPerRun - picked.length;
-      picked.push(...window.slice(0, Math.min(cfg.perWorkspaceBatch, room)));
+      windows.push({ rows, taken: 0 });
+      firstRoundSupply += Math.min(rows.length, batch);
 
       this.queue.markWorkspaceDrained(workspaceRoot, now);
       summary.workspacesVisited++;
+    }
+
+    // Pass 2 — deal. `cap` bounds the round COUNT as well as the item count, so
+    // the loop terminates even when `perWorkspaceBatch` is misconfigured to 0.
+    const picked: SkillQueueRow[] = [];
+    const maxRounds = limits.multiRound ? cap : 1;
+    for (let round = 0; round < maxRounds && picked.length < cap; round++) {
+      let dealt = 0;
+      for (const window of windows) {
+        if (picked.length >= cap) break;
+        const take = Math.min(
+          batch,
+          cap - picked.length,
+          window.rows.length - window.taken,
+        );
+        if (take <= 0) continue;
+        picked.push(...window.rows.slice(window.taken, window.taken + take));
+        window.taken += take;
+        dealt += take;
+      }
+      if (dealt === 0) break;
     }
 
     return picked;
@@ -805,6 +938,10 @@ export class SkillDrainService {
       maxItemsPerRun: get(
         SKILL_DRAIN_KEYS.maxItemsPerRun,
         SKILL_DRAIN_DEFAULTS.maxItemsPerRun,
+      ),
+      nightlyMaxItemsPerRun: get(
+        SKILL_DRAIN_KEYS.nightlyMaxItemsPerRun,
+        SKILL_DRAIN_DEFAULTS.nightlyMaxItemsPerRun,
       ),
       perWorkspaceBatch: get(
         SKILL_DRAIN_KEYS.perWorkspaceBatch,

@@ -244,6 +244,13 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.drain.nightlyCronExpr',
   'skillSynthesis.drain.weeklyCronExpr',
   'skillSynthesis.drain.maxItemsPerRun',
+  // The NIGHTLY tier's own item cap. It exists because the two tiers are
+  // throttled by different things: the frequent tier fires 96 times a day, so
+  // `maxItemsPerRun` is a per-tick slice of a cadence that gets many more
+  // slices; the nightly tier fires ONCE, so the same number is the whole day's
+  // supply for every nightly-only stage. Raising the shared key instead would
+  // multiply the frequent tier's load 96 times over to fix a once-a-day tick.
+  'skillSynthesis.drain.nightlyMaxItemsPerRun',
   'skillSynthesis.drain.perWorkspaceBatch',
   'skillSynthesis.drain.foregroundBackoffMs',
   'skillSynthesis.drain.pauseOnBattery',
@@ -416,6 +423,11 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.drain.nightlyCronExpr': '0 3 * * *',
   'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
   'skillSynthesis.drain.maxItemsPerRun': 4,
+  // Ten times the frequent cap, and the budget is still the real ceiling: ~40
+  // archaeology runs is roughly 30 % of `maxTokensPerDay`, so raising this
+  // number cannot outspend the budget gate — it only stops the queue from
+  // growing monotonically while the budget sits 70 % unused.
+  'skillSynthesis.drain.nightlyMaxItemsPerRun': 40,
   'skillSynthesis.drain.perWorkspaceBatch': 1,
   // `0` disables the foreground gate entirely.
   'skillSynthesis.drain.foregroundBackoffMs': 300000,

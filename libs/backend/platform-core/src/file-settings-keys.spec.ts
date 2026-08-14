@@ -284,6 +284,7 @@ describe('isFileBasedSettingKey', () => {
       'skillSynthesis.drain.nightlyCronExpr': '0 3 * * *',
       'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
       'skillSynthesis.drain.maxItemsPerRun': 4,
+      'skillSynthesis.drain.nightlyMaxItemsPerRun': 40,
       'skillSynthesis.drain.perWorkspaceBatch': 1,
       'skillSynthesis.drain.foregroundBackoffMs': 300000,
       'skillSynthesis.drain.pauseOnBattery': true,
@@ -334,6 +335,23 @@ describe('isFileBasedSettingKey', () => {
       expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.trayKeepalive']).toBe(
         false,
       );
+    });
+
+    /**
+     * The nightly tier fires ONCE a day against a frequent tier that fires 96
+     * times, so a shared item cap is 96× more generous to the tier that needs
+     * it least. If these two ever converge, the nightly-only stages are back to
+     * ≤ 4 rows a day of supply and the queue grows without bound.
+     */
+    it('gives the nightly tier a strictly larger item cap than the frequent one', () => {
+      const frequent = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.drain.maxItemsPerRun'
+      ] as number;
+      const nightly = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.drain.nightlyMaxItemsPerRun'
+      ] as number;
+      expect(nightly).toBeGreaterThan(frequent);
+      expect(nightly).toBe(40);
     });
 
     it('uses the quarter-hour cadence for the frequent tier (Q5)', () => {
