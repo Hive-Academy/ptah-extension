@@ -863,11 +863,11 @@ describe('CodexCliAdapter', () => {
     it('probes the packaged Electron root under app.asar.unpacked', async () => {
       await runAndSettle();
 
+      // The asar-rewrite behaviour itself is pinned directly on
+      // withAsarUnpackedTwin in cli-adapter.utils.spec.ts — no candidate here
+      // ever contains `app.asar`, so asserting its absence would be vacuous.
       const unpackedRoot = path.join(RESOURCES, 'app.asar.unpacked') + path.sep;
       expect(probedPaths()[0].startsWith(unpackedRoot)).toBe(true);
-      expect(probedPaths().some((p) => /app\.asar(?!\.unpacked)/.test(p))).toBe(
-        false,
-      );
     });
 
     it('prefers the bin/ layout when both layouts exist', async () => {
