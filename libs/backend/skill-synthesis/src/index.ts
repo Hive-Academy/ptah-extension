@@ -249,6 +249,16 @@ export {
   type SessionVerdictDraft,
 } from './lib/archaeology/session-verdict.types';
 export { SessionVerdictStore } from './lib/archaeology/session-verdict.store';
+export {
+  SessionArchaeologistService,
+  ARCHAEOLOGY_DEGRADED_REASONS,
+  ARCHAEOLOGY_TAIL_BUDGET_SHARE,
+  ARCHAEOLOGY_HEAD_BUDGET_SHARE,
+  ARCHAEOLOGY_SERVE_BUDGET_SHARE,
+  ARCHAEOLOGY_MAX_REQUESTS_PER_PASS,
+  type SessionArchaeologyRequest,
+  type SessionArchaeologyResult,
+} from './lib/archaeology/session-archaeologist.service';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

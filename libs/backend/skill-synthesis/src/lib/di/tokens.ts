@@ -117,6 +117,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   LANE_RUNNER_SERVICE: Symbol.for('PtahSkillLaneRunnerService'),
   /** SessionVerdictStore — the archaeologist's structured per-session verdict (`0034`). */
   SESSION_VERDICT_STORE: Symbol.for('PtahSkillSessionVerdictStore'),
+  /** SessionArchaeologistService — the orchestrated multi-pass session analyzer. */
+  SESSION_ARCHAEOLOGIST_SERVICE: Symbol.for('PtahSkillSessionArchaeologist'),
   /** CandidateNamerService — cheap {name,description} pass that fills `display_name`. */
   CANDIDATE_NAMER_SERVICE: Symbol.for('PtahSkillCandidateNamerService'),
 } as const;
