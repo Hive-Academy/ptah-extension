@@ -2709,10 +2709,22 @@ Raised by B1.11, verified directly by the orchestrator. Three gates, all real:
 - The real VS Code host never sets `ptahConfig.isElectron`
   (`webview-html-generator.ts:399-401`), so it is falsy for a genuine webview.
 
-**This directly contradicts `libs/frontend/skill-synthesis-ui/CLAUDE.md:16`**,
-which claims the tab "**works in both Electron and VS Code** — skills are not
-desktop-only". One of the two is wrong and neither is load-bearing on this
-task, so **do not fix it here** — filed as `TASK_2026_238`.
+**RESOLVED 2026-08-15: the gates are RIGHT and the doc was WRONG.** The Skills
+tab is Electron-only **by design**, like all four Thoth tabs. The decisive
+evidence is not the UI gates at all —
+`apps/ptah-extension-vscode/src/di/expected-absent.ts` lists
+`SkillsSynthesisRpcHandlers` in `EXPECTED_ABSENT_HANDLERS`, "handler classes the
+VS Code host must never construct", pinned by a spec. **The entire backend for
+this tab is absent in VS Code**, because the subsystem needs
+`SqliteConnectionService` (better-sqlite3) and the embedder worker. The UI gate
+is downstream of that, not the cause.
+
+`libs/frontend/skill-synthesis-ui/CLAUDE.md` claimed the tab "works in both
+Electron and VS Code". That line has been rewritten; `TASK_2026_238` is `done`.
+
+**Do not "restore parity."** And note the workspace memory store carries
+contradictory entries on this point — several older ones assert the tab is
+cross-runtime. `expected-absent.ts` is the ground truth and the cheapest check.
 
 What it means for **global invariant #5**: extracting the picker into
 `libs/frontend/ui` and deleting the fork remains correct (single definition,

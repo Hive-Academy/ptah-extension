@@ -1,68 +1,71 @@
-# Context — Skills tab: Electron-only gates vs a documented parity claim
+# Context — the Skills tab is Electron-only, and the doc said otherwise
 
-## How this surfaced
+**RESOLVED 2026-08-15. Doc corrected; no code change. The gates were right.**
 
-Found by TASK_2026_180 batch B1.11, which was writing cross-host e2e for the
-provider/model picker extracted into `libs/frontend/ui`. That extraction exists
-because of TASK_2026_180's global invariant #5:
+## How this surfaced, and how it was filed wrong
+
+TASK_2026_180 batch B1.11 was writing cross-host e2e for the provider/model
+picker extracted into `libs/frontend/ui`, driven by that task's global invariant
+#5:
 
 > Extract `CuratorModelPickerComponent` into `libs/frontend/ui` and DELETE the
 > local copy. Do not fork it — `skill-synthesis-ui` ships to VS Code AND
 > Electron, and a fork strands VS Code users.
 
-While proving "renders in both hosts", B1.11 could not reach the surface in the
-VS Code host at all. The extraction is still correct — single definition,
-`libs/frontend/ui` has other consumers — but that stated rationale is currently
-vacuous, because VS Code users are stranded one layer above the picker.
+B1.11 could not reach the surface in the VS Code host and correctly reported
+that. This task was then filed as "which side is wrong — the gates or the doc?",
+treating it as an open question.
 
-## The contradiction
+**It was not an open question.** The user had already decided this, and the
+codebase already encodes it. Filing it as undecided was the error.
 
-`libs/frontend/skill-synthesis-ui/CLAUDE.md:16`:
+## The answer: Electron-only, structurally
 
-> Unlike memory/cron/gateway tabs, this tab **works in both Electron and VS
-> Code** — skills are not desktop-only.
+Three independent places in the code say so:
 
-Three gates say otherwise, all verified directly:
+1. **`apps/ptah-extension-vscode/src/di/expected-absent.ts`** —
+   `SkillsSynthesisRpcHandlers` is in `EXPECTED_ABSENT_HANDLERS`, the list of
+   "handler classes the VS Code host must never construct", alongside
+   `MemoryRpcHandlers`, `CronRpcHandlers`, `GatewayRpcHandlers` and
+   `PersistenceRpcHandlers`. A spec pins it. **The entire backend for this tab is
+   absent in VS Code** — so the UI gate is not the binding constraint, it is
+   downstream of a subsystem that isn't there.
+2. `libs/frontend/thoth-shell/.../thoth-shell.component.ts` — `skills` carries
+   `electronOnly: true`, alongside the other three Thoth tabs.
+3. `libs/frontend/skill-synthesis-ui/.../skill-synthesis-tab.component.ts` —
+   renders a desktop-only placeholder when `!isElectron()`.
 
-1. `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:241`
-   — `{ id: 'skills', label: 'Skills', icon: Sparkles, electronOnly: true }`,
-   listed alongside `memory`, `cron` and `gateway`.
-2. `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts:82`
-   — `@if (!isElectron())` wraps a desktop-only placeholder around the
-   **entire** template, Settings subview included. `isElectron` is
-   `computed(() => this.vscodeService.config()?.isElectron === true)` (`:689-690`).
-3. `webview-html-generator.ts:399-401` — the real VS Code host never sets
-   `ptahConfig.isElectron`, so it is falsy for a genuine webview.
+**Why**: the subsystem needs `SqliteConnectionService` (better-sqlite3) and the
+embedder worker. Neither exists in the VS Code extension host. That file's own
+header states the failure it guards: _"a subsystem added for Electron gets
+switched on everywhere, and VS Code crashes at activation resolving a class its
+DI phases never registered."_
 
-Gate 1 alone would hide the tab. Gate 2 independently blanks it even if the tab
-were shown. They are not redundant by design; nothing ties them together.
+## What was actually fixed
 
-## The decision this task has to make
+`libs/frontend/skill-synthesis-ui/CLAUDE.md` — the "VS Code Parity" section
+became a "Runtime: ELECTRON-ONLY" section that states the rule, names the three
+enforcement points, and says why. It also explicitly tells a future reader not
+to "restore parity".
 
-Exactly one of these:
+## What this means for TASK_2026_180's invariant #5
 
-- **The docs are stale.** Skills genuinely is desktop-only — it leans on
-  better-sqlite3 (native) and the embedder worker, which is the stated reason
-  memory/cron/gateway are Electron-only. Then fix
-  `skill-synthesis-ui/CLAUDE.md:16` and stop citing cross-host parity as the
-  reason for shared-component extractions.
-- **The gates are wrong.** Skills is supposed to work in VS Code. Then establish
-  which subviews can function without the native deps, and gate at that
-  granularity rather than blanking the tab. Settings/lane configuration is a
-  plausible candidate: it is settings I/O, not SQLite.
+The extraction into `libs/frontend/ui` remains correct — one definition, and
+that lib has other consumers. But the invariant's stated **rationale** ("a fork
+strands VS Code users") is **false**, because this tab has no VS Code users. Do
+not cite it as evidence a cross-host path works.
 
-Do not "fix" this by deleting one gate without answering the question — the
-native-dependency reasoning behind the Electron-only tabs is real, and the
-answer decides whether the picker extraction has a cross-host consumer at all.
+B1.11's webview e2e is still worth having, and its header already scopes itself
+honestly: it proves the extracted component survives being bundled into
+`ptah-extension-webview` and driven over the generic `postMessage` transport. It
+never claimed to prove navigation.
 
-## Scope notes
+## Note on why the doc drifted
 
-- Deliberately NOT fixed inside TASK_2026_180. It is not load-bearing for any
-  batch there, and it changes what a whole tab does in one host — too big to
-  ride along in a feature batch.
-- The four lane pickers (`archaeologist`, `synthesis`, `judge`, `replay`) added
-  by TASK_2026_180 Phase 1 are among the surfaces currently unreachable in VS
-  Code. They are proven to work when bundled into `ptah-extension-webview` and
-  driven over the generic `postMessage` transport — see
-  `libs/frontend/webview-e2e-harness/src/lib/scenarios/thoth/skills-lane-pickers.e2e.spec.ts`
-  and its header comment. What is unproven is navigation, not rendering.
+The workspace memory store contains **contradictory** entries — several older
+ones assert "skill-synthesis-ui works on both VS Code and Electron", while newer
+ones correctly record all four Thoth tabs as Electron-only and list
+`SkillsSynthesisRpcHandlers` among the Electron-only RPC handlers. The stale
+CLAUDE.md line is consistent with the older, wrong entries. Worth a memory
+cleanup pass; the code is the ground truth and `expected-absent.ts` is the
+cheapest place to check it.
