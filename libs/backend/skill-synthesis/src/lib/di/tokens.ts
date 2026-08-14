@@ -121,6 +121,10 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SESSION_ARCHAEOLOGIST_SERVICE: Symbol.for('PtahSkillSessionArchaeologist'),
   /** CandidateNamerService — cheap {name,description} pass that fills `display_name`. */
   CANDIDATE_NAMER_SERVICE: Symbol.for('PtahSkillCandidateNamerService'),
+  /** ReplayValidatorService — the empirical replay gate (`0036`). */
+  REPLAY_VALIDATOR_SERVICE: Symbol.for('PtahSkillReplayValidatorService'),
+  /** TriggerEvalService — measured, zero-LLM description-retrieval gate (`0036`). */
+  TRIGGER_EVAL_SERVICE: Symbol.for('PtahSkillTriggerEvalService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

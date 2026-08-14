@@ -46,6 +46,8 @@ import { LaneResolverService } from '../lanes/lane-resolver.service';
 import { LaneRunnerService } from '../lanes/lane-runner.service';
 import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { SessionArchaeologistService } from '../archaeology/session-archaeologist.service';
+import { ReplayValidatorService } from '../gates/replay-validator.service';
+import { TriggerEvalService } from '../gates/trigger-eval.service';
 import { CandidateNamerService } from '../naming/candidate-namer.service';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
@@ -84,6 +86,8 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(LaneRunnerService);
   container.registerSingleton(SessionVerdictStore);
   container.registerSingleton(SessionArchaeologistService);
+  container.registerSingleton(ReplayValidatorService);
+  container.registerSingleton(TriggerEvalService);
   container.registerSingleton(CandidateNamerService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
@@ -165,6 +169,12 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SESSION_ARCHAEOLOGIST_SERVICE, {
     useToken: SessionArchaeologistService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.REPLAY_VALIDATOR_SERVICE, {
+    useToken: ReplayValidatorService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.TRIGGER_EVAL_SERVICE, {
+    useToken: TriggerEvalService,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.CANDIDATE_NAMER_SERVICE, {
     useToken: CandidateNamerService,

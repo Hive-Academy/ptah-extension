@@ -259,6 +259,41 @@ export {
   type SessionArchaeologyRequest,
   type SessionArchaeologyResult,
 } from './lib/archaeology/session-archaeologist.service';
+
+// --- Phase 3: the empirical gates (migration `0036`) -----------------------
+// `resolveGateEvidence` is shared by BOTH gates but lives in the replay file
+// because B3.2 landed first. It wants `gates/gate-evidence.ts` — two copies of
+// the verdict-vs-trajectory branch would drift, and the flag they set is what
+// the Activity tab reads to say a gate ran on weaker evidence.
+export {
+  ReplayValidatorService,
+  REPLAY_REASONS,
+  REPLAY_VALIDATION_ENABLED_KEY,
+  REPLAY_PLAN_CONTRACT,
+  REPLAY_COMPARATOR_RUBRIC,
+  REPLAY_ALIGNMENT_JSON_SCHEMA,
+  selectHoldoutSessionId,
+  resolveGateEvidence,
+  type ReplayValidationRequest,
+  type ReplayValidationResult,
+  type ReplayValidationStatus,
+  type GateEvidence,
+} from './lib/gates/replay-validator.service';
+export {
+  TriggerEvalService,
+  TRIGGER_EVAL_TOP_K,
+  TRIGGER_EVAL_MIN_SIMILARITY,
+  TRIGGER_EVAL_SKIP_REASONS,
+  TRIGGER_EVAL_UNMEASURED_REASONS,
+  measureRetrieval,
+  f1,
+  type TriggerEvalTarget,
+  type TriggerEvalOutcome,
+  type TriggerEvalReport,
+  type TriggerPromptSet,
+  type TriggerPromptOutcome,
+  type DescriptionCollision,
+} from './lib/gates/trigger-eval.service';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,
