@@ -22,14 +22,8 @@ Astro Starlight documentation site published at `https://docs.ptah.live`. User g
 - `nx build ptah-docs` — `astro build --outDir ../../dist/apps/ptah-docs` (runs from `apps/ptah-docs`).
 - `nx dev ptah-docs` / `nx serve ptah-docs` — `astro dev`.
 - `nx preview ptah-docs` — `astro preview` against the build output.
-  **There is no `check` target, deliberately** (TASK_2026_249). One ran `astro
-check` without `@astrojs/check` ever being installed, so it hung on an install
-  prompt with no output and cost three agents a session. It was deleted rather
-  than fixed: this site is 140 `.md` + 2 `.mdx` + exactly one `.ts` file and zero
-  `.astro` components, so `astro check` had one file to typecheck — and it never
-  validated links, whatever the old line here claimed. `astro build` already
-  fails on invalid content-collection frontmatter, which is the part that
-  mattered.
+
+**There is no `check` target, deliberately** (TASK_2026_249). One ran `astro check` without `@astrojs/check` ever being installed, so it hung on an install prompt with no output and cost three agents a session. It was deleted rather than fixed: this site is 140 `.md` + 2 `.mdx` + exactly one `.ts` file and zero `.astro` components, so `astro check` had one file to typecheck — and it never validated links, whatever the old line here claimed. `astro build` already fails on invalid content-collection frontmatter, which is the part that mattered.
 
 **`nx build ptah-docs` is the gate.** If you want link validation, that needs
 `starlight-links-validator` in `astro.config.mjs` — a real addition, not a
