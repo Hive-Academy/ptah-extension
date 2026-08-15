@@ -54,6 +54,26 @@ const MAX_SCORECARD_CHARS = 1200;
 export const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /** Minimum recorded invocations before a clone is auto-enhance eligible. */
 export const MIN_INVOCATIONS_TO_ENHANCE = 5;
+/**
+ * The MEASURED win rate at or above which auto-enhancement leaves a clone alone.
+ *
+ * A second eligibility input ALONGSIDE {@link MIN_INVOCATIONS_TO_ENHANCE}, not a
+ * replacement for it: the invocation floor asks "is there enough usage to learn
+ * from", this asks "is there anything left to fix". A clone winning 80 % of its
+ * measured sessions is working, and spending a background LLM call to rewrite it
+ * risks the regression more than it buys the improvement.
+ *
+ * ## `null` DOES NOT GATE
+ *
+ * An unmeasured clone (`winRate === null`) is NOT treated as a winner and NOT
+ * treated as a loser — the invocation floor decides alone, exactly as it did
+ * before this gate existed. That is why the check is written `=== null` first:
+ * `winRate >= MAX` would let `null` through by accident today and `winRate ?? 1`
+ * would block every unmeasured clone tomorrow. The mirror-image trap is `||`,
+ * which turns a measured `0` — the clone most in need of enhancement — into
+ * "unmeasured".
+ */
+export const MAX_WIN_RATE_TO_AUTO_ENHANCE = 0.8;
 const MAX_TRAJECTORY_SESSIONS = 3;
 const TRAJECTORY_MIN_TURNS = 5;
 
@@ -80,6 +100,14 @@ export type EnhanceSkipReason =
   | 'no-change'
   | 'invalid-candidate'
   | 'judge-rejected'
+  /**
+   * The clone's MEASURED win rate is at or above
+   * {@link MAX_WIN_RATE_TO_AUTO_ENHANCE}. Distinct from `below-threshold`: that
+   * one means "not enough usage to learn from", this one means "enough usage,
+   * and it says the clone is already working". Unreachable from an unmeasured
+   * clone and unreachable from a manual run.
+   */
+  | 'win-rate-sufficient'
   | 'error';
 
 export interface EnhanceResult {
@@ -198,6 +226,13 @@ export class SkillEnhancerService {
     private readonly scorecard: SkillScorecardService | null,
   ) {}
 
+  /**
+   * Two measured inputs, both of which must say "yes", plus the cooldown:
+   * enough recorded usage to learn from ({@link MIN_INVOCATIONS_TO_ENHANCE})
+   * and no measurement saying the clone is already winning
+   * ({@link MAX_WIN_RATE_TO_AUTO_ENHANCE}). An unmeasured clone is decided by
+   * the invocation floor alone — see {@link isAlreadyWinning}.
+   */
   isEligible(
     slug: string,
     settings: SkillSynthesisSettings,
@@ -205,7 +240,49 @@ export class SkillEnhancerService {
   ): boolean {
     const stats = this.candidates.getInvocationStats(slug);
     if (stats.total < MIN_INVOCATIONS_TO_ENHANCE) return false;
-    return !this.isWithinCooldown(slug, settings, kind);
+    if (this.isWithinCooldown(slug, settings, kind)) return false;
+    return !this.isAlreadyWinning(slug);
+  }
+
+  /**
+   * `true` only when a MEASURED win rate is at or above
+   * {@link MAX_WIN_RATE_TO_AUTO_ENHANCE}.
+   *
+   * `null` (never measured) returns `false` — "we have no evidence this clone is
+   * fine", which leaves the decision exactly where it was before this gate. A
+   * measured `0` also returns `false`, and that is the case the `=== null` test
+   * exists to protect: it is the clone most worth enhancing, and any truthiness
+   * check on this number would file it under "unmeasured".
+   */
+  private isAlreadyWinning(slug: string): boolean {
+    const winRate = this.winRateFor(slug);
+    if (winRate === null) return false;
+    return winRate >= MAX_WIN_RATE_TO_AUTO_ENHANCE;
+  }
+
+  /**
+   * The clone's measured win rate, or `null` for "never measured".
+   *
+   * Fail-soft: a store failure reads as unmeasured, which withholds the gate
+   * rather than inventing a verdict — enhancement then falls back to the
+   * invocation floor alone.
+   */
+  private winRateFor(slug: string): number | null {
+    try {
+      const measured = this.candidates
+        .getWinRates()
+        .find((rate) => rate.slug === slug);
+      return measured ? measured.winRate : null;
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[skill-enhancer] win-rate read failed; treating as unmeasured',
+        {
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
   }
 
   /**
@@ -251,6 +328,13 @@ export class SkillEnhancerService {
       }
       if (!options.manual && this.isWithinCooldown(slug, settings, kind)) {
         return { ...base, skipReason: 'cooldown' };
+      }
+      // Last of the three auto-eligibility gates, and the only one that reads a
+      // measurement rather than a count: a clone that is measurably winning gets
+      // no background rewrite. Manual runs bypass it exactly as they bypass the
+      // invocation floor — the user asked.
+      if (!options.manual && this.isAlreadyWinning(slug)) {
+        return { ...base, skipReason: 'win-rate-sufficient' };
       }
 
       const cwd = this.resolveCwd();

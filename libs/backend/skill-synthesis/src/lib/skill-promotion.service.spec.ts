@@ -7,6 +7,7 @@ import 'reflect-metadata';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SkillPromotionService,
+  orderForDemotion,
   rankingScore,
   MIN_REPLAY_CONFIDENCE_KEY,
   MIN_REPLAY_CONFIDENCE_DEFAULT,
@@ -85,6 +86,8 @@ function makeStore(
     ),
     listActiveOrderedByActivity: jest.fn(() => []),
     listActiveOrderedByDecayScore: jest.fn(() => []),
+    /** Nothing measured by default — the pre-B4.3 decay ordering stands. */
+    getWinRates: jest.fn(() => []),
     updateStatus: jest.fn((id, next, opts) => {
       current = {
         ...current,
@@ -300,6 +303,208 @@ describe('SkillPromotionService', () => {
     expect(decision.promoted).toBe(true);
     expect(decision.evictedSkillId).toBeUndefined();
     expect(store.setResidency).not.toHaveBeenCalled();
+  });
+
+  // ─── B4.3.3: dormancy demotion orders by win rate ascending, NULLS LAST ────
+
+  describe('dormancy demotion ordering (win rate ascending, nulls last)', () => {
+    const rate = (slug: string, winRate: number | null) => ({
+      slug,
+      invocations: winRate === null ? 0 : 5,
+      wins: winRate === null ? 0 : Math.round(winRate * 5),
+      unknown: winRate === null ? 5 : 0,
+      winRate,
+    });
+
+    /** Residents in decay order (weakest activity first), as the store returns. */
+    function residents(...names: readonly string[]): SkillCandidateRow[] {
+      return names.map((name) =>
+        row({ id: name as CandidateId, name, status: 'promoted' }),
+      );
+    }
+
+    function atCap(
+      store: jest.Mocked<SkillCandidateStore>,
+      rows: readonly SkillCandidateRow[],
+    ) {
+      (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([
+        ...rows,
+      ]);
+      return { ...SETTINGS, maxActiveSkills: rows.length };
+    }
+
+    it('sorts a null win rate AFTER a 0.2 win rate (the acceptance assertion)', () => {
+      const ordered = orderForDemotion(
+        residents('unmeasured', 'loser'),
+        new Map<string, number | null>([
+          ['unmeasured', null],
+          ['loser', 0.2],
+        ]),
+      );
+      expect(ordered.map((r) => r.name)).toEqual(['loser', 'unmeasured']);
+      // Stated as the rule itself, not as a property of the array literal.
+      const positionOf = (name: string) =>
+        ordered.findIndex((r) => r.name === name);
+      expect(positionOf('unmeasured')).toBeGreaterThan(positionOf('loser'));
+    });
+
+    it('orders every measured rate ascending and parks all nulls at the end', () => {
+      const ordered = orderForDemotion(
+        residents('n1', 'winner', 'n2', 'loser', 'zero'),
+        new Map<string, number | null>([
+          ['n1', null],
+          ['winner', 0.9],
+          ['n2', null],
+          ['loser', 0.2],
+          ['zero', 0],
+        ]),
+      );
+      expect(ordered.map((r) => r.name)).toEqual([
+        'zero',
+        'loser',
+        'winner',
+        'n1',
+        'n2',
+      ]);
+    });
+
+    it('treats a MISSING slug exactly like a stored null — last, not zero', () => {
+      const ordered = orderForDemotion(
+        residents('absent', 'loser'),
+        new Map<string, number | null>([['loser', 0.2]]),
+      );
+      expect(ordered.map((r) => r.name)).toEqual(['loser', 'absent']);
+    });
+
+    it('keeps the decay order as the tiebreaker when nothing is measured', () => {
+      const ordered = orderForDemotion(
+        residents('first', 'second', 'third'),
+        new Map<string, number | null>(),
+      );
+      expect(ordered.map((r) => r.name)).toEqual(['first', 'second', 'third']);
+    });
+
+    it('demotes the measured loser, NOT the unmeasured skill the decay order put first', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const settings = atCap(store, residents('unmeasured', 'loser'));
+      (store.getWinRates as jest.Mock).mockReturnValue([
+        rate('loser', 0.2),
+        rate('unmeasured', null),
+      ]);
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, settings);
+
+      expect(decision.evictedSkillId).toBe('loser');
+      expect(store.setResidency).toHaveBeenCalledWith('loser', 'dormant');
+      expect(store.setResidency).not.toHaveBeenCalledWith(
+        'unmeasured',
+        'dormant',
+      );
+    });
+
+    it('a measured 0 is a LOSER, not an unmeasured skill — it is demoted first', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const settings = atCap(store, residents('unmeasured', 'zero'));
+      (store.getWinRates as jest.Mock).mockReturnValue([
+        rate('unmeasured', null),
+        rate('zero', 0),
+      ]);
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, settings);
+
+      expect(decision.evictedSkillId).toBe('zero');
+      expect(store.setResidency).not.toHaveBeenCalledWith(
+        'unmeasured',
+        'dormant',
+      );
+    });
+
+    it('still demotes on the decay order when the win-rate read throws', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const settings = atCap(store, residents('weakest', 'stronger'));
+      (store.getWinRates as jest.Mock).mockImplementation(() => {
+        throw new Error('no such table: skill_session_verdicts');
+      });
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, settings);
+
+      expect(decision.promoted).toBe(true);
+      expect(decision.evictedSkillId).toBe('weakest');
+      expect(store.setResidency).toHaveBeenCalledWith('weakest', 'dormant');
+    });
+
+    it('never demotes an authored skill, even with the worst win rate in the library', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const settings = atCap(store, residents('orchestrate', 'loser'));
+      (store.getWinRates as jest.Mock).mockReturnValue([
+        rate('orchestrate', 0),
+        rate('loser', 0.2),
+      ]);
+      const registry = {
+        listAuthoredSlugs: jest.fn(() => new Set(['orchestrate'])),
+      } as unknown as ConstructorParameters<typeof SkillPromotionService>[5];
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+        registry,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, settings);
+
+      expect(decision.evictedSkillId).toBe('loser');
+      expect(store.setResidency).not.toHaveBeenCalledWith(
+        'orchestrate',
+        'dormant',
+      );
+    });
+
+    it('demotes — never rejects — the skill the win-rate order picked', async () => {
+      const store = makeStore(row({ successCount: 3 }));
+      const settings = atCap(store, residents('unmeasured', 'loser'));
+      (store.getWinRates as jest.Mock).mockReturnValue([
+        rate('loser', 0.2),
+        rate('unmeasured', null),
+      ]);
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      await svc.evaluate('cand_test' as CandidateId, settings);
+
+      expect(store.updateStatus).not.toHaveBeenCalledWith(
+        'loser',
+        'rejected',
+        expect.anything(),
+      );
+    });
   });
 
   // ─── B1.6.2: the judge gate persists a verdict and never fabricates one ────

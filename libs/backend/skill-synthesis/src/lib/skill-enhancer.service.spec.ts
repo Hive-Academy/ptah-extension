@@ -4,6 +4,8 @@ import {
   ProposalNotFoundError,
   PROPOSAL_TTL_MS,
   MAX_CACHED_PROPOSALS,
+  MAX_WIN_RATE_TO_AUTO_ENHANCE,
+  MIN_INVOCATIONS_TO_ENHANCE,
 } from './skill-enhancer.service';
 import type { SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
@@ -89,6 +91,7 @@ interface Harness {
   candidates: {
     getInvocationStats: jest.Mock;
     getRecentSessionsForSlug: jest.Mock;
+    getWinRates: jest.Mock;
   };
   registry: { getBySlug: jest.Mock; markEnhanced: jest.Mock };
   judge: { judge: jest.Mock };
@@ -114,6 +117,12 @@ function makeHarness(opts: {
   scorecardCard?: AgentScorecard;
   /** When true, the scorecard service is not injected (dependency absent). */
   scorecardAbsent?: boolean;
+  /**
+   * The clone's MEASURED win rate. `undefined` (the default) means the store
+   * reports nothing for this slug at all — unmeasured, which must leave the
+   * eligibility decision to the invocation floor alone.
+   */
+  winRate?: number | null;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(() => ''),
@@ -154,6 +163,19 @@ function makeHarness(opts: {
         },
     ),
     getRecentSessionsForSlug: jest.fn(() => ['sess-1']),
+    getWinRates: jest.fn(() =>
+      opts.winRate === undefined
+        ? []
+        : [
+            {
+              slug: 'deep-research',
+              invocations: 5,
+              wins: opts.winRate === null ? 0 : Math.round(opts.winRate * 5),
+              unknown: opts.winRate === null ? 5 : 0,
+              winRate: opts.winRate,
+            },
+          ],
+    ),
   };
   const registry = {
     getBySlug: jest.fn(() => ({
@@ -1224,5 +1246,191 @@ describe('SkillEnhancerService — preview-before-apply', () => {
     expect(result.changed).toBe(false);
     expect(result.skipReason).toBe('error');
     expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+  });
+});
+
+// ─── B4.3.2: win rate as an auto-enhance eligibility input ──────────────────
+
+describe('SkillEnhancerService — win rate as an eligibility input', () => {
+  const PASS: JudgeDecision = {
+    status: 'scored',
+    score: 8,
+    criteria: null,
+    reason: 'judge-verdict',
+  };
+  const IMPROVED =
+    '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body';
+
+  /** Enough recorded usage that only the win rate can decide. */
+  const USED = {
+    total: MIN_INVOCATIONS_TO_ENHANCE + 5,
+    succeeded: 4,
+    failed: 6,
+    distinctContexts: 3,
+  };
+
+  function harness(winRate: number | null | undefined) {
+    return makeHarness({
+      judgeDecision: PASS,
+      candidateText: IMPROVED,
+      stats: USED,
+      winRate,
+    });
+  }
+
+  beforeEach(() => jest.clearAllMocks());
+
+  describe('isEligible', () => {
+    it('blocks a clone whose MEASURED win rate is at or above the ceiling', () => {
+      const h = harness(0.9);
+      expect(h.svc.isEligible('deep-research', makeSettings())).toBe(false);
+    });
+
+    it('blocks exactly AT the ceiling (>=, not >)', () => {
+      const h = harness(MAX_WIN_RATE_TO_AUTO_ENHANCE);
+      expect(h.svc.isEligible('deep-research', makeSettings())).toBe(false);
+    });
+
+    it('allows just below the ceiling', () => {
+      const h = harness(MAX_WIN_RATE_TO_AUTO_ENHANCE - 0.01);
+      expect(h.svc.isEligible('deep-research', makeSettings())).toBe(true);
+    });
+
+    it('allows an UNMEASURED clone — null does not gate, the invocation floor decides', () => {
+      // The store reports nothing at all for this slug.
+      expect(
+        harness(undefined).svc.isEligible('deep-research', makeSettings()),
+      ).toBe(true);
+      // ...and an explicit `winRate: null` row means the same thing.
+      expect(
+        harness(null).svc.isEligible('deep-research', makeSettings()),
+      ).toBe(true);
+    });
+
+    it('allows a MEASURED 0 — the loser is exactly what enhancement is for', () => {
+      const h = harness(0);
+      expect(h.svc.isEligible('deep-research', makeSettings())).toBe(true);
+    });
+
+    it('keeps MIN_INVOCATIONS_TO_ENHANCE: too little usage still blocks, measured or not', () => {
+      const thin = {
+        total: MIN_INVOCATIONS_TO_ENHANCE - 1,
+        succeeded: 1,
+        failed: 3,
+        distinctContexts: 1,
+      };
+      const unmeasured = makeHarness({
+        judgeDecision: PASS,
+        candidateText: IMPROVED,
+        stats: thin,
+      });
+      const losing = makeHarness({
+        judgeDecision: PASS,
+        candidateText: IMPROVED,
+        stats: thin,
+        winRate: 0.1,
+      });
+
+      expect(unmeasured.svc.isEligible('deep-research', makeSettings())).toBe(
+        false,
+      );
+      expect(losing.svc.isEligible('deep-research', makeSettings())).toBe(
+        false,
+      );
+    });
+
+    it('treats a failed win-rate read as unmeasured rather than as a verdict', () => {
+      const h = harness(0.9);
+      h.candidates.getWinRates.mockImplementation(() => {
+        throw new Error('no such table: skill_session_verdicts');
+      });
+      expect(h.svc.isEligible('deep-research', makeSettings())).toBe(true);
+    });
+  });
+
+  describe('generateProposal', () => {
+    it('skips a winning clone with win-rate-sufficient and spends no LLM call', async () => {
+      const h = harness(0.9);
+
+      const result = await h.svc.generateProposal(
+        'deep-research',
+        makeSettings(),
+      );
+
+      expect(result.proposed).toBe(false);
+      expect(result.proposalId).toBeNull();
+      expect(result.skipReason).toBe('win-rate-sufficient');
+      expect(h.internalQuery.execute).not.toHaveBeenCalled();
+      expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+    });
+
+    it('manual bypasses the win-rate gate exactly as it bypasses the invocation floor', async () => {
+      const h = harness(0.95);
+
+      const result = await h.svc.generateProposal(
+        'deep-research',
+        makeSettings(),
+        { manual: true },
+      );
+
+      expect(result.proposed).toBe(true);
+      expect(result.skipReason).toBeUndefined();
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('proceeds for an UNMEASURED clone (null is not a high win rate)', async () => {
+      const h = harness(null);
+
+      const result = await h.svc.generateProposal(
+        'deep-research',
+        makeSettings(),
+      );
+
+      expect(result.proposed).toBe(true);
+      expect(result.skipReason).toBeUndefined();
+    });
+
+    it('proceeds for a MEASURED 0 (0 is not "unmeasured")', async () => {
+      const h = harness(0);
+
+      const result = await h.svc.generateProposal(
+        'deep-research',
+        makeSettings(),
+      );
+
+      expect(result.proposed).toBe(true);
+      expect(result.skipReason).toBeUndefined();
+    });
+
+    it('reports below-threshold, not win-rate-sufficient, when both would block', async () => {
+      const h = makeHarness({
+        judgeDecision: PASS,
+        candidateText: IMPROVED,
+        stats: {
+          total: MIN_INVOCATIONS_TO_ENHANCE - 1,
+          succeeded: 1,
+          failed: 0,
+          distinctContexts: 1,
+        },
+        winRate: 0.95,
+      });
+
+      const result = await h.svc.generateProposal(
+        'deep-research',
+        makeSettings(),
+      );
+
+      expect(result.skipReason).toBe('below-threshold');
+    });
+
+    it('enhance() surfaces the win-rate skip to its caller', async () => {
+      const h = harness(0.9);
+
+      const result = await h.svc.enhance('deep-research', makeSettings());
+
+      expect(result.changed).toBe(false);
+      expect(result.skipReason).toBe('win-rate-sufficient');
+      expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+    });
   });
 });

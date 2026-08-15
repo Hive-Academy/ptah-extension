@@ -7,8 +7,9 @@
  *                 was stored at registration time, dedup degrades to a no-op
  *                 (architecture §11 Q-fallback).
  *  3. Cap:        active skills <= settings.maxActiveSkills (default 50);
- *                 over-cap → LRU eviction by activity score (least active
- *                 promoted skill is rejected with reason='lru-cap-eviction').
+ *                 over-cap → the weakest non-authored resident is DEMOTED to
+ *                 dormant (never rejected), ordered by measured win rate
+ *                 ascending with NULLS LAST — see {@link orderForDemotion}.
  *
  * Materializes SKILL.md at the active root and updates `body_path` on the row.
  */
@@ -223,7 +224,14 @@ export class SkillPromotionService {
     );
     if (activeResident.length >= settings.maxActiveSkills) {
       const authoredSlugs = this.authoredSlugs();
-      const weakest = activeResident.find((r) => !authoredSlugs.has(r.name));
+      const demotable = activeResident.filter(
+        (r) => !authoredSlugs.has(r.name),
+      );
+      const winRates =
+        demotable.length > 0
+          ? this.winRatesBySlug()
+          : new Map<string, number | null>();
+      const weakest = orderForDemotion(demotable, winRates).at(0);
       if (weakest) {
         this.store.setResidency(weakest.id, 'dormant');
         evictedSkillId = weakest.id;
@@ -232,6 +240,9 @@ export class SkillPromotionService {
           {
             demoted: weakest.id,
             demotedName: weakest.name,
+            // `null` = never measured; it is why this row sorted LAST among the
+            // demotable set and was reached anyway.
+            demotedWinRate: winRates.get(weakest.name) ?? null,
             residentCount: activeResident.length,
             cap: settings.maxActiveSkills,
           },
@@ -431,6 +442,32 @@ export class SkillPromotionService {
     return null;
   }
 
+  /**
+   * Measured win rate per slug, for the demotion ordering.
+   *
+   * A missing entry and a stored `null` mean the same thing — never measured —
+   * so callers read this map with `?? null` and never with `||`, which would
+   * fold a measured `0` into the unmeasured bucket and demote the loser last.
+   *
+   * Fail-soft in the same shape as {@link authoredSlugs}: an empty map means
+   * every resident is unmeasured, the ordering collapses to the decay-score
+   * order the store already returned, and the demotion still happens. A cap
+   * breach must not be left unresolved because a read failed.
+   */
+  private winRatesBySlug(): ReadonlyMap<string, number | null> {
+    try {
+      return new Map(
+        this.store.getWinRates().map((rate) => [rate.slug, rate.winRate]),
+      );
+    } catch (err) {
+      this.logger.warn(
+        '[skill-synthesis] failed to read win rates (demoting on decay score alone)',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      return new Map<string, number | null>();
+    }
+  }
+
   private authoredSlugs(): Set<string> {
     if (!this.registry) return new Set<string>();
     try {
@@ -465,6 +502,55 @@ export class SkillPromotionService {
   private readCandidateBody(candidate: SkillCandidateRow): string {
     return readCandidateBodyOf(candidate, this.logger);
   }
+}
+
+/**
+ * Order the demotable residents worst-first: **win rate ASCENDING, NULLS LAST.**
+ *
+ * ## NULLS LAST IS THE WHOLE RULE
+ *
+ * `null` is "nobody has measured this skill"; `0` is "measured, and it lost
+ * every time". Demotion touches the head of this list, so an unmeasured skill
+ * must sort AFTER a measured loser — it is the one we know least about, and
+ * demoting it ahead of a skill we have watched fail throws away the only
+ * candidate that might still be good. Sorting nulls first (which is what any
+ * `winRate ?? 0`, `winRate || 0` or a bare `a - b` over nullables produces)
+ * inverts exactly that and reads as the ordering working.
+ *
+ * The comparator tests `=== null` explicitly rather than leaning on falsiness,
+ * for the same reason `applyReplayGate` writes `!== null` before it compares:
+ * `0` is falsy and is a real measurement, so any truthiness test here silently
+ * promotes the worst skill in the library out of the demotion queue.
+ *
+ * The sort is STABLE (ES2019+), and the input arrives already ordered by decay
+ * score weakest-first — so the activity ordering survives intact as the
+ * tiebreaker, and a library where nothing is measured yet demotes exactly what
+ * it demoted before this rule existed.
+ *
+ * A slug absent from `winRates` is unmeasured, read with `??` so a stored `null`
+ * and a missing key resolve identically.
+ */
+export function orderForDemotion(
+  residents: readonly SkillCandidateRow[],
+  winRates: ReadonlyMap<string, number | null>,
+): SkillCandidateRow[] {
+  return [...residents].sort((a, b) =>
+    compareWinRateAscNullsLast(
+      winRates.get(a.name) ?? null,
+      winRates.get(b.name) ?? null,
+    ),
+  );
+}
+
+/** Ascending, with `null` (never measured) sorting after every number. */
+function compareWinRateAscNullsLast(
+  a: number | null,
+  b: number | null,
+): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
 }
 
 /**
