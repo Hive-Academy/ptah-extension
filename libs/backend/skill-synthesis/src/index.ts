@@ -350,6 +350,36 @@ export {
   type JudgeLensNeighbour,
   type JudgeLensMeasurements,
 } from './lib/gates/judge-lens';
+// --- Phase 4: the weekly gap digest ---------------------------------------
+// The four sweeps rank, evidence and nudge; they promote nothing. `winRate` is
+// `number | null` on every surface here and `null` is never `0` — see
+// `digest.types.ts` and `scoreForWinRate`.
+export {
+  DIGEST_ITEM_KINDS,
+  DIGEST_WIN_EVIDENCE_CLASSES,
+  isWinEvidence,
+  type DigestItem,
+  type DigestItemKind,
+  type DigestEvidence,
+} from './lib/digest/digest.types';
+export {
+  SkillGapCuratorService,
+  compareDigestItems,
+  scoreForWinRate,
+  DIGEST_DEFAULT_LIMIT,
+  DIGEST_EVIDENCE_SESSION_CAP,
+  DIGEST_FRICTION_MIN_SESSIONS,
+  DIGEST_MIN_RELEVANCE,
+  DIGEST_TRIGGER_CLAUSE_PREFIX,
+  DIGEST_WIN_RATE_MEASURED_BASE,
+  DIGEST_WIN_RATE_UNMEASURED,
+  DIGEST_WIN_RATE_WEIGHT,
+  type DigestRequest,
+} from './lib/digest/skill-gap-curator.service';
+// `SkillWinRate` lives on the store (B4.1 could not edit `types.ts`); exported
+// here because the digest is its first cross-lib consumer.
+export type { SkillWinRate } from './lib/skill-candidate.store';
+
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

@@ -50,6 +50,7 @@ import { ReplayValidatorService } from '../gates/replay-validator.service';
 import { TriggerEvalService } from '../gates/trigger-eval.service';
 import { JudgePanelService } from '../gates/judge-panel.service';
 import { CandidateNamerService } from '../naming/candidate-namer.service';
+import { SkillGapCuratorService } from '../digest/skill-gap-curator.service';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
@@ -91,6 +92,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(TriggerEvalService);
   container.registerSingleton(JudgePanelService);
   container.registerSingleton(CandidateNamerService);
+  container.registerSingleton(SkillGapCuratorService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -183,6 +185,9 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.CANDIDATE_NAMER_SERVICE, {
     useToken: CandidateNamerService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_GAP_CURATOR_SERVICE, {
+    useToken: SkillGapCuratorService,
   });
   container.register(SKILL_REPROPAGATION_TOKEN, {
     useClass: NoOpSkillRepropagation,

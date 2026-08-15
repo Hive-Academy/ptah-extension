@@ -127,6 +127,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   TRIGGER_EVAL_SERVICE: Symbol.for('PtahSkillTriggerEvalService'),
   /** JudgePanelService — two judges on one lane, escalated on disagreement. */
   JUDGE_PANEL_SERVICE: Symbol.for('PtahSkillJudgePanelService'),
+  /** SkillGapCuratorService — the four sweeps behind the weekly gap digest. */
+  SKILL_GAP_CURATOR_SERVICE: Symbol.for('PtahSkillGapCuratorService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;
