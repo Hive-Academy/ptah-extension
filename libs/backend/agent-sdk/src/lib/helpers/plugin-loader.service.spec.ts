@@ -300,6 +300,33 @@ describe('PluginLoaderService.getAvailablePlugins (marketplace visibility)', () 
     expect(plugins.map((p) => p.id)).toContain('ptah-core');
   });
 
+  it('counts a bundled plugin skills from disk rather than the catalogue constant', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        skills: {
+          'ptah-core': [{ dir: 'orchestration' }, { dir: 'humanize-library' }],
+        },
+      }),
+    );
+
+    const core = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-core');
+
+    expect(core?.skillCount).toBe(2);
+  });
+
+  it('falls back to the catalogue count when the plugin has not been downloaded yet', () => {
+    const h = track(makeHarness({ bundledDirs: [] }));
+
+    const core = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-core');
+
+    expect(core?.skillCount).toBeGreaterThan(0);
+  });
+
   it('appends a discovered harness plugin with a slug-derived name and real skill count', () => {
     const h = track(
       makeHarness({

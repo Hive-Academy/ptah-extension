@@ -53,12 +53,23 @@ const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
     id: 'ptah-core',
     name: 'Ptah Core',
     description:
-      'Core development tools including orchestration, code review, testing, and documentation agents',
+      'Core development tools including orchestration, behavior-preserving refactoring, code review, testing, and documentation agents',
     category: 'core-tools',
-    skillCount: 6,
+    skillCount: 8,
     commandCount: 5,
     isDefault: true,
-    keywords: ['orchestrate', 'review', 'test', 'document', 'core'],
+    keywords: [
+      'orchestrate',
+      'review',
+      'test',
+      'document',
+      'core',
+      'humanize',
+      'refactor',
+      'cleanup',
+      'solid',
+      'duplication',
+    ],
   },
   {
     id: 'ptah-nx-saas',
@@ -237,10 +248,33 @@ export class PluginLoaderService {
   getAvailablePlugins(): PluginInfo[] {
     const bundled: PluginInfo[] = AVAILABLE_PLUGINS.map((plugin) => ({
       ...plugin,
+      skillCount: this.countBundledSkills(plugin.id) ?? plugin.skillCount,
       source: 'bundled' as const,
     }));
 
     return [...bundled, ...this.describeHarnessPlugins()];
+  }
+
+  /**
+   * Real skill count for a bundled plugin, or null when it cannot be counted.
+   *
+   * The catalogue number above is a pre-download placeholder — bundled plugins
+   * ship from GitHub at runtime, so before the first download there is no
+   * `skills/` tree to read. Once there is one, disk wins.
+   *
+   * This exists because the browser modal renders the count as a badge and the
+   * per-skill list underneath it from `plugins:list-skills`, which has always
+   * read disk. A hand-maintained constant drifts the first time someone adds a
+   * skill without bumping it, and the badge then contradicts the list directly
+   * below itself.
+   */
+  private countBundledSkills(pluginId: string): number | null {
+    if (!this.pluginsBasePath) return null;
+
+    const pluginPath = path.join(this.pluginsBasePath, pluginId);
+    if (!fs.existsSync(path.join(pluginPath, 'skills'))) return null;
+
+    return this.discoverSkillsForPlugins([pluginPath]).length;
   }
 
   /**

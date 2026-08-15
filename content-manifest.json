@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:8bee40f9cae7b8d3a3046553bc10e82e226d3a1ce395b9f6c040d89891b13646",
-  "generatedAt": "2026-08-14T21:06:44.669Z",
+  "contentHash": "sha256:7fd75b013feaccf2aa657bcbdb1c9df8e4021fff94a6f0b95db0376bc6f143bb",
+  "generatedAt": "2026-08-15T15:46:58.092Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -57,6 +57,11 @@
       "ptah-core/skills/ddd-architecture/references/entities-aggregates.md",
       "ptah-core/skills/ddd-architecture/references/repository-pattern.md",
       "ptah-core/skills/ddd-architecture/references/value-objects.md",
+      "ptah-core/skills/humanize-library/SKILL.md",
+      "ptah-core/skills/humanize-library/references/discover-the-repo.md",
+      "ptah-core/skills/humanize-library/references/quality-rubric.md",
+      "ptah-core/skills/humanize-library/references/refactor-recipes.md",
+      "ptah-core/skills/humanize-library/scripts/analyze_library.mjs",
       "ptah-core/skills/orchestration/SKILL.md",
       "ptah-core/skills/orchestration/examples/bugfix-trace.md",
       "ptah-core/skills/orchestration/examples/creative-trace.md",
