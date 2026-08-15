@@ -51,6 +51,8 @@ import {
   type SkillQueueRow,
   type SkillBudgetStore,
   type SkillBudgetStageDay,
+  type SkillGapCuratorService,
+  type DigestItem,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -151,6 +153,9 @@ import type {
   SkillSynthesisQueueParams,
   SkillSynthesisQueueResult,
   SkillSynthesisQueueItem,
+  SkillSynthesisDigestParams,
+  SkillSynthesisDigestResult,
+  SkillDigestItem,
   SkillSynthesisStageSpend,
   SkillSynthesisDrainRun,
   SkillDrainTier,
@@ -159,6 +164,7 @@ import type {
   SkillSuggestionDetail,
   CloneSummary,
   SkillCloneKind,
+  AgentScorecard,
 } from '@ptah-extension/shared';
 import { SKILL_DRAIN_JOB_IDS, SKILL_DRAIN_TIERS } from '@ptah-extension/shared';
 import { RpcUserError } from '@ptah-extension/vscode-core';
@@ -194,6 +200,8 @@ import {
   RejectByPatternParamsSchema,
   ClearStaleSpecsParamsSchema,
   SkillQueueParamsSchema,
+  SkillDigestParamsSchema,
+  SkillDigestItemsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
 } from './skills-synthesis-rpc.schema';
@@ -264,6 +272,7 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:harvestSpecs',
     'skillSynthesis:clearStaleSpecs',
     'skillSynthesis:queue',
+    'skillSynthesis:digest',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -314,6 +323,19 @@ export class SkillsSynthesisRpcHandlers {
     // No scheduler simply means no run history to show — not an error.
     @inject(CRON_TOKENS.CRON_SCHEDULER, { isOptional: true })
     private readonly cron: CronScheduler | null,
+    // Optional on purpose, and the reason is not symmetry with the scorecard
+    // above. The gap curator reads three stores (candidates, verdicts,
+    // suggestions) plus an optional memory reader, so a host that registered
+    // only part of the skill-synthesis surface can resolve this class without
+    // it — and an optional binding is also what keeps the FIVE existing
+    // container-construction sites across `skills-synthesis-rpc.handlers.spec`
+    // and `.queue.spec` compiling untouched: tsyringe returns `undefined` for
+    // an unregistered symbol token under `isOptional`, where a required
+    // injection would throw in every one of them.
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_GAP_CURATOR_SERVICE, {
+      isOptional: true,
+    })
+    private readonly gapCurator: SkillGapCuratorService | null,
   ) {}
 
   register(): void {
@@ -358,6 +380,7 @@ export class SkillsSynthesisRpcHandlers {
     this.registerHarvestSpecs();
     this.registerClearStaleSpecs();
     this.registerQueue();
+    this.registerDigest();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -1296,8 +1319,27 @@ export class SkillsSynthesisRpcHandlers {
           // a typed empty map rather than throwing.
           return { scorecards: {} };
         }
+        // Two passes on purpose: the aggregate and the win rate answer
+        // different questions from different joins, and `getWinRates`' `null`
+        // is a value the aggregate query has no room for (B4.3's own header).
+        // Merging them here is what makes the number reachable by a UI at all
+        // — B4.3 left it as a backend-only signal.
         const scorecards = this.scorecard.getScorecards(parsed.slugs);
-        return { scorecards };
+        const winRates = this.scorecard.getWinRates(parsed.slugs);
+        const merged: Record<string, AgentScorecard> = {};
+        for (const [slug, card] of Object.entries(scorecards)) {
+          const measured = winRates[slug];
+          // Explicit `=== undefined`, not `?.winRate ?? null` and never `||`:
+          // an absent ROW ("this slug has no invocation events") and a present
+          // row carrying `null` ("invoked, nothing settled") are both
+          // unmeasured, but a present row carrying `0` is a measured LOSS and
+          // must survive as `0`.
+          merged[slug] = {
+            ...card,
+            winRate: measured === undefined ? null : measured.winRate,
+          };
+        }
+        return { scorecards: merged };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
         this.report(error, 'SkillsSynthesisRpcHandlers.registerGetScorecards');
@@ -1653,6 +1695,53 @@ export class SkillsSynthesisRpcHandlers {
         if (error instanceof RpcUserError) throw error;
         this.report(error, 'SkillsSynthesisRpcHandlers.registerQueue');
         throw this.toUserError('skillSynthesis:queue');
+      }
+    });
+  }
+
+  /**
+   * `skillSynthesis:digest` — the weekly gap digest, ranked and evidenced
+   * (TASK_2026_180 Phase 4, task B4.4.2).
+   *
+   * A READ, and only a read. The curator promotes, rejects and deletes nothing;
+   * this method hands its ranking to the UI so the user can act on it. The
+   * items arrive already sorted by `score` DESCENDING and this method NEVER
+   * re-sorts them — the tie-break the curator applies (kind order, then title)
+   * is what makes two identical runs produce identical digests, and a second
+   * sort here would drop that and make the panel untestable.
+   *
+   * A host without the curator registered gets an empty digest rather than an
+   * error: the gap digest is a nudge surface, and "nothing to show" is a true
+   * statement on a host that never swept.
+   */
+  private registerDigest(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisDigestParams,
+      SkillSynthesisDigestResult
+    >('skillSynthesis:digest', async (params) => {
+      const parsed = this.parseParams(
+        SkillDigestParamsSchema,
+        params,
+        'skillSynthesis:digest',
+      );
+      try {
+        if (!this.gapCurator) return { items: [] };
+        // `??`, never `||`: an explicit `''` is the cross-project feed and is a
+        // different request from omitting the field, which asks for this host's
+        // workspace. `||` would silently promote the first to the second.
+        const workspaceRoot =
+          parsed?.workspaceRoot ??
+          this.workspaceProvider.getWorkspaceRoot() ??
+          '';
+        const items = await this.gapCurator.runDigest({
+          workspaceRoot,
+          limit: parsed?.limit,
+        });
+        return { items: SkillDigestItemsSchema.parse(items.map(toDigestItem)) };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerDigest');
+        throw this.toUserError('skillSynthesis:digest');
       }
     });
   }
@@ -2145,6 +2234,36 @@ function toDrainRun(run: JobRun, tier: SkillDrainTier): SkillSynthesisDrainRun {
         ? run.endedAt - run.startedAt
         : null,
     summary: run.resultSummary,
+  };
+}
+
+/**
+ * Curator item → wire item.
+ *
+ * `winRate` IS COPIED, NEVER COALESCED. `null` means nobody measured this
+ * skill; `0` means it was measured and lost every measured session. `0` is
+ * falsy, so a `??  0` or a `|| 0` on this one line would retitle every measured
+ * failure in the digest as an absent measurement — and because the result would
+ * still typecheck and still render, nothing downstream could tell. Pinned by
+ * `skills-synthesis-rpc.digest.spec.ts`, which asserts `toBeNull()` rather than
+ * `toBeFalsy()` for exactly this reason.
+ *
+ * The `readonly` arrays are copied into mutable ones because the wire type is
+ * mutable and the curator hands the SAME `sessionIds` array to every consumer;
+ * handing it straight through would let a renderer that sorted it in place
+ * reorder another consumer's evidence.
+ */
+function toDigestItem(item: DigestItem): SkillDigestItem {
+  return {
+    kind: item.kind,
+    title: item.title,
+    rationale: item.rationale,
+    score: item.score,
+    evidence: {
+      sessionIds: [...item.evidence.sessionIds],
+      counts: { ...item.evidence.counts },
+      winRate: item.evidence.winRate,
+    },
   };
 }
 

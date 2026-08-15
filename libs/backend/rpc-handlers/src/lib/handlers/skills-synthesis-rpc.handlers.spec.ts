@@ -185,6 +185,9 @@ function emptyScorecard(slug: string) {
 function makeScorecard() {
   return {
     getScorecards: jest.fn().mockReturnValue({}),
+    // B4.4.3: `skillSynthesis:getScorecards` now merges the win-rate pass into
+    // the aggregate, so the double has to answer both calls.
+    getWinRates: jest.fn().mockReturnValue({}),
     getScorecardDetail: jest
       .fn()
       .mockResolvedValue({ slug: '', rows: [], findingsExcerpt: null }),
@@ -1165,6 +1168,51 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       totalInvocations: 0,
       gradedSuccessRate: null,
     });
+  });
+
+  // B4.4.3 — the win-rate merge. Three inputs, and the whole point is that they
+  // do NOT collapse into two: a measured `0` is a skill that lost every settled
+  // session, while both a stored `null` and an ABSENT row mean nobody measured
+  // it. `0` is falsy, so a `||` on this path retitles the measured loser as
+  // unmeasured and the dormancy ranking downstream then demotes the wrong skill.
+  // Asserted with toBe(0)/toBeNull(), never toBeFalsy(), which passes for both.
+  it('merges win rate onto the card, keeping a measured 0 distinct from unmeasured', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockReturnValue({
+      'measured-loser': emptyScorecard('measured-loser'),
+      'never-settled': emptyScorecard('never-settled'),
+      'no-events-at-all': emptyScorecard('no-events-at-all'),
+    });
+    scorecard.getWinRates.mockReturnValue({
+      'measured-loser': {
+        slug: 'measured-loser',
+        invocations: 3,
+        wins: 0,
+        unknown: 0,
+        winRate: 0,
+      },
+      'never-settled': {
+        slug: 'never-settled',
+        invocations: 2,
+        wins: 0,
+        unknown: 2,
+        winRate: null,
+      },
+      // 'no-events-at-all' is deliberately absent from the map.
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['measured-loser', 'never-settled', 'no-events-at-all'],
+    })) as { scorecards: Record<string, { winRate?: number | null }> };
+
+    expect(result.scorecards['measured-loser'].winRate).toBe(0);
+    expect(result.scorecards['never-settled'].winRate).toBeNull();
+    expect(result.scorecards['no-events-at-all'].winRate).toBeNull();
+    expect(scorecard.getWinRates).toHaveBeenCalledWith([
+      'measured-loser',
+      'never-settled',
+      'no-events-at-all',
+    ]);
   });
 
   it('returns {} scorecards when the scorecard service is unbound', async () => {

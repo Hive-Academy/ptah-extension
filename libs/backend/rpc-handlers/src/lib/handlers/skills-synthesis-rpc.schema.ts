@@ -6,6 +6,7 @@
  * are coerced to numbers before validation.
  */
 import { z } from 'zod';
+import type { SkillDigestItemKind } from '@ptah-extension/shared';
 
 /**
  * A croner-compatible 5- or 6-field expression.
@@ -429,6 +430,70 @@ export const SkillQueueParamsSchema = z
   .optional();
 
 export type SkillQueueParams = z.infer<typeof SkillQueueParamsSchema>;
+
+/**
+ * Params for `skillSynthesis:digest` — the weekly gap digest read
+ * (TASK_2026_180 Phase 4, task B4.4.2).
+ *
+ * `workspaceRoot` is `.optional()` but NOT defaulted: omitting it asks for the
+ * host's current workspace, while an explicit `''` is the cross-project feed.
+ * A `.default('')` here would collapse those two different requests into the
+ * second one and quietly widen every caller's sweep.
+ *
+ * `.optional()` on the object too, because the panel's first paint calls this
+ * with no params at all.
+ */
+export const SkillDigestParamsSchema = z
+  .object({
+    workspaceRoot: z.string().max(4096).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .optional();
+
+export type SkillDigestParams = z.infer<typeof SkillDigestParamsSchema>;
+
+/**
+ * The OUTBOUND wire shape of one digest item.
+ *
+ * Unusual for this file — the other schemas guard params — and deliberate. The
+ * items are produced by `SkillGapCuratorService` in another lib and reshaped
+ * here, so this is the boundary where the digest's two structural promises are
+ * actually checkable: every item carries receipts, and the win rate survives
+ * the trip.
+ *
+ * TWO RULES ARE THE POINT OF THIS SCHEMA:
+ *
+ *  1. `winRate` is `.nullable()` with NO `.default(0)` and no coalescing.
+ *     `null` means nobody measured; `0` means measured and it lost every time.
+ *     A default here would erase that distinction for every consumer at once,
+ *     and because `0` is falsy nothing downstream could tell it had happened.
+ *  2. `sessionIds` is `.min(1)`. An item nobody can trace back to real sessions
+ *     is an opinion, and the digest has no way to earn trust from opinions —
+ *     `DigestEvidence`'s own header says the array is never empty, and all four
+ *     sweeps filter on it. Enforcing it here turns a contract violation into a
+ *     legible failure instead of an empty evidence list in the UI.
+ */
+const DIGEST_ITEM_KIND_VALUES = [
+  'missed-trigger',
+  'friction-opportunity',
+  'win-rate',
+  'memory-signal',
+] as const satisfies readonly SkillDigestItemKind[];
+
+export const SkillDigestItemSchema = z.object({
+  kind: z.enum(DIGEST_ITEM_KIND_VALUES),
+  title: z.string().min(1).max(500),
+  rationale: z.string().min(1).max(4000),
+  score: z.number().min(0).max(1),
+  evidence: z.object({
+    sessionIds: z.array(z.string().min(1).max(200)).min(1),
+    counts: z.record(z.string(), z.number()),
+    winRate: z.number().min(0).max(1).nullable(),
+  }),
+});
+
+/** The full outbound array, ranked. Order is preserved — never re-sorted here. */
+export const SkillDigestItemsSchema = z.array(SkillDigestItemSchema);
 
 export const ListSpecsParamsSchema = z.object({}).strict().optional();
 

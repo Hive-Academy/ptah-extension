@@ -1681,6 +1681,10 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisQueueParams;
     result: SkillSynthesisQueueResult;
   };
+  'skillSynthesis:digest': {
+    params: SkillSynthesisDigestParams;
+    result: SkillSynthesisDigestResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -2318,6 +2322,74 @@ export interface SkillSynthesisQueueResult {
   recentRuns: SkillSynthesisDrainRun[];
   /** Today's UTC token ledger, one entry per stage, heaviest first. */
   stageSpend: SkillSynthesisStageSpend[];
+}
+
+/**
+ * Which sweep produced a digest item (TASK_2026_180 Phase 4).
+ *
+ * The wire restatement of `DigestItemKind` in `@ptah-extension/skill-synthesis`,
+ * which `libs/shared` may not import. The names carry the `SkillDigest` prefix
+ * rather than the backend's bare `DigestItem` because the RPC handler imports
+ * BOTH sides into one file to map between them, and two `DigestItem`s in one
+ * import list is a rename waiting to be got wrong.
+ */
+export type SkillDigestItemKind =
+  | 'missed-trigger'
+  | 'friction-opportunity'
+  | 'win-rate'
+  | 'memory-signal';
+
+/**
+ * The receipts behind one digest item.
+ *
+ * `winRate` IS `number | null` AND `null` IS NEVER `0`. `null` means nobody has
+ * measured this skill; `0` means it was measured and lost every measured
+ * session. `0` is falsy, so `winRate || x` anywhere on this path silently
+ * retitles a measured failure as an absent measurement — use `??` or an
+ * explicit `=== null`. The backend half of this rule lives on
+ * `SkillCandidateStore.getWinRates()` and `scoreForWinRate`; this is the same
+ * rule at the wire.
+ */
+export interface SkillDigestEvidence {
+  /** Sessions that justify the item. NEVER empty — an item with no receipts is not filed. */
+  sessionIds: string[];
+  /** Per-kind tallies (`missedSessions`, `retry`, `invocations`, `memoryHits`, …). */
+  counts: Record<string, number>;
+  /** `wins / measured` for the skill involved; `null` = unmeasured, NEVER `0`. */
+  winRate: number | null;
+}
+
+/**
+ * One ranked nudge. `score` is a 0–1 attention weight and the digest arrives
+ * sorted by it DESCENDING; it is not a quality score and carries no unit beyond
+ * "look at this one first". A digest item is never an action — the user still
+ * accepts or dismisses.
+ */
+export interface SkillDigestItem {
+  kind: SkillDigestItemKind;
+  /** One short human-facing line. Safe to render as a heading. */
+  title: string;
+  /** Why this was surfaced, stated as measured facts rather than advice. */
+  rationale: string;
+  /** Attention weight, 0–1. Higher first. */
+  score: number;
+  evidence: SkillDigestEvidence;
+}
+
+export interface SkillSynthesisDigestParams {
+  /**
+   * The workspace whose sessions are swept. Omitted = the host's current
+   * workspace; `''` is the explicit cross-project feed and is NOT the same
+   * request as omitting the field.
+   */
+  workspaceRoot?: string;
+  /** Items returned after ranking. Defaults to the curator's own limit. */
+  limit?: number;
+}
+
+export interface SkillSynthesisDigestResult {
+  /** Ranked by `score` DESCENDING. The order is part of the contract. */
+  items: SkillDigestItem[];
 }
 
 export interface SkillSynthesisInvocationsParams {
@@ -3315,6 +3387,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:harvestSpecs': true,
   'skillSynthesis:clearStaleSpecs': true,
   'skillSynthesis:queue': true,
+  // TASK_2026_180 Phase 4 (correction C11). `skillSynthesis:` is ALREADY in
+  // `ALLOWED_METHOD_PREFIXES`, and that guard is per PREFIX — so the registry
+  // entry above plus this allow-map entry are the WHOLE of dual-registration
+  // for a new method in an existing namespace.
+  'skillSynthesis:digest': true,
 
   'cron:list': true,
   'cron:get': true,
