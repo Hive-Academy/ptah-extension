@@ -141,12 +141,21 @@ export class SkillJudgeService {
   /**
    * Evaluate a candidate. Returns a verdict, a stated inability to produce one,
    * or "the gate is off" — and never invents a number for the last two.
+   *
+   * @param lens Optional extra instruction, appended AFTER the rubric on the
+   * unclippable half. The judge panel's second panellist supplies one so that it
+   * asks a different QUESTION about the same artifact; every other caller omits
+   * it and gets today's behaviour byte for byte. It rides `systemPromptAppend`
+   * rather than `prompt` because `maxInputChars` clips `prompt`, and a clipped
+   * lens turns the second panellist silently back into the first — see
+   * `gates/judge-lens.ts`.
    */
   async judge(
     candidate: SkillCandidateRow,
     body: string,
     settings: SkillSynthesisSettings,
     context?: string,
+    lens?: string,
   ): Promise<JudgeDecision> {
     if (!settings.judgeEnabled) {
       return disabled(JUDGE_REASONS.disabled);
@@ -156,7 +165,7 @@ export class SkillJudgeService {
     try {
       result = await this.laneRunner.run({
         laneId: 'judge',
-        systemPromptAppend: JUDGE_RUBRIC,
+        systemPromptAppend: withLens(lens),
         prompt: buildJudgePrompt(candidate, body, context),
         outputSchema: JUDGE_VERDICT_JSON_SCHEMA,
       });
@@ -254,6 +263,18 @@ export function readJudgeVerdictObject(
   } catch {
     return null;
   }
+}
+
+/**
+ * The rubric, plus a caller's lens when there is one.
+ *
+ * The lens goes LAST so the five criteria and the 1-10 scale are established
+ * before anything narrows the question, and so the final line of the system
+ * prompt is still a "reply with ONLY JSON" instruction.
+ */
+function withLens(lens?: string): string {
+  const extra = lens?.trim() ?? '';
+  return extra.length === 0 ? JUDGE_RUBRIC : `${JUDGE_RUBRIC}\n\n${extra}`;
 }
 
 /** The variable half of the prompt — the only half the lane may clip. */

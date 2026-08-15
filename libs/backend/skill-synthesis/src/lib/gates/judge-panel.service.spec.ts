@@ -34,7 +34,7 @@
 import 'reflect-metadata';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
+import { MIGRATIONS, type IEmbedder } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   resolveOpener,
@@ -53,7 +53,11 @@ import { LaneRunnerService } from '../lanes/lane-runner.service';
 import type { LaneResolverService } from '../lanes/lane-resolver.service';
 import type { SkillLaneId, SkillLaneResolution } from '../lanes/lane.types';
 import { SkillCandidateStore } from '../skill-candidate.store';
-import { SkillJudgeService, JUDGE_REASONS } from '../skill-judge.service';
+import {
+  SkillJudgeService,
+  JUDGE_CRITERION_KEYS,
+  JUDGE_REASONS,
+} from '../skill-judge.service';
 import type {
   CandidateId,
   JudgePanelRationale,
@@ -67,6 +71,11 @@ import {
   JUDGE_PANEL_THRESHOLD_KEY,
   maxCriterionDelta,
 } from './judge-panel.service';
+import {
+  JUDGE_LENS_MAX_NEIGHBOURS,
+  JUDGE_LENS_MIN_SIMILARITY,
+  selectLensNeighbours,
+} from './judge-lens';
 
 const opener = resolveOpener();
 const maybe = opener ? it : it.skip;
@@ -221,12 +230,15 @@ function settings(
  * LANE id, not a provider id: which endpoint sits behind a lane is not this
  * file's business and never appears in it.
  */
-function makeLaneResolver(): LaneResolverService {
+function makeLaneResolver(maxInputChars?: number): LaneResolverService {
   return {
     resolve: jest.fn(
       async (id: SkillLaneId): Promise<SkillLaneResolution> => ({
         ok: true,
-        lane: resolvedLane(id, { model: `${id}-lane-model` }),
+        lane: resolvedLane(id, {
+          model: `${id}-lane-model`,
+          config: maxInputChars === undefined ? {} : { maxInputChars },
+        }),
       }),
     ),
   } as unknown as LaneResolverService;
@@ -279,23 +291,103 @@ function unreadableReply(): StreamMessage[] {
   return [resultMessage({ structured_output: 'not-a-scorecard' })];
 }
 
+// ── The second panellist's lens (B3.4b) ─────────────────────────────────────
+//
+// The panel embeds DESCRIPTIONS — the target's and every active rival's — and
+// ranks them locally, so a two-dimensional embedder is a complete stand-in for
+// the real one: what is under test is the ranking, the floor and the rendering,
+// none of which cares how many dimensions arrived.
+
+const TARGET_DESCRIPTION =
+  'Use when a new migration needs its ratchets bumped.';
+
+/** Cosine 1.0 against the target — a description already on this ground. */
+const NEAR_VECTOR = [1, 0];
+
+/** Cosine 0.0 against the target — below the floor, so not a neighbour. */
+const FAR_VECTOR = [0, 1];
+
+/** The default rival: an active skill whose description says the same thing. */
+const DEFAULT_RIVAL: LensRival = {
+  name: 'bump-the-schema-ratchet',
+  description: 'Use when a migration lands and the ratchets need bumping.',
+};
+
+interface LensRival {
+  readonly name: string;
+  readonly description: string;
+  /** Defaults to {@link NEAR_VECTOR}. */
+  readonly vector?: number[];
+}
+
+interface LensMeasurements {
+  readonly triggerScore?: number;
+  readonly triggerPrecision?: number;
+  readonly triggerRecall?: number;
+  readonly replayConfidence?: number;
+}
+
+function makeEmbedder(vectors: Map<string, number[]>): {
+  embedder: IEmbedder;
+  embed: jest.Mock;
+} {
+  const embed = jest.fn(async (texts: readonly string[]) =>
+    texts.map((text) => Float32Array.from(vectors.get(text) ?? FAR_VECTOR)),
+  );
+  return {
+    embed,
+    embedder: {
+      dim: 2,
+      modelId: 'spec-embedder',
+      embed,
+      dispose: jest.fn(async () => undefined),
+    } as unknown as IEmbedder,
+  };
+}
+
+/** An embedder that rejects — the panel must lose neighbours, not the judge. */
+function makeThrowingEmbedder(): IEmbedder {
+  return {
+    dim: 2,
+    modelId: 'spec-embedder-broken',
+    embed: jest.fn(async () => {
+      throw new Error('the model never loaded');
+    }),
+    dispose: jest.fn(async () => undefined),
+  } as unknown as IEmbedder;
+}
+
 interface Harness {
   readonly panel: JudgePanelService;
   readonly store: SkillCandidateStore;
   readonly candidate: SkillCandidateRow;
   readonly calls: ExecuteCall[];
   readonly db: TestDatabase;
+  readonly embed: jest.Mock;
 }
 
 function makeHarness(opts: {
   scripts: StreamMessage[][];
   workspace?: Record<string, unknown>;
+  /**
+   * The active library the second panellist is shown. Defaults to ONE rival on
+   * the same ground, because that is the ordinary case — a library that already
+   * holds something adjacent — and because a panel with an empty lens
+   * deliberately does not convene a second panellist at all.
+   */
+  rivals?: readonly LensRival[];
+  /** Gate results already recorded on the candidate's row. */
+  measured?: LensMeasurements;
+  /** `'none'` models a host with no embedder registered. */
+  embedder?: 'none' | 'throws';
+  /** Clip every lane's prompt, to prove where the lens rides. */
+  maxInputChars?: number;
 }): Harness {
   const db = createDb();
   const store = makeCandidateStore(db);
   const { candidate } = store.registerCandidate({
     name: 'bump-the-migration-ratchet',
-    description: 'Use when a new migration needs its ratchets bumped.',
+    description: TARGET_DESCRIPTION,
     bodyPath: '',
     sourceSessionIds: ['s1'],
     trajectoryHash: 'traj-1',
@@ -303,10 +395,52 @@ function makeHarness(opts: {
     createdAt: 1_000,
   });
 
+  const rivals = opts.rivals ?? [DEFAULT_RIVAL];
+  const vectors = new Map<string, number[]>([
+    [TARGET_DESCRIPTION, NEAR_VECTOR],
+  ]);
+  rivals.forEach((rival, index) => {
+    vectors.set(rival.description, rival.vector ?? NEAR_VECTOR);
+    const registered = store.registerCandidate({
+      name: rival.name,
+      description: rival.description,
+      bodyPath: '',
+      sourceSessionIds: [],
+      trajectoryHash: `traj-rival-${index}`,
+      embedding: null,
+      createdAt: 1_000,
+    });
+    store.updateStatus(registered.candidate.id, 'promoted');
+  });
+
+  const measured = opts.measured;
+  if (measured) {
+    if (
+      measured.triggerScore !== undefined ||
+      measured.triggerPrecision !== undefined ||
+      measured.triggerRecall !== undefined
+    ) {
+      store.recordTriggerEval(candidate.id, {
+        score: measured.triggerScore ?? null,
+        precision: measured.triggerPrecision ?? null,
+        recall: measured.triggerRecall ?? null,
+        evaluatedAt: 2_000,
+      });
+    }
+    if (measured.replayConfidence !== undefined) {
+      store.recordReplay(candidate.id, {
+        confidence: measured.replayConfidence,
+        holdoutSessionId: 'holdout-session',
+        replayAt: 2_000,
+      });
+    }
+  }
+
+  const embedder = makeEmbedder(vectors);
   const query = makeQueryStub(opts.scripts);
   const runner = new LaneRunnerService(
     makeLogger(),
-    makeLaneResolver(),
+    makeLaneResolver(opts.maxInputChars),
     makeBudgetStub().store,
     query.query,
     null,
@@ -318,8 +452,20 @@ function makeHarness(opts: {
     judge,
     runner,
     store,
+    opts.embedder === 'none'
+      ? null
+      : opts.embedder === 'throws'
+        ? makeThrowingEmbedder()
+        : embedder.embedder,
   );
-  return { panel, store, candidate, calls: query.calls, db };
+  return {
+    panel,
+    store,
+    candidate,
+    calls: query.calls,
+    db,
+    embed: embedder.embed,
+  };
 }
 
 function storedRationales(
@@ -688,5 +834,379 @@ describe('JudgePanelService — P3-2', () => {
     ).toThrow('must carry score=null');
 
     expect(store.findById(candidate.id)?.judgePanelRationales).toBeNull();
+  });
+});
+
+// ── B3.4b — the panellists ask DIFFERENT questions ──────────────────────────
+//
+// B3.4 called `judge()` twice with byte-identical arguments. Nothing but
+// sampling could separate the two panellists, so against a temperature-0
+// endpoint the second call was guaranteed to reproduce the first — a second
+// bill for a first opinion, and an escalation that could never fire.
+//
+// EVERY ASSERTION IN THIS BLOCK IS ABOUT THE REQUESTS, NOT THE CALL COUNT. A
+// spec that counted calls passes unchanged against the bug being fixed here,
+// which is exactly how that bug survived a suite that was otherwise green.
+
+describe('the two panellists are asked different questions', () => {
+  maybe('B carries a lens and evidence that A does not', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(7)), scoredReply(card(7))],
+      measured: {
+        triggerScore: 0.2,
+        triggerPrecision: 0.1,
+        triggerRecall: 0.4,
+      },
+    });
+
+    await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(h.calls).toHaveLength(2);
+    const [a, b] = h.calls;
+
+    // The ARTIFACT is identical — same document, same variable half. Varying
+    // that would make the two scorecards answers to different questions about
+    // different things, and the per-criterion delta would mean nothing.
+    expect(b.prompt).toBe(a.prompt);
+
+    // The QUESTION is not. This is the assertion the old panel fails.
+    expect(b.systemPromptAppend).not.toBe(a.systemPromptAppend);
+    expect(a.systemPromptAppend).not.toContain('SECOND REVIEWER');
+    expect(b.systemPromptAppend).toContain('SECOND REVIEWER');
+
+    // B is shown the library A never saw…
+    expect(a.systemPromptAppend).not.toContain(DEFAULT_RIVAL.name);
+    expect(b.systemPromptAppend).toContain(DEFAULT_RIVAL.name);
+
+    // …and the measurements A never saw.
+    expect(a.systemPromptAppend).not.toContain('0.20');
+    expect(b.systemPromptAppend).toContain('0.20');
+    expect(b.systemPromptAppend).toContain('0.10');
+    expect(b.systemPromptAppend).toContain('0.40');
+  });
+
+  maybe('the SCORECARD stays identical while the lens varies', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(7)), scoredReply(card(7))],
+      measured: { triggerScore: 0.2 },
+    });
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    const [a, b] = h.calls;
+    // Same five criteria, same 1-10 scale, on BOTH sides. The escalation
+    // compares per criterion; a differently-shaped rubric on one side would
+    // silently turn every delta into noise.
+    for (const key of JUDGE_CRITERION_KEYS) {
+      expect(a.systemPromptAppend).toContain(key);
+      expect(b.systemPromptAppend).toContain(key);
+    }
+    expect(a.systemPromptAppend).toContain('Score each criterion 1-10');
+    expect(b.systemPromptAppend).toContain('Score each criterion 1-10');
+    expect(b.systemPromptAppend).toContain('SAME 1-10 scale');
+    // And the two scorecards were still comparable enough to average.
+    expect(result.verdict.criteria).toEqual(card(7));
+  });
+
+  maybe('the lens is read FRESH, not from the caller row', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(7)), scoredReply(card(7))],
+      rivals: [],
+    });
+
+    // A gate measured this candidate AFTER the caller loaded its row — which is
+    // the ordinary order, because the gates are what produce the measurement.
+    h.store.recordTriggerEval(h.candidate.id, {
+      score: 0.15,
+      precision: 0.1,
+      recall: 0.3,
+      evaluatedAt: 3_000,
+    });
+    expect(h.candidate.triggerScore).toBeNull();
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    // Taking the stale copy would have degenerated the lens and skipped B.
+    expect(h.calls).toHaveLength(2);
+    expect(result.lens?.measurements?.triggerScore).toBe(0.15);
+    expect(h.calls[1].systemPromptAppend).toContain('0.15');
+  });
+
+  maybe('a measured 0 is shown; an unmeasured gate is not', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(7)), scoredReply(card(7))],
+      rivals: [],
+      measured: { triggerScore: 0 },
+    });
+
+    await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    const b = h.calls[1];
+    // `0` is a measurement that went badly and is evidence AGAINST the
+    // candidate; `null` never happened and must not be rendered as a zero.
+    expect(b.systemPromptAppend).toContain('retrieval trigger score: 0.00');
+    expect(b.systemPromptAppend).not.toContain('replay confidence against');
+    expect(b.systemPromptAppend).not.toContain('retrieval precision');
+  });
+
+  maybe('a description below the floor is not a neighbour', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(7)), scoredReply(card(7))],
+      rivals: [
+        {
+          name: 'descale-the-espresso-machine',
+          description: 'Use when the espresso machine needs descaling.',
+          vector: FAR_VECTOR,
+        },
+        DEFAULT_RIVAL,
+      ],
+    });
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(result.lens?.neighbours.map((n) => n.name)).toEqual([
+      DEFAULT_RIVAL.name,
+    ]);
+    expect(h.calls[1].systemPromptAppend).toContain(DEFAULT_RIVAL.name);
+    // Telling B the library already covers ground it does not cover is evidence
+    // for a lower novelty score with nothing behind it.
+    expect(h.calls[1].systemPromptAppend).not.toContain(
+      'descale-the-espresso-machine',
+    );
+  });
+
+  it('ranks nearest first and keeps at most the shortlist', () => {
+    const rivals = [
+      { name: 'e', description: 'e' },
+      { name: 'd', description: 'd' },
+      { name: 'c', description: 'c' },
+      { name: 'b', description: 'b' },
+      { name: 'a', description: 'a' },
+    ];
+    const picked = selectLensNeighbours(rivals, [0.5, 0.6, 0.7, 0.8, 0.9]);
+
+    expect(picked.map((n) => n.name)).toEqual(['a', 'b', 'c']);
+    expect(picked).toHaveLength(JUDGE_LENS_MAX_NEIGHBOURS);
+    // A misaligned pairing would attribute one skill's description to another's
+    // score, so it yields nothing rather than a plausible wrong answer.
+    expect(selectLensNeighbours(rivals, [0.9])).toEqual([]);
+    // The floor is absolute, not relative.
+    expect(
+      selectLensNeighbours(rivals, [0, 0, 0, 0, JUDGE_LENS_MIN_SIMILARITY]),
+    ).toHaveLength(1);
+  });
+});
+
+// ── The lens rides the unclippable half ─────────────────────────────────────
+
+describe('the lens cannot be clipped away', () => {
+  maybe(
+    'survives a maxInputChars clip that would eat it off a prompt',
+    async () => {
+      // The REAL runner, with every lane clipped far below the prompt. On
+      // `prompt` the lens would be truncated and B would silently become A —
+      // the fix would look applied while doing nothing.
+      const h = makeHarness({
+        scripts: [scoredReply(card(7)), scoredReply(card(7))],
+        measured: { triggerScore: 0.2 },
+        maxInputChars: 40,
+      });
+
+      await h.panel.evaluate({
+        candidate: h.candidate,
+        body: BODY,
+        settings: settings(),
+      });
+
+      expect(h.calls).toHaveLength(2);
+      const b = h.calls[1];
+      expect(b.systemPromptAppend).toContain('SECOND REVIEWER');
+      expect(b.systemPromptAppend).toContain(DEFAULT_RIVAL.name);
+      expect(b.systemPromptAppend).toContain('0.20');
+      // The clip really did fire — otherwise this case proves nothing.
+      expect(b.prompt.length).toBeLessThanOrEqual(80);
+      expect(b.prompt).not.toContain('SECOND REVIEWER');
+      expect(b.prompt).not.toContain(DEFAULT_RIVAL.name);
+    },
+  );
+});
+
+// ── The principled skip ─────────────────────────────────────────────────────
+
+describe('a degenerate lens buys no second judge', () => {
+  maybe('no neighbours and nothing measured spends one call', async () => {
+    const h = makeHarness({
+      // The second script is present precisely so a panel that ran B anyway
+      // would SUCCEED at it, and the count is what fails.
+      scripts: [scoredReply(card(9)), scoredReply(card(2))],
+      rivals: [],
+    });
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(h.calls).toHaveLength(1);
+    expect(result.panellists).toBe(1);
+    expect(result.escalated).toBe(false);
+    expect(result.reason).toBe(JUDGE_PANEL_REASONS.lensDegenerate);
+    // "We looked and there was nothing" — not "we never looked".
+    expect(result.lens).toEqual({ neighbours: [], measurements: null });
+    // The first verdict still stands and is still persisted.
+    expect(result.verdict.score).toBe(9);
+    expect(h.store.findById(h.candidate.id)?.judgeScore).toBe(9);
+    expect(storedRationales(h.store, h.candidate.id)).toHaveLength(1);
+  });
+
+  maybe('neighbours alone convene B', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(9)), scoredReply(card(8))],
+    });
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(h.calls).toHaveLength(2);
+    expect(result.panellists).toBe(2);
+    expect(result.lens?.neighbours).toHaveLength(1);
+    expect(result.lens?.measurements).toBeNull();
+  });
+
+  maybe(
+    'a measurement alone convenes B in a host with no embedder',
+    async () => {
+      const h = makeHarness({
+        scripts: [scoredReply(card(9)), scoredReply(card(8))],
+        embedder: 'none',
+        measured: { replayConfidence: 0.3 },
+      });
+
+      const result = await h.panel.evaluate({
+        candidate: h.candidate,
+        body: BODY,
+        settings: settings(),
+      });
+
+      expect(h.calls).toHaveLength(2);
+      expect(result.lens?.neighbours).toEqual([]);
+      expect(h.calls[1].systemPromptAppend).toContain(
+        'replay confidence against',
+      );
+      expect(h.calls[1].systemPromptAppend).toContain('0.30');
+      // No embedder means no description ranking, however full the library is.
+      expect(h.calls[1].systemPromptAppend).not.toContain(DEFAULT_RIVAL.name);
+    },
+  );
+
+  maybe('no embedder and nothing measured degenerates', async () => {
+    const h = makeHarness({
+      scripts: [scoredReply(card(9)), scoredReply(card(2))],
+      embedder: 'none',
+    });
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(h.calls).toHaveLength(1);
+    expect(result.reason).toBe(JUDGE_PANEL_REASONS.lensDegenerate);
+  });
+
+  maybe(
+    'an embedder that rejects costs the neighbours, not the judge',
+    async () => {
+      const h = makeHarness({
+        scripts: [scoredReply(card(9)), scoredReply(card(8))],
+        embedder: 'throws',
+        measured: { triggerScore: 0.2 },
+      });
+
+      const result = await h.panel.evaluate({
+        candidate: h.candidate,
+        body: BODY,
+        settings: settings(),
+      });
+
+      expect(h.calls).toHaveLength(2);
+      expect(result.lens?.neighbours).toEqual([]);
+      expect(result.verdict.status).toBe('scored');
+      expect(h.calls[1].systemPromptAppend).toContain('0.20');
+    },
+  );
+
+  maybe('the embedder is not paid for before R8 has cleared', async () => {
+    const h = makeHarness({ scripts: [unreadableReply()] });
+
+    await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(h.calls).toHaveLength(1);
+    expect(h.embed).not.toHaveBeenCalled();
+  });
+});
+
+// ── The escalation adjudicates a real conflict ──────────────────────────────
+
+describe('the escalation is shown what only B saw', () => {
+  maybe('carries the same evidence on the same unclippable half', async () => {
+    const h = makeHarness({
+      scripts: [
+        scoredReply(card(7, { novelty: 9 })),
+        scoredReply(card(7, { novelty: 4 })),
+        scoredReply(card(6)),
+      ],
+      measured: { triggerScore: 0.2 },
+    });
+
+    const result = await h.panel.evaluate({
+      candidate: h.candidate,
+      body: BODY,
+      settings: settings(),
+    });
+
+    expect(h.calls).toHaveLength(3);
+    const escalation = h.calls[2];
+    expect(escalation.model).toBe('synthesis-lane-model');
+    // Without this the escalation is told that one reviewer scored novelty 4
+    // and never why, and splitting the difference is the only move left — the
+    // answer this third call exists to avoid.
+    expect(escalation.systemPromptAppend).toContain(
+      'NOT shown the same material',
+    );
+    expect(escalation.systemPromptAppend).toContain(DEFAULT_RIVAL.name);
+    expect(escalation.systemPromptAppend).toContain('0.20');
+    expect(escalation.prompt).toContain('novelty=9');
+    expect(escalation.prompt).toContain('novelty=4');
+    expect(result.verdict.score).toBe(6);
   });
 });

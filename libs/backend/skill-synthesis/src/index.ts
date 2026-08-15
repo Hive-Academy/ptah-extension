@@ -334,6 +334,22 @@ export {
   type JudgePanelRequest,
   type JudgePanelResult,
 } from './lib/gates/judge-panel.service';
+// The second panellist's lens — what stops the panel paying twice for one
+// opinion. `JudgeContextLens` is reachable from `JudgePanelResult.lens`, so it
+// is exported beside it rather than left as an unnameable type.
+export {
+  JUDGE_LENS_MAX_NEIGHBOURS,
+  JUDGE_LENS_DESCRIPTION_CHARS,
+  JUDGE_LENS_MIN_SIMILARITY,
+  isLensDegenerate,
+  readLensMeasurements,
+  renderJudgeLens,
+  renderLensEvidence,
+  selectLensNeighbours,
+  type JudgeContextLens,
+  type JudgeLensNeighbour,
+  type JudgeLensMeasurements,
+} from './lib/gates/judge-lens';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

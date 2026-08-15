@@ -1,6 +1,7 @@
 /**
  * JudgePanelService — a two-judge panel with disagreement escalation
- * (TASK_2026_180, B3.4.1).
+ * (TASK_2026_180, B3.4.1; the panellists were given different questions in
+ * B3.4b).
  *
  * One judge's scorecard is one sample. This convenes a second on the SAME
  * `judge` lane, compares the two PER CRITERION, and — only when they disagree by
@@ -8,6 +9,29 @@
  * — pays for a third call on the `synthesis` lane that reads both rationales and
  * answers for itself. Every rationale the run produced is persisted to
  * `judge_panel_rationales`.
+ *
+ * ## The two panellists are asked DIFFERENT QUESTIONS
+ *
+ * They were not always. B3.4 shipped a panel that called `judge()` twice with
+ * byte-identical arguments, so the only thing that could separate A from B was
+ * sampling nondeterminism — against a temperature-0 endpoint, nothing at all.
+ * That is a second bill for a first opinion, and an escalation branch that can
+ * never fire.
+ *
+ * A is unchanged: it judges the artifact on its own terms. B judges the same
+ * artifact IN CONTEXT, through the lens in `judge-lens.ts`, and is shown the
+ * candidate's nearest description neighbours in the active library plus whatever
+ * the measuring gates have already recorded on its row. Same five criteria, same
+ * 1–10 scale — the escalation compares them per criterion and a different
+ * scorecard shape on one side would make every delta meaningless. The lens rides
+ * `systemPromptAppend`; putting it on `prompt` would let `maxInputChars` clip B
+ * silently back into A.
+ *
+ * When that lens degenerates — no neighbours AND nothing measured — B would be
+ * asking A's question with A's inputs, so the second call is NOT made and the
+ * skip is recorded as `JUDGE_PANEL_REASONS.lensDegenerate`. That is a principled
+ * skip, not a heuristic: the condition is exactly "no evidence exists that could
+ * move a score".
  *
  * ## THERE IS NO TRIBUNAL HERE, AND THAT IS A HARD CONSTRAINT
  *
@@ -67,9 +91,23 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import {
+  PERSISTENCE_TOKENS,
+  type IEmbedder,
+} from '@ptah-extension/persistence-sqlite';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import type { LaneRunnerService } from '../lanes/lane-runner.service';
 import type { SkillCandidateStore } from '../skill-candidate.store';
+import { cosineSimilarity } from '../cosine-similarity';
+import {
+  EMPTY_JUDGE_LENS,
+  isLensDegenerate,
+  readLensMeasurements,
+  renderEscalationEvidence,
+  renderJudgeLens,
+  selectLensNeighbours,
+  type JudgeContextLens,
+} from './judge-lens';
 import {
   JUDGE_CRITERION_KEYS,
   JUDGE_REASONS,
@@ -117,6 +155,12 @@ export const JUDGE_PANEL_REASONS = {
   escalationUnscored: 'judge-panel-escalation-unscored',
   /** The panel is switched off; the single judge's verdict stands. */
   disabled: 'judge-panel-disabled',
+  /**
+   * There was no evidence for a second panellist to see, so it would have asked
+   * the first panellist's question with the first panellist's inputs. One call
+   * spent, and the reason says WHY rather than leaving a silent single judge.
+   */
+  lensDegenerate: 'judge-panel-lens-degenerate',
 } as const;
 
 /**
@@ -167,12 +211,20 @@ export interface JudgePanelResult {
    * "they agreed exactly" are different facts.
    */
   readonly maxDelta: number | null;
-  /** How many judge calls were made: 1 (R8, or panel off) or 2. */
+  /** How many judge calls were made: 1 (R8, panel off, degenerate lens) or 2. */
   readonly panellists: number;
   /** A `JUDGE_PANEL_REASONS` member, or the single judge's own reason. */
   readonly reason: string;
   /** Whether the two writes happened. */
   readonly persisted: boolean;
+  /**
+   * The evidence the second panellist was shown, or `null` when the panel never
+   * got as far as building one (R8, or the gate switched off). A DEGENERATE lens
+   * is reported as itself rather than as `null` — "we looked and there was
+   * nothing" and "we never looked" are different facts, and the first is the one
+   * that explains a one-call panel.
+   */
+  readonly lens: JudgeContextLens | null;
 }
 
 @injectable()
@@ -187,6 +239,15 @@ export class JudgePanelService {
     private readonly laneRunner: LaneRunnerService,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
     private readonly candidates: SkillCandidateStore,
+    /**
+     * Optional for the same reason `TriggerEvalService`'s is: a host with no
+     * embedder registered still resolves this service. It loses the NEIGHBOUR
+     * half of the lens — measured gate results still convene a second panellist
+     * — and where it loses both halves the panel skips the second call rather
+     * than paying for a duplicate of the first.
+     */
+    @inject(PERSISTENCE_TOKENS.EMBEDDER, { isOptional: true })
+    private readonly embedder: IEmbedder | null = null,
   ) {}
 
   /**
@@ -224,6 +285,7 @@ export class JudgePanelService {
         panellists: 1,
         reason: first.reason,
         persisted: false,
+        lens: null,
       });
     }
 
@@ -242,6 +304,28 @@ export class JudgePanelService {
         panellists: 1,
         reason: JUDGE_PANEL_REASONS.disabled,
         persisted: false,
+        lens: null,
+      });
+    }
+
+    // What B will see and A did not. Built only now: it costs a store read and
+    // a local embed, and neither is worth spending on a panel R8 already ended
+    // or a gate the user switched off.
+    const lens = await this.buildLens(req);
+    if (isLensDegenerate(lens)) {
+      this.logger.debug(
+        '[skill-judge-panel] nothing for a second panellist to see; one judge stands',
+        { candidateId: req.candidate.id },
+      );
+      return this.persist(req, {
+        verdict: first,
+        rationales: [rationale('panellist-a', first)],
+        escalated: false,
+        maxDelta: null,
+        panellists: 1,
+        reason: JUDGE_PANEL_REASONS.lensDegenerate,
+        persisted: false,
+        lens,
       });
     }
 
@@ -250,6 +334,7 @@ export class JudgePanelService {
       req.body,
       req.settings,
       req.context,
+      renderJudgeLens(lens),
     );
     const rationales: JudgePanelRationale[] = [
       rationale('panellist-a', first),
@@ -277,6 +362,7 @@ export class JudgePanelService {
         panellists: 2,
         reason: second.reason,
         persisted: false,
+        lens,
       });
     }
 
@@ -300,6 +386,7 @@ export class JudgePanelService {
         panellists: 2,
         reason: JUDGE_PANEL_REASONS.agreed,
         persisted: false,
+        lens,
       });
     }
 
@@ -307,7 +394,7 @@ export class JudgePanelService {
       '[skill-judge-panel] panellists disagree; escalating to the synthesis lane',
       { candidateId: req.candidate.id, maxDelta, threshold },
     );
-    const escalation = await this.escalate(req, rationales);
+    const escalation = await this.escalate(req, rationales, lens);
     rationales.push(rationale('escalation', escalation));
 
     return this.persist(req, {
@@ -321,7 +408,88 @@ export class JudgePanelService {
           ? JUDGE_PANEL_REASONS.escalated
           : JUDGE_PANEL_REASONS.escalationUnscored,
       persisted: false,
+      lens,
     });
+  }
+
+  /**
+   * What the second panellist gets to see, and the first does not.
+   *
+   * The row is re-read rather than taken from `req.candidate`: the measuring
+   * gates write to the store, and a caller that loaded its row before running
+   * them would otherwise hand the panel a copy with every measurement still
+   * `null` — the lens would degenerate on evidence that exists.
+   *
+   * Never throws. A host with no embedder, a library with no other active skill,
+   * an embedder that rejects: each costs the lens its neighbour half and leaves
+   * the measured half intact. This is a background gate, and failing the whole
+   * judge because a local embed misbehaved would be a worse answer than a
+   * narrower question.
+   */
+  private async buildLens(req: JudgePanelRequest): Promise<JudgeContextLens> {
+    const row = this.candidates.findById(req.candidate.id) ?? req.candidate;
+    const measurements = readLensMeasurements(row);
+    const neighbours = await this.nearestDescriptions(row.id, row.description);
+    return neighbours.length === 0 && measurements === null
+      ? EMPTY_JUDGE_LENS
+      : { neighbours, measurements };
+  }
+
+  /**
+   * The nearest ACTIVE descriptions, in description space.
+   *
+   * Descriptions are embedded here rather than read from the stored vectors on
+   * purpose, and `TriggerEvalService`'s header is the argument: the stored
+   * vector is built from the session transcript, which is what dedup compares
+   * and is NOT what decides whether a skill fires. An agent picking between
+   * skills reads descriptions, and `novelty`/`triggerClarity` are questions
+   * about exactly that space.
+   */
+  private async nearestDescriptions(
+    targetId: SkillCandidateRow['id'],
+    description: string,
+  ): Promise<JudgeContextLens['neighbours']> {
+    const embedder = this.embedder;
+    const target = description.trim();
+    if (!embedder || target.length === 0) return [];
+
+    const rivals = this.candidates
+      .listByStatus('promoted')
+      .filter(
+        (row) => row.id !== targetId && row.description.trim().length > 0,
+      );
+    if (rivals.length === 0) return [];
+
+    try {
+      const vectors = await embedder.embed([
+        target,
+        ...rivals.map((row) => row.description.trim()),
+      ]);
+      if (vectors.length !== rivals.length + 1) {
+        this.logger.warn(
+          '[skill-judge-panel] embedder returned a vector count that does not match its input',
+          {
+            candidateId: targetId,
+            expected: rivals.length + 1,
+            received: vectors.length,
+          },
+        );
+        return [];
+      }
+      return selectLensNeighbours(
+        rivals,
+        vectors.slice(1).map((vector) => cosineSimilarity(vectors[0], vector)),
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[skill-judge-panel] could not embed descriptions; the lens loses its neighbours',
+        {
+          candidateId: targetId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return [];
+    }
   }
 
   /**
@@ -335,12 +503,18 @@ export class JudgePanelService {
   private async escalate(
     req: JudgePanelRequest,
     rationales: readonly JudgePanelRationale[],
+    lens: JudgeContextLens,
   ): Promise<JudgeDecision> {
     let result;
     try {
       result = await this.laneRunner.run({
         laneId: 'synthesis',
-        systemPromptAppend: JUDGE_PANEL_ESCALATION_RUBRIC,
+        // The escalation sees the SAME evidence the second panellist saw, on
+        // the same unclippable half. Without it the gap it is adjudicating is
+        // unexplainable — it would be told that one reviewer scored novelty 4
+        // and never why — and "split the difference" becomes the only move
+        // available, which is precisely the answer this call exists to avoid.
+        systemPromptAppend: withEscalationEvidence(lens),
         prompt: buildEscalationPrompt(req, rationales),
         outputSchema: JUDGE_VERDICT_JSON_SCHEMA,
         signal: req.signal,
@@ -490,6 +664,14 @@ export function meanCriteria(
 
 function unscored(reason: string): JudgeDecision {
   return { status: 'unscored', score: null, criteria: null, reason };
+}
+
+/** The escalation's fixed rubric, plus the evidence the second panellist read. */
+function withEscalationEvidence(lens: JudgeContextLens): string {
+  const evidence = renderEscalationEvidence(lens);
+  return evidence.length === 0
+    ? JUDGE_PANEL_ESCALATION_RUBRIC
+    : `${JUDGE_PANEL_ESCALATION_RUBRIC}\n\n${evidence}`;
 }
 
 /** One panellist's answer, in the shape `judge_panel_rationales` stores. */
