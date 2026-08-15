@@ -20,6 +20,24 @@ import {
 } from '../dto/issue-complimentary-license.dto';
 
 /**
+ * `License.source` values that DO NOT represent money changing hands, and
+ * therefore never block a free grant.
+ *
+ * `schema.prisma:224` defines four sources: `paddle` (a paid subscription),
+ * `manual` (admin-issued refund-in-kind — the user paid, we settled in
+ * licence), `complimentary` (admin gift) and `signup` (the free community
+ * tier auto-issued at registration, marked "NOT revenue" in the schema).
+ *
+ * ⚠️ `signup` BELONGS HERE AND ITS ABSENCE WAS A BUG. Every registered user
+ * holds a `signup` community licence from the moment they sign up, so a guard
+ * that only excluded `complimentary` treated the entire user base as "already
+ * paid": `POST /v1/admin/licenses/complimentary` 409'd for every existing
+ * user, and waitlist approval failed every early-adopter row that had ever
+ * signed in — the exact people the founding grant is for.
+ */
+export const NON_REVENUE_LICENSE_SOURCES = ['complimentary', 'signup'] as const;
+
+/**
  * Actor metadata for admin-initiated mutations (TASK_2025_292).
  * Sourced from `req.user.email` / `req.ip` / `req.headers['user-agent']` by
  * the controller — kept as a plain interface so the service stays free of
@@ -577,7 +595,9 @@ export class LicenseService {
    * contract changes — same `findFirst`, same `ConflictException` body.
    *
    * @throws ConflictException `EXISTING_ACTIVE_LICENSE` when the user already
-   *   holds an active NON-complimentary licence and stacking was not requested.
+   *   holds an active licence from a REVENUE-BEARING source
+   *   (see {@link NON_REVENUE_LICENSE_SOURCES}) and stacking was not
+   *   requested. A free `signup` community licence does not trip it.
    */
   async issueComplimentaryLicenseTx(
     tx: Prisma.TransactionClient,
@@ -599,7 +619,7 @@ export class LicenseService {
         where: {
           userId: user.id,
           status: 'active',
-          source: { not: 'complimentary' },
+          source: { notIn: [...NON_REVENUE_LICENSE_SOURCES] },
         },
         select: {
           id: true,
@@ -613,7 +633,7 @@ export class LicenseService {
         throw new ConflictException({
           code: 'EXISTING_ACTIVE_LICENSE',
           message:
-            'User has an existing active non-complimentary license. Pass stackOnTopOfPaid=true to override.',
+            'User has an existing active paid license. Pass stackOnTopOfPaid=true to override.',
           existingLicense: conflict,
         });
       }

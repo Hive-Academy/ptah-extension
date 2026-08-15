@@ -17,9 +17,10 @@ import type { IssueComplimentaryLicenseDto } from '../dto/issue-complimentary-li
  *     filters by `source !== 'complimentary'`).
  *   - AdminAuditLog row written inside the same Prisma transaction that creates
  *     the license (R8 atomicity).
- *   - Pre-conflict check explicitly filters `source: { not: 'complimentary' }`
- *     so paddle reconciliation queries that rely on the same predicate are
- *     guarded by a corresponding test contract.
+ *   - Pre-conflict check filters out every source in
+ *     `NON_REVENUE_LICENSE_SOURCES` — `complimentary` AND `signup` — so the
+ *     free community licence every registered user holds cannot be mistaken
+ *     for a paid entitlement.
  *
  * Strategy mirrors `admin.service.spec.ts`: a thin Prisma mock with a
  * callback-aware `$transaction` stub so the service's tx-aware code path
@@ -326,15 +327,19 @@ describe('LicenseService.createComplimentaryLicense', () => {
       expect(createArg.data.source).not.toBe('paddle');
     });
 
-    it('R1 — pre-conflict check filters by `source: { not: "complimentary" }` and never calls updateMany', async () => {
+    it('R1 — pre-conflict check ignores every non-revenue source and never calls updateMany', async () => {
       await service.createComplimentaryLicense(makeDto(), ACTOR);
 
+      // ⚠️ `signup` IS THE LOAD-BEARING HALF OF THIS ASSERTION. Every
+      // registered user carries a free `signup` community licence, so a
+      // predicate that only excluded `complimentary` made this endpoint 409
+      // for the entire existing user base. Narrowing it back reintroduces that.
       expect(prisma.license.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             userId: USER_ID,
             status: 'active',
-            source: { not: 'complimentary' },
+            source: { notIn: ['complimentary', 'signup'] },
           }),
         }),
       );
@@ -537,7 +542,7 @@ describe('LicenseService.createComplimentaryLicense', () => {
           where: expect.objectContaining({
             userId: USER_ID,
             status: 'active',
-            source: { not: 'complimentary' },
+            source: { notIn: ['complimentary', 'signup'] },
           }),
         }),
       );

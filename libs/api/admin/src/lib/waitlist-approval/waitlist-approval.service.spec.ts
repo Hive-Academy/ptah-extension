@@ -570,7 +570,7 @@ describe('WaitlistApprovalService.approve — idempotency (R5.1, R5.2)', () => {
 });
 
 describe('WaitlistApprovalService.approve — already paying (R5.4)', () => {
-  it('skips an address holding an active NON-complimentary builders licence', async () => {
+  it('skips an address holding an active PAID builders licence', async () => {
     const h = build();
     h.prisma.license.findFirst.mockResolvedValue({ id: 'paid-license' });
 
@@ -590,7 +590,10 @@ describe('WaitlistApprovalService.approve — already paying (R5.4)', () => {
         userId: 'user-1',
         status: 'active',
         plan: 'builders',
-        source: { not: 'complimentary' },
+        // Both guards on this path read `NON_REVENUE_LICENSE_SOURCES`. When
+        // they disagreed, this one passed the row as unpaid and the licence
+        // core then 409'd it on the free `signup` community licence.
+        source: { notIn: ['complimentary', 'signup'] },
       },
       select: { id: true },
     });

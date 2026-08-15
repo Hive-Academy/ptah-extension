@@ -2,7 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '@ptah-api/audit';
 import { EmailService } from '@ptah-api/email';
-import { LicenseService } from '@ptah-api/licensing';
+import {
+  LicenseService,
+  NON_REVENUE_LICENSE_SOURCES,
+} from '@ptah-api/licensing';
 import type { AdminActor } from '@ptah-api/licensing';
 import { WaitlistService } from '@ptah-api/marketing';
 import type { WaitlistApprovalRow } from '@ptah-api/marketing';
@@ -295,8 +298,9 @@ export class WaitlistApprovalService {
     // `UPDATE waitlist SET approved_at = now() WHERE id = ? AND approved_at IS NULL`
     // THE WAITLIST ROW IS THE IDEMPOTENCY KEY, NOT THE LICENCE TABLE. A "does
     // this user already hold a licence?" check would NOT close this: the
-    // complimentary conflict guard filters `source: { not: 'complimentary' }`,
-    // so a second comp licence stacks silently with no 409 and no warning.
+    // complimentary conflict guard ignores every source in
+    // `NON_REVENUE_LICENSE_SOURCES`, so a second comp licence stacks silently
+    // with no 409 and no warning.
     const claim = await this.waitlist.claimForApproval(tx, id);
     if (claim.outcome === 'not_found') {
       throw new SkipRow('not_found');
@@ -319,7 +323,10 @@ export class WaitlistApprovalService {
     // `stackOnTopOfPaid` is NOT passed, here or anywhere on this path (R5.4).
     // Step 3 has already established there is nothing to stack on top of; the
     // core's own `EXISTING_ACTIVE_LICENSE` guard is the second line of defence
-    // and is left armed on purpose.
+    // and is left armed on purpose. The two guards agree on what "paid" means
+    // only because both read `NON_REVENUE_LICENSE_SOURCES` — when the core
+    // excluded `complimentary` alone they disagreed, step 3 passed the row as
+    // unpaid, and the core then 409'd it on the free `signup` licence.
     const license = await this.license.issueComplimentaryLicenseTx(tx, {
       user,
       plan: 'builders',
@@ -382,7 +389,12 @@ export class WaitlistApprovalService {
    * Two clauses, read through `tx` so both see the same snapshot as the rest of
    * the transaction:
    *
-   *  1. an active NON-complimentary `builders` licence — R5.4 verbatim;
+   *  1. an active `builders` licence from a revenue-bearing source — R5.4
+   *     verbatim. `complimentary` AND `signup` are both excluded via
+   *     {@link NON_REVENUE_LICENSE_SOURCES}: the free community licence every
+   *     registered user carries is not an entitlement anybody paid for, and
+   *     reading it as one is what made this guard's sibling in the licence
+   *     core reject the entire existing user base;
    *  2. a subscription in {@link PAYING_SUBSCRIPTION_STATUSES} — a DELIBERATE
    *     SUPERSET, and it is not scope creep. `MembershipService.isBuildersMember`
    *     checks the SUBSCRIPTION FIRST, so a Paddle subscriber whose licence row
@@ -401,7 +413,7 @@ export class WaitlistApprovalService {
         userId,
         status: 'active',
         plan: 'builders',
-        source: { not: 'complimentary' },
+        source: { notIn: [...NON_REVENUE_LICENSE_SOURCES] },
       },
       select: { id: true },
     });
