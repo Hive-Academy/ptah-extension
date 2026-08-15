@@ -15,12 +15,20 @@ unstarted batches.
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
 - `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. **ID ALLOCATION IS BROKEN ACROSS WORKTREES — do not trust a folder scan.** Ids `237`–`241` were allocated on this branch AND independently in `D:/projects/ptah-extension` during the same session, for different tasks. This branch renumbered ITS carriers TWICE (237/238 → 240/241, then 239/240/241 → 242/243/244) because the other worktree's were real work. **The folder-scan rule in the root CLAUDE.md cannot work when two worktrees allocate concurrently** — any scan is stale the moment the other side commits. Until that is fixed: re-check BOTH worktrees immediately before committing a carrier, and expect to renumber anyway. This worktree tops out at `TASK_2026_244`; the other holds up to `241`. Next free across both is `245`.
 
-## 2. Status: Commits 0, 1 and 2 COMPLETE and MERGED — Phase 3 is next
+## 2. Status: Commits 0, 1, 2 and 3 COMPLETE — Phase 4 is next
 
-**24 of 37 batches done** (34 planned + 3 added mid-flight: B0.8, B0.9, B0.10).
-**Phases 0, 1 and 2 are all closed, fully gated, and merged into
-`ak/tui-defects`.** The next session starts on B3.1 with nothing half-finished
-behind it.
+**29 of 37 batches done** (34 planned + 3 added mid-flight: B0.8, B0.9, B0.10).
+**Phases 0, 1, 2 and 3 are all closed and fully gated.** Phase 3 was built
+directly on `ak/tui-defects` (NOT in the `task180` worktree — see §1), so there
+is nothing left to merge. The next session starts on B4.1 with nothing
+half-finished behind it.
+
+**Phase 3 shipped one gate with no producer, deliberately.** `replay` has a
+registered stage handler and nothing enqueues a row for it, because its request
+needs a graded candidate row and the cluster path ends at a SUGGESTION. Making
+a cluster draft a candidate is a product decision — it re-enters clustering,
+dedup and auto-promotion — and it is filed as **`TASK_2026_245`**. Do not
+"finish the wiring" without reading that first.
 
 **The six-commit collapse was abandoned, deliberately — see `tasks.md` §6.** It
 is not achievable by `git reset --soft`: 27 files are edited by both C0 and C1,
@@ -33,7 +41,7 @@ artifact are the same object. Do not try to reconstruct the six commits.
 | **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9  |
 | **C1 — Phase 1**     | ✅ **Complete.** B1.1–B1.11 |
 | **C2 — Phase 2**     | ✅ **Complete.** B2.1–B2.4  |
-| **C3 — Phase 3**     | Not started (B3.1–B3.5)     |
+| **C3 — Phase 3**     | ✅ **Complete.** B3.1–B3.5  |
 | **C4 — Phase 4**     | Not started (B4.1–B4.5)     |
 | **C5 — Tier B tray** | Not started (B5.1, B5.2)    |
 
@@ -84,8 +92,30 @@ file before staging.**
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
-**FULL pre-merge gate run by the orchestrator at `c699bca9f`, everything idle.**
-This is the first time the whole branch was gated rather than each batch:
+**CURRENT — full gate run by the orchestrator at `368ebee36` (B3.5, Phase 3
+closed), everything idle. Use these, not the `c699bca9f` block below:**
+
+```
+skill-synthesis     58 of 64  |  1123 passed, 37 skipped, 1160 total
+rpc-handlers        77 suites |  2095 passed, 31 skipped, 2126 total
+skill-synthesis-ui  22 suites |   284 passed,  0 skipped,  284 total
+shared              32 suites |   762 passed,  0 skipped,  762 total
+persistence-sqlite  16 of 24  |   161 passed, 65 skipped,  226 total
+npm run typecheck:all                                  → 90 projects clean
+```
+
+**The load-bearing skip counts are UNCHANGED: 37 / 31 / 65.** Only the passed
+counts moved, by the five Phase-3 commits. A rise in a skip count still means a
+suite went dark — see §7.
+
+**The `c699bca9f` numbers below went stale mid-phase and cost an agent time
+re-deriving why.** Three Phase-3 commits (`0c2542b76`, `1d745501c`, `61a382fa8`)
+landed between that measurement and B3.5, adding +6 suites and +231 tests to
+`skill-synthesis` before B3.5 wrote a line. **Re-measure at HEAD before handing
+a baseline to an agent**, or it will spend a run proving your number wrong.
+
+**Superseded — full pre-merge gate at `c699bca9f`.** The first time the whole
+branch was gated rather than each batch:
 
 ```
 skill-synthesis     52 of 58   |  892 passed, 37 skipped, 929 total   ← see note
@@ -145,22 +175,22 @@ removed. See §7.
 
 ## 4. Next batches, in order
 
-### B3.1 — migration `0036` + store writers + gate settings
+### B4.1 — migration `0037` + the workspace-root thread-through (correction C10)
 
-**Next up. Depends on B1.2 (done), so it is unblocked.** Executor
-`backend-developer`, sequential. Then B3.2 / B3.3 (both depend only on B3.1, and
-on B1.5 which is done — so they can run **concurrently** if given disjoint file
-ownership), then B3.4, then B3.5.
+**Next up. Depends on B3.1 (done), so it is unblocked.** Executor
+`backend-developer`, sequential. Then B4.2 → B4.5, then B5.x.
 
-**The migration is `0036`, NOT the number in the batch text** — B0.8 took
-`0035`, so B3.1 is `0036` and B4.1 is `0037`. Every new migration requires
+**The migration is `0037`** — B0.8 took `0035` and B3.1 took `0036`.
+**`0036`'s ratchet was already moved to the shape `0033` uses** (exists once, 34
+precedes, 36 follows) specifically so `0037` would not have to touch it again.
+Every new migration still requires
 bumping version ratchets in older migration specs: run the FULL
 `persistence-sqlite` suite to find them, because the wording differs per spec
 and grep misses some. That suite also has 8 entirely dark suites (65 tests
 asserting nothing) — see §7 item 3 — so read its skipped count, not its exit
 code.
 
-**Three decisions Phase 3 inherits and must not re-open:**
+**Four decisions Phase 4 inherits and must not re-open:**
 
 - `hasUsableVerdict` is `row !== null && row.degradedReason === null`. A clean
   single-pass verdict from a non-tool-use lane has `degradedReason: null` and
@@ -171,14 +201,22 @@ code.
   `lanes/lane-runner.service.ts` may name `queueItemId` — **including in a
   comment**, because the guard is a substring scan over file text. This bit two
   separate agents this session.
+- **A `null` gate measurement is NEVER `0`.** `replayConfidence: null` means
+  nobody ran a hold-out, and it promotes on the judge score alone — which is the
+  NORMAL case, because a cluster at the configured floor has no member to spare.
+  A measured `0` means the draft failed against a session it had never seen, and
+  blocks. Collapsing the two either blocks almost everything or blocks nothing.
+  The UI half of the same rule renders the words "not measured", never a digit:
+  `0` is falsy, so a `||` anywhere on that path silently retitles a measured
+  failure as an absent measurement.
 
-**One decision Phase 3 must actually MAKE**, recorded in §6 and §9: a
+**Still unmade, and now inherited by Phase 4**, recorded in §6 and §9: a
 `toolUse: 'required'` lane that exhausts a configured `maxPasses` while still
 requesting evidence writes `degradedReason: null` and reads as fully usable.
-Pre-existing, wrong, and it wants its own `pass-budget-exhausted` reason. B3.2's
-verdict-absent fallback is where it surfaces.
+Pre-existing and wrong; it wants its own `pass-budget-exhausted` reason. B3.2's
+verdict-absent fallback did not force the issue, so it is still open.
 
-### Then B4.x → B5.x per §2.
+### Then B5.x per §2.
 
 ## 5. Sequencing constraints — violating these causes real collisions
 
@@ -226,6 +264,52 @@ Also settled by the user this session:
 - **When an agent flags a decision that reinterprets an approved decision, surface it rather than deciding.** The `auth-unresolvable` ceiling was exactly this.
 
 ## 9. Follow-ups filed, deliberately NOT in this task
+
+- **`TASK_2026_245`** — the replay gate's missing production producer. Phase 3
+  shipped its handler with nothing enqueuing a row, on purpose. See §2.
+- **`TASK_2026_247`** — **read this before blaming an agent for stopping.** A
+  config change on `authMethod`, `anthropicProviderId` or any `ptah.auth.*`
+  secret calls `disposeAllSessions()`, which cleans up pending permissions with
+  NO session id — the branch that denies every in-flight permission request in
+  every window, tab and background subagent. No user action is in that chain,
+  and the reason Ptah sets (`'Session aborted'`) never reaches the model, which
+  sees the generic "the user doesn't want to take this action" and correctly
+  stops as though a person had decided. **It cost two agents ~2.5 hours during
+  B3.5, mid-batch, and left a file non-compiling.** Suspect it whenever an agent
+  returns early saying "no files written"; resuming it works, which is exactly
+  why this keeps getting re-diagnosed instead of fixed. This task's own lane-auth
+  work is a plausible trigger.
+- **`JudgePanelResult` / `TriggerEvalOutcome` cannot report a lane failure.**
+  Both collapse a `SkillLaneFailure` into a reason STRING, so their stage
+  handlers cannot answer `lane-failed` and a timed-out judge lane takes the
+  default 30-minute backoff instead of the lane's own. B3.5 documented the gap in
+  the handlers rather than fabricating a `SkillLaneFailure` — inventing a `kind`
+  and `retryAfterMs` would have the drain pick its retry ceiling from a guess.
+  The fix is widening the two result types.
+- **`TRIGGER_EVAL_SKIP_REASONS.noPrompts` collapses three different facts** — no
+  lane in this host (permanent), the lane failed, and an unparseable reply (both
+  transient) — into one token, so a handler cannot tell a permanent skip from a
+  retryable one. It also has no success token; B3.5 had to declare
+  `TRIGGER_EVAL_MEASURED_REASON` in its own file, where `REPLAY_REASONS.measured`
+  sits beside its siblings.
+- **The frontmatter-stripping candidate-body reader now exists in three places**
+  — `skill-promotion.service.ts:531`, `skill-curator.service.ts:614`, and
+  `skill-synthesis.service.ts` (B3.5 lifted the backfill's inline copy into a
+  module-private function rather than adding a fourth). A shared
+  `candidate-body.ts` is the cleanup. Note the callers DISAGREE about the
+  missing-file case, so the shared helper must return `string | null`: the
+  backfill folds the row's own text into the embedding, and a stand-in string
+  would fold `description` in twice and move the vector for every file-less
+  candidate.
+- **`libs/frontend/skill-synthesis-ui/CLAUDE.md` contradicts itself.** Its
+  "Runtime: ELECTRON-ONLY" section explains at length that the tab is
+  Electron-only and that an earlier claim otherwise was wrong; the Guidelines
+  section at the bottom still says "Do not Electron-gate this tab — skills work
+  on VS Code too." That is the stale line the section above was written to kill.
+- **`toSummary` has no logger**, so an unreadable `judge_panel_rationales` column
+  is dropped silently — not fabricated, but not noticed either. It is a
+  module-level free function; threading a logger through it ripples into
+  `toDetail` and every call site.
 
 - **`TASK_2026_243`** — the `[value]`-without-`[selected]` select-binding sweep. One confirmed instance left (`json-schema-form.component.ts:74-87`).
 - **`TASK_2026_242`** — the Skills settings panel shows "Max items per run: 4" while the nightly tier ignores that key entirely (B0.10 routed `nightlyMaxItemsPerRun` through file settings but deliberately kept it off the RPC wire). A displayed number that is false for the one token-spending tier is worse than an absent control.
