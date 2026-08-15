@@ -18,13 +18,31 @@ unstarted batches.
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
 - `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. **ID ALLOCATION IS BROKEN ACROSS WORKTREES — do not trust a folder scan.** Ids `237`–`241` were allocated on this branch AND independently in `D:/projects/ptah-extension` during the same session, for different tasks. This branch renumbered ITS carriers TWICE (237/238 → 240/241, then 239/240/241 → 242/243/244) because the other worktree's were real work. **The folder-scan rule in the root CLAUDE.md cannot work when two worktrees allocate concurrently** — any scan is stale the moment the other side commits. Until that is fixed: re-check BOTH worktrees immediately before committing a carrier, and expect to renumber anyway. **Confirmed again on 2026-08-15, live**: `TASK_2026_246` appeared in the main worktree at 19:11 while B3.5 was mid-flight, created by a concurrently running Ptah session. A scan taken minutes earlier had topped out at `244`. `245` and `247` are this task's; `246` is the other session's. **Next free across both is `248`** — and re-scan anyway, because that number can go stale while you are reading this sentence.
 
-## 2. Status: Commits 0, 1, 2 and 3 COMPLETE — Phase 4 is next
+## 2. Status: Commits 0-3 COMPLETE, B4.1 landed — B4.2/B4.3 are next
 
-**29 of 37 batches done** (34 planned + 3 added mid-flight: B0.8, B0.9, B0.10).
+**30 of 37 batches done** (34 planned + 3 added mid-flight: B0.8, B0.9, B0.10).
 **Phases 0, 1, 2 and 3 are all closed and fully gated.** Phase 3 was built
 directly on `ak/tui-defects` (NOT in the `task180` worktree — see §1), so there
-is nothing left to merge. The next session starts on B4.1 with nothing
-half-finished behind it.
+is nothing left to merge.
+
+**B4.1 landed 2026-08-15 at `a0eef370f`** — migration `0037`, the `workspaceRoot`
+thread-through (correction C10) and `getWinRates()`. Verified independently by
+the orchestrator, not taken from the agent's report: both full suites re-run with
+the box idle, both mutation tests re-run by hand, `typecheck:all` clean across 90
+projects, and `rpc-handlers` re-run because it imports `skill-synthesis`.
+
+**`TASK_2026_247` was fixed first, at `7c3c9bf7f`** — the config-change permission
+kill that cost two agents ~2.5 hours during B3.5. Two of its three fixes shipped;
+see that task's `context.md` for what is still open and why. **It is worth reading
+before you launch agents**, because the failure mode it describes (an agent
+returning early with "no files written") is no longer the most likely explanation
+for a stopped agent, and you should not spend time re-diagnosing it.
+
+**B4.2 and B4.3 both depend on B4.1 ONLY, not on each other.** They are the first
+genuinely parallelizable pair in phase 4 — B4.2 owns `digest/`, B4.3 owns
+`skill-scorecard` / `skill-enhancer` / `skill-promotion`. Both read `getWinRates()`
+and neither writes it. Give each explicit file ownership and they can run
+concurrently, the way 3-4 agents ran all through phases 0-3.
 
 **Phase 3 shipped one gate with no producer, deliberately.** `replay` has a
 registered stage handler and nothing enqueues a row for it, because its request
@@ -39,14 +57,14 @@ so path-staging puts one phase's work inside another's commit. The working
 commits were merged as-is, which means the tested artifact and the merged
 artifact are the same object. Do not try to reconstruct the six commits.
 
-| Commit               | State                       |
-| -------------------- | --------------------------- |
-| **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9  |
-| **C1 — Phase 1**     | ✅ **Complete.** B1.1–B1.11 |
-| **C2 — Phase 2**     | ✅ **Complete.** B2.1–B2.4  |
-| **C3 — Phase 3**     | ✅ **Complete.** B3.1–B3.5  |
-| **C4 — Phase 4**     | Not started (B4.1–B4.5)     |
-| **C5 — Tier B tray** | Not started (B5.1, B5.2)    |
+| Commit               | State                                     |
+| -------------------- | ----------------------------------------- |
+| **C0 — Phase 0**     | ✅ **Complete.** B0.1–B0.9                |
+| **C1 — Phase 1**     | ✅ **Complete.** B1.1–B1.11               |
+| **C2 — Phase 2**     | ✅ **Complete.** B2.1–B2.4                |
+| **C3 — Phase 3**     | ✅ **Complete.** B3.1–B3.5                |
+| **C4 — Phase 4**     | In progress. B4.1 ✅; B4.2–B4.5 remaining |
+| **C5 — Tier B tray** | Not started (B5.1, B5.2)                  |
 
 ### Commits so far (working commits, deliberately interleaved by phase)
 
@@ -95,21 +113,33 @@ file before staging.**
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
-**CURRENT — full gate run by the orchestrator at `368ebee36` (B3.5, Phase 3
-closed), everything idle. Use these, not the `c699bca9f` block below:**
+**CURRENT — full gate run by the orchestrator AFTER B4.1 (`a0eef370f`),
+everything idle, no agent writing. Use these:**
 
 ```
-skill-synthesis     58 of 64  |  1123 passed, 37 skipped, 1160 total
+skill-synthesis     59 of 65  |  1137 passed, 37 skipped, 1174 total
 rpc-handlers        77 suites |  2095 passed, 31 skipped, 2126 total
-skill-synthesis-ui  22 suites |   284 passed,  0 skipped,  284 total
-shared              32 suites |   762 passed,  0 skipped,  762 total
-persistence-sqlite  16 of 24  |   161 passed, 65 skipped,  226 total
+persistence-sqlite  17 of 25  |   173 passed, 65 skipped,  238 total
+agent-sdk           68 suites |   903 passed,  0 skipped,  903 total
 npm run typecheck:all                                  → 90 projects clean
 ```
 
-**The load-bearing skip counts are UNCHANGED: 37 / 31 / 65.** Only the passed
-counts moved, by the five Phase-3 commits. A rise in a skip count still means a
-suite went dark — see §7.
+**The load-bearing skip counts are UNCHANGED: 37 / 31 / 65.** B4.1 added +1 suite
+and +14 tests to `skill-synthesis`, +1 suite and +12 tests to `persistence-sqlite`,
+and moved `rpc-handlers` not at all. A rise in a skip count still means a suite
+went dark — see §7.
+
+**`agent-sdk` is now a usable gate — 68 suites, 903 passed, ZERO failures.** It
+was 898 before `TASK_2026_247` added 5. See §7 item 10, which is now stale.
+
+Pre-B4.1 numbers, for reference when attributing a delta:
+`skill-synthesis 58 of 64 | 1123 passed, 37 skipped, 1160 total`;
+`persistence-sqlite 16 of 24 | 161 passed, 65 skipped, 226 total`.
+Measured at `368ebee36` and re-confirmed byte-identical at `9ca0b16af` — the one
+time this session the recorded baseline had NOT gone stale. Re-measure anyway.
+
+`skill-synthesis-ui` (22 suites, 284 passed) and `shared` (32 suites, 762 passed)
+were last measured at `368ebee36` and B4.1 touched neither.
 
 **The `c699bca9f` numbers below went stale mid-phase and cost an agent time
 re-deriving why.** Three Phase-3 commits (`0c2542b76`, `1d745501c`, `61a382fa8`)
@@ -178,20 +208,44 @@ removed. See §7.
 
 ## 4. Next batches, in order
 
-### B4.1 — migration `0037` + the workspace-root thread-through (correction C10)
+### B4.1 — migration `0037` + the workspace-root thread-through (correction C10) ✅ DONE
 
-**Next up. Depends on B3.1 (done), so it is unblocked.** Executor
-`backend-developer`, sequential. Then B4.2 → B4.5, then B5.x.
+**Landed `a0eef370f`.** Kept here because the notes below are addressed to the
+rest of phase 4. **Next up: B4.2 and B4.3 in parallel** (both depend on B4.1 only
+— see §2), then B4.4 → B4.5, then B5.x.
 
-**The migration is `0037`** — B0.8 took `0035` and B3.1 took `0036`.
-**`0036`'s ratchet was already moved to the shape `0033` uses** (exists once, 34
-precedes, 36 follows) specifically so `0037` would not have to touch it again.
-Every new migration still requires
-bumping version ratchets in older migration specs: run the FULL
-`persistence-sqlite` suite to find them, because the wording differs per spec
-and grep misses some. That suite also has 8 entirely dark suites (65 tests
-asserting nothing) — see §7 item 3 — so read its skipped count, not its exit
-code.
+**DONE 2026-08-15 at `a0eef370f`.** Migration `0037` (nullable `workspace_root`
+
+- `idx_skill_inv_events_session`), the recorder forwarding `workspaceRoot`, the
+  17-column store INSERT, and `getWinRates()` with the `null`-never-`0` rule. Both
+  regression specs mutation-tested twice — by the implementer and again by the
+  orchestrator: returning `0` for the empty denominator fails 3 of 10, dropping the
+  forwarded `workspaceRoot` fails 4 of 14.
+
+**The prediction that `0037` would not have to touch a ratchet was WRONG — three
+specs still needed bumping.** `0028` and `0030` are plain `toBe(36)` → `toBe(37)`
+bumps; `0036`'s own spec still carried a `Math.max(...) === 36` tail assertion,
+now moved to the shape `0035` uses. **Assume the next migration bumps three or
+four ratchets and budget for it**: run the FULL `persistence-sqlite` suite to find
+them, because the wording differs per spec and grep misses some. That suite also
+has 8 entirely dark suites (65 tests asserting nothing) — see §7 item 3 — so read
+its skipped count, not its exit code.
+
+**Two things B4.1 found that the batch text did not predict:**
+
+- **The `EXPLAIN QUERY PLAN` assertion the batch implied is not the one worth
+  making.** Plan §2.5's aggregate as written drives events → verdicts and is
+  served by `skill_session_verdicts`'s PRIMARY KEY; the planner never touches
+  `idx_skill_inv_events_session`. The index pays for the SESSION-keyed direction
+  (`WHERE session_id = ?`), which is what phase 4's per-session sweeps walk and
+  what the same join costs driven from the verdicts side. The spec asserts a
+  before/after plan on THAT lookup — `SCAN` at v36, `SEARCH … USING INDEX` at v37
+  — and it is the only test in the file that would notice the index being dropped.
+- **`no-template-curly-in-migration` lints SPEC files too.** An
+  `EXPLAIN QUERY PLAN ${sql}` helper trips it. Spell the SQL out as a constant;
+  that is now precedent in `0037`'s spec. Do not reach for an `eslint-disable`,
+  and do not narrow the rule's glob — it would drop the guard across every spec
+  file to serve one narrow pattern.
 
 **Four decisions Phase 4 inherits and must not re-open:**
 
@@ -251,7 +305,7 @@ Also settled by the user this session:
 7. **`libs/backend/cli-engine` uses `jest.config.cjs`**, not `.ts`.
 8. **Angular libs typecheck via `tsconfig.lib.json`, which EXCLUDES specs**, and `jest-preset-angular` here does not hard-fail on missing members — so spec/DTO drift is invisible to both CI gates. Run `tsc --noEmit -p <lib>/tsconfig.spec.json` to see it.
 9. **Every new migration requires bumping version ratchets in older migration specs.** Run the FULL `persistence-sqlite` suite to find them — the wording differs per spec, so grep misses some.
-10. One pre-existing `agent-sdk` spec (`sdk-query-runner.service.spec.ts:368`) fails if the shell exports `ANTHROPIC_AUTH_TOKEN=""` / `ANTHROPIC_API_KEY=""` / `ANTHROPIC_BASE_URL=""`. Not this task.
+10. ~~One pre-existing `agent-sdk` spec (`sdk-query-runner.service.spec.ts:368`) fails if the shell exports `ANTHROPIC_AUTH_TOKEN=""` / `ANTHROPIC_API_KEY=""` / `ANTHROPIC_BASE_URL=""`.~~ **STALE as of 2026-08-15 — do not budget time for this.** The orchestrator ran the full `agent-sdk` suite twice from a shell that DOES export all three as empty strings (verified by reading `process.env` directly) and got **68 suites, 903 passed, 0 failed** both times. Whatever fixed it, `agent-sdk` is a clean gate now, so a red suite there is YOUR regression.
 11. `A worker process has failed to exit gracefully` in parallel Jest runs is **pre-existing**; it disappears under `--runInBand`.
 12. **An unattributed intermittent failure in `skill-synthesis.service.enqueue.spec.ts`, seen twice, never reproduced.** During B2.4 one full-suite run reported `1 failed` in that file at **27 s** (normal ~4 s), and an earlier one failed at the _suite_ level with **zero** test failures at 48 s. **Neither run captured the failing test name**, so it is not fully exonerated. Everything since has been green: 19 runs by the agent (13 parallel, 6 isolated, 2 `--runInBand`) plus 8 by the orchestrator **including deliberate contention** — a full suite running concurrently with four isolated runs of that file. Both sightings were under heavy box load, and nothing in the P2-4 block waits on wall-clock (`withClaimHeartbeat`'s only timer is a 60 s `unref`'d interval cleared in `finally`; `fireSessionEnd` is 8 × `await Promise.resolve()`), so a 27 s suite is a stalled machine rather than a 5 s jest timeout. Treated as item 11's flake. **If you see it again, capture the test name** — that is the one piece of evidence nobody has.
 
@@ -268,9 +322,33 @@ Also settled by the user this session:
 
 ## 9. Follow-ups filed, deliberately NOT in this task
 
+- **THREE SPECS HAND-WRITE `skill_invocation_events` AND WILL BREAK THE DAY
+  `better-sqlite3` IS REBUILT.** Found by B4.1, not fixed by it (outside its
+  ownership). `r10-enhancement-window.spec.ts`, `spec-harvester.concurrent-attribution.spec.ts`
+  and `spec-harvester.service.spec.ts` each `CREATE TABLE skill_invocation_events`
+  with the pre-`0037` column list and each calls `store.recordSkillEvent`, which
+  now writes 17 columns. They pass today ONLY because those call sites sit inside
+  their skipped, native-gated tests — 8 dark tests between them. **This is §7
+  item 3 turning into a live trap**: the moment the ABI is fixed, three suites
+  break for a reason that has nothing to do with whatever change surfaced them.
+  The fix is one line each, the same `db.exec(SQL_0037)` B4.1 used in
+  `skill-candidate.store.spec.ts`. Do it before rebuilding the binding, not after.
+- **`getWinRates()` takes no arguments** — plan §2.5's query verbatim, with no
+  `workspaceRoot` predicate, because nothing scopes yet. B4.2's curator is the
+  first caller that may want one; add it there rather than pre-building it.
+- **`SkillWinRate` is exported from `skill-candidate.store.ts`, not `types.ts`.**
+  If B4.2 wants it in `digest/digest.types.ts`, move it there — it was left at the
+  store because `types.ts` was outside B4.1's ownership, not by design.
+
 - **`TASK_2026_245`** — the replay gate's missing production producer. Phase 3
   shipped its handler with nothing enqueuing a row, on purpose. See §2.
-- **`TASK_2026_247`** — **read this before blaming an agent for stopping.** A
+- **`TASK_2026_247`** — ✅ **MOSTLY FIXED 2026-08-15 at `7c3c9bf7f`; status
+  `in_review`.** The cleanup is now scoped to the sessions actually being
+  disposed, and a system abort is distinguishable from a user deny at the
+  tool-result layer. **Its `context.md` records what did NOT ship**, and one item
+  matters here: the same laundering exists at
+  `stream-router.service.ts:444-448`, arrives over the webview wire, and is NOT
+  covered by that fix. The original text follows, for the chain it documents. A
   config change on `authMethod`, `anthropicProviderId` or any `ptah.auth.*`
   secret calls `disposeAllSessions()`, which cleans up pending permissions with
   NO session id — the branch that denies every in-flight permission request in
