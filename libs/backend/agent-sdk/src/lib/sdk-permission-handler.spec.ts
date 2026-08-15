@@ -924,3 +924,116 @@ describe('PermissionRequestSchema - UUID validation', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// ===========================================================================
+// TASK_2026_247 — a system abort must not launder itself as a user denial.
+//
+// Both halves are asserted in contrast, because the whole defect is that the
+// two were INDISTINGUISHABLE at the tool-result layer: a teardown-deny and a
+// human deny produced byte-identical `{ behavior: 'deny', interrupt: true }`,
+// so the CLI substituted its canned "The user doesn't want to take this action
+// right now. STOP what you are doing..." string and the agent stopped working.
+// Asserting only one side cannot tell them apart and would not catch that.
+// ===========================================================================
+
+interface DenyResult {
+  behavior: string;
+  message?: string;
+  interrupt?: boolean;
+}
+
+describe('SdkPermissionHandler - system abort vs user deny mapping', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+
+  function startRequest(handler: SdkPermissionHandler, sent: SentMessage[]) {
+    const callback = handler.createCallback(
+      asSessionId(SESSION_UUID),
+      undefined,
+      asTabId(TAB_ID),
+    );
+    return callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: `tool-${sent.length}`,
+      },
+    );
+  }
+
+  function requestIdOf(sent: SentMessage[]): string {
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    return (broadcast!.payload as unknown as PermissionRequestPayload).id;
+  }
+
+  it('a system-aborted request yields interrupt:false and a message that says it was NOT a user decision', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    // Teardown path — nobody clicked anything.
+    handler.cleanupPendingPermissions(TAB_ID);
+
+    const result = (await pending) as unknown as DenyResult;
+
+    expect(result.behavior).toBe('deny');
+
+    // interrupt:true is what makes the CLI swap in its canned user-denial
+    // string. A system abort MUST NOT take that path.
+    expect(result.interrupt).toBe(false);
+
+    // The message must state, in words that reach the model, that no human
+    // decided this and that the operation is retryable.
+    expect(result.message).toMatch(/NOT a user decision/i);
+    expect(result.message).toMatch(/retried/i);
+
+    // And it must not read as a refusal.
+    expect(result.message).not.toMatch(/denied by user/i);
+  });
+
+  it('a genuine user deny still yields interrupt:true and the user’s own reason', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    const requestId = requestIdOf(sent);
+    handler.handleResponse(requestId, {
+      id: requestId,
+      decision: 'deny',
+      reason: 'I do not want you running shell commands here',
+    });
+
+    const result = (await pending) as unknown as DenyResult;
+
+    expect(result.behavior).toBe('deny');
+    // A real refusal keeps the hard-stop semantics — the agent SHOULD stop.
+    expect(result.interrupt).toBe(true);
+    expect(result.message).toBe(
+      'I do not want you running shell commands here',
+    );
+    // It must NOT be relabelled as a system abort.
+    expect(result.message).not.toMatch(/NOT a user decision/i);
+  });
+
+  it('the global (no-arg) cleanup also marks its denials as system aborts', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    handler.cleanupPendingPermissions();
+
+    const result = (await pending) as unknown as DenyResult;
+    expect(result.behavior).toBe('deny');
+    expect(result.interrupt).toBe(false);
+    expect(result.message).toMatch(/NOT a user decision/i);
+  });
+});

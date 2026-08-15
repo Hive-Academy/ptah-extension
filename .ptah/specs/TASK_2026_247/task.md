@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_247
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   A config change denies every pending permission in every session, and the

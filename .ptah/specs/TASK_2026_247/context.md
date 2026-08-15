@@ -106,3 +106,77 @@ already pins the teardown ORDER — this pins its SCOPE.
   auto-allow at the SDK layer". If that assumption is false for background
   subagents, it is the same failure from a different origin. Check it while here;
   do not assume it is the same bug.
+
+---
+
+## What shipped 2026-08-15, and what did not
+
+Fixes 1 and 2 are done and verified. Fix 3 is deliberately NOT done.
+
+**Fix 1 — the cleanup is scoped.** `SessionControl.disposeAllSessions()` now
+cleans up per disposed record, by `rec.tabId` and — when it is present and
+differs — `rec.realSessionId`, because a CLI-path request is keyed by the real
+session id with no tabId. The no-arg global branch of
+`cleanupPendingPermissions` is untouched and keeps its spec. The cleanup still
+runs BEFORE the interrupt/abort work, so `session-lifecycle-manager.spec.ts:484`
+(which pins the ORDER) is unaffected. **The intended consequence: a pending
+request whose session is not in the registry is no longer denied at all. It stays
+pending and its owner can still answer it.**
+
+**Fix 2 — a system abort no longer launders itself as a user decision.**
+`sdk-permission-handler.ts` gained a file-local
+`InternalPermissionResponse = PermissionResponse & { readonly systemAbort?: true }`.
+The marker is deliberately NOT on the wire type: `PermissionResponse` is what the
+WEBVIEW sends, and a system abort never originates there. Both branches of
+`cleanupPendingPermissions` set it, and a new branch ahead of the hard-deny
+returns `interrupt: false` with a message that states no human saw the prompt and
+the operation may be retried.
+
+**The `interrupt: false` half is REASONED, not empirically verified.** The
+canned "the user doesn't want to take this action" string comes from the bundled
+Claude Code CLI binary, which is not readable source. The inference: the
+`deny_with_message` branch already pairs `interrupt: false` with a rich message
+and is the path designed to reach the model, while the hard-deny branch pairs
+`interrupt: true` with a short one and is the path that produced the canned
+string in the incident. If a future incident shows the message still not landing,
+this is the assumption to re-test first.
+
+### Verification
+
+Both specs were mutation-tested twice — once by the implementer, once
+independently by the orchestrator. Reverting the scope fix kills 2 of the 6
+tests in `session-lifecycle-manager-dispose.spec.ts`; stripping the marker kills
+2 of the 28 in `sdk-permission-handler.spec.ts`. The scope spec drives a REAL
+`SdkPermissionHandler` inside a real `SessionLifecycleManager` rather than
+mocking the assertion, covers both keying paths, and proves the untouched
+request is still ANSWERABLE rather than merely un-denied. The mapping spec
+asserts the user-deny control keeps `interrupt: true` and its own message, so the
+two paths are provably distinguishable. `agent-sdk`: 68 suites, 903 passed, 0
+failed (baseline 898).
+
+### Still open — do not assume this task closed them
+
+1. **Fix 3 was not attempted.** Whether an auth change needs
+   `disposeAllSessions()` at all is a product decision, not a refactor.
+   `sdk-agent-adapter.ts:144-153` is untouched. Note the sibling
+   `onAuthFileChanged` handler at `:154-166` already models the "re-init only
+   when unhealthy" pattern with a written rationale — that is the shape to copy
+   if this is ever taken up.
+2. **`SdkPermissionHandler.dispose()` has no callers anywhere in the repo.**
+   Which means the no-arg global sweep inside `disposeAllSessions()` was in
+   practice the only global pending-permission drain on deactivate, and it is now
+   scoped. Inert in a real deactivate (the process is going away), but wiring
+   `dispose()` into `SdkAgentAdapter`'s deactivate path is the belt-and-braces
+   answer.
+3. **`stream-router.service.ts:444-448` is the same laundering from a different
+   origin, and this task's fix does NOT cover it.** It synthesises
+   `{decision:'deny', reason:'auto-deny: prompt arrived for surface-only
+conversation'}`, which arrives over the webview wire and so correctly carries
+   no `systemAbort` marker — landing on the hard-deny path with `interrupt: true`
+   and the canned string, with no human involved. The cheapest correct fix is to
+   change that literal to `deny_with_message`, which is already the
+   `interrupt: false` path whose text reaches the model, and needs no backend
+   change. Its existence also contradicts `libs/frontend/chat-routing/CLAUDE.md`'s
+   claim that surfaces "run full-auto with auto-allow at the SDK layer".
+4. **The reproduction in "Verification" above was never run.** The fix is pinned
+   by unit specs, not by the live auth-change reproduction. Worth doing once.

@@ -44,8 +44,24 @@ import {
 } from './permission/ask-user-question.service';
 import { ExitPlanModeService } from './permission/exit-plan-mode.service';
 
+/**
+ * Internal superset of the wire type {@link PermissionResponse}.
+ *
+ * `systemAbort` marks a response Ptah itself manufactured while tearing a
+ * session down (auth/config change, extension deactivation) — NOT a decision a
+ * human made. It is deliberately NOT part of `PermissionResponse`: that type is
+ * what the WEBVIEW sends, and a system abort never originates there.
+ *
+ * Without this distinction an abort-deny is indistinguishable from a user deny
+ * at the tool-result layer, so the model reads a teardown as a deliberate
+ * refusal and correctly stops working. See TASK_2026_247.
+ */
+type InternalPermissionResponse = PermissionResponse & {
+  readonly systemAbort?: true;
+};
+
 interface PendingRequest {
-  resolve: (response: PermissionResponse) => void;
+  resolve: (response: InternalPermissionResponse) => void;
   sessionId?: SessionId;
   tabId?: TabId;
 }
@@ -639,6 +655,32 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       };
     }
 
+    // A system abort is NOT a user decision. `interrupt: true` is what makes the
+    // CLI substitute its canned "The user doesn't want to take this action right
+    // now. STOP what you are doing..." string, which launders a teardown into a
+    // deliberate refusal. `deny_with_message` above proves `interrupt: false`
+    // plus a rich message is the path whose text actually reaches the model.
+    // The turn is torn down by the session's abortController regardless, so
+    // dropping `interrupt` here leaves nothing running. See TASK_2026_247.
+    if (response.systemAbort) {
+      this.logger.warn(
+        `[SdkPermissionHandler] Permission request ${requestId} aborted by the system (not a user decision) for tool ${toolName}`,
+        {
+          decision: 'deny',
+          systemAbort: true,
+          reason: response.reason || 'Session aborted',
+          interrupt: false,
+        },
+      );
+      return {
+        behavior: 'deny' as const,
+        message: `SYSTEM ABORT — this was NOT a user decision. Ptah cancelled the pending permission request for tool "${toolName}" because the session was being torn down (for example an authentication or configuration change). No human ever saw this prompt, and nobody reviewed or refused the tool call. Do NOT treat this as a user denial and do NOT abandon the work you were asked to do. The operation may be retried once the session is available again. Internal reason: "${
+          response.reason || 'Session aborted'
+        }".`,
+        interrupt: false,
+      };
+    }
+
     this.logger.info(
       `[SdkPermissionHandler] Permission request ${requestId} hard denied for tool ${toolName}`,
       {
@@ -750,8 +792,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     sessionId?: SessionId,
     tabId?: TabId,
     timeoutMs?: number,
-  ): Promise<PermissionResponse | null> {
-    return new Promise<PermissionResponse | null>((resolve) => {
+  ): Promise<InternalPermissionResponse | null> {
+    return new Promise<InternalPermissionResponse | null>((resolve) => {
       if (signal?.aborted) {
         this.pendingRequests.delete(requestId);
         this.pendingRequestContext.delete(requestId);
@@ -847,6 +889,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             id: requestId,
             decision: 'deny',
             reason: 'Session aborted',
+            systemAbort: true,
           });
           this.pendingRequests.delete(requestId);
           this.pendingRequestContext.delete(requestId);
@@ -871,6 +914,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           id: requestId,
           decision: 'deny',
           reason: 'Session aborted',
+          systemAbort: true,
         });
       }
       this.pendingRequests.clear();
