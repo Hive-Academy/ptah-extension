@@ -10,10 +10,13 @@ unstarted batches.
 
 ## 1. Where
 
-- **Worktree**: `D:/projects/ptah-extension/.claude-worktrees/task180`
-- **Branch**: `ak/task-180-skill-synthesis`, HEAD **`c699bca9f`** (merged into `ak/tui-defects`)
+- **Worktree: `D:/projects/ptah-extension` — the MAIN one. Branch `ak/tui-defects`.**
+  Phase 3 was built here, not in the task180 worktree. Work continues here.
+- **Superseded**: `.claude-worktrees/task180` on `ak/task-180-skill-synthesis`
+  carried phases 0–2 and was merged at `c699bca9f`. It still exists and is now
+  BEHIND. Do not resume work in it, and do not merge it again.
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
-- `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. **ID ALLOCATION IS BROKEN ACROSS WORKTREES — do not trust a folder scan.** Ids `237`–`241` were allocated on this branch AND independently in `D:/projects/ptah-extension` during the same session, for different tasks. This branch renumbered ITS carriers TWICE (237/238 → 240/241, then 239/240/241 → 242/243/244) because the other worktree's were real work. **The folder-scan rule in the root CLAUDE.md cannot work when two worktrees allocate concurrently** — any scan is stale the moment the other side commits. Until that is fixed: re-check BOTH worktrees immediately before committing a carrier, and expect to renumber anyway. This worktree tops out at `TASK_2026_244`; the other holds up to `241`. Next free across both is `245`.
+- `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. **ID ALLOCATION IS BROKEN ACROSS WORKTREES — do not trust a folder scan.** Ids `237`–`241` were allocated on this branch AND independently in `D:/projects/ptah-extension` during the same session, for different tasks. This branch renumbered ITS carriers TWICE (237/238 → 240/241, then 239/240/241 → 242/243/244) because the other worktree's were real work. **The folder-scan rule in the root CLAUDE.md cannot work when two worktrees allocate concurrently** — any scan is stale the moment the other side commits. Until that is fixed: re-check BOTH worktrees immediately before committing a carrier, and expect to renumber anyway. **Confirmed again on 2026-08-15, live**: `TASK_2026_246` appeared in the main worktree at 19:11 while B3.5 was mid-flight, created by a concurrently running Ptah session. A scan taken minutes earlier had topped out at `244`. `245` and `247` are this task's; `246` is the other session's. **Next free across both is `248`** — and re-scan anyway, because that number can go stale while you are reading this sentence.
 
 ## 2. Status: Commits 0, 1, 2 and 3 COMPLETE — Phase 4 is next
 
