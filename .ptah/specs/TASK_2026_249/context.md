@@ -59,3 +59,44 @@ file will try it.
 Do NOT put `nx check ptah-docs` in a subagent's acceptance gates. `nx build
 ptah-docs` works, is fast (~7s for 143 pages), and catches the failures that
 actually break the site.
+
+## Resolution — option 2, and the measurement that decided it
+
+Target deleted from `apps/ptah-docs/project.json`, and the `Build & Run` claim
+in `apps/ptah-docs/CLAUDE.md` replaced with the reason it is absent.
+
+Option 1 was rejected on what `astro check` would have bought. The site is:
+
+| Type     | Files |
+| -------- | ----- |
+| `.md`    | 140   |
+| `.mdx`   | 2     |
+| `.ts`    | 1     |
+| `.astro` | 0     |
+
+`astro check` runs the Astro language server over TypeScript and `.astro`
+components. Here that is **one file** — `src/content.config.ts`. Installing
+`@astrojs/check` plus `typescript`, and paying this repo's postinstall Electron
+native rebuild, to typecheck a single file is not a trade worth making.
+
+### The CLAUDE.md line was also wrong on the facts
+
+It advertised "type/**link** validation", and TASK_2026_248's context repeats it
+(`context.md:82`, "astro check validates links"). It does not. `astro check`
+performs no link validation of any kind. The hand-grep of every
+`(/skill-synthesis/...)` target described above was not a workaround for a
+broken gate — **no gate in this repo has ever validated those links**, and
+fixing the hang would not have produced one.
+
+Link validation needs `starlight-links-validator` registered in
+`astro.config.mjs`. That is a real addition with its own decision (it fails the
+build on a broken internal link, which is the point), and is deliberately NOT
+folded into this task — this carrier's stated fix was one of two options and
+neither was "add a link checker".
+
+### What still gates the docs
+
+`nx build ptah-docs` — ~7s, 143 pages, and it already **fails on invalid
+content-collection frontmatter**, which was the only real validation `astro
+check` overlapped with. Verified green after the target removal. No workflow,
+npm script or CI job referenced `check`, so nothing else broke.

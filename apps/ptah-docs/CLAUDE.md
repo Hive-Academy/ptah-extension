@@ -22,14 +22,18 @@ Astro Starlight documentation site published at `https://docs.ptah.live`. User g
 - `nx build ptah-docs` — `astro build --outDir ../../dist/apps/ptah-docs` (runs from `apps/ptah-docs`).
 - `nx dev ptah-docs` / `nx serve ptah-docs` — `astro dev`.
 - `nx preview ptah-docs` — `astro preview` against the build output.
-- `nx check ptah-docs` — **BROKEN, do not use. See `TASK_2026_249`.** The target
-  exists and runs `astro check`, but `@astrojs/check` is not installed anywhere
-  in this repo. Under CI it errors; in an interactive shell astro **prompts to
-  install it and the command hangs with no output** — a 600-second run produced
-  an empty log. Three agents parked on it in one session and returned with no
-  report, which reads as agents quitting early rather than as a broken gate.
-  **Never hand this to a subagent as an acceptance gate.** Use `nx build
-ptah-docs` (~7s, 143 pages) and validate links by hand until 249 is resolved.
+  **There is no `check` target, deliberately** (TASK_2026_249). One ran `astro
+check` without `@astrojs/check` ever being installed, so it hung on an install
+  prompt with no output and cost three agents a session. It was deleted rather
+  than fixed: this site is 140 `.md` + 2 `.mdx` + exactly one `.ts` file and zero
+  `.astro` components, so `astro check` had one file to typecheck — and it never
+  validated links, whatever the old line here claimed. `astro build` already
+  fails on invalid content-collection frontmatter, which is the part that
+  mattered.
+
+**`nx build ptah-docs` is the gate.** If you want link validation, that needs
+`starlight-links-validator` in `astro.config.mjs` — a real addition, not a
+target that got lost.
 
 ## Guidelines
 

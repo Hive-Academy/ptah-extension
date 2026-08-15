@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_249
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   `nx check ptah-docs` has never worked — it hangs on an install prompt, and

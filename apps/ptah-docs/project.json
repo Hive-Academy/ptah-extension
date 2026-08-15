@@ -37,13 +37,6 @@
         "cwd": "apps/ptah-docs",
         "command": "astro preview --outDir ../../dist/apps/ptah-docs"
       }
-    },
-    "check": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "apps/ptah-docs",
-        "command": "astro check"
-      }
     }
   }
 }
