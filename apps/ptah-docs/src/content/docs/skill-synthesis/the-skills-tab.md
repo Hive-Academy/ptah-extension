@@ -3,46 +3,60 @@ title: The Skills Tab
 description: How Recommended, Sessions, and Library fit together — and what to do with old session captures.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 # The Skills Tab
 
-The Skills tab has five sub-views. Three of them are the lifecycle of a skill; two are supporting. Read them left to right as a pipeline:
+<Aside type="note" title="Electron only, by design">
+This tab lives inside the Thoth shell alongside Memory, Schedules, and Gateway — all four are desktop-only. The subsystem needs `better-sqlite3` and an embedder worker, neither of which the VS Code extension host has. There's no VS Code parity roadmap for it; the gap is structural, not a missing feature.
+</Aside>
+
+The Skills tab has five sub-views. Three of them are the lifecycle of a skill; two are supporting. The Library is fed from **two** different doors — only one of them stops for your review:
 
 ```text
  a session runs
       │
       ▼
- ┌──────────┐   cluster of ≥2 similar    ┌─────────────┐   you Accept    ┌──────────┐
- │ Sessions │ ─────────────────────────▶ │ Recommended │ ──────────────▶ │ Library  │
- │ (raw)    │   + quality judge          │ (distilled) │   (+ edits)     │ (active) │
- └──────────┘                            └─────────────┘                 └──────────┘
-   candidates                              suggestions                     clones
+ ┌──────────┐
+ │ Sessions │
+ │ (raw)    │
+ └────┬─────┘
+      │
+      ├─ same trajectory succeeds 3× + judge & gates pass ─────────▶ Library
+      │  (no review — see How It Works, Track 1)                     (active)
+      │
+      └─ clusters with ≥2 similar + judge passes  ┌─────────────┐   you Accept
+         ────────────────────────────────────────▶│ Recommended │──────────────▶ Library
+                                                    │ (distilled) │  (+ edits)     (active)
+                                                    └─────────────┘
+   candidates                                        suggestions                   clones
 ```
 
-- **Sessions** — every successful session Ptah captured, raw. The feedstock.
-- **Recommended** — workflows Ptah distilled from clusters of similar sessions and a quality judge passed. The skills actually worth adding.
+- **Sessions** — every session Ptah captured that cleared the prefilter, raw. The feedstock — and, for a repeated workflow, sometimes the last place you'll see it before it's already in your library.
+- **Recommended** — workflows Ptah distilled from clusters of similar sessions and a quality judge passed. These stop and wait for you.
 - **Library** — the skills, agents, and commands that are installed and run, plus the loop that improves them from usage.
-- **Activity** — diagnostics: why sessions were eligible or skipped, when the last pass ran.
+- **Activity** — diagnostics: why sessions were eligible or skipped, when queue passes last ran, and how much of today's background-learning budget is spent.
 - **Settings** — thresholds and caps (read-only here; edit from the Settings view).
 
 ---
 
 ## Sessions
 
-Each row is one **candidate** — a single successful session boiled down to its trajectory (turns, tool calls, outcome). The name and description are taken straight from the session, so they read like whatever you happened to be doing — including subagent transcripts (e.g. Tribunal panelists), which is why you'll see clusters of near-identical machine-named rows.
+Each row is one **candidate** — a single captured session boiled down to its trajectory (turns, tool calls, outcome). The name and description are taken straight from the session, so they read like whatever you happened to be doing — including subagent transcripts (e.g. Tribunal panelists), which is why you'll see clusters of near-identical machine-named rows.
 
-| Status      | Meaning                                                             |
-| ----------- | ------------------------------------------------------------------- |
-| `candidate` | Captured, awaiting review or clustering                             |
-| `promoted`  | You force-promoted it straight to the Library                       |
-| `rejected`  | Dismissed — kept on record so the same trajectory isn't re-captured |
+| Status      | Meaning                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| `candidate` | Captured, awaiting review, clustering, or the direct-promotion threshold           |
+| `promoted`  | In the Library — either you promoted it, or it hit `successesToPromote` on its own |
+| `rejected`  | Dismissed — kept on record so the same trajectory isn't re-captured                |
 
-**You rarely need to act here.** Sessions is the raw log that _feeds_ Recommended; it is not your skill library. The per-row **Promote** is an escape hatch for when you already know a single session is worth keeping. **Reject** removes noise from the clustering pool.
+**You rarely need to act here.** Sessions is the raw log everything else feeds from; it is not your skill library. The per-row **Promote** is an escape hatch for when you already know a single session is worth keeping _now_, without waiting for the threshold. **Reject** removes noise from the clustering pool.
 
 ---
 
 ## Recommended
 
-This is the surface that matters. When **two or more similar sessions** cluster together, Ptah synthesizes them into **one** generalized, repo-agnostic skill, runs it past a quality judge (novelty, actionability, scope, generalization, trigger clarity), and only then proposes it here.
+This is the surface built for review. When **two or more similar sessions** cluster together, Ptah synthesizes them into **one** generalized, repo-agnostic skill, runs it past a quality judge (novelty, actionability, scope, generalization, trigger clarity), and only then proposes it here.
 
 For each recommendation you can:
 
@@ -67,7 +81,7 @@ Your **active** skills, agents, and commands — the ones that actually load and
 | ---------- | ------------------------------------------------------------ |
 | `authored` | Built-in or hand-written by you (e.g. the specialist agents) |
 | `clone`    | Copied from an installed plugin/template                     |
-| `synth`    | From a Recommended skill you Accepted                        |
+| `synth`    | Auto-promoted, or a Recommended skill you Accepted           |
 | `diverged` | A clone whose upstream changed after you locally enhanced it |
 
 **Invocations** and **Success** are usage-derived and stay blank (`—`) until the skill is actually used in a tracked run. The eligibility tag next to each row tells you where it is in the auto-enhance loop:
@@ -86,9 +100,9 @@ Your **active** skills, agents, and commands — the ones that actually load and
 
 ## Activity & Settings
 
-**Activity** shows the eligibility histogram (how many recent sessions were accepted vs. skipped and why) and when the last analyze/curator pass ran — useful when you expect a recommendation and don't see one.
+**Activity** shows the eligibility histogram (how many recent sessions were accepted vs. skipped and why), when the last analyze/curator pass ran, and today's background-learning token spend against the daily budget — useful both when you expect a recommendation and don't see one, and when you're wondering why nothing seems to be happening in the background at all. See [Background Learning](/skill-synthesis/background-learning/) for what the gates behind that spend are.
 
-**Settings** is a read-only mirror of the `skillSynthesis.*` keys (promotion threshold, judge minimum score, dedup thresholds, caps). Edit them from the main Settings view.
+**Settings** is a read-only mirror of the `skillSynthesis.*` keys (promotion threshold, judge minimum score, dedup thresholds, caps, and the per-stage provider lanes). Edit them from the main Settings view.
 
 ---
 
@@ -96,9 +110,9 @@ Your **active** skills, agents, and commands — the ones that actually load and
 
 Short answer: **you can, but you don't have to — and they are not your skills.**
 
-The rows in **Sessions** are raw candidates. They live entirely separately from your **Library** (the active skills). Deleting them does **not** remove or affect anything that runs. So a list full of `tribunal-…-panelist-…` captures is clutter, not corruption.
+The rows in **Sessions** are raw candidates. Aside from the ones that auto-promoted themselves, they live entirely separately from your **Library** (the active skills). Deleting a candidate does **not** remove or affect anything that already runs. So a list full of `tribunal-…-panelist-…` captures is clutter, not corruption.
 
-The one reason to clean them up: candidates **feed the clustering** that produces Recommended skills. Lots of near-identical machine-generated captures (subagent transcripts especially) can cluster into low-value recommendations. Rejecting the obvious noise keeps Recommended focused.
+The one reason to clean them up: candidates **feed the clustering** that produces Recommended skills, and repeats of the same trajectory feed direct promotion. Lots of near-identical machine-generated captures (subagent transcripts especially) can cluster into low-value recommendations, or rack up successes toward a promotion you didn't want. Rejecting the obvious noise keeps both paths focused.
 
 How to dispose of them:
 
@@ -106,5 +120,5 @@ How to dispose of them:
 - Today this is **one row at a time**; there's no bulk "reject all". If you have a large backlog of generated noise, that's worth raising — a bulk cleanup is a reasonable enhancement.
 
 :::note
-Rejecting a candidate never touches the Library. If you've already **Accepted** a skill (so it's `synth` in the Library), the source candidates are safe to reject.
+Rejecting a candidate never touches the Library. If a skill has already been materialized (so it's `synth` in the Library, whether you Accepted it or it promoted itself), the source candidates are safe to reject.
 :::

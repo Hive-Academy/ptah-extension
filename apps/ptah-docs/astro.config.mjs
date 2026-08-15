@@ -89,6 +89,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'skill-synthesis' },
             { label: 'The Skills Tab', slug: 'skill-synthesis/the-skills-tab' },
             { label: 'How It Works', slug: 'skill-synthesis/how-it-works' },
+            { label: 'Background Learning', slug: 'skill-synthesis/background-learning' },
             { label: 'Reviewing Candidates', slug: 'skill-synthesis/reviewing-candidates' },
             { label: 'SKILL.md Anatomy', slug: 'skill-synthesis/skill-md-anatomy' },
             { label: 'Settings', slug: 'skill-synthesis/settings' },
