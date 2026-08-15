@@ -48,6 +48,15 @@ const SQL_0033 = MIGRATIONS.find((m) => m.version === 33)?.sql ?? '';
  * of silently disagreeing with them.
  */
 const SQL_0036 = MIGRATIONS.find((m) => m.version === 36)?.sql ?? '';
+/**
+ * `workspace_root` on `skill_invocation_events` plus the session index.
+ * Applied from `MIGRATIONS` rather than hand-added to the CREATE TABLE below
+ * for the same reason as `0033`/`0036`: `recordSkillEvent` writes a FIXED
+ * seventeen-column list, so a fixture that spelled the column itself could
+ * drift from the migration silently. Running the real ALTER is what keeps the
+ * two honest.
+ */
+const SQL_0037 = MIGRATIONS.find((m) => m.version === 37)?.sql ?? '';
 
 /**
  * `better-sqlite3` ships `transaction()`; `node:sqlite` does not. The store's
@@ -134,6 +143,7 @@ function createInMemoryDb(): SpecDb {
   `);
   db.exec(SQL_0033);
   db.exec(SQL_0036);
+  db.exec(SQL_0037);
   return db;
 }
 
@@ -548,6 +558,57 @@ describe('SkillCandidateStore', () => {
         expect(agg.sum_input).toBe(100);
       },
     );
+
+    maybe('writes workspace_root as the seventeenth column (0037)', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const readRoot = (slug: string): string | null =>
+        (
+          db
+            .prepare(
+              'SELECT workspace_root FROM skill_invocation_events WHERE skill_slug = ?',
+            )
+            .get(slug) as { workspace_root: string | null }
+        ).workspace_root;
+
+      store.recordSkillEvent({
+        skillSlug: 'scoped',
+        sessionId: 's1',
+        workspaceRoot: 'D:/projects/ptah-extension',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+      // 0034's "deliberately cross-project" value survives as itself.
+      store.recordSkillEvent({
+        skillSlug: 'cross-project',
+        sessionId: 's2',
+        workspaceRoot: '',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+      // A caller that does not know: NULL, meaning unknown provenance. NOT ''.
+      store.recordSkillEvent({
+        skillSlug: 'unknown-root',
+        sessionId: 's3',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+
+      expect(readRoot('scoped')).toBe('D:/projects/ptah-extension');
+      expect(readRoot('cross-project')).toBe('');
+      expect(readRoot('cross-project')).not.toBeNull();
+      expect(readRoot('unknown-root')).toBeNull();
+      expect(readRoot('unknown-root')).not.toBe('');
+    });
   });
 
   describe('reconcileSubagentEvent — exact task_id first, window fallback', () => {

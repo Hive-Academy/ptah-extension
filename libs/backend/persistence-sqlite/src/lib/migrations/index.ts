@@ -62,6 +62,7 @@ import { sql as sql0033SkillCandidateVerdicts } from './0033_skill_candidate_ver
 import { sql as sql0034SkillSessionVerdicts } from './0034_skill_session_verdicts';
 import { sql as sql0035SkillSynthesisBudgetStage } from './0035_skill_synthesis_budget_stage';
 import { sql as sql0036SkillEmpiricalGates } from './0036_skill_empirical_gates';
+import { sql as sql0037SkillInvocationSessionJoin } from './0037_skill_invocation_session_join';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -286,5 +287,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 36,
     name: '0036_skill_empirical_gates',
     sql: sql0036SkillEmpiricalGates,
+  },
+  {
+    version: 37,
+    name: '0037_skill_invocation_session_join',
+    sql: sql0037SkillInvocationSessionJoin,
   },
 ];

@@ -19,13 +19,13 @@ describe('migration 0030_skill_event_metrics — registry entry', () => {
   });
 
   it('is the highest version (appended, not inserted)', () => {
-    // Bumped to 36 when TASK_2026_180 appended 0036_skill_empirical_gates
-    // (previously 35, 34, 33, then 32 — the same task's phases 3, 0, 2, 1 and
-    // 0). This assertion tracks the current highest version and moves forward
-    // with every appended migration — that movement is the ratchet, not a
-    // failure.
+    // Bumped to 37 when TASK_2026_180 appended
+    // 0037_skill_invocation_session_join (previously 36, 35, 34, 33, then 32 —
+    // the same task's phases 4, 3, 0, 2, 1 and 0). This assertion tracks the
+    // current highest version and moves forward with every appended migration —
+    // that movement is the ratchet, not a failure.
     const maxVersion = Math.max(...MIGRATIONS.map((m) => m.version));
-    expect(maxVersion).toBe(36);
+    expect(maxVersion).toBe(37);
   });
 });
 

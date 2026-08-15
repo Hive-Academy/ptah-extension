@@ -115,6 +115,32 @@ interface RawScorecardAggregateRow {
   avg_tools: number | null;
 }
 
+interface RawWinRateRow {
+  skill_slug: string;
+  invocations: number | null;
+  wins: number | null;
+  unknown: number | null;
+}
+
+/**
+ * One slug's win rate over the invocation → session-outcome join (plan §2.5).
+ *
+ * `winRate` is `number | null` and the `null` is NOT an error state — it is
+ * "no measured session for this skill yet". See `getWinRates`'s header for why
+ * it must never be `0`. Every consumer branches on it; none coalesces it.
+ */
+export interface SkillWinRate {
+  readonly slug: string;
+  /** Every recorded invocation of the slug, whatever its session's verdict. */
+  readonly invocations: number;
+  /** Verdicts in `tests-green` / `user-accepted` / `explicit-confirmation`. */
+  readonly wins: number;
+  /** `unverified` verdicts PLUS sessions with no verdict row at all. */
+  readonly unknown: number;
+  /** `wins / (invocations - unknown)`; `null` when that denominator is 0. */
+  readonly winRate: number | null;
+}
+
 interface RawGradedInvocationRow {
   task_id: string | null;
   succeeded: number;
@@ -780,6 +806,18 @@ export class SkillCandidateStore {
   recordSkillEvent(input: {
     skillSlug: string;
     sessionId: string;
+    /**
+     * Workspace the invocation happened in (migration `0037`).
+     *
+     * OPTIONAL AT THE TYPE LEVEL, NEVER FABRICATED AT THE VALUE LEVEL. A
+     * caller that does not know the workspace writes NULL, which means
+     * "provenance unknown" and is a different fact from `''`, which `0034`
+     * spends on `skill_session_verdicts.workspace_root` to mean "deliberately
+     * cross-project". Do not coalesce one to the other.
+     * `SkillInvocationRecorder` — the only production caller — requires the
+     * value on its own input type, so the production path always supplies it.
+     */
+    workspaceRoot?: string | null;
     contextId: string | null;
     source: string;
     succeeded: boolean;
@@ -795,8 +833,8 @@ export class SkillCandidateStore {
       `INSERT INTO skill_invocation_events
          (id, skill_slug, session_id, context_id, source, succeeded, is_error, invoked_at,
           input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-          cost_usd, duration_ms, tool_count, task_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          cost_usd, duration_ms, tool_count, task_id, workspace_root)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     stmt.run(
       ulid(),
@@ -815,7 +853,65 @@ export class SkillCandidateStore {
       m?.durationMs ?? null,
       m?.toolCount ?? null,
       input.taskId ?? null,
+      input.workspaceRoot ?? null,
     );
+  }
+
+  /**
+   * Per-slug win rate over the invocation → session-outcome join (plan §2.5,
+   * migration `0037`).
+   *
+   * THE NULL IS THE FEATURE. `winRate = wins / (invocations - unknown)`, and
+   * when that denominator is `0` the answer is `null` — NEVER `0`. A skill
+   * nobody has measured has no win rate; a skill measured and beaten has a
+   * low one. Collapsing the first into `0` ranks the unmeasured skill BELOW
+   * the measured loser in every consumer that sorts on this number (dormancy
+   * demotion, the auto-enhance gate, the weekly digest), which is exactly
+   * backwards: the unmeasured skill is the one we know least about and the one
+   * demotion must touch LAST. This is the same asymmetry `0033` established for
+   * `judge_score` and `0036` for the empirical gates.
+   *
+   * The three buckets partition on `evidence_class`, and `no-correction` is
+   * deliberately in NONE of them: it is weak evidence of success, so it is
+   * neither a win (it does not enter the numerator) nor unknown (it does not
+   * leave the denominator). A session whose verdict row is absent entirely
+   * counts as unknown, which is what makes a host that never ran the
+   * archaeologist report `null` instead of a fabricated `0`.
+   *
+   * Aggregated in SQL, divided in TypeScript: SQLite's integer division would
+   * turn every rate below 1 into `0`, and a `CAST(... AS REAL)` would still
+   * have to answer for the zero denominator somewhere. One place to get the
+   * rule wrong is better than two.
+   */
+  getWinRates(): SkillWinRate[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.skill_slug,
+                COUNT(*) AS invocations,
+                SUM(CASE WHEN v.evidence_class IN
+                      ('tests-green','user-accepted','explicit-confirmation')
+                    THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN v.session_id IS NULL OR v.evidence_class = 'unverified'
+                    THEN 1 ELSE 0 END) AS unknown
+         FROM skill_invocation_events e
+         LEFT JOIN skill_session_verdicts v ON v.session_id = e.session_id
+         GROUP BY e.skill_slug`,
+      )
+      .all() as RawWinRateRow[];
+
+    return rows.map((r) => {
+      const invocations = r.invocations ?? 0;
+      const wins = r.wins ?? 0;
+      const unknown = r.unknown ?? 0;
+      const measured = invocations - unknown;
+      return {
+        slug: r.skill_slug,
+        invocations,
+        wins,
+        unknown,
+        winRate: measured > 0 ? wins / measured : null,
+      };
+    });
   }
 
   /**

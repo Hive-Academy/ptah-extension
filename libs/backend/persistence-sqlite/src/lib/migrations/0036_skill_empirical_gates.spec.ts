@@ -67,10 +67,14 @@ describe('migration 0036_skill_empirical_gates — registry entry', () => {
     expect(entry?.run).toBeUndefined();
   });
 
-  it('is registered exactly once, appended after 35, and is the tail', () => {
+  it('is registered exactly once and follows 35 with no gap', () => {
     expect(MIGRATIONS.filter((m) => m.version === 36)).toHaveLength(1);
     expect(MIGRATIONS.map((m) => m.version)).toContain(35);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(36);
+    // 0036 is no longer the tail — the same task's phase 4 appended 0037. The
+    // invariant that survives is "36 exists exactly once and 35 precedes it";
+    // the highest version is asserted by whichever migration is currently last
+    // (0035's spec carries the identical note for the same reason).
+    expect(MIGRATIONS.map((m) => m.version)).toContain(37);
   });
 });
 
