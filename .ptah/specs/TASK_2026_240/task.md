@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_240
-status: backlog
+status: in_review
 type: devops
 title: Enforce content-manifest.json regeneration in CI
 description: >-

@@ -1,0 +1,54 @@
+# Content Manifest Gate
+#
+# Fails a PR whose plugin or template content changed without regenerating
+# content-manifest.json (TASK_2026_240).
+#
+# Why this is its own workflow and not a step in ci.yml: ci.yml carries
+# `paths-ignore: '**/*.md'`, and 200 of the 234 manifest-tracked files ARE
+# markdown. A PR that adds only a skill .md — precisely the change that shipped
+# a stale manifest and motivated this gate — never triggers ci.yml at all.
+#
+# The check compares `contentHash` and the file lists, never `generatedAt`.
+# The script is dependency-free (fs/path/crypto), so this job needs no install.
+
+name: Content Manifest
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/ptah-extension-vscode/assets/plugins/**'
+      - 'libs/backend/agent-generation/templates/agents/**'
+      - 'content-manifest.json'
+      - 'scripts/generate-content-manifest.js'
+      - '.github/workflows/content-manifest.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: content-manifest-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Self-test first, against planted drift fixtures, so a checker that has
+      # stopped detecting anything cannot silently pass the real check below.
+      - name: Self-test the drift checker
+        run: npm run manifest:self-test
+
+      - name: Check content-manifest.json for drift
+        run: npm run manifest:check
