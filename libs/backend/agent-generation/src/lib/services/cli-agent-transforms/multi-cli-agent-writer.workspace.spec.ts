@@ -82,7 +82,7 @@ describe('Workspace agent transformers (decision #4)', () => {
     expect(result.content).not.toContain('\n---\n');
   });
 
-  it('Codex TOML unquotes a YAML-quoted frontmatter description (no leaked `\"`)', () => {
+  it('Codex TOML unquotes a YAML-quoted frontmatter description (no leaked `"`)', () => {
     // Mirrors the real orchestrator-emitted source: double-quoted YAML scalar,
     // and the wizard path leaves variables.description unset.
     const quotedAgent: GeneratedAgent = {
