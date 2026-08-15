@@ -279,6 +279,17 @@ export {
   type ReplayValidationStatus,
   type GateEvidence,
 } from './lib/gates/replay-validator.service';
+// The DRAFTING half of the hold-out contract (B3.6). Exported beside the gate
+// because a future `cluster-synthesis` stage handler outside this file has to
+// reserve the hold-out with the SAME function the curator does — a second
+// exclusion rule is how the hold-out silently gets consumed.
+export {
+  planClusterDraft,
+  clusterSessionIdsOf,
+  type ClusterDraftPlan,
+  type ClusterDraftReason,
+  type ClusterMemberSessions,
+} from './lib/gates/cluster-holdout';
 export {
   TriggerEvalService,
   TRIGGER_EVAL_TOP_K,

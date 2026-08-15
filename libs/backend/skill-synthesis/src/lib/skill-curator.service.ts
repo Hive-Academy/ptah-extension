@@ -17,6 +17,30 @@
  * only; asking for a schema it cannot read back would turn every successful
  * array answer into a `structured-output-unsupported` failure. `parseFindings`
  * reads the array out of the assistant text, which is what it has always done.
+ *
+ * ## The suggestion pass RESERVES the replay gate's hold-out (B3.6)
+ *
+ * `runSuggestionPass` is this library's cluster-synthesis path, and it is the
+ * only place a hold-out can be reserved — once the body is written, every
+ * session in the cluster has already influenced it. {@link planClusterDraft}
+ * decides which member the synthesizer may NOT see, using the replay gate's own
+ * `selectHoldoutSessionId` so the two sides cannot drift, and declines to
+ * reserve one when the remaining draft would fall below
+ * `suggestionMinClusterSize`.
+ *
+ * The two persisted lists then mean DIFFERENT things, and the difference is the
+ * hold-out:
+ *
+ *  - `memberSessionIds` — only the sessions the draft CONSUMED. This is the
+ *    `used` half of the gate's subtraction and the value that must become the
+ *    graded candidate's `sourceSessionIds`.
+ *  - `memberCandidateIds` — EVERY cluster member, held out or not. It is the
+ *    only carrier of the full cluster, and re-reading those candidates' own
+ *    `sourceSessionIds` is how the gate's `clusterSessionIds` is recovered.
+ *
+ * `clusterSize` also stays the FULL cluster size, so a suggestion drafted from
+ * two of three sessions reads "cluster size 3, member sessions 2" rather than
+ * quietly reporting itself as smaller than the evidence behind it.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -48,6 +72,7 @@ import {
   type ClusterMemberInput,
 } from './skill-synthesizer.service';
 import { SkillJudgeService } from './skill-judge.service';
+import { planClusterDraft } from './gates/cluster-holdout';
 import type { LaneRunnerService } from './lanes/lane-runner.service';
 import type {
   SkillCandidateRow,
@@ -369,12 +394,21 @@ export class SkillCuratorService {
       ) {
         continue;
       }
+      // Reserve the replay gate's hold-out BEFORE anything reads the cluster,
+      // so every downstream read is explicit about whether it wants the whole
+      // cluster or only what the draft is allowed to see. See
+      // `gates/cluster-holdout.ts`.
+      const draft = planClusterDraft(
+        cluster.members,
+        settings.suggestionMinClusterSize,
+      );
       if (authoredSlugs.size > 0) {
-        const clusterSessionIds = [
-          ...new Set(cluster.members.flatMap((m) => m.sourceSessionIds)),
-        ];
-        const dominant =
-          this.store.getDominantSkillSlugForSessions(clusterSessionIds);
+        // The authored-skill guard is a fact about the CLUSTER, not about the
+        // draft: a hold-out does not make an authored skill's territory any
+        // less its own.
+        const dominant = this.store.getDominantSkillSlugForSessions([
+          ...draft.clusterSessionIds,
+        ]);
         if (dominant && authoredSlugs.has(dominant)) {
           this.logger.info(
             '[skill-curator] skipping cluster — dominated by an authored skill',
@@ -395,7 +429,10 @@ export class SkillCuratorService {
       }
       processed += 1;
       try {
-        const members: ClusterMemberInput[] = cluster.members.map((m) => ({
+        // `draft.drafted`, NOT `cluster.members`: the held-out member's body
+        // must never reach the synthesizer, or the replay gate scores the draft
+        // against a session it was written from and measures recall.
+        const members: ClusterMemberInput[] = draft.drafted.map((m) => ({
           description: m.description,
           body: this.readCandidateBody(m),
         }));
@@ -406,7 +443,7 @@ export class SkillCuratorService {
         if (!synthesized) continue;
         const verdict = await this.judge.judge(
           {
-            ...cluster.members[0],
+            ...draft.drafted[0],
             name: synthesized.name,
             description: synthesized.description,
           },
@@ -432,14 +469,16 @@ export class SkillCuratorService {
           });
           continue;
         }
-        const memberSessionIds = [
-          ...new Set(cluster.members.flatMap((m) => m.sourceSessionIds)),
-        ];
+        // `memberSessionIds` is what the draft CONSUMED — the `used` half of
+        // `selectHoldoutSessionId`. `memberCandidateIds` stays the FULL cluster
+        // and is the only carrier of the held-out member, so the replay gate can
+        // recover the hold-out as the difference between the two. Narrowing both
+        // would erase the hold-out; narrowing neither is the defect B3.6 fixes.
         this.suggestionStore.insertPending({
           name: synthesized.name,
           description: synthesized.description,
           body: synthesized.body,
-          memberSessionIds,
+          memberSessionIds: [...draft.draftedSessionIds],
           memberCandidateIds: candidateIds,
           clusterSize: cluster.members.length,
           technologyFingerprint: fingerprint,
@@ -449,6 +488,9 @@ export class SkillCuratorService {
         this.logger.info('[skill-curator] suggestion proposed', {
           name: synthesized.name,
           clusterSize: cluster.members.length,
+          draftedFrom: draft.drafted.length,
+          holdoutSessionId: draft.holdoutSessionId,
+          holdoutReason: draft.reason,
           judgeScore: verdict.score,
         });
       } catch (err: unknown) {
