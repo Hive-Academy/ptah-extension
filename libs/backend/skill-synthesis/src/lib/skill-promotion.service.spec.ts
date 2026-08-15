@@ -4,7 +4,13 @@
  * Heavy mocking of SkillCandidateStore + SkillMdGenerator avoids SQLite.
  */
 import 'reflect-metadata';
-import { SkillPromotionService } from './skill-promotion.service';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  SkillPromotionService,
+  rankingScore,
+  MIN_REPLAY_CONFIDENCE_KEY,
+  MIN_REPLAY_CONFIDENCE_DEFAULT,
+} from './skill-promotion.service';
 import { JUDGE_REASONS, type JudgeDecision } from './skill-judge.service';
 import type { SkillCandidateStore } from './skill-candidate.store';
 import type { SkillMdGenerator } from './skill-md-generator';
@@ -486,6 +492,298 @@ describe('SkillPromotionService', () => {
 
       expect(decision.promoted).toBe(true);
       expect(store.recordJudgeVerdict).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── B3.4.2: the replay gate + measured ranking ───────────────────────────
+
+  /**
+   * The whole rule turns on `null` vs `0`, so both directions are pinned here
+   * and each has its own case. One test cannot cover both: a rule written as
+   * `!(confidence >= min)` passes "a measured 0 is blocked" and fails only the
+   * `null` case, while a rule written as `confidence < min` with a truthiness
+   * guard passes the `null` case and lets a measured 0 through.
+   */
+  describe('replay gate', () => {
+    const JUDGED = { ...SETTINGS, judgeEnabled: true };
+
+    function makeJudge(decision: JudgeDecision) {
+      const judge = { judge: jest.fn(async () => decision) };
+      return judge as unknown as ConstructorParameters<
+        typeof SkillPromotionService
+      >[4] & { judge: jest.Mock };
+    }
+
+    function scored(score: number): JudgeDecision {
+      return {
+        status: 'scored',
+        score,
+        criteria: {
+          novelty: score,
+          actionability: score,
+          scope: score,
+          generalization: score,
+          triggerClarity: score,
+        },
+        reason: JUDGE_REASONS.verdict,
+      };
+    }
+
+    /** A workspace whose settings come from one plain map. */
+    function makeWorkspace(
+      values: Record<string, unknown> = {},
+    ): IWorkspaceProvider {
+      return {
+        getConfiguration: jest.fn(
+          <T>(_section: string, key: string, fallback: T): T =>
+            key in values ? (values[key] as T) : fallback,
+        ),
+      } as unknown as IWorkspaceProvider;
+    }
+
+    function promoteWith(
+      overrides: Partial<SkillCandidateRow>,
+      workspace?: IWorkspaceProvider,
+    ) {
+      const store = makeStore(row({ successCount: 3, ...overrides }));
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        makeJudge(scored(8)),
+        null,
+        workspace ?? null,
+      );
+      return { store, svc };
+    }
+
+    it('a NULL replayConfidence promotes on the judge score alone', async () => {
+      // Unmeasured is not "below threshold". After B3.6 this is the NORMAL case
+      // for a cluster at `suggestionMinClusterSize`, which gets no hold-out by
+      // design — blocking those would block most cluster-synthesized skills on
+      // a measurement that could not exist.
+      const { store, svc } = promoteWith({ replayConfidence: null });
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+      expect(decision.reason).toBe('promoted');
+      expect(store.updateStatus).toHaveBeenCalledWith(
+        'cand_test',
+        'promoted',
+        expect.any(Object),
+      );
+    });
+
+    it('a MEASURED 0 blocks — it is not the same fact as null', async () => {
+      const { store, svc } = promoteWith({
+        replayConfidence: 0,
+        replayHoldoutSessionId: 's-holdout',
+      });
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(false);
+      expect(decision.reason).toBe('below-replay-confidence');
+      // Blocked, NOT rejected: the floor is an untuned midpoint and the weekly
+      // tick re-measures, whereas `updateStatus('rejected')` is terminal.
+      expect(decision.candidate?.status).toBe('candidate');
+      expect(store.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('blocks a measured confidence below the floor', async () => {
+      const { svc } = promoteWith({
+        replayConfidence: 0.4,
+        replayHoldoutSessionId: 's-holdout',
+      });
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(false);
+      expect(decision.reason).toBe('below-replay-confidence');
+    });
+
+    it('promotes AT the floor — the comparison is `>=`, not `>`', async () => {
+      const { svc } = promoteWith({
+        replayConfidence: MIN_REPLAY_CONFIDENCE_DEFAULT,
+        replayHoldoutSessionId: 's-holdout',
+      });
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+    });
+
+    it('promotes a measured confidence above the floor', async () => {
+      const { svc } = promoteWith({
+        replayConfidence: 0.82,
+        replayHoldoutSessionId: 's-holdout',
+      });
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+    });
+
+    it('reads the floor from replayValidation.minConfidence, not a constant', async () => {
+      const { svc } = promoteWith(
+        { replayConfidence: 0.7, replayHoldoutSessionId: 's-holdout' },
+        // `replayValidation`, NOT `replay` — that sub-tree is the replay LANE's.
+        makeWorkspace({ [MIN_REPLAY_CONFIDENCE_KEY]: 0.8 }),
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      // 0.7 promotes at the default 0.5 and is blocked at a configured 0.8.
+      expect(decision.promoted).toBe(false);
+      expect(decision.reason).toBe('below-replay-confidence');
+    });
+
+    it('a nonsensical configured floor falls back rather than blocking everything', async () => {
+      const { svc } = promoteWith(
+        { replayConfidence: 0.6, replayHoldoutSessionId: 's-holdout' },
+        makeWorkspace({ [MIN_REPLAY_CONFIDENCE_KEY]: 42 }),
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(true);
+    });
+
+    it('replay never RESCUES a candidate the judge scored below the floor', async () => {
+      const store = makeStore(
+        row({
+          successCount: 3,
+          replayConfidence: 1,
+          replayHoldoutSessionId: 's',
+        }),
+      );
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        makeJudge(scored(3)),
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.reason).toBe('below-judge-score');
+    });
+
+    it('applies to a host with no judge registered too', async () => {
+      // The judge gate and the replay gate are independent axes. A host that
+      // never judges must still not promote a candidate a replay measured and
+      // found wanting.
+      const store = makeStore(
+        row({
+          successCount: 3,
+          replayConfidence: 0.1,
+          replayHoldoutSessionId: 's',
+        }),
+      );
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, JUDGED);
+
+      expect(decision.promoted).toBe(false);
+      expect(decision.reason).toBe('below-replay-confidence');
+    });
+  });
+
+  // ─── B3.4.2: ranking substitutes the MEASURED trigger score ───────────────
+
+  describe('rankingScore', () => {
+    function judged(triggerClarity: number): SkillCandidateRow {
+      return row({
+        judgeStatus: 'scored',
+        judgeScore: 8,
+        judgeCriteria: {
+          novelty: 8,
+          actionability: 8,
+          scope: 8,
+          generalization: 8,
+          triggerClarity,
+        },
+      });
+    }
+
+    it('substitutes the measured trigger score for the judged criterion', () => {
+      // Judged triggerClarity 10, measured F1 0.2 ⇒ 2/10 on the judge scale.
+      const ranking = rankingScore({ ...judged(10), triggerScore: 0.2 });
+
+      expect(ranking.triggerSource).toBe('measured');
+      expect(ranking.score).toBe((8 + 8 + 8 + 8 + 2) / 5);
+    });
+
+    it('scales the 0–1 trigger score onto the judge 1–10 scale', () => {
+      const perfect = rankingScore({ ...judged(1), triggerScore: 1 });
+      // Without the scale factor this would be (8+8+8+8+1)/5 = 6.6.
+      expect(perfect.score).toBe((8 + 8 + 8 + 8 + 10) / 5);
+    });
+
+    it('keeps the judged criterion when the gate never measured', () => {
+      // `null` is not `0`: an unevaluated description is not a description that
+      // retrieved nothing, and ranking it as one would put every candidate the
+      // weekly gate has not reached below every candidate it has.
+      const ranking = rankingScore({ ...judged(9), triggerScore: null });
+
+      expect(ranking.triggerSource).toBe('judged');
+      expect(ranking.score).toBe((8 + 8 + 8 + 8 + 9) / 5);
+    });
+
+    it('a measured 0 IS ranked as zero — it is a result', () => {
+      const ranking = rankingScore({ ...judged(10), triggerScore: 0 });
+
+      expect(ranking.triggerSource).toBe('measured');
+      expect(ranking.score).toBe((8 + 8 + 8 + 8 + 0) / 5);
+    });
+
+    it('is null without a complete judged scorecard', () => {
+      expect(rankingScore(row()).score).toBeNull();
+      expect(rankingScore(row()).triggerSource).toBe('none');
+      expect(rankingScore(null).score).toBeNull();
+    });
+
+    it('rides along on the promotion decision', async () => {
+      const store = makeStore(
+        row({
+          successCount: 3,
+          judgeStatus: 'scored',
+          judgeScore: 8,
+          judgeCriteria: {
+            novelty: 8,
+            actionability: 8,
+            scope: 8,
+            generalization: 8,
+            triggerClarity: 10,
+          },
+          triggerScore: 0.2,
+        }),
+      );
+      const svc = new SkillPromotionService(
+        noopLogger,
+        store,
+        makeMdGenerator(),
+        null,
+        null,
+      );
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+
+      expect(decision.promoted).toBe(true);
+      expect(decision.ranking?.triggerSource).toBe('measured');
+      expect(decision.ranking?.score).toBe((8 + 8 + 8 + 8 + 2) / 5);
+      // The judged criterion is still on the row — the comparison between the
+      // opinion and the measurement is the point of the gate.
+      expect(decision.candidate?.judgeCriteria.triggerClarity).toBe(10);
     });
   });
 

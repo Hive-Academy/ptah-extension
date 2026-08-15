@@ -125,6 +125,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   REPLAY_VALIDATOR_SERVICE: Symbol.for('PtahSkillReplayValidatorService'),
   /** TriggerEvalService — measured, zero-LLM description-retrieval gate (`0036`). */
   TRIGGER_EVAL_SERVICE: Symbol.for('PtahSkillTriggerEvalService'),
+  /** JudgePanelService — two judges on one lane, escalated on disagreement. */
+  JUDGE_PANEL_SERVICE: Symbol.for('PtahSkillJudgePanelService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

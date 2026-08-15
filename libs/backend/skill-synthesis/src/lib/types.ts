@@ -69,6 +69,51 @@ export interface JudgeVerdict {
 }
 
 /**
+ * Who produced one entry in `judge_panel_rationales` (phase 3, B3.4).
+ *
+ * Three roles, not two, because the escalation is a THIRD opinion and not an
+ * edit of either panellist's: when the two panellists disagree by more than
+ * `skillSynthesis.judgePanel.disagreementThreshold` on any criterion, a
+ * `synthesis`-lane call reads both and answers for itself. Storing it under one
+ * of the panellist roles would lose the fact that a disagreement happened,
+ * which is the only reason the third call was ever paid for.
+ */
+export const JUDGE_PANEL_ROLES = [
+  'panellist-a',
+  'panellist-b',
+  'escalation',
+] as const;
+
+export type JudgePanelRole = (typeof JUDGE_PANEL_ROLES)[number];
+
+/**
+ * One panellist's answer, as `judge_panel_rationales` stores it.
+ *
+ * The `status`/`score` pair carries the SAME contract `JudgeVerdict` does and
+ * `SkillCandidateStore.recordJudgePanel` enforces it identically: only
+ * `'scored'` may carry a number. A panel entry is a verdict too, and letting
+ * `{status:'unscored', score:10}` through here would reintroduce the fabricated
+ * score one column to the left of where phase 1 removed it.
+ */
+export interface JudgePanelRationale {
+  readonly role: JudgePanelRole;
+  readonly status: JudgeStatus;
+  /** Populated ONLY on `status: 'scored'`. */
+  readonly score: number | null;
+  /** The per-criterion scorecard, when this panellist produced one. */
+  readonly criteria: JudgeCriterionScores | null;
+  /** A `JUDGE_REASONS` member, or a lane failure's own user-facing reason. */
+  readonly reason: string;
+  /**
+   * The rendering handed to the escalation prompt. Stored rather than re-derived
+   * so what the escalation actually READ is recoverable from the row — a
+   * re-derivation drifts the moment the renderer changes and would make the
+   * stored panel a plausible reconstruction rather than a record.
+   */
+  readonly summary: string;
+}
+
+/**
  * Residency values mirror the SQL CHECK constraint exactly. `resident` skills
  * are fed to the junction layer; `dormant` skills are skipped there (kept in
  * the DB + on disk for future re-promotion) so they no longer consume the

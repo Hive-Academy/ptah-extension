@@ -15,17 +15,63 @@
 import * as fs from 'node:fs';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
 import { SkillRegistryStore } from './skill-registry.store';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
+import { JUDGE_CRITERION_KEYS } from './skill-judge.service';
 import type {
   CandidateId,
   SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
+
+/** Settings section, matching every other reader in this library. */
+export const PROMOTION_SETTINGS_SECTION = 'ptah';
+
+/**
+ * The replay floor.
+ *
+ * **`replayValidation`, NOT `replay`** — `skillSynthesis.replay.*` is the replay
+ * LANE's eight capability fields, and two guards (`file-settings-keys.spec.ts`
+ * and `skills-synthesis-rpc.schema.spec.ts`) reject any key in that sub-tree
+ * that `SKILL_LANE_KEYS` does not declare. The B3.4 batch text calls this
+ * `minReplayConfidence`; that key does not exist anywhere in the codebase.
+ */
+export const MIN_REPLAY_CONFIDENCE_KEY =
+  'skillSynthesis.replayValidation.minConfidence';
+
+/** Matches `FILE_BASED_SETTINGS_DEFAULTS` in `platform-core`. */
+export const MIN_REPLAY_CONFIDENCE_DEFAULT = 0.5;
+
+/**
+ * How the trigger criterion was sourced for {@link CandidateRanking}.
+ *
+ * `'none'` is not "zero" — it is "this candidate has no scorecard to rank at
+ * all", and it is why {@link CandidateRanking.score} is nullable.
+ */
+export type RankingTriggerSource = 'measured' | 'judged' | 'none';
+
+/**
+ * A candidate's ranking score: the judge's five criteria, with the MEASURED
+ * trigger score substituted for the judged `triggerClarity`.
+ *
+ * The judged criterion is still persisted — comparing the model's opinion of a
+ * description against what retrieval actually did with it is the point of the
+ * trigger-eval gate, and a substitution that overwrote the opinion would destroy
+ * the only evidence that the two ever differ.
+ */
+export interface CandidateRanking {
+  /** `null` when the candidate has no complete judged scorecard. */
+  readonly score: number | null;
+  readonly triggerSource: RankingTriggerSource;
+}
 
 export interface PromotionDecision {
   promoted: boolean;
@@ -45,7 +91,23 @@ export interface PromotionDecision {
      * drain re-judges it. Conflating "we do not know" with "we know it is bad"
      * is the exact class of quietly-wrong verdict phase 1 removes.
      */
-    | 'judge-unscored';
+    | 'judge-unscored'
+    /**
+     * A replay ran and the plan it produced matched what the held-out session
+     * actually did BELOW `skillSynthesis.replayValidation.minConfidence`.
+     *
+     * Reachable ONLY from a measured number. A candidate whose
+     * `replayConfidence` is `null` was never replayed and can never land here —
+     * that is the whole of "replay is an evidence booster, never a hard
+     * blocker", and it is why the rule tests `!== null` before it compares.
+     *
+     * Like `judge-unscored` and UNLIKE `below-judge-score`, this does NOT reject
+     * the candidate: the floor is an untuned midpoint against a gate with no
+     * measured corpus behind it yet, and the weekly tick re-measures. A terminal
+     * rejection on that number would be unrecoverable, and `updateStatus`
+     * ('rejected') is terminal.
+     */
+    | 'below-replay-confidence';
   candidate: SkillCandidateRow | null;
   /** Filled when promotion demoted another skill to dormant via the residency cap. */
   evictedSkillId?: CandidateId;
@@ -53,6 +115,12 @@ export interface PromotionDecision {
   closestMatchSimilarity?: number;
   /** Absolute path to the materialized SKILL.md (set on success). */
   filePath?: string;
+  /**
+   * The measured-trigger ranking score, computed for every candidate the gates
+   * were reached for. Present even on a rejection — the ranking is a property of
+   * the scorecard, not a reward for passing.
+   */
+  ranking?: CandidateRanking;
 }
 
 @injectable()
@@ -71,6 +139,18 @@ export class SkillPromotionService {
     private readonly judge: SkillJudgeService | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
     private readonly registry: SkillRegistryStore | null = null,
+    /**
+     * Read ONLY for `skillSynthesis.replayValidation.minConfidence`.
+     *
+     * Optional, and last, because `SkillSynthesisSettings` does not carry the
+     * key: that projection is built by `SkillSynthesisService.readSettings` and
+     * predates the empirical gates, so every gate in phase 3 reads its own
+     * switches straight off the workspace exactly as `ReplayValidatorService`
+     * and `TriggerEvalService` do. Absent ⇒ the documented default, which is the
+     * same number `FILE_BASED_SETTINGS_DEFAULTS` serves.
+     */
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace: IWorkspaceProvider | null = null,
   ) {}
 
   /**
@@ -125,10 +205,16 @@ export class SkillPromotionService {
         return { promoted: false, reason: 'duplicate', candidate: updated };
       }
     }
+    let graded = candidate;
     if (this.judge) {
       const judged = await this.applyJudgeGate(candidate, settings);
-      if (judged) return judged;
+      if (judged) return { ...judged, ranking: rankingScore(judged.candidate) };
+      graded = this.store.findById(candidate.id) ?? candidate;
     }
+
+    const ranking = rankingScore(graded);
+    const replay = this.applyReplayGate(graded);
+    if (replay) return { ...replay, ranking };
 
     let evictedSkillId: CandidateId | undefined;
     const activeResident = this.store.listActiveOrderedByDecayScore(
@@ -195,7 +281,88 @@ export class SkillPromotionService {
       evictedSkillId,
       closestMatchSimilarity: dedupResult.similarity,
       filePath: bodyPath,
+      ranking,
     };
+  }
+
+  /**
+   * The replay gate: the second half of B3.4.2's promotion rule.
+   *
+   *   promoted requires (judge scored and at/above `minJudgeScore`)
+   *            AND (`replayConfidence >= minConfidence` OR `replayConfidence IS NULL`)
+   *
+   * ## THE NULL-VS-ZERO DISTINCTION IS THE ENTIRE RULE
+   *
+   *  - `null`  ⇒ NEVER MEASURED ⇒ promotes on the judge score alone. After B3.6
+   *              this is the NORMAL case for a cluster sitting on
+   *              `suggestionMinClusterSize`, which gets no hold-out by design —
+   *              every member fed the draft, so there is nothing to replay
+   *              against. Treating those as failures would block the majority of
+   *              cluster-synthesized skills on a measurement that could not
+   *              exist.
+   *  - `0`     ⇒ MEASURED AND MATCHED NOTHING ⇒ blocked, because `0 <
+   *              minConfidence`. A genuine zero is evidence AGAINST the
+   *              candidate and is the strongest signal this gate produces.
+   *
+   * The comparison is written `!== null` FIRST and only then `<`, rather than as
+   * `!(confidence >= min)`, because the second form sweeps `null` in through
+   * `NaN`-style falsiness at the first refactor. SQL agrees with the first form
+   * — `NULL < 0.5` is NULL, never true — and `0036`'s spec pins that
+   * (`replay_confidence < 0.5` does not select the unmeasured row).
+   *
+   * Blocking is NOT rejecting; see the `below-replay-confidence` doc on
+   * `PromotionDecision`.
+   */
+  private applyReplayGate(
+    candidate: SkillCandidateRow,
+  ): PromotionDecision | null {
+    const confidence = candidate.replayConfidence;
+    if (confidence === null) return null;
+
+    const floor = this.minReplayConfidence();
+    if (confidence >= floor) return null;
+
+    this.logger.info(
+      '[skill-synthesis] replay confidence below the floor; candidate left pending',
+      {
+        candidateId: candidate.id,
+        confidence,
+        minConfidence: floor,
+        holdoutSessionId: candidate.replayHoldoutSessionId,
+      },
+    );
+    return {
+      promoted: false,
+      reason: 'below-replay-confidence',
+      candidate,
+    };
+  }
+
+  /**
+   * The replay floor, on the same 0–1 scale as the stored `replay_confidence`.
+   *
+   * Out-of-range and non-finite values fall back rather than being honoured: the
+   * key comes from a JSON file a user can hand-edit, and a floor above 1 would
+   * block every candidate the gate ever measured while a negative one would
+   * disable the gate silently.
+   */
+  private minReplayConfidence(): number {
+    if (!this.workspace) return MIN_REPLAY_CONFIDENCE_DEFAULT;
+    try {
+      const raw = this.workspace.getConfiguration<number>(
+        PROMOTION_SETTINGS_SECTION,
+        MIN_REPLAY_CONFIDENCE_KEY,
+        MIN_REPLAY_CONFIDENCE_DEFAULT,
+      );
+      return typeof raw === 'number' &&
+        Number.isFinite(raw) &&
+        raw >= 0 &&
+        raw <= 1
+        ? raw
+        : MIN_REPLAY_CONFIDENCE_DEFAULT;
+    } catch {
+      return MIN_REPLAY_CONFIDENCE_DEFAULT;
+    }
   }
 
   /**
@@ -296,18 +463,86 @@ export class SkillPromotionService {
   }
 
   private readCandidateBody(candidate: SkillCandidateRow): string {
-    try {
-      if (fs.existsSync(candidate.bodyPath)) {
-        const raw = fs.readFileSync(candidate.bodyPath, 'utf8');
-        const stripped = raw.replace(/^---[\s\S]*?---\s*/, '');
-        return stripped.trim();
-      }
-    } catch (err) {
-      this.logger.debug('[skill-synthesis] could not read candidate body', {
-        bodyPath: candidate.bodyPath,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    return `# ${candidate.name}\n\n${candidate.description}\n`;
+    return readCandidateBodyOf(candidate, this.logger);
   }
+}
+
+/**
+ * How many points on the judge's 1–10 scale one point of `trigger_score` is
+ * worth. `trigger_score` is F1 on 0–1 (`gates/trigger-eval.service.ts`); the
+ * judged `triggerClarity` it replaces is 1–10. Substituting without this factor
+ * would silently cap the criterion at 1/10 and drag every measured candidate's
+ * ranking below every unmeasured one — a scale bug that reads as the gate
+ * working and disliking everything.
+ */
+export const TRIGGER_SCORE_TO_JUDGE_SCALE = 10;
+
+/**
+ * A candidate's ranking score: the five judged criteria with the MEASURED
+ * trigger score substituted for the judged `triggerClarity`.
+ *
+ * This is deliberately NOT what `minJudgeScore` is compared against. The gate
+ * compares `judgeScore` — the number the judge actually awarded and the store
+ * actually persisted — because a threshold applied to a derived figure would
+ * mean the recorded verdict and the decision it drove no longer match. The
+ * ranking is for ORDERING candidates against each other, which is where a
+ * measured number beats an opinion.
+ *
+ * Three outcomes, and the difference between the last two is the point:
+ *
+ *  - no complete judged scorecard ⇒ `{score: null, triggerSource: 'none'}`.
+ *  - `triggerScore` measured ⇒ substituted, `'measured'`.
+ *  - `triggerScore` `null` (never evaluated) ⇒ the judged `triggerClarity`
+ *    stands, `'judged'`. NOT zero: an unmeasured description is not a
+ *    description that retrieved nothing, and scoring it as one would rank every
+ *    candidate the weekly gate has not reached yet below every candidate it has.
+ */
+export function rankingScore(
+  candidate: SkillCandidateRow | null,
+): CandidateRanking {
+  if (!candidate) return { score: null, triggerSource: 'none' };
+  const criteria = candidate.judgeCriteria;
+  const values: number[] = [];
+  for (const key of JUDGE_CRITERION_KEYS) {
+    const value = criteria[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return { score: null, triggerSource: 'none' };
+    }
+    values.push(value);
+  }
+
+  const measured = candidate.triggerScore;
+  if (measured === null || !Number.isFinite(measured)) {
+    return { score: mean(values), triggerSource: 'judged' };
+  }
+
+  // Substituted BY KEY, not by index. `triggerClarity` happens to be last in
+  // `JUDGE_CRITERION_KEYS` today, and an index would keep compiling — and keep
+  // ranking — the day someone reorders the rubric.
+  const index = JUDGE_CRITERION_KEYS.indexOf('triggerClarity');
+  values[index] = measured * TRIGGER_SCORE_TO_JUDGE_SCALE;
+  return { score: mean(values), triggerSource: 'measured' };
+}
+
+function mean(values: readonly number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function readCandidateBodyOf(
+  candidate: SkillCandidateRow,
+  logger: Logger,
+): string {
+  try {
+    if (fs.existsSync(candidate.bodyPath)) {
+      const raw = fs.readFileSync(candidate.bodyPath, 'utf8');
+      const stripped = raw.replace(/^---[\s\S]*?---\s*/, '');
+      return stripped.trim();
+    }
+  } catch (err) {
+    logger.debug('[skill-synthesis] could not read candidate body', {
+      bodyPath: candidate.bodyPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return `# ${candidate.name}\n\n${candidate.description}\n`;
 }

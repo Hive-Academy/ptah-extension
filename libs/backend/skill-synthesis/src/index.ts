@@ -13,7 +13,13 @@ export { SkillMdGenerator } from './lib/skill-md-generator';
 export type { SkillMdInput, MaterializedSkill } from './lib/skill-md-generator';
 export {
   SkillPromotionService,
+  rankingScore,
+  MIN_REPLAY_CONFIDENCE_KEY,
+  MIN_REPLAY_CONFIDENCE_DEFAULT,
+  TRIGGER_SCORE_TO_JUDGE_SCALE,
   type PromotionDecision,
+  type CandidateRanking,
+  type RankingTriggerSource,
 } from './lib/skill-promotion.service';
 export {
   SkillInvocationTracker,
@@ -102,7 +108,11 @@ export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
 export {
   SkillJudgeService,
   JUDGE_REASONS,
+  JUDGE_CRITERION_KEYS,
   JUDGE_VERDICT_JSON_SCHEMA,
+  readJudgeVerdictObject,
+  toJudgeCriteria,
+  judgeComposite,
   type JudgeDecision,
   type JudgeCriteria,
 } from './lib/skill-judge.service';
@@ -305,6 +315,25 @@ export {
   type TriggerPromptOutcome,
   type DescriptionCollision,
 } from './lib/gates/trigger-eval.service';
+// The judge PANEL: two internal-query calls on the `judge` lane, escalated onto
+// the `synthesis` lane when they disagree. NOT the tribunal — this library
+// imports nothing from it, and `judge-panel.service.spec.ts` scans for that
+// mechanically (global invariant 9).
+export {
+  JudgePanelService,
+  JUDGE_PANEL_REASONS,
+  JUDGE_PANEL_SECTION,
+  JUDGE_PANEL_ENABLED_KEY,
+  JUDGE_PANEL_ENABLED_DEFAULT,
+  JUDGE_PANEL_THRESHOLD_KEY,
+  JUDGE_PANEL_THRESHOLD_DEFAULT,
+  JUDGE_PANEL_ESCALATION_RUBRIC,
+  maxCriterionDelta,
+  meanCriteria,
+  renderRationale,
+  type JudgePanelRequest,
+  type JudgePanelResult,
+} from './lib/gates/judge-panel.service';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,
@@ -318,10 +347,13 @@ export type {
 export {
   JUDGE_DEFAULT_MODEL_ID,
   JUDGE_STATUSES,
+  JUDGE_PANEL_ROLES,
   unjudgedVerdictFields,
   unmeasuredGateFields,
 } from './lib/types';
 export type {
+  JudgePanelRole,
+  JudgePanelRationale,
   JudgeStatus,
   JudgeCriterionScores,
   JudgeVerdict,

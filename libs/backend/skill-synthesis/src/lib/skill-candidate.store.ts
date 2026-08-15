@@ -21,8 +21,10 @@ import {
   type SqliteStatement,
 } from '@ptah-extension/persistence-sqlite';
 import {
+  JUDGE_PANEL_ROLES,
   JUDGE_STATUSES,
   type CandidateId,
+  type JudgePanelRationale,
   type JudgeStatus,
   type JudgeVerdict,
   type NewCandidateInput,
@@ -436,6 +438,80 @@ export class SkillCandidateStore {
     const updated = this.findById(id);
     if (!updated) {
       throw new Error(`[skill-synthesis] recordJudgeVerdict: ${id} not found`);
+    }
+    return updated;
+  }
+
+  /**
+   * Persist the judge PANEL's rationales (`0033`'s `judge_panel_rationales`,
+   * first written in phase 3).
+   *
+   * A SIBLING of {@link recordJudgeVerdict}, and deliberately not folded into
+   * it. `recordJudgeVerdict` writes the nine columns of ONE verdict as a fixed
+   * set; the panel writes the RECORD OF HOW that verdict was reached, and the
+   * two are produced at different moments — the `judge` stage scores, the
+   * `judge-panel` stage convenes. Folding the column into the verdict write
+   * would mean every single-judge run had to blank a panel it never held.
+   *
+   * ## The column is the whole list, replaced, never appended to
+   *
+   * One panel run is one deliberation. Appending would let a re-run's panellist
+   * A sit beside the previous run's escalation, which reads as a five-way panel
+   * nobody convened — the same class of quietly-wrong record the fixed
+   * nine-column verdict write exists to prevent.
+   *
+   * Each entry is validated against the SAME `status`/`score` contract
+   * `recordJudgeVerdict` enforces. This is not a second layer above that method:
+   * it is this column's own enforcing edge, and it exists because a panel entry
+   * is a verdict too — `{status:'unscored', score:10}` would be exactly the
+   * fabricated score phase 1 removed, stored one column to the left.
+   */
+  recordJudgePanel(
+    id: CandidateId,
+    rationales: readonly JudgePanelRationale[],
+  ): SkillCandidateRow {
+    if (rationales.length === 0) {
+      throw new Error(
+        `[skill-synthesis] recordJudgePanel: ${id} was given no rationales; a panel that produced nothing must write nothing`,
+      );
+    }
+    for (const entry of rationales) {
+      if (!(JUDGE_PANEL_ROLES as readonly string[]).includes(entry.role)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgePanel: unknown panel role '${String(
+            entry.role,
+          )}' (expected ${JUDGE_PANEL_ROLES.join(' | ')})`,
+        );
+      }
+      if (!(JUDGE_STATUSES as readonly string[]).includes(entry.status)) {
+        throw new Error(
+          `[skill-synthesis] recordJudgePanel: unknown judge status '${String(
+            entry.status,
+          )}' (expected ${JUDGE_STATUSES.join(' | ')})`,
+        );
+      }
+      if (entry.status === 'scored') {
+        if (entry.score === null || !Number.isFinite(entry.score)) {
+          throw new Error(
+            `[skill-synthesis] recordJudgePanel: a 'scored' ${entry.role} entry for ${id} needs a finite score`,
+          );
+        }
+      } else if (entry.score !== null) {
+        throw new Error(
+          `[skill-synthesis] recordJudgePanel: a '${entry.status}' ${entry.role} entry for ${id} must carry score=null, got ${entry.score}`,
+        );
+      }
+    }
+
+    this.db
+      .prepare(
+        `UPDATE skill_candidates SET judge_panel_rationales = ? WHERE id = ?`,
+      )
+      .run(JSON.stringify(rationales), id);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(`[skill-synthesis] recordJudgePanel: ${id} not found`);
     }
     return updated;
   }

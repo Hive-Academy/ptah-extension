@@ -48,6 +48,7 @@ import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { SessionArchaeologistService } from '../archaeology/session-archaeologist.service';
 import { ReplayValidatorService } from '../gates/replay-validator.service';
 import { TriggerEvalService } from '../gates/trigger-eval.service';
+import { JudgePanelService } from '../gates/judge-panel.service';
 import { CandidateNamerService } from '../naming/candidate-namer.service';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
@@ -88,6 +89,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SessionArchaeologistService);
   container.registerSingleton(ReplayValidatorService);
   container.registerSingleton(TriggerEvalService);
+  container.registerSingleton(JudgePanelService);
   container.registerSingleton(CandidateNamerService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
@@ -175,6 +177,9 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.TRIGGER_EVAL_SERVICE, {
     useToken: TriggerEvalService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.JUDGE_PANEL_SERVICE, {
+    useToken: JudgePanelService,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.CANDIDATE_NAMER_SERVICE, {
     useToken: CandidateNamerService,

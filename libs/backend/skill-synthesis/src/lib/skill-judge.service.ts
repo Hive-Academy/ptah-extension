@@ -88,8 +88,12 @@ export interface JudgeDecision {
   readonly reason: string;
 }
 
-/** The five criteria, as a JSON Schema for lanes whose endpoint honours one. */
-const JUDGE_CRITERION_KEYS = [
+/**
+ * The five criteria, in rubric order. Exported because the panel compares them
+ * PER CRITERION — a headline-only comparison would let two panellists who agree
+ * on the average while differing by six points on novelty pass as agreeing.
+ */
+export const JUDGE_CRITERION_KEYS = [
   'novelty',
   'actionability',
   'scope',
@@ -188,7 +192,7 @@ export class SkillJudgeService {
       return unscored(result.failure.reason);
     }
 
-    const raw = this.readVerdictObject(result.run);
+    const raw = readJudgeVerdictObject(result.run);
     if (!raw) {
       // Former fail-open site 1.
       this.logger.warn('[skill-judge] could not extract JSON from response', {
@@ -198,7 +202,7 @@ export class SkillJudgeService {
       return unscored(JUDGE_REASONS.noJson);
     }
 
-    const criteria = toCriteria(raw);
+    const criteria = toJudgeCriteria(raw);
     if (!criteria) {
       // Former fail-open site 2.
       this.logger.warn('[skill-judge] invalid score values in response', {
@@ -208,7 +212,7 @@ export class SkillJudgeService {
       return unscored(JUDGE_REASONS.invalidScores);
     }
 
-    const score = composite(criteria);
+    const score = judgeComposite(criteria);
     this.logger.info('[skill-judge] verdict', {
       candidateId: candidate.id,
       composite: score,
@@ -216,30 +220,39 @@ export class SkillJudgeService {
     });
     return { status: 'scored', score, criteria, reason: JUDGE_REASONS.verdict };
   }
+}
 
-  /**
-   * The lane's JSON answer when it is an object, else this service's own flat
-   * `{...}` scan over the assistant text.
-   *
-   * Both halves are load-bearing. `run.json` covers an endpoint that honoured
-   * `outputFormat`, but it is `unknown`: a provider may honour the schema and
-   * answer `null`, a string, or an array, none of which is a scorecard. The
-   * regex is the `structuredOutput: 'parse'` path and must never be deleted as
-   * dead code — it matches the FIRST FLAT object, which is deliberately
-   * narrower than the runner's balanced-brace extractor and so still catches a
-   * verdict the runner surfaced inside a larger wrapper object.
-   */
-  private readVerdictObject(run: LaneRun): Record<string, unknown> | null {
-    if (isPlainObject(run.json)) return run.json;
+/**
+ * The lane's JSON answer when it is an object, else this module's own flat
+ * `{...}` scan over the assistant text.
+ *
+ * Both halves are load-bearing. `run.json` covers an endpoint that honoured
+ * `outputFormat`, but it is `unknown`: a provider may honour the schema and
+ * answer `null`, a string, or an array, none of which is a scorecard. The regex
+ * is the `structuredOutput: 'parse'` path and must never be deleted as dead code
+ * — it matches the FIRST FLAT object, which is deliberately narrower than the
+ * runner's balanced-brace extractor and so still catches a verdict the runner
+ * surfaced inside a larger wrapper object.
+ *
+ * A module-level function rather than a private method because the judge PANEL
+ * (`gates/judge-panel.service.ts`) escalates a disagreement onto the `synthesis`
+ * lane and has to read the SAME scorecard shape back. Two copies of this ladder
+ * would drift the first time either side learned about a new wrapper shape, and
+ * the drift would show up as one path silently scoring where the other reported
+ * `unscored`.
+ */
+export function readJudgeVerdictObject(
+  run: LaneRun,
+): Record<string, unknown> | null {
+  if (isPlainObject(run.json)) return run.json;
 
-    const match = /\{[^{}]*\}/.exec(run.text.trim());
-    if (!match) return null;
-    try {
-      const parsed: unknown = JSON.parse(match[0]);
-      return isPlainObject(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
+  const match = /\{[^{}]*\}/.exec(run.text.trim());
+  if (!match) return null;
+  try {
+    const parsed: unknown = JSON.parse(match[0]);
+    return isPlainObject(parsed) ? parsed : null;
+  } catch {
+    return null;
   }
 }
 
@@ -281,8 +294,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** All five criteria or nothing — a partial scorecard is not a verdict. */
-function toCriteria(raw: Record<string, unknown>): JudgeCriteria | null {
+/**
+ * All five criteria or nothing — a partial scorecard is not a verdict.
+ *
+ * Exported for the panel's escalation pass, for the same
+ * one-definition-or-it-drifts reason {@link readJudgeVerdictObject} is.
+ */
+export function toJudgeCriteria(
+  raw: Record<string, unknown>,
+): JudgeCriteria | null {
   const out = {} as JudgeCriteria;
   for (const key of JUDGE_CRITERION_KEYS) {
     const score = toScore(raw[key]);
@@ -292,7 +312,8 @@ function toCriteria(raw: Record<string, unknown>): JudgeCriteria | null {
   return out;
 }
 
-function composite(criteria: JudgeCriteria): number {
+/** The composite the five criteria average to. Exported with its parser. */
+export function judgeComposite(criteria: JudgeCriteria): number {
   const total = JUDGE_CRITERION_KEYS.reduce(
     (sum, key) => sum + criteria[key],
     0,
