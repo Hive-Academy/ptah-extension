@@ -7,7 +7,11 @@ import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { VOICE_TOKENS } from '@ptah-extension/voice-providers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
-import { TOKENS, type SentryService } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type Logger,
+  type SentryService,
+} from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
@@ -15,6 +19,12 @@ import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import type { UpdateManager } from './services/update/update-manager';
+import {
+  PtahTrayService,
+  handleWindowAllClosed,
+  PTAH_CONFIG_SECTION,
+  TRAY_KEEPALIVE_KEY,
+} from './services/tray/tray.service';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
@@ -50,6 +60,10 @@ if (!gotLock) {
     null;
   let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
   let cliRegistry: { disposeAll: () => void } | null = null;
+  // C5 (TASK_2026_180) — stays `null` unless `skillSynthesis.trayKeepalive` is
+  // explicitly on AND the tray actually constructed. Nothing else may suppress
+  // the quit (R10).
+  let trayService: PtahTrayService | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
@@ -144,6 +158,38 @@ if (!gotLock) {
     updateManager = post.updateManager;
     messagingGateway = post.messagingGateway;
     chatBridge = post.chatBridge;
+
+    // C5 (TASK_2026_180) — tray keep-alive, purely additive. The tray is built
+    // ONLY when `skillSynthesis.trayKeepalive` is explicitly on; it ships
+    // `false`, so by default no tray exists and `window-all-closed` behaves
+    // exactly as it did before this commit. Every failure path leaves
+    // `trayService` null, which means "no keep-alive" — never "keep-alive with
+    // no way to quit" (R10).
+    try {
+      const workspaceProvider =
+        boot.container.resolve<ElectronWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+        );
+      const keepAlive = workspaceProvider.getConfiguration<boolean>(
+        PTAH_CONFIG_SECTION,
+        TRAY_KEEPALIVE_KEY,
+        false,
+      );
+      if (keepAlive === true) {
+        trayService = PtahTrayService.create({
+          workspace: workspaceProvider,
+          iconPath: path.join(__dirname, 'assets', 'icons', 'png', '32x32.png'),
+          quit: () => app.quit(),
+          logger: boot.container.resolve<Logger>(TOKENS.LOGGER),
+        });
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[Ptah Electron] Tray keep-alive setup failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      trayService = null;
+    }
   });
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -158,10 +204,17 @@ if (!gotLock) {
       mainWindow.loadFile(rendererPath);
     }
   });
+  // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it
+  // can be asserted (this file uses `import.meta` and is not importable under
+  // ts-jest). With no live tray — the shipped default — it is `if
+  // (process.platform !== 'darwin') app.quit();` and nothing else. Pinned by
+  // `main.quit-path.spec.ts`.
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
+    handleWindowAllClosed({
+      platform: process.platform,
+      quit: () => app.quit(),
+      hasLiveTray: () => trayService?.isLive() ?? false,
+    });
   });
   app.on('will-quit', () => {
     flushWorkspacePersistence?.();
