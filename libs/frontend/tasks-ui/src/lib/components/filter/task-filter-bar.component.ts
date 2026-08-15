@@ -370,7 +370,12 @@ export class TaskFacetMenuComponent {
             (change)="onSortField($event)"
           >
             @for (field of sortFields; track field.value) {
-              <option [value]="field.value">{{ field.label }}</option>
+              <option
+                [value]="field.value"
+                [selected]="field.value === sort().field"
+              >
+                {{ field.label }}
+              </option>
             }
           </select>
         </label>

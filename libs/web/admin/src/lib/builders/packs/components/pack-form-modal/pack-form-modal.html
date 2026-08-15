@@ -132,9 +132,13 @@
             (change)="onCohortChange($event)"
             [disabled]="saving() || groupsLoading()"
           >
-            <option value="">Not tied to a cohort</option>
+            <option value="" [selected]="cohortKey() === ''">
+              Not tied to a cohort
+            </option>
             @for (g of groups(); track g.id) {
-              <option [value]="g.key">{{ g.name }}</option>
+              <option [value]="g.key" [selected]="g.key === cohortKey()">
+                {{ g.name }}
+              </option>
             }
           </select>
           <div class="label">

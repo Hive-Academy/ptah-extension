@@ -126,9 +126,14 @@ const ROLE_COPY: Record<LaneRole, { label: string; hint: string }> = {
                     [value]="slot.baseKey ?? ''"
                     (change)="onVendorChange(slot.role, $event)"
                   >
-                    <option value="">Not assigned</option>
+                    <option value="" [selected]="!slot.baseKey">
+                      Not assigned
+                    </option>
                     @for (vendor of availableVendors(); track vendor.baseKey) {
-                      <option [value]="vendor.baseKey">
+                      <option
+                        [value]="vendor.baseKey"
+                        [selected]="vendor.baseKey === slot.baseKey"
+                      >
                         {{ vendor.lane.displayName }}
                       </option>
                     }
@@ -152,7 +157,12 @@ const ROLE_COPY: Record<LaneRole, { label: string; hint: string }> = {
                           model of modelOptionsFor(slot.baseKey);
                           track model.id
                         ) {
-                          <option [value]="model.id">{{ model.name }}</option>
+                          <option
+                            [value]="model.id"
+                            [selected]="model.id === slot.model"
+                          >
+                            {{ model.name }}
+                          </option>
                         }
                       </select>
                     </label>

@@ -405,7 +405,9 @@ function emptyForm(timezone: string): CronJobFormState {
                   (change)="patchForm({ timezone: selectValue($event) })"
                 >
                   @for (tz of timezoneOptions(); track tz) {
-                    <option [value]="tz">{{ tz }}</option>
+                    <option [value]="tz" [selected]="tz === form().timezone">
+                      {{ tz }}
+                    </option>
                   }
                 </select>
                 <span class="text-xs text-base-content-muted">

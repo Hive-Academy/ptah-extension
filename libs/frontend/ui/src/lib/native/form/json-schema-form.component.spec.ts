@@ -287,4 +287,78 @@ describe('JsonSchemaFormComponent', () => {
       expect('port' in component.value()).toBe(false);
     });
   });
+
+  /**
+   * TASK_2026_243. A `<select>` cannot hold a value matching none of its
+   * current options, and `[value]` is applied in the same update pass in which
+   * the `@for` options are still materialising — so the browser discards the
+   * assignment and Angular never re-applies it, because the bound expression
+   * never changed. Every option therefore needs `[selected]`.
+   *
+   * These assertions read the RENDERED DOM on purpose. A spec that checks the
+   * input, the model or the emitted output passes against the broken template:
+   * the value reaches the component perfectly, only the render is wrong.
+   */
+  describe('Pre-set select value renders as selected', () => {
+    const REGIONS = ['us-east', 'us-west', 'eu-central', 'ap-south'];
+
+    const selectFor = (preset: string, required = false) => {
+      init(
+        {
+          type: 'object',
+          properties: { region: { type: 'string', enum: REGIONS } },
+          ...(required ? { required: ['region'] } : {}),
+        },
+        { region: preset },
+      );
+      return must<HTMLSelectElement>('#jsf-region');
+    };
+
+    it('should select a pre-set value from the START of the option list', () => {
+      const select = selectFor('us-east');
+      expect(select.value).toBe('us-east');
+      expect(select.options[select.selectedIndex].value).toBe('us-east');
+    });
+
+    it('should select a pre-set value from the END of the option list', () => {
+      // Ordering luck is what lets this bug pass a start-of-list assertion.
+      const select = selectFor('ap-south');
+      expect(select.value).toBe('ap-south');
+      expect(select.selectedIndex).toBeGreaterThan(0);
+      expect(select.options[select.selectedIndex].value).toBe('ap-south');
+    });
+
+    it('should select a pre-set value that arrives BEFORE its options', () => {
+      // The deterministic case: value first, option list second.
+      init({ type: 'object' }, { region: 'eu-central' });
+      expect(q<HTMLSelectElement>('#jsf-region')).toBeNull();
+
+      fixture.componentRef.setInput('schema', {
+        type: 'object',
+        properties: { region: { type: 'string', enum: REGIONS } },
+      });
+      fixture.detectChanges();
+
+      const select = must<HTMLSelectElement>('#jsf-region');
+      expect(select.value).toBe('eu-central');
+      expect(select.options[select.selectedIndex].value).toBe('eu-central');
+    });
+
+    it('should keep the empty sentinel selected when no value is set', () => {
+      init({
+        type: 'object',
+        properties: { region: { type: 'string', enum: REGIONS } },
+      });
+      const select = must<HTMLSelectElement>('#jsf-region');
+      expect(select.selectedIndex).toBe(0);
+      expect(select.value).toBe('');
+    });
+
+    it('should select a pre-set value on a required field, which has no sentinel', () => {
+      const select = selectFor('ap-south', true);
+      expect(select.options[0].value).toBe('us-east');
+      expect(select.value).toBe('ap-south');
+      expect(select.options[select.selectedIndex].value).toBe('ap-south');
+    });
+  });
 });

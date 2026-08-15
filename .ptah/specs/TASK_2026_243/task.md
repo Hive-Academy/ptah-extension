@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_243
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   Fix the `[value]`-without-`[selected]` select binding that silently

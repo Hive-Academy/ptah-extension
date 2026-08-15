@@ -121,3 +121,56 @@ fine, renders wrong."
 - `nx run-many -t lint -p <touched>` — note `nx lint a b c` silently lints only `a`; use `run-many -p`
 - `npm run typecheck:all`
 - Angular libs typecheck via `tsconfig.lib.json`, which **excludes specs** — run `tsc --noEmit -p <lib>/tsconfig.spec.json` separately if you want specs typechecked
+
+## Outcome
+
+The sweep found **16 broken selects across 12 files** — six more files than the
+two this task was filed with, and split across both Angular products.
+
+`libs/frontend` (10 selects, 7 files):
+
+| File                                                               | Selects |
+| ------------------------------------------------------------------ | ------- |
+| `ui/.../native/form/json-schema-form.component.ts`                 | 1       |
+| `tribunal-panel/.../wizard/step-role-roster.component.ts`          | 2       |
+| `tribunal-panel/.../wizard/step-panel-preview.component.ts`        | 2       |
+| `chat/.../settings/output-style/output-style-list.component.ts`    | 1       |
+| `setup-wizard/.../components/welcome.component.ts`                 | 1       |
+| `tasks-ui/.../components/filter/task-filter-bar.component.ts`      | 1       |
+| `cron-scheduler-ui/.../components/cron-scheduler-tab.component.ts` | 1       |
+| `memory-curator-ui/.../components/memory-danger-zone.component.ts` | 1       |
+
+`libs/web/admin` (6 selects, 5 files): `builders/packs/packs-list.html`,
+`builders/packs/components/pack-form-modal/pack-form-modal.html`,
+`builders/sessions/sessions-list.html`, `components/data-table/data-table.html`,
+`components/template-picker/template-picker.html`,
+`failed-webhooks/webhooks-triage.html`.
+
+The context's prediction held: **the async-loaded lists fail on every render**,
+not intermittently. `template-picker` (`templates()`), `pack-form-modal`
+(`groups()`) and `packs-list` (`cohortOptions()`) all populate from a fetch, so
+editing a pack has never shown its own cohort — it has always rendered the first
+option. Those three are Builders-packs admin surfaces.
+
+### One reported instance was not a defect
+
+`tasks-ui/.../bulk/task-bulk-bar.component.ts:217` matches the search pattern
+but is correct. Its `[value]="''"` is a constant sentinel on an action menu, not
+a bound state value, and `onStatusPicked` already resets the element
+imperatively (`select.value = ''`, line 383). Adding `[selected]` to its `@for`
+options would evaluate to a permanent `false` and change nothing. **Left alone
+deliberately** — do not "complete the sweep" by touching it.
+
+### Test coverage
+
+Five DOM-asserting specs in `json-schema-form.component.spec.ts`, the shared
+primitive: start-of-list, end-of-list, value-arrives-before-options, the
+required field that has no sentinel, and the sentinel control case.
+
+Mutation-checked as required. Fix reverted: **4 failed, 318 passed**. Fix
+restored: **322 passed**. The one new spec that does NOT fail on reverted code
+is the sentinel case, which is the intended control — with no value set, option
+0 is selected either way.
+
+Full run across all eight touched projects: **2643 passed, 2 skipped, 0
+failed**; lint 0 errors; typecheck clean.

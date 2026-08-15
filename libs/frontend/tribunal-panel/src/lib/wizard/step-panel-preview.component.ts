@@ -136,9 +136,13 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
             [value]="currentEffort() ?? ''"
             (change)="onEffortChange($event)"
           >
-            <option value="">Default</option>
+            <option value="" [selected]="(currentEffort() ?? '') === ''">
+              Default
+            </option>
             @for (level of effortLevels; track level) {
-              <option [value]="level">{{ level }}</option>
+              <option [value]="level" [selected]="level === currentEffort()">
+                {{ level }}
+              </option>
             }
           </select>
         </label>
@@ -194,7 +198,12 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
                     (change)="onModelChange(lane.laneId, $event)"
                   >
                     @for (model of modelOptionsForLane(lane); track model.id) {
-                      <option [value]="model.id">{{ model.name }}</option>
+                      <option
+                        [value]="model.id"
+                        [selected]="model.id === lane.model"
+                      >
+                        {{ model.name }}
+                      </option>
                     }
                   </select>
                 </label>
