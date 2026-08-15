@@ -23,6 +23,9 @@ const CANDIDATE: SkillSynthesisCandidateSummary = {
   judgeStatus: null,
   judgeReason: null,
   judgeCriteria: null,
+  replayConfidence: null,
+  triggerScore: null,
+  judgePanelRationales: null,
 };
 
 function invocation(

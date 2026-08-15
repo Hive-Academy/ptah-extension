@@ -1672,6 +1672,14 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
       judgePanelRationales: null,
       judgedAt: null,
       displayName: null,
+      // ── 0036 empirical gates ───────────────────────────────────────────────
+      replayConfidence: null,
+      replayHoldoutSessionId: null,
+      replayAt: null,
+      triggerScore: null,
+      triggerPrecision: null,
+      triggerRecall: null,
+      triggerEvalAt: null,
       ...overrides,
     };
   }
@@ -1775,6 +1783,274 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
   it('collapses an all-null criteria block to null rather than five blanks', async () => {
     const summary = await listOne(candidateRow({ judgeStatus: 'unscored' }));
     expect(summary['judgeCriteria']).toBeNull();
+  });
+
+  // ── B3.5.3: the empirical gate block ──────────────────────────────────────
+
+  describe('empirical gate fields (B3.5.3)', () => {
+    function panelEntry(overrides: Record<string, unknown> = {}) {
+      return {
+        role: 'panellist-a',
+        status: 'scored',
+        score: 7,
+        criteria: {
+          novelty: 7,
+          actionability: 8,
+          scope: 6,
+          generalization: 7,
+          triggerClarity: 9,
+        },
+        reason: 'reusable and well triggered',
+        summary: 'panellist A read the body and the triggers',
+        ...overrides,
+      };
+    }
+
+    it('projects an ungated candidate as all-null, never zero', async () => {
+      const summary = await listOne(candidateRow());
+      expect(summary['replayConfidence']).toBeNull();
+      expect(summary['replayConfidence']).not.toBe(0);
+      expect(summary['triggerScore']).toBeNull();
+      expect(summary['triggerScore']).not.toBe(0);
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('carries a measured zero as 0, distinct from never-measured', async () => {
+      // `0` here is EVIDENCE — a replay that aligned with nothing, a
+      // description that retrieved nothing. `null` is the absence of evidence,
+      // and only the second leaves the candidate owed a retry.
+      const summary = await listOne(
+        candidateRow({ replayConfidence: 0, triggerScore: 0 }),
+      );
+      expect(summary['replayConfidence']).toBe(0);
+      expect(summary['replayConfidence']).not.toBeNull();
+      expect(summary['triggerScore']).toBe(0);
+      expect(summary['triggerScore']).not.toBeNull();
+    });
+
+    it('forwards measured gate values unchanged', async () => {
+      const summary = await listOne(
+        candidateRow({ replayConfidence: 0.82, triggerScore: 7.5 }),
+      );
+      expect(summary['replayConfidence']).toBe(0.82);
+      expect(summary['triggerScore']).toBe(7.5);
+    });
+
+    it('leaves the gate values alone when only one gate has run', async () => {
+      const summary = await listOne(candidateRow({ replayConfidence: 0.4 }));
+      expect(summary['replayConfidence']).toBe(0.4);
+      expect(summary['triggerScore']).toBeNull();
+    });
+
+    it('does not put the raw JSON string of the panel on the wire', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([panelEntry()]),
+        }),
+      );
+      expect(typeof summary['judgePanelRationales']).not.toBe('string');
+      expect(Array.isArray(summary['judgePanelRationales'])).toBe(true);
+    });
+
+    it('parses the whole panel, escalation included, in stored order', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ role: 'panellist-a', score: 8 }),
+            panelEntry({ role: 'panellist-b', score: 3 }),
+            panelEntry({
+              role: 'escalation',
+              score: 6,
+              reason: 'panellists disagreed on scope',
+              summary: 'escalation read both panellists',
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel).toHaveLength(3);
+      expect(panel.map((entry) => entry['role'])).toEqual([
+        'panellist-a',
+        'panellist-b',
+        'escalation',
+      ]);
+      expect(panel[2]).toEqual({
+        role: 'escalation',
+        status: 'scored',
+        score: 6,
+        criteria: {
+          novelty: 7,
+          actionability: 8,
+          scope: 6,
+          generalization: 7,
+          triggerClarity: 9,
+        },
+        reason: 'panellists disagreed on scope',
+        summary: 'escalation read both panellists',
+      });
+    });
+
+    it('carries an unscored panellist with a NULL score', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({
+              status: 'unscored',
+              score: null,
+              criteria: null,
+              reason: 'lane timed out',
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel[0]['status']).toBe('unscored');
+      expect(panel[0]['score']).toBeNull();
+      expect(panel[0]['criteria']).toBeNull();
+    });
+
+    it('voids the whole panel when one entry fabricates a score', async () => {
+      // `{status:'unscored', score:10}` is the exact defect phase 1 removed,
+      // stored one column to the left. A panel holding it is not a record to
+      // forward in part.
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ role: 'panellist-a' }),
+            panelEntry({ role: 'panellist-b', status: 'unscored', score: 10 }),
+          ]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('voids the whole panel on an out-of-vocabulary role', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ role: 'panellist-c' }),
+          ]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('voids the whole panel on an out-of-vocabulary status', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ status: 'passed' }),
+          ]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('voids a scored entry whose score is not a finite number', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([panelEntry({ score: 'high' })]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('reads unparseable panel JSON as null, not as an empty panel', async () => {
+      const summary = await listOne(
+        candidateRow({ judgePanelRationales: '{not json' }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+      expect(summary['judgePanelRationales']).not.toEqual([]);
+    });
+
+    it('reads a stored empty array as null — the store never writes one', async () => {
+      const summary = await listOne(
+        candidateRow({ judgePanelRationales: '[]' }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('reads a non-array panel payload as null', async () => {
+      const summary = await listOne(
+        candidateRow({ judgePanelRationales: JSON.stringify(panelEntry()) }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('collapses an all-null panellist scorecard to null', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({
+              criteria: {
+                novelty: null,
+                actionability: null,
+                scope: null,
+                generalization: null,
+                triggerClarity: null,
+              },
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel[0]['criteria']).toBeNull();
+    });
+
+    it('keeps a genuine zero criterion inside a panellist scorecard', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({
+              score: 0,
+              criteria: {
+                novelty: 0,
+                actionability: 0,
+                scope: 0,
+                generalization: 0,
+                triggerClarity: 0,
+              },
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel[0]['score']).toBe(0);
+      expect(panel[0]['criteria']).toEqual({
+        novelty: 0,
+        actionability: 0,
+        scope: 0,
+        generalization: 0,
+        triggerClarity: 0,
+      });
+    });
+
+    it('carries the gate block onto the candidate DETAIL as well', async () => {
+      const { rpcHandler, store } = buildHandlers();
+      const row = candidateRow({
+        replayConfidence: 0,
+        triggerScore: 0.25,
+        judgePanelRationales: JSON.stringify([panelEntry()]),
+      });
+      store.findById.mockReturnValue(row);
+      const result = (await rpcHandler.call('skillSynthesis:getCandidate', {
+        id: 'cand-1',
+      })) as { candidate: Record<string, unknown> | null };
+
+      expect(result.candidate?.['replayConfidence']).toBe(0);
+      expect(result.candidate?.['triggerScore']).toBe(0.25);
+      expect(
+        (result.candidate?.['judgePanelRationales'] as unknown[]).length,
+      ).toBe(1);
+    });
   });
 });
 

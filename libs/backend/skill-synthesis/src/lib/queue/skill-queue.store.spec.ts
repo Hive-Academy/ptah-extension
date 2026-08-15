@@ -317,6 +317,111 @@ maybe('SkillQueueStore', () => {
     });
   });
 
+  describe('mergePayload — the only writer of the column after INSERT', () => {
+    function payloadOf(id: string): string {
+      const row = db
+        .prepare('SELECT payload FROM skill_synthesis_queue WHERE id = ?')
+        .get(id) as { payload: string };
+      return row.payload;
+    }
+
+    it('keeps every key the patch does not name', () => {
+      // A blind overwrite would delete `candidateId`, which is the INPUT the
+      // handler was dispatched with — the row would still be dispatched, and
+      // would have nothing to grade.
+      const id =
+        store.enqueue(
+          input({
+            stage: 'replay',
+            payload: { candidateId: 'cand-1', clusterSessionIds: ['s-a'] },
+          }),
+        ).row?.id ?? '';
+
+      store.mergePayload(id, { verdictFallback: true });
+
+      expect(store.findById(id)?.payload).toEqual({
+        candidateId: 'cand-1',
+        clusterSessionIds: ['s-a'],
+        verdictFallback: true,
+      });
+    });
+
+    it('lets the patch win on a key that already exists', () => {
+      const id =
+        store.enqueue(input({ payload: { verdictFallback: true } })).row?.id ??
+        '';
+
+      store.mergePayload(id, { verdictFallback: false });
+
+      expect(store.findById(id)?.payload).toEqual({ verdictFallback: false });
+    });
+
+    it('merges twice without appending — the column stays one object', () => {
+      const id = store.enqueue(input({ payload: { a: 1 } })).row?.id ?? '';
+
+      store.mergePayload(id, { b: 2 });
+      store.mergePayload(id, { c: 3 });
+
+      expect(store.findById(id)?.payload).toEqual({ a: 1, b: 2, c: 3 });
+      expect(JSON.parse(payloadOf(id))).toEqual({ a: 1, b: 2, c: 3 });
+    });
+
+    it('degrades an unparseable stored payload instead of throwing', () => {
+      // MUTATION TARGET. Reuse of `parsePayload` is what makes this pass —
+      // swap it for a bare `JSON.parse` and the throw escapes into the stage
+      // handler, and from there into `drain()`, which must never throw.
+      const id = store.enqueue(input()).row?.id ?? '';
+      db.prepare(
+        'UPDATE skill_synthesis_queue SET payload = ? WHERE id = ?',
+      ).run('{not json', id);
+
+      expect(() =>
+        store.mergePayload(id, { verdictFallback: true }),
+      ).not.toThrow();
+      expect(store.findById(id)?.payload).toEqual({ verdictFallback: true });
+    });
+
+    it('degrades a payload that parses to a non-object', () => {
+      // `parsePayload` accepts only a plain object: an array or a bare number
+      // has no keys to merge onto and spreading it would produce `{"0": ...}`.
+      const id = store.enqueue(input()).row?.id ?? '';
+      db.prepare(
+        'UPDATE skill_synthesis_queue SET payload = ? WHERE id = ?',
+      ).run('[1,2,3]', id);
+
+      store.mergePayload(id, { candidateId: 'cand-1' });
+
+      expect(store.findById(id)?.payload).toEqual({ candidateId: 'cand-1' });
+    });
+
+    it('is a silent no-op for a row that does not exist', () => {
+      expect(() => store.mergePayload('no-such-row', { a: 1 })).not.toThrow();
+      expect(countRows(db)).toBe(0);
+    });
+
+    it('leaves the payload in place when the row re-opens', () => {
+      // The deliberate half of the decision recorded on `REOPEN_SQL`: clearing
+      // the column would wipe the producer's INPUTS, and the statement does not
+      // re-write them. Refreshing them is the producer's job, through
+      // `mergePayload` — which is what the next assertion does.
+      const id =
+        store.enqueue(
+          input({ turnCount: 5, payload: { candidateId: 'cand-1' } }),
+        ).row?.id ?? '';
+      store.markDone(id);
+
+      const reopened = store.enqueue(
+        input({ turnCount: 9, payload: { candidateId: 'cand-2' } }),
+      );
+
+      expect(reopened.outcome).toBe('reopened');
+      expect(reopened.row?.payload).toEqual({ candidateId: 'cand-1' });
+
+      store.mergePayload(id, { candidateId: 'cand-2' });
+      expect(store.findById(id)?.payload).toEqual({ candidateId: 'cand-2' });
+    });
+  });
+
   describe('drain reads', () => {
     it('lists eligible rows oldest-first and honours not_before', () => {
       store.enqueue(

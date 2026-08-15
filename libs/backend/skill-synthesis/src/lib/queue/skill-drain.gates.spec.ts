@@ -23,7 +23,10 @@ import {
   SkillDrainService,
   SKILL_DRAIN_KEYS,
   STALE_CLAIM_TTL_SAFETY_FACTOR,
+  type DrainTier,
 } from './skill-drain.service';
+import type { SkillQueueStore } from './skill-queue.store';
+import type { SkillQueueRow, SkillQueueStage } from './skill-queue.types';
 import {
   liveSignal,
   makeBudgetStub,
@@ -304,6 +307,149 @@ describe('SkillDrainService — gates', () => {
           onBattery: false,
         }),
       ).resolves.toMatchObject({ skipped: false });
+    });
+  });
+
+  /**
+   * B3.5.1 — the three phase-3 gates are WEEKLY-tier stages, and the weekly
+   * tick is the only one that may dispatch them.
+   *
+   * `DRAIN_TIER_STAGES` is a plain data table, so asserting against it directly
+   * would only prove the table equals itself. These run the REAL drain over a
+   * queue holding one row per gate stage and assert on what was CLAIMED and
+   * which handler actually ran — the two things a tier filter can get wrong
+   * without the table changing at all.
+   *
+   * The negative half is the half that matters. A frequent tick that dispatched
+   * `judge-panel` would spend judge tokens 96 times a day instead of once a
+   * week, and nothing about the summary would look unusual.
+   */
+  describe('weekly-tier gate stages (B3.5.1)', () => {
+    const GATE_STAGES: SkillQueueStage[] = [
+      'judge-panel',
+      'replay',
+      'trigger-eval',
+    ];
+    const WS = 'D:/repo';
+
+    function gateRow(stage: SkillQueueStage, i: number): SkillQueueRow {
+      return {
+        id: `row-${i}`,
+        sessionId: `s-${i}`,
+        workspaceRoot: WS,
+        transcriptPath: null,
+        source: 'session-end',
+        stage,
+        dependsOn: null,
+        status: 'queued',
+        turnCount: 6,
+        attemptCount: 0,
+        enqueuedAt: 1_770_000_000_000 + i,
+        notBefore: 0,
+        claimedBy: null,
+        claimedAt: null,
+        finishedAt: null,
+        lane: null,
+        reason: null,
+        lastError: null,
+        candidateId: null,
+        payload: { candidateId: 'cand-1' },
+      };
+    }
+
+    /** A stub serving one queued row per gate stage, from one workspace. */
+    function makeGateQueue() {
+      const rows = GATE_STAGES.map(gateRow);
+      const parts = {
+        reapStale: jest.fn(() => 0),
+        listEligibleWorkspaces: jest.fn(() => [WS]),
+        listEligible: jest.fn(() => rows),
+        markWorkspaceDrained: jest.fn(),
+        tryClaim: jest.fn((id: string) => {
+          const row = rows.find((r) => r.id === id);
+          return row ? { ...row, status: 'claimed' as const } : null;
+        }),
+        touchClaim: jest.fn(() => true),
+        mergePayload: jest.fn(),
+        requeue: jest.fn(() => true),
+        markDone: jest.fn(),
+        markFailed: jest.fn(),
+        markUnscored: jest.fn(),
+        markSkipped: jest.fn(),
+      };
+      return { ...parts, store: parts as unknown as SkillQueueStore };
+    }
+
+    /**
+     * `perWorkspaceBatch` is raised to 3 for these runs ONLY. The weekly tier is
+     * single-round, so with the shipped batch of 1 a tick would claim exactly
+     * one of the three rows and the assertion would say nothing about the other
+     * two. This is a test-fixture concern, not a recommendation — the shipped
+     * value stays 1 (see `DRAIN_TIER_LIMITS`).
+     */
+    function run(tier: DrainTier) {
+      const queue = makeGateQueue();
+      const drain = makeDrain({
+        queue: queue.store,
+        budget: makeBudgetStub(0).store,
+        settings: {
+          [SKILL_DRAIN_KEYS.maxItemsPerRun]: 4,
+          [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 3,
+        },
+      });
+      const handlers = new Map<SkillQueueStage, jest.Mock>();
+      for (const stage of GATE_STAGES) {
+        const handler = jest.fn(async () => ({ outcome: 'done' as const }));
+        handlers.set(stage, handler);
+        drain.registerStageHandler(stage, handler);
+      }
+      return {
+        queue,
+        handlers,
+        summary: drain.drain({ tier, signal: liveSignal(), onBattery: false }),
+      };
+    }
+
+    it('a weekly tick claims and dispatches all three', async () => {
+      const { queue, handlers, summary } = run('weekly');
+
+      expect(await summary).toMatchObject({ claimed: 3, done: 3 });
+      expect(queue.tryClaim).toHaveBeenCalledTimes(3);
+      for (const stage of GATE_STAGES) {
+        expect(handlers.get(stage)).toHaveBeenCalledTimes(1);
+      }
+      // Dispatched to a real handler, not swallowed by the "no handler" path.
+      expect(queue.markSkipped).not.toHaveBeenCalled();
+    });
+
+    it('hands the handler the claimed row and a live touch()', async () => {
+      const { handlers, summary } = run('weekly');
+      await summary;
+
+      const ctx = handlers.get('replay')?.mock.calls[0][0];
+      expect(ctx.row).toMatchObject({ stage: 'replay', status: 'claimed' });
+      expect(ctx.tier).toBe('weekly');
+      expect(ctx.touch()).toBe(true);
+    });
+
+    it.each(['frequent', 'nightly'] as const)(
+      'a %s tick claims none of them',
+      async (tier) => {
+        const { queue, handlers, summary } = run(tier);
+
+        expect(await summary).toMatchObject({ claimed: 0, skippedItems: 0 });
+        expect(queue.tryClaim).not.toHaveBeenCalled();
+        for (const stage of GATE_STAGES) {
+          expect(handlers.get(stage)).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it('NEGATIVE CONTROL — the same queue is not simply empty', async () => {
+      // Without this, "claimed 0" above would also hold for a stub that served
+      // no rows at all, and the tier filter would be untested.
+      const { queue } = run('nightly');
+      expect(queue.listEligible()).toHaveLength(3);
     });
   });
 

@@ -87,6 +87,34 @@ export interface SkillQueueRow {
   payload: Record<string, unknown>;
 }
 
+/**
+ * The `payload` keys this library reads back by name.
+ *
+ * `payload` is free-form JSON, which is exactly why the handful of keys that
+ * cross a seam need naming once. Two owners write into it and they must not
+ * collide:
+ *
+ *  - PRODUCER INPUTS (`candidateId`, `clusterSessionIds`) — written at enqueue,
+ *    and re-written by the producer through `mergePayload` when a row re-opens,
+ *    because `REOPEN_SQL` does not touch this column.
+ *  - STAGE OUTPUTS (`verdictFallback`) — written by a stage handler while it
+ *    runs, so the Activity surface can say the gate ran on weaker evidence
+ *    (`gates/replay-validator.service.ts` documents that contract).
+ *
+ * The `candidate_id` COLUMN is a different thing and is not a duplicate of the
+ * key: the column is written by the DRAIN when a stage completes, so it records
+ * what a row PRODUCED. The payload key records what the row was dispatched to
+ * grade, which has to exist before the stage runs.
+ */
+export const SKILL_QUEUE_PAYLOAD_KEYS = {
+  /** `CandidateId` the stage grades. Input. */
+  candidateId: 'candidateId',
+  /** Every session in the cluster a replay hold-out is drawn from. Input. */
+  clusterSessionIds: 'clusterSessionIds',
+  /** `true` ⇒ the gate measured on trajectory text, not on a verdict. Output. */
+  verdictFallback: 'verdictFallback',
+} as const;
+
 /** Everything `enqueue` needs. Only `sessionId`, `stage` and `source` are required. */
 export interface EnqueueInput {
   sessionId: string;

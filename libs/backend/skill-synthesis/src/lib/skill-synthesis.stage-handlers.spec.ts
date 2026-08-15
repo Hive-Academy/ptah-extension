@@ -33,6 +33,17 @@ import type { SkillCandidateStore } from './skill-candidate.store';
 import type { SkillMdGenerator } from './skill-md-generator';
 import type { SkillPromotionService } from './skill-promotion.service';
 import type { TrajectoryExtractor } from './trajectory-extractor';
+import type { SkillCandidateRow } from './types';
+import type { JudgePanelService } from './gates/judge-panel.service';
+import {
+  REPLAY_REASONS,
+  type ReplayValidatorService,
+} from './gates/replay-validator.service';
+import {
+  TRIGGER_EVAL_SKIP_REASONS,
+  type TriggerEvalService,
+} from './gates/trigger-eval.service';
+import type { SkillLaneFailure } from './lanes/lane.types';
 import { SkillQueueStore } from './queue/skill-queue.store';
 import {
   SkillDrainService,
@@ -114,12 +125,24 @@ function queueRow(overrides: Partial<SkillQueueRow> = {}): SkillQueueRow {
  * store accepts a registration, and the embedder + vec status are live so
  * `backfillEmbeddings` does real work rather than short-circuiting to `0`.
  */
+/** The candidate the gate stages are dispatched to grade. */
+const CANDIDATE = {
+  id: 'cand-1',
+  name: 'do-thing',
+  description: 'does the thing',
+  bodyPath: '',
+  sourceSessionIds: ['s1'],
+} as unknown as SkillCandidateRow;
+
 function makeService(opts: {
   queue: {
     enqueue: (input: EnqueueInput) => EnqueueResult;
   } & Record<string, unknown>;
   drain: SkillDrainService | null;
   enabled?: boolean;
+  judgePanel?: Partial<JudgePanelService> | null;
+  replayValidator?: Partial<ReplayValidatorService> | null;
+  triggerEval?: Partial<TriggerEvalService> | null;
 }) {
   const logger = {
     debug: jest.fn(),
@@ -150,6 +173,7 @@ function makeService(opts: {
   };
   const store = {
     findByTrajectoryHash: jest.fn(() => null),
+    findById: jest.fn(() => CANDIDATE),
     registerCandidate: jest.fn(() => ({
       candidate: { id: 'cand-1' },
       reused: false,
@@ -202,6 +226,11 @@ function makeService(opts: {
     null,
     opts.queue as never,
     opts.drain,
+    null,
+    null,
+    (opts.judgePanel ?? null) as never,
+    (opts.replayValidator ?? null) as never,
+    (opts.triggerEval ?? null) as never,
   );
 
   async function fireSessionEnd(
@@ -230,6 +259,8 @@ function makeOneRowQueue(row: SkillQueueRow) {
       return { ...row, status: 'claimed' as const };
     }),
     touchClaim: jest.fn(() => true),
+    mergePayload: jest.fn(),
+    requeue: jest.fn(() => true),
     markDone: jest.fn(),
     markFailed: jest.fn(),
     markUnscored: jest.fn(),
@@ -389,6 +420,376 @@ describe('SkillSynthesisService — a throwing stage never escapes drain()', () 
   });
 });
 
+/**
+ * B3.5.1 — the three phase-3 gate stages.
+ *
+ * Every test here drives the REAL `SkillDrainService` on a WEEKLY tick, so what
+ * is asserted is the row transition the drain chose, not the object the handler
+ * returned. That distinction is the whole point: a handler that flattens a lane
+ * failure into `unscored` returns a perfectly well-typed value and only the
+ * drain's behaviour reveals it.
+ */
+describe('SkillSynthesisService — gate stage handlers (B3.5.1)', () => {
+  const weeklyOpts = () => ({
+    tier: 'weekly' as const,
+    signal: liveSignal(),
+    onBattery: false,
+  });
+
+  const gateRow = (stage: SkillQueueStage) =>
+    queueRow({ stage, payload: { candidateId: 'cand-1' } });
+
+  const scoredVerdict = {
+    verdict: { status: 'scored', score: 8, criteria: null, reason: 'v' },
+    rationales: [],
+    escalated: false,
+    maxDelta: 0,
+    panellists: 2,
+    reason: 'judge-panel-agreed',
+    persisted: true,
+    lens: null,
+  };
+
+  const replayResult = (over: Record<string, unknown>) => ({
+    status: 'unmeasured',
+    confidence: null,
+    holdoutSessionId: 's-hold',
+    verdictFallback: false,
+    reason: REPLAY_REASONS.emptyPlan,
+    persisted: true,
+    failure: null,
+    ...over,
+  });
+
+  describe('judge-panel', () => {
+    it('a scored verdict finishes the row done, carrying the candidate', async () => {
+      const queue = makeOneRowQueue(gateRow('judge-panel'));
+      const drain = makeDrainOver(queue);
+      const judgePanel = { evaluate: jest.fn(async () => scoredVerdict) };
+      const { svc } = makeService({
+        queue,
+        drain,
+        judgePanel: judgePanel as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary).toMatchObject({ claimed: 1, done: 1 });
+      expect(judgePanel.evaluate).toHaveBeenCalledTimes(1);
+      expect(queue.markDone).toHaveBeenCalledWith(
+        'row-1',
+        expect.objectContaining({
+          candidateId: 'cand-1',
+          reason: 'judge-panel-agreed',
+        }),
+      );
+    });
+
+    it('a disabled verdict is skipped, not retried — a host with no LLM is not broken', async () => {
+      const queue = makeOneRowQueue(gateRow('judge-panel'));
+      const drain = makeDrainOver(queue);
+      const judgePanel = {
+        evaluate: jest.fn(async () => ({
+          ...scoredVerdict,
+          verdict: { ...scoredVerdict.verdict, status: 'disabled' },
+          reason: 'judge-disabled',
+        })),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        judgePanel: judgePanel as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary.skippedItems).toBe(1);
+      expect(queue.markUnscored).not.toHaveBeenCalled();
+    });
+
+    it('an unscored verdict stays re-eligible behind a backoff', async () => {
+      const queue = makeOneRowQueue(gateRow('judge-panel'));
+      const drain = makeDrainOver(queue);
+      const judgePanel = {
+        evaluate: jest.fn(async () => ({
+          ...scoredVerdict,
+          verdict: {
+            ...scoredVerdict.verdict,
+            status: 'unscored',
+            score: null,
+          },
+          reason: 'judge-no-json-in-response',
+        })),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        judgePanel: judgePanel as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary.unscored).toBe(1);
+      expect(queue.markUnscored).toHaveBeenCalledWith(
+        'row-1',
+        expect.objectContaining({ reason: 'judge-no-json-in-response' }),
+      );
+    });
+  });
+
+  describe('replay', () => {
+    /**
+     * MUTATION TARGET, and the most important test in this file.
+     *
+     * The handler must hand `SkillLaneFailure` over VERBATIM. Flattening it to
+     * `unscored` type-checks, returns a sane-looking summary, and quietly moves
+     * the retry ceiling and the backoff into the one place that cannot read
+     * `maxAttempts` — so the only way to see the defect is to assert on which
+     * STORE CALL the drain made. `requeue` is the transport path; `markUnscored`
+     * is the flattened one.
+     */
+    it('hands a lane failure to the drain verbatim, which requeues behind the lane backoff', async () => {
+      const failure: SkillLaneFailure = {
+        kind: 'timeout',
+        reason: 'Lane replay: timed out',
+        retryAfterMs: 120_000,
+      } as SkillLaneFailure;
+      const queue = makeOneRowQueue(gateRow('replay'));
+      const drain = makeDrainOver(queue);
+      const replayValidator = {
+        validate: jest.fn(async () => replayResult({ failure })),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        replayValidator: replayValidator as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary).toMatchObject({ stalled: 1, unscored: 0, failed: 0 });
+      expect(queue.requeue).toHaveBeenCalledWith(
+        'row-1',
+        expect.any(Number),
+        'Lane replay: timed out',
+      );
+      expect(queue.markUnscored).not.toHaveBeenCalled();
+      expect(queue.markFailed).not.toHaveBeenCalled();
+    });
+
+    it('a measurement finishes the row done', async () => {
+      const queue = makeOneRowQueue(gateRow('replay'));
+      const drain = makeDrainOver(queue);
+      const replayValidator = {
+        validate: jest.fn(async () =>
+          replayResult({
+            status: 'measured',
+            confidence: 0.7,
+            reason: REPLAY_REASONS.measured,
+          }),
+        ),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        replayValidator: replayValidator as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary.done).toBe(1);
+      expect(queue.markDone).toHaveBeenCalledWith(
+        'row-1',
+        expect.objectContaining({ candidateId: 'cand-1' }),
+      );
+    });
+
+    it('no hold-out is SKIPPED, not unscored — the cluster will not grow one', async () => {
+      // `replay-no-holdout` is a permanent fact about the cluster. An
+      // `unscored` row would come back every week forever to re-derive the
+      // same `null`.
+      const queue = makeOneRowQueue(gateRow('replay'));
+      const drain = makeDrainOver(queue);
+      const replayValidator = {
+        validate: jest.fn(async () =>
+          replayResult({ reason: REPLAY_REASONS.noHoldout }),
+        ),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        replayValidator: replayValidator as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary).toMatchObject({ skippedItems: 1, unscored: 0 });
+    });
+
+    it.each([
+      REPLAY_REASONS.noEvidence,
+      REPLAY_REASONS.emptyPlan,
+      REPLAY_REASONS.unscoredComparison,
+    ])(
+      '%s stays re-eligible — it is a bad sample, not a fact',
+      async (reason) => {
+        const queue = makeOneRowQueue(gateRow('replay'));
+        const drain = makeDrainOver(queue);
+        const replayValidator = {
+          validate: jest.fn(async () => replayResult({ reason })),
+        };
+        const { svc } = makeService({
+          queue,
+          drain,
+          replayValidator: replayValidator as never,
+        });
+        await svc.start();
+
+        expect((await drain.drain(weeklyOpts())).unscored).toBe(1);
+      },
+    );
+
+    it.each([
+      ['measured', { status: 'measured', reason: REPLAY_REASONS.measured }],
+      ['no-holdout', { reason: REPLAY_REASONS.noHoldout }],
+      [
+        'a lane failure',
+        { failure: { kind: 'timeout', reason: 'x', retryAfterMs: 1 } },
+      ],
+    ])(
+      'writes payload.verdictFallback on the %s path',
+      async (_label, over) => {
+        // `REOPEN_SQL` preserves `payload`, so a path that skipped this write
+        // would leave a finished row showing a PREVIOUS pass's flag.
+        const queue = makeOneRowQueue(gateRow('replay'));
+        const drain = makeDrainOver(queue);
+        const replayValidator = {
+          validate: jest.fn(async () =>
+            replayResult({ verdictFallback: true, ...over }),
+          ),
+        };
+        const { svc } = makeService({
+          queue,
+          drain,
+          replayValidator: replayValidator as never,
+        });
+        await svc.start();
+
+        await drain.drain(weeklyOpts());
+
+        expect(queue.mergePayload).toHaveBeenCalledWith('row-1', {
+          verdictFallback: true,
+        });
+      },
+    );
+  });
+
+  describe('trigger-eval', () => {
+    const report = (unmeasuredReason: string | null) => ({
+      status: 'evaluated',
+      report: {
+        measurement: { score: 0.5, precision: 0.5, recall: 0.5 },
+        prompts: { shouldTrigger: [], nearMiss: [] },
+        outcomes: [],
+        collisions: [],
+        unmeasuredReason,
+        activeCompared: 0,
+      },
+    });
+
+    it('a measurement finishes the row done', async () => {
+      const queue = makeOneRowQueue(gateRow('trigger-eval'));
+      const drain = makeDrainOver(queue);
+      const triggerEval = { evaluate: jest.fn(async () => report(null)) };
+      const { svc } = makeService({
+        queue,
+        drain,
+        triggerEval: triggerEval as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary.done).toBe(1);
+      expect(queue.markDone).toHaveBeenCalledWith(
+        'row-1',
+        expect.objectContaining({
+          reason: 'trigger-eval-measured',
+          candidateId: 'cand-1',
+        }),
+      );
+    });
+
+    it('a retrieval that produced no measurement stays re-eligible', async () => {
+      const queue = makeOneRowQueue(gateRow('trigger-eval'));
+      const drain = makeDrainOver(queue);
+      const triggerEval = {
+        evaluate: jest.fn(async () =>
+          report('trigger-eval-no-near-miss-prompts'),
+        ),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        triggerEval: triggerEval as never,
+      });
+      await svc.start();
+
+      expect((await drain.drain(weeklyOpts())).unscored).toBe(1);
+    });
+
+    it.each([
+      [TRIGGER_EVAL_SKIP_REASONS.disabled, 'skippedItems'],
+      [TRIGGER_EVAL_SKIP_REASONS.noEmbedder, 'skippedItems'],
+      [TRIGGER_EVAL_SKIP_REASONS.noDescription, 'skippedItems'],
+      // The collapsed one: "no lane in this host" and "the lane failed" report
+      // the same token, so the bounded failure mode is chosen.
+      [TRIGGER_EVAL_SKIP_REASONS.noPrompts, 'unscored'],
+    ])('%s maps to %s', async (reason, field) => {
+      const queue = makeOneRowQueue(gateRow('trigger-eval'));
+      const drain = makeDrainOver(queue);
+      const triggerEval = {
+        evaluate: jest.fn(async () => ({ status: 'skipped', reason })),
+      };
+      const { svc } = makeService({
+        queue,
+        drain,
+        triggerEval: triggerEval as never,
+      });
+      await svc.start();
+
+      const summary = await drain.drain(weeklyOpts());
+
+      expect(summary[field as 'unscored' | 'skippedItems']).toBe(1);
+    });
+  });
+
+  it.each(['judge-panel', 'replay', 'trigger-eval'] as SkillQueueStage[])(
+    'does NOT register %s in a host without the service',
+    async (stage) => {
+      // The archaeologist's rule: registering a handler that could only answer
+      // "I am not here" spends a claim and an attempt to say what the drain
+      // already says for free.
+      const queue = makeOneRowQueue(gateRow(stage));
+      const drain = makeDrainOver(queue);
+      const { svc } = makeService({ queue, drain });
+      await svc.start();
+
+      await drain.drain(weeklyOpts());
+
+      expect(queue.markSkipped).toHaveBeenCalledWith('row-1', {
+        reason: `no handler for stage ${stage}`,
+      });
+    },
+  );
+});
+
 const opener = resolveOpener();
 const maybe = opener ? describe : describe.skip;
 
@@ -511,6 +912,128 @@ maybe('C0 is self-contained — trigger → drain → terminal row (B0.9.3)', ()
       expect.any(Number),
       transcriptPath,
     );
+  });
+
+  /**
+   * B3.5.1 — the `prefilter → {judge-panel, trigger-eval}` producers.
+   *
+   * Chained from the SUCCESSFUL END of the prefilter handler, exactly like
+   * `archaeology`: both gates grade a candidate, and there is no candidate until
+   * the cheap regex prefilter said there was something worth spending on.
+   */
+  describe('the gate producers', () => {
+    const gates = {
+      judgePanel: { evaluate: jest.fn() },
+      triggerEval: { evaluate: jest.fn() },
+      replayValidator: { validate: jest.fn() },
+    };
+
+    it('writes a judge-panel and a trigger-eval row from a successful prefilter', async () => {
+      const drain = makeDrainOver(store);
+      const { svc, fireSessionEnd } = makeService({
+        queue: store as never,
+        drain,
+        judgePanel: gates.judgePanel as never,
+        triggerEval: gates.triggerEval as never,
+      });
+      await svc.start();
+      await fireSessionEnd();
+
+      // Before the drain there is only the prefilter row (plus the backfill).
+      expect(store.findBySessionStage('s1', 'judge-panel')).toBeNull();
+
+      await drain.drain(drainOpts());
+
+      for (const stage of ['judge-panel', 'trigger-eval'] as const) {
+        const row = store.findBySessionStage('s1', stage);
+        expect(row).toMatchObject({
+          stage,
+          status: 'queued',
+          // The candidate id travels in the PAYLOAD; the column is the drain's.
+          payload: { candidateId: 'cand-1' },
+          // Round-robin fairness key: these grade a workspace-owned candidate,
+          // so `''` (reserved for clustering / the backfill) would be wrong.
+          workspaceRoot: WS,
+          // `0` compiles and wedges `REOPEN_SQL` forever.
+          turnCount: 6,
+          // Pointing at the prefilter row would strand these the first time it
+          // ended `skipped` — `ELIGIBLE_SQL` requires the ancestor to be `done`.
+          dependsOn: null,
+        });
+        expect(row?.candidateId).toBeNull();
+      }
+    });
+
+    it('writes NO replay row — the gate has a handler and deliberately no producer', async () => {
+      const drain = makeDrainOver(store);
+      const { svc, fireSessionEnd } = makeService({
+        queue: store as never,
+        drain,
+        judgePanel: gates.judgePanel as never,
+        triggerEval: gates.triggerEval as never,
+        replayValidator: gates.replayValidator as never,
+      });
+      await svc.start();
+      await fireSessionEnd();
+      await drain.drain(drainOpts());
+
+      expect(store.findBySessionStage('s1', 'replay')).toBeNull();
+      expect(store.listRecent(50).some((r) => r.stage === 'replay')).toBe(
+        false,
+      );
+    });
+
+    it('produces nothing for a gate this host does not have', async () => {
+      const drain = makeDrainOver(store);
+      const { svc, fireSessionEnd } = makeService({
+        queue: store as never,
+        drain,
+        triggerEval: gates.triggerEval as never,
+      });
+      await svc.start();
+      await fireSessionEnd();
+      await drain.drain(drainOpts());
+
+      expect(store.findBySessionStage('s1', 'trigger-eval')).not.toBeNull();
+      expect(store.findBySessionStage('s1', 'judge-panel')).toBeNull();
+    });
+
+    it('re-points a re-opened gate row at the candidate the new pass produced', async () => {
+      // `REOPEN_SQL` does not touch `payload`, so without the `mergePayload`
+      // refresh the row would silently keep grading the FIRST pass's candidate
+      // every time the session grows.
+      const drain = makeDrainOver(store);
+      const {
+        svc,
+        store: candidates,
+        extractor,
+        fireSessionEnd,
+      } = makeService({
+        queue: store as never,
+        drain,
+        judgePanel: gates.judgePanel as never,
+      });
+      await svc.start();
+      await fireSessionEnd();
+      await drain.drain(drainOpts());
+      expect(store.findBySessionStage('s1', 'judge-panel')?.payload).toEqual({
+        candidateId: 'cand-1',
+      });
+      // Finish the gate row so the guarded re-open can fire.
+      store.markDone(store.findBySessionStage('s1', 'judge-panel')?.id ?? '');
+
+      (candidates.registerCandidate as jest.Mock).mockReturnValue({
+        candidate: { id: 'cand-2' },
+        reused: false,
+      });
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(11));
+      await fireSessionEnd();
+      await drain.drain(drainOpts());
+
+      const row = store.findBySessionStage('s1', 'judge-panel');
+      expect(row?.status).toBe('queued');
+      expect(row?.payload).toEqual({ candidateId: 'cand-2' });
+    });
   });
 
   it('drops a null trajectory without writing a queue row', async () => {

@@ -76,7 +76,21 @@ import type { SessionVerdict } from './archaeology/session-verdict.types';
 import { SkillRegistryStore } from './skill-registry.store';
 import { migrateSkillMdFiles } from './skill-md-migration';
 import type { SkillQueueStore } from './queue/skill-queue.store';
-import type { EnqueueOutcome, SkillQueueRow } from './queue/skill-queue.types';
+import {
+  SKILL_QUEUE_PAYLOAD_KEYS,
+  type EnqueueOutcome,
+  type SkillQueueRow,
+  type SkillQueueStage,
+} from './queue/skill-queue.types';
+import type { JudgePanelService } from './gates/judge-panel.service';
+import {
+  REPLAY_REASONS,
+  type ReplayValidatorService,
+} from './gates/replay-validator.service';
+import {
+  TRIGGER_EVAL_SKIP_REASONS,
+  type TriggerEvalService,
+} from './gates/trigger-eval.service';
 import type {
   SkillDrainService,
   SkillStageContext,
@@ -85,6 +99,7 @@ import type {
 import type {
   CandidateId,
   RegisterCandidateResult,
+  SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
 import type {
@@ -169,6 +184,16 @@ const EMBEDDING_BACKFILL_SESSION_PREFIX = 'backfill-embeddings:';
  * (`3 × 30 s`) and costs one UPDATE per minute per in-flight row.
  */
 const CLAIM_HEARTBEAT_MS = 60_000;
+
+/**
+ * The reason token a measured `trigger-eval` row finishes with.
+ *
+ * It lives here rather than beside `TRIGGER_EVAL_SKIP_REASONS` only because
+ * that map is in a file this batch does not own. `REPLAY_REASONS.measured`
+ * is the shape it should match — the success token belongs with the gate's own
+ * reason tokens, and moving it there is a one-line follow-up.
+ */
+const TRIGGER_EVAL_MEASURED_REASON = 'trigger-eval-measured';
 
 @injectable()
 export class SkillSynthesisService {
@@ -279,6 +304,21 @@ export class SkillSynthesisService {
      */
     @inject(SKILL_SYNTHESIS_TOKENS.SESSION_VERDICT_STORE, { isOptional: true })
     private readonly verdicts: SessionVerdictStore | null = null,
+    /**
+     * The three phase-3 measuring gates, all optional and all injected BY
+     * TOKEN for exactly the reason the archaeologist is: each one needs an LLM
+     * lane, and a CLI or e2e host legitimately has none. When one is absent its
+     * stage is simply not registered and no row is ever produced for it — see
+     * `registerStageHandlers`.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.JUDGE_PANEL_SERVICE, { isOptional: true })
+    private readonly judgePanel: JudgePanelService | null = null,
+    @inject(SKILL_SYNTHESIS_TOKENS.REPLAY_VALIDATOR_SERVICE, {
+      isOptional: true,
+    })
+    private readonly replayValidator: ReplayValidatorService | null = null,
+    @inject(SKILL_SYNTHESIS_TOKENS.TRIGGER_EVAL_SERVICE, { isOptional: true })
+    private readonly triggerEval: TriggerEvalService | null = null,
   ) {}
 
   /**
@@ -546,6 +586,15 @@ export class SkillSynthesisService {
    * have. Registering a handler that could only ever answer "I am not here"
    * would spend a claim and an attempt to say what "no handler for stage
    * archaeology" already says for free.
+   *
+   * The three phase-3 gates — `judge-panel`, `replay`, `trigger-eval` — follow
+   * the archaeologist's rule for the same reason: each is an injected
+   * collaborator that needs an LLM lane. All three are WEEKLY-tier
+   * (`WEEKLY_ONLY_STAGES`), so a frequent or nightly tick never claims one even
+   * where the handler is present.
+   *
+   * `replay` gets a handler and DELIBERATELY NO PRODUCER — see
+   * `enqueueCandidateGates`.
    */
   private registerStageHandlers(): void {
     if (!this.drain) return;
@@ -558,6 +607,21 @@ export class SkillSynthesisService {
     if (this.archaeologist) {
       this.drain.registerStageHandler('archaeology', (ctx) =>
         this.runArchaeologyStage(ctx),
+      );
+    }
+    if (this.judgePanel) {
+      this.drain.registerStageHandler('judge-panel', (ctx) =>
+        this.runJudgePanelStage(ctx),
+      );
+    }
+    if (this.replayValidator) {
+      this.drain.registerStageHandler('replay', (ctx) =>
+        this.runReplayStage(ctx),
+      );
+    }
+    if (this.triggerEval) {
+      this.drain.registerStageHandler('trigger-eval', (ctx) =>
+        this.runTriggerEvalStage(ctx),
       );
     }
   }
@@ -601,6 +665,7 @@ export class SkillSynthesisService {
       return { outcome: 'skipped', reason: 'no candidate from this session' };
     }
     this.enqueueArchaeology(row);
+    this.enqueueCandidateGates(row, result.candidate.id);
     return {
       outcome: 'done',
       candidateId: result.candidate.id as unknown as string,
@@ -668,6 +733,394 @@ export class SkillSynthesisService {
         },
       );
     }
+  }
+
+  /**
+   * The `prefilter → {judge-panel, trigger-eval}` links of the chain.
+   *
+   * ## Why only two of the three gates get a producer
+   *
+   * `replay` gets a HANDLER and no producer, deliberately. `ReplayValidator`
+   * needs a graded `SkillCandidateRow` drafted from a CLUSTER, and the cluster
+   * path (`SkillCuratorService.runSuggestionPass`) does not produce candidate
+   * rows at all — it produces SUGGESTIONS, which the user accepts. Registering a
+   * cluster draft as a candidate to give replay something to grade would send it
+   * back through clustering, dedup and AUTO-PROMOTION, bypassing the accept step
+   * entirely. That is a product change with its own batch. Wiring the producer
+   * anyway would ship a gate that can only ever answer "no hold-out", which is
+   * the same mistake the hold-out commit avoided.
+   *
+   * ## Why HERE and not at enqueue time
+   *
+   * Identical to `enqueueArchaeology`: the regex prefilter is what gates
+   * eligibility to spend. Both of these stages grade a CANDIDATE, and there is
+   * no candidate until the prefilter succeeded — enqueuing them beside
+   * `prefilter` would pay for every session the prefilter was about to reject.
+   *
+   * ## The candidate id travels in `payload`, not in `candidate_id`
+   *
+   * The `candidate_id` COLUMN is written by the DRAIN when a stage completes, so
+   * it records what a row produced. These rows need to know what to grade BEFORE
+   * they run, which is what the payload key is for.
+   *
+   * `REOPEN_SQL` does not touch `payload`, so a re-opened row would still carry
+   * the FIRST pass's candidate id. A grown session yields a new trajectory hash
+   * and therefore possibly a new candidate, so the re-opened row would grade the
+   * wrong one — hence the `mergePayload` refresh below. That is not
+   * belt-and-braces: without it the gates silently re-measure a stale candidate
+   * every time a session grows.
+   *
+   * ## `workspaceRoot`, not `''`
+   *
+   * `''` is the round-robin key reserved for work with no owning workspace —
+   * clustering, the embedding backfill. Both of these grade a candidate this
+   * workspace produced, so they take part in per-workspace fairness like every
+   * other candidate-scoped row. `trigger-eval` READS the cross-project active
+   * library to find description collisions, but reading across projects is a
+   * property of the measurement, not a statement about who owns the row.
+   *
+   * ## `dependsOn` stays NULL
+   *
+   * Same reason as `enqueueArchaeology`: `ELIGIBLE_SQL` requires the ancestor to
+   * be `done`, so pointing at a prefilter row that can legitimately end
+   * `skipped` would strand the dependent forever. The ordering is already
+   * guaranteed by construction — these rows do not exist until prefilter
+   * succeeded.
+   */
+  private enqueueCandidateGates(
+    row: SkillQueueRow,
+    candidateId: CandidateId,
+  ): void {
+    if (!this.queue) return;
+    // `JudgePanelService.evaluate` calls `judge.judge()` for panellist A
+    // itself, so it is a superset of the single-judge step and needs nothing
+    // the `judge` stage would have produced first.
+    if (this.judgePanel) this.enqueueGate(row, 'judge-panel', candidateId);
+    // A dependency-free weekly root: it needs only the candidate's id and
+    // description, both of which exist the moment the candidate does.
+    if (this.triggerEval) this.enqueueGate(row, 'trigger-eval', candidateId);
+  }
+
+  private enqueueGate(
+    row: SkillQueueRow,
+    stage: SkillQueueStage,
+    candidateId: CandidateId,
+  ): void {
+    if (!this.queue) return;
+    try {
+      const result = this.queue.enqueue({
+        sessionId: row.sessionId,
+        stage,
+        source: row.source,
+        workspaceRoot: row.workspaceRoot,
+        transcriptPath: row.transcriptPath,
+        // Never `0`: `REOPEN_SQL` is gated on `turn_count < ?`, so a zero here
+        // compiles, satisfies any call-counting test, and wedges the row
+        // permanently.
+        turnCount: row.turnCount,
+        payload: { [SKILL_QUEUE_PAYLOAD_KEYS.candidateId]: candidateId },
+      });
+      if (result.outcome === 'reopened' && result.row) {
+        this.queue.mergePayload(result.row.id, {
+          [SKILL_QUEUE_PAYLOAD_KEYS.candidateId]: candidateId,
+        });
+      }
+      this.logger.debug('[skill-synthesis] gate stage enqueued', {
+        sessionId: row.sessionId,
+        stage,
+        outcome: result.outcome,
+        candidateId,
+      });
+    } catch (error: unknown) {
+      // The prefilter row itself succeeded and must still land `done`. A
+      // failure to chain costs a measurement, not a candidate.
+      this.logger.warn(
+        '[skill-synthesis] could not enqueue a gate stage (non-fatal)',
+        {
+          sessionId: row.sessionId,
+          stage,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * The candidate a gate row was dispatched to grade, or `null`.
+   *
+   * A row whose payload names no candidate, or names one that has since been
+   * deleted, is not a failure and not a retry — there is nothing to measure and
+   * nothing that will make one appear.
+   */
+  private gateTarget(row: SkillQueueRow): SkillCandidateRow | null {
+    const id = row.payload[SKILL_QUEUE_PAYLOAD_KEYS.candidateId];
+    if (typeof id !== 'string' || id.length === 0) return null;
+    return this.store.findById(id as CandidateId);
+  }
+
+  /**
+   * The `judge-panel` stage — a second opinion on an already-drafted candidate.
+   *
+   * ## The mapping, and the one place it cannot follow the house rule
+   *
+   *  - `verdict.status === 'scored'` → `done`. The panel decided; the reason is
+   *    the panel's own stable token (`judge-panel-agreed` / `-escalated`).
+   *  - `verdict.status === 'disabled'` → `skipped`. No judge lane in this host.
+   *    It ran, there is nothing to do, and it is not a retry — the same answer
+   *    the judge itself gives, and the reason a host with no LLM must not carry
+   *    a backoff for a stage it can never run.
+   *  - `verdict.status === 'unscored'` → `unscored`. "We ran and we do not
+   *    know", re-eligible under `not_before`. Transient by construction: an
+   *    unparseable reply or a lane that stalled may well answer next week.
+   *
+   * There is NO `lane-failed` branch here, and that is a gap rather than a
+   * choice. `JudgePanelService` never surfaces a `SkillLaneFailure`: both
+   * `SkillJudgeService.judge` and the escalation collapse one into a
+   * `JudgeDecision` carrying only the failure's user-facing REASON STRING. So
+   * the transport/capability split the drain owns is not reachable from here,
+   * and a timed-out judge lane lands as `unscored` with a 30-minute backoff
+   * instead of the lane's own `retryAfterMs`. Fabricating a `SkillLaneFailure`
+   * to fill the gap would mean inventing a `kind` and a `retryAfterMs` nobody
+   * measured, and the drain would then choose a retry ceiling from a guess.
+   * Widening `JudgePanelResult` to carry the failure is the real fix and it
+   * belongs in the file that owns the gate.
+   */
+  private async runJudgePanelStage(
+    ctx: SkillStageContext,
+  ): Promise<SkillStageResult> {
+    const panel = this.judgePanel;
+    if (!panel)
+      return { outcome: 'skipped', reason: 'no judge panel in this host' };
+    const candidate = this.gateTarget(ctx.row);
+    if (!candidate) {
+      return { outcome: 'skipped', reason: 'judge-panel-no-candidate' };
+    }
+
+    const settings = this.readSettings();
+    const result = await this.withClaimHeartbeat(ctx, (signal) =>
+      panel.evaluate({
+        candidate,
+        body: this.candidateBody(candidate),
+        settings,
+        signal,
+        attempt: ctx.row.attemptCount,
+      }),
+    );
+
+    switch (result.verdict.status) {
+      case 'scored':
+        return {
+          outcome: 'done',
+          reason: result.reason,
+          candidateId: candidate.id as unknown as string,
+        };
+      case 'disabled':
+        return { outcome: 'skipped', reason: result.reason };
+      default:
+        return { outcome: 'unscored', reason: result.reason };
+    }
+  }
+
+  /**
+   * The `replay` stage — the empirical hold-out gate.
+   *
+   * ## It has no producer in this library, on purpose
+   *
+   * Nothing enqueues a `replay` row today; see `enqueueCandidateGates`. The
+   * handler is registered anyway so that the stage is live the moment a producer
+   * lands, and so a row enqueued by hand (or by a later batch) is measured
+   * rather than marked "no handler for stage replay".
+   *
+   * ## `verdictFallback` is written on EVERY path
+   *
+   * `replay-validator.service.ts` documents that the drain writes this to
+   * `payload.verdictFallback` so the Activity tab can say the gate ran on weaker
+   * evidence. It is written before the outcome is mapped — including on a lane
+   * failure — for two reasons: the flag is a fact about the EVIDENCE, which the
+   * gate knew before the lane was ever called; and `REOPEN_SQL` deliberately
+   * preserves `payload`, so a path that skipped the write would leave a finished
+   * row showing a PREVIOUS pass's flag. Writing unconditionally is what makes
+   * "each writer refreshes its own keys" true rather than aspirational.
+   *
+   * ## The reason split
+   *
+   *  - lane failure → handed over VERBATIM. Only the drain reads `maxAttempts`,
+   *    so only the drain may choose between a backoff requeue and the terminal
+   *    mark.
+   *  - `disabled` → `skipped`. The gate switch is off, or there is no replay
+   *    lane in this host.
+   *  - `replay-no-holdout` → `skipped`, NOT `unscored`. This is the one
+   *    unmeasured reason that is a PERMANENT FACT about the cluster: every
+   *    session in it fed the draft, so there is nothing to hold out and no
+   *    amount of waiting changes that. An `unscored` row would come back every
+   *    week forever to re-derive the same `null`.
+   *  - every other unmeasured reason → `unscored`. A hold-out with no readable
+   *    evidence may acquire a verdict on the next nightly archaeology pass; an
+   *    empty plan or an unparseable comparison is a bad sample, not a fact.
+   */
+  private async runReplayStage(
+    ctx: SkillStageContext,
+  ): Promise<SkillStageResult> {
+    const validator = this.replayValidator;
+    if (!validator) {
+      return { outcome: 'skipped', reason: 'no replay validator in this host' };
+    }
+    const { row } = ctx;
+    const candidate = this.gateTarget(row);
+    if (!candidate) {
+      return { outcome: 'skipped', reason: 'replay-no-candidate' };
+    }
+
+    const result = await this.withClaimHeartbeat(ctx, (signal) =>
+      validator.validate({
+        candidate,
+        body: this.candidateBody(candidate),
+        clusterSessionIds: this.gateClusterSessionIds(row, candidate),
+        workspaceRoot: row.workspaceRoot,
+        signal,
+        attempt: row.attemptCount,
+      }),
+    );
+
+    this.recordVerdictFallback(row, result.verdictFallback);
+
+    if (result.failure !== null) {
+      return { outcome: 'lane-failed', failure: result.failure };
+    }
+    if (result.status === 'measured') {
+      return {
+        outcome: 'done',
+        reason: result.reason,
+        candidateId: candidate.id as unknown as string,
+      };
+    }
+    if (
+      result.status === 'disabled' ||
+      result.reason === REPLAY_REASONS.noHoldout
+    ) {
+      return { outcome: 'skipped', reason: result.reason };
+    }
+    return { outcome: 'unscored', reason: result.reason };
+  }
+
+  /**
+   * The cluster a replay hold-out is drawn from.
+   *
+   * The producer is expected to carry the cluster on the row, because only the
+   * clustering pass knows it. Falling back to the candidate's OWN source
+   * sessions is deliberate and is not a stand-in for the real thing: the gate
+   * subtracts `sourceSessionIds` from this list, so a candidate with no cluster
+   * on its row yields an empty difference and an honest `replay-no-holdout`.
+   * Inventing a cluster here would make the gate measure recall and report it as
+   * transfer.
+   */
+  private gateClusterSessionIds(
+    row: SkillQueueRow,
+    candidate: SkillCandidateRow,
+  ): string[] {
+    const raw = row.payload[SKILL_QUEUE_PAYLOAD_KEYS.clusterSessionIds];
+    if (Array.isArray(raw)) {
+      return raw.filter((id): id is string => typeof id === 'string');
+    }
+    return [...candidate.sourceSessionIds];
+  }
+
+  /** Write the replay gate's evidence flag onto the row. Never fatal. */
+  private recordVerdictFallback(row: SkillQueueRow, fallback: boolean): void {
+    if (!this.queue) return;
+    try {
+      this.queue.mergePayload(row.id, {
+        [SKILL_QUEUE_PAYLOAD_KEYS.verdictFallback]: fallback,
+      });
+    } catch (error: unknown) {
+      // The measurement itself already landed on the candidate. Losing the
+      // Activity annotation must not turn a good run into a retry.
+      this.logger.warn(
+        '[skill-synthesis] could not record the replay evidence flag (non-fatal)',
+        {
+          id: row.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * The `trigger-eval` stage — the measured description-retrieval gate.
+   *
+   * Cheap by construction: exactly one lane call generates the prompt set and
+   * everything after it is local embedder arithmetic, which is why the drain
+   * does not book this stage against the token budget.
+   *
+   * ## The mapping
+   *
+   *  - `disabled` / `no-embedder` / `no-description` → `skipped`. Two are host
+   *    capabilities and one is a property of the candidate; none is a retry.
+   *  - `prompt-generation-unavailable` → `unscored`. This is the transient one,
+   *    and it is ALSO the collapsed one: `TriggerEvalService.generatePrompts`
+   *    returns `null` — and the caller reports this single token — for "no lane
+   *    in this host", "the lane failed" and "the reply was unparseable" alike.
+   *    The first is permanent and the other two are not, so the two candidate
+   *    mappings are `skipped` (wrong for a transient lane outage: it would
+   *    permanently drop a measurable candidate) and `unscored` (wrong for a host
+   *    with no lane: it costs one skipped `listEligible` match a week and no
+   *    tokens). `unscored` is chosen because its failure mode is bounded and the
+   *    other's is not. Splitting the token is the real fix and it belongs in the
+   *    gate — a lane failure is not surfaced from there at all today, so this
+   *    handler cannot answer `lane-failed` either.
+   *  - `evaluated` with an `unmeasuredReason` → `unscored`. The retrieval ran
+   *    and all three numbers came back `null`; all three causes (a one-sided
+   *    prompt set, an embedder that returned the wrong vector count) are bad
+   *    samples that a re-run can fix.
+   *  - `evaluated` with no `unmeasuredReason` → `done`. A number was measured
+   *    and persisted.
+   */
+  private async runTriggerEvalStage(
+    ctx: SkillStageContext,
+  ): Promise<SkillStageResult> {
+    const gate = this.triggerEval;
+    if (!gate) {
+      return { outcome: 'skipped', reason: 'no trigger eval in this host' };
+    }
+    const candidate = this.gateTarget(ctx.row);
+    if (!candidate) {
+      return { outcome: 'skipped', reason: 'trigger-eval-no-candidate' };
+    }
+
+    const settings = this.readSettings();
+    const outcome = await this.withClaimHeartbeat(ctx, (signal) =>
+      gate.evaluate(candidate, settings, signal),
+    );
+
+    if (outcome.status === 'skipped') {
+      return outcome.reason === TRIGGER_EVAL_SKIP_REASONS.noPrompts
+        ? { outcome: 'unscored', reason: outcome.reason }
+        : { outcome: 'skipped', reason: outcome.reason };
+    }
+    const { unmeasuredReason } = outcome.report;
+    if (unmeasuredReason !== null) {
+      return { outcome: 'unscored', reason: unmeasuredReason };
+    }
+    return {
+      outcome: 'done',
+      reason: TRIGGER_EVAL_MEASURED_REASON,
+      candidateId: candidate.id as unknown as string,
+    };
+  }
+
+  /**
+   * The drafted skill body a gate is shown, with its frontmatter stripped.
+   *
+   * Falls back to a minimal document built from the row when the file is gone:
+   * a gate handed an empty body would score the ABSENCE of a document, and a
+   * zero that means "the file was missing" is indistinguishable downstream from
+   * one that means "this skill is bad".
+   */
+  private candidateBody(candidate: SkillCandidateRow): string {
+    return (
+      readCandidateBodyFile(candidate, this.logger) ??
+      `# ${candidate.name}\n\n${candidate.description}\n`
+    );
   }
 
   /**
@@ -1068,18 +1521,14 @@ export class SkillSynthesisService {
     let processed = 0;
     for (const c of candidates) {
       try {
-        let text: string;
-        try {
-          if (c.bodyPath && fs.existsSync(c.bodyPath)) {
-            const raw = fs.readFileSync(c.bodyPath, 'utf8');
-            const body = raw.replace(/^---[\s\S]*?---\s*/, '').trim();
-            text = `${c.description}\n\n${body}`;
-          } else {
-            text = `${c.name}\n\n${c.description}`;
-          }
-        } catch {
-          text = `${c.name}\n\n${c.description}`;
-        }
+        const body = readCandidateBodyFile(c, this.logger);
+        // The fallback stays the ROW's own text rather than the shared
+        // stand-in: this string is embedded, and folding `description` in
+        // twice would move the vector for every candidate with no file.
+        const text =
+          body === null
+            ? `${c.name}\n\n${c.description}`
+            : `${c.description}\n\n${body}`;
         const [vec] = await this.embedder.embed([text]);
         if (vec) {
           this.store.setEmbedding(c.id, vec);
@@ -1519,4 +1968,38 @@ export class SkillSynthesisService {
       '',
     ].join('\n');
   }
+}
+
+/**
+ * A candidate's `SKILL.md` body with its YAML frontmatter stripped, or `null`
+ * when there is no readable file.
+ *
+ * `null` rather than a stand-in string BECAUSE THE CALLERS DISAGREE about what
+ * a missing file should become: the embedding backfill folds the row's own
+ * `name`/`description` into the vector text, while a gate needs a minimal
+ * document to score. Baking one of those in would silently change the other —
+ * the backfill would embed `description` twice and every vector for a
+ * file-less candidate would move.
+ *
+ * `skill-promotion.service.ts` and `skill-curator.service.ts` each carry their
+ * own copy of this reader. They are not folded in here because those files
+ * belong to other batches; extracting a shared `candidate-body.ts` for all
+ * three is filed as its own cleanup.
+ */
+function readCandidateBodyFile(
+  candidate: SkillCandidateRow,
+  logger: Logger,
+): string | null {
+  try {
+    if (candidate.bodyPath && fs.existsSync(candidate.bodyPath)) {
+      const raw = fs.readFileSync(candidate.bodyPath, 'utf8');
+      return raw.replace(/^---[\s\S]*?---\s*/, '').trim();
+    }
+  } catch (error: unknown) {
+    logger.debug('[skill-synthesis] could not read candidate body', {
+      bodyPath: candidate.bodyPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return null;
 }

@@ -60,6 +60,24 @@ interface CandidateCriterion {
 }
 
 /**
+ * One empirical gate's measurement (P3-1).
+ *
+ * `measured` is carried alongside `value` rather than being inferred from the
+ * text, because that flag is the whole point: a gate that never ran and a gate
+ * that ran and scored zero are DIFFERENT facts, and only the first may render
+ * without a number. This is the same treatment `CandidateJudge.scoreText`
+ * gives an unscored verdict — an unmeasured gate never shows a digit.
+ */
+interface CandidateGate {
+  readonly key: 'replay' | 'trigger';
+  readonly label: string;
+  readonly measured: boolean;
+  /** The number, or {@link NOT_MEASURED} — never `'0'` for an absent gate. */
+  readonly value: string;
+  readonly title: string;
+}
+
+/**
  * The judge's verdict, or `null` when no verdict has ever been recorded.
  *
  * `scoreText` is `null` — not `'0'` — whenever the candidate was not scored.
@@ -86,6 +104,7 @@ interface CandidateRow {
   readonly dotClass: string;
   readonly metrics: readonly CandidateMetric[];
   readonly judge: CandidateJudge | null;
+  readonly gates: readonly CandidateGate[];
 }
 
 const STATUS_TONE: Record<CandidateStatus, NativeCardTone> = {
@@ -120,6 +139,20 @@ const CRITERION_LABELS: ReadonlyArray<{
 
 /** What a candidate with no title yet is called. */
 const UNTITLED_PREFIX = 'Captured workflow';
+
+/**
+ * What an unmeasured gate says. Words, deliberately, and never a digit: `0`,
+ * `0.0` and `—` all read as a measurement, and the state being described is the
+ * absence of one.
+ */
+const NOT_MEASURED = 'not measured';
+
+const GATE_TITLES = {
+  replay:
+    'Plan-vs-actual alignment when the skill was replayed against a held-out session.',
+  trigger:
+    "Retrieval score for the skill's description alone, from precision and recall.",
+} as const;
 
 @Component({
   selector: 'ptah-skill-candidates-table',
@@ -258,6 +291,41 @@ const UNTITLED_PREFIX = 'Captured workflow';
                   </div>
                 }
 
+                <dl
+                  class="flex flex-wrap gap-x-5 gap-y-1 text-xs"
+                  data-testid="skills-candidate-gates"
+                >
+                  @for (gate of row.gates; track gate.key) {
+                    <div
+                      class="flex items-baseline gap-1.5"
+                      data-testid="skills-candidate-gate"
+                      [attr.data-gate]="gate.key"
+                    >
+                      <dt
+                        class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                        [title]="gate.title"
+                      >
+                        {{ gate.label }}
+                      </dt>
+                      @if (gate.measured) {
+                        <dd
+                          class="tabular-nums"
+                          data-testid="skills-candidate-gate-value"
+                        >
+                          {{ gate.value }}
+                        </dd>
+                      } @else {
+                        <dd
+                          class="text-base-content-muted"
+                          data-testid="skills-candidate-gate-unmeasured"
+                        >
+                          {{ gate.value }}
+                        </dd>
+                      }
+                    </div>
+                  }
+                </dl>
+
                 @if (row.metrics.length === 0) {
                   <p
                     class="text-xs text-base-content-muted"
@@ -394,6 +462,7 @@ export class SkillCandidatesTableComponent {
       dotClass: STATUS_DOT[candidate.status],
       metrics: buildMetrics(candidate),
       judge: buildJudge(candidate),
+      gates: buildGates(candidate),
     })),
   );
 
@@ -479,6 +548,58 @@ function buildCriteria(
     const value = criteria[key];
     return { key, label, value: value == null ? '—' : String(value) };
   });
+}
+
+/**
+ * The two empirical gates (P3-1), always both, in a fixed order.
+ *
+ * Rendered even when unmeasured — unlike the run counters, which vanish when
+ * they are zero. The cases are not the same: a missing counter is read as "this
+ * has not run", which is what the sentence beside it already says, whereas a
+ * missing gate row would be read as "this candidate has no such gate". Saying
+ * `not measured` states the fact instead of leaving the reader to infer it.
+ */
+function buildGates(
+  candidate: SkillSynthesisCandidateSummary,
+): readonly CandidateGate[] {
+  return [
+    gate('replay', 'Replay', candidate.replayConfidence),
+    gate('trigger', 'Trigger', candidate.triggerScore),
+  ];
+}
+
+/**
+ * One gate row.
+ *
+ * `value == null` yields {@link NOT_MEASURED} and `measured: false`; every
+ * other number — INCLUDING `0` — yields the number itself. Nothing on this path
+ * defaults, coalesces, or falsy-checks the score, because `0` is falsy and a
+ * `||` here would silently retitle a measured failure as an absent
+ * measurement. That is the defect this phase exists to keep out of the UI.
+ *
+ * A non-finite number (`NaN` from a corrupted host) is not a measurement
+ * either, and is treated as absent rather than printed.
+ */
+function gate(
+  key: CandidateGate['key'],
+  label: string,
+  value: number | null | undefined,
+): CandidateGate {
+  const title = GATE_TITLES[key];
+  if (value == null || !Number.isFinite(value)) {
+    return { key, label, measured: false, value: NOT_MEASURED, title };
+  }
+  return { key, label, measured: true, value: formatGateValue(value), title };
+}
+
+/**
+ * Two decimal places at most, and no trailing zeros: a measured `0` prints as
+ * `0` and never as `0.00`, which would imply a precision the gate did not
+ * claim. The scale is left alone — no percentage, no ` / 1` — because the
+ * trigger score's range is the trigger-eval stage's to define.
+ */
+function formatGateValue(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 /**

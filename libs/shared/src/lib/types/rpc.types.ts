@@ -1982,6 +1982,45 @@ export interface SkillJudgeCriteriaDto {
   triggerClarity: number | null;
 }
 
+/**
+ * Who produced one entry in a judge PANEL, on the wire (TASK_2026_180, Phase 3).
+ *
+ * Structural mirror of `JudgePanelRole` in `skill-synthesis/src/lib/types.ts`,
+ * restated here for the same reason `SkillJudgeStatusDto` is: `libs/shared` is
+ * the foundation layer and may not import a backend lib.
+ *
+ * Three roles, not two: the escalation is a THIRD opinion taken when the two
+ * panellists disagreed, not an edit of either one's. Folding it into a
+ * panellist role would erase the fact that a disagreement happened, which is
+ * the only reason the third call was ever paid for.
+ */
+export type SkillJudgePanelRoleDto =
+  | 'panellist-a'
+  | 'panellist-b'
+  | 'escalation';
+
+/**
+ * One panellist's answer, as the wire carries it.
+ *
+ * A panel entry is a VERDICT, and it carries the same `status`/`score`
+ * contract `SkillSynthesisCandidateSummary.judgeScore` does: only `'scored'`
+ * may carry a number, and every other status carries `score: null`. Letting
+ * `{ status: 'unscored', score: 10 }` reach a renderer would be the fabricated
+ * verdict Phase 1 removed, one field to the left.
+ */
+export interface SkillJudgePanelRationaleDto {
+  role: SkillJudgePanelRoleDto;
+  status: SkillJudgeStatusDto;
+  /** Populated ONLY on `status: 'scored'`. Never `0` as a stand-in for absent. */
+  score: number | null;
+  /** `null` = this panellist produced no per-criterion breakdown. */
+  criteria: SkillJudgeCriteriaDto | null;
+  /** A judge reason, or a lane failure's own user-facing reason. */
+  reason: string;
+  /** The rendering the escalation prompt actually read, as stored. */
+  summary: string;
+}
+
 export interface SkillSynthesisCandidateSummary {
   id: string;
   /**
@@ -2018,6 +2057,37 @@ export interface SkillSynthesisCandidateSummary {
   judgeReason: string | null;
   /** `null` = the judge produced no per-criterion breakdown. */
   judgeCriteria: SkillJudgeCriteriaDto | null;
+  // ── Empirical gates (TASK_2026_180, Phase 3) ──────────────────────────────
+  // Every number below repeats the `judgeScore` rule, for the same reason and
+  // with the same consequence for getting it wrong: `null` is NOT zero.
+  /**
+   * Plan-vs-actual replay alignment, 0–1.
+   *
+   * `null` = the replay NEVER RAN — no hold-out session existed, the gate was
+   * off, or the replay produced no trustworthy number. A genuine `0` means the
+   * replay ran and the skill aligned with nothing, which is real evidence
+   * AGAINST promotion. A reader that coalesces `null` to `0` turns "we never
+   * measured this" into "we measured it and it failed" — exactly the
+   * fabricated verdict Phase 1 removed, and it also makes an unmeasured
+   * candidate look ineligible for the retry it is still owed.
+   */
+  replayConfidence: number | null;
+  /**
+   * Description-only trigger-retrieval score, derived from precision + recall.
+   *
+   * `null` = the trigger eval never ran. A genuine `0` means the description
+   * retrieved nothing. Same rule as {@link replayConfidence}: never coalesce.
+   */
+  triggerScore: number | null;
+  /**
+   * The panel's per-role rationales, parsed off the stored JSON.
+   *
+   * `null` = no readable panel — either none was ever convened, or the stored
+   * record failed to parse or to satisfy the `status`/`score` contract. Never
+   * `[]`: the store refuses to write a panel with no members, so an empty list
+   * would describe a deliberation nobody held.
+   */
+  judgePanelRationales: SkillJudgePanelRationaleDto[] | null;
 }
 
 export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {

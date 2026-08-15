@@ -509,6 +509,9 @@ describe('SkillSynthesisTabComponent', () => {
         judgeStatus: null,
         judgeReason: null,
         judgeCriteria: null,
+        replayConfidence: null,
+        triggerScore: null,
+        judgePanelRationales: null,
       },
     ]);
     const diag = makeDiagnosticsStub();

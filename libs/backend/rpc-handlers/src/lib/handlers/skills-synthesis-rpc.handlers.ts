@@ -73,6 +73,9 @@ import type {
   SkillSetLanesParams,
   SkillSetLanesResult,
   SkillJudgeCriteriaDto,
+  SkillJudgePanelRationaleDto,
+  SkillJudgePanelRoleDto,
+  SkillJudgeStatusDto,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
   SkillSynthesisGetCandidateParams,
@@ -1854,6 +1857,141 @@ function toJudgeCriteria(
   };
 }
 
+/**
+ * The wire restatement of the two panel vocabularies. `SkillCandidateStore`
+ * remains the enforcing gate on the write edge; these arrays exist because the
+ * READ edge parses a JSON blob and cannot import the backend constants without
+ * dragging them across the projection boundary.
+ */
+const PANEL_ROLE_VALUES: readonly SkillJudgePanelRoleDto[] = [
+  'panellist-a',
+  'panellist-b',
+  'escalation',
+];
+const PANEL_STATUS_VALUES: readonly SkillJudgeStatusDto[] = [
+  'scored',
+  'unscored',
+  'disabled',
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A panel entry's scorecard, read out of untyped JSON.
+ *
+ * Each criterion is taken only when it is a finite number; anything else reads
+ * as "not scored" (`null`) rather than being coerced. An all-null card
+ * collapses to `null` through {@link toJudgeCriteria}, so a panellist who
+ * produced no breakdown renders as no scorecard instead of five blanks.
+ */
+function toPanelCriteria(value: unknown): SkillJudgeCriteriaDto | null {
+  if (!isRecord(value)) return null;
+  const read = (key: keyof JudgeCriterionScores): number | null => {
+    const raw = value[key];
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+  };
+  return toJudgeCriteria({
+    novelty: read('novelty'),
+    actionability: read('actionability'),
+    scope: read('scope'),
+    generalization: read('generalization'),
+    triggerClarity: read('triggerClarity'),
+  });
+}
+
+/**
+ * One panel entry, validated against the SAME `status`/`score` contract
+ * `SkillCandidateStore.recordJudgePanel` enforces on the way in.
+ *
+ * Re-checked here rather than trusted because the column is free JSON text: a
+ * row written by an older build, hand-edited, or half-flushed can hold
+ * `{status:'unscored', score:10}`, and forwarding that would put the exact
+ * fabricated verdict Phase 1 removed back on the wire. `null` means "this
+ * entry is not a verdict I can vouch for".
+ */
+function toPanelRationale(entry: unknown): SkillJudgePanelRationaleDto | null {
+  if (!isRecord(entry)) return null;
+
+  const role = entry['role'];
+  const status = entry['status'];
+  if (!PANEL_ROLE_VALUES.includes(role as SkillJudgePanelRoleDto)) return null;
+  if (!PANEL_STATUS_VALUES.includes(status as SkillJudgeStatusDto)) return null;
+
+  const rawScore = entry['score'];
+  let score: number | null;
+  if (status === 'scored') {
+    if (typeof rawScore !== 'number' || !Number.isFinite(rawScore)) return null;
+    score = rawScore;
+  } else {
+    // A non-`scored` entry carrying a number is precisely the fabricated score.
+    // Drop the entry rather than silently blanking the number: a record that
+    // contradicts itself is not one to repair.
+    if (rawScore !== null && rawScore !== undefined) return null;
+    score = null;
+  }
+
+  const reason = entry['reason'];
+  const summary = entry['summary'];
+  if (typeof reason !== 'string' || typeof summary !== 'string') return null;
+
+  const criteria = entry['criteria'];
+  return {
+    role: role as SkillJudgePanelRoleDto,
+    status: status as SkillJudgeStatusDto,
+    score,
+    criteria: toPanelCriteria(criteria),
+    reason,
+    summary,
+  };
+}
+
+/**
+ * Parse `judge_panel_rationales` (stored as JSON TEXT) into wire DTOs.
+ *
+ * Three things this deliberately does NOT do:
+ *
+ * 1. It never ships the raw JSON string. A string on the wire would make every
+ *    consumer write its own parser, and the TUI's would differ from the
+ *    webview's.
+ * 2. It never yields `[]`. `recordJudgePanel` refuses to write a panel with no
+ *    members ("a panel that produced nothing must write nothing"), so an empty
+ *    list is not a state the column can honestly hold; an empty array read back
+ *    is corruption, and corruption reads as `null`.
+ * 3. It never returns a PARTIAL panel. One panel run is one deliberation — the
+ *    store replaces the whole list precisely so entries from different runs
+ *    cannot sit together. Dropping one unreadable entry and forwarding the rest
+ *    would present a two-member panel where three deliberated, which reads as a
+ *    panel that never disagreed. Any bad entry voids the whole record.
+ *
+ * The cost is that "unreadable" and "never convened" both arrive as `null`.
+ * Separating them needs a fourth summary field this phase does not carry, and a
+ * `[]`-as-unreadable convention would be read as "a panel with no members" by
+ * the first consumer that checks `.length`. `null` is the honest collapse.
+ */
+function toPanelRationales(
+  raw: string | null | undefined,
+): SkillJudgePanelRationaleDto[] | null {
+  if (!raw) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+  const out: SkillJudgePanelRationaleDto[] = [];
+  for (const entry of parsed) {
+    const rationale = toPanelRationale(entry);
+    if (!rationale) return null;
+    out.push(rationale);
+  }
+  return out;
+}
+
 function toSummary(row: SkillCandidateRow): SkillSynthesisCandidateSummary {
   return {
     id: row.id as string,
@@ -1876,6 +2014,15 @@ function toSummary(row: SkillCandidateRow): SkillSynthesisCandidateSummary {
     judgeStatus: row.judgeStatus ?? null,
     judgeReason: row.judgeReason ?? null,
     judgeCriteria: toJudgeCriteria(row.judgeCriteria),
+    // `?? null` for the same reason as `judgeScore`, and NOT `?? 0`. These two
+    // gates each measure something a skill can genuinely score zero on — a
+    // replay that aligned with nothing, a description that retrieved nothing —
+    // so a zero here is evidence, and `null` is the absence of evidence. A
+    // candidate the gates never reached is still owed a retry; one they scored
+    // zero is not. Collapsing them would make those two candidates identical.
+    replayConfidence: row.replayConfidence ?? null,
+    triggerScore: row.triggerScore ?? null,
+    judgePanelRationales: toPanelRationales(row.judgePanelRationales),
   };
 }
 

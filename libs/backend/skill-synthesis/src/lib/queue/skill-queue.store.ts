@@ -90,6 +90,28 @@ const INSERT_SQL = `INSERT INTO skill_synthesis_queue
  *  - `turn_count < ?` — the session must have GROWN. This is the durable
  *    successor to the `analyzedSessions` Map comparison.
  *  - `attempt_count = 0` — a re-opened row gets a fresh retry budget.
+ *
+ * ## `payload` is deliberately NOT cleared here
+ *
+ * It looks like it should be: a re-opened row re-runs its stage from scratch,
+ * so carrying the previous pass's `verdictFallback` forward is a stale record.
+ * Clearing the COLUMN is nonetheless the wrong fix, because this statement does
+ * not re-write it either — `payload` also carries the PRODUCER'S INPUTS (which
+ * candidate a `judge-panel` or `trigger-eval` row is grading), and a re-opened
+ * row wiped to `{}` would be dispatched to a handler with nothing to work on.
+ * That trades a stale field for a dead row.
+ *
+ * Selectively dropping one key in SQL (`json_remove(payload, '$.verdictFallback')`)
+ * was considered and rejected: it would hard-code one gate's output key into the
+ * store, which would then have to be edited every time a stage learned a new
+ * one.
+ *
+ * So the rule is OWNERSHIP, enforced by {@link SkillQueueStore.mergePayload}
+ * rather than by this statement. Each writer refreshes its own keys: the replay
+ * handler writes `verdictFallback` on EVERY path it can return through, so a
+ * finished row never shows a previous pass's flag, and a producer re-points a
+ * re-opened row at the candidate the current pass produced. `candidate_id` is
+ * preserved here for the same reason and has been since day one.
  */
 const REOPEN_SQL = `UPDATE skill_synthesis_queue
       SET status = 'queued', turn_count = ?, attempt_count = 0,
@@ -328,6 +350,59 @@ export class SkillQueueStore {
           .run(notBefore, reason, id).changes,
       );
       return changes > 0;
+    });
+  }
+
+  /**
+   * Shallow-merge `patch` over the row's stored `payload`. The patch wins per
+   * key; every key it does not name survives.
+   *
+   * ## Why this exists at all
+   *
+   * `INSERT_SQL` was the ONLY writer of this column, and `REOPEN_SQL` does not
+   * touch it. So a stage that learns something WHILE it runs — the replay gate
+   * measuring on fallback evidence, a producer re-pointing a re-opened row at
+   * the candidate this pass produced — had nowhere to put it.
+   *
+   * ## Merge, never overwrite, never append
+   *
+   * `payload` carries a producer's INPUTS (which candidate to grade) beside a
+   * stage's OUTPUTS (`verdictFallback`). Blind-overwriting the column from a
+   * handler would delete the inputs the handler was dispatched with; appending
+   * would grow the column without bound on a row that re-opens every time its
+   * session grows. A shallow merge is the only shape where both owners can
+   * write their own keys and neither can destroy the other's.
+   *
+   * ## It runs inside `inImmediateTransaction`, and that is not decoration
+   *
+   * This is a read-modify-write, which is exactly the case that helper exists
+   * for — the same reason `enqueue` and `tryClaim` take it. Two hosts draining
+   * the shared `~/.ptah/state/ptah.sqlite` at the same instant is a real
+   * configuration (a VS Code window and the Electron app), and a DEFERRED read
+   * followed by a late write would let the second host's UPDATE land on a
+   * payload it never read — silently dropping the first host's key rather than
+   * merging it. Taking the write lock up front makes the read and the write one
+   * atomic step.
+   *
+   * An unparseable stored payload degrades through `parsePayload`, which
+   * already warns and yields `{}`. Re-parsing here with its own `try` would be
+   * a second definition of "what a bad payload means", and the two would drift
+   * the first time either changed.
+   *
+   * A row that does not exist is a silent no-op, matching every other guarded
+   * UPDATE in this store: the caller has lost the row, and inventing one would
+   * be worse than writing nothing.
+   */
+  mergePayload(id: string, patch: Record<string, unknown>): void {
+    this.inImmediateTransaction<void>(() => {
+      const raw = this.db
+        .prepare(`SELECT payload FROM skill_synthesis_queue WHERE id = ?`)
+        .get(id) as { payload: string } | undefined;
+      if (!raw) return;
+      const merged = { ...this.parsePayload(raw.payload), ...patch };
+      this.db
+        .prepare(`UPDATE skill_synthesis_queue SET payload = ? WHERE id = ?`)
+        .run(JSON.stringify(merged), id);
     });
   }
 

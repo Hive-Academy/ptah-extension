@@ -26,6 +26,9 @@ function candidate(
     judgeStatus: null,
     judgeReason: null,
     judgeCriteria: null,
+    replayConfidence: null,
+    triggerScore: null,
+    judgePanelRationales: null,
     ...overrides,
   };
 }
@@ -476,6 +479,143 @@ describe('SkillCandidatesTableComponent', () => {
       expect(
         el.querySelector('[data-testid="skills-candidate-scorecard"]'),
       ).toBeNull();
+    });
+  });
+
+  // ── P3-1: the empirical gates, and the null-vs-zero distinction ───────────
+
+  describe('empirical gates (P3-1)', () => {
+    function gateText(el: HTMLElement, key: 'replay' | 'trigger'): string {
+      const node = el.querySelector(
+        `[data-testid="skills-candidate-gate"][data-gate="${key}"]`,
+      );
+      return node?.querySelector('dd')?.textContent?.trim() ?? '';
+    }
+
+    it('renders both gates for every candidate', () => {
+      const { el } = render({ candidates: [candidate()] });
+
+      const gates = Array.from(
+        el.querySelectorAll('[data-testid="skills-candidate-gate"]'),
+      ).map((n) => n.getAttribute('data-gate'));
+      expect(gates).toEqual(['replay', 'trigger']);
+    });
+
+    it('renders the measured replay confidence', () => {
+      const { el } = render({
+        candidates: [candidate({ replayConfidence: 0.82 })],
+      });
+
+      expect(gateText(el, 'replay')).toBe('0.82');
+    });
+
+    it('renders the measured trigger score', () => {
+      const { el } = render({ candidates: [candidate({ triggerScore: 7.5 })] });
+
+      expect(gateText(el, 'trigger')).toBe('7.5');
+    });
+
+    // THE test of this task. A gate that never ran and a gate that ran and
+    // scored zero are different facts, and the UI is where the difference has
+    // to survive: an unmeasured gate rendered as `0` is a fabricated verdict.
+    it('renders "not measured" for a null gate and a digit for a measured 0 — and the two differ', () => {
+      const unmeasured = render({
+        candidates: [candidate({ replayConfidence: null, triggerScore: null })],
+      });
+      const measuredZero = render({
+        candidates: [candidate({ replayConfidence: 0, triggerScore: 0 })],
+      });
+
+      const unmeasuredReplay = gateText(unmeasured.el, 'replay');
+      const unmeasuredTrigger = gateText(unmeasured.el, 'trigger');
+      const zeroReplay = gateText(measuredZero.el, 'replay');
+      const zeroTrigger = gateText(measuredZero.el, 'trigger');
+
+      expect(unmeasuredReplay).toBe('not measured');
+      expect(unmeasuredTrigger).toBe('not measured');
+      expect(zeroReplay).toBe('0');
+      expect(zeroTrigger).toBe('0');
+
+      // The acceptance criterion, stated as an assertion rather than implied by
+      // the two literals above: these renderings must not collide.
+      expect(unmeasuredReplay).not.toBe(zeroReplay);
+      expect(unmeasuredTrigger).not.toBe(zeroTrigger);
+    });
+
+    it('never prints a digit anywhere in the gate block of an unmeasured candidate', () => {
+      const { el } = render({
+        candidates: [candidate({ replayConfidence: null, triggerScore: null })],
+      });
+
+      const gates = el.querySelector('[data-testid="skills-candidate-gates"]');
+      expect(gates?.textContent ?? '').not.toMatch(/\d/);
+    });
+
+    it('marks an unmeasured gate with a different testid than a measured one', () => {
+      const { el: nullEl } = render({
+        candidates: [candidate({ replayConfidence: null })],
+      });
+      const { el: zeroEl } = render({
+        candidates: [candidate({ replayConfidence: 0 })],
+      });
+
+      const unmeasuredNode = nullEl.querySelector(
+        '[data-gate="replay"] [data-testid="skills-candidate-gate-unmeasured"]',
+      );
+      expect(unmeasuredNode).not.toBeNull();
+      expect(
+        nullEl.querySelector(
+          '[data-gate="replay"] [data-testid="skills-candidate-gate-value"]',
+        ),
+      ).toBeNull();
+
+      expect(
+        zeroEl.querySelector(
+          '[data-gate="replay"] [data-testid="skills-candidate-gate-value"]',
+        ),
+      ).not.toBeNull();
+      expect(
+        zeroEl.querySelector(
+          '[data-gate="replay"] [data-testid="skills-candidate-gate-unmeasured"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('renders one gate measured and the other not, independently', () => {
+      const { el } = render({
+        candidates: [candidate({ replayConfidence: 0.5, triggerScore: null })],
+      });
+
+      expect(gateText(el, 'replay')).toBe('0.5');
+      expect(gateText(el, 'trigger')).toBe('not measured');
+    });
+
+    it('rounds a long measurement to two places without inventing precision', () => {
+      const { el } = render({
+        candidates: [candidate({ replayConfidence: 0.816666666 })],
+      });
+
+      expect(gateText(el, 'replay')).toBe('0.82');
+    });
+
+    it('treats a non-finite gate value as unmeasured rather than printing NaN', () => {
+      const { el } = render({
+        candidates: [candidate({ replayConfidence: Number.NaN })],
+      });
+
+      expect(gateText(el, 'replay')).toBe('not measured');
+    });
+
+    it('treats a host that predates the gate fields as unmeasured', () => {
+      const legacy = candidate();
+      delete (legacy as Partial<SkillSynthesisCandidateSummary>)
+        .replayConfidence;
+      delete (legacy as Partial<SkillSynthesisCandidateSummary>).triggerScore;
+
+      const { el } = render({ candidates: [legacy] });
+
+      expect(gateText(el, 'replay')).toBe('not measured');
+      expect(gateText(el, 'trigger')).toBe('not measured');
     });
   });
 
