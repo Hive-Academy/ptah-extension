@@ -105,8 +105,8 @@ Nx also reported `@ptah-extension/shared:build` and `@ptah-extension/agent-sdk:b
 
 ## Resolution — F1, F2, F5 (2026-08-16)
 
-Findings 1, 2 and 5 are fixed. **3, 4 and 6 are untouched** and are why this
-task is still `in_progress`.
+Findings 1, 2 and 5 are fixed here. 3, 4 and 6 needed no code in this repo —
+see the disposition section below.
 
 ### The code layer was wider than the report
 
