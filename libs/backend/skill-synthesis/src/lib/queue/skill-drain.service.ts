@@ -37,9 +37,10 @@
  * budget. Inside the tick the check runs again PER ITEM, because a lane can
  * exhaust the budget halfway through: once it is exhausted, token-spending
  * stages are left untouched (still `queued`, eligible next tick) while the free
- * stages — prefilter, embedding, clustering, trigger-eval — keep draining. From
- * 80 % of the budget onward the eligible window is ordered cheap-stages-first,
- * so the last of the budget buys the most work.
+ * stages — prefilter, embedding, clustering — keep draining. Those three are the
+ * WHOLE free list; `trigger-eval` used to be read as a fourth and is not (see
+ * `TOKEN_SPENDING_STAGES`). From 80 % of the budget onward the eligible window
+ * is ordered cheap-stages-first, so the last of the budget buys the most work.
  *
  * The drain is also where a spend LEARNS ITS STAGE: `runItem` dispatches the
  * handler inside `SkillBudgetStore.withStage(row.stage, …)`, so the ledger write
@@ -461,10 +462,37 @@ export const DRAIN_TIER_LIMITS: Record<
 };
 
 /**
- * Stages that consume the token budget. The complement — prefilter, embedding,
- * clustering, trigger-eval — is pure local computation (regex prefilter, the
- * local embedder, cosine math) and therefore keeps running after the budget is
- * gone.
+ * Stages that consume the token budget, and therefore stop when it is gone.
+ *
+ * ## The complement is exactly THREE stages, and the list is the reason
+ *
+ * `prefilter` is a regex pass, `embedding` runs the local `IEmbedder`, and
+ * `clustering` is cosine arithmetic over vectors those two already produced.
+ * None of the three can reach an endpoint, so none of them can be gated by a
+ * token budget and all three keep draining after the budget is gone.
+ *
+ * ## `trigger-eval` is NOT a fourth, and reading it as one was the defect
+ *
+ * The gate's SCORING path is genuinely local — that is its defining property and
+ * its header says so at length. But scoring needs a probe set, and the probe set
+ * is generated per evaluation by a model: `TriggerEvalService.generatePrompts`
+ * calls `laneRunner.run(...)` (`gates/trigger-eval.service.ts`, the single
+ * `this.laneRunner.run(` call site its own spec pins). One LLM call per row is
+ * not zero, so the stage belongs here.
+ *
+ * Leaving it out did not merely miscount a report. `LaneRunnerService` records
+ * the spend into `SkillBudgetStore` either way, so the tokens always landed in
+ * the ledger — they were counted AFTER the fact and never gated BEFORE it. The
+ * per-item check below kept dispatching `trigger-eval` rows past
+ * `maxTokensPerDay`, which made the daily ceiling not a ceiling, and
+ * {@link STAGE_COST_RANK} ranked the stage below `judge` so the tail of the
+ * budget actively PREFERRED a spending stage believed to be free. `trigger-eval`
+ * is roughly half of all weekly rows (it and `judge-panel` are the only weekly
+ * stages with producers), so the exposure was not marginal.
+ *
+ * The behaviour change is the point: a host that is over budget now stops
+ * running `trigger-eval` rows entirely, exactly as it stops running `judge`.
+ * They stay `queued` and are eligible again next tick.
  */
 const TOKEN_SPENDING_STAGES: ReadonlySet<SkillQueueStage> =
   new Set<SkillQueueStage>([
@@ -472,18 +500,25 @@ const TOKEN_SPENDING_STAGES: ReadonlySet<SkillQueueStage> =
     'cluster-synthesis',
     'judge',
     'judge-panel',
+    'trigger-eval',
     'replay',
     'archaeology',
     'digest',
   ]);
 
-/** Relative cost, cheapest first. Only the ORDER matters, not the values. */
+/**
+ * Relative cost, cheapest first. Only the ORDER matters, not the values.
+ *
+ * `trigger-eval` sits between `judge` and `digest`: one lane call plus local
+ * embedder arithmetic is dearer than a single bare judge call, and cheaper than
+ * `judge-panel`'s two calls plus a possible escalation.
+ */
 const STAGE_COST_RANK: Record<SkillQueueStage, number> = {
   prefilter: 0,
   embedding: 1,
   clustering: 2,
-  'trigger-eval': 3,
-  judge: 4,
+  judge: 3,
+  'trigger-eval': 4,
   digest: 5,
   synthesis: 6,
   'cluster-synthesis': 7,

@@ -305,6 +305,10 @@ export {
   TRIGGER_EVAL_TOP_K,
   TRIGGER_EVAL_MIN_SIMILARITY,
   TRIGGER_EVAL_SKIP_REASONS,
+  // Exported WITH the tokens it classifies. The three prompt-generation reasons
+  // are only worth splitting if a consumer can tell the permanent one from the
+  // retryable two, and every consumer must answer that the same way.
+  RETRYABLE_TRIGGER_EVAL_SKIP_REASONS,
   TRIGGER_EVAL_UNMEASURED_REASONS,
   measureRetrieval,
   f1,

@@ -40,6 +40,7 @@ import {
   TRIGGER_EVAL_ENABLED_KEY,
   TRIGGER_EVAL_MIN_SIMILARITY,
   TRIGGER_EVAL_SKIP_REASONS,
+  RETRYABLE_TRIGGER_EVAL_SKIP_REASONS,
   TRIGGER_EVAL_UNMEASURED_REASONS,
   f1,
   measureRetrieval,
@@ -159,24 +160,51 @@ function makeStore(
   };
 }
 
-function makeLane(prompts: TriggerPromptSet | null): {
+/**
+ * The four ways the generation pass ends without a prompt set. They are named
+ * separately here because the service now reports them separately — one of them
+ * is permanent in this host and three are not.
+ */
+type LaneOutage = 'unavailable' | 'failed' | 'throws' | 'unusable';
+
+function makeLane(spec: TriggerPromptSet | LaneOutage): {
   runner: LaneRunnerService;
   run: jest.Mock;
 } {
-  const run = jest.fn(async () =>
-    prompts === null
-      ? { status: 'unavailable' as const, reason: 'no lane here' }
-      : {
-          status: 'ok' as const,
-          run: {
-            json: {
-              shouldTrigger: [...prompts.shouldTrigger],
-              nearMiss: [...prompts.nearMiss],
-            },
-            text: '',
-          },
+  const run = jest.fn(async () => {
+    if (spec === 'throws') throw new Error('the lane exploded');
+    if (spec === 'unavailable') {
+      return { status: 'unavailable' as const, reason: 'no lane here' };
+    }
+    if (spec === 'failed') {
+      return {
+        status: 'failed' as const,
+        failure: {
+          kind: 'timeout' as const,
+          reason: 'the generation lane timed out',
+          retryAfterMs: 60_000,
         },
-  );
+      };
+    }
+    if (spec === 'unusable') {
+      // The endpoint answered. Nothing in the answer is a prompt set, which
+      // `readJson` reports as `undefined` and the schema then rejects.
+      return {
+        status: 'ok' as const,
+        run: { json: null, text: 'Sure! Here are some prompts:' },
+      };
+    }
+    return {
+      status: 'ok' as const,
+      run: {
+        json: {
+          shouldTrigger: [...spec.shouldTrigger],
+          nearMiss: [...spec.nearMiss],
+        },
+        text: '',
+      },
+    };
+  });
   return { run, runner: { run } as unknown as LaneRunnerService };
 }
 
@@ -195,7 +223,7 @@ const TARGET = {
 const EMBEDDED_TARGET = { ...TARGET, embeddingRowid: 42 };
 
 function makeService(opts: {
-  prompts: TriggerPromptSet | null;
+  prompts: TriggerPromptSet | LaneOutage;
   active?: SkillCandidateRow[];
   enabled?: boolean;
   embedder?: IEmbedder | null;
@@ -581,17 +609,65 @@ describe('the gate and the write rule', () => {
     expect(h.recordTriggerEval).not.toHaveBeenCalled();
   });
 
-  it('skips and writes NOTHING when no lane can generate the prompts', async () => {
-    const h = makeService({ prompts: null });
-    const outcome = await h.service.evaluate(TARGET, SETTINGS);
+  /**
+   * TASK_2026_253. The three `return`s out of `generatePrompts` used to be one
+   * `null` and therefore one token, which left the handler unable to tell a
+   * host that will NEVER run this gate from a host that merely did not this
+   * time. Each branch is driven through the real service — a table over the
+   * reason constants alone would only prove the map equals itself.
+   *
+   * The `writes NOTHING` half is unchanged and applies to all three: a host that
+   * could not produce prompts must not clear a previous good measurement.
+   */
+  it.each([
+    ['no lane in this host', 'unavailable', TRIGGER_EVAL_SKIP_REASONS.noLane],
+    [
+      'the lane returned a failure',
+      'failed',
+      TRIGGER_EVAL_SKIP_REASONS.laneFailed,
+    ],
+    ['the lane threw', 'throws', TRIGGER_EVAL_SKIP_REASONS.laneFailed],
+    [
+      'the reply was unusable',
+      'unusable',
+      TRIGGER_EVAL_SKIP_REASONS.unusableReply,
+    ],
+  ] as const)(
+    'skips with its own reason and writes NOTHING when %s',
+    async (_label, outage, reason) => {
+      const h = makeService({ prompts: outage });
+      const outcome = await h.service.evaluate(TARGET, SETTINGS);
 
-    expect(outcome).toEqual({
-      status: 'skipped',
-      reason: TRIGGER_EVAL_SKIP_REASONS.noPrompts,
-    });
-    expect(h.embed).not.toHaveBeenCalled();
-    // A host that cannot run the gate must not clear a previous measurement.
-    expect(h.recordTriggerEval).not.toHaveBeenCalled();
+      expect(outcome).toEqual({ status: 'skipped', reason });
+      expect(h.embed).not.toHaveBeenCalled();
+      expect(h.recordTriggerEval).not.toHaveBeenCalled();
+    },
+  );
+
+  it('separates the PERMANENT prompt skip from the retryable ones', () => {
+    // The whole reason the token was split. `noLane` is a property of this
+    // host, exactly like `noEmbedder`; the other two are a bad minute.
+    expect(
+      RETRYABLE_TRIGGER_EVAL_SKIP_REASONS.has(TRIGGER_EVAL_SKIP_REASONS.noLane),
+    ).toBe(false);
+    expect(
+      RETRYABLE_TRIGGER_EVAL_SKIP_REASONS.has(
+        TRIGGER_EVAL_SKIP_REASONS.laneFailed,
+      ),
+    ).toBe(true);
+    expect(
+      RETRYABLE_TRIGGER_EVAL_SKIP_REASONS.has(
+        TRIGGER_EVAL_SKIP_REASONS.unusableReply,
+      ),
+    ).toBe(true);
+    // Nothing decided BEFORE the generation pass is retryable either.
+    for (const reason of [
+      TRIGGER_EVAL_SKIP_REASONS.disabled,
+      TRIGGER_EVAL_SKIP_REASONS.noEmbedder,
+      TRIGGER_EVAL_SKIP_REASONS.noDescription,
+    ]) {
+      expect(RETRYABLE_TRIGGER_EVAL_SKIP_REASONS.has(reason)).toBe(false);
+    }
   });
 
   it('skips a candidate with no description at all', async () => {

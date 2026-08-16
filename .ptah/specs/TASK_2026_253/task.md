@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_253
-status: backlog
-type: bugfix
+status: done
+type: BUGFIX
 title: >-
   trigger-eval spends lane tokens that TOKEN_SPENDING_STAGES does not count,
   so the drain's budget gate under-reads weekly cost

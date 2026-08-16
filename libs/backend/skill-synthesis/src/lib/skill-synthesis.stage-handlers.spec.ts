@@ -751,9 +751,13 @@ describe('SkillSynthesisService — gate stage handlers (B3.5.1)', () => {
       [TRIGGER_EVAL_SKIP_REASONS.disabled, 'skippedItems'],
       [TRIGGER_EVAL_SKIP_REASONS.noEmbedder, 'skippedItems'],
       [TRIGGER_EVAL_SKIP_REASONS.noDescription, 'skippedItems'],
-      // The collapsed one: "no lane in this host" and "the lane failed" report
-      // the same token, so the bounded failure mode is chosen.
-      [TRIGGER_EVAL_SKIP_REASONS.noPrompts, 'unscored'],
+      // TASK_2026_253 split the old single prompt-generation token in three, so
+      // the mapping is now PERMANENT → skipped, RETRYABLE → unscored rather
+      // than one compromise covering both kinds. A host with no lane is done
+      // with this row; a host whose lane had a bad minute is not.
+      [TRIGGER_EVAL_SKIP_REASONS.noLane, 'skippedItems'],
+      [TRIGGER_EVAL_SKIP_REASONS.laneFailed, 'unscored'],
+      [TRIGGER_EVAL_SKIP_REASONS.unusableReply, 'unscored'],
     ])('%s maps to %s', async (reason, field) => {
       const queue = makeOneRowQueue(gateRow('trigger-eval'));
       const drain = makeDrainOver(queue);

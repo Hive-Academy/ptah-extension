@@ -85,6 +85,38 @@ Decide between "count it honestly" and "make it actually local" before editing.
 - `libs/backend/skill-synthesis/CLAUDE.md` — the drain-semantics bullet, which
   repeats the "pure local computation" claim and must be corrected with the fix.
 
+## Decision taken (2026-08-16)
+
+**"Count it honestly."** `trigger-eval` joins `TOKEN_SPENDING_STAGES`, and
+`STAGE_COST_RANK` moves it to sit between `judge` (one call) and `digest`, above
+`judge-panel` (two calls plus escalation). The consequence named above is
+accepted rather than worked around: a host over its daily budget now stops
+running `trigger-eval` rows entirely, and they stay `queued` for the next tick.
+
+**"Make it actually local" is DEFERRED, not rejected.** Caching a probe set per
+skill instead of generating one per evaluation would make the stage genuinely
+local and make the old set membership true. It is the more invasive fix, it
+changes what the gate measures over time, and no probe cache was built here. Do
+not re-derive it from the stage's documented intent — it was considered.
+
+The false premise was corrected everywhere it was written down, because that
+premise is the whole bug: the comment on `TOKEN_SPENDING_STAGES`, the drain
+service's R3 header, `skill-drain.budget.spec.ts`'s header, the
+`TriggerEvalService` header's "zero LLM cost" section, and two bullets in
+`libs/backend/skill-synthesis/CLAUDE.md`.
+
+## The skip-reason split, done in the same pass
+
+`TRIGGER_EVAL_SKIP_REASONS.noPrompts` is gone, replaced by three tokens —
+`noLane` (permanent in this host), `laneFailed` and `unusableReply` (both
+retryable). `generatePrompts` returns a small discriminated result instead of
+`TriggerPromptSet | null`, which is what carried the distinction to the call
+site. `RETRYABLE_TRIGGER_EVAL_SKIP_REASONS` is exported beside the tokens so the
+permanent/retryable question has one answer; `runTriggerEvalStage` reads it and
+now maps permanent → `skipped`, retryable → `unscored`, which is what its own
+docblock said the right answer was and could not express with one token. The
+gate still has no `lane-failed` channel — that is a separate widening.
+
 ## Provenance
 
 Found 2026-08-16 by TASK_2026_180 batch B4.6 while deriving the weekly tier's

@@ -7,13 +7,22 @@
  *    starts over budget.
  *  - The PER-ITEM check, pinned here, handles a budget exhausted *during* the
  *    tick. Token-spending stages are left untouched — still `queued`, eligible
- *    next tick — while prefilter / embedding / clustering / trigger-eval keep
- *    draining, because they cost nothing but local CPU. "Cheap stages continue
- *    after an expensive one exhausts the budget" is the requirement, and a
- *    single drain-level check cannot express it.
+ *    next tick — while prefilter / embedding / clustering keep draining, because
+ *    they cost nothing but local CPU. "Cheap stages continue after an expensive
+ *    one exhausts the budget" is the requirement, and a single drain-level check
+ *    cannot express it.
  *
  * Plus the ordering rule: from 80 % of the budget onward the eligible window is
  * sorted cheap-stages-first, so the tail of the budget buys the most work.
+ *
+ * ## `trigger-eval` is on the SPENDING side of both rules (TASK_2026_253)
+ *
+ * This file's own header used to name it a fourth free stage. It is not: the
+ * gate generates its probe set with one lane call per evaluation, and while it
+ * sat outside `TOKEN_SPENDING_STAGES` the drain kept dispatching those rows past
+ * `maxTokensPerDay` and, above 80 %, actively PREFERRED them over `judge`. Both
+ * halves are pinned below, because a set-membership regression is otherwise
+ * invisible — the tokens still reach the ledger, just too late to gate anything.
  */
 import 'reflect-metadata';
 import { SkillDrainService, SKILL_DRAIN_KEYS } from './skill-drain.service';
@@ -222,6 +231,82 @@ describe('SkillDrainService — budget (R3)', () => {
       expect.anything(),
     );
     expect(queue.markSkipped).not.toHaveBeenCalled();
+  });
+
+  /**
+   * TASK_2026_253's regression guard, and the reason the whole task existed.
+   *
+   * `trigger-eval` spends one lane call per row. While it was absent from
+   * `TOKEN_SPENDING_STAGES` this drain ran the row anyway, so `maxTokensPerDay`
+   * was not a ceiling for roughly half of all weekly rows.
+   */
+  it('defers a trigger-eval row once the budget is exhausted mid-tick', async () => {
+    const queue = makeQueueOver({
+      'D:/a': [makeRow('judge-1', 'judge', 'D:/a')],
+      'D:/b': [makeRow('trigger-eval-1', 'trigger-eval', 'D:/b')],
+    });
+    const budget = makeBudget(0);
+    const drain = makeDrainOver(queue.store, budget.store);
+    const ran: string[] = [];
+
+    drain.registerStageHandler('judge', async (ctx) => {
+      ran.push(ctx.row.id);
+      budget.set(MAX_TOKENS); // the lane consumed the rest of the cap
+      return { outcome: 'done' };
+    });
+    drain.registerStageHandler('trigger-eval', async (ctx) => {
+      ran.push(ctx.row.id);
+      return { outcome: 'done' };
+    });
+
+    const summary = await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(ran).toEqual(['judge-1']);
+    expect(summary).toMatchObject({ budgetDeferred: 1, budgetExhausted: true });
+    // Deferred, not skipped: it stays queued and eligible next tick.
+    expect(queue.tryClaim).not.toHaveBeenCalledWith(
+      'trigger-eval-1',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(queue.markSkipped).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The ordering half. `trigger-eval` used to rank BELOW `judge`, so the tail of
+   * the budget preferred it — a spending stage the drain believed was free.
+   */
+  it('ranks trigger-eval after judge and before digest under cheap-first', async () => {
+    const queue = makeQueueOver({
+      'D:/repo': [
+        makeRow('digest-1', 'digest', 'D:/repo'),
+        makeRow('trigger-eval-1', 'trigger-eval', 'D:/repo'),
+        makeRow('judge-1', 'judge', 'D:/repo'),
+      ],
+    });
+    const drain = makeDrainOver(queue.store, makeBudget(800_000).store, {
+      [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 3,
+      [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 3,
+    });
+    const ran: string[] = [];
+    for (const stage of ['digest', 'trigger-eval', 'judge'] as const) {
+      drain.registerStageHandler(stage, async (ctx) => {
+        ran.push(ctx.row.id);
+        return { outcome: 'done' };
+      });
+    }
+
+    await drain.drain({
+      tier: 'weekly',
+      signal: liveSignal(),
+      onBattery: false,
+    });
+
+    expect(ran).toEqual(['judge-1', 'trigger-eval-1', 'digest-1']);
   });
 
   it('treats maxTokensPerDay = 0 as unlimited for the per-item check too', async () => {

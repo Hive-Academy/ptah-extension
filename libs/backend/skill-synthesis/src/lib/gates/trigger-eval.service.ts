@@ -24,6 +24,14 @@
  * it exists to replace. `trigger-eval.service.spec.ts` pins the call count at
  * one AND scans this file's text for a second `laneRunner.run(` call site.
  *
+ * **"Zero on the SCORING path" is not "free", and the drain must not read it as
+ * one.** One call per evaluation is still a call: `trigger-eval` is a
+ * TOKEN-SPENDING queue stage and appears in `TOKEN_SPENDING_STAGES`. It was
+ * absent from that set until TASK_2026_253 — this section, read one clause too
+ * fast, is where that came from — and while it was absent the drain kept
+ * dispatching these rows after the daily budget was exhausted, and ranked them
+ * as cheaper than a single judge call when spending the tail of the budget.
+ *
  * ## Description-only, and why that is not the same as the dedup embedding
  *
  * A candidate's STORED embedding is built from `ExtractedTrajectory.canonical
@@ -145,7 +153,17 @@ export const TRIGGER_EVAL_MIN_SIMILARITY = 0.35;
  */
 export const TRIGGER_EVAL_COLLISION_MARGIN = 0.02;
 
-/** Why an evaluation never reached the retrieval. Stable tokens, not prose. */
+/**
+ * Why an evaluation never reached the retrieval. Stable tokens, not prose.
+ *
+ * The three prompt-generation members are separate ON PURPOSE. They were one
+ * token (`trigger-eval-prompt-generation-unavailable`) until TASK_2026_253, and
+ * that collapse cost a consumer the only distinction it needed: `noLane` can
+ * never succeed in THIS host, while the other two are a bad minute on an
+ * endpoint. A caller holding the single token had to pick one mapping for both
+ * kinds and was wrong for whichever it did not pick — see
+ * {@link RETRYABLE_TRIGGER_EVAL_SKIP_REASONS}.
+ */
 export const TRIGGER_EVAL_SKIP_REASONS = {
   /** `skillSynthesis.triggerEval.enabled` is off. */
   disabled: 'trigger-eval-disabled',
@@ -153,8 +171,15 @@ export const TRIGGER_EVAL_SKIP_REASONS = {
   noDescription: 'trigger-eval-no-description',
   /** No `IEmbedder` in this host — retrieval is not computable here. */
   noEmbedder: 'trigger-eval-no-embedder',
-  /** No lane in this host, or the lane failed / answered unparseably. */
-  noPrompts: 'trigger-eval-prompt-generation-unavailable',
+  /**
+   * No lane could run the generation pass in this host. PERMANENT here, in the
+   * same way `noEmbedder` is: a host with no LLM does not grow one on a retry.
+   */
+  noLane: 'trigger-eval-no-prompt-lane',
+  /** The generation lane failed or threw. RETRYABLE — the host is capable. */
+  laneFailed: 'trigger-eval-prompt-lane-failed',
+  /** The lane answered and the answer was unusable. RETRYABLE. */
+  unusableReply: 'trigger-eval-unusable-prompt-reply',
 } as const;
 
 /** Why a measurement came back all-`null` despite the retrieval running. */
@@ -172,6 +197,28 @@ export const TRIGGER_EVAL_UNMEASURED_REASONS = {
 
 export type TriggerEvalSkipReason =
   (typeof TRIGGER_EVAL_SKIP_REASONS)[keyof typeof TRIGGER_EVAL_SKIP_REASONS];
+
+/** The three a generation pass can end on. The rest are decided before it. */
+export type TriggerEvalPromptSkipReason =
+  | typeof TRIGGER_EVAL_SKIP_REASONS.noLane
+  | typeof TRIGGER_EVAL_SKIP_REASONS.laneFailed
+  | typeof TRIGGER_EVAL_SKIP_REASONS.unusableReply;
+
+/**
+ * The skips a LATER pass could get past, as opposed to the ones that are a fixed
+ * property of this host or of the candidate.
+ *
+ * This set is the whole point of splitting the prompt-generation token, and it
+ * is a set rather than a per-call-site `if` so that every consumer classifies
+ * the same way. A row whose skip is in here should stay re-eligible; a row whose
+ * skip is not should be finished, because returning weekly to re-derive the same
+ * "there is no LLM in this host" costs a claim and buys nothing.
+ */
+export const RETRYABLE_TRIGGER_EVAL_SKIP_REASONS: ReadonlySet<TriggerEvalSkipReason> =
+  new Set<TriggerEvalSkipReason>([
+    TRIGGER_EVAL_SKIP_REASONS.laneFailed,
+    TRIGGER_EVAL_SKIP_REASONS.unusableReply,
+  ]);
 
 export type TriggerEvalUnmeasuredReason =
   (typeof TRIGGER_EVAL_UNMEASURED_REASONS)[keyof typeof TRIGGER_EVAL_UNMEASURED_REASONS];
@@ -355,10 +402,11 @@ export class TriggerEvalService {
     }
 
     // The ONE lane call. Everything below this line is local arithmetic.
-    const prompts = await this.generatePrompts(target, description, signal);
-    if (!prompts) {
-      return { status: 'skipped', reason: TRIGGER_EVAL_SKIP_REASONS.noPrompts };
+    const generated = await this.generatePrompts(target, description, signal);
+    if (generated.status === 'skipped') {
+      return { status: 'skipped', reason: generated.reason };
     }
+    const { prompts } = generated;
 
     const rivals = this.activeRivals(target.id);
     const texts = [
@@ -528,15 +576,22 @@ export class TriggerEvalService {
   }
 
   /**
-   * The one lane call. Returns `null` — and the caller writes nothing — for
-   * every shape of "we did not get prompts": no lane in this host, a stalled
-   * lane, an unparseable answer.
+   * The one lane call — and the one place in this file that spends a token,
+   * which is why `trigger-eval` is a TOKEN-SPENDING queue stage
+   * (`queue/skill-drain.service.ts`, `TOKEN_SPENDING_STAGES`).
+   *
+   * The caller writes nothing on any failure path, but WHICH failure it was
+   * survives to it. This returned `TriggerPromptSet | null` until TASK_2026_253,
+   * and the `null` was where three unlike facts became one: a host with no lane
+   * at all, a lane that failed or threw, and a reply nothing could parse. The
+   * first is permanent here and the other two are a retry away, so a discriminated
+   * result is the smallest change that lets the call site keep the difference.
    */
   private async generatePrompts(
     target: TriggerEvalTarget,
     description: string,
     signal?: AbortSignal,
-  ): Promise<TriggerPromptSet | null> {
+  ): Promise<TriggerPromptGeneration> {
     let result;
     try {
       result = await this.laneRunner.run({
@@ -551,7 +606,7 @@ export class TriggerEvalService {
         candidateId: target.id,
         error: error instanceof Error ? error.message : String(error),
       });
-      return null;
+      return skippedGeneration(TRIGGER_EVAL_SKIP_REASONS.laneFailed);
     }
 
     if (result.status === 'unavailable') {
@@ -559,7 +614,7 @@ export class TriggerEvalService {
         candidateId: target.id,
         reason: result.reason,
       });
-      return null;
+      return skippedGeneration(TRIGGER_EVAL_SKIP_REASONS.noLane);
     }
     if (result.status === 'failed') {
       this.logger.warn('[skill-trigger-eval] prompt generation failed', {
@@ -567,7 +622,7 @@ export class TriggerEvalService {
         kind: result.failure.kind,
         reason: result.failure.reason,
       });
-      return null;
+      return skippedGeneration(TRIGGER_EVAL_SKIP_REASONS.laneFailed);
     }
 
     const parsed = TriggerPromptsSchema.safeParse(readJson(result.run));
@@ -579,13 +634,37 @@ export class TriggerEvalService {
           raw: result.run.text.slice(0, 200),
         },
       );
-      return null;
+      return skippedGeneration(TRIGGER_EVAL_SKIP_REASONS.unusableReply);
     }
     return {
-      shouldTrigger: cleanPrompts(parsed.data.shouldTrigger),
-      nearMiss: cleanPrompts(parsed.data.nearMiss),
+      status: 'ok',
+      prompts: {
+        shouldTrigger: cleanPrompts(parsed.data.shouldTrigger),
+        nearMiss: cleanPrompts(parsed.data.nearMiss),
+      },
     };
   }
+}
+
+/**
+ * What the generation pass produced, or the reason it produced nothing.
+ *
+ * Deliberately NOT `TriggerEvalOutcome`: this is an internal hand-off between
+ * two methods of one service, and reusing the public outcome would let a
+ * generation result be returned from `evaluate` without passing through the
+ * checks below it.
+ */
+type TriggerPromptGeneration =
+  | { readonly status: 'ok'; readonly prompts: TriggerPromptSet }
+  | {
+      readonly status: 'skipped';
+      readonly reason: TriggerEvalPromptSkipReason;
+    };
+
+function skippedGeneration(
+  reason: TriggerEvalPromptSkipReason,
+): TriggerPromptGeneration {
+  return { status: 'skipped', reason };
 }
 
 /**

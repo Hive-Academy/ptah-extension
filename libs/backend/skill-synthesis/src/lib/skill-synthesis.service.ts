@@ -88,7 +88,7 @@ import {
   type ReplayValidatorService,
 } from './gates/replay-validator.service';
 import {
-  TRIGGER_EVAL_SKIP_REASONS,
+  RETRYABLE_TRIGGER_EVAL_SKIP_REASONS,
   type TriggerEvalService,
 } from './gates/trigger-eval.service';
 import type {
@@ -1060,26 +1060,35 @@ export class SkillSynthesisService {
   /**
    * The `trigger-eval` stage — the measured description-retrieval gate.
    *
-   * Cheap by construction: exactly one lane call generates the prompt set and
-   * everything after it is local embedder arithmetic, which is why the drain
-   * does not book this stage against the token budget.
+   * Cheap, not free: exactly one lane call generates the prompt set and
+   * everything after it is local embedder arithmetic. That one call is why the
+   * drain DOES book this stage against the token budget
+   * (`TOKEN_SPENDING_STAGES`), which it did not until TASK_2026_253.
    *
    * ## The mapping
    *
-   *  - `disabled` / `no-embedder` / `no-description` → `skipped`. Two are host
-   *    capabilities and one is a property of the candidate; none is a retry.
-   *  - `prompt-generation-unavailable` → `unscored`. This is the transient one,
-   *    and it is ALSO the collapsed one: `TriggerEvalService.generatePrompts`
-   *    returns `null` — and the caller reports this single token — for "no lane
-   *    in this host", "the lane failed" and "the reply was unparseable" alike.
-   *    The first is permanent and the other two are not, so the two candidate
-   *    mappings are `skipped` (wrong for a transient lane outage: it would
-   *    permanently drop a measurable candidate) and `unscored` (wrong for a host
-   *    with no lane: it costs one skipped `listEligible` match a week and no
-   *    tokens). `unscored` is chosen because its failure mode is bounded and the
-   *    other's is not. Splitting the token is the real fix and it belongs in the
-   *    gate — a lane failure is not surfaced from there at all today, so this
-   *    handler cannot answer `lane-failed` either.
+   * The split is PERMANENT versus RETRYABLE, and it is read off
+   * `RETRYABLE_TRIGGER_EVAL_SKIP_REASONS` rather than re-derived here, so the
+   * gate that knows why it stopped is the thing that classifies it.
+   *
+   *  - `disabled` / `no-embedder` / `no-description` / `no-prompt-lane` →
+   *    `skipped`. Three are host capabilities and one is a property of the
+   *    candidate; no amount of waiting changes any of them, and an `unscored`
+   *    row would come back every week to re-derive the same answer.
+   *  - `prompt-lane-failed` / `unusable-prompt-reply` → `unscored`, re-eligible
+   *    under `not_before`. The host CAN run this gate; it just did not this
+   *    time, and `skipped` would permanently drop a measurable candidate over a
+   *    transient outage.
+   *
+   *    These four tokens were one (`prompt-generation-unavailable`) until
+   *    TASK_2026_253, and with one token there was no correct mapping — only a
+   *    choice of which half to be wrong about. It picked `unscored` for all of
+   *    them because that failure mode is bounded (one skipped `listEligible`
+   *    match a week, zero tokens) while the other is not. Both halves are now
+   *    right. Still unavailable from here: `lane-failed`, which would need the
+   *    gate to hand over the `SkillLaneFailure` itself rather than a reason
+   *    token — a lane failure therefore still lands on the default `unscored`
+   *    backoff instead of the lane's own `retryAfterMs`.
    *  - `evaluated` with an `unmeasuredReason` → `unscored`. The retrieval ran
    *    and all three numbers came back `null`; all three causes (a one-sided
    *    prompt set, an embedder that returned the wrong vector count) are bad
@@ -1105,7 +1114,7 @@ export class SkillSynthesisService {
     );
 
     if (outcome.status === 'skipped') {
-      return outcome.reason === TRIGGER_EVAL_SKIP_REASONS.noPrompts
+      return RETRYABLE_TRIGGER_EVAL_SKIP_REASONS.has(outcome.reason)
         ? { outcome: 'unscored', reason: outcome.reason }
         : { outcome: 'skipped', reason: outcome.reason };
     }
