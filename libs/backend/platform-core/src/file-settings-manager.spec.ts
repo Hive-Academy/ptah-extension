@@ -162,6 +162,41 @@ describe('PtahFileSettingsManager', () => {
       }
     });
 
+    /**
+     * TASK_2026_250 follow-up B — the behavioural half of removing
+     * `llm.vscode.model`. The table assertions live in
+     * `file-settings-keys.spec.ts`; this one proves what the removal actually
+     * changes for a caller.
+     *
+     * `SettingsExportService.collectConfigValues` reads every exported key with
+     * NO caller default, which is precisely the argument shape below. While the
+     * key carried a registered default, that read returned `'copilot/gpt-4o'`
+     * on a CLEAN install — so every export written by a user who had never
+     * heard of the VS Code Language Model API still shipped a Copilot model id.
+     * The key's last reader was removed in `8a578c124` and its only writer,
+     * `VsCodeLmAdapter`, in `096930b51`.
+     */
+    it('yields undefined for the removed llm.vscode.model on a clean install', () => {
+      const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(mgr.get<string>('llm.vscode.model')).toBeUndefined();
+    });
+
+    /**
+     * The removal drops the DEFAULT, not the storage layer's ability to hold
+     * the key. An existing `~/.ptah/settings.json` that already carries the
+     * value keeps it and reads it back verbatim — nothing is rewritten or
+     * pruned on upgrade. This is what makes "let the key lapse" a safe
+     * migration story rather than a silent data loss: settings.json is a plain
+     * JSON document, and `FILE_BASED_SETTINGS_KEYS` gates ROUTING, not parsing.
+     */
+    it('still reads back a stale llm.vscode.model already on disk', async () => {
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set('llm.vscode.model', 'copilot/gpt-4o');
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get<string>('llm.vscode.model')).toBe('copilot/gpt-4o');
+    });
+
     it('round-trips a dotted provider key through set() / get()', async () => {
       const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       await mgr.set('provider.github-copilot.clientId', 'iv1.test');

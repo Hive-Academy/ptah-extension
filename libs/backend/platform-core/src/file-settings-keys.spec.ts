@@ -760,4 +760,87 @@ describe('isFileBasedSettingKey', () => {
       ).toBe(20);
     });
   });
+
+  describe('llm.vscode.model — removed dead key (TASK_2026_250 follow-up B)', () => {
+    /**
+     * `ptah.llm.vscode.model` was the VS Code Language Model `vendor/family`
+     * selector. Its ONLY consumer, `VsCodeLmAdapter`, was deleted in
+     * `096930b51` together with its `affectsConfiguration` cache invalidation,
+     * and the `package.json contributes.configuration` entry went with it — so
+     * the key has had no writer since. TASK_2026_250 (`8a578c124`) removed the
+     * last reader, `skill-synthesis`'s `resolveJudgeModel`, which had been
+     * handing a `vendor/family` string to an Anthropic-Messages endpoint.
+     *
+     * WHY THE DEFAULT WAS THE ACTIVE HALF OF THE PROBLEM, not the Set entry:
+     * `PtahFileSettingsManager.get` falls through to the registered default
+     * when a caller passes none (`file-settings-manager.ts:83-91`), and
+     * `SettingsExportService.collectConfigValues` passes none
+     * (`agent-sdk/src/lib/settings-export.service.ts:140-148`). So every
+     * export written on a CLEAN install carried
+     * `"llm.vscode.model": "copilot/gpt-4o"` — a value the user never chose,
+     * naming a provider family Ptah no longer routes to.
+     *
+     * This block is the "stays dead" guard. Re-adding the key would need a
+     * consumer first; a bare table entry only re-arms the export noise.
+     */
+    it('is absent from FILE_BASED_SETTINGS_KEYS', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('llm.vscode.model')).toBe(false);
+    });
+
+    it('declares no default, so an unset read yields undefined not a model id', () => {
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          'llm.vscode.model',
+        ),
+      ).toBe(false);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['llm.vscode.model']).toBeUndefined();
+    });
+
+    it('no longer routes to file-based storage', () => {
+      expect(isFileBasedSettingKey('llm.vscode.model')).toBe(false);
+    });
+
+    /**
+     * The sibling `ptah.llm.*` key is NOT dead and must not be swept up with
+     * it: `llm.defaultProvider` is live in the MCP tool handlers
+     * (`rpc-handlers/.../llm-rpc-app.handlers.ts`).
+     */
+    it('leaves the live llm.defaultProvider key untouched', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('llm.defaultProvider')).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS['llm.defaultProvider']).toBe('');
+    });
+
+    /**
+     * The removed default was the last CHAT model id shipped in `vendor/family`
+     * form. Every other chat-model default is '' or null ("use the provider
+     * default") — the convention the `FILE_BASED_SETTINGS_DEFAULTS` block
+     * header states. A slash-bearing chat-model default reappearing here means
+     * someone has re-pinned a concrete cross-vendor id, which is the shape that
+     * reaches a foreign endpoint verbatim and 404s (the TASK_2026_250 defect).
+     *
+     * `memory.embeddingModel` is the one legitimate slash-bearing default and
+     * is allow-listed by name rather than by a loose pattern: its value
+     * (`Xenova/bge-small-en-v1.5`, line 441) is a HuggingFace REPO id for a
+     * locally-executed embedding model, not a provider-routed chat selector.
+     * Different namespace, different consumer, no endpoint to mismatch.
+     */
+    it('leaves no vendor/family-shaped chat-model default behind', () => {
+      const SLASH_BEARING_BY_DESIGN = new Set([
+        'memory.embeddingModel', // HuggingFace repo id, local inference
+      ]);
+      const urlOrCronKey = /(\.baseUrl|Url|[cC]ronExpr)$/;
+
+      const slashed = Object.entries(FILE_BASED_SETTINGS_DEFAULTS)
+        .filter(
+          ([key, value]) =>
+            typeof value === 'string' &&
+            value.includes('/') &&
+            !urlOrCronKey.test(key) &&
+            !SLASH_BEARING_BY_DESIGN.has(key),
+        )
+        .map(([key]) => key);
+      expect(slashed).toEqual([]);
+    });
+  });
 });

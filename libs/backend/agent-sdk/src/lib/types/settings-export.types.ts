@@ -65,7 +65,6 @@ export const KNOWN_CONFIG_KEYS = [
   'agentOrchestration.maxConcurrentAgents',
   'anthropicProviderId',
   'llm.defaultProvider',
-  'llm.vscode.model',
   'agentOrchestration.copilotModel',
   'agentOrchestration.codexModel',
   'agentOrchestration.codexReasoningEffort',
