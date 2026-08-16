@@ -3,8 +3,6 @@ title: Browser Automation
 description: Drive a real Chrome/Chromium browser from Ptah — navigate, click, type, screenshot, record, and monitor network traffic.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
 Ptah's browser automation suite lets agents drive a real Chrome or Chromium instance on your machine. It is built on top of Playwright and exposed through a dedicated set of MCP tools, so any agent — local or remote — can use it through the same uniform interface.
 
 ## What you can do

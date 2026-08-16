@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_257
-status: backlog
+status: in_progress
 type: bugfix
 title: 'Docs site: 30 .md pages import Starlight components that never render'
 description: >-
