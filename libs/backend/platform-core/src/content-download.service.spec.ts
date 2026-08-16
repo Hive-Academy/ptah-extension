@@ -15,6 +15,10 @@
  *      still exists — the service never throws.
  *   5. Windows path normalization: `getPluginsPath()` / `getTemplatesPath()`
  *      resolve under the sandboxed HOME regardless of OS separator.
+ *   6. Scoped prune (TASK_2026_259): stale-file cleanup stays inside the
+ *      subtrees the manifest populates, so user-authored content under
+ *      `~/.ptah/plugins/ptah-harness-*` survives; and an unlink failure is
+ *      logged and skipped rather than aborting the whole download.
  *
  * The service uses `https.get` + `http.get` directly, so we `jest.mock()`
  * both modules to return a deterministic fake `IncomingMessage` stream.
@@ -55,6 +59,32 @@ jest.mock('os', () => {
   return {
     ...actual,
     homedir: () => mockTestHome,
+  };
+});
+
+// ---------------------------------------------------------------------------
+// `fs` passthrough with a swappable `unlinkSync`.
+//
+// The prune specs need one run where `unlinkSync` throws (Windows file lock /
+// EPERM). `fs.unlinkSync` is a NON-CONFIGURABLE property in this Node build,
+// so `jest.spyOn(fs, 'unlinkSync')` dies with "Cannot redefine property" — a
+// module-level mock is the only way in. Everything else delegates to the real
+// `fs`, so the specs still touch a real sandboxed tmp dir.
+// ---------------------------------------------------------------------------
+
+let mockUnlinkSyncOverride: ((target: fs.PathLike) => void) | null = null;
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    unlinkSync: (target: fs.PathLike): void => {
+      if (mockUnlinkSyncOverride) {
+        mockUnlinkSyncOverride(target);
+        return;
+      }
+      actual.unlinkSync(target);
+    },
   };
 });
 
@@ -226,6 +256,12 @@ function cleanPtah(): void {
   }
 }
 
+/** Write a file (and its parents) into the local cache before a run. */
+function seedFile(fullPath: string, contents = 'seed'): void {
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, contents, 'utf-8');
+}
+
 // ---------------------------------------------------------------------------
 // Specs
 // ---------------------------------------------------------------------------
@@ -241,6 +277,7 @@ describe('ContentDownloadService', () => {
 
   afterEach(() => {
     warnSpy.mockRestore();
+    mockUnlinkSyncOverride = null;
   });
 
   // -------------------------------------------------------------------------
@@ -478,6 +515,152 @@ describe('ContentDownloadService', () => {
       const result = await svc.ensureContent(undefined, true);
 
       expect(result.fromCache).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Stale-file prune (TASK_2026_259)
+  //
+  // No cache metadata is seeded in these specs, so `loadCacheMetadata()`
+  // returns null and the prune always runs — the same path a contentHash
+  // change takes in production.
+  // -------------------------------------------------------------------------
+
+  describe('ensureContent — prune scoping', () => {
+    const HARNESS_SKILL = path.join(
+      PLUGINS_DIR,
+      'ptah-harness-my-skill',
+      'skills',
+      'my-skill',
+      'SKILL.md',
+    );
+    const MANIFEST_PLUGIN_FILE = 'ptah-core/.claude-plugin/plugin.json';
+
+    function routeManifestOwningPtahCore(): void {
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            pluginFiles: [MANIFEST_PLUGIN_FILE],
+            templateFiles: [],
+          }),
+        }),
+      );
+      addRoute(
+        (url) => url.endsWith('/plugin.json'),
+        () => ({ statusCode: 200, body: '{"name":"ptah-core"}' }),
+      );
+    }
+
+    it('does NOT delete harness-authored skills the manifest never lists', async () => {
+      // Written by the harness wizard (HarnessFsService.createSkillPlugin) —
+      // user-authored, and never present in the remote manifest.
+      seedFile(HARNESS_SKILL, '# my skill');
+      // ...while a genuinely stale file sits in a manifest-owned directory,
+      // so the two behaviours are asserted against the same single run.
+      const stale = path.join(PLUGINS_DIR, 'ptah-core', 'agents', 'gone.md');
+      seedFile(stale, '# removed upstream');
+      routeManifestOwningPtahCore();
+
+      const svc = new ContentDownloadService();
+      await svc.ensureContent();
+
+      expect(fs.existsSync(HARNESS_SKILL)).toBe(true);
+      expect(fs.readFileSync(HARNESS_SKILL, 'utf-8')).toBe('# my skill');
+      expect(fs.existsSync(stale)).toBe(false);
+    });
+
+    it('does NOT delete a sideloaded plugin directory the manifest never lists', async () => {
+      const sideloaded = path.join(
+        PLUGINS_DIR,
+        'my-own-plugin',
+        '.claude-plugin',
+        'plugin.json',
+      );
+      seedFile(sideloaded, '{"name":"my-own-plugin"}');
+      routeManifestOwningPtahCore();
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(sideloaded)).toBe(true);
+    });
+
+    // Guard against "fixing" the defect by disabling the feature: this spec
+    // passes both BEFORE and AFTER the scoping change.
+    it('DOES delete a stale file inside a manifest-owned plugin directory', async () => {
+      const stale = path.join(
+        PLUGINS_DIR,
+        'ptah-core',
+        'skills',
+        'removed-skill',
+        'SKILL.md',
+      );
+      seedFile(stale, '# removed upstream');
+      routeManifestOwningPtahCore();
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(stale)).toBe(false);
+    });
+
+    it('DOES delete a stale root-level template (flat manifest still swept)', async () => {
+      const staleTemplate = path.join(TEMPLATES_DIR, 'removed.template.md');
+      seedFile(staleTemplate, '# removed');
+
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            pluginFiles: [],
+            templateFiles: ['frontend.md'],
+          }),
+        }),
+      );
+      addRoute(
+        (url) => url.endsWith('/frontend.md'),
+        () => ({ statusCode: 200, body: '# frontend' }),
+      );
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(staleTemplate)).toBe(false);
+      expect(fs.existsSync(path.join(TEMPLATES_DIR, 'frontend.md'))).toBe(true);
+    });
+
+    it('an unlink failure is logged and skipped — downloads still run', async () => {
+      const stale = path.join(PLUGINS_DIR, 'ptah-core', 'locked.md');
+      seedFile(stale, '# locked');
+      routeManifestOwningPtahCore();
+
+      const attempted: string[] = [];
+      mockUnlinkSyncOverride = (target: fs.PathLike): void => {
+        attempted.push(String(target));
+        throw Object.assign(
+          new Error(
+            `EPERM: operation not permitted, unlink '${String(target)}'`,
+          ),
+          { code: 'EPERM' },
+        );
+      };
+
+      const result = await new ContentDownloadService().ensureContent();
+
+      // Prune runs before any download — a throw here used to abort the
+      // entire refresh (TASK_2026_258 Failure Mode 4).
+      expect(attempted).toContain(stale);
+      expect(fs.existsSync(stale)).toBe(true);
+      expect(result.success).toBe(true);
+      expect(result.pluginsDownloaded).toBe(1);
+      expect(
+        fs.existsSync(
+          path.join(PLUGINS_DIR, 'ptah-core', '.claude-plugin', 'plugin.json'),
+        ),
+      ).toBe(true);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to prune stale file'),
+      );
     });
   });
 

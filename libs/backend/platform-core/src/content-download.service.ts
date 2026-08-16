@@ -259,17 +259,69 @@ export class ContentDownloadService {
 
   /**
    * Remove cached files that are no longer listed in the manifest.
-   * Walks the local directory and deletes files whose relative path
-   * is not in the manifest file list.
+   *
+   * SCOPED PRUNE (TASK_2026_259). `localDir` is a mirror ROOT, not a
+   * mirror-only tree: `~/.ptah/plugins/` also holds user-authored content
+   * (the harness wizard writes `ptah-harness-<slug>/skills/<slug>/SKILL.md`
+   * there, and users sideload plugin folders). Deleting every unlisted file
+   * under the root destroyed that work silently. So we prune only inside the
+   * parts of the tree this manifest actually populates:
+   *
+   *   - a nested file is prunable only if its FIRST path segment is a
+   *     directory the manifest lists files under (e.g. `ptah-core/...`);
+   *   - a root-level file is prunable only if the manifest itself lists
+   *     root-level files (true for `templates/agents/`, whose manifest is
+   *     flat; false for `plugins/`, whose manifest is entirely nested).
+   *
+   * Anything the manifest does not claim is left alone. The trade-off is that
+   * a whole directory dropped from the manifest upstream is no longer swept —
+   * unavoidable without a ledger of what we previously wrote, because from
+   * disk alone a removed-upstream plugin and a locally-authored one are
+   * indistinguishable. Losing a stale directory is recoverable; losing user
+   * work is not.
+   *
+   * Individual unlink failures are logged and skipped, never thrown: prune
+   * runs BEFORE any download, so a single locked file used to abort the whole
+   * content refresh and recur identically on every launch.
    */
   private pruneStaleFiles(localDir: string, manifestFiles: string[]): void {
     const manifestSet = new Set(manifestFiles);
+    const manifestRoots = new Set(
+      manifestFiles
+        .filter((file) => file.includes('/'))
+        .map((file) => file.split('/')[0]),
+    );
+    const manifestOwnsRootFiles = manifestFiles.some(
+      (file) => !file.includes('/'),
+    );
     const localFiles = this.walkLocalDir(localDir, localDir);
 
     for (const relPath of localFiles) {
-      if (!manifestSet.has(relPath)) {
-        const fullPath = path.join(localDir, ...relPath.split('/'));
+      if (manifestSet.has(relPath)) {
+        continue;
+      }
+
+      const segments = relPath.split('/');
+      const isManifestOwned =
+        segments.length === 1
+          ? manifestOwnsRootFiles
+          : manifestRoots.has(segments[0]);
+
+      if (!isManifestOwned) {
+        continue;
+      }
+
+      const fullPath = path.join(localDir, ...segments);
+      try {
         fs.unlinkSync(fullPath);
+        console.debug(
+          `[ContentDownloadService] Pruned stale file: ${fullPath}`,
+        );
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[ContentDownloadService] Failed to prune stale file ${fullPath}: ${message}`,
+        );
       }
     }
   }
