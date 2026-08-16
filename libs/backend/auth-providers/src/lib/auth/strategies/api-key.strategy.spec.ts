@@ -166,7 +166,10 @@ type ProviderModelsSurface = Pick<
 
 function createMockProviderModels(): jest.Mocked<ProviderModelsSurface> {
   return {
-    switchActiveProvider: jest.fn<void, [string]>(),
+    switchActiveProvider: jest.fn<
+      void,
+      [string, { apiKey?: string | null }?]
+    >(),
     clearAllTierEnvVars: jest.fn<void, []>(),
   };
 }
@@ -377,8 +380,12 @@ describe('ApiKeyStrategy', () => {
       expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('');
       expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
 
+      // The REAL key travels with the switch, not the proxy placeholder that
+      // just went into authEnv: a provider whose tiers can only come from its
+      // live catalogue needs an authenticated /v1/models call (TASK_2026_262).
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'openrouter',
+        { apiKey: 'sk-or-v1-valid' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('OpenRouter API key');
@@ -494,6 +501,7 @@ describe('ApiKeyStrategy', () => {
       expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'sakana',
+        { apiKey: 'sakana-key-valid' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('Sakana');
@@ -549,6 +557,7 @@ describe('ApiKeyStrategy', () => {
 
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'moonshot',
+        { apiKey: 'moonshot-key-xyz' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('Moonshot');
@@ -614,6 +623,7 @@ describe('ApiKeyStrategy', () => {
       );
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'moonshot',
+        { apiKey: 'env-moonshot-token' },
       );
     });
 
@@ -729,6 +739,7 @@ describe('ApiKeyStrategy', () => {
 
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         VLLM_ID,
+        { apiKey: 'vllm-key' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('My vLLM Box');
@@ -944,6 +955,7 @@ describe('ApiKeyStrategy', () => {
       );
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         REQUESTY_ID,
+        { apiKey: 'requesty-key' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('Requesty (EU)');

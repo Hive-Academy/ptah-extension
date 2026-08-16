@@ -101,15 +101,29 @@ export class ModelResolver {
    * (`kimi-k2.5`, `gpt-5.3-codex`) is NOT warned about — that is a real model
    * id the user or the provider picked, and passing it through is correct.
    *
-   * This is a diagnostic, never a fallback: there is no id to substitute.
-   * `openrouter`, `lm-studio` and `requesty` declare no `defaultTiers` (each
-   * for a documented reason — a dynamic catalogue, a locally-loaded model, an
-   * unverifiable tier map), so on those three the value genuinely cannot be
-   * resolved from static data, on ANY path — the foreground chat sends a bare
-   * `'opus'` in exactly the same situation (`chat-session.service.ts:418`
-   * substitutes `'default'`, which recurses to `'opus'` here). Closing that
-   * needs the provider's LIVE model list, which is not this function's to
-   * fetch.
+   * This is a diagnostic, never a fallback: there is no id for THIS function
+   * to substitute. `openrouter`, `lm-studio` and `requesty` declare no
+   * `defaultTiers` (each for a documented reason — a dynamic catalogue, a
+   * locally-loaded model, an unverifiable tier map), so on those three the
+   * value cannot be resolved from static data, on ANY path — the foreground
+   * chat sends a bare `'opus'` in exactly the same situation
+   * (`chat-session.service.ts:418` substitutes `'default'`, which recurses to
+   * `'opus'` here).
+   *
+   * Since TASK_2026_262 that is no longer where it ends. Fetching the
+   * provider's LIVE model list is still not this function's job — but it is
+   * now somebody's. `ProviderModelsService.applyPersistedTiers` derives the
+   * tiers from the catalogue the provider itself returned and writes them into
+   * the very env vars both branches above read, so reaching this warn means
+   * the catalogue has not landed yet or could not be fetched at all: a
+   * transient or broken state rather than a permanent shape.
+   *
+   * The warn is deliberately kept exactly as wide as it was. It is now the
+   * only signal for the cases the live list does not reach — a first message
+   * sent inside the refresh window, a local server that was offline at
+   * activation — and narrowing it would hide precisely what still needs
+   * measuring before anyone decides whether an unresolvable tier should be a
+   * hard error (TASK_2026_262 Q2).
    *
    * Keyed per provider+value so a model list being re-resolved for the picker
    * cannot turn one misconfiguration into a log flood.
@@ -123,7 +137,7 @@ export class ModelResolver {
     if (this.unservableTierModelsWarned.has(key)) return;
     this.unservableTierModelsWarned.add(key);
     this.logger.warn(
-      `[ModelResolver] No tier mapping resolved '${value}' under provider '${providerId}', so it will be sent verbatim and the endpoint will most likely reject it. Select an explicit model for this provider, or map its tiers. (Logged once per provider and value.)`,
+      `[ModelResolver] No tier mapping resolved '${value}' under provider '${providerId}', so it will be sent verbatim and the endpoint will most likely reject it. Its model catalog has not been fetched yet, or could not be fetched — check the provider is reachable, or select an explicit model for it. (Logged once per provider and value.)`,
     );
   }
 

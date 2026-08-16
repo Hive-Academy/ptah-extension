@@ -39,7 +39,7 @@ import {
   type MockConfigManager,
 } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import type { AuthEnv } from '@ptah-extension/shared';
+import { getAnthropicProvider, type AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 import { ProviderModelsService } from './provider-models.service';
@@ -649,6 +649,252 @@ describe('ProviderModelsService persisted model catalog', () => {
     const result = await service.fetchModels('claude-cli', null);
 
     expect(result.isStatic).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// live-catalogue tier derivation (TASK_2026_262)
+// ---------------------------------------------------------------------------
+
+/**
+ * The third link in the tier chain: `userTiers ?? defaultTiers ?? liveDerived`.
+ *
+ * `openrouter`, `lm-studio` and `requesty` declare no `defaultTiers`, so before
+ * this `applyPersistedTiers` ran for them and legitimately wrote nothing —
+ * `followup-a-report.md:126-128` documents exactly that — and the chat path's
+ * `'default'` reached the endpoint as the bare word `'opus'`. What these lock
+ * in is not just "it now writes something" but the three things that make
+ * writing something safe:
+ *
+ *   - precedence: a user's pick and a verified registry map both outrank the
+ *     derivation, which is only ever consulted for a hole they left;
+ *   - the read is synchronous, because `ModelResolver.resolve` is;
+ *   - every failure of the out-of-band refresh — cold cache, offline local
+ *     server, no key — is silent, non-throwing and leaves the previous state.
+ */
+describe('ProviderModelsService live-catalog tier derivation', () => {
+  /** Catalogue shape a router returns: it names the tiers itself. */
+  const ROUTER_MODELS = [
+    {
+      id: 'anthropic/claude-opus-4.5',
+      name: 'Claude Opus 4.5',
+      description: 'Frontier model',
+      contextLength: 200_000,
+      supportsToolUse: true,
+    },
+    {
+      id: 'anthropic/claude-sonnet-4.5',
+      name: 'Claude Sonnet 4.5',
+      description: 'Balanced model',
+      contextLength: 200_000,
+      supportsToolUse: true,
+    },
+    {
+      id: 'anthropic/claude-haiku-4.5',
+      name: 'Claude Haiku 4.5',
+      description: 'Fast model',
+      contextLength: 200_000,
+      supportsToolUse: true,
+    },
+  ];
+
+  /** Catalogue shape a local server returns: no tier words, uniform metadata. */
+  const LOCAL_MODELS = [
+    {
+      id: 'qwen3-coder-30b',
+      name: 'Qwen3 Coder 30B',
+      description: '',
+      contextLength: 4096,
+      supportsToolUse: false,
+    },
+    {
+      id: 'gemma-3-12b',
+      name: 'Gemma 3 12B',
+      description: '',
+      contextLength: 4096,
+      supportsToolUse: false,
+    },
+  ];
+
+  /** Let the fire-and-forget refresh, and everything it awaits, settle. */
+  const settle = async (): Promise<void> => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  afterEach(() => {
+    for (const tier of ['OPUS', 'SONNET', 'HAIKU']) {
+      delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_NAME`];
+      delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_DESCRIPTION`];
+    }
+  });
+
+  it('writes real catalogue ids where a no-defaultTiers provider previously wrote nothing', async () => {
+    // The Task 1.3 acceptance case, and the user-visible bug: `openrouter`
+    // active, nothing selected. `resolve('default')` recurses to `'opus'` and
+    // reads ANTHROPIC_DEFAULT_OPUS_MODEL — which used to be unset.
+    const { service, authEnv } = makeService({
+      configValues: {
+        'provider.openrouter.modelCatalog': {
+          models: ROUTER_MODELS,
+          timestamp: 1,
+        },
+      },
+    });
+
+    service.applyPersistedTiers('openrouter');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe(
+      'anthropic/claude-opus-4.5',
+    );
+    expect(authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
+      'anthropic/claude-sonnet-4.5',
+    );
+    expect(process.env[ENV_HAIKU]).toBe('anthropic/claude-haiku-4.5');
+    await settle();
+  });
+
+  it('reads the catalogue synchronously — the value is there before any await', () => {
+    // Load-bearing. `ModelResolver.resolve` returns `string` and is called
+    // from per-message hot paths, so a tier that only appears after a
+    // microtask is a tier that is not there when the message is built.
+    const { service, authEnv } = makeService({
+      configValues: {
+        'provider.openrouter.modelCatalog': {
+          models: ROUTER_MODELS,
+          timestamp: 1,
+        },
+      },
+    });
+
+    service.applyPersistedTiers('openrouter');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeDefined();
+  });
+
+  it('lets a user pick outrank the live catalogue', async () => {
+    const { service, authEnv } = makeService({
+      configValues: {
+        'provider.openrouter.mainAgent.modelTier.opus': 'openai/gpt-5.3-codex',
+        'provider.openrouter.modelCatalog': {
+          models: ROUTER_MODELS,
+          timestamp: 1,
+        },
+      },
+    });
+
+    service.applyPersistedTiers('openrouter');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('openai/gpt-5.3-codex');
+    // The tiers the user did NOT pick still come from the catalogue.
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
+      'anthropic/claude-haiku-4.5',
+    );
+    await settle();
+  });
+
+  it('lets a registry defaultTiers map outrank the live catalogue', async () => {
+    // A verified tier map is a statement by whoever added the entry; the
+    // derivation is a heuristic over a list. The statement wins.
+    const expected = getAnthropicProvider(PROVIDER)?.defaultTiers?.opus;
+    expect(expected).toBeTruthy();
+
+    const { service, authEnv } = makeService({
+      configValues: {
+        [`provider.${PROVIDER}.modelCatalog`]: {
+          models: ROUTER_MODELS,
+          timestamp: 1,
+        },
+      },
+    });
+
+    service.applyPersistedTiers(PROVIDER);
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe(expected);
+    await settle();
+  });
+
+  it('labels a live-derived tier from the same catalogue it was derived from', async () => {
+    // `applyTierMetadata` used to look only in the in-memory cache, which is
+    // cold on the very run where the persisted catalogue does the work — the
+    // picker would have shown the raw id.
+    const { service, authEnv } = makeService({
+      configValues: {
+        'provider.openrouter.modelCatalog': {
+          models: ROUTER_MODELS,
+          timestamp: 1,
+        },
+      },
+    });
+
+    service.applyPersistedTiers('openrouter');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME).toBe('Claude Haiku 4.5');
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION).toBe(
+      'Fast model',
+    );
+    await settle();
+  });
+
+  it('recovers from a cold cache: nothing persisted, then the refresh lands', async () => {
+    // The fresh-install case (R1). Nothing is cached and nothing is persisted,
+    // so the synchronous pass writes nothing — and then the out-of-band fetch
+    // makes the second pass succeed without anyone asking again.
+    const { service, authEnv } = makeService({});
+
+    service.switchActiveProvider('lm-studio');
+    // Registered on the statement AFTER switchActiveProvider, exactly as
+    // `local-proxy.strategy.ts:101-102` does it.
+    service.registerDynamicFetcher('lm-studio', async () => LOCAL_MODELS);
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+
+    await settle();
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gemma-3-12b');
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gemma-3-12b');
+  });
+
+  it('survives an offline local server without throwing or writing a guess', async () => {
+    // LM Studio not running: the fetcher throws, `fetchModels` swallows it and
+    // returns an empty list. The defined outcome is "unchanged", not a
+    // fabricated id and not an unhandled rejection.
+    const { service, authEnv } = makeService({});
+    service.registerDynamicFetcher('lm-studio', async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:1234');
+    });
+
+    expect(() => service.switchActiveProvider('lm-studio')).not.toThrow();
+    await settle();
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+    expect(process.env[ENV_OPUS]).toBeUndefined();
+  });
+
+  it('fetches at most once per activation, and not at all when nothing is missing', async () => {
+    // Bounded work. The refresh re-applies the tiers when it lands, and that
+    // re-application must not schedule a refresh of its own.
+    const fetcher = jest.fn().mockResolvedValue(LOCAL_MODELS);
+    const { service } = makeService({});
+    service.switchActiveProvider('lm-studio');
+    service.registerDynamicFetcher('lm-studio', fetcher);
+    await settle();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Everything resolves now, so a second activation asks for nothing.
+    service.switchActiveProvider('lm-studio');
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reach for a catalogue for a provider that has no route to one', async () => {
+    // `anthropic` is not a registry entry and has no fetcher. The refresh must
+    // notice and return, not call `fetchModels` and eat an "Unknown provider".
+    const { service } = makeService({});
+    expect(() => service.applyPersistedTiers('anthropic')).not.toThrow();
+    await settle();
+    expect(process.env[ENV_OPUS]).toBeUndefined();
   });
 });
 

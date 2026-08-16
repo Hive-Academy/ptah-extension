@@ -453,7 +453,13 @@ export class ApiKeyStrategy implements IAuthStrategy {
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
     process.env['ANTHROPIC_AUTH_TOKEN'] = placeholder;
     delete process.env['ANTHROPIC_API_KEY'];
-    this.providerModels.switchActiveProvider(providerId);
+    // The real key, not the proxy placeholder that just went into `authEnv`.
+    // A provider whose tiers can only come from its live catalogue needs an
+    // authenticated /v1/models call to get one, and this is the last point
+    // where the key is in hand (TASK_2026_262).
+    this.providerModels.switchActiveProvider(providerId, {
+      apiKey: providerKey.trim(),
+    });
     seedStaticModelPricing(providerId);
 
     this.logger.info(
@@ -588,7 +594,9 @@ export class ApiKeyStrategy implements IAuthStrategy {
         authEnv[authEnvVar as keyof AuthEnv] = trimmed;
         process.env['ANTHROPIC_BASE_URL'] = baseUrl;
         process.env[authEnvVar] = trimmed;
-        this.providerModels.switchActiveProvider(providerId);
+        this.providerModels.switchActiveProvider(providerId, {
+          apiKey: trimmed,
+        });
         seedStaticModelPricing(providerId);
 
         this.logger.info(
@@ -632,7 +640,9 @@ export class ApiKeyStrategy implements IAuthStrategy {
     authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
     process.env['ANTHROPIC_BASE_URL'] = baseUrl;
     process.env[authEnvVar] = providerKey.trim();
-    this.providerModels.switchActiveProvider(providerId);
+    this.providerModels.switchActiveProvider(providerId, {
+      apiKey: providerKey.trim(),
+    });
     seedStaticModelPricing(providerId);
 
     this.logger.info(

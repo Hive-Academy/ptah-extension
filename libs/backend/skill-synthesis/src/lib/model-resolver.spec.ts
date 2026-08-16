@@ -154,6 +154,75 @@ describe('resolveJudgeModel — the shipped default (Decision 1)', () => {
   });
 });
 
+/**
+ * TASK_2026_262 Batch 2, task 2.2 — the claim "skill-synthesis needs no
+ * production change", proved rather than asserted.
+ *
+ * The live-catalogue fix landed one layer down, in `auth-providers`: the tier
+ * env vars `ModelResolver.resolve` reads are now populated for the three
+ * registry entries that declare no `defaultTiers`. Nothing in this library had
+ * to move — but "nothing had to move" is only true because of a PROPERTY of the
+ * values this file hands downstream, and that property was never asserted.
+ * These cases assert it, so a future edit that broke it (say, returning a bare
+ * `'fast'` or a `gpt-*` default) would fail HERE rather than silently reopening
+ * the gap.
+ *
+ * The two halves of the proof, and why they live in two libraries:
+ *
+ *  - **Here**: the SHAPE of the value. `resolveJudgeModel`'s no-preference
+ *    answer must be a `claude-*` id carrying exactly one detectable tier word,
+ *    because that is the only shape `resolve`'s first branch remaps. A lane's
+ *    `defaultTier` must be one of the three env-mapped tier words, because that
+ *    is the only shape its second branch remaps.
+ *  - **In `auth-providers`**: that those shapes actually resolve to a catalogue
+ *    id — `model-resolver.spec.ts` ("resolves the chat path default to a
+ *    catalogue id once the tiers are applied", which asserts the pinned id
+ *    itself) for the ambient env, and `provider-auth-resolver.spec.ts`
+ *    ("live-catalogue tiers for a lane") for a lane's override env.
+ *
+ * Deliberately NOT joined into one end-to-end spec here: importing
+ * `auth-providers` from `skill-synthesis` would add a graph edge this library
+ * has gone to some trouble to avoid (`IInternalQuery`, `LaneAuthOverride` and
+ * `ILaneAuthResolver` are local structural mirrors for exactly that reason).
+ * A test-only edge is still an edge in `nx graph`.
+ */
+describe('resolveJudgeModel — the shape the downstream remap depends on', () => {
+  /**
+   * `ModelResolver.detectTierFromClaudeId` (`auth-providers/.../model-resolver.ts:212`)
+   * fires only on a `claude-`-prefixed id, and picks the first tier word it
+   * finds. Restated as a predicate rather than imported, because the import
+   * would be the graph edge.
+   */
+  const TIER_WORDS = ['opus', 'sonnet', 'haiku'] as const;
+
+  it('ships a claude-prefixed id, which is what makes the tier remap reachable', () => {
+    expect(JUDGE_DEFAULT_MODEL_ID.startsWith('claude-')).toBe(true);
+  });
+
+  it('names exactly one tier, so the remap cannot pick the wrong env var', () => {
+    const named = TIER_WORDS.filter((tier) =>
+      JUDGE_DEFAULT_MODEL_ID.toLowerCase().includes(tier),
+    );
+    expect(named).toHaveLength(1);
+  });
+
+  it('keeps that shape for every provider, including the three with no defaultTiers', () => {
+    // Generated from the registry, so an entry added tomorrow is covered the
+    // day it lands and no vendor is named by hand. The value must not vary by
+    // provider: `resolveJudgeModel` has no provider branch and must not grow
+    // one — the fix for an unservable id belongs in the tier env, not here.
+    for (const providerId of PROVIDER_IDS) {
+      const { ws } = makeWorkspace({
+        authMethod: 'thirdParty',
+        anthropicProviderId: providerId,
+      });
+      const model = resolveJudgeModel('inherit', ws);
+      expect(model).toBe(JUDGE_DEFAULT_MODEL_ID);
+      expect(model.startsWith('claude-')).toBe(true);
+    }
+  });
+});
+
 describe('resolveJudgeModel — never shadows the host s registered defaults', () => {
   it('passes NO defaultValue on any settings read', () => {
     // `PtahFileSettingsManager.get` prefers a caller-supplied default over the

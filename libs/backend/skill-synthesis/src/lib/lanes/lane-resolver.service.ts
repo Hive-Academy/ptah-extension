@@ -79,21 +79,30 @@ const JUDGE_MODEL_DEFAULT = 'inherit';
  *    a pinned dated Claude id, ON PURPOSE. `ModelResolver.resolve` detects the
  *    tier from that id and substitutes the ambient tier override
  *    (`auth-providers/.../model-resolver.ts:38-48`), so a non-Anthropic user
- *    gets their own haiku-tier model rather than this literal — **except on the
- *    three registry entries that declare no `defaultTiers` at all**. See
- *    `resolveJudgeModel`'s docblock for that boundary, for why a tier alias
- *    would not move it either, and for why the pinned id is the deliberate
- *    answer to "no preference expressed anywhere" (TASK_2026_250, Decision 1).
+ *    gets their own haiku-tier model rather than this literal. That used to
+ *    read "except on the three registry entries that declare no `defaultTiers`
+ *    at all"; since TASK_2026_262 those entries get their tier values derived
+ *    from their OWN live catalogue, so the exception is no longer about WHICH
+ *    provider but about WHETHER its catalogue has landed yet. See
+ *    `resolveJudgeModel`'s docblock for the boundary that is left, for why a
+ *    tier alias would not move it either, and for why the pinned id is the
+ *    deliberate answer to "no preference expressed anywhere" (TASK_2026_250,
+ *    Decision 1).
  *
  *  - **Line 3, a lane provider is set.** That lane gets an override env whose
  *    chat `ANTHROPIC_DEFAULT_*_MODEL` keys are BLANKED by design (R2), so a
  *    pinned dated id has no tier mapping left to travel through and would
  *    reach a non-Anthropic endpoint verbatim and 404. A BARE TIER ALIAS is the
- *    only kind of value that CAN resolve there, through the provider entry's
- *    `defaultTiers` — which is why this line returns one. It is the right kind
- *    of value, not a guarantee of a good one: on the same three entries the
- *    alias goes out verbatim too, so both branches share one boundary rather
- *    than line 2 having a weakness line 3 lacks.
+ *    only kind of value that CAN resolve there — which is why this line returns
+ *    one. What it resolves THROUGH is the lane env's own
+ *    `ANTHROPIC_DEFAULT_<TIER>_MODEL`, which `ProviderAuthResolver.buildTierValues`
+ *    rebuilds from the RESOLVED provider's persisted lane tier, then its
+ *    registry `defaultTiers`, then its live catalogue (TASK_2026_262). The last
+ *    link is why this line no longer shares line 2's old boundary: an entry
+ *    declaring no `defaultTiers` used to send the alias out verbatim here too,
+ *    and now does not, provided that provider's catalogue has been fetched at
+ *    least once. Both branches still share ONE boundary — a catalogue that has
+ *    not landed — rather than line 2 having a weakness line 3 lacks.
  *
  * Line 2 is also the untouched-existing-installs guarantee: with both
  * `provider` and `model` empty — every install that has never opened the Lanes

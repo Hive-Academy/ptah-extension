@@ -158,9 +158,12 @@ describe('resolveLaneModel — the three-line ladder', () => {
   });
 
   it('sends a BARE TIER ALIAS when a provider is set but no model is', () => {
-    // A bare alias resolves through both ANTHROPIC_DEFAULT_<TIER>_MODEL and
-    // the provider entry's defaultTiers. A pinned dated Claude id would reach
-    // a non-Anthropic endpoint verbatim and 404.
+    // A bare alias resolves through ANTHROPIC_DEFAULT_<TIER>_MODEL, and that
+    // env var is now populated for the lane's own provider even when the
+    // registry entry declares no `defaultTiers`, from that provider's live
+    // catalogue (`ProviderAuthResolver.buildTierValues`, TASK_2026_262). A
+    // pinned dated Claude id would reach a non-Anthropic endpoint verbatim
+    // and 404, because that env var is the ONLY route open on this branch.
     expect(
       resolveLaneModel(
         { ...SKILL_LANE_DEFAULTS.judge, provider: 'configured-id' },
@@ -182,6 +185,27 @@ describe('resolveLaneModel — the three-line ladder', () => {
         ws,
       ),
     ).toBe('opus');
+  });
+
+  it('ships a tier word on every lane — the shape the downstream remap needs', () => {
+    // TASK_2026_262 task 2.2. Line 3's value is only servable because
+    // `ModelResolver.resolve` maps it through ANTHROPIC_DEFAULT_<TIER>_MODEL,
+    // and it does that for exactly three literals. A lane default outside that
+    // set would be sent verbatim on every provider, not just the three with no
+    // `defaultTiers` — so this is the property that makes "skill-synthesis
+    // needed no production change" true, asserted rather than assumed.
+    const ENV_MAPPED_TIERS = ['opus', 'sonnet', 'haiku'];
+    for (const [laneId, config] of Object.entries(SKILL_LANE_DEFAULTS)) {
+      const model = resolveLaneModel(
+        { ...config, provider: 'configured-id' },
+        'inherit',
+        ws,
+      );
+      expect([laneId, ENV_MAPPED_TIERS.includes(model)]).toEqual([
+        laneId,
+        true,
+      ]);
+    }
   });
 
   it('returns no hardcoded model id of its own on any branch', () => {

@@ -93,35 +93,54 @@ function readSetting(ws: IWorkspaceProvider, key: string): string {
  * chose for this work. Do not "fix" it into a tier alias — that has been
  * considered and declined (TASK_2026_250, Decision 1).
  *
- * ## The boundary of that remapping — and why NO value here moves it
+ * ## The boundary of that remapping — where it USED to end, and where it ends now
  *
  * State this honestly, because a rationale that claims more than it delivers is
  * worse than no rationale. The substitution happens only where the active
- * provider has a tier mapping at all. It always does, EXCEPT on the three
- * `ANTHROPIC_PROVIDERS` entries that declare no `defaultTiers` — `openrouter`,
- * `lm-studio` and `requesty`, each for a documented reason (a 200-model dynamic
- * catalogue; a local server holding whatever model the user loaded; a tier map
- * Requesty's own docs contradict, `requesty-provider-entry.ts:19-23`). On those,
- * `claude-haiku-4-5-20251001` reaches the endpoint verbatim.
+ * provider has a tier mapping at all. Until TASK_2026_262 that meant: always,
+ * EXCEPT on the three `ANTHROPIC_PROVIDERS` entries that declare no
+ * `defaultTiers` — `openrouter`, `lm-studio` and `requesty`, each for a
+ * documented reason (a 200-model dynamic catalogue; a local server holding
+ * whatever model the user loaded; a tier map Requesty's own docs contradict,
+ * `requesty-provider-entry.ts:19-23`). On those,
+ * `claude-haiku-4-5-20251001` reached the endpoint verbatim.
  *
- * **The reflex fix — fall back to the bare `'haiku'` alias instead — buys
- * nothing here, and that is a code fact rather than an opinion.** The alias
- * resolves through the same `defaultTiers` (`ModelResolver.resolve`'s
- * `isModelTier` branch, `auth-providers/.../model-resolver.ts:77-86`), so on a
- * provider that declares none it is returned verbatim TOO. Both fallbacks are
- * equally unservable on exactly the providers that are exposed. Pinned by
- * `auth-providers/src/lib/auth/model-resolver.spec.ts`
- * ("tier values with nothing left to resolve them"), so nobody has to take this
- * paragraph's word for it. Decision 1 is therefore not what is holding the gap
- * open, and reversing it would not close it.
+ * **That is now fixed, one layer down, and this function did not change.**
+ * The tier env var both branches of `ModelResolver.resolve` read is populated
+ * from the provider's OWN live catalogue when neither a user pick nor a
+ * registry `defaultTiers` map supplies it
+ * (`auth-providers/src/lib/model-tier-derivation.ts`, applied by
+ * `ProviderModelsService.applyPersistedTiers` for the ambient env and by
+ * `ProviderAuthResolver.buildTierValues` for a lane's). So the pinned id above
+ * is remapped on all eleven entries, not eight — which is exactly why
+ * `resolveJudgeModel` needed no production change and why "fetching the live
+ * model list is not this function's job" is still true without being an excuse.
+ * `requesty-provider-entry.ts`'s "tiers come from the live model list instead"
+ * is now implemented rather than aspirational.
  *
- * Nor is this path where the gap shows up first. The FOREGROUND CHAT has it
- * identically: `chat-session.service.ts:418` substitutes `'default'` for an
- * empty `selectedModel`, and on such a provider `resolve` turns that into a
- * bare `'opus'` and sends it. The gap belongs to dynamic-catalogue providers,
- * not to skill synthesis, and closing it needs the provider's LIVE model list —
- * which is what `requesty-provider-entry.ts` says tiers should come from. That
- * is a `ProviderModelsService` change and its own carrier.
+ * Two things that did NOT change with it, and must not be read as closed:
+ *  - **The remap is not instantaneous.** It needs a catalogue on hand — the
+ *    in-memory cache or the copy persisted at `provider.<id>.modelCatalog`. In
+ *    the window before the first fetch lands, or on a provider whose catalogue
+ *    could not be fetched at all, the pinned id still goes out verbatim and
+ *    `ModelResolver` logs its one-time warn. Transient rather than permanent,
+ *    which is the whole difference, but not zero.
+ *  - **The reflex fix — fall back to the bare `'haiku'` alias instead — still
+ *    buys nothing here, and that is still a code fact rather than an opinion.**
+ *    Both values enter the SAME env var (`:43` for a dated id, `:57` for an
+ *    alias), so whatever populates it closes both together and whatever leaves
+ *    it empty leaves both verbatim. Pinned by
+ *    `auth-providers/src/lib/auth/model-resolver.spec.ts`
+ *    ("tier values with nothing left to resolve them"), so nobody has to take
+ *    this paragraph's word for it. Decision 1 was never what held the gap open,
+ *    and reversing it would not have closed it.
+ *
+ * Nor was this path where the gap showed up first. The FOREGROUND CHAT had it
+ * identically — `chat-session.service.ts:418` substitutes `'default'` for an
+ * empty `selectedModel`, and on such a provider `resolve` turned that into a
+ * bare `'opus'` and sent it. It was a gap belonging to dynamic-catalogue
+ * providers rather than to skill synthesis, which is why it was closed in
+ * `auth-providers` and why closing it took nothing from this library.
  *
  * Two things this docblock used to leave open, now settled:
  *  - **`applyPersistedTiers` DOES run on every third-party activation path.**
@@ -137,10 +156,13 @@ function readSetting(ws: IWorkspaceProvider, key: string): string {
  *    deliberately an empty auth env) are unaffected either way: the pinned id is
  *    correct verbatim against Anthropic's own endpoint.
  *
- * Decision 1 stands, and its safety argument now has one stated boundary rather
- * than two: three providers on which no static value — pinned id, tier alias, or
- * anything else — resolves. A one-time `logger.warn` in `ModelResolver` makes
- * that case legible instead of silent; it is a diagnostic, not a fallback.
+ * Decision 1 stands, and after TASK_2026_262 its safety argument has no
+ * PROVIDER-shaped boundary left at all — no entry is permanently unable to
+ * remap a tier. What remains is a TIMING boundary: a provider whose catalogue
+ * has not landed yet, or could not be fetched. The one-time `logger.warn` in
+ * `ModelResolver` makes that case legible instead of silent; it is a
+ * diagnostic, not a fallback, and it was deliberately not narrowed, because it
+ * is now the only signal for the window that is left.
  */
 export function resolveJudgeModel(
   judgeModel: string,

@@ -38,7 +38,7 @@ function asConfig(mock: MockConfigManager): ConfigManager {
 
 type ProviderModelsSurface = Pick<
   ProviderModelsService,
-  'resolveActiveProviderId' | 'getModelTiers'
+  'resolveActiveProviderId' | 'getModelTiers' | 'getLiveDerivedTiers'
 >;
 
 type TierMap = Partial<Record<'sonnet' | 'opus' | 'haiku', string>>;
@@ -56,6 +56,8 @@ interface Harness {
   copilotRestore: jest.Mock;
   /** Records the `(providerId, scope)` pairs the resolver read tiers for. */
   getModelTiers: jest.Mock;
+  /** Records which providers the resolver asked for a live-catalogue derivation. */
+  getLiveDerivedTiers: jest.Mock;
 }
 
 function createHarness(opts: {
@@ -71,6 +73,13 @@ function createHarness(opts: {
    * user has pinned anything.
    */
   tierOverrides?: Record<string, Partial<Record<ProviderTierScope, TierMap>>>;
+  /**
+   * What `ProviderModelsService.getLiveDerivedTiers` returns per provider — the
+   * tiers that provider's OWN catalogue implies. Absent means `{}`, which is
+   * what a provider with no catalogue on hand yields and what every case
+   * written before TASK_2026_262 assumed.
+   */
+  derivedTiers?: Record<string, TierMap>;
 }): Harness {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: opts.configValues ?? {} });
@@ -89,9 +98,13 @@ function createHarness(opts: {
       };
     },
   );
+  const getLiveDerivedTiers = jest.fn(
+    (providerId: string) => opts.derivedTiers?.[providerId] ?? {},
+  );
   const providerModels: ProviderModelsSurface = {
     resolveActiveProviderId: jest.fn(() => opts.activeProviderId),
     getModelTiers,
+    getLiveDerivedTiers,
   };
 
   const ensureProxy = jest.fn(async () => ({
@@ -136,6 +149,7 @@ function createHarness(opts: {
     copilotAuthed,
     copilotRestore,
     getModelTiers,
+    getLiveDerivedTiers,
   };
 }
 
@@ -682,5 +696,110 @@ describe('ProviderAuthResolver — tier scope (TASK_2026_180)', () => {
     await resolver.resolve('moonshot', 'lane');
 
     expect({ ...process.env }).toEqual(before);
+  });
+});
+
+/**
+ * TASK_2026_262 Batch 2, task 2.2 — the link the chat-path fix could NOT reach.
+ *
+ * Batch 1 closed the foreground gap by giving `applyPersistedTiers` a third
+ * precedence link and writing the result into the global `authEnv` +
+ * `process.env`. `buildLaneEnv` blanks every one of `ALL_TIER_ENV_KEYS` out of
+ * the ambient env on purpose, so that fix arrives here only to be deleted — a
+ * background lane pinned to a provider with no `defaultTiers` still had no tier
+ * mapping at all, and `SdkQueryRunner` resolves the lane's model against THIS
+ * env (`sdk-query-runner.service.ts:292-295`). These lock in that the resolved
+ * provider's own catalogue now supplies it, without weakening the strip.
+ */
+describe('ProviderAuthResolver — live-catalogue tiers for a lane (TASK_2026_262)', () => {
+  const ORIGINAL_ENV = process.env;
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  /** The case lanes exist for: background work moved off the paid quota. */
+  it('gives a lane on a no-defaultTiers provider a tier mapping from that provider’s own catalogue', async () => {
+    expect(getAnthropicProvider('lm-studio')?.defaultTiers).toBeUndefined();
+
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      derivedTiers: {
+        'lm-studio': {
+          opus: 'qwen3-coder-30b',
+          sonnet: 'qwen3-coder-30b',
+          haiku: 'gemma-3-12b',
+        },
+      },
+    });
+
+    const result = await resolver.resolve('lm-studio', 'lane');
+
+    // `resolveLaneModel` returns the bare alias for a lane that names a
+    // provider; this is the value that alias now resolves through.
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gemma-3-12b');
+    expect(result?.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('qwen3-coder-30b');
+  });
+
+  it('lets the lane-scoped user override outrank the catalogue, and the registry map outrank it too', async () => {
+    // Same precedence as the chat path and the profile resolver:
+    // user tier > registry defaultTiers > live catalogue. One order, three
+    // writers.
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+      tierOverrides: { moonshot: { lane: { haiku: 'lane-haiku' } } },
+      derivedTiers: {
+        moonshot: { haiku: 'catalogue-haiku', sonnet: 'catalogue-sonnet' },
+      },
+    });
+
+    const result = await resolver.resolve('moonshot', 'lane');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('lane-haiku');
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
+      getAnthropicProvider('moonshot')?.defaultTiers?.sonnet,
+    );
+  });
+
+  it('never reaches for a catalogue when the static data already covers every tier', async () => {
+    // Bounded work, and the reason the derivation is consulted lazily: moonshot
+    // declares all three tiers, so there is no hole to fill.
+    const { resolver, getLiveDerivedTiers } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'moon-key' },
+    });
+
+    await resolver.resolve('moonshot', 'lane');
+
+    expect(getLiveDerivedTiers).not.toHaveBeenCalled();
+  });
+
+  it('still leaves the tier absent when the provider has no catalogue either', async () => {
+    // `{}` is a complete answer. The pre-262 behaviour is exactly what an
+    // unreadable catalogue degrades to — never a fabricated id.
+    const { resolver } = createHarness({ activeProviderId: 'anthropic' });
+
+    const result = await resolver.resolve('lm-studio', 'lane');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
+  });
+
+  it('derives from the RESOLVED provider, never the active chat one', async () => {
+    // The whole point of the strip. If this ever reads the chat provider's
+    // catalogue, a lane pinned to LM Studio gets OpenRouter's model ids.
+    const { resolver, getLiveDerivedTiers } = createHarness({
+      activeProviderId: 'openrouter',
+      derivedTiers: {
+        openrouter: { haiku: 'anthropic/claude-haiku-4.5' },
+        'lm-studio': { haiku: 'gemma-3-12b' },
+      },
+    });
+
+    const result = await resolver.resolve('lm-studio', 'lane');
+
+    expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gemma-3-12b');
+    expect(getLiveDerivedTiers).toHaveBeenCalledWith('lm-studio');
+    expect(getLiveDerivedTiers).not.toHaveBeenCalledWith('openrouter');
   });
 });

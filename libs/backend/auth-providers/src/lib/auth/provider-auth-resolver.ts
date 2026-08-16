@@ -8,7 +8,11 @@ import {
 import { ALL_TIER_ENV_KEYS } from '@ptah-extension/agent-sdk';
 import type { OneShotAuthOverride } from '@ptah-extension/agent-sdk';
 import type { IProviderAuthResolver } from '@ptah-extension/agent-sdk';
-import type { AuthEnv, ProviderTierScope } from '@ptah-extension/shared';
+import type {
+  AuthEnv,
+  ProviderModelTier,
+  ProviderTierScope,
+} from '@ptah-extension/shared';
 import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
@@ -18,6 +22,7 @@ import {
 } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
+import type { DerivedTierMap } from '../model-tier-derivation';
 import { CuratorProxyManager } from './curator-proxy-manager';
 import { ProviderAuthError } from './provider-auth.error';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
@@ -245,12 +250,38 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
    * The resolved provider's tier mapping, read the same way the main agent
    * reads its own (`ProviderModelsService.applyPersistedTiers`): the user's
    * persisted override for `scope` wins, the provider entry's `defaultTiers`
-   * back it, and an unmapped tier stays absent.
+   * back it, the provider's own live catalogue backs THAT, and a tier none of
+   * the three can justify stays absent.
    *
-   * Reading the override matters because it is the only place a provider
-   * without `defaultTiers` can get a haiku tier at all, and because a user who
-   * remapped haiku expects the caller to follow that remap rather than the
-   * snapshot frozen into the provider entry at release time.
+   * Reading the override matters because a user who remapped haiku expects the
+   * caller to follow that remap rather than the snapshot frozen into the
+   * provider entry at release time.
+   *
+   * ## The live-catalogue link, and why this file needed its own (TASK_2026_262)
+   *
+   * That third link is NOT inherited from the chat path, and assuming it was is
+   * the mistake this comment exists to stop. `applyPersistedTiers` writes the
+   * global `authEnv` + `process.env`; {@link buildLaneEnv} then blanks every one
+   * of `ALL_TIER_ENV_KEYS` out of the ambient env by design, precisely so a
+   * background run cannot inherit the chat provider's mapping. So the chat
+   * fix reaches this path only to be deleted by it, and the values here have to
+   * be derived again from the RESOLVED provider's own catalogue.
+   *
+   * Without it, the case lanes exist for was the broken one: a user on direct
+   * Anthropic who points the judge lane at `openrouter` to keep background work
+   * off their paid quota. `resolveLaneModel` returns a bare tier alias for a
+   * lane that names a provider (`lane-resolver.service.ts:110`), that alias is
+   * resolved against THIS env by `SdkQueryRunner.buildOneShotOptions`
+   * (`sdk-query-runner.service.ts:292-295`), and with no tier value here the
+   * literal word `haiku` reached the endpoint. `openrouter`, `lm-studio` and
+   * `requesty` declare no `defaultTiers`, which is exactly why the derivation
+   * exists.
+   *
+   * `getLiveDerivedTiers` is a synchronous, global-inert read of the catalogue
+   * the provider itself returned — the SAME function the chat path and the
+   * per-workspace profile resolver use, so all three agree on what a tier
+   * means. It writes nothing; only `setModelTier` on the `mainAgent` scope
+   * does that, and this file never calls it.
    *
    * `scope` selects WHICH persisted mapping. `'lane'` reads
    * `provider.<id>.lane.modelTier.<tier>`; with nothing persisted every tier
@@ -290,10 +321,18 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     const defaults = getAnthropicProvider(providerId)?.defaultTiers;
     const overrides = this.providerModels.getModelTiers(providerId, scope);
 
+    // Lazy: a provider whose static data covers all three tiers never reads a
+    // catalogue at all.
+    let derived: DerivedTierMap | undefined;
+    const derivedFor = (tier: ProviderModelTier): string | undefined => {
+      derived ??= this.providerModels.getLiveDerivedTiers(providerId);
+      return derived[tier];
+    };
+
     const tiers: AuthEnv = {};
-    const sonnet = overrides.sonnet ?? defaults?.sonnet;
-    const opus = overrides.opus ?? defaults?.opus;
-    const haiku = overrides.haiku ?? defaults?.haiku;
+    const sonnet = overrides.sonnet ?? defaults?.sonnet ?? derivedFor('sonnet');
+    const opus = overrides.opus ?? defaults?.opus ?? derivedFor('opus');
+    const haiku = overrides.haiku ?? defaults?.haiku ?? derivedFor('haiku');
     if (sonnet) tiers.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
     if (opus) tiers.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
     if (haiku) tiers.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;

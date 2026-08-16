@@ -27,8 +27,12 @@ import {
   updatePricingMap,
   type AuthEnv,
 } from '@ptah-extension/shared';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
+import { createMockConfigManager } from '@ptah-extension/vscode-core/testing';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 import { ModelResolver } from './model-resolver';
+import { ProviderModelsService } from '../provider-models.service';
+import { ActiveProviderResolver } from './active-provider-resolver';
 
 /** Published rates for the slugs these specs exercise. */
 const CATALOG = {
@@ -167,7 +171,8 @@ describe('ModelResolver', () => {
   });
 
   /**
-   * Where a TIER-SHAPED value stops resolving (TASK_2026_250 follow-up A).
+   * Where a TIER-SHAPED value stops resolving, and what now un-stops it
+   * (TASK_2026_250 follow-up A, amended by TASK_2026_262).
    *
    * `skill-synthesis` documents its "inherit" fallback as safe because
    * `resolve` remaps a dated `claude-*` id to the active provider's tier
@@ -181,9 +186,19 @@ describe('ModelResolver', () => {
    *     `ProviderModelsService.switchActiveProvider` — so this is a shape, not
    *     a live defect.)
    *  2. A provider that declares no `defaultTiers` resolves NEITHER a dated id
-   *     NOR a bare tier alias. This is the load-bearing one: it refutes
-   *     "swap the pinned id for a tier alias" as a fix, because on exactly the
-   *     providers that are exposed the alias is sent verbatim too.
+   *     NOR a bare tier alias from STATIC data. That was TASK_2026_250's
+   *     load-bearing finding: it refuted "swap the pinned id for a tier alias"
+   *     as a fix, because on exactly the providers that are exposed the alias
+   *     is sent verbatim too.
+   *
+   * TASK_2026_262 did not change either branch of `resolve`. It changed what
+   * is in the env by the time `resolve` reads it: `applyPersistedTiers` now
+   * falls through to tiers derived from the catalogue the provider itself
+   * returned, so both branches find a real model id where they used to find
+   * nothing. The verbatim behaviour below is therefore still exactly what this
+   * function does — but it now describes a TRANSIENT state (no catalogue
+   * fetched yet, or the fetch failed) rather than a permanent one, and the
+   * last case in this block is the proof that the state is transient.
    */
   describe('tier values with nothing left to resolve them', () => {
     /** `JUDGE_DEFAULT_MODEL_ID`, restated — skill-synthesis is not importable here. */
@@ -238,15 +253,39 @@ describe('ModelResolver', () => {
       ).toBeDefined();
     });
 
-    it('sends a bare tier alias verbatim when the provider declares no defaultTiers', () => {
-      // The refutation of "just fall back to a tier alias instead". On the
-      // exposed providers the alias is no more servable than the pinned id.
+    it('sends a bare tier alias verbatim while the tier env var is still empty', () => {
+      // TASK_2026_250 characterization, rewritten by TASK_2026_262.
+      //
+      // It used to be named "sends a bare tier alias verbatim when the
+      // provider declares no defaultTiers", and it asserted this as the
+      // permanent, unfixable end state — the refutation of "just fall back to
+      // a tier alias instead", since on the exposed providers the alias was no
+      // more servable than the pinned id.
+      //
+      // The assertion is unchanged because the fix is one layer below this
+      // function: `resolve` still has nothing to work with when the tier env
+      // var is empty, and that is worth keeping pinned. What changed is the
+      // claim around it. Emptiness is no longer the steady state for a
+      // no-`defaultTiers` provider — `applyPersistedTiers` fills it from the
+      // live catalogue — so this now characterises the window before the first
+      // catalogue lands, which is precisely the residual hole TASK_2026_262
+      // measured rather than the permanent gap it was filed as.
       expect(withLogger(openRouterEnv()).resolver.resolve('haiku')).toBe(
         'haiku',
       );
     });
 
-    it('sends a dated claude id verbatim there too — the two fallbacks are equally unresolved', () => {
+    it('sends a dated claude id verbatim in that same window — both branches read the one env var', () => {
+      // TASK_2026_250 characterization, rewritten by TASK_2026_262. It used to
+      // be titled "...the two fallbacks are equally unresolved" and existed to
+      // show that swapping the pinned id for an alias bought nothing.
+      //
+      // Still true, and now for a reason worth stating: the two branches share
+      // a single input. `resolve('haiku')` reads ANTHROPIC_DEFAULT_HAIKU_MODEL
+      // at `:57` and the dated id reads the same var at `:43`, so whatever
+      // populates it closes both at once. That is why the live-catalogue fix
+      // needed no change here and why it reaches the pinned judge id, the lane
+      // alias and the chat path's `'default'` together.
       expect(
         withLogger(openRouterEnv()).resolver.resolve(PINNED_CLAUDE_ID),
       ).toBe(PINNED_CLAUDE_ID);
@@ -300,6 +339,76 @@ describe('ModelResolver', () => {
       expect(resolver.resolve(PINNED_CLAUDE_ID)).toBe(PINNED_CLAUDE_ID);
       expect(resolver.resolve('haiku')).toBe('haiku');
       expect(warn).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The closure, end to end (TASK_2026_262).
+     *
+     * The two cases above characterise `resolve` in isolation, which is where
+     * TASK_2026_250 had to stop. This one wires the real collaborator in:
+     * `ProviderModelsService` and `ModelResolver` are handed the SAME `AuthEnv`
+     * object — that is how the container binds it
+     * (`di/register.ts:37-40` uses `registerInstance`, one shared instance) —
+     * so a tier written out of band is visible to a resolver that was
+     * constructed before it.
+     *
+     * Without that shared-object property the whole approach fails silently,
+     * and no unit test of either class on its own would notice.
+     */
+    it('resolves the chat path default to a catalogue id once the tiers are applied', () => {
+      const CATALOG = [
+        {
+          id: 'anthropic/claude-opus-4.5',
+          name: 'Claude Opus 4.5',
+          description: 'Frontier model',
+          contextLength: 200_000,
+          supportsToolUse: true,
+        },
+        {
+          id: 'anthropic/claude-haiku-4.5',
+          name: 'Claude Haiku 4.5',
+          description: 'Fast model',
+          contextLength: 200_000,
+          supportsToolUse: true,
+        },
+      ];
+      const configValues = {
+        'provider.openrouter.modelCatalog': { models: CATALOG, timestamp: 1 },
+      };
+      const config = createMockConfigManager({ values: configValues });
+      const scope = {
+        read: <T>(key: string): T | undefined =>
+          (configValues as Record<string, unknown>)[key] as T | undefined,
+      } as unknown as WorkspaceScopeResolver;
+
+      // One env object, shared — exactly as the DI container binds it.
+      const env = openRouterEnv();
+      const models = new ProviderModelsService(
+        makeLogger(),
+        config as unknown as ConfigManager,
+        env,
+        new ActiveProviderResolver(scope),
+      );
+      const resolver = new ModelResolver(makeLogger(), env);
+
+      // Before: `chat-session.service.ts:418` substitutes `'default'` for an
+      // empty selection, `'default'` recurses to `'opus'`, and `'opus'` is
+      // what the endpoint gets.
+      expect(resolver.resolve('default')).toBe('opus');
+
+      models.applyPersistedTiers('openrouter');
+
+      expect(resolver.resolve('default')).toBe('anthropic/claude-opus-4.5');
+      expect(resolver.resolve('haiku')).toBe('anthropic/claude-haiku-4.5');
+      expect(resolver.resolve(PINNED_CLAUDE_ID)).toBe(
+        'anthropic/claude-haiku-4.5',
+      );
+
+      for (const tier of ['OPUS', 'SONNET', 'HAIKU']) {
+        delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL`];
+        delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_NAME`];
+        delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_DESCRIPTION`];
+      }
     });
   });
 });
