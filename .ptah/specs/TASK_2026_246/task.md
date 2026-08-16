@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_246
 status: backlog
-type: refactoring
+type: REFACTORING
 title: >-
   Humanize agent-generation — repair its missing compile gate, then split four
   god files behind an unchanged facade

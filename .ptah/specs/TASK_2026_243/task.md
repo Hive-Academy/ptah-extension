@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_243
 status: in_review
-type: bugfix
+type: BUGFIX
 title: >-
   Fix the `[value]`-without-`[selected]` select binding that silently
   discards a pre-set value

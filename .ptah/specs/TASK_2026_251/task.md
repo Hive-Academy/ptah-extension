@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_251
 status: backlog
-type: bugfix
+type: BUGFIX
 title: >-
   Two Electron DI risk guards are red — PTY_HOST and APP_UPDATER cannot resolve
   because chat services register before output styles

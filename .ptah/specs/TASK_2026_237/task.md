@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_237
 status: done
-type: feature
+type: FEATURE
 title: Wire Tribunal Relay and Crucible moves into the panel UI
 description: >-
   Relay and Crucible ship as markdown-only moves in the ptah-core tribunal skill.

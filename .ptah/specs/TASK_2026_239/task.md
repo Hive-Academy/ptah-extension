@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_239
 status: done
-type: documentation
+type: DOCUMENTATION
 title: Publish the Crucible move and the five-move Tribunal docs
 description: >-
   apps/ptah-docs/src/content/docs/tribunal/ still documents four moves. It has no

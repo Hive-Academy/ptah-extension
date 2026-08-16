@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_245
 status: backlog
-type: feature
+type: FEATURE
 title: >-
   Give the replay gate a production producer — decide whether a cluster draft
   becomes a candidate row

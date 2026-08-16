@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_238
 status: in_review
-type: bugfix
+type: BUGFIX
 title: Fix codex and opencode native binary path resolution
 description: >-
   resolveCodexNativeBinary() builds every candidate with a hardcoded

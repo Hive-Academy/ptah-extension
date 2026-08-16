@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_250
 status: in_review
-type: bugfix
+type: BUGFIX
 title: >-
   The judge lane's inherit branch still falls back to a pinned Claude id, the
   one shape TASK_2026_159 removed from the curator

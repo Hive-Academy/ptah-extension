@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_247
 status: in_review
-type: bugfix
+type: BUGFIX
 title: >-
   A config change denies every pending permission in every session, and the
   agent cannot tell that abort from a real user deny

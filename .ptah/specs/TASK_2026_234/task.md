@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_234
 status: in_review
-type: bugfix
+type: BUGFIX
 title: 'Six TUI defects found by the TASK_2026_198 logic review'
 description: >-
   Six defects in apps/ptah-tui carried forward from the 2026-08-11 handoff

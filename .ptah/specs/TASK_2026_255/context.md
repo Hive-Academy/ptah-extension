@@ -96,3 +96,42 @@ carrier rule — never a whole-file `Write`.
 - The sixteen carriers listed above render a type on the board.
 - Whatever is decided about `status`, it is stated here with evidence rather
   than left open.
+
+## Answer on `status`: same exposure, worse consequence — normalized too
+
+Checked rather than assumed. `status` has the identical case-sensitivity, and
+the fix normalizes it alongside `type`.
+
+**Evidence.** The two fields really are parsed by different code, but both by a
+case-sensitive `z.enum`:
+
+- `type` — `z.enum(TASK_TYPES)` inline at `task-frontmatter.ts:320` (pre-fix).
+- `status` — `STATUS_SCHEMA = z.enum(TASK_STATUSES)` at `task-frontmatter.ts:115`,
+  applied at `:270` (pre-fix).
+
+`TASK_STATUSES` is lowercase (`task-spec.types.ts:13-20`) while `TASK_TYPES` is
+uppercase (`:23-32`) — the two tuples shout in OPPOSITE directions, so the
+narrowing has to fold toward each tuple's own casing rather than uppercasing
+both.
+
+**The consequence differs in kind, and it is the worse one.** `status` is an
+ESSENTIAL field: a miss returns
+`{ kind: 'excluded', excluded: { folderName, reason: 'invalid_status' } }` at
+`task-frontmatter.ts:274`, so a carrier declaring `status: Backlog` does not
+warn — it leaves the board entirely, along with everything the board feeds. A
+`type` miss only costs a badge and raises the amber triangle.
+
+**Not yet fired.** A sweep of every `status:` line under `.ptah/specs` returns
+only the six lowercase members, so no task is invisible today. That is luck of
+convention, not a guard: `type` shows what happens once hand-authoring drifts,
+and it drifted sixteen times.
+
+**Decision: normalize both**, through one shared helper
+(`libs/backend/task-specs/src/lib/task-enum-narrowing.ts`) that the parser and
+the doctor now both call. A genuinely unrecognised value keeps its old
+behaviour exactly — `invalid_type` warns, `invalid_status` still excludes.
+
+**Postscript, unplanned.** By the time the fix landed, eight carriers newer than
+the audited sixteen (`256`–`263`) had already been hand-authored with lowercase
+types. They were left as written: they parse correctly now, and they are the
+plainest evidence that a shouting convention was never going to hold on its own.

@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_248
 status: done
-type: documentation
+type: DOCUMENTATION
 title: >-
   Rewrite the skill-synthesis docs section against what TASK_2026_180 actually
   shipped, and say plainly what runs without asking

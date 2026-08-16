@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_241
 status: backlog
-type: feature
+type: FEATURE
 title: Unified installed-inventory surface for the Marketplace
 description: >-
   Every Marketplace provider surface reads only its own installed list —

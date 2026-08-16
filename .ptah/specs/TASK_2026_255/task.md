@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_255
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Sixteen carriers show a false "no type" warning because the parser matches

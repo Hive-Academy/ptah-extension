@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_240
 status: in_review
-type: devops
+type: DEVOPS
 title: Enforce content-manifest.json regeneration in CI
 description: >-
   scripts/generate-content-manifest.js exists, works, and says "Run before each

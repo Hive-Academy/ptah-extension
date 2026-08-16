@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_235
 status: in_review
-type: refactoring
+type: REFACTORING
 title: 'Rebuild the TUI keymap on Gemini CLI conventions and seed a configured pty fixture'
 description: >-
   Four TUI chords sat directly on readline line-editing defaults — Ctrl+E
