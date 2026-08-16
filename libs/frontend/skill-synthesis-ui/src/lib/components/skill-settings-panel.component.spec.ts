@@ -93,6 +93,8 @@ function settingsForm(): FormGroup {
       nightlyCronExpr: [''],
       weeklyCronExpr: [''],
       maxItemsPerRun: [4],
+      nightlyMaxItemsPerRun: [40],
+      weeklyMaxItemsPerRun: [400],
       perWorkspaceBatch: [1],
       foregroundBackoffMs: [300_000],
       pauseOnBattery: [true],
@@ -326,6 +328,8 @@ describe('SkillSettingsPanelComponent', () => {
       ['skills-drain-nightly-cron-expr', 'drain.nightlyCronExpr'],
       ['skills-drain-weekly-cron-expr', 'drain.weeklyCronExpr'],
       ['skills-drain-max-items-per-run', 'drain.maxItemsPerRun'],
+      ['skills-drain-nightly-max-items-per-run', 'drain.nightlyMaxItemsPerRun'],
+      ['skills-drain-weekly-max-items-per-run', 'drain.weeklyMaxItemsPerRun'],
       ['skills-drain-per-workspace-batch', 'drain.perWorkspaceBatch'],
       ['skills-drain-max-attempts', 'drain.maxAttempts'],
       ['skills-drain-stale-claim-ttl-ms', 'drain.staleClaimTtlMs'],
@@ -420,6 +424,51 @@ describe('SkillSettingsPanelComponent', () => {
       input.dispatchEvent(new Event('input'));
 
       expect(form.get('budget.maxTokensPerDay')?.value).toBe(500000);
+    });
+
+    it('writes the weekly item cap back to its own control, not the frequent one', () => {
+      const form = settingsForm();
+      const { el } = render({ form });
+
+      const input = el.querySelector<HTMLInputElement>(
+        '[data-testid="skills-drain-weekly-max-items-per-run"]',
+      );
+      if (!input) throw new Error('weekly item cap input not found');
+      input.value = '250';
+      input.dispatchEvent(new Event('input'));
+
+      expect(form.get('drain.weeklyMaxItemsPerRun')?.value).toBe(250);
+      // The frequent tier is a DIFFERENT setting since TASK_2026_180 B0.10 —
+      // editing one must not move the other.
+      expect(form.get('drain.maxItemsPerRun')?.value).toBe(4);
+    });
+
+    it('names the tier in every item-cap label — one number never governed all three', () => {
+      const { el } = render();
+
+      /** The `<span>` caption of the `<label>` wrapping a knob's input. */
+      const captionOf = (testId: string): string => {
+        const input = el.querySelector<HTMLInputElement>(
+          `[data-testid="${testId}"]`,
+        );
+        if (!input) throw new Error(`${testId} not found`);
+        return (
+          input.closest('label')?.querySelector('span')?.textContent?.trim() ??
+          ''
+        );
+      };
+
+      // The literal defect from TASK_2026_242: a bare "Max items per run" read
+      // as authoritative for all three tiers while the nightly tier ignored it.
+      expect(captionOf('skills-drain-max-items-per-run')).toBe(
+        'Max items per run (frequent tier)',
+      );
+      expect(captionOf('skills-drain-nightly-max-items-per-run')).toBe(
+        'Max items per run (nightly tier)',
+      );
+      expect(captionOf('skills-drain-weekly-max-items-per-run')).toBe(
+        'Max items per run (weekly tier)',
+      );
     });
   });
 

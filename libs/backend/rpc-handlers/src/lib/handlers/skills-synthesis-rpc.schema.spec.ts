@@ -99,6 +99,8 @@ const validFull = {
   'drain.nightlyCronExpr': '0 3 * * *',
   'drain.weeklyCronExpr': '0 4 * * 0',
   'drain.maxItemsPerRun': 4,
+  'drain.nightlyMaxItemsPerRun': 40,
+  'drain.weeklyMaxItemsPerRun': 400,
   'drain.perWorkspaceBatch': 1,
   'drain.foregroundBackoffMs': 300000,
   'drain.pauseOnBattery': true,
@@ -189,6 +191,8 @@ describe('SkillSynthesisSettingsSchema', () => {
           'drain.nightlyCronExpr',
           'drain.weeklyCronExpr',
           'drain.maxItemsPerRun',
+          'drain.nightlyMaxItemsPerRun',
+          'drain.weeklyMaxItemsPerRun',
           'drain.perWorkspaceBatch',
           'drain.foregroundBackoffMs',
           'drain.pauseOnBattery',
@@ -281,6 +285,68 @@ describe('SkillSynthesisSettingsSchema', () => {
       });
       expect(result['drain.maxItemsPerRun']).toBe(8);
       expect(result['budget.maxTokensPerDay']).toBe(1_500_000);
+    });
+
+    /**
+     * The per-tier item caps (TASK_2026_242).
+     *
+     * The three caps deliberately do NOT share bounds. `drain.maxItemsPerRun`
+     * is `.max(100)` because the frequent tier fires ~96 times a day; the
+     * nightly and weekly tiers fire once a day and once a week and ship
+     * defaults of 40 and 400. Reusing `.max(100)` here would reject the shipped
+     * weekly default outright, so the ceilings keep the SAME 25× head-room the
+     * frequent cap already encodes (100 / 4): 1_000 nightly, 10_000 weekly.
+     *
+     * The single most important assertion below is that 400 PARSES — that is
+     * the exact value the copied `.max(100)` would have refused, which is what
+     * made surfacing these keys a wiring task rather than a one-liner.
+     */
+    it('parses the shipped per-tier item caps (40 nightly, 400 weekly)', () => {
+      const result = SkillSynthesisSettingsSchema.parse(validFull);
+      expect(result['drain.nightlyMaxItemsPerRun']).toBe(40);
+      expect(result['drain.weeklyMaxItemsPerRun']).toBe(400);
+    });
+
+    // `0` is not "off" for an item cap — `skillSynthesis.enabled` is the stop
+    // switch. A `0` here drains nothing while the panel shows a configured tier.
+    it.each([
+      ['nightly', 'drain.nightlyMaxItemsPerRun'],
+      ['weekly', 'drain.weeklyMaxItemsPerRun'],
+    ])(
+      'rejects a %s per-run item budget of 0, which would drain nothing',
+      (_tier, key) => {
+        expect(() =>
+          SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: 0 }),
+        ).toThrow();
+      },
+    );
+
+    // Ceiling + 1 at the 25×-head-room ceilings. These also fail loudly if
+    // someone re-narrows either tier back to `.max(100)`, because the shipped
+    // 400 default in `validFull` would stop parsing at all.
+    it.each([
+      ['nightly', 'drain.nightlyMaxItemsPerRun', 1_000, 1_001],
+      ['weekly', 'drain.weeklyMaxItemsPerRun', 10_000, 10_001],
+    ])(
+      'accepts the %s ceiling and rejects one above it',
+      (_tier, key, ceiling, over) => {
+        expect(() =>
+          SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: ceiling }),
+        ).not.toThrow();
+        expect(() =>
+          SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: over }),
+        ).toThrow();
+      },
+    );
+
+    it('coerces per-tier item caps arriving as numeric strings', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'drain.nightlyMaxItemsPerRun': '60',
+        'drain.weeklyMaxItemsPerRun': '500',
+      });
+      expect(result['drain.nightlyMaxItemsPerRun']).toBe(60);
+      expect(result['drain.weeklyMaxItemsPerRun']).toBe(500);
     });
 
     it('defaults the tray keep-alive off in the shipped settings object', () => {

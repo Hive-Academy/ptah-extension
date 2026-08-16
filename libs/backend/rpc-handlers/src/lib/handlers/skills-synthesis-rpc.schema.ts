@@ -67,10 +67,35 @@ export const SkillSynthesisSettingsSchema = z.object({
   //  - `staleClaimTtlMs` has a 60s floor because a TTL below the longest stage
   //    reaps live work; the drain warns about the same condition at run time
   //    (`assertStaleClaimTtl`), and this floor keeps the absurd cases out.
+  //
+  // The THREE item caps do NOT share bounds, and that is the point. Since
+  // TASK_2026_180 B0.10 each tier reads its own key (`DRAIN_TIER_LIMITS`), and
+  // the tiers run at wildly different rates: the frequent tier fires every 15
+  // minutes (~96×/day), nightly once a day, weekly once a week. `.max(100)` is
+  // right for a cap applied 96 times a day and would REJECT the shipped weekly
+  // default of 400 outright — copying it here would make the settings panel
+  // unable to round-trip a value the host already stores.
+  //  - Floor is `1` for all three. `0` is not "off" for an item cap: the drain's
+  //    stop switch is `skillSynthesis.enabled` (gate 1), so a `0` would drain
+  //    nothing while the panel showed a configured tier.
+  //  - Ceilings keep the SAME 25× head-room over the default that the frequent
+  //    cap already ships (`100 / 4 = 25`): 40 × 25 = 1_000 nightly, 400 × 25 =
+  //    10_000 weekly. The physics permit it — the cap sizes one per-workspace
+  //    SQL read (`scanLimit = max(ELIGIBLE_SCAN_LIMIT, cap)`) and bounds the
+  //    round COUNT (`maxRounds = cap`), so the deal loop terminates by
+  //    construction even at the ceiling, and on these two tiers that happens
+  //    once a day / once a week rather than 96 times a day. Cost cannot run
+  //    away either: the item cap is a THROUGHPUT throttle, never a cost
+  //    control. `budget.maxTokensPerDay` is the only cost ceiling and it is a
+  //    hard stop checked once per tick AND again per item, so a cap larger than
+  //    the budget can pay for simply stops early, having kept the queue from
+  //    growing.
   'drain.cronExpr': CronExprSchema,
   'drain.nightlyCronExpr': CronExprSchema,
   'drain.weeklyCronExpr': CronExprSchema,
   'drain.maxItemsPerRun': z.coerce.number().int().min(1).max(100),
+  'drain.nightlyMaxItemsPerRun': z.coerce.number().int().min(1).max(1_000),
+  'drain.weeklyMaxItemsPerRun': z.coerce.number().int().min(1).max(10_000),
   'drain.perWorkspaceBatch': z.coerce.number().int().min(1).max(100),
   'drain.foregroundBackoffMs': z.coerce.number().int().min(0).max(86_400_000),
   'drain.pauseOnBattery': z.boolean(),

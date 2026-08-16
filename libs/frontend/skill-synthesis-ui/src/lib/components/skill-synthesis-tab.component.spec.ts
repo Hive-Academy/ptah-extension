@@ -3,6 +3,7 @@ import { signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
+  SkillSynthesisSettingsDto,
   EligibilityHistogramDto,
   SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
@@ -18,7 +19,11 @@ import type {
   SkillDigestItem,
 } from '@ptah-extension/shared';
 
-import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
+import {
+  SkillSynthesisTabComponent,
+  skillSettingsDtoToForm,
+  skillSettingsFormToDto,
+} from './skill-synthesis-tab.component';
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
 import type { RefreshDigestOptions } from '../services/skill-synthesis-state.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
@@ -654,5 +659,152 @@ describe('SkillSynthesisTabComponent', () => {
       '[role="tab"]',
     );
     expect(tabs.length).toBe(0);
+  });
+});
+
+/**
+ * SKILL_SETTINGS_MAPPERS round-trip.
+ *
+ * These two functions are the ONLY place the dotted wire keys and the nested
+ * form paths meet, and TypeScript cannot police them: `skillSettingsFormToDto`
+ * opens its return literal with `...(flat as unknown as
+ * SkillSynthesisSettingsDto)`, and a spread typed as the full DTO satisfies
+ * every required key. So a forgotten mapper line compiles clean, emits
+ * `undefined` on the wire, passes the `.partial()` update schema, and reaches
+ * `setConfiguration('ptah', 'skillSynthesis.drain.nightlyMaxItemsPerRun',
+ * undefined)` — wiping a value the user set in `~/.ptah/settings.json`,
+ * silently, on every Save. This spec is the only thing standing there.
+ */
+describe('skill settings mappers', () => {
+  /**
+   * Distinct, deliberately NON-default values for the three item caps (4 / 40 /
+   * 400 are the shipped defaults) so a value crossing wires between the tiers
+   * shows up as a mismatch instead of passing by accident.
+   */
+  const dto: SkillSynthesisSettingsDto = {
+    enabled: true,
+    successesToPromote: 3,
+    dedupCosineThreshold: 0.85,
+    maxActiveSkills: 50,
+    candidatesDir: '.ptah/skills',
+    eligibilityMinTurns: 5,
+    evictionDecayRate: 0.95,
+    generalizationContextThreshold: 3,
+    dedupClusterThreshold: 0.78,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
+    judgeEnabled: true,
+    minJudgeScore: 6,
+    judgeModel: 'inherit',
+    maxPinnedSkills: 10,
+    curatorEnabled: true,
+    curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
+    'drain.cronExpr': '*/15 * * * *',
+    'drain.nightlyCronExpr': '0 3 * * *',
+    'drain.weeklyCronExpr': '0 4 * * 0',
+    'drain.maxItemsPerRun': 7,
+    'drain.nightlyMaxItemsPerRun': 55,
+    'drain.weeklyMaxItemsPerRun': 321,
+    'drain.perWorkspaceBatch': 1,
+    'drain.foregroundBackoffMs': 300_000,
+    'drain.pauseOnBattery': true,
+    'drain.maxAttempts': 5,
+    'drain.staleClaimTtlMs': 900_000,
+    'budget.maxTokensPerDay': 2_000_000,
+    trayKeepalive: false,
+  };
+
+  /**
+   * The REAL production path, and the only one that proves anything.
+   *
+   * `loadSettings` does `patchValue(skillSettingsDtoToForm(s))` and
+   * `onSaveSettings` does `skillSettingsFormToDto(settingsForm.getRawValue())`.
+   * The FORM in the middle is what makes a dropped mapper line fatal: it holds
+   * only declared controls, so `patchValue` discards a key with no control and
+   * `getRawValue()` never re-emits one.
+   *
+   * Chaining the two mappers directly instead would be a FALSE pin — verified,
+   * not assumed: `skillSettingsDtoToForm` spreads `...dto`, leaving the dotted
+   * keys in `flat`, which `skillSettingsFormToDto`'s own `...flat` re-emits. A
+   * deleted mapper line still round-trips clean that way.
+   */
+  function saveThroughForm(): SkillSynthesisSettingsDto {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    // No `detectChanges()`: this exercises the form, not the template, and
+    // `ngOnInit` would fire a wall of RPC reads we do not need here.
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+    return skillSettingsFormToDto(form.getRawValue());
+  }
+
+  it('round-trips all three per-tier item caps without crossing them', () => {
+    const out = saveThroughForm();
+
+    expect(out['drain.maxItemsPerRun']).toBe(7);
+    expect(out['drain.nightlyMaxItemsPerRun']).toBe(55);
+    expect(out['drain.weeklyMaxItemsPerRun']).toBe(321);
+  });
+
+  it('never emits undefined for a per-tier item cap', () => {
+    const out = saveThroughForm();
+
+    // `undefined` is the exact shape the laundering cast lets through, and it
+    // is what would reach `setConfiguration('ptah', '…', undefined)` and erase
+    // the user's `~/.ptah/settings.json` value on every Save. `toBeDefined()`
+    // alone would also pass on a MISSING key, so assert presence separately.
+    expect('drain.nightlyMaxItemsPerRun' in out).toBe(true);
+    expect('drain.weeklyMaxItemsPerRun' in out).toBe(true);
+    expect(out['drain.nightlyMaxItemsPerRun']).not.toBeUndefined();
+    expect(out['drain.weeklyMaxItemsPerRun']).not.toBeUndefined();
+  });
+
+  it('lands both new caps on their own form controls', () => {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+
+    // Pins the READ direction and the control's existence independently of the
+    // write direction: a missing control makes the panel render a blank input.
+    expect(form.get('drain.nightlyMaxItemsPerRun')?.value).toBe(55);
+    expect(form.get('drain.weeklyMaxItemsPerRun')?.value).toBe(321);
+  });
+
+  it('drops the nested drain / budget groups from the outgoing DTO', () => {
+    const out = saveThroughForm();
+
+    // Sending both shapes would offer the backend two keys for one setting.
+    expect('drain' in out).toBe(false);
+    expect('budget' in out).toBe(false);
+  });
+
+  it('round-trips every settings key unchanged', () => {
+    expect(saveThroughForm()).toEqual(dto);
   });
 });

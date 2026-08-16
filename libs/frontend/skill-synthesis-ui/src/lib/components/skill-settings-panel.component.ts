@@ -436,13 +436,35 @@ const INHERIT_EXPLANATION =
             </label>
             <label class="flex flex-col gap-1">
               <span class="text-xs text-base-content-muted"
-                >Max items per run</span
+                >Max items per run (frequent tier)</span
               >
               <input
                 type="number"
                 class="input input-bordered input-sm"
                 data-testid="skills-drain-max-items-per-run"
                 formControlName="maxItemsPerRun"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs text-base-content-muted"
+                >Max items per run (nightly tier)</span
+              >
+              <input
+                type="number"
+                class="input input-bordered input-sm"
+                data-testid="skills-drain-nightly-max-items-per-run"
+                formControlName="nightlyMaxItemsPerRun"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs text-base-content-muted"
+                >Max items per run (weekly tier)</span
+              >
+              <input
+                type="number"
+                class="input input-bordered input-sm"
+                data-testid="skills-drain-weekly-max-items-per-run"
+                formControlName="weeklyMaxItemsPerRun"
               />
             </label>
             <label class="flex flex-col gap-1">

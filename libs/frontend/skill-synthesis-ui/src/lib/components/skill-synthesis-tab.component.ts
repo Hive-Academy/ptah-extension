@@ -773,6 +773,8 @@ export class SkillSynthesisTabComponent implements OnInit {
       nightlyCronExpr: [''],
       weeklyCronExpr: [''],
       maxItemsPerRun: [4],
+      nightlyMaxItemsPerRun: [40],
+      weeklyMaxItemsPerRun: [400],
       perWorkspaceBatch: [1],
       foregroundBackoffMs: [300_000],
       pauseOnBattery: [true],
@@ -1196,6 +1198,8 @@ interface SkillSettingsFormValue {
     readonly nightlyCronExpr: string;
     readonly weeklyCronExpr: string;
     readonly maxItemsPerRun: number;
+    readonly nightlyMaxItemsPerRun: number;
+    readonly weeklyMaxItemsPerRun: number;
     readonly perWorkspaceBatch: number;
     readonly foregroundBackoffMs: number;
     readonly pauseOnBattery: boolean;
@@ -1217,6 +1221,8 @@ export function skillSettingsDtoToForm(
       nightlyCronExpr: dto['drain.nightlyCronExpr'],
       weeklyCronExpr: dto['drain.weeklyCronExpr'],
       maxItemsPerRun: dto['drain.maxItemsPerRun'],
+      nightlyMaxItemsPerRun: dto['drain.nightlyMaxItemsPerRun'],
+      weeklyMaxItemsPerRun: dto['drain.weeklyMaxItemsPerRun'],
       perWorkspaceBatch: dto['drain.perWorkspaceBatch'],
       foregroundBackoffMs: dto['drain.foregroundBackoffMs'],
       pauseOnBattery: dto['drain.pauseOnBattery'],
@@ -1244,6 +1250,8 @@ export function skillSettingsFormToDto(
     'drain.nightlyCronExpr': drain.nightlyCronExpr,
     'drain.weeklyCronExpr': drain.weeklyCronExpr,
     'drain.maxItemsPerRun': drain.maxItemsPerRun,
+    'drain.nightlyMaxItemsPerRun': drain.nightlyMaxItemsPerRun,
+    'drain.weeklyMaxItemsPerRun': drain.weeklyMaxItemsPerRun,
     'drain.perWorkspaceBatch': drain.perWorkspaceBatch,
     'drain.foregroundBackoffMs': drain.foregroundBackoffMs,
     'drain.pauseOnBattery': drain.pauseOnBattery,

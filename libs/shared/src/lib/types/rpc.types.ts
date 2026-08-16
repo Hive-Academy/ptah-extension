@@ -2469,6 +2469,8 @@ export interface SkillSynthesisSettingsDto {
   'drain.nightlyCronExpr': string;
   'drain.weeklyCronExpr': string;
   'drain.maxItemsPerRun': number;
+  'drain.nightlyMaxItemsPerRun': number;
+  'drain.weeklyMaxItemsPerRun': number;
   'drain.perWorkspaceBatch': number;
   'drain.foregroundBackoffMs': number;
   'drain.pauseOnBattery': boolean;
