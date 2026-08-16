@@ -103,6 +103,75 @@ Nx also reported `@ptah-extension/shared:build` and `@ptah-extension/agent-sdk:b
 
 ---
 
+## Resolution — F1, F2, F5 (2026-08-16)
+
+Findings 1, 2 and 5 are fixed. **3, 4 and 6 are untouched** and are why this
+task is still `in_progress`.
+
+### The code layer was wider than the report
+
+The report named two sites in `tool-description.builder.ts`. A grep of
+`code-execution/` for vendor names found **six files**, and the worst of them
+was not in the report at all:
+
+- `ptah-system-prompt.constant.ts:203`, `:225-229` — an **Available Agents
+  table** listing only `codex`, `copilot` and `ptah-cli`, the last one with the
+  same hardcoded provider trio. This is worse than the tool description: it
+  omits four of the six shipped adapters, and the system prompt is appended to
+  every agent's context. Replaced with the two families, the system one
+  interpolated from `SYSTEM_CLI_TYPES`, and an explicit instruction that a
+  vendor named in any document — including that prompt — is an illustration.
+- `system-namespace.builders.ts:233`, `:237` — `ptah.agent` help advertised
+  "Codex CLI or Copilot CLI" and typed `cli?: 'codex'|'copilot'`, a two-member
+  union against a real six. Now interpolated from `SYSTEM_CLI_TYPES`, and the
+  worked example calls `list()` and spawns what it finds instead of naming a
+  vendor.
+- `mcp-response-formatter.ts:430` — the no-agents-found message told the user to
+  install two specific CLIs.
+- `agent-namespace.builder.ts:6` — header comment.
+- `tool-description.builder.ts:1685` — the `ptah.agent.*` one-liner.
+- `tool-description.builder.ts:558` — `modelTier`'s "opus → kimi-k2-thinking for
+  Moonshot, opus → glm-5-code for Z.AI" and `model`'s "claude-sonnet-4.6 for
+  Copilot". Both were marked `e.g.`, but a per-vendor tier table is precisely
+  the memorized mapping the sweep exists to kill, and those model ids drift on
+  their own.
+
+### F5 — the sweep found one real defect, not a style issue
+
+Only `ptah-cli-usage` and `humanize-library` were outside the swept set.
+`humanize-library`'s two hits are `.cursorrules`, a filename. `ptah-cli-usage`'s
+twenty-one hits are almost all legitimate: per-provider auth walkthroughs, real
+setting-key names, the `agent-cli` allowlist. But `:689` and `:696` — the two
+the report said to verify before touching — are **stale, not merely branded**:
+they document `AgentListCliModelsResult` as `codex`, `copilot` when
+`rpc-agents.types.ts:123-130` carries six keys (`opencode` and `pi` were added
+by TASK_2026_160). Rewritten to describe the shape as one array per system CLI
+adapter, so it cannot go stale again.
+
+### The ratchet
+
+`code-execution/vendor-roster-drift.spec.ts` (35 assertions) is what
+`5cdb14d89` lacked. It collects every agent-facing string — system prompt,
+`ptah.agent` help, both agent tool descriptions, every `ptah_agent_spawn`
+parameter description, and the empty `formatAgentList` — and asserts no provider
+brand appears in any of them, that the system CLI family matches
+`SYSTEM_CLI_TYPES` exactly, that the spawn enum is still the source it was
+derived from, and that the derived lists actually evaluated. The last check
+matches on `${SYSTEM_CLI_TYPES` rather than a bare `${` because the system
+prompt carries TypeScript samples with deliberately escaped interpolations.
+
+**Gates**: `vscode-lm-tools` 798 tests green across 41 suites (763 before),
+`nx affected -t typecheck` clean across 91 projects, lint 0 errors.
+
+### Still open
+
+- **F3** — the `.github/skills` clones are still stale; needs the skill-clone
+  UI, not a hand-edit.
+- **F4** — Relay and Crucible still unreachable from the Tribunal wizard.
+  Crucible needs a two-role executor/judge lane picker, so this is its own task.
+- **F6** — no `nx` IO error reproduced while committing this work or
+  TASK_2026_252 immediately before it. Unreproduced, not fixed.
+
 ## Not included here
 
 Everything the reviewers rated blocking or major in the swept files was fixed in `5cdb14d89`: the false `Codex does not support resume` claim (refuted by `codex-cli.adapter.ts:499` calling `codex.resumeThread`), the `ptah-cli > codex > copilot` priority fallbacks in `cli-agent-delegation.md` and `checkpoints.md`, the wrong `ptah_agent_spawn` parameter table, the `ptah_agent_list` response shape that documented a JSON `available_clis` field the tool has never returned, the SKILL.md comparison rows that contradicted Crucible, the ambiguous 2-vs-3 round cap, and the double-negative regression stop.

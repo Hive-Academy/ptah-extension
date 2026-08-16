@@ -491,8 +491,10 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Codex, Copilot, Cursor, Antigravity, opencode, Pi) ' +
-      'and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
+      `Supports system CLI agents (${SYSTEM_CLI_TYPES.join(', ')}) and Ptah CLI ` +
+      'agents, which are user-configured Anthropic-compatible providers. ' +
+      'WHICH of either family exists on this machine is a runtime fact — call ' +
+      'ptah_agent_list; do not assume a provider from any list you have read. ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
@@ -514,8 +516,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           type: 'string',
           enum: [...SYSTEM_CLI_TYPES],
           description:
-            'Which CLI agent to use: codex (OpenAI Codex), copilot (GitHub Copilot), ' +
-            'cursor (Cursor Agent), antigravity (Google `agy`), opencode, or pi. ' +
+            'Which system CLI agent to use. The enum above is the complete set ' +
+            'of adapters this build ships; it is NOT the set installed here. ' +
             'Only CLIs actually installed on this machine will spawn — check ' +
             'ptah_agent_list first; naming an uninstalled CLI fails at spawn time. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
@@ -525,8 +527,9 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           type: 'string',
           description:
             'ID of a Ptah CLI agent to use (from ptah_agent_list results where cli="ptah-cli"). ' +
-            'Ptah CLI agents are user-configured Anthropic-compatible providers ' +
-            '(OpenRouter, Moonshot, Z.AI, etc.). When set, cli parameter is ignored.',
+            'Ptah CLI agents are user-configured Anthropic-compatible providers. ' +
+            'The set is per-user and per-machine, so ptah_agent_list is the only ' +
+            'way to know which exist here. When set, cli parameter is ignored.',
         },
         workingDirectory: {
           type: 'string',
@@ -552,7 +555,9 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         model: {
           type: 'string',
           description:
-            'Model override for the CLI agent (e.g., "claude-sonnet-4.6" for Copilot). ' +
+            'Model override for the CLI agent, as a model id that CLI accepts. ' +
+            'Valid ids are per-CLI and change between vendor releases — read them ' +
+            'from that agent rather than from any list. ' +
             'Uses user-configured default if omitted.',
         },
         modelTier: {
@@ -563,8 +568,9 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
             '"opus" = most capable (complex architecture, deep analysis), ' +
             '"sonnet" = balanced (default, general coding tasks), ' +
             '"haiku" = fastest (simple tasks, quick lookups). ' +
-            "The tier maps to the actual provider model via the agent's tier mappings " +
-            '(e.g., opus → kimi-k2-thinking for Moonshot, opus → glm-5-code for Z.AI). ' +
+            "The tier maps to a concrete model through the chosen provider's own " +
+            'tier mappings, so the same tier resolves differently per provider — ' +
+            'you pick the tier, never the model id. ' +
             'Only applies when ptahCliId is set. Ignored for standard CLI agents.',
         },
         resume_session_id: {
@@ -589,7 +595,10 @@ export function buildAgentStatusTool(): MCPToolDefinition {
     description:
       'Check the status of a specific agent or all agents. ' +
       'Returns agentId, status (running/completed/failed/timeout/stopped), ' +
-      'cli, task, startedAt, duration, and exitCode.',
+      'cli, task, startedAt, duration, exitCode, and — when the adapter reports ' +
+      'one — the CLI Session ID. That session id is what ptah_agent_spawn takes ' +
+      'as resume_session_id, so its presence here is the signal to resume a ' +
+      'timed-out agent rather than respawn it and lose its context.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1675,7 +1684,7 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
 - ptah.orchestration.* - Workflow state management
-- ptah.agent.* - Agent orchestration (spawn, monitor Codex SDK / Copilot SDK / VS Code LM)
+- ptah.agent.* - Agent orchestration (list, spawn and monitor whichever CLI agents this machine has)
 
 ## Error Handling
 If a call fails, it returns an error message. Use try-catch for robustness:
