@@ -26,6 +26,7 @@ const MODEL_TIER_VALUES: ReadonlySet<string> = new Set([
 @injectable()
 export class ModelResolver {
   private readonly unmappedThirdPartyModelsLogged = new Set<string>();
+  private readonly unservableTierModelsWarned = new Set<string>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -44,6 +45,7 @@ export class ModelResolver {
           return override;
         }
       }
+      this.warnUnservableTierValue(model, env);
       return model;
     }
 
@@ -82,9 +84,47 @@ export class ModelResolver {
       if (defaultTiers && lower in defaultTiers) {
         return defaultTiers[lower as EnvMappedTier];
       }
+      this.warnUnservableTierValue(lower, env);
       return lower;
     }
     return model;
+  }
+
+  /**
+   * Say so, once, when a TIER-SHAPED value is about to leave verbatim for a
+   * provider that has no mapping to turn it into a real model id.
+   *
+   * Only two kinds of value reach here: a dated `claude-*` id whose tier env
+   * var is unset, and a bare tier alias no `defaultTiers` entry covers. Neither
+   * names a model any non-Anthropic endpoint can serve, so the request 404s
+   * with nothing in Ptah's own logs to explain why. An unrecognised string
+   * (`kimi-k2.5`, `gpt-5.3-codex`) is NOT warned about — that is a real model
+   * id the user or the provider picked, and passing it through is correct.
+   *
+   * This is a diagnostic, never a fallback: there is no id to substitute.
+   * `openrouter`, `lm-studio` and `requesty` declare no `defaultTiers` (each
+   * for a documented reason — a dynamic catalogue, a locally-loaded model, an
+   * unverifiable tier map), so on those three the value genuinely cannot be
+   * resolved from static data, on ANY path — the foreground chat sends a bare
+   * `'opus'` in exactly the same situation (`chat-session.service.ts:418`
+   * substitutes `'default'`, which recurses to `'opus'` here). Closing that
+   * needs the provider's LIVE model list, which is not this function's to
+   * fetch.
+   *
+   * Keyed per provider+value so a model list being re-resolved for the picker
+   * cannot turn one misconfiguration into a log flood.
+   */
+  private warnUnservableTierValue(value: string, env: AuthEnv): void {
+    if (isDirectAnthropic(env)) return;
+    const providerId = getActiveProviderId(env);
+    if (!providerId) return;
+
+    const key = `${providerId}:${value}`;
+    if (this.unservableTierModelsWarned.has(key)) return;
+    this.unservableTierModelsWarned.add(key);
+    this.logger.warn(
+      `[ModelResolver] No tier mapping resolved '${value}' under provider '${providerId}', so it will be sent verbatim and the endpoint will most likely reject it. Select an explicit model for this provider, or map its tiers. (Logged once per provider and value.)`,
+    );
   }
 
   resolveForPricing(modelId: string, envOverride?: AuthEnv): string {

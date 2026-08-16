@@ -93,35 +93,54 @@ function readSetting(ws: IWorkspaceProvider, key: string): string {
  * chose for this work. Do not "fix" it into a tier alias — that has been
  * considered and declined (TASK_2026_250, Decision 1).
  *
- * ## The boundary of that remapping — it does NOT cover every provider
+ * ## The boundary of that remapping — and why NO value here moves it
  *
  * State this honestly, because a rationale that claims more than it delivers is
- * worse than no rationale. The substitution above happens only where
- * `ANTHROPIC_DEFAULT_HAIKU_MODEL` is actually populated in the ambient env, and
- * `ProviderModelsService.applyPersistedTiers` writes it under `if (value)`,
- * where `value = userTiers[tier] ?? providerDefaults[tier]`. Two ways it is
- * absent, both leaving `claude-haiku-4-5-20251001` to reach the endpoint
- * verbatim:
+ * worse than no rationale. The substitution happens only where the active
+ * provider has a tier mapping at all. It always does, EXCEPT on the three
+ * `ANTHROPIC_PROVIDERS` entries that declare no `defaultTiers` — `openrouter`,
+ * `lm-studio` and `requesty`, each for a documented reason (a 200-model dynamic
+ * catalogue; a local server holding whatever model the user loaded; a tier map
+ * Requesty's own docs contradict, `requesty-provider-entry.ts:19-23`). On those,
+ * `claude-haiku-4-5-20251001` reaches the endpoint verbatim.
  *
- *  1. **The active provider declares no `defaultTiers` and the user set no
- *     manual haiku override.** `defaultTiers` is optional on `AnthropicProvider`,
- *     and of the 11 `ANTHROPIC_PROVIDERS` entries THREE omit it: `openrouter`,
- *     `lm-studio` and `requesty`. `openrouter` is `DEFAULT_PROVIDER_ID` and the
- *     registered `FILE_BASED_SETTINGS_DEFAULTS` value for `anthropicProviderId`,
- *     so this is the likeliest configuration, not an exotic one.
- *  2. **`applyPersistedTiers` has not run for the active provider** — its own
- *     doc says "call this during authentication setup when a provider is
- *     active", and whether every auth path invokes it is not traced here.
+ * **The reflex fix — fall back to the bare `'haiku'` alias instead — buys
+ * nothing here, and that is a code fact rather than an opinion.** The alias
+ * resolves through the same `defaultTiers` (`ModelResolver.resolve`'s
+ * `isModelTier` branch, `auth-providers/.../model-resolver.ts:77-86`), so on a
+ * provider that declares none it is returned verbatim TOO. Both fallbacks are
+ * equally unservable on exactly the providers that are exposed. Pinned by
+ * `auth-providers/src/lib/auth/model-resolver.spec.ts`
+ * ("tier values with nothing left to resolve them"), so nobody has to take this
+ * paragraph's word for it. Decision 1 is therefore not what is holding the gap
+ * open, and reversing it would not close it.
  *
- * Direct Anthropic (`authMethod: 'apiKey'`) and `claude-cli` (`nativeAuth`, and
- * deliberately an empty auth env) are unaffected: the pinned id is correct
- * verbatim against Anthropic's own endpoint.
+ * Nor is this path where the gap shows up first. The FOREGROUND CHAT has it
+ * identically: `chat-session.service.ts:418` substitutes `'default'` for an
+ * empty `selectedModel`, and on such a provider `resolve` turns that into a
+ * bare `'opus'` and sends it. The gap belongs to dynamic-catalogue providers,
+ * not to skill synthesis, and closing it needs the provider's LIVE model list —
+ * which is what `requesty-provider-entry.ts` says tiers should come from. That
+ * is a `ProviderModelsService` change and its own carrier.
  *
- * So Decision 1 is intact but its safety argument is CONDITIONAL, and the
- * residual hazard is exactly the one this task was filed about, surviving for
- * the three providers above. Closing it means either giving those entries a
- * `defaultTiers` in the registry or revisiting Decision 1 — both are the user's
- * call and neither is taken here.
+ * Two things this docblock used to leave open, now settled:
+ *  - **`applyPersistedTiers` DOES run on every third-party activation path.**
+ *    `AuthManager.doConfigureAuthentication` clears the tier env then dispatches
+ *    `strategy.configure`, and all eight third-party branches call
+ *    `ProviderModelsService.switchActiveProvider` (`api-key.strategy.ts:456,591,635`,
+ *    `oauth-proxy.strategy.ts:146,247`, `local-proxy.strategy.ts:101`,
+ *    `local-native.strategy.ts:153,222`), which calls it. Only the direct-Anthropic
+ *    branch does not, and that one correctly wants no remapping. So a provider
+ *    that declares `defaultTiers` genuinely has its tier env populated; the
+ *    "not traced" second failure mode was theoretical and is now ruled out.
+ *  - Direct Anthropic (`authMethod: 'apiKey'`) and `claude-cli` (`nativeAuth`,
+ *    deliberately an empty auth env) are unaffected either way: the pinned id is
+ *    correct verbatim against Anthropic's own endpoint.
+ *
+ * Decision 1 stands, and its safety argument now has one stated boundary rather
+ * than two: three providers on which no static value — pinned id, tier alias, or
+ * anything else — resolves. A one-time `logger.warn` in `ModelResolver` makes
+ * that case legible instead of silent; it is a diagnostic, not a fallback.
  */
 export function resolveJudgeModel(
   judgeModel: string,

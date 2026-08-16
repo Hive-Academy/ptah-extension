@@ -35,10 +35,11 @@ import {
   ANTHROPIC_PROVIDERS,
   getProviderBaseUrl,
 } from '@ptah-extension/shared';
+import { resolveJudgeModel } from '../model-resolver';
 import type { LaneAuthOverride } from './lane.types';
 import { SKILL_LANE_IDS } from './lane.types';
 import { SKILL_LANE_KEYS } from './skill-lane-config';
-import { LaneResolverService } from './lane-resolver.service';
+import { LaneResolverService, resolveLaneModel } from './lane-resolver.service';
 
 const PROVIDER_IDS = ANTHROPIC_PROVIDERS.map((p) => p.id);
 
@@ -166,9 +167,19 @@ describe.each(PROVIDER_IDS)('lane pointed at registry provider %s', (id) => {
   it('sends a bare tier alias, never a hardcoded model id, when only a provider is set', async () => {
     const { svc } = resolveOn();
     const out = await svc.resolve('judge');
-    // The lane declared no model, so the tier alias travels and is resolved by
-    // the provider entry's `defaultTiers` downstream. A pinned dated Claude id
-    // would 404 against a non-Anthropic endpoint.
+    // The lane declared no model, so the tier alias travels. A pinned dated
+    // Claude id could not: the lane env's `ANTHROPIC_DEFAULT_*_MODEL` keys are
+    // blanked by design (R2), leaving it no mapping to travel through.
+    //
+    // What the alias resolves to downstream is the PROVIDER'S business, not
+    // this lib's, and it is not guaranteed: `ModelResolver` maps it through the
+    // entry's `defaultTiers`, which three registry entries deliberately omit
+    // (`openrouter`, `lm-studio`, `requesty` — dynamic catalogue, locally
+    // loaded model, unverifiable tier map respectively). On those the alias
+    // goes out verbatim too. That is a product-wide gap for dynamic-catalogue
+    // providers — the foreground chat sends a bare `'opus'` in the same
+    // situation — and NOT something a different value here would fix. Pinned in
+    // `auth-providers/src/lib/auth/model-resolver.spec.ts`.
     expect(out.ok && out.lane.model).toBe('haiku');
   });
 
@@ -207,13 +218,28 @@ describe('registry coverage', () => {
     }
   });
 
-  it('names no registry provider anywhere in the resolver source', () => {
-    // Global invariant 1, enforced against the compiled method bodies rather
+  it('names no registry provider anywhere in the model-resolution chain', () => {
+    // Global invariant 1, enforced against the compiled function bodies rather
     // than by review.
+    //
+    // The two FREE functions are here deliberately (TASK_2026_250 follow-up A).
+    // This scan used to cover the three prototype methods only, while
+    // `resolveLaneModel` and `resolveJudgeModel` — the functions that actually
+    // decide the model string, and the ones that grew a settings-key read in
+    // TASK_2026_250 — sat outside it. `skill-synthesis/CLAUDE.md` cited this
+    // spec as pinning the invariant "mechanically", which was an overclaim for
+    // exactly the code most likely to break it.
+    //
+    // `Function.prototype.toString` returns the body only, so the docblocks
+    // above these functions are NOT scanned — which is what makes the scan
+    // usable at all, since those docblocks legitimately name the three registry
+    // entries that declare no `defaultTiers`. Code, not prose, is the subject.
     const source = [
       LaneResolverService.prototype.resolve.toString(),
       LaneResolverService.prototype.readConfig.toString(),
       LaneResolverService.prototype.readConfigs.toString(),
+      resolveLaneModel.toString(),
+      resolveJudgeModel.toString(),
     ]
       .join('\n')
       .toLowerCase();

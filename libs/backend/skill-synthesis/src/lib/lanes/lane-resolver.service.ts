@@ -79,20 +79,21 @@ const JUDGE_MODEL_DEFAULT = 'inherit';
  *    a pinned dated Claude id, ON PURPOSE. `ModelResolver.resolve` detects the
  *    tier from that id and substitutes the ambient tier override
  *    (`auth-providers/.../model-resolver.ts:38-48`), so a non-Anthropic user
- *    gets their own haiku-tier model rather than this literal — **but only
- *    where that provider's tier env is populated at all**, which is not every
- *    provider. `resolveJudgeModel`'s docblock states that boundary and names
- *    the three registry entries it does not cover. See it too for why the
- *    pinned id is the deliberate answer to "no preference expressed anywhere"
- *    (TASK_2026_250, Decision 1).
+ *    gets their own haiku-tier model rather than this literal — **except on the
+ *    three registry entries that declare no `defaultTiers` at all**. See
+ *    `resolveJudgeModel`'s docblock for that boundary, for why a tier alias
+ *    would not move it either, and for why the pinned id is the deliberate
+ *    answer to "no preference expressed anywhere" (TASK_2026_250, Decision 1).
  *
  *  - **Line 3, a lane provider is set.** That lane gets an override env whose
  *    chat `ANTHROPIC_DEFAULT_*_MODEL` keys are BLANKED by design (R2), so a
  *    pinned dated id has no tier mapping left to travel through and would
- *    reach a non-Anthropic endpoint verbatim and 404. Only a BARE TIER ALIAS
- *    resolves there, through the provider entry's `defaultTiers`. That is why
- *    this line returns the alias, and it is a correct value rather than a
- *    weakness.
+ *    reach a non-Anthropic endpoint verbatim and 404. A BARE TIER ALIAS is the
+ *    only kind of value that CAN resolve there, through the provider entry's
+ *    `defaultTiers` — which is why this line returns one. It is the right kind
+ *    of value, not a guarantee of a good one: on the same three entries the
+ *    alias goes out verbatim too, so both branches share one boundary rather
+ *    than line 2 having a weakness line 3 lacks.
  *
  * Line 2 is also the untouched-existing-installs guarantee: with both
  * `provider` and `model` empty — every install that has never opened the Lanes
