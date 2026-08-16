@@ -25,6 +25,11 @@ import {
   STALE_CLAIM_TTL_SAFETY_FACTOR,
   type DrainTier,
 } from './skill-drain.service';
+import {
+  maxLaneTimeoutMs,
+  SKILL_LANE_DEFAULTS,
+  SKILL_LANE_KEYS,
+} from '../lanes/skill-lane-config';
 import type { SkillQueueStore } from './skill-queue.store';
 import type { SkillQueueRow, SkillQueueStage } from './skill-queue.types';
 import {
@@ -485,6 +490,110 @@ describe('SkillDrainService — gates', () => {
 
       expect(drain.assertStaleClaimTtl()).toBe(true);
       expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The band 90 s–360 s is where the pre-fix guard LIED. It compared against
+     * a hard-coded `30_000` left behind by phase 1, so it reported "safe" for
+     * every TTL at or above `3 × 30 s` while the archaeologist lane could
+     * legitimately run for its 120 s default — a live run reaped mid-flight,
+     * silently, by the assertion whose only job is to prevent that.
+     *
+     * Both tests below sit inside that band deliberately. A test written
+     * against the shipped 900 s default would pass with the constant AND with
+     * the lane read, and prove nothing.
+     */
+    it('rejects a TTL inside the 90s-360s band the old constant called safe', () => {
+      const logger = makeLogger();
+      const drain = makeDrain({
+        logger,
+        queue: makeQueueStub().store,
+        budget: makeBudgetStub(0).store,
+        // Above `3 × 30_000`, below `3 × 120_000`.
+        settings: { [SKILL_DRAIN_KEYS.staleClaimTtlMs]: 120_000 },
+      });
+
+      expect(drain.assertStaleClaimTtl()).toBe(false);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('staleClaimTtlMs'),
+        expect.objectContaining({
+          maxStageTimeoutMs: SKILL_LANE_DEFAULTS.archaeologist.timeoutMs,
+          required:
+            STALE_CLAIM_TTL_SAFETY_FACTOR *
+            SKILL_LANE_DEFAULTS.archaeologist.timeoutMs,
+        }),
+      );
+    });
+
+    it('reads the CONFIGURED lane timeout, not the default and not a constant', () => {
+      const logger = makeLogger();
+      const drain = makeDrain({
+        logger,
+        queue: makeQueueStub().store,
+        budget: makeBudgetStub(0).store,
+        settings: {
+          // A user who lengthened the slowest lane moves the floor with it.
+          [SKILL_LANE_KEYS.archaeologist.timeoutMs]: 200_000,
+          [SKILL_DRAIN_KEYS.staleClaimTtlMs]: 300_000,
+        },
+      });
+
+      expect(drain.assertStaleClaimTtl()).toBe(false);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('staleClaimTtlMs'),
+        expect.objectContaining({
+          maxStageTimeoutMs: 200_000,
+          required: STALE_CLAIM_TTL_SAFETY_FACTOR * 200_000,
+        }),
+      );
+    });
+
+    it('takes the MAXIMUM across lanes, so a short lane cannot lower the floor', () => {
+      const logger = makeLogger();
+      const drain = makeDrain({
+        logger,
+        queue: makeQueueStub().store,
+        budget: makeBudgetStub(0).store,
+        settings: {
+          // Every OTHER lane shortened to almost nothing; the floor is still
+          // the archaeologist's, because it is the one that can still run long.
+          [SKILL_LANE_KEYS.synthesis.timeoutMs]: 1_000,
+          [SKILL_LANE_KEYS.judge.timeoutMs]: 1_000,
+          [SKILL_LANE_KEYS.replay.timeoutMs]: 1_000,
+          [SKILL_DRAIN_KEYS.staleClaimTtlMs]: 300_000,
+        },
+      });
+
+      expect(drain.assertStaleClaimTtl()).toBe(false);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('staleClaimTtlMs'),
+        expect.objectContaining({
+          maxStageTimeoutMs: SKILL_LANE_DEFAULTS.archaeologist.timeoutMs,
+        }),
+      );
+    });
+
+    it('an explicit argument still wins — the caller may hold the number', () => {
+      const logger = makeLogger();
+      const drain = makeDrain({
+        logger,
+        queue: makeQueueStub().store,
+        budget: makeBudgetStub(0).store,
+        settings: { [SKILL_DRAIN_KEYS.staleClaimTtlMs]: 120_000 },
+      });
+
+      expect(drain.assertStaleClaimTtl(10_000)).toBe(true);
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('MAX_STAGE_TIMEOUT_MS is the lane-less figure, derived from the lane defaults', () => {
+      // The constant is what an install configuring no timeout gets, which is
+      // exactly what `readSkillLanes` returns for it. A literal here would rot
+      // the next time a lane default moved.
+      expect(MAX_STAGE_TIMEOUT_MS).toBe(maxLaneTimeoutMs(SKILL_LANE_DEFAULTS));
+      expect(MAX_STAGE_TIMEOUT_MS).toBe(
+        SKILL_LANE_DEFAULTS.archaeologist.timeoutMs,
+      );
     });
 
     it('runs the assertion and the reap at the head of every tick', async () => {

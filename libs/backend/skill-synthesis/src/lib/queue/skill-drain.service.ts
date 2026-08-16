@@ -75,9 +75,15 @@
  *
  * `staleClaimTtlMs` must exceed the longest a stage can legitimately run, or a
  * live run is reaped mid-flight and re-run at full cost. `assertStaleClaimTtl`
- * checks `ttl >= 3 × max(stage timeout)` at the head of every tick and warns
+ * checks `ttl >= 3 × max(lane.timeoutMs)` at the head of every tick and warns
  * loudly; it does not throw, because a misconfigured TTL degrades throughput
  * rather than corrupting data.
+ *
+ * The maximum is read from the CONFIGURED lanes, not from a constant. Since
+ * phase 1 no stage owns a timeout — every one of them runs on a lane — so a
+ * fixed number here answers a question about a world that no longer exists, and
+ * an install that lengthens its archaeologist lane would get a floor computed
+ * for a lane it does not run.
  *
  * ## Q2 — the drain, not the runner, writes the row for a lane failure
  *
@@ -147,6 +153,11 @@ import {
 } from '@ptah-extension/platform-core';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import type { SkillLaneFailure } from '../lanes/lane.types';
+import {
+  maxLaneTimeoutMs,
+  readSkillLanes,
+  SKILL_LANE_DEFAULTS,
+} from '../lanes/skill-lane-config';
 import type { SkillQueueRow, SkillQueueStage } from './skill-queue.types';
 import type { SkillQueueStore } from './skill-queue.store';
 import type { SkillBudgetStore } from './skill-budget.store';
@@ -284,13 +295,24 @@ export interface SkillDrainConfig {
 }
 
 /**
- * The longest a single stage may currently run — `SYNTHESIS_TIMEOUT_MS`
- * (`skill-synthesizer.service.ts`), the largest of today's two module-level
- * timeouts. Phase 1 replaces every module constant with a per-lane `timeoutMs`,
- * at which point this becomes `max(lane.timeoutMs)` and the R5 assertion below
- * keeps its meaning unchanged.
+ * The longest a single stage may run on an install that has configured no lane
+ * timeouts: `max(SKILL_LANE_DEFAULTS[*].timeoutMs)`, today the archaeologist's
+ * 120 s.
+ *
+ * DERIVED, never a literal. It used to be the hard-coded `30_000` of the
+ * deleted `SYNTHESIS_TIMEOUT_MS`, and phase 1 — which moved every stage onto a
+ * per-lane `timeoutMs` — left it behind: the guard below went on asserting a
+ * 90 s floor while the archaeologist lane could legitimately run for 120 s. A
+ * literal here silently rots every time a lane default moves, so it is computed
+ * from the lane table instead.
+ *
+ * {@link SkillDrainService.assertStaleClaimTtl} prefers the CONFIGURED lanes
+ * and only lands on this figure when the settings file names no timeout — which
+ * `readSkillLanes` expresses by returning these same defaults, so the two agree
+ * by construction. It stays exported because the specs and the RPC schema need
+ * the default-install number without a settings read.
  */
-export const MAX_STAGE_TIMEOUT_MS = 30_000;
+export const MAX_STAGE_TIMEOUT_MS = maxLaneTimeoutMs(SKILL_LANE_DEFAULTS);
 
 /** R5: a TTL below `3 ×` the longest stage reaps live work. */
 export const STALE_CLAIM_TTL_SAFETY_FACTOR = 3;
@@ -502,18 +524,36 @@ export class SkillDrainService {
 
   /**
    * R5. Returns `false` (and warns) when `staleClaimTtlMs` is too small for the
-   * longest stage. Called at the head of every tick and from
-   * `SkillSynthesisService.start()`.
+   * longest stage. Called at the head of every tick.
+   *
+   * ## It reads the CONFIGURED lanes, and that is the whole point
+   *
+   * Every stage runs on a lane and no stage owns a timeout any more, so "the
+   * longest a stage can run" is `max(lane.timeoutMs)` over the four lanes as the
+   * USER has them — not a module constant. Omitting the argument reads them,
+   * through the same `IWorkspaceProvider` {@link readConfig} already uses; there
+   * is nothing to thread in from the host. `maxStageTimeoutMs` stays overridable
+   * for a caller that already holds the number.
+   *
+   * The gap this closes is not theoretical arithmetic: with the archaeologist
+   * lane at its 120 s default the true floor is 360 s, while the old hard-coded
+   * 30 s made the guard report "safe" for any TTL from 90 s up. Every value in
+   * that band reaps a live archaeology run mid-flight — exactly what R5 exists
+   * to catch — and the guard would have said nothing.
+   *
+   * It WARNS AND CONTINUES, and must keep doing so. `drain()` may never throw,
+   * and a mis-set TTL degrades throughput rather than corrupting data; it is the
+   * user's to fix, and a warning is how they find out.
    */
-  assertStaleClaimTtl(
-    maxStageTimeoutMs: number = MAX_STAGE_TIMEOUT_MS,
-  ): boolean {
+  assertStaleClaimTtl(maxStageTimeoutMs?: number): boolean {
     const ttl = this.readConfig().staleClaimTtlMs;
-    const required = STALE_CLAIM_TTL_SAFETY_FACTOR * maxStageTimeoutMs;
+    const longestStageMs =
+      maxStageTimeoutMs ?? maxLaneTimeoutMs(readSkillLanes(this.workspace));
+    const required = STALE_CLAIM_TTL_SAFETY_FACTOR * longestStageMs;
     if (ttl >= required) return true;
     this.logger.warn(
       '[skill-synthesis] staleClaimTtlMs is below the safe minimum; long stages may be reaped mid-run',
-      { staleClaimTtlMs: ttl, required, maxStageTimeoutMs },
+      { staleClaimTtlMs: ttl, required, maxStageTimeoutMs: longestStageMs },
     );
     return false;
   }

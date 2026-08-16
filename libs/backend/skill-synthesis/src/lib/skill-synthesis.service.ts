@@ -180,8 +180,14 @@ const EMBEDDING_BACKFILL_SESSION_PREFIX = 'backfill-embeddings:';
  * `reapStale` returns any claim older than `staleClaimTtlMs` (default 15 min)
  * to `queued`, so a stage that legitimately runs longer than that would be
  * re-claimed and re-run at full cost while it is still working. One minute is
- * comfortably under the smallest TTL `assertStaleClaimTtl` will accept
- * (`3 × 30 s`) and costs one UPDATE per minute per in-flight row.
+ * comfortably under the smallest TTL `assertStaleClaimTtl` will accept —
+ * `3 × max(lane.timeoutMs)`, which is `3 × 120 s` on the shipped lane defaults
+ * and larger on any install that lengthens a lane — and costs one UPDATE per
+ * minute per in-flight row.
+ *
+ * The interval is deliberately NOT derived from that floor. It is bounded above
+ * by the smallest TTL a user may configure, not by the longest stage, and a
+ * minute sits under every value the guard accepts.
  */
 const CLAIM_HEARTBEAT_MS = 60_000;
 
@@ -766,9 +772,16 @@ export class SkillSynthesisService {
    * `REOPEN_SQL` does not touch `payload`, so a re-opened row would still carry
    * the FIRST pass's candidate id. A grown session yields a new trajectory hash
    * and therefore possibly a new candidate, so the re-opened row would grade the
-   * wrong one — hence the `mergePayload` refresh below. That is not
-   * belt-and-braces: without it the gates silently re-measure a stale candidate
-   * every time a session grows.
+   * wrong one. That is not belt-and-braces: without the refresh the gates
+   * silently re-measure a stale candidate every time a session grows.
+   *
+   * The refresh is `enqueue`'s own job, not a follow-up call from here. It was
+   * a follow-up `mergePayload` once, and the gap between the two transactions
+   * was a window in which the row was `queued` with the previous pass's
+   * candidate id — long enough for a second host on the shared database to
+   * claim it and grade a superseded candidate, silently. Passing `payload` and
+   * letting the store re-point the row inside the re-open transaction is what
+   * closes it; do not re-add a second call here.
    *
    * ## `workspaceRoot`, not `''`
    *
@@ -818,13 +831,12 @@ export class SkillSynthesisService {
         // compiles, satisfies any call-counting test, and wedges the row
         // permanently.
         turnCount: row.turnCount,
+        // ONE call, and that is the point. `enqueue` writes this payload on the
+        // INSERT path and MERGES it on the re-open path, both inside the same
+        // transaction, so the row is never visible to another host carrying the
+        // previous pass's candidate id.
         payload: { [SKILL_QUEUE_PAYLOAD_KEYS.candidateId]: candidateId },
       });
-      if (result.outcome === 'reopened' && result.row) {
-        this.queue.mergePayload(result.row.id, {
-          [SKILL_QUEUE_PAYLOAD_KEYS.candidateId]: candidateId,
-        });
-      }
       this.logger.debug('[skill-synthesis] gate stage enqueued', {
         sessionId: row.sessionId,
         stage,

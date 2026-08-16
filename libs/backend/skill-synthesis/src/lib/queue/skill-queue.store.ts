@@ -91,27 +91,46 @@ const INSERT_SQL = `INSERT INTO skill_synthesis_queue
  *    successor to the `analyzedSessions` Map comparison.
  *  - `attempt_count = 0` — a re-opened row gets a fresh retry budget.
  *
- * ## `payload` is deliberately NOT cleared here
+ * ## `payload` is deliberately NOT cleared here — and MERGING IS NOT CLEARING
  *
- * It looks like it should be: a re-opened row re-runs its stage from scratch,
- * so carrying the previous pass's `verdictFallback` forward is a stale record.
- * Clearing the COLUMN is nonetheless the wrong fix, because this statement does
- * not re-write it either — `payload` also carries the PRODUCER'S INPUTS (which
- * candidate a `judge-panel` or `trigger-eval` row is grading), and a re-opened
- * row wiped to `{}` would be dispatched to a handler with nothing to work on.
- * That trades a stale field for a dead row.
+ * Clearing looks right: a re-opened row re-runs its stage from scratch, so the
+ * previous pass's `verdictFallback` is a stale record. It is nonetheless the
+ * wrong fix. `payload` also carries the PRODUCER'S INPUTS (which candidate a
+ * `judge-panel` or `trigger-eval` row is grading), so a row wiped to `{}` would
+ * be dispatched to a handler with nothing to work on — a stale field traded for
+ * a dead row. Selectively dropping one key in SQL
+ * (`json_remove(payload, '$.verdictFallback')`) was considered and rejected
+ * too: it hard-codes one gate's output key into the store, which would then
+ * need editing every time a stage learned a new one.
  *
- * Selectively dropping one key in SQL (`json_remove(payload, '$.verdictFallback')`)
- * was considered and rejected: it would hard-code one gate's output key into the
- * store, which would then have to be edited every time a stage learned a new
- * one.
+ * `enqueue` DOES merge the caller's payload onto the row it re-opens, and that
+ * is a different operation in both directions. Clearing destroys keys nobody
+ * named; the merge writes only the keys the producer named THIS pass and leaves
+ * every other key — including a stage output the store knows nothing about —
+ * exactly where it was. **Do not "simplify" the merge back into a clear, and do
+ * not read the merge as licence to clear.** Both mistakes are the same mistake:
+ * the store deciding the fate of a key it does not own.
  *
  * So the rule is OWNERSHIP, enforced by {@link SkillQueueStore.mergePayload}
- * rather than by this statement. Each writer refreshes its own keys: the replay
- * handler writes `verdictFallback` on EVERY path it can return through, so a
- * finished row never shows a previous pass's flag, and a producer re-points a
- * re-opened row at the candidate the current pass produced. `candidate_id` is
- * preserved here for the same reason and has been since day one.
+ * and by `enqueue`'s re-open branch rather than by this statement. Each writer
+ * refreshes its own keys: the replay handler writes `verdictFallback` on EVERY
+ * path it can return through, so a finished row never shows a previous pass's
+ * flag, and a producer re-points a re-opened row at the candidate the current
+ * pass produced. `candidate_id` is preserved here for the same reason and has
+ * been since day one.
+ *
+ * ## Why the re-point rides `enqueue`'s transaction and not a second call
+ *
+ * It used to be a second call: the producer ran `enqueue`, saw `reopened`, then
+ * ran `mergePayload`. Two `BEGIN IMMEDIATE` blocks, and between the two commits
+ * the row sat `queued` carrying the PREVIOUS pass's `candidateId`. `CLAIM_SQL`
+ * gates on `status` alone, so a second host draining the shared
+ * `~/.ptah/state/ptah.sqlite` could claim it in that window, read the stale id
+ * and grade a SUPERSEDED candidate — then `markDone` the row, so the candidate
+ * that should have been measured never would be. Silent: no error, no reason
+ * token, a plausible verdict on the wrong row. Re-opening and re-pointing in
+ * ONE transaction closes the window; it is the same read-modify-write argument
+ * `mergePayload` already makes for itself.
  */
 const REOPEN_SQL = `UPDATE skill_synthesis_queue
       SET status = 'queued', turn_count = ?, attempt_count = 0,
@@ -208,10 +227,15 @@ export class SkillQueueStore {
           .prepare(REOPEN_SQL)
           .run(turnCount, input.sessionId, input.stage, turnCount).changes,
       );
-      return {
-        outcome: changes > 0 ? 'reopened' : 'unchanged',
-        row: this.findBySessionStage(input.sessionId, input.stage),
-      };
+      const outcome = changes > 0 ? 'reopened' : 'unchanged';
+      const row = this.findBySessionStage(input.sessionId, input.stage);
+      if (outcome !== 'reopened' || !row) return { outcome, row };
+
+      // The caller's payload is MERGED onto the re-opened row, inside the same
+      // transaction as the re-open. See the header note above `REOPEN_SQL`:
+      // merging is not clearing, and the two must not be confused.
+      const merged = this.mergePayloadWithin(row.id, input.payload ?? {});
+      return { outcome, row: merged ? { ...row, payload: merged } : row };
     });
   }
 
@@ -359,10 +383,15 @@ export class SkillQueueStore {
    *
    * ## Why this exists at all
    *
-   * `INSERT_SQL` was the ONLY writer of this column, and `REOPEN_SQL` does not
-   * touch it. So a stage that learns something WHILE it runs — the replay gate
-   * measuring on fallback evidence, a producer re-pointing a re-opened row at
-   * the candidate this pass produced — had nowhere to put it.
+   * `INSERT_SQL` was the ONLY writer of this column, and `REOPEN_SQL` still
+   * does not touch it. So a stage that learns something WHILE it runs — the
+   * replay gate measuring on fallback evidence — had nowhere to put it. This is
+   * that writer, and it is the MID-RUN one: the other half of the payload's
+   * ownership, a producer re-pointing a re-opened row at the candidate this
+   * pass produced, now rides `enqueue`'s own transaction rather than calling
+   * back in here, because a re-open followed by a separate merge leaves a
+   * window in which another host can claim the row and grade the stale
+   * candidate.
    *
    * ## Merge, never overwrite, never append
    *
@@ -395,15 +424,40 @@ export class SkillQueueStore {
    */
   mergePayload(id: string, patch: Record<string, unknown>): void {
     this.inImmediateTransaction<void>(() => {
-      const raw = this.db
-        .prepare(`SELECT payload FROM skill_synthesis_queue WHERE id = ?`)
-        .get(id) as { payload: string } | undefined;
-      if (!raw) return;
-      const merged = { ...this.parsePayload(raw.payload), ...patch };
-      this.db
-        .prepare(`UPDATE skill_synthesis_queue SET payload = ? WHERE id = ?`)
-        .run(JSON.stringify(merged), id);
+      this.mergePayloadWithin(id, patch);
     });
+  }
+
+  /**
+   * The merge itself, for a caller that ALREADY HOLDS the write transaction.
+   * Returns the merged payload, or `null` when there was nothing to do — the
+   * row is gone, or the patch names no keys.
+   *
+   * It exists because `enqueue`'s re-open branch has to merge inside its own
+   * `BEGIN IMMEDIATE`, and calling {@link mergePayload} from there would nest a
+   * second one. Extracting the body is the only shape where both callers run
+   * the SAME merge: a second copy of these four lines would be a second
+   * definition of what "shallow merge, patch wins per key" means, and the two
+   * would drift the first time either changed.
+   *
+   * An empty patch writes nothing rather than re-writing the column with its
+   * own contents. Three of the four production `enqueue` callers pass no
+   * payload at all, and a re-open should not touch a column no producer named.
+   */
+  private mergePayloadWithin(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    if (Object.keys(patch).length === 0) return null;
+    const raw = this.db
+      .prepare(`SELECT payload FROM skill_synthesis_queue WHERE id = ?`)
+      .get(id) as { payload: string } | undefined;
+    if (!raw) return null;
+    const merged = { ...this.parsePayload(raw.payload), ...patch };
+    this.db
+      .prepare(`UPDATE skill_synthesis_queue SET payload = ? WHERE id = ?`)
+      .run(JSON.stringify(merged), id);
+    return merged;
   }
 
   /** The stage was not worth running (prefilter rejection, disabled feature). */

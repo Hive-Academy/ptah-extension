@@ -1002,9 +1002,13 @@ maybe('C0 is self-contained — trigger → drain → terminal row (B0.9.3)', ()
     });
 
     it('re-points a re-opened gate row at the candidate the new pass produced', async () => {
-      // `REOPEN_SQL` does not touch `payload`, so without the `mergePayload`
-      // refresh the row would silently keep grading the FIRST pass's candidate
-      // every time the session grows.
+      // `REOPEN_SQL` does not touch `payload`, so without the re-point the row
+      // would silently keep grading the FIRST pass's candidate every time the
+      // session grows. The producer passes `payload` and `enqueue` re-points
+      // the row inside the re-open transaction — see the spy below, and
+      // `skill-queue.store.reopen-payload.spec.ts` for why the transaction
+      // boundary is the point.
+      const mergePayload = jest.spyOn(store, 'mergePayload');
       const drain = makeDrainOver(store);
       const {
         svc,
@@ -1036,6 +1040,12 @@ maybe('C0 is self-contained — trigger → drain → terminal row (B0.9.3)', ()
       const row = store.findBySessionStage('s1', 'judge-panel');
       expect(row?.status).toBe('queued');
       expect(row?.payload).toEqual({ candidateId: 'cand-2' });
+      // ONE store call. A follow-up `mergePayload` would leave the row `queued`
+      // with `cand-1` between the two commits, which is long enough for a
+      // second host on the shared database to claim it and grade the
+      // superseded candidate.
+      expect(mergePayload).not.toHaveBeenCalled();
+      mergePayload.mockRestore();
     });
   });
 

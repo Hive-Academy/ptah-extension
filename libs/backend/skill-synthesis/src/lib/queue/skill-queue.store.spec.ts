@@ -399,11 +399,10 @@ maybe('SkillQueueStore', () => {
       expect(countRows(db)).toBe(0);
     });
 
-    it('leaves the payload in place when the row re-opens', () => {
-      // The deliberate half of the decision recorded on `REOPEN_SQL`: clearing
-      // the column would wipe the producer's INPUTS, and the statement does not
-      // re-write them. Refreshing them is the producer's job, through
-      // `mergePayload` — which is what the next assertion does.
+    it('re-points a re-opened row at the payload THIS pass named', () => {
+      // One call, and the row is never visible carrying `cand-1` again. It took
+      // two before — `enqueue` then `mergePayload` — and the gap between those
+      // two transactions was a window another host could claim the row in.
       const id =
         store.enqueue(
           input({ turnCount: 5, payload: { candidateId: 'cand-1' } }),
@@ -415,10 +414,62 @@ maybe('SkillQueueStore', () => {
       );
 
       expect(reopened.outcome).toBe('reopened');
-      expect(reopened.row?.payload).toEqual({ candidateId: 'cand-1' });
-
-      store.mergePayload(id, { candidateId: 'cand-2' });
+      expect(reopened.row?.payload).toEqual({ candidateId: 'cand-2' });
       expect(store.findById(id)?.payload).toEqual({ candidateId: 'cand-2' });
+    });
+
+    it('MERGES on re-open — it does not clear, and it does not overwrite', () => {
+      // The distinction the `REOPEN_SQL` header exists to protect. A stage
+      // OUTPUT the producer never named survives the re-open untouched; only
+      // the keys this pass named move. Clearing would hand the handler a row
+      // with no candidate to grade, which is the dead row that decision
+      // rejected.
+      const id =
+        store.enqueue(
+          input({ turnCount: 5, payload: { candidateId: 'cand-1' } }),
+        ).row?.id ?? '';
+      store.mergePayload(id, { verdictFallback: true });
+      store.markDone(id);
+
+      store.enqueue(
+        input({ turnCount: 9, payload: { candidateId: 'cand-2' } }),
+      );
+
+      expect(store.findById(id)?.payload).toEqual({
+        candidateId: 'cand-2',
+        verdictFallback: true,
+      });
+    });
+
+    it('leaves the payload alone when the re-open names none', () => {
+      // Three of the four production callers pass no payload. A re-open must
+      // not touch a column no producer named.
+      const id =
+        store.enqueue(
+          input({ turnCount: 5, payload: { candidateId: 'cand-1' } }),
+        ).row?.id ?? '';
+      store.markDone(id);
+
+      const reopened = store.enqueue(input({ turnCount: 9 }));
+
+      expect(reopened.outcome).toBe('reopened');
+      expect(store.findById(id)?.payload).toEqual({ candidateId: 'cand-1' });
+    });
+
+    it('writes no payload on an `unchanged` enqueue', () => {
+      // The session did not grow, so nothing re-opened and nothing may move.
+      const id =
+        store.enqueue(
+          input({ turnCount: 9, payload: { candidateId: 'cand-1' } }),
+        ).row?.id ?? '';
+      store.markDone(id);
+
+      const again = store.enqueue(
+        input({ turnCount: 9, payload: { candidateId: 'cand-2' } }),
+      );
+
+      expect(again.outcome).toBe('unchanged');
+      expect(store.findById(id)?.payload).toEqual({ candidateId: 'cand-1' });
     });
   });
 
