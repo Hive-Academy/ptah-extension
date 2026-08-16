@@ -485,6 +485,17 @@ export class ProviderRpcHandlers {
           isStatic: result.isStatic,
         });
 
+        // Opening the picker warms both catalog caches, which is exactly what
+        // the tier derivation reads — but nothing used to tell it so, and the
+        // ambient tier env vars stayed unset until the next provider
+        // activation (TASK_2026_262 residual hole 3). Guarded, synchronous and
+        // total by contract; it decides nothing here and cannot throw into
+        // this handler. `totalCount` rather than `models.length` because the
+        // latter is already narrowed by `toolUseOnly`.
+        if (result.totalCount > 0) {
+          this.providerModels.reapplyTiersForWarmedCatalog(providerId);
+        }
+
         return result;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

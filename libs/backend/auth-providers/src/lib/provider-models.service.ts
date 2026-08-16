@@ -808,6 +808,85 @@ export class ProviderModelsService {
   }
 
   /**
+   * Re-apply the ACTIVE provider's tiers after SOMEBODY ELSE warmed its
+   * catalogue.
+   *
+   * ## The hole this fills
+   *
+   * `applyPersistedTiers` derives from whatever catalogue is on hand *at the
+   * moment it runs*, and it runs once, at provider activation. `fetchModels`
+   * warms both catalogue caches — in-memory and persisted — but writes no tier
+   * env var of its own. So the model picker (`provider:listModels`) produces
+   * exactly the data the derivation wants and then leaves it sitting there:
+   * the user has a populated catalogue on screen while
+   * `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` stay unset, and the next
+   * resolution still sends the bare tier word. Before this, that state cleared
+   * only on the next provider activation — an auth flow the user has no reason
+   * to re-enter.
+   *
+   * This is the trigger for writer #1 and NOT a fourth writer: the precedence
+   * chain, the derivation and the env write all stay in
+   * {@link applyPersistedTiers}. The caller reports an event; it decides
+   * nothing.
+   *
+   * ## The three guards, each load-bearing
+   *
+   * 1. **Activeness.** `applyPersistedTiers` does not check whether the
+   *    provider it is given is the active one, and it writes process-global
+   *    env. Re-applying for a provider the user merely browsed in the picker
+   *    would repoint the ACTIVE provider's tiers at another provider's model
+   *    ids — a silent wrong-model send, which is worse than the 404 this whole
+   *    carrier is about. (`autoResolveDefaultTiers` has this hazard today and
+   *    is recorded as a pre-existing violation; do not copy it.)
+   * 2. **Only fill a hole.** Returns when every tier env var already has a
+   *    value. This is what makes the method incapable of disturbing a working
+   *    configuration; combined with `applyPersistedTiers`' own
+   *    `userTiers ?? providerDefaults ?? liveDerived` order, a user's explicit
+   *    pick is safe twice over — it is never reached, and it would win if it
+   *    were.
+   * 3. **Something new to derive from.** Returns when the catalogue on hand
+   *    still implies no tiers. Without it, a picker open against a provider
+   *    with no catalogue would reach `applyPersistedTiers`, find the same hole
+   *    and schedule ANOTHER out-of-band fetch — turning a UI action into a
+   *    network round trip that cannot possibly succeed where the one the user
+   *    just triggered did not.
+   *
+   * Synchronous and total, for the same reason the refresh is fire-and-forget:
+   * it hangs off an RPC handler that has already done its job, so it must not
+   * throw into it and must not make it wait. Every failure ends in a debug
+   * line.
+   *
+   * @param providerId the provider whose catalogue was just fetched
+   */
+  reapplyTiersForWarmedCatalog(providerId: string): void {
+    try {
+      if (providerId !== this.resolveActiveProviderId()) return;
+
+      const unresolved = Object.values(TIER_ENV_VAR_MAP).filter(
+        (envKey) => !this.authEnv[envKey as keyof AuthEnv],
+      );
+      if (unresolved.length === 0) return;
+
+      if (Object.keys(this.getLiveDerivedTiers(providerId)).length === 0)
+        return;
+
+      this.logger.debug(
+        '[ProviderModelsService] Catalog warmed out of band — re-applying tiers',
+        { providerId, unresolved },
+      );
+      this.applyPersistedTiers(providerId);
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[ProviderModelsService] Re-applying tiers after a catalog warm failed',
+        {
+          providerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
    * Publish the display metadata the SDK pairs with a remapped tier.
    *
    * Without `_NAME`/`_DESCRIPTION` the picker labels a mapped tier with its raw

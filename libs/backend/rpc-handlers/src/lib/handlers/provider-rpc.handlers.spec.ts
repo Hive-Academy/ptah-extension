@@ -93,6 +93,7 @@ type MockProviderModels = jest.Mocked<
     | 'setModelTier'
     | 'getModelTiers'
     | 'clearModelTier'
+    | 'reapplyTiersForWarmedCatalog'
   >
 >;
 
@@ -100,6 +101,7 @@ function createMockProviderModels(): MockProviderModels {
   return {
     registerDynamicFetcher: jest.fn(),
     fetchModels: jest.fn(),
+    reapplyTiersForWarmedCatalog: jest.fn(),
     setModelTier: jest.fn().mockResolvedValue(undefined),
     getModelTiers: jest.fn().mockReturnValue({
       sonnet: null,
@@ -471,6 +473,60 @@ describe('ProviderRpcHandlers', () => {
         'sk-or-test',
         true,
       );
+    });
+
+    it('tells the models service the catalog was warmed, with the RESOLVED provider id', async () => {
+      // TASK_2026_262 residual hole 3. Fetching for the picker warms both
+      // catalogue caches — which is precisely what the tier derivation reads —
+      // and before this nothing said so, leaving the ambient tier env vars
+      // unset until the next provider activation.
+      //
+      // The id has to be the RESOLVED one, not the raw param: the service
+      // compares it against the active provider before writing any global env,
+      // and an unresolved `undefined` would silently disable that guard.
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'z-ai' },
+        providerKeysSeed: { 'z-ai': 'key-z' },
+      });
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [
+          {
+            id: 'kimi-k2',
+            name: 'Kimi K2',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+        ],
+        totalCount: 1,
+        isStatic: false,
+      });
+      h.handlers.register();
+
+      await call(h, 'provider:listModels', {});
+
+      expect(
+        h.providerModels.reapplyTiersForWarmedCatalog,
+      ).toHaveBeenCalledWith('z-ai');
+    });
+
+    it('does not claim a warm when the provider returned no catalog at all', async () => {
+      // Nothing landed, so there is nothing new to derive from. Saying
+      // otherwise would push the service into re-applying against the same
+      // hole and scheduling a fetch the user's own just failed to satisfy.
+      const h = makeHarness({ providerKeysSeed: { moonshot: 'key-m' } });
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [],
+        totalCount: 0,
+        isStatic: false,
+      });
+      h.handlers.register();
+
+      await call(h, 'provider:listModels', { providerId: 'moonshot' });
+
+      expect(
+        h.providerModels.reapplyTiersForWarmedCatalog,
+      ).not.toHaveBeenCalled();
     });
 
     it('short-circuits to empty result for purely-dynamic providers without an API key', async () => {

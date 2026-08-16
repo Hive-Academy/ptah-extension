@@ -546,6 +546,51 @@ would create conflicts rather than throughput.
 
 ---
 
+## Residual item closed AFTER Batch 3's cancellation ✅ COMPLETE
+
+Recorded here so the record does not read as though cancelling Batch 3 quietly
+swallowed this. **Batch 3's cancellation was of its ERROR-CHANNEL scope only**
+(Tasks 3.1 and 3.2, the typed unresolvable-tier result and the RPC namespace it
+would have needed). The go/no-go above says so in its own last paragraph: it
+names Batch 1 residual hole item 3 as "the higher-value re-point" if budget is
+spent here at all. That item was carried, not dropped, and is now closed.
+
+**Item**: `provider:listModels` warmed both catalogue caches and never re-ran
+`applyPersistedTiers`, so a user who opened the model picker had a full
+catalogue on screen while the global tier env vars stayed unset — cleared only
+by the next provider activation. Batch 1 named it hole 3 and Batch 2 named it
+"Found and not fixed" item 4; both called it the cheapest remaining gap.
+
+**Shipped**: `ProviderModelsService.reapplyTiersForWarmedCatalog(providerId)` —
+synchronous, total, three-guarded (active provider only; only fills a hole;
+only when the catalogue on hand actually implies tiers), triggered once from
+`provider:listModels` after a non-empty fetch. It is a TRIGGER for writer #1,
+not a fourth writer: precedence, derivation and the env write all stay in
+`applyPersistedTiers`, so `userTiers ?? providerDefaults ?? liveDerived` holds
+unchanged and is re-pinned by a spec on this path.
+
+**Constraints honoured**: no error channel and no RPC namespace — the cancelled
+scope was not reintroduced; `applyPersistedTiers` and `switchActiveProvider`
+stay synchronous with no call site touched; no provider-id literal; the failure
+path swallows and logs rather than throwing into the handler.
+
+**Scope check**: Batch 2's "only the global env needs the explicit re-apply"
+was verified rather than taken, and it held — `WorkspaceProviderProfileResolver.applyProviderTiers`
+and `ProviderAuthResolver.buildTierValues` both call `getLiveDerivedTiers`
+lazily at snapshot-build time, so a warmed cache reaches them for free.
+
+**Files**: `libs/backend/auth-providers/src/lib/provider-models.service.ts`,
+`libs/backend/rpc-handlers/src/lib/handlers/provider-rpc.handlers.ts`, plus
+their specs. Detail in `residual-listmodels-report.md`.
+
+**What survives of Batch 1's residual hole**: items 1 and 2 (the refresh window
+itself, and an offline `/v1/models` behind a live inference endpoint). Both are
+accepted-and-recorded in `auth-providers/CLAUDE.md`; closing either needs the
+timer or the error channel that were argued and declined. Item 4 was closed by
+Batch 2. Item 3 is closed here.
+
+---
+
 ## Status legend
 
 ⏸️ PENDING · 🔄 IN PROGRESS · 🔄 IMPLEMENTED · ✅ COMPLETE · ❌ FAILED/CANCELLED

@@ -68,6 +68,7 @@ function makeService(opts: {
   service: ProviderModelsService;
   config: MockConfigManager;
   authEnv: AuthEnv;
+  logger: ReturnType<typeof createMockLogger>;
 } {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: opts.configValues });
@@ -80,7 +81,7 @@ function makeService(opts: {
     makeActiveProviderResolver(opts.configValues ?? {}),
   );
 
-  return { service, config, authEnv };
+  return { service, config, authEnv, logger };
 }
 
 // ---------------------------------------------------------------------------
@@ -895,6 +896,281 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
     expect(() => service.applyPersistedTiers('anthropic')).not.toThrow();
     await settle();
     expect(process.env[ENV_OPUS]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reapplyTiersForWarmedCatalog — the catalogue somebody else fetched
+// ---------------------------------------------------------------------------
+
+/**
+ * TASK_2026_262 residual hole 3, closed after Batch 3's error-channel scope was
+ * cancelled.
+ *
+ * `applyPersistedTiers` derives from the catalogue on hand at the moment it
+ * runs, and it runs at provider activation. `fetchModels` — which is all
+ * `provider:listModels` does — warms both catalogue caches and writes no tier
+ * env var. The gap that leaves is not hypothetical: a user whose local server
+ * was down during activation, or whose activation-time refresh had not landed,
+ * opens the model picker, sees a full catalogue, sends a message, and still
+ * gets the bare tier word at the endpoint, because nothing re-ran the
+ * derivation. Before this, only another provider activation cleared it — an
+ * auth flow the user has no reason to re-enter.
+ *
+ * What these lock in is not "it now re-applies" but the three guards that make
+ * re-applying safe, since the method runs off a UI action rather than an auth
+ * flow:
+ *
+ *   - it never writes for a provider that is not the active one, because
+ *     `applyPersistedTiers` writes process-global env and the picker is the one
+ *     place a user routinely inspects a provider they are not using;
+ *   - it only ever fills a hole, and a user's explicit pick outranks the
+ *     derivation even inside that hole;
+ *   - it does not turn a picker open into a second network round trip.
+ */
+describe('ProviderModelsService.reapplyTiersForWarmedCatalog', () => {
+  /** A local server's catalogue: no tier words, uniform metadata. */
+  const LOCAL_MODELS = [
+    {
+      id: 'qwen3-coder-30b',
+      name: 'Qwen3 Coder 30B',
+      description: '',
+      contextLength: 4096,
+      supportsToolUse: false,
+    },
+    {
+      id: 'gemma-3-12b',
+      name: 'Gemma 3 12B',
+      description: '',
+      contextLength: 4096,
+      supportsToolUse: false,
+    },
+  ];
+
+  /** A router's catalogue: it names the tiers itself. */
+  const ROUTER_MODELS = [
+    {
+      id: 'anthropic/claude-opus-4.5',
+      name: 'Claude Opus 4.5',
+      description: 'Frontier model',
+      contextLength: 200_000,
+      supportsToolUse: true,
+    },
+    {
+      id: 'anthropic/claude-sonnet-4.5',
+      name: 'Claude Sonnet 4.5',
+      description: 'Balanced model',
+      contextLength: 200_000,
+      supportsToolUse: true,
+    },
+    {
+      id: 'anthropic/claude-haiku-4.5',
+      name: 'Claude Haiku 4.5',
+      description: 'Fast model',
+      contextLength: 200_000,
+      supportsToolUse: true,
+    },
+  ];
+
+  /** Let the fire-and-forget refresh, and everything it awaits, settle. */
+  const settle = async (): Promise<void> => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  afterEach(() => {
+    for (const tier of ['OPUS', 'SONNET', 'HAIKU']) {
+      delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_NAME`];
+      delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_DESCRIPTION`];
+    }
+  });
+
+  it('fills the tiers a picker fetch made derivable, where activation could not', async () => {
+    // The residual hole end to end, in the shape a user actually meets it:
+    // LM Studio's inference endpoint is up but `/v1/models` is not when the
+    // provider is activated, so the activation-time refresh fetches nothing
+    // and every tier stays unset. Nothing retries on a timer, by design. The
+    // user then opens the model picker — which succeeds, because by now the
+    // server is answering — and before this the env stayed empty anyway.
+    let modelsEndpointUp = false;
+    const { service, authEnv } = makeService({
+      configValues: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'lm-studio',
+      },
+    });
+    // A dynamic fetcher stands in for the picker's HTTP call: `fetchModels`
+    // warms `modelCache` and persists the catalogue identically on both of its
+    // live routes, and this one needs no axios mock.
+    service.registerDynamicFetcher('lm-studio', async () => {
+      if (!modelsEndpointUp) {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:1234');
+      }
+      return LOCAL_MODELS;
+    });
+
+    service.switchActiveProvider('lm-studio');
+    await settle();
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+
+    modelsEndpointUp = true;
+    await service.fetchModels('lm-studio', null);
+    service.reapplyTiersForWarmedCatalog('lm-studio');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gemma-3-12b');
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gemma-3-12b');
+    expect(process.env[ENV_SONNET]).toBe('gemma-3-12b');
+    await settle();
+  });
+
+  it('refuses to write for a provider that is not the active one', async () => {
+    // The guard the picker makes necessary. `applyPersistedTiers` takes a
+    // provider id and writes process-global env; it does not check activeness.
+    // Browsing LM Studio's models while OpenRouter is the active provider must
+    // not repoint the OpenRouter session at ids OpenRouter cannot serve — a
+    // silent wrong-model send, which is strictly worse than the 404 this
+    // carrier exists to remove.
+    const { service, authEnv } = makeService({
+      configValues: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+      },
+    });
+    service.registerDynamicFetcher('lm-studio', async () => LOCAL_MODELS);
+
+    service.switchActiveProvider('openrouter');
+    await settle();
+    // OpenRouter declares no `defaultTiers` and has no catalogue here, so the
+    // active provider genuinely HAS a hole — only the activeness guard is
+    // standing between LM Studio's ids and it.
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+
+    await service.fetchModels('lm-studio', null);
+    service.reapplyTiersForWarmedCatalog('lm-studio');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
+    expect(process.env[ENV_OPUS]).toBeUndefined();
+    await settle();
+  });
+
+  it('leaves a user pick alone and fills only around it', async () => {
+    // The precedence contract, `userTiers ?? providerDefaults ?? liveDerived`,
+    // holds on this trigger too — and twice over: the pick is never reached,
+    // and `applyPersistedTiers` would rank it above the derivation if it were.
+    const { service, authEnv } = makeService({
+      configValues: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        'provider.openrouter.mainAgent.modelTier.opus': 'openai/gpt-5.3-codex',
+      },
+    });
+    // Activation runs with nothing to derive from — no key, so the
+    // `modelsEndpoint` route yields nothing and no catalogue is cached. The
+    // user's pick lands; the two tiers they did not pick do not.
+    service.switchActiveProvider('openrouter');
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('openai/gpt-5.3-codex');
+    await settle();
+    expect(authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined();
+
+    service.registerDynamicFetcher('openrouter', async () => ROUTER_MODELS);
+    await service.fetchModels('openrouter', 'sk-or-test');
+    service.reapplyTiersForWarmedCatalog('openrouter');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('openai/gpt-5.3-codex');
+    expect(authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
+      'anthropic/claude-sonnet-4.5',
+    );
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
+      'anthropic/claude-haiku-4.5',
+    );
+    await settle();
+  });
+
+  it('declines silently when there is no hole to fill', async () => {
+    // The picker is opened often and every re-application re-derives, re-writes
+    // three env vars and re-resolves their display metadata. A configuration
+    // that already resolves has nothing to gain from any of it, so the method
+    // returns before it acts — observable as the absence of the one line it
+    // logs when it does act.
+    //
+    // Stated plainly because it is a weaker guarantee than the other two: this
+    // guard is a cheap exit, not a safety property. `applyPersistedTiers` is
+    // idempotent over a resolved configuration, so removing this guard would
+    // waste work rather than corrupt anything.
+    const { service, authEnv, logger } = makeService({
+      configValues: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'lm-studio',
+      },
+    });
+    service.registerDynamicFetcher('lm-studio', async () => LOCAL_MODELS);
+
+    service.switchActiveProvider('lm-studio');
+    await settle();
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gemma-3-12b');
+
+    logger.debug.mockClear();
+    service.reapplyTiersForWarmedCatalog('lm-studio');
+    await settle();
+
+    expect(logger.debug).not.toHaveBeenCalledWith(
+      expect.stringContaining('re-applying tiers'),
+      expect.anything(),
+    );
+  });
+
+  it('does not turn a picker open into a second round trip when nothing was warmed', async () => {
+    // The catalogue came back empty, so the derivation still has nothing to
+    // work from. Re-applying regardless would find the same hole and schedule
+    // ANOTHER out-of-band fetch — a network call that cannot succeed where the
+    // one the user just triggered did not.
+    const fetcher = jest.fn().mockResolvedValue([]);
+    const { service } = makeService({
+      configValues: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'lm-studio',
+      },
+    });
+    service.registerDynamicFetcher('lm-studio', fetcher);
+
+    service.switchActiveProvider('lm-studio');
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await service.fetchModels('lm-studio', null);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    service.reapplyTiersForWarmedCatalog('lm-studio');
+    await settle();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('swallows its own failure rather than throwing into the RPC handler', () => {
+    // It hangs off `provider:listModels`, whose handler re-throws anything it
+    // does not recognise. A settings read that fails must not turn a
+    // successful model list into an RPC failure.
+    const logger = createMockLogger();
+    const config = createMockConfigManager({ values: {} });
+    const authEnv: AuthEnv = {};
+    const throwingScope = {
+      read: () => {
+        throw new Error('settings store unreadable');
+      },
+    } as unknown as WorkspaceScopeResolver;
+
+    const service = new ProviderModelsService(
+      logger as unknown as Logger,
+      config as unknown as import('@ptah-extension/vscode-core').ConfigManager,
+      authEnv,
+      new ActiveProviderResolver(throwingScope),
+    );
+
+    expect(() =>
+      service.reapplyTiersForWarmedCatalog('openrouter'),
+    ).not.toThrow();
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
   });
 });
 
