@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_258
-status: in_review
+status: done
 type: documentation
 title: 'Plugins docs: correct a section that documents a UI which does not exist'
 description: >-

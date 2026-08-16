@@ -54,8 +54,11 @@ export function initPluginLoader(
 /**
  * Mirror installed/downloaded skills, synthesized skills, and Claude agents
  * into the user layer (~/.ptah/user/). create-if-absent, so it is safe to call
- * on every activation; the IStateStorage watermark only skips the directory
- * walk after the first successful backfill. Non-fatal on failure.
+ * on every activation. The IStateStorage watermark skips no work — it gates the
+ * backfill log line only; the directory walk runs every activation and must, so
+ * newly-added slugs get clones. Refreshing an EXISTING clone is not this
+ * function's job and never was: that is reconcileUserLayer below.
+ * Non-fatal on failure.
  *
  * Must run BEFORE activateSkillJunctions so the user layer is populated before
  * junctions are pointed at it.

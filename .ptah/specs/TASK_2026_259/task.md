@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_259
-status: in_review
+status: done
 type: bugfix
 title: 'pruneStaleFiles deletes user-authored harness skills from ~/.ptah/plugins'
 description: >-
