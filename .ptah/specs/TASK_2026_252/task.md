@@ -1,7 +1,7 @@
 ---
 id: TASK_2026_252
 status: in_review
-type: bugfix
+type: BUGFIX
 title: >-
   Tasks board Start button fires a dead `/ptah-core:orchestrate` command and is
   offered on every non-terminal status
