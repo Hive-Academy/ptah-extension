@@ -13,7 +13,7 @@ description: Terms used throughout the Ptah docs.
 
 **Orchestration** — A workflow mode where a lead agent breaks work into tasks and delegates to specialist sub-agents.
 
-**Plugin** — A bundle of agents, skills, and tools that extend Ptah for a specific domain. Plugins live under `~/.ptah/plugins/` and are enabled per workspace via `.ptah/plugins.json`.
+**Plugin** — A bundle of agents, skills, and tools that extend Ptah for a specific domain. Plugins live under `~/.ptah/plugins/`. Which ones are enabled is remembered per workspace in Ptah's own workspace state — not in a file inside your repository.
 
 **Provider** — A source of language-model completions (Claude, Copilot, Codex, Ollama, OpenRouter). Configured in **Settings → Providers**.
 
@@ -21,7 +21,7 @@ description: Terms used throughout the Ptah docs.
 
 **Skill** — A named, reusable procedure with its own instructions and optional allowed tools. Invoked from chat. Lives in `.claude/skills/` (workspace) or `~/.claude/skills/` (global).
 
-**Template** — A scaffold for a new project, plugin, or skill. Templates live under `~/.ptah/templates/`.
+**Template** — A scaffold for a new project, plugin, or skill. Agent templates live under `~/.ptah/templates/agents/`.
 
 **Worktree** — A secondary working copy of a Git repository. Ptah can create and manage worktrees so an agent can experiment without disturbing your main branch.
 

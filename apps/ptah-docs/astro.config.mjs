@@ -125,6 +125,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'marketplace' },
             { label: 'MCP Registry', slug: 'marketplace/mcp-registry' },
+            { label: 'Connected Apps', slug: 'marketplace/connected-apps' },
             { label: 'Smithery', slug: 'marketplace/smithery' },
           ],
         },
@@ -132,9 +133,11 @@ export default defineConfig({
           label: 'Plugins',
           items: [
             { label: 'Overview', slug: 'plugins' },
-            { label: 'Marketplace', slug: 'plugins/marketplace' },
+            { label: 'Catalog', slug: 'plugins/marketplace' },
             { label: 'Installing', slug: 'plugins/installing' },
             { label: 'Managing', slug: 'plugins/managing' },
+            { label: 'Skill Toggles', slug: 'plugins/skill-toggles' },
+            { label: 'Harness Plugins', slug: 'plugins/harness-plugins' },
             { label: 'Plugin Storage', slug: 'plugins/plugin-storage' },
             { label: 'Creating Plugins', slug: 'plugins/creating-plugins' },
           ],

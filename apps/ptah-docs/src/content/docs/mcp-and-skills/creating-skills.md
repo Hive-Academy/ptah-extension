@@ -111,7 +111,7 @@ Call ptah_harness_create_skill with:
 }
 ```
 
-Ptah writes the skill under `<workspace>/.claude/skills/my-skill/SKILL.md` and registers it immediately. Ideal for capturing a reusable workflow you just discovered.
+Ptah writes the skill under `~/.ptah/plugins/ptah-harness-my-skill/skills/my-skill/SKILL.md` — a harness plugin, not a workspace skill — and registers it immediately. It is available in every workspace rather than just this one, and appears in the plugin list under **Your Skills**. See [Harness plugins](/plugins/harness-plugins/) for how those are activated. Ideal for capturing a reusable workflow you just discovered.
 
 ### 3. Drop a folder into `.claude/skills/`
 

@@ -5,8 +5,6 @@ description: Browse and install servers from the official Model Context Protocol
 
 The **MCP Registry** provider browses the **official Model Context Protocol server registry** from inside Ptah. It's the curated, vendor-neutral catalog of MCP servers — filesystems, databases, SaaS connectors, and developer tools — that you can search and add to your workspace.
 
-![MCP Registry in the Marketplace](/screenshots/marketplace-mcp-registry.png)
-
 ## Browsing and installing
 
 1. Open **Marketplace → MCP Registry**.
