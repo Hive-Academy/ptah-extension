@@ -16,7 +16,7 @@
  * so every resolved ms (captions/overlays/shots) is already on this clock.
  */
 import React from 'react';
-import { AbsoluteFill, Audio, staticFile } from 'remotion';
+import { AbsoluteFill, Audio, staticFile, useVideoConfig } from 'remotion';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
 import { Backdrop } from '../components/Backdrop';
@@ -40,9 +40,16 @@ export const SelfShotShell: React.FC<{
   videoHeight: number;
   children: React.ReactNode;
 }> = ({ props, videoHeight, children }) => {
-  const bodyFrames = Math.max(1, msToFrames(props.bodyMs));
+  // msToFrames defaults to OUTPUT_FPS (30) — the SHOWCASE pipeline's rate. A
+  // self-shot runs at the FOOTAGE's rate, which is 60 for screen capture, so the
+  // fps must come from the composition. Omitting it halves the body sequence:
+  // the end card fires at the midpoint and every frame after it renders empty.
+  // Only visible WITH an end card — the no-end-card branch below is unbounded,
+  // which is why 60fps self-shots without one always looked correct.
+  const { fps } = useVideoConfig();
+  const bodyFrames = Math.max(1, msToFrames(props.bodyMs, fps));
   const endMs = props.endCard?.durationMs ?? 0;
-  const endFrames = endMs > 0 ? msToFrames(endMs) : 0;
+  const endFrames = endMs > 0 ? msToFrames(endMs, fps) : 0;
   const overlap =
     endFrames > 0
       ? Math.max(0, Math.min(END_TRANSITION_FRAMES, bodyFrames - 1, endFrames - 1))
