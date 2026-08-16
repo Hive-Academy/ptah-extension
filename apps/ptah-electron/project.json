@@ -93,16 +93,6 @@
             "output": "assets"
           },
           {
-            "glob": "**/*",
-            "input": "apps/ptah-extension-vscode/assets/plugins",
-            "output": "assets/plugins"
-          },
-          {
-            "glob": "**/*",
-            "input": "libs/backend/agent-generation/templates",
-            "output": "templates"
-          },
-          {
             "glob": "electron-builder.yml",
             "input": "apps/ptah-electron",
             "output": "."
