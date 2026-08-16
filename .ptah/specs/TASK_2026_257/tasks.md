@@ -342,6 +342,8 @@ continue into the next directory on a red build.
 
 ## Batch 3: Card/CardGrid hub pages — remainder ✅ COMPLETE (collapsed pass, part 1 of 3)
 
+**Commit**: `4b50309b6` — _fix(docs): give the last thirty-two pages extensions that run their imports_ (shared by Batches 3, 4 and 5)
+
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
 **Execution Mode**: sequential
@@ -379,6 +381,8 @@ pages handled in Batch 5.
 ---
 
 ## Batch 4: `Aside` sweep A — browser-automation, reference, settings ✅ COMPLETE (collapsed pass, part 2 of 3)
+
+**Commit**: `4b50309b6` — shared with Batches 3 and 5
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -443,6 +447,8 @@ directory rather than to a set of 16.
 ---
 
 ## Batch 5: `Aside` sweep B — skill-synthesis, troubleshooting ✅ COMPLETE (collapsed pass, part 3 of 3)
+
+**Commit**: `4b50309b6` — shared with Batches 3 and 4
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
