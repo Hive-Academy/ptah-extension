@@ -18,22 +18,20 @@ function makeDiagnosticsStub(): jest.Mocked<
   >;
 }
 
-function makeSkillStateStub(): jest.Mocked<
+type SkillStateStub = jest.Mocked<
   Pick<
     SkillSynthesisStateService,
-    'refreshSuggestions' | 'refreshCandidates' | 'loadStats'
+    'refreshSuggestions' | 'refreshCandidates' | 'loadStats' | 'refreshDigest'
   >
-> {
+>;
+
+function makeSkillStateStub(): SkillStateStub {
   return {
     refreshSuggestions: jest.fn(async () => undefined),
     refreshCandidates: jest.fn(async () => undefined),
     loadStats: jest.fn(async () => undefined),
-  } as unknown as jest.Mocked<
-    Pick<
-      SkillSynthesisStateService,
-      'refreshSuggestions' | 'refreshCandidates' | 'loadStats'
-    >
-  >;
+    refreshDigest: jest.fn(async () => undefined),
+  } as unknown as SkillStateStub;
 }
 
 function event(
@@ -145,5 +143,86 @@ describe('SkillSynthesisLiveService', () => {
     send(svc, event({ kind: 'analyze-run' }));
     expect(skillState.loadStats).toHaveBeenCalledTimes(1);
     expect(skillState.refreshCandidates).not.toHaveBeenCalled();
+  });
+
+  /**
+   * B4.5.2 — nudges ride THIS broadcast.
+   *
+   * The weekly digest is a pull; the only thing the push has to say is that the
+   * tables underneath it moved. These tests pin which event kinds mean that,
+   * which ones deliberately do not, and that a burst costs one sweep rather
+   * than one per event — a full digest sweep reads a week of sessions, so the
+   * debounce is a cost control, not a cosmetic detail.
+   *
+   * No new event kind and no second notification channel were added. If either
+   * ever appears, the first of these tests is where it will be noticed.
+   */
+  describe('weekly digest nudges', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    /** Advance past the debounce window and let the queued refresh run. */
+    function settle(): void {
+      jest.advanceTimersByTime(5_000);
+    }
+
+    it.each([
+      'analyze-run',
+      'curator-pass',
+      'backfill-complete',
+      'edit-then-test',
+    ] as const)('refreshes the digest after a %s event', (kind) => {
+      const { svc, skillState } = setup();
+      send(svc, event({ kind }));
+      settle();
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['ineligible', 'rate-limited', 'error'] as const)(
+      'does NOT re-sweep after a %s event',
+      (kind) => {
+        // These report that nothing was recorded, so a sweep would re-derive
+        // the digest already on screen at the cost of a week-long scan.
+        const { svc, skillState } = setup();
+        send(svc, event({ kind }));
+        settle();
+        expect(skillState.refreshDigest).not.toHaveBeenCalled();
+      },
+    );
+
+    it('coalesces a burst of invalidating events into ONE sweep', () => {
+      const { svc, skillState } = setup();
+      send(svc, event({ kind: 'analyze-run' }));
+      send(svc, event({ kind: 'edit-then-test' }));
+      send(svc, event({ kind: 'curator-pass', stats: {} }));
+      expect(skillState.refreshDigest).not.toHaveBeenCalled();
+
+      settle();
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+    });
+
+    it('sweeps again for a later burst rather than only once per session', () => {
+      const { svc, skillState } = setup();
+      send(svc, event({ kind: 'analyze-run' }));
+      settle();
+      send(svc, event({ kind: 'analyze-run' }));
+      settle();
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(2);
+    });
+
+    it('still does the per-kind work it did before the nudge was added', () => {
+      // The nudge is scheduled alongside the existing switch, not instead of
+      // it: a kind that both invalidates the digest and refreshes something
+      // else must keep doing both.
+      const { svc, skillState } = setup();
+      send(svc, event({ kind: 'backfill-complete', stats: { count: 2 } }));
+      settle();
+      expect(skillState.refreshCandidates).toHaveBeenCalledTimes(1);
+      expect(skillState.loadStats).toHaveBeenCalledTimes(1);
+      expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+    });
   });
 });

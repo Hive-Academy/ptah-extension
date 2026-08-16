@@ -15,6 +15,7 @@ import type {
   SkillSynthesisDrainRun,
   SkillSynthesisQueueItem,
   SkillSynthesisStageSpend,
+  SkillDigestItem,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
@@ -195,6 +196,9 @@ interface StubState {
   readonly queueLoading: ReturnType<typeof signal<boolean>>;
   readonly queuedAttemptTotal: ReturnType<typeof computed<number>>;
   readonly refreshQueue: jest.Mock<Promise<void>, []>;
+  readonly digestItems: ReturnType<typeof signal<SkillDigestItem[]>>;
+  readonly digestLoading: ReturnType<typeof signal<boolean>>;
+  readonly refreshDigest: jest.Mock<Promise<void>, []>;
 }
 
 function makeStub(
@@ -203,6 +207,7 @@ function makeStub(
     items?: SkillSynthesisQueueItem[];
     runs?: SkillSynthesisDrainRun[];
     stageSpend?: SkillSynthesisStageSpend[];
+    digest?: SkillDigestItem[];
   } = {},
 ): StubState {
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
@@ -217,6 +222,9 @@ function makeStub(
       queueItems().reduce((sum, item) => sum + item.attemptCount, 0),
     ),
     refreshQueue: jest.fn(async () => undefined),
+    digestItems: signal<SkillDigestItem[]>(queueValue.digest ?? []),
+    digestLoading: signal<boolean>(false),
+    refreshDigest: jest.fn(async () => undefined),
     candidates,
     suggestions,
     suggestionsLoading: signal<boolean>(false),
@@ -362,6 +370,71 @@ describe('SkillSynthesisTabComponent', () => {
     expect(stages.length).toBe(1);
     expect(stages[0].textContent).toContain('archaeology');
     expect(stages[0].textContent).toContain('2 dispatches');
+  });
+
+  /**
+   * B4.5.1 — the digest is a sibling of the pipeline strip on Activity, and it
+   * is fetched at init like the queue is. The `null` win rate is carried
+   * through the whole tab wiring here, not just unit-tested on the panel, so a
+   * host that coalesced the field on the way down would still be caught.
+   */
+  it('feeds the weekly digest from state into the Activity panel', () => {
+    const stub = makeStub([], {
+      digest: [
+        {
+          kind: 'missed-trigger',
+          title: 'compose skill never fired',
+          rationale: '3 sessions matched and none invoked it.',
+          score: 0.82,
+          evidence: {
+            sessionIds: ['sess-1', 'sess-2'],
+            counts: { missedSessions: 3 },
+            winRate: null,
+          },
+        },
+        {
+          kind: 'win-rate',
+          title: 'lint-fixer loses every run',
+          rationale: 'Measured over 6 invocations.',
+          score: 0.44,
+          evidence: {
+            sessionIds: ['sess-3'],
+            counts: { invocations: 6 },
+            winRate: 0,
+          },
+        },
+      ],
+    });
+    const diag = makeDiagnosticsStub();
+
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: SkillDiagnosticsStateService, useValue: diag },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    expect(stub.refreshDigest).toHaveBeenCalledTimes(1);
+
+    openActivity(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    const items = root.querySelectorAll('[data-testid="skills-digest-item"]');
+    expect(items.length).toBe(2);
+
+    const winRates = Array.from(items).map((n) =>
+      n
+        .querySelector('[data-testid="skills-digest-win-rate"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    );
+    // `null` and a measured `0` must stay distinguishable end to end.
+    expect(winRates).toEqual(['win rate not measured', 'win rate 0%']);
   });
 
   it('switches to the Activity sub-view when its tab is clicked', () => {

@@ -14,6 +14,7 @@ import type {
   SkillSynthesisDrainRun,
   SkillSynthesisQueueItem,
   SkillSynthesisStageSpend,
+  SkillDigestItem,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -104,6 +105,16 @@ export class SkillSynthesisStateService {
   public readonly drainRuns = signal<SkillSynthesisDrainRun[]>([]);
   public readonly stageSpend = signal<SkillSynthesisStageSpend[]>([]);
   public readonly queueLoading = signal<boolean>(false);
+
+  /**
+   * The weekly gap digest, ALREADY ranked by `score` descending.
+   *
+   * Held in the order the backend returned it and never re-sorted here — the
+   * curator's tie-break is what makes two identical sweeps produce identical
+   * digests, and a sort on the way through would drop it.
+   */
+  public readonly digestItems = signal<SkillDigestItem[]>([]);
+  public readonly digestLoading = signal<boolean>(false);
 
   /**
    * Total queued attempts across every stage — the headline figure behind the
@@ -491,6 +502,25 @@ export class SkillSynthesisStateService {
       this.error.set(this.toMessage(err));
     } finally {
       this.queueLoading.set(false);
+    }
+  }
+
+  /**
+   * Refresh the weekly gap digest.
+   *
+   * On failure the last good digest is LEFT IN PLACE rather than blanked: an
+   * empty panel would read as "swept, nothing to look at", which is a false
+   * statement when the sweep never completed. The error surfaces beside it.
+   */
+  public async refreshDigest(options: { limit?: number } = {}): Promise<void> {
+    this.digestLoading.set(true);
+    try {
+      const result = await this.rpc.digest(options);
+      this.digestItems.set(result.items ?? []);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.digestLoading.set(false);
     }
   }
 

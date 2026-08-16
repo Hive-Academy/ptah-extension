@@ -35,6 +35,7 @@ import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
 import { SkillSuggestionsViewComponent } from './suggestions/skill-suggestions-view.component';
 import { SkillStatsStripComponent } from './skill-stats-strip.component';
 import { SkillPipelineStatusComponent } from './skill-pipeline-status.component';
+import { SkillDigestPanelComponent } from './skill-digest-panel.component';
 import {
   SkillCandidatesTableComponent,
   type SkillCandidateAction,
@@ -73,6 +74,7 @@ interface ActionDialogState {
     SkillSuggestionsViewComponent,
     SkillStatsStripComponent,
     SkillPipelineStatusComponent,
+    SkillDigestPanelComponent,
     SkillCandidatesTableComponent,
     SkillInvocationsPanelComponent,
     SkillSettingsPanelComponent,
@@ -447,6 +449,10 @@ interface ActionDialogState {
                 [queueItems]="queueItems()"
                 [stageSpend]="stageSpend()"
               />
+              <ptah-skill-digest-panel
+                [items]="digestItems()"
+                [loading]="digestLoading()"
+              />
               <ptah-skill-diagnostics-accordion />
 
               <div class="card border border-base-300 bg-base-200/40">
@@ -712,6 +718,9 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly queueItems = this.state.queueItems;
   public readonly stageSpend = this.state.stageSpend;
 
+  public readonly digestItems = this.state.digestItems;
+  public readonly digestLoading = this.state.digestLoading;
+
   public readonly candidateDetail = this.state.candidateDetail;
   public readonly candidateDetailLoading = this.state.candidateDetailLoading;
 
@@ -835,6 +844,7 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.loadStats();
     void this.diagnostics.refresh();
     void this.state.refreshQueue();
+    void this.state.refreshDigest();
     void this.state.refreshSpecs();
     void this.loadSettings();
     void this.loadLanes();
