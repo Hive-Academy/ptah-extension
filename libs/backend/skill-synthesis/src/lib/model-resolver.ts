@@ -42,12 +42,19 @@ function readSetting(ws: IWorkspaceProvider, key: string): string {
  *
  * ## Why "inherit" reads the ACTIVE PROVIDER'S selected model
  *
- * This function is only reached on the branch where the lane names NO provider
- * (`lane-resolver.service.ts:87`), which is the branch that rides the user's
- * active chat provider — `IProviderAuthResolver` returns `null` for a blank
- * provider id, so the call runs under the ambient chat auth env with no
- * override. The only model id that is known to be servable there is the one
- * that provider is already serving, and that value lives at
+ * There are two callers, and what they have in common is the auth env, not the
+ * lane:
+ *
+ *  - `resolveLaneModel` (`lane-resolver.service.ts:87`), on the branch where
+ *    the lane names NO provider. `IProviderAuthResolver` returns `null` for a
+ *    blank provider id, so the call carries no `auth` override.
+ *  - `SkillEnhancerService.generateCandidate` (`skill-enhancer.service.ts:690`),
+ *    which is NOT a lane at all — it calls this function directly and passes
+ *    the result to `internalQuery.execute` (`:740-746`) with no `auth` field.
+ *
+ * Both therefore run under the AMBIENT chat auth env, which is what the rest of
+ * this docblock reasons about. The only model id known to be servable there is
+ * the one the active provider is already serving, and that value lives at
  * `provider.<authKey>.selectedModel`, where `authKey` is computed from
  * `authMethod` + `anthropicProviderId` exactly as `ModelSettings` computes it
  * (`settings-core/src/repositories/model-settings.ts:31-43`).
@@ -72,8 +79,8 @@ function readSetting(ws: IWorkspaceProvider, key: string): string {
  *  - **Here** the call rides the ambient chat env, where the active provider's
  *    `ANTHROPIC_DEFAULT_<TIER>_MODEL` values are populated. `ModelResolver.resolve`
  *    detects the tier from a `claude-*` id and substitutes that override
- *    (`model-resolver.ts:38-48`), so a non-Anthropic user gets THEIR haiku-tier
- *    model, not this literal.
+ *    (`auth-providers/src/lib/auth/model-resolver.ts:38-48`), so a non-Anthropic
+ *    user gets THEIR haiku-tier model, not this literal.
  *  - **A lane with its own provider** gets an override env whose chat
  *    `ANTHROPIC_DEFAULT_*_MODEL` keys are blanked by design (R2), so there is no
  *    tier mapping for a pinned id to travel through and only a bare alias can
@@ -85,6 +92,36 @@ function readSetting(ws: IWorkspaceProvider, key: string): string {
  * rubric rather than a tier whose meaning is set by a provider the user never
  * chose for this work. Do not "fix" it into a tier alias — that has been
  * considered and declined (TASK_2026_250, Decision 1).
+ *
+ * ## The boundary of that remapping — it does NOT cover every provider
+ *
+ * State this honestly, because a rationale that claims more than it delivers is
+ * worse than no rationale. The substitution above happens only where
+ * `ANTHROPIC_DEFAULT_HAIKU_MODEL` is actually populated in the ambient env, and
+ * `ProviderModelsService.applyPersistedTiers` writes it under `if (value)`,
+ * where `value = userTiers[tier] ?? providerDefaults[tier]`. Two ways it is
+ * absent, both leaving `claude-haiku-4-5-20251001` to reach the endpoint
+ * verbatim:
+ *
+ *  1. **The active provider declares no `defaultTiers` and the user set no
+ *     manual haiku override.** `defaultTiers` is optional on `AnthropicProvider`,
+ *     and of the 11 `ANTHROPIC_PROVIDERS` entries THREE omit it: `openrouter`,
+ *     `lm-studio` and `requesty`. `openrouter` is `DEFAULT_PROVIDER_ID` and the
+ *     registered `FILE_BASED_SETTINGS_DEFAULTS` value for `anthropicProviderId`,
+ *     so this is the likeliest configuration, not an exotic one.
+ *  2. **`applyPersistedTiers` has not run for the active provider** — its own
+ *     doc says "call this during authentication setup when a provider is
+ *     active", and whether every auth path invokes it is not traced here.
+ *
+ * Direct Anthropic (`authMethod: 'apiKey'`) and `claude-cli` (`nativeAuth`, and
+ * deliberately an empty auth env) are unaffected: the pinned id is correct
+ * verbatim against Anthropic's own endpoint.
+ *
+ * So Decision 1 is intact but its safety argument is CONDITIONAL, and the
+ * residual hazard is exactly the one this task was filed about, surviving for
+ * the three providers above. Closing it means either giving those entries a
+ * `defaultTiers` in the registry or revisiting Decision 1 — both are the user's
+ * call and neither is taken here.
  */
 export function resolveJudgeModel(
   judgeModel: string,

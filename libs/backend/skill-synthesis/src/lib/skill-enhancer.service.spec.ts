@@ -7,7 +7,7 @@ import {
   MAX_WIN_RATE_TO_AUTO_ENHANCE,
   MIN_INVOCATIONS_TO_ENHANCE,
 } from './skill-enhancer.service';
-import type { SkillSynthesisSettings } from './types';
+import { JUDGE_DEFAULT_MODEL_ID, type SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
 import type { AgentScorecard } from '@ptah-extension/shared';
 
@@ -123,9 +123,16 @@ function makeHarness(opts: {
    * eligibility decision to the invocation floor alone.
    */
   winRate?: number | null;
+  /**
+   * Settings this workspace has stored. Unseeded keys read `''`, which is what
+   * every pre-existing case in this file relied on.
+   */
+  configSeed?: Record<string, string>;
 }): Harness {
   const workspaceProvider = {
-    getConfiguration: jest.fn(() => ''),
+    getConfiguration: jest.fn(
+      (_section: string, key: string) => opts.configSeed?.[key] ?? '',
+    ),
     getWorkspaceRoot: jest.fn(() => opts.workspaceRoot ?? '/home/u/project'),
   };
   const mirror = {
@@ -347,6 +354,98 @@ describe('SkillEnhancerService', () => {
     const cwd = h.internalQuery.execute.mock.calls[0][0].cwd as string;
     expect(cwd).not.toBe(process.cwd());
     expect(cwd).toBe('/home/u/project');
+  });
+
+  /**
+   * `generateCandidate` is the SECOND, NON-LANE caller of `resolveJudgeModel`
+   * (`skill-enhancer.service.ts:690`). It calls it directly and passes the
+   * result to `internalQuery.execute` with no `auth` field, so the call rides
+   * the ambient chat auth env rather than a lane override.
+   *
+   * That makes it an affected consumer of TASK_2026_250: this call site read
+   * `llm.vscode.model` before that change and reads the active provider's
+   * `provider.<authKey>.selectedModel` after it. Nothing exercised the model
+   * argument here, so the switch shipped unpinned — these three cases are that
+   * pin.
+   */
+  describe('enhance: the model handed to InternalQuery (TASK_2026_250)', () => {
+    const judgeDecision = {
+      status: 'scored',
+      score: 8,
+      criteria: null,
+      reason: 'judge-verdict',
+    } as const;
+
+    /**
+     * `judgeModel: 'inherit'` is NOT optional here, and the reason is a trap
+     * worth naming: `makeSettings()`'s default is the literal
+     * `'claude-haiku-4-5-20251001'` — an EXPLICIT model, which
+     * `resolveJudgeModel` returns on its first line without reading any
+     * setting. That literal is also the value of `JUDGE_DEFAULT_MODEL_ID`, so a
+     * case written against the default would assert the right string for
+     * entirely the wrong reason and pass against any implementation. Caught by
+     * mutation-testing these cases against the pre-change resolver.
+     */
+    async function modelSentWith(
+      configSeed: Record<string, string>,
+    ): Promise<{ model: string; call: Record<string, unknown> }> {
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        configSeed,
+      });
+      await h.svc.enhance(
+        'deep-research',
+        makeSettings({ judgeModel: 'inherit' }),
+      );
+      expect(h.internalQuery.execute).toHaveBeenCalledTimes(1);
+      const call = h.internalQuery.execute.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      return { model: call['model'] as string, call };
+    }
+
+    it('passes resolveJudgeModel s output through unchanged — the active provider s model', async () => {
+      const { model, call } = await modelSentWith({
+        'provider.apiKey.selectedModel': 'active-chat-model',
+      });
+      expect(model).toBe('active-chat-model');
+      // No `auth` override: this is why the ambient-env argument that justifies
+      // the pinned default covers this caller too, despite it not being a lane.
+      expect(call['auth']).toBeUndefined();
+    });
+
+    it('does not read the dead VS Code LM key even when it holds a value', async () => {
+      const { model } = await modelSentWith({
+        'llm.vscode.model': 'some-vendor/some-family',
+      });
+      expect(model).toBe(JUDGE_DEFAULT_MODEL_ID);
+    });
+
+    it('falls back to the shipped judge default when nothing is pinned', async () => {
+      const { model } = await modelSentWith({});
+      expect(model).toBe(JUDGE_DEFAULT_MODEL_ID);
+    });
+
+    it('sends an EXPLICIT judgeModel verbatim, consulting no setting', async () => {
+      // The complement of the three cases above, and what makes their
+      // `judgeModel: 'inherit'` load-bearing rather than decorative.
+      const h = makeHarness({
+        judgeDecision,
+        candidateText: 'Improved body',
+        configSeed: { 'provider.apiKey.selectedModel': 'active-chat-model' },
+      });
+      await h.svc.enhance(
+        'deep-research',
+        makeSettings({ judgeModel: 'an-explicitly-pinned-model' }),
+      );
+      const call = h.internalQuery.execute.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      expect(call['model']).toBe('an-explicitly-pinned-model');
+    });
   });
 
   it('spec findings: graded review verdict is injected into the enhance prompt', async () => {

@@ -79,9 +79,12 @@ const JUDGE_MODEL_DEFAULT = 'inherit';
  *    a pinned dated Claude id, ON PURPOSE. `ModelResolver.resolve` detects the
  *    tier from that id and substitutes the ambient tier override
  *    (`auth-providers/.../model-resolver.ts:38-48`), so a non-Anthropic user
- *    gets their own haiku-tier model rather than this literal. See
- *    `resolveJudgeModel`'s docblock for why the pinned id is the deliberate
- *    answer to "no preference expressed anywhere" (TASK_2026_250, Decision 1).
+ *    gets their own haiku-tier model rather than this literal — **but only
+ *    where that provider's tier env is populated at all**, which is not every
+ *    provider. `resolveJudgeModel`'s docblock states that boundary and names
+ *    the three registry entries it does not cover. See it too for why the
+ *    pinned id is the deliberate answer to "no preference expressed anywhere"
+ *    (TASK_2026_250, Decision 1).
  *
  *  - **Line 3, a lane provider is set.** That lane gets an override env whose
  *    chat `ANTHROPIC_DEFAULT_*_MODEL` keys are BLANKED by design (R2), so a
