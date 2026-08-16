@@ -724,6 +724,12 @@ export class SkillSynthesisRpcService {
    *
    * The response arrives sorted by `score` DESCENDING and is handed on
    * untouched; the order is the backend's contract.
+   *
+   * `allowRewrite` is forwarded on the same "only when the caller set it" rule,
+   * and for a sharper reason: it is the flag that decides whether the sweep may
+   * spend on the authoring lane, the backend treats anything other than an
+   * explicit `true` as `false`, and this wrapper must not manufacture a value
+   * the caller did not choose in either direction.
    */
   public async digest(
     params: SkillSynthesisDigestParams = {},
@@ -733,6 +739,9 @@ export class SkillSynthesisRpcService {
       payload.workspaceRoot = params.workspaceRoot;
     }
     if (params.limit !== undefined) payload.limit = params.limit;
+    if (params.allowRewrite !== undefined) {
+      payload.allowRewrite = params.allowRewrite;
+    }
 
     const result = await this.rpcService.call(
       'skillSynthesis:digest',

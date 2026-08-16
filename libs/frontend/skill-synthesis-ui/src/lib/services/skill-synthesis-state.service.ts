@@ -44,6 +44,19 @@ function normalizeSuggestion(
 export type SkillStatusFilter = 'all' | 'pending' | 'promoted' | 'rejected';
 
 /**
+ * What one {@link SkillSynthesisStateService.refreshDigest} call is scoped to.
+ *
+ * `allowRewrite` is the money flag, and it is `?: boolean` rather than
+ * `: boolean` on purpose: an automatic caller should be able to be safe by
+ * saying nothing, exactly as it is on the wire. Only a control the user pressed
+ * may pass `true`.
+ */
+export interface RefreshDigestOptions {
+  readonly limit?: number;
+  readonly allowRewrite?: boolean;
+}
+
+/**
  * Map a UI-facing status filter to the backend `status` parameter
  * accepted by `skillSynthesis:listCandidates`.
  *
@@ -511,11 +524,31 @@ export class SkillSynthesisStateService {
    * On failure the last good digest is LEFT IN PLACE rather than blanked: an
    * empty panel would read as "swept, nothing to look at", which is a false
    * statement when the sweep never completed. The error surfaces beside it.
+   *
+   * ### `allowRewrite` is RESOLVED here, and defaults to not spending
+   *
+   * The backend's sweep may author its description rewrite on an LLM lane, and
+   * nothing budgets that call — the `digest` queue stage has no handler, so the
+   * drain's daily token gate never sees one. This method is reached from two
+   * automatic paths (the tab's `ngOnInit` and `SkillSynthesisLiveService`'s
+   * debounced event refresh) and both must be reads.
+   *
+   * So the flag is resolved with `=== true` and always sent, rather than spread
+   * through from `options`. Spreading would forward `undefined` and leave the
+   * decision to the wire — which is safe today only because the RPC omits
+   * undefined fields and `runDigest` defaults to `false`. Sending the resolved
+   * boolean makes the automatic paths' intent assertable at THIS seam instead of
+   * three libs away, which is what the spec pins.
    */
-  public async refreshDigest(options: { limit?: number } = {}): Promise<void> {
+  public async refreshDigest(
+    options: RefreshDigestOptions = {},
+  ): Promise<void> {
     this.digestLoading.set(true);
     try {
-      const result = await this.rpc.digest(options);
+      const result = await this.rpc.digest({
+        limit: options.limit,
+        allowRewrite: options.allowRewrite === true,
+      });
       this.digestItems.set(result.items ?? []);
     } catch (err) {
       this.error.set(this.toMessage(err));

@@ -837,6 +837,15 @@ export class SkillSynthesisTabComponent implements OnInit {
   /** Free-text pattern for the reject-by-pattern maintenance control. */
   public patternInput = '';
 
+  /**
+   * First paint. Every call here is a READ.
+   *
+   * `refreshDigest` takes `allowRewrite: false` explicitly: the digest sweep can
+   * author its description rewrite on an LLM lane, that call sits under no
+   * budget (the `digest` queue stage has no handler and no producer, so the
+   * drain's daily token gate never sees one), and OPENING A TAB is not a request
+   * to spend. Only a control the user pressed may pass `true`.
+   */
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
@@ -844,7 +853,7 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.loadStats();
     void this.diagnostics.refresh();
     void this.state.refreshQueue();
-    void this.state.refreshDigest();
+    void this.state.refreshDigest({ allowRewrite: false });
     void this.state.refreshSpecs();
     void this.loadSettings();
     void this.loadLanes();

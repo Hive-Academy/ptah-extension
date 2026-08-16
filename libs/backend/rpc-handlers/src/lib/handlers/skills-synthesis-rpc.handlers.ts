@@ -1713,6 +1713,21 @@ export class SkillsSynthesisRpcHandlers {
    * A host without the curator registered gets an empty digest rather than an
    * error: the gap digest is a nudge surface, and "nothing to show" is a true
    * statement on a host that never swept.
+   *
+   * ### `allowRewrite` is FORWARDED, never defaulted here
+   *
+   * The sweep's one LLM call runs on the `synthesis` lane with no budget gate
+   * underneath it — the `digest` queue stage has no handler and no producer, so
+   * this method is the only way `runDigest` is ever reached and the drain's
+   * per-item token gate never sees a digest item. The digest is also refreshed
+   * automatically by the panel, so "omitted spends nothing" has to hold.
+   *
+   * It holds because `runDigest` itself treats anything other than an explicit
+   * `true` as `false`. This method passes `parsed?.allowRewrite` straight
+   * through — including `undefined` — rather than coalescing it, so there is
+   * exactly ONE place in the system that decides what an omitted flag means. A
+   * `?? false` here would look like belt-and-braces and would actually be a
+   * second, competing default that a future non-RPC caller would not inherit.
    */
   private registerDigest(): void {
     this.rpcHandler.registerMethod<
@@ -1736,6 +1751,7 @@ export class SkillsSynthesisRpcHandlers {
         const items = await this.gapCurator.runDigest({
           workspaceRoot,
           limit: parsed?.limit,
+          allowRewrite: parsed?.allowRewrite,
         });
         return { items: SkillDigestItemsSchema.parse(items.map(toDigestItem)) };
       } catch (error: unknown) {

@@ -288,3 +288,96 @@ describe('SkillSynthesisStateService — drain queue', () => {
     expect(svc.stageSpend()).toHaveLength(1);
   });
 });
+
+/**
+ * B4.8 — `refreshDigest` resolves the money flag and always sends it.
+ *
+ * The backend sweep may author its description rewrite on an LLM lane, and that
+ * call sits under no budget: the `digest` queue stage has no registered handler
+ * and no producer, so the drain's daily token gate never sees a digest item.
+ * This method is the funnel every UI refresh goes through — the tab's
+ * `ngOnInit` and `SkillSynthesisLiveService`'s debounced event sweep — so the
+ * safe value has to be what a caller gets by saying nothing.
+ */
+describe('SkillSynthesisStateService — weekly digest', () => {
+  function setupDigest() {
+    const rpc = {
+      digest: jest.fn(async () => ({ items: [] })),
+    } as unknown as jest.Mocked<Pick<SkillSynthesisRpcService, 'digest'>>;
+    TestBed.configureTestingModule({
+      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+    });
+    const svc = TestBed.inject(SkillSynthesisStateService);
+    return { svc, rpc };
+  }
+
+  it('sends allowRewrite:false when the caller said nothing', async () => {
+    // THE GUARD. Both automatic callers reach this method, and this is the
+    // assertion that stops "refresh the panel" from meaning "buy an LLM call".
+    const { svc, rpc } = setupDigest();
+
+    await svc.refreshDigest();
+
+    expect(rpc.digest).toHaveBeenCalledWith({
+      limit: undefined,
+      allowRewrite: false,
+    });
+  });
+
+  it('sends allowRewrite:false for an explicit false', async () => {
+    const { svc, rpc } = setupDigest();
+
+    await svc.refreshDigest({ allowRewrite: false });
+
+    expect(rpc.digest).toHaveBeenCalledWith(
+      expect.objectContaining({ allowRewrite: false }),
+    );
+  });
+
+  it('sends allowRewrite:true ONLY for an explicit true', async () => {
+    // The contrast case: without it, the two tests above would still pass
+    // against a method that had hard-coded `false` and made an explicit user
+    // refresh impossible — a silent product regression rather than a cost one.
+    const { svc, rpc } = setupDigest();
+
+    await svc.refreshDigest({ allowRewrite: true });
+
+    expect(rpc.digest).toHaveBeenCalledWith(
+      expect.objectContaining({ allowRewrite: true }),
+    );
+  });
+
+  it('carries limit through beside the flag', async () => {
+    const { svc, rpc } = setupDigest();
+
+    await svc.refreshDigest({ limit: 5 });
+
+    expect(rpc.digest).toHaveBeenCalledWith({ limit: 5, allowRewrite: false });
+  });
+
+  it('keeps the last good digest when a refresh fails', async () => {
+    const { svc, rpc } = setupDigest();
+    rpc.digest.mockResolvedValueOnce({
+      items: [
+        {
+          kind: 'win-rate',
+          title: 'lint-fixer loses every run',
+          rationale: 'Measured over 6 invocations.',
+          score: 0.44,
+          evidence: { sessionIds: ['s-1'], counts: {}, winRate: 0 },
+        },
+      ],
+    });
+    await svc.refreshDigest();
+    expect(svc.digestItems()).toHaveLength(1);
+
+    rpc.digest.mockRejectedValueOnce(new Error('sweep-failed'));
+    await svc.refreshDigest();
+
+    // Blanking would read as "swept, nothing to look at" — a false statement
+    // about a sweep that never completed.
+    expect(svc.digestItems()).toHaveLength(1);
+    expect(svc.error()).toBe('sweep-failed');
+    expect(svc.digestLoading()).toBe(false);
+  });
+});

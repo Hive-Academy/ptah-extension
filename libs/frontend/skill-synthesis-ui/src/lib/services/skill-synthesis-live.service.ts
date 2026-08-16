@@ -142,6 +142,20 @@ export class SkillSynthesisLiveService implements MessageHandler {
    *
    * A pending timer is restarted rather than left to fire, so a long burst
    * refreshes once after it ends instead of once in the middle of it.
+   *
+   * ### `allowRewrite: false` — this path is a READ and may never spend
+   *
+   * This is the sharpest edge in the whole nudge design. The sweep behind
+   * `skillSynthesis:digest` can author its description rewrite on an LLM lane,
+   * and NOTHING budgets that call: the `digest` queue stage has no registered
+   * handler and no producer, so `SkillDrainService`'s daily token gate never
+   * sees a digest item. Meanwhile this method is driven entirely by BACKGROUND
+   * events — the user is not present and did not ask for anything.
+   *
+   * Auto-refresh reads; only an explicit user-initiated refresh may spend. The
+   * `false` is written out rather than left to the default because that is what
+   * makes the rule assertable here, at the automatic caller, instead of only in
+   * the lib that owns the sweep.
    */
   private scheduleDigestRefresh(): void {
     if (this.digestRefreshHandle !== null) {
@@ -149,7 +163,7 @@ export class SkillSynthesisLiveService implements MessageHandler {
     }
     this.digestRefreshHandle = setTimeout(() => {
       this.digestRefreshHandle = null;
-      void this.skillState.refreshDigest();
+      void this.skillState.refreshDigest({ allowRewrite: false });
     }, DIGEST_REFRESH_DEBOUNCE_MS);
   }
 }

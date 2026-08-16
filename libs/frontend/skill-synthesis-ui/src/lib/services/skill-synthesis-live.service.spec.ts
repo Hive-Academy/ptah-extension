@@ -181,6 +181,68 @@ describe('SkillSynthesisLiveService', () => {
       expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
     });
 
+    /**
+     * B4.8 — THIS PATH IS A READ AND MAY NEVER SPEND.
+     *
+     * The sweep behind `skillSynthesis:digest` can author its description
+     * rewrite on an LLM lane, and nothing budgets that call: the `digest` queue
+     * stage has no registered handler and no producer, so `SkillDrainService`'s
+     * daily token gate never sees a digest item. Every refresh scheduled here is
+     * driven by a BACKGROUND event — the user is not present and asked for
+     * nothing. The ruling was "auto-refresh reads only; explicit refresh may
+     * spend", and this is the auto-refresh path.
+     *
+     * Asserted on the ARGUMENT rather than by reading the source, because the
+     * safe behaviour is also what the default would give: a source scan would
+     * pass against a call that had dropped the flag, and then break silently the
+     * day the default moved.
+     */
+    it.each([
+      'analyze-run',
+      'curator-pass',
+      'backfill-complete',
+      'edit-then-test',
+    ] as const)(
+      'refreshes with allowRewrite:false after a %s event — background work never spends',
+      (kind) => {
+        const { svc, skillState } = setup();
+        send(svc, event({ kind }));
+        settle();
+        expect(skillState.refreshDigest).toHaveBeenCalledWith({
+          allowRewrite: false,
+        });
+        // `toHaveBeenCalledWith({allowRewrite: false})` would also pass against
+        // a second, spending call, so pin the count too.
+        expect(skillState.refreshDigest).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('never passes allowRewrite:true from any event kind', () => {
+      // The whole event vocabulary in one assertion, so a NEW invalidating kind
+      // added to `DIGEST_INVALIDATING_KINDS` cannot arrive with the flag set.
+      const { svc, skillState } = setup();
+      for (const kind of [
+        'analyze-run',
+        'curator-pass',
+        'backfill-complete',
+        'edit-then-test',
+        'curator-pass-start',
+        'backfill-progress',
+        'manual-run',
+        'ineligible',
+        'rate-limited',
+        'error',
+      ] as const) {
+        send(svc, event({ kind }));
+        settle();
+      }
+      for (const call of skillState.refreshDigest.mock.calls) {
+        expect(call[0]?.allowRewrite).not.toBe(true);
+      }
+      // Not vacuous: some of those kinds DID schedule a sweep.
+      expect(skillState.refreshDigest.mock.calls.length).toBeGreaterThan(0);
+    });
+
     it.each(['ineligible', 'rate-limited', 'error'] as const)(
       'does NOT re-sweep after a %s event',
       (kind) => {

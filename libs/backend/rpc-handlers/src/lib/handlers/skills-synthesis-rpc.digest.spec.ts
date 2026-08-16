@@ -523,6 +523,90 @@ describe('skillSynthesis:digest — P4-1', () => {
     }
   });
 
+  /**
+   * B4.8 — `allowRewrite` is forwarded, never defaulted, and never coerced.
+   *
+   * The digest sweep can author its description rewrite on an LLM lane, and
+   * NOTHING budgets that call: `digest` is in `TOKEN_SPENDING_STAGES` but has
+   * no registered queue handler and no producer, so the drain's daily token
+   * gate never sees a digest item, and this RPC is the only way `runDigest` is
+   * reached. The panel calls this RPC automatically, so "omitted spends
+   * nothing" is a money rule rather than an ergonomic one.
+   *
+   * These tests assert what this handler PASSES DOWN, not what the curator then
+   * does with it. The curator's own spec owns "a `false` makes zero lane calls";
+   * duplicating that here would test the same behaviour twice and neither test
+   * would notice the handler quietly inserting a default of its own.
+   */
+  describe('allowRewrite — the flag that decides whether the sweep spends', () => {
+    maybe(
+      'forwards the flag UNSET when the caller omitted it, rather than defaulting here',
+      async () => {
+        // `undefined`, not `false`. The default deliberately lives in
+        // `runDigest`, so it protects every caller of that method rather than
+        // only the ones that arrive through this RPC. A `?? false` here would
+        // look like the safer code and would in fact move the guard to the one
+        // place a future non-RPC caller cannot inherit it from.
+        const db = createDb();
+        try {
+          const { call, curator } = buildHandlers(db);
+          const spy = jest.spyOn(curator, 'runDigest');
+
+          await call();
+
+          expect(spy).toHaveBeenLastCalledWith(
+            expect.objectContaining({ allowRewrite: undefined }),
+          );
+          // Stated twice on purpose: `objectContaining({x: undefined})` also
+          // matches an object with no `x` at all, so on its own it could not
+          // tell a forwarded `undefined` from a forwarded `true`.
+          expect(spy.mock.calls[0][0].allowRewrite).not.toBe(true);
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe.each([true, false] as const)(
+      'forwards an explicit %s verbatim',
+      async (allowRewrite: boolean) => {
+        const db = createDb();
+        try {
+          const { call, curator } = buildHandlers(db);
+          const spy = jest.spyOn(curator, 'runDigest');
+
+          await call({ allowRewrite });
+
+          expect(spy).toHaveBeenLastCalledWith(
+            expect.objectContaining({ allowRewrite }),
+          );
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe('rejects a non-boolean rather than coercing it', async () => {
+      // `z.coerce.boolean()` maps the STRING `'false'` to `true`, which on this
+      // field is the difference between a read and an unbudgeted LLM call. The
+      // schema uses a plain `z.boolean()` for exactly that reason, and this is
+      // the assertion that keeps someone from "fixing" a stringly-typed caller
+      // by adding the coercion.
+      const db = createDb();
+      try {
+        const { call } = buildHandlers(db);
+        await expect(call({ allowRewrite: 'false' })).rejects.toBeInstanceOf(
+          RpcUserError,
+        );
+        await expect(call({ allowRewrite: 1 })).rejects.toBeInstanceOf(
+          RpcUserError,
+        );
+      } finally {
+        db.close();
+      }
+    });
+  });
+
   maybe('rejects an out-of-range limit at the boundary', async () => {
     const db = createDb();
     try {

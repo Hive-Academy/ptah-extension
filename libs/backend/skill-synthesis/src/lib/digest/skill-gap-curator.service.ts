@@ -26,8 +26,17 @@
  * for a pass that asks the same kind of question `SkillSynthesizerService` and
  * `SkillCuratorService` already ask there.
  *
- * Three properties of that call are contracts:
+ * Four properties of that call are contracts:
  *
+ *  - **It is OPT-IN, and opting out is the default.** `DigestRequest.allowRewrite`
+ *    defaults to `false` in `runDigest`, and `false` means the lane is not
+ *    called at all. Nothing budgets this call: `digest` is a member of
+ *    `TOKEN_SPENDING_STAGES` but has no queue handler and no producer, so the
+ *    drain's `maxTokensPerDay` gate never sees a digest item, while the RPC in
+ *    front of it is refreshed automatically by the panel on tab init and on
+ *    four background event kinds. Read `runDigest`'s own header before changing
+ *    that default; it is the difference between a read and unmetered spend on
+ *    background activity.
  *  - **`LaneRunnerService` is injected `{isOptional: true}` and its absence is
  *    not an error.** A CLI or e2e host has no lane at all, and the runner
  *    itself answers `unavailable` on a host with no SDK. Either way the sweep
@@ -249,6 +258,13 @@ export interface DigestRequest {
   readonly workspaceRoot: string;
   /** Items returned after ranking. Defaults to `DIGEST_DEFAULT_LIMIT`. */
   readonly limit?: number;
+  /**
+   * May this pass SPEND on the authoring lane? **Defaults to `false`.**
+   *
+   * See {@link SkillGapCuratorService.runDigest} for why the default is the
+   * cheap one and why it is decided here rather than at any caller.
+   */
+  readonly allowRewrite?: boolean;
 }
 
 /** One friction cluster: sessions that went wrong the same way. */
@@ -574,9 +590,40 @@ export class SkillGapCuratorService {
    *
    * NEVER REJECTS. A failing store, a missing table and an unavailable memory
    * reader each cost their own sweep and nothing else.
+   *
+   * ## `allowRewrite` defaults to `false`, and THIS is the only place it does
+   *
+   * The lane call in sweep (a) is NOT covered by any budget. `digest` is a
+   * member of `SkillQueueStage`, `WEEKLY_ONLY_STAGES` and
+   * `TOKEN_SPENDING_STAGES`, but **no handler is registered for it and nothing
+   * enqueues a `digest` row** — `registerStageHandler` is called for
+   * `prefilter`, `embedding`, `archaeology`, `judge-panel`, `replay` and
+   * `trigger-eval`, never for `digest`. So `SkillDrainService` never claims a
+   * digest item and its `maxTokensPerDay` gate never fires for one. The only
+   * caller of this method anywhere is the `skillSynthesis:digest` RPC, running
+   * synchronously in the foreground.
+   *
+   * That RPC is called AUTOMATICALLY: the Skills tab refreshes the digest on
+   * init, and `SkillSynthesisLiveService` refreshes it (debounced) on four
+   * background event kinds. Left to spend by default, background activity would
+   * buy ungated LLM calls.
+   *
+   * Hence `=== true`, not `?? false`. Anything a caller did not explicitly ask
+   * for — omitted, `undefined`, or a value that slipped past a boundary as
+   * something other than the boolean `true` — reads as "do not spend". The
+   * default lives here rather than in the RPC handler or the panel because a
+   * default at a caller protects that caller only, and the next caller to
+   * appear inherits nothing.
+   *
+   * `false` is not a degraded digest. Every sweep, every score and sweep (a)'s
+   * write all still happen; the appended clause is the archaeologist's verbatim
+   * session intent instead of an authored paraphrase, which is exactly what
+   * B4.2 shipped. What `false` buys is that the lane is not called AT ALL — not
+   * called and discarded, not called with a smaller budget. Zero lane calls.
    */
   async runDigest(request: DigestRequest): Promise<DigestItem[]> {
     const limit = request.limit ?? DIGEST_DEFAULT_LIMIT;
+    const allowRewrite = request.allowRewrite === true;
     const verdicts = this.readVerdicts(request.workspaceRoot);
     // Scoped to the SAME workspace as the other three sweeps. Before B4.7 this
     // read was cross-project purely because the store's query took no argument,
@@ -588,7 +635,7 @@ export class SkillGapCuratorService {
     const clusters = this.clusterFriction(verdicts);
 
     const missed = this.collectMissedTriggers(verdicts, skills);
-    const rewritten = await this.applyDescriptionRewrites(missed);
+    const rewritten = await this.applyDescriptionRewrites(missed, allowRewrite);
     items.push(...this.buildMissedTriggerItems(missed, rewritten, winRates));
     items.push(...this.sweepFrictionOpportunities(clusters));
     items.push(...this.sweepWinRates(winRates, skills));
@@ -705,12 +752,12 @@ export class SkillGapCuratorService {
    *     the DB-count assertion only catches it on a seeded pass.
    *  2. Only a row that is still `pending` moves; the store itself refuses an
    *     accepted or dismissed one, and nothing here overrides that.
-   *  3. The clause is AUTHORED on the `synthesis` lane when one is available
-   *     and VERBATIM session intent otherwise — but either way it must pass
-   *     `isCovered` against the intents it claims to name, so the model can
-   *     sharpen the wording and cannot replace the evidence with prose of its
-   *     own. A clause that fails falls back to the verbatim intent rather than
-   *     to nothing.
+   *  3. The clause is AUTHORED on the `synthesis` lane when the caller opted in
+   *     AND a lane is available, and VERBATIM session intent otherwise — but
+   *     either way it must pass `isCovered` against the intents it claims to
+   *     name, so the model can sharpen the wording and cannot replace the
+   *     evidence with prose of its own. A clause that fails falls back to the
+   *     verbatim intent rather than to nothing.
    *  4. It is idempotent, and provably rather than incidentally — see
    *     `DIGEST_REWRITE_COVERAGE`. The freshness gate runs BEFORE the lane, so
    *     a second pass over the same evidence makes no call and no write.
@@ -721,16 +768,22 @@ export class SkillGapCuratorService {
    */
   private async applyDescriptionRewrites(
     found: readonly MissedTrigger[],
+    allowRewrite: boolean,
   ): Promise<Set<string>> {
     const changed = new Set<string>();
     const targets = this.collectRewriteTargets(found);
     if (targets.length === 0) return changed;
 
-    // ONE call, for every target at once. `null` = no lane in this host, the
-    // lane was unavailable, or it failed — all three take the verbatim path.
-    const authored = await this.authorClauses(
-      targets.slice(0, DIGEST_REWRITE_MAX_SKILLS),
-    );
+    // ONE call, for every target at once, and NONE at all when the caller did
+    // not opt in. `null` = the caller opted out, no lane in this host, the lane
+    // was unavailable, or it failed — all four take the verbatim path, which is
+    // why the rest of this method has one fallback to reason about rather than
+    // two. The opt-out is checked HERE and short-circuits `authorClauses`
+    // entirely: an unbudgeted call whose answer is then discarded costs exactly
+    // as much as one that is used.
+    const authored = allowRewrite
+      ? await this.authorClauses(targets.slice(0, DIGEST_REWRITE_MAX_SKILLS))
+      : null;
 
     for (const target of targets) {
       const next = composeDescription(

@@ -20,6 +20,7 @@ import type {
 
 import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
+import type { RefreshDigestOptions } from '../services/skill-synthesis-state.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 
 interface DiagnosticsStub {
@@ -198,7 +199,12 @@ interface StubState {
   readonly refreshQueue: jest.Mock<Promise<void>, []>;
   readonly digestItems: ReturnType<typeof signal<SkillDigestItem[]>>;
   readonly digestLoading: ReturnType<typeof signal<boolean>>;
-  readonly refreshDigest: jest.Mock<Promise<void>, []>;
+  /**
+   * Takes the options bag so B4.8's `allowRewrite:false` is assertable at the
+   * init seam. A bare `[]` here would make `toHaveBeenCalledWith({…})` a type
+   * error and push the money rule out of this spec's reach.
+   */
+  readonly refreshDigest: jest.Mock<Promise<void>, [RefreshDigestOptions?]>;
 }
 
 function makeStub(
@@ -224,7 +230,9 @@ function makeStub(
     refreshQueue: jest.fn(async () => undefined),
     digestItems: signal<SkillDigestItem[]>(queueValue.digest ?? []),
     digestLoading: signal<boolean>(false),
-    refreshDigest: jest.fn(async () => undefined),
+    refreshDigest: jest.fn(
+      async (_options?: RefreshDigestOptions) => undefined,
+    ),
     candidates,
     suggestions,
     suggestionsLoading: signal<boolean>(false),
@@ -420,6 +428,12 @@ describe('SkillSynthesisTabComponent', () => {
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
     expect(stub.refreshDigest).toHaveBeenCalledTimes(1);
+    // B4.8 — OPENING A TAB IS NOT A REQUEST TO SPEND. The sweep behind this
+    // call can author its description rewrite on an LLM lane, and nothing
+    // budgets that: the `digest` queue stage has no handler and no producer, so
+    // the drain's daily token gate never sees a digest item. `ngOnInit` is an
+    // automatic path, so it reads.
+    expect(stub.refreshDigest).toHaveBeenCalledWith({ allowRewrite: false });
 
     openActivity(fixture);
 

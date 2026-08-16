@@ -2385,6 +2385,30 @@ export interface SkillSynthesisDigestParams {
   workspaceRoot?: string;
   /** Items returned after ranking. Defaults to the curator's own limit. */
   limit?: number;
+  /**
+   * Whether this sweep may SPEND on the authoring lane.
+   *
+   * **Omitted means `false`, and that asymmetry is the whole point of the
+   * field.** The digest's one write — sweep (a)'s description rewrite — is
+   * authored by an LLM on the `synthesis` lane, and that lane is NOT covered by
+   * the drain's per-item token budget: no handler is registered for the
+   * `digest` queue stage and nothing enqueues a `digest` row, so
+   * `SkillGapCuratorService.runDigest` only ever runs in the foreground from
+   * this RPC. There is no budget gate underneath it.
+   *
+   * The digest is also refreshed AUTOMATICALLY — on tab init and, debounced, on
+   * four background event kinds — so a default of `true` would mean background
+   * activity buying unbudgeted LLM calls. The failure mode of getting this
+   * wrong is spending the user's money, so the safe value is the one a caller
+   * gets by saying nothing: every automatic path omits it or sends `false`, and
+   * only an explicit user-initiated refresh may send `true`.
+   *
+   * `false` does not degrade the digest. The sweep falls back to appending the
+   * archaeologist's VERBATIM session intents — exactly what shipped before the
+   * lane existed — so the ranking, the evidence and the write are all unchanged;
+   * only the wording of the appended clause is cheaper.
+   */
+  allowRewrite?: boolean;
 }
 
 export interface SkillSynthesisDigestResult {

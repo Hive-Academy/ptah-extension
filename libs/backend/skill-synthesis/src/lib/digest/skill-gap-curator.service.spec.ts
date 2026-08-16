@@ -548,6 +548,18 @@ describe('SkillGapCuratorService', () => {
   describe('sweep (a) — the authored clause on the synthesis lane (B4.7)', () => {
     const AUTHORED = 'researching sqlite library documentation for a summary';
 
+    /**
+     * Every pass in THIS block opts in.
+     *
+     * B4.8 made the lane opt-in with a default of `false`, so a request that
+     * says nothing gets the cheap verbatim path and the assertions below —
+     * "authors", "one call", "falls back when the lane fails" — would all be
+     * about a lane that was never reached. `allowRewrite: true` is what keeps
+     * these tests about the behaviour B4.7 shipped rather than about the new
+     * default; the default has its own block, immediately after this one.
+     */
+    const SPEND = { workspaceRoot: WORKSPACE, allowRewrite: true } as const;
+
     maybe(
       'authors the clause, on the synthesis lane, in ONE call',
       async () => {
@@ -563,7 +575,7 @@ describe('SkillGapCuratorService', () => {
           const a = seedSuggestion(h, 'deep-research', 'Research things.');
           const b = seedSuggestion(h, 'doc-research', 'Research things.');
 
-          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          await h.curator.runDigest(SPEND);
 
           // ONE call for BOTH skills. A per-skill call is the cost surprise the
           // batching exists to avoid, and two promoted skills is enough to catch
@@ -603,7 +615,7 @@ describe('SkillGapCuratorService', () => {
           });
           const s = seedSuggestion(h, 'deep-research', 'Research things.');
 
-          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          await h.curator.runDigest(SPEND);
           const first = h.suggestions.findById(s.id)?.description;
           expect(first).toContain(AUTHORED);
           expect(lane.run).toHaveBeenCalledTimes(1);
@@ -618,7 +630,7 @@ describe('SkillGapCuratorService', () => {
               },
             },
           });
-          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          await h.curator.runDigest(SPEND);
 
           expect(h.suggestions.findById(s.id)?.description).toBe(first);
           // And it did not even ASK. Nothing was fresh, so nothing was spent.
@@ -639,8 +651,12 @@ describe('SkillGapCuratorService', () => {
           intent: RESEARCH_INTENT,
         });
 
-        const items = await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+        const items = await h.curator.runDigest(SPEND);
 
+        // Opted IN, and still zero calls — this is the freshness/target gate,
+        // not the opt-in gate. Asserted under `allowRewrite: true` on purpose,
+        // so it stays a test of "nothing to say costs nothing" rather than
+        // quietly becoming a second copy of the default test.
         expect(lane.run).not.toHaveBeenCalled();
         // The item is still filed: the nudge does not depend on the write.
         expect(byKind(items, 'missed-trigger')).toHaveLength(1);
@@ -668,7 +684,7 @@ describe('SkillGapCuratorService', () => {
         });
         const s = seedSuggestion(h, 'deep-research', 'Research things.');
 
-        const items = await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+        const items = await h.curator.runDigest(SPEND);
 
         expect(lane.run).toHaveBeenCalledTimes(1);
         const after = h.suggestions.findById(s.id)?.description;
@@ -702,7 +718,7 @@ describe('SkillGapCuratorService', () => {
           });
           const s = seedSuggestion(h, 'deep-research', 'Research things.');
 
-          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          await h.curator.runDigest(SPEND);
 
           const after = h.suggestions.findById(s.id)?.description ?? '';
           expect(after).not.toContain('general purpose assistance');
@@ -749,7 +765,7 @@ describe('SkillGapCuratorService', () => {
           });
           const s = seedSuggestion(h, 'deep-research', 'Research things.');
 
-          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          await h.curator.runDigest(SPEND);
 
           const call = query.calls[0];
           // The prompt WAS clipped at 40 chars — so this is a real test of the
@@ -762,6 +778,186 @@ describe('SkillGapCuratorService', () => {
           expect(call.prompt).not.toContain('{"rewrites"');
           // The answer still landed, through the clip.
           expect(h.suggestions.findById(s.id)?.description).toContain(AUTHORED);
+        } finally {
+          db.close();
+        }
+      },
+    );
+  });
+
+  /**
+   * B4.8 — the lane is OPT-IN, and the default is the cheap one.
+   *
+   * WHY THIS BLOCK IS THE MOST IMPORTANT ONE IN THE FILE. B4.7 put an LLM call
+   * inside `runDigest` on the assumption that the drain's per-item token budget
+   * would cover it. It does not: `digest` is a member of `SkillQueueStage`,
+   * `WEEKLY_ONLY_STAGES` and `TOKEN_SPENDING_STAGES`, but no handler is ever
+   * registered for it and nothing enqueues a `digest` row, so `SkillDrainService`
+   * never claims a digest item and its `maxTokensPerDay` gate never fires for
+   * one. Independently, B4.5 wired the Skills panel to call the digest RPC
+   * automatically — on tab init and, debounced, on four background event kinds.
+   * The two halves together meant background activity buying ungated LLM calls.
+   *
+   * The ruling: auto-refresh reads, explicit refresh may spend. Which makes
+   * "what happens when nobody said anything" a MONEY question, and the reason
+   * the omitted case below is tested separately from the explicit `false` one.
+   * A default only protects the callers that exist when it is written; the
+   * omitted test is what protects the caller that has not been written yet.
+   *
+   * Every assertion here is `expect(lane.run).not.toHaveBeenCalled()` — ZERO
+   * calls. Not "called with a smaller budget", not "called and discarded": an
+   * unbudgeted call whose answer is thrown away costs exactly what one that is
+   * used costs.
+   */
+  describe('sweep (a) — the rewrite lane is OPT-IN (B4.8)', () => {
+    const AUTHORED = 'researching sqlite library documentation for a summary';
+
+    /**
+     * A pass with a live lane, a promoted skill that missed a session, and a
+     * pending suggestion with something fresh to say — i.e. every precondition
+     * for a lane call is met, and only the flag decides.
+     */
+    function seedRewritableGap(db: TestDatabase): {
+      h: Harness;
+      lane: LaneRunnerService & { run: jest.Mock };
+      suggestionId: string;
+    } {
+      const lane = makeLaneStub({ '1': AUTHORED });
+      const h = makeHarness(db, null, lane);
+      promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+      saveVerdict(h, 's-research', 'tests-green', { intent: RESEARCH_INTENT });
+      const s = seedSuggestion(h, 'deep-research', 'Research things.');
+      return { h, lane, suggestionId: s.id };
+    }
+
+    maybe(
+      'makes ZERO lane calls when allowRewrite is OMITTED — the caller that has not been written yet',
+      async () => {
+        // THE GUARD. Every other test here names the flag; this one does not,
+        // which is exactly the shape of a future caller that forgets it exists.
+        // Flip the default in `runDigest` to `true` and this is the test that
+        // must go red, or the default is protecting nothing.
+        const db = createDb();
+        try {
+          const { h, lane, suggestionId } = seedRewritableGap(db);
+
+          const items = await h.curator.runDigest({
+            workspaceRoot: WORKSPACE,
+          });
+
+          expect(lane.run).not.toHaveBeenCalled();
+          // …and the digest is NOT degraded. The item is still filed, the write
+          // still happened, and the appended clause is the verbatim intent —
+          // the B4.2 behaviour, which covers its evidence by construction.
+          const after = h.suggestions.findById(suggestionId)?.description ?? '';
+          expect(after).toContain(DIGEST_TRIGGER_CLAUSE_PREFIX);
+          expect(after).toContain(RESEARCH_INTENT);
+          expect(after).not.toContain(AUTHORED);
+          expect(
+            byKind(items, 'missed-trigger')[0].evidence.counts
+              .descriptionRewrites,
+          ).toBe(1);
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'makes ZERO lane calls when allowRewrite is explicitly false',
+      async () => {
+        const db = createDb();
+        try {
+          const { h, lane, suggestionId } = seedRewritableGap(db);
+
+          await h.curator.runDigest({
+            workspaceRoot: WORKSPACE,
+            allowRewrite: false,
+          });
+
+          expect(lane.run).not.toHaveBeenCalled();
+          expect(h.suggestions.findById(suggestionId)?.description).toContain(
+            RESEARCH_INTENT,
+          );
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'makes ZERO lane calls when allowRewrite arrives as undefined, which is what the RPC forwards',
+      async () => {
+        // `skillSynthesis:digest` passes `parsed?.allowRewrite` STRAIGHT
+        // THROUGH rather than coalescing it, so an omitting caller reaches this
+        // method with the key present and the value `undefined`. That is a
+        // different object from the omitted case above, and `?? false` /
+        // `=== true` / `!== false` do not all agree on it — the last one spends.
+        const db = createDb();
+        try {
+          const { h, lane } = seedRewritableGap(db);
+
+          await h.curator.runDigest({
+            workspaceRoot: WORKSPACE,
+            allowRewrite: undefined,
+          });
+
+          expect(lane.run).not.toHaveBeenCalled();
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'DOES call the lane when allowRewrite is explicitly true — the flag is read, not ignored',
+      async () => {
+        // The contrast case, and it is what stops the three tests above from
+        // being vacuous: without it they would all still pass against a service
+        // that had simply deleted the lane.
+        const db = createDb();
+        try {
+          const { h, lane, suggestionId } = seedRewritableGap(db);
+
+          await h.curator.runDigest({
+            workspaceRoot: WORKSPACE,
+            allowRewrite: true,
+          });
+
+          expect(lane.run).toHaveBeenCalledTimes(1);
+          expect(lane.run.mock.calls[0][0].laneId).toBe('synthesis');
+          expect(h.suggestions.findById(suggestionId)?.description).toContain(
+            AUTHORED,
+          );
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'an opted-out pass leaves the fixed point intact: opting in afterwards buys nothing',
+      async () => {
+        // The two halves compose. The cheap pass writes a description that
+        // covers the evidence at `DIGEST_REWRITE_COVERAGE`, so the freshness
+        // gate on a LATER opted-in pass finds nothing fresh and never opens a
+        // call — a user who presses refresh after a week of automatic sweeps
+        // does not pay for work the cheap path already did.
+        const db = createDb();
+        try {
+          const { h, lane, suggestionId } = seedRewritableGap(db);
+
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          const cheap = h.suggestions.findById(suggestionId)?.description;
+          expect(lane.run).not.toHaveBeenCalled();
+
+          await h.curator.runDigest({
+            workspaceRoot: WORKSPACE,
+            allowRewrite: true,
+          });
+
+          expect(lane.run).not.toHaveBeenCalled();
+          expect(h.suggestions.findById(suggestionId)?.description).toBe(cheap);
         } finally {
           db.close();
         }

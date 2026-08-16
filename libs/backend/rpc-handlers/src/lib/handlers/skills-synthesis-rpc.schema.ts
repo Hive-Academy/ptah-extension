@@ -442,11 +442,23 @@ export type SkillQueueParams = z.infer<typeof SkillQueueParamsSchema>;
  *
  * `.optional()` on the object too, because the panel's first paint calls this
  * with no params at all.
+ *
+ * `allowRewrite` IS `.optional()` WITH NO `.default(...)`, and that is
+ * deliberate in the opposite direction from `workspaceRoot`. A `.default(false)`
+ * here would read as the safer choice and is in fact the more dangerous one: it
+ * would put the money-safe default in the ONE place the digest can be reached
+ * from, so a second caller of `runDigest` — a queue handler, a cron job, a test
+ * — would bypass it and spend. The default lives at the bottom of the stack, in
+ * `runDigest` itself, and this schema only decides whether the caller is allowed
+ * to say anything at all. `z.coerce.boolean()` is likewise wrong here: it maps
+ * the string `'false'` to `true`, which would turn a stringly-typed caller into
+ * an unbudgeted LLM call.
  */
 export const SkillDigestParamsSchema = z
   .object({
     workspaceRoot: z.string().max(4096).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
+    allowRewrite: z.boolean().optional(),
   })
   .optional();
 

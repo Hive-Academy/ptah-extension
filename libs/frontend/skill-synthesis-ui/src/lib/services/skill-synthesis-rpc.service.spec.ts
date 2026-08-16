@@ -203,6 +203,59 @@ describe('SkillSynthesisRpcService', () => {
     await expect(service.queue()).rejects.toThrow('queue-store-unavailable');
   });
 
+  // ── The weekly digest, and the flag that decides whether it spends ────────
+
+  it('digest() sends an EMPTY payload when nothing was asked for', async () => {
+    // B4.8. `allowRewrite` is omitted rather than sent as `false`, because this
+    // wrapper must not manufacture a value the caller did not choose — the
+    // backend's `runDigest` is where an omitted flag becomes `false`, and that
+    // is the one place it should happen. The state service, which is what the
+    // UI actually calls, resolves the flag explicitly before it gets here.
+    rpcCall.mockResolvedValue(okResult({ items: [] }));
+
+    await service.digest();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:digest',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
+  it.each([true, false] as const)(
+    'digest() forwards an explicit allowRewrite:%s',
+    async (allowRewrite: boolean) => {
+      rpcCall.mockResolvedValue(okResult({ items: [] }));
+
+      await service.digest({ allowRewrite });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'skillSynthesis:digest',
+        { allowRewrite },
+        expect.any(Object),
+      );
+    },
+  );
+
+  it('digest() keeps an explicit empty workspaceRoot distinct from omitting it', async () => {
+    rpcCall.mockResolvedValue(okResult({ items: [] }));
+
+    await service.digest({ workspaceRoot: '', allowRewrite: false });
+
+    // `''` is the cross-project feed; `??`, not `||`, on this path.
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:digest',
+      { workspaceRoot: '', allowRewrite: false },
+      expect.any(Object),
+    );
+  });
+
+  it('throws with the RPC error string when digest fails', async () => {
+    rpcCall.mockResolvedValue(errResult('digest-sweep-failed'));
+
+    await expect(service.digest()).rejects.toThrow('digest-sweep-failed');
+  });
+
   // ── Lanes + model catalogue (TASK_2026_180 B1.10.3) ───────────────────────
 
   it('getLanes() calls skillSynthesis:getLanes and unwraps the lanes map', async () => {
