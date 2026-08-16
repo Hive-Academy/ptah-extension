@@ -13,7 +13,7 @@ Where [Council](/tribunal/council/) debates an approach, Forge produces the best
 
 - **A well-specified change** with clear acceptance criteria, where the best implementation isn't obvious.
 - **High-value code** worth getting multiple independent attempts at.
-- **Cross-vendor review** — you want a Codex-family reviewer and a Claude-family reviewer to find different classes of problem.
+- **Cross-vendor review** — reviewers from different vendor families find different classes of problem, and Forge is how you get several of them looking at the same change.
 
 :::tip
 Forge needs a clear task. The implementations are only as comparable as the brief — spell out the acceptance criteria before you start. For open-ended "which approach?" questions, use [Council](/tribunal/council/) instead.
@@ -46,6 +46,8 @@ A judge reads every implementation plus its cross-review and ranks them against 
 - "Forge this across the panel"
 - "Have each vendor implement this and pick the best"
 - "Cross-vendor build of X"
+
+**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard, pick **Forge**, add a lane per vendor (and a model for each), then launch and describe the coding task in the conductor chat. The panel is built from whatever discovery finds installed and configured on your machine — there is no fixed vendor list.
 
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then describe the coding task.
 

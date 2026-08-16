@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_239
-status: backlog
+status: in_review
 type: documentation
 title: Publish the Crucible move and the five-move Tribunal docs
 description: >-

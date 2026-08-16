@@ -18,7 +18,7 @@ Race runs N attempts at the **same change**, scores each on a **fixed rubric**, 
 
 ## Panel composition
 
-By default Race uses **distinct vendors** — the best shot from each family. You can instead run the **same vendor across several independent attempts** (a temperature/seed spread) if you want N tries from one model. Say which you prefer; the default is distinct vendors.
+By default Race uses **distinct vendor families** — one best shot from each, taken from whatever is installed and configured on your machine rather than from any fixed list. You can instead run the **same vendor across several independent attempts** (a temperature/seed spread, or the same vendor on different models) if you want N tries from one family. Say which you prefer; the default is distinct families.
 
 ## How it runs
 
@@ -51,6 +51,8 @@ Every attempt is scored against the rubric and ranked. The **top-ranked** attemp
 - "Race the vendors on this"
 - "Best verified attempt at X"
 - "Have the models compete and commit the one that passes"
+
+**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard, pick **Race**, add a lane per attempt — the same vendor may be added more than once, on different models — then launch and describe the change in the conductor chat.
 
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then describe the change and (optionally) the rubric.
 
