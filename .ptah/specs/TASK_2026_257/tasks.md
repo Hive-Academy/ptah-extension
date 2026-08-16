@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_257
 
-**Total Tasks**: 15 | **Batches**: 5 | **Status**: 2/5 complete (Batches 3-5 collapsed into one pass)
+**Total Tasks**: 15 | **Batches**: 5 | **Status**: 5/5 complete (Batches 3-5 collapsed into one pass)
 
 **Defect**: 38 plain `.md` pages under `apps/ptah-docs/src/content/docs/` carry a
 `@astrojs/starlight/components` import. Plain `.md` processes neither imports nor
@@ -239,7 +239,7 @@ inherently sequential and judgement-bearing, not mechanical. One executor, one b
 
 ## Batch 2: Card/CardGrid hub pages — high tag density + the `&` risk ✅ COMPLETE
 
-**Commit**: _(recorded below after commit)_
+**Commit**: `f7663b861` — _fix(docs): give the four card hub pages extensions that run their imports_
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -340,7 +340,7 @@ continue into the next directory on a red build.
 
 ---
 
-## Batch 3: Card/CardGrid hub pages — remainder 🔄 IN PROGRESS (collapsed pass, part 1 of 3)
+## Batch 3: Card/CardGrid hub pages — remainder ✅ COMPLETE (collapsed pass, part 1 of 3)
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -351,17 +351,17 @@ needed", so the isolating commit has nothing to isolate. Merged into the collaps
 pass; see the orchestrator decision above.
 **Tasks**: 3 | **Dependencies**: Batch 2 ✅
 
-### Task 3.1: `sessions/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 3.1: `sessions/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\sessions\index.md`
 **Validation Notes**: 14 component tags, `Card, CardGrid`. No measured hazards.
 
-### Task 3.2: `workspace/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 3.2: `workspace/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\workspace\index.md`
 **Validation Notes**: 16 component tags, `Card, CardGrid`. No measured hazards.
 
-### Task 3.3: `skill-synthesis/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 3.3: `skill-synthesis/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\skill-synthesis\index.md`
 **Validation Notes**: 14 component tags, `Card, CardGrid`. No measured hazards. Note this
@@ -378,7 +378,7 @@ pages handled in Batch 5.
 
 ---
 
-## Batch 4: `Aside` sweep A — browser-automation, reference, settings 🔄 IN PROGRESS (collapsed pass, part 2 of 3)
+## Batch 4: `Aside` sweep A — browser-automation, reference, settings ✅ COMPLETE (collapsed pass, part 2 of 3)
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -389,7 +389,7 @@ overhead. Grouped one task per content directory so a build failure localizes to
 directory rather than to a set of 16.
 **Tasks**: 3 | **Dependencies**: Batch 3
 
-### Task 4.1: `browser-automation/` — rename 7 `Aside` pages 🔄 IN PROGRESS
+### Task 4.1: `browser-automation/` — rename 7 `Aside` pages ✅ COMPLETE
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\browser-automation\`
 
@@ -409,7 +409,7 @@ directory rather than to a set of 16.
   in Task 1.3 and must stay `.md`.
 - Each file: 1 `<Aside>` pair, import on line 6. No measured hazards.
 
-### Task 4.2: `reference/` — rename 2 `Aside` pages 🔄 IN PROGRESS
+### Task 4.2: `reference/` — rename 2 `Aside` pages ✅ COMPLETE
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\reference\`
 
@@ -417,7 +417,7 @@ directory rather than to a set of 16.
 
 **Validation Notes**: 1 `<Aside>` pair each. No measured hazards.
 
-### Task 4.3: `settings/` — rename 7 `Aside` pages 🔄 IN PROGRESS
+### Task 4.3: `settings/` — rename 7 `Aside` pages ✅ COMPLETE
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\settings\`
 
@@ -442,7 +442,7 @@ directory rather than to a set of 16.
 
 ---
 
-## Batch 5: `Aside` sweep B — skill-synthesis, troubleshooting 🔄 IN PROGRESS (collapsed pass, part 3 of 3)
+## Batch 5: `Aside` sweep B — skill-synthesis, troubleshooting ✅ COMPLETE (collapsed pass, part 3 of 3)
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -453,7 +453,7 @@ left and splitting a directory would make a build failure _harder_ to localize, 
 easier — the deviation is deliberate.
 **Tasks**: 2 | **Dependencies**: Batch 4
 
-### Task 5.1: `skill-synthesis/` — rename 5 `Aside` pages 🔄 IN PROGRESS
+### Task 5.1: `skill-synthesis/` — rename 5 `Aside` pages ✅ COMPLETE
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\skill-synthesis\`
 
@@ -468,7 +468,7 @@ easier — the deviation is deliberate.
   in `astro.config.mjs` line 95. The slug is extension-free, so the rename is safe — this
   is the closest the sidebar comes to naming a file, and it still does not.
 
-### Task 5.2: `troubleshooting/` — rename 8 `Aside` pages 🔄 IN PROGRESS
+### Task 5.2: `troubleshooting/` — rename 8 `Aside` pages ✅ COMPLETE
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\troubleshooting\`
 
