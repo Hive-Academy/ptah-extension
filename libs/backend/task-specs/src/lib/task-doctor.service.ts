@@ -55,13 +55,13 @@ import {
   isPlanningArtifact,
   LEGACY_BATCHES_FILE,
   SPEC_CONTRACT_VERSION,
-  TASK_TYPES,
   type TaskSpecSummary,
   type TaskStatus,
   type TaskType,
   type TaskValidationIssue,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
+import { toTaskType } from './task-enum-narrowing';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
 
@@ -296,14 +296,6 @@ function statusContradiction(
       `reporting finished work as never started. Left as-is: only a human can ` +
       `say which is true.`,
   };
-}
-
-/** Narrow a declared string to a `TaskType`, case-insensitively. */
-function toTaskType(value: string): TaskType | undefined {
-  const upper = value.trim().toUpperCase();
-  return (TASK_TYPES as readonly string[]).includes(upper)
-    ? (upper as TaskType)
-    : undefined;
 }
 
 /**
