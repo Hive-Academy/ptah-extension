@@ -882,22 +882,77 @@ export class SkillCandidateStore {
    * turn every rate below 1 into `0`, and a `CAST(... AS REAL)` would still
    * have to answer for the zero denominator somewhere. One place to get the
    * rule wrong is better than two.
+   *
+   * ## `workspaceRoot` IS OPTIONAL, AND OMITTING IT IS NOT A DEFAULT — IT IS A
+   * ## DIFFERENT QUESTION
+   *
+   * Four callers ask a CROSS-PROJECT question and pass nothing: the enhancer's
+   * eligibility gate, the promotion service's dormancy ranking and the
+   * scorecard's RPC read all ask "what is this skill's track record", and a
+   * skill's track record does not stop at a repo boundary. The weekly gap
+   * digest asks the other question — "how is this skill doing HERE" — because
+   * its other three sweeps are workspace-scoped through
+   * `SessionVerdictStore.listByWorkspace` and a per-workspace digest carrying
+   * one cross-project row is something a user notices. Widening the scoped form
+   * into the default would silently re-scope the other three.
+   *
+   * ## A `NULL` `workspace_root` IS INCLUDED IN A SCOPED READ
+   *
+   * `0037` added the column as nullable and spelled out what the three values
+   * mean: a real path is that workspace, `''` is DELIBERATELY cross-project,
+   * and `NULL` is "recorded before phase 4 threaded the value through,
+   * provenance unknown". Only the third is in question here, and the predicate
+   * keeps it, because excluding it is the worse error in a way that is easy to
+   * miss. Every event on every install that has history predates `0037`, so a
+   * `NULL`-excluding predicate empties the denominator on exactly those
+   * installs — and an empty denominator is `winRate: null`, which the digest
+   * renders as "no measured outcome yet". That would retitle a skill's real,
+   * measured track record as an ABSENT measurement, the same `null`-is-never-a
+   * measurement inversion this method's header forbids, arriving from the other
+   * direction. Keeping the row instead can only over-attribute work whose
+   * provenance nobody recorded, and it is still strictly NARROWER than the
+   * cross-project answer the digest read before, so the change cannot regress
+   * anything. The `NULL` pool is also fixed in size and stops growing the
+   * moment `0037` lands, so the scoping sharpens by itself as events accrue.
+   *
+   * `''` is NOT folded in — it is a known value meaning "not this workspace",
+   * and `0037` is explicit that no consumer may coalesce `NULL` to `''`. The
+   * caller that genuinely wants the cross-project feed passes `''` and gets
+   * `''`-plus-unknown rows, exactly as `listByWorkspace('')` behaves.
+   *
+   * Two whole static statements rather than one built by concatenation: this
+   * directory's SQL must stay free of `${...}` interpolation, and a predicate
+   * spliced in at runtime is precisely the shape that rule exists to keep out.
    */
-  getWinRates(): SkillWinRate[] {
-    const rows = this.db
-      .prepare(
-        `SELECT e.skill_slug,
-                COUNT(*) AS invocations,
-                SUM(CASE WHEN v.evidence_class IN
-                      ('tests-green','user-accepted','explicit-confirmation')
-                    THEN 1 ELSE 0 END) AS wins,
-                SUM(CASE WHEN v.session_id IS NULL OR v.evidence_class = 'unverified'
-                    THEN 1 ELSE 0 END) AS unknown
-         FROM skill_invocation_events e
-         LEFT JOIN skill_session_verdicts v ON v.session_id = e.session_id
-         GROUP BY e.skill_slug`,
-      )
-      .all() as RawWinRateRow[];
+  getWinRates(workspaceRoot?: string): SkillWinRate[] {
+    const scoped = workspaceRoot !== undefined;
+    const statement = this.db.prepare(
+      scoped
+        ? `SELECT e.skill_slug,
+                  COUNT(*) AS invocations,
+                  SUM(CASE WHEN v.evidence_class IN
+                        ('tests-green','user-accepted','explicit-confirmation')
+                      THEN 1 ELSE 0 END) AS wins,
+                  SUM(CASE WHEN v.session_id IS NULL OR v.evidence_class = 'unverified'
+                      THEN 1 ELSE 0 END) AS unknown
+           FROM skill_invocation_events e
+           LEFT JOIN skill_session_verdicts v ON v.session_id = e.session_id
+           WHERE e.workspace_root = ? OR e.workspace_root IS NULL
+           GROUP BY e.skill_slug`
+        : `SELECT e.skill_slug,
+                  COUNT(*) AS invocations,
+                  SUM(CASE WHEN v.evidence_class IN
+                        ('tests-green','user-accepted','explicit-confirmation')
+                      THEN 1 ELSE 0 END) AS wins,
+                  SUM(CASE WHEN v.session_id IS NULL OR v.evidence_class = 'unverified'
+                      THEN 1 ELSE 0 END) AS unknown
+           FROM skill_invocation_events e
+           LEFT JOIN skill_session_verdicts v ON v.session_id = e.session_id
+           GROUP BY e.skill_slug`,
+    );
+    const rows = (
+      scoped ? statement.all(workspaceRoot) : statement.all()
+    ) as RawWinRateRow[];
 
     return rows.map((r) => {
       const invocations = r.invocations ?? 0;

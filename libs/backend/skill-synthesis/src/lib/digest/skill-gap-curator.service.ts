@@ -5,22 +5,47 @@
  * ## What this service is allowed to do
  *
  * Rank, evidence and nudge. Nothing else. It never promotes, rejects, demotes,
- * deletes or files a new suggestion, and it never asks a model anything — every
- * number below is READ from something already measured (session verdicts, the
- * invocation → outcome join, the user's own memory). That is not a cost
- * optimisation, it is the autonomy boundary phase 4 was approved under: the
- * user still accepts or dismisses, so the digest's whole job is to make the
- * accepting well-informed. It also means this service owns no timeout, opens no
- * lane and needs none — the "every LLM call goes through `LaneRunnerService`"
- * rule is satisfied vacuously, and it should stay that way. A sweep that wants
- * a model has become a queue stage and belongs on a lane.
+ * deletes or files a new suggestion. Every RANKING number below is READ from
+ * something already measured (session verdicts, the invocation → outcome join,
+ * the user's own memory) — no model scores anything here, and that is the
+ * autonomy boundary phase 4 was approved under: the user still accepts or
+ * dismisses, so the digest's whole job is to make the accepting well-informed.
  *
  * The one write it makes is sweep (a)'s description rewrite, and it goes
  * through the EXISTING `SkillSuggestionStore.updatePending` path — see
- * `rewriteDescriptionFor` for the four conditions on it. There is deliberately
- * no second suggestion-writing path here: `insertPending` is never called, so
- * the digest can sharpen a proposal the user has not yet decided on, and can do
- * nothing at all to one they have.
+ * `applyDescriptionRewrites` for the conditions on it. There is deliberately no
+ * second suggestion-writing path here: `insertPending` is never called (pinned
+ * by a source scan in the spec), so the digest can sharpen a proposal the user
+ * has not yet decided on, and can do nothing at all to one they have.
+ *
+ * ## The one LLM call, and why it is on the `synthesis` lane
+ *
+ * B4.7 gives that rewrite a real lane: the appended trigger clause is AUTHORED
+ * rather than copy-pasted, on `laneId: 'synthesis'` — the authoring lane, and
+ * deliberately not a fifth lane id, which would mean eight new settings keys
+ * for a pass that asks the same kind of question `SkillSynthesizerService` and
+ * `SkillCuratorService` already ask there.
+ *
+ * Three properties of that call are contracts:
+ *
+ *  - **`LaneRunnerService` is injected `{isOptional: true}` and its absence is
+ *    not an error.** A CLI or e2e host has no lane at all, and the runner
+ *    itself answers `unavailable` on a host with no SDK. Either way the sweep
+ *    falls back to appending the archaeologist's VERBATIM session intents —
+ *    which is exactly what B4.2 shipped, so the lane strictly adds and can
+ *    never subtract.
+ *  - **ONE call per `runDigest`, and zero when nothing is fresh.** Every
+ *    eligible suggestion rides one batched request (`DIGEST_REWRITE_MAX_SKILLS`
+ *    of them; the remainder take the verbatim path rather than buying a second
+ *    call). The freshness gate runs BEFORE the lane, so a weekly digest over a
+ *    library it has already sharpened spends nothing at all.
+ *  - **The rubric rides `systemPromptAppend`, never `prompt`.** `maxInputChars`
+ *    clips `prompt` and does not clip `systemPromptAppend`; a rubric in the
+ *    clippable half loses its "reply with ONLY JSON" tail first and every call
+ *    on the lane comes back unparseable.
+ *
+ * The service still owns no timeout, no `AbortController` and no input clamp —
+ * `LaneRunnerService` owns all three.
  *
  * ## `winRate` is `number | null` and `null` is NEVER `0`
  *
@@ -32,6 +57,20 @@
  * exactly what the digest exists to surface. One `??` or `||` on that path
  * inverts both facts at once and nothing else in the system would notice; the
  * spec mutation-tests it for that reason.
+ *
+ * ## A lane failure has nowhere to go from here, and it is NOT flattened
+ *
+ * `runDigest` returns `DigestItem[]` to `skillSynthesis:digest`. It is not a
+ * queue stage — nothing enqueues a `digest` row and no handler is registered
+ * for one — so there is no `{outcome, failure}` channel to hand a
+ * `SkillLaneFailure` out through, and widening the return type would change the
+ * RPC wire shape in a lib this batch does not own. What this file therefore
+ * does NOT do is invent one: no result type here carries a lane failure
+ * COLLAPSED into a reason string, which is the defect `JudgePanelResult` and
+ * `TriggerEvalOutcome` already have. The failure is logged with its `kind` and
+ * `reason` as separate structured fields that nothing downstream reads as a
+ * decision, and the sweep falls back to verbatim intents. See the batch report
+ * for the escalation.
  *
  * ## The C2 ⇢ C4 soft edge
  *
@@ -60,6 +99,8 @@ import type {
   SessionVerdict,
 } from '../archaeology/session-verdict.types';
 import type { SkillCandidateRow } from '../types';
+import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
+import type { LaneRunnerService } from '../lanes/lane-runner.service';
 import {
   isWinEvidence,
   type DigestItem,
@@ -131,6 +172,41 @@ export const DIGEST_DESCRIPTION_MAX_CHARS = 500;
 /** Intents quoted into a rewritten description, and the clamp on each. */
 export const DIGEST_REWRITE_MAX_INTENTS = 2;
 export const DIGEST_REWRITE_INTENT_CHARS = 120;
+
+/**
+ * Suggestions carried by the ONE batched lane call. Targets past this take the
+ * verbatim path rather than buying a second call — the `synthesis` lane's
+ * `maxInputChars` is 8 000 and this bound keeps the built prompt comfortably
+ * inside it, so the runner's clip never eats a skill's intents mid-list.
+ */
+export const DIGEST_REWRITE_MAX_SKILLS = 8;
+
+/** A skill's current description, clamped before it is quoted into the prompt. */
+export const DIGEST_REWRITE_PROMPT_DESCRIPTION_CHARS = 200;
+
+/** Characters the authored clause is asked, and then held, to stay under. */
+export const DIGEST_REWRITE_CLAUSE_MAX_CHARS = 180;
+
+/**
+ * THE FIXED POINT. The share of a clause's own content tokens that must appear
+ * in a description before we call that clause SAID.
+ *
+ * One threshold, used in both directions, and that is what makes a generative
+ * rewrite idempotent:
+ *
+ *  - BEFORE the lane, an intent already covered at this ratio by the current
+ *    description is dropped as stale, so it is never sent and never re-written.
+ *  - AFTER the lane, an authored clause is ACCEPTED only if the resulting
+ *    description covers the same intents at the same ratio; otherwise it is
+ *    discarded and the verbatim intent is used, which covers by construction.
+ *
+ * So every write this service makes lands in a state where its own freshness
+ * gate rejects the evidence that produced it. The second pass makes no lane
+ * call and no write — not because the model happened to answer identically
+ * (it will not), but because there is provably nothing left to say. Model
+ * output is nondeterministic; this fixed point does not depend on it.
+ */
+export const DIGEST_REWRITE_COVERAGE = 0.6;
 
 /**
  * The attention weight of one skill's win rate.
@@ -280,6 +356,189 @@ function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+/**
+ * Is `clause` already SAID by `text`?
+ *
+ * Token coverage rather than the exact-substring test B4.2 used, because the
+ * clause may now be AUTHORED: a paraphrase of an intent already in the
+ * description would sail past a substring check and get appended a second time
+ * every week. The exact-substring test survives as the fallback for a clause
+ * with no content tokens to measure (everything in it is shorter than four
+ * characters or a stop word), where a ratio over an empty set would answer `0`
+ * forever and re-append it on every pass.
+ */
+function isCovered(clause: string, text: string): boolean {
+  const tokens = tokenize(clause);
+  if (tokens.size === 0) {
+    return text.toLowerCase().includes(clause.toLowerCase());
+  }
+  return overlapRatio(tokens, tokenize(text)) >= DIGEST_REWRITE_COVERAGE;
+}
+
+/**
+ * The authoring rubric. FIXED instructions, so it travels as
+ * `systemPromptAppend` — `LaneRunnerService` clips `prompt` at the lane's
+ * `maxInputChars` and does not clip this, and a rubric in the clippable half
+ * loses its output-format sentence first.
+ *
+ * The vocabulary rule is not style advice. `isCovered` discards a clause that
+ * does not repeat the intents' distinctive words, so telling the model the
+ * acceptance test up front is what makes the lane worth calling instead of an
+ * expensive way to reach the verbatim fallback.
+ */
+export const DIGEST_REWRITE_RUBRIC = [
+  `You rewrite the trigger sentence of an AI coding skill so that retrieval finds the skill on work it already matches.`,
+  ``,
+  `For each numbered skill you are given its current description and one or more VERBATIM user session intents — real work that skill should have been used for and was not.`,
+  ``,
+  `Rules:`,
+  `1. Write ONE clause per skill naming that work. It is appended directly after the words "${DIGEST_TRIGGER_CLAUSE_PREFIX}", so begin mid-sentence, lower case, and do not repeat those words.`,
+  `2. REUSE THE DISTINCTIVE WORDS OF THE QUOTED INTENTS — the concrete tool, framework, file type or task names. A clause that does not repeat them is DISCARDED and the raw intent is used instead, so paraphrasing them away wastes the call.`,
+  `3. Describe only what the intents say. Never invent a capability the skill has not shown.`,
+  `4. At most ${DIGEST_REWRITE_CLAUSE_MAX_CHARS} characters per clause. No trailing period.`,
+  `5. Omit a skill entirely rather than guessing at one.`,
+  ``,
+  `Reply with ONLY this JSON object and nothing else:`,
+  `{"rewrites":[{"ref":"<the ref you were given>","clause":"<the clause>"}]}`,
+].join('\n');
+
+/** The `rewrites` envelope. An OBJECT, so the runner's manual extractor can also read it. */
+const DIGEST_REWRITE_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    rewrites: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          clause: { type: 'string' },
+        },
+        required: ['ref', 'clause'],
+      },
+    },
+  },
+  required: ['rewrites'],
+};
+
+/** One pending suggestion the sweep has fresh evidence for. */
+interface RewriteTarget {
+  /** Opaque handle the model echoes back. Suggestion ids never enter the prompt. */
+  readonly ref: string;
+  readonly suggestionId: string;
+  readonly slug: string;
+  readonly description: string;
+  /** Clamped, de-duplicated, and not already said by `description`. */
+  readonly fresh: readonly string[];
+}
+
+/** What sweep (a) found, before any writing happens. */
+interface MissedTrigger {
+  readonly skill: SkillCandidateRow;
+  readonly missed: readonly SessionVerdict[];
+  readonly intents: readonly string[];
+}
+
+/** Read the model's answer without trusting any of its shape. */
+function parseRewrites(json: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (typeof json !== 'object' || json === null) return out;
+  const list = (json as { rewrites?: unknown }).rewrites;
+  if (!Array.isArray(list)) return out;
+  for (const entry of list) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { ref, clause } = entry as { ref?: unknown; clause?: unknown };
+    if (typeof ref !== 'string' || typeof clause !== 'string') continue;
+    const trimmed = clause.trim().replace(/\.$/, '').trim();
+    if (trimmed.length === 0) continue;
+    out.set(ref, clampWords(trimmed, DIGEST_REWRITE_CLAUSE_MAX_CHARS));
+  }
+  return out;
+}
+
+/**
+ * The intents this description does NOT already say, clamped and de-duplicated.
+ *
+ * THE GATE THAT MAKES THE PASS FREE THE SECOND TIME. It runs before the lane,
+ * so a digest over a library it already sharpened returns `[]` here for every
+ * skill and never opens a call at all.
+ */
+function selectFreshClauses(
+  current: string,
+  intents: readonly string[],
+): string[] {
+  const fresh: string[] = [];
+  for (const intent of intents) {
+    const clause = clampWords(intent, DIGEST_REWRITE_INTENT_CHARS);
+    if (clause.length === 0) continue;
+    if (isCovered(clause, current)) continue;
+    if (fresh.includes(clause)) continue;
+    fresh.push(clause);
+    if (fresh.length === DIGEST_REWRITE_MAX_INTENTS) break;
+  }
+  return fresh;
+}
+
+/**
+ * The description to persist, or `null` when there is no room to say it.
+ *
+ * The authored clause is TRIED FIRST and the verbatim intents are the fallback,
+ * and both go through the same acceptance test: the FINAL clamped string must
+ * cover every fresh clause at `DIGEST_REWRITE_COVERAGE`. Testing the composed
+ * result rather than the clause on its own is deliberate — a clause that covers
+ * its intents perfectly and then loses half its words to
+ * `DIGEST_DESCRIPTION_MAX_CHARS` would otherwise be persisted as a half-written
+ * fragment AND leave the next pass believing the evidence was recorded.
+ */
+function composeDescription(
+  current: string,
+  fresh: readonly string[],
+  authored: string | null,
+): string | null {
+  if (fresh.length === 0) return null;
+  const attempts = [authored, fresh.join('; ')].filter(
+    (text): text is string => text !== null && text.trim().length > 0,
+  );
+
+  for (const clause of attempts) {
+    const next = clampWords(
+      `${current.trim()} ${DIGEST_TRIGGER_CLAUSE_PREFIX}${clause}`,
+      DIGEST_DESCRIPTION_MAX_CHARS,
+    );
+    // A description already at the ceiling clamps straight back to itself:
+    // there is no room for the evidence, so nothing is written and the digest
+    // item still nudges. Silently persisting a truncated marker would leave a
+    // half-written clause in a user-facing field.
+    if (!next.includes(DIGEST_TRIGGER_CLAUSE_PREFIX)) continue;
+    if (next === current.trim()) continue;
+    if (!fresh.every((intent) => isCovered(intent, next))) continue;
+    return next;
+  }
+  return null;
+}
+
+/**
+ * The VARIABLE half of the lane request — the only half `maxInputChars` clips.
+ * Descriptions are clamped here rather than left to the runner's clip, so the
+ * material that gets dropped when a batch runs long is one skill's context and
+ * never the tail of the list.
+ */
+function buildRewritePrompt(targets: readonly RewriteTarget[]): string {
+  const blocks = targets.map((target) =>
+    [
+      `ref: ${target.ref}`,
+      `current description: ${clampWords(target.description, DIGEST_REWRITE_PROMPT_DESCRIPTION_CHARS)}`,
+      `missed session intents:`,
+      ...target.fresh.map((intent) => `- ${intent}`),
+    ].join('\n'),
+  );
+  return [
+    `Rewrite the trigger clause for ${targets.length} skill(s).`,
+    ``,
+    blocks.join('\n\n'),
+  ].join('\n');
+}
+
 @injectable()
 export class SkillGapCuratorService {
   constructor(
@@ -298,6 +557,16 @@ export class SkillGapCuratorService {
      */
     @inject(MEMORY_CONTRACT_TOKENS.MEMORY_READER, { isOptional: true })
     private readonly memory: IMemoryReader | null,
+    /**
+     * The authoring lane behind sweep (a)'s rewrite, optional for the same
+     * reason `archaeologist`, `judge-panel`, `replay` and `trigger-eval` are:
+     * a CLI or e2e host provisions no LLM at all. Absent, the sweep appends the
+     * archaeologist's verbatim intents instead — the behaviour B4.2 shipped —
+     * so the lane can only ever add. `= null` so the two specs that build this
+     * service positionally keep compiling without knowing the lane exists.
+     */
+    @inject(SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE, { isOptional: true })
+    private readonly laneRunner: LaneRunnerService | null = null,
   ) {}
 
   /**
@@ -309,13 +578,18 @@ export class SkillGapCuratorService {
   async runDigest(request: DigestRequest): Promise<DigestItem[]> {
     const limit = request.limit ?? DIGEST_DEFAULT_LIMIT;
     const verdicts = this.readVerdicts(request.workspaceRoot);
-    const winRates = this.readWinRates();
+    // Scoped to the SAME workspace as the other three sweeps. Before B4.7 this
+    // read was cross-project purely because the store's query took no argument,
+    // so a per-workspace digest could carry one row from another repo.
+    const winRates = this.readWinRates(request.workspaceRoot);
     const skills = this.readPromotedSkills();
 
     const items: DigestItem[] = [];
     const clusters = this.clusterFriction(verdicts);
 
-    items.push(...this.sweepMissedTriggers(verdicts, skills, winRates));
+    const missed = this.collectMissedTriggers(verdicts, skills);
+    const rewritten = await this.applyDescriptionRewrites(missed);
+    items.push(...this.buildMissedTriggerItems(missed, rewritten, winRates));
     items.push(...this.sweepFrictionOpportunities(clusters));
     items.push(...this.sweepWinRates(winRates, skills));
     items.push(
@@ -339,11 +613,10 @@ export class SkillGapCuratorService {
    * invoked-session set rather than the dominant-slug lookup: a session that
    * used SOME other skill is still a missed trigger for this one.
    */
-  private sweepMissedTriggers(
+  private collectMissedTriggers(
     verdicts: readonly SessionVerdict[],
     skills: readonly SkillCandidateRow[],
-    winRates: ReadonlyMap<string, SkillWinRate>,
-  ): DigestItem[] {
+  ): MissedTrigger[] {
     const succeeded = verdicts.filter((v) => isWinEvidence(v.evidenceClass));
     if (succeeded.length === 0 || skills.length === 0) return [];
 
@@ -352,7 +625,7 @@ export class SkillGapCuratorService {
       sessionTokens.set(verdict.sessionId, tokenize(verdictText(verdict)));
     }
 
-    const items: DigestItem[] = [];
+    const found: MissedTrigger[] = [];
     for (const skill of skills) {
       const skillTokens = tokenize(`${skill.name} ${skill.description}`);
       if (skillTokens.size < DIGEST_MIN_SKILL_TOKENS) continue;
@@ -372,15 +645,32 @@ export class SkillGapCuratorService {
       });
       if (missed.length === 0) continue;
 
-      const intents = missed
-        .map((v) => v.intent)
-        .filter((intent): intent is string => (intent ?? '').trim().length > 0);
-      const rewritten = this.rewriteDescriptionFor(skill.name, intents);
+      found.push({
+        skill,
+        missed,
+        intents: missed
+          .map((v) => v.intent)
+          .filter(
+            (intent): intent is string => (intent ?? '').trim().length > 0,
+          ),
+      });
+    }
+    return found;
+  }
+
+  /** The digest items, once the rewrite pass has said which slugs it changed. */
+  private buildMissedTriggerItems(
+    found: readonly MissedTrigger[],
+    rewritten: ReadonlySet<string>,
+    winRates: ReadonlyMap<string, SkillWinRate>,
+  ): DigestItem[] {
+    return found.map(({ skill, missed }) => {
+      const changed = rewritten.has(skill.name);
       const title = skill.displayName ?? skill.name;
-      items.push({
-        kind: 'missed-trigger',
+      return {
+        kind: 'missed-trigger' as const,
         title: `"${title}" fit ${missed.length} succeeded session(s) but was never invoked`,
-        rationale: rewritten
+        rationale: changed
           ? `The description did not retrieve on work it matches. Its pending suggestion's description now names that work; accept or edit it to keep the change.`
           : `The description did not retrieve on work it matches — rewriting it so it names this work would make the skill reachable.`,
         score: Math.min(
@@ -394,89 +684,163 @@ export class SkillGapCuratorService {
             .map((v) => v.sessionId),
           counts: {
             missedSessions: missed.length,
-            descriptionRewrites: rewritten ? 1 : 0,
+            descriptionRewrites: changed ? 1 : 0,
           },
           winRate: this.winRateOf(winRates, skill.name),
         },
-      });
-    }
-    return items;
+      };
+    });
   }
 
   /**
-   * Sharpen the skill's PENDING suggestion so its description names the work it
-   * missed. Four conditions, and all four are the autonomy boundary:
+   * Sharpen each skill's PENDING suggestion so its description names the work
+   * it missed, and return the slugs that actually moved.
    *
-   *  1. It goes through `SkillSuggestionStore.updatePending` — the path the
-   *     Skills tab's own edit uses. There is no second writer here, and
+   * FOUR CONDITIONS, AND ALL FOUR ARE THE AUTONOMY BOUNDARY:
+   *
+   *  1. Every write goes through `SkillSuggestionStore.updatePending` — the
+   *     path the Skills tab's own edit uses. There is no second writer here and
    *     `insertPending` is never called, so the digest cannot file a proposal
-   *     the user never asked for.
+   *     the user never asked for. Pinned by a source scan in the spec, because
+   *     the DB-count assertion only catches it on a seeded pass.
    *  2. Only a row that is still `pending` moves; the store itself refuses an
-   *     accepted or dismissed one, and this method never overrides that.
-   *  3. The appended text is VERBATIM session intent — evidence the
-   *     archaeologist already wrote and the user can go read — never generated
-   *     prose. This service asks no model anything.
-   *  4. It is idempotent: an intent already named in the description is not
-   *     appended again, so a weekly pass does not grow the field without bound.
+   *     accepted or dismissed one, and nothing here overrides that.
+   *  3. The clause is AUTHORED on the `synthesis` lane when one is available
+   *     and VERBATIM session intent otherwise — but either way it must pass
+   *     `isCovered` against the intents it claims to name, so the model can
+   *     sharpen the wording and cannot replace the evidence with prose of its
+   *     own. A clause that fails falls back to the verbatim intent rather than
+   *     to nothing.
+   *  4. It is idempotent, and provably rather than incidentally — see
+   *     `DIGEST_REWRITE_COVERAGE`. The freshness gate runs BEFORE the lane, so
+   *     a second pass over the same evidence makes no call and no write.
    *
-   * Returns `true` only when a row was actually updated.
+   * The whole method is one guarded read plus writes: a throwing suggestion
+   * store costs the rewrite and nothing else, because `runDigest` may not
+   * reject.
    */
-  private rewriteDescriptionFor(
-    slug: string,
-    intents: readonly string[],
-  ): boolean {
-    if (intents.length === 0) return false;
-    try {
-      const pending = this.suggestions
-        .listByStatus('pending')
-        .filter((row) => row.name === slug);
-      let updated = false;
-      for (const row of pending) {
-        const next = this.buildRewrittenDescription(row.description, intents);
-        if (next === null) continue;
-        const result = this.suggestions.updatePending(row.id, {
+  private async applyDescriptionRewrites(
+    found: readonly MissedTrigger[],
+  ): Promise<Set<string>> {
+    const changed = new Set<string>();
+    const targets = this.collectRewriteTargets(found);
+    if (targets.length === 0) return changed;
+
+    // ONE call, for every target at once. `null` = no lane in this host, the
+    // lane was unavailable, or it failed — all three take the verbatim path.
+    const authored = await this.authorClauses(
+      targets.slice(0, DIGEST_REWRITE_MAX_SKILLS),
+    );
+
+    for (const target of targets) {
+      const next = composeDescription(
+        target.description,
+        target.fresh,
+        authored?.get(target.ref) ?? null,
+      );
+      if (next === null) continue;
+      try {
+        const result = this.suggestions.updatePending(target.suggestionId, {
           description: next,
         });
-        if (result?.description === next) updated = true;
+        if (result?.description === next) changed.add(target.slug);
+      } catch (error: unknown) {
+        this.logger.warn('[skill-digest] description rewrite failed', {
+          slug: target.slug,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
-      return updated;
-    } catch (error: unknown) {
-      this.logger.warn('[skill-digest] description rewrite failed', {
-        slug,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
     }
+    return changed;
   }
 
-  /** `null` when there is nothing new to say, or no room left to say it. */
-  private buildRewrittenDescription(
-    current: string,
-    intents: readonly string[],
-  ): string | null {
-    const existing = current.toLowerCase();
-    const fresh: string[] = [];
-    for (const intent of intents) {
-      const clause = clampWords(intent, DIGEST_REWRITE_INTENT_CHARS);
-      if (clause.length === 0) continue;
-      if (existing.includes(clause.toLowerCase())) continue;
-      if (fresh.includes(clause)) continue;
-      fresh.push(clause);
-      if (fresh.length === DIGEST_REWRITE_MAX_INTENTS) break;
+  /**
+   * The pending suggestions with something NEW to say, and what it is.
+   *
+   * `listByStatus('pending')` is read ONCE for the whole sweep rather than once
+   * per skill: the pass walks every promoted skill, and a per-slug query would
+   * make the digest's cost scale with the library instead of with the evidence.
+   */
+  private collectRewriteTargets(
+    found: readonly MissedTrigger[],
+  ): RewriteTarget[] {
+    let pending;
+    try {
+      pending = this.suggestions.listByStatus('pending');
+    } catch (error: unknown) {
+      this.logger.warn('[skill-digest] pending suggestions unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
     }
-    if (fresh.length === 0) return null;
 
-    const next = clampWords(
-      `${current.trim()} ${DIGEST_TRIGGER_CLAUSE_PREFIX}${fresh.join('; ')}`,
-      DIGEST_DESCRIPTION_MAX_CHARS,
-    );
-    // A description already at the ceiling clamps straight back to itself:
-    // there is no room for the evidence, so nothing is written and the digest
-    // item still nudges. Silently persisting a truncated marker would leave a
-    // half-written clause in a user-facing field.
-    if (!next.includes(DIGEST_TRIGGER_CLAUSE_PREFIX)) return null;
-    if (next === current.trim()) return null;
-    return next;
+    const targets: RewriteTarget[] = [];
+    for (const { skill, intents } of found) {
+      if (intents.length === 0) continue;
+      for (const row of pending) {
+        if (row.name !== skill.name) continue;
+        const fresh = selectFreshClauses(row.description, intents);
+        if (fresh.length === 0) continue;
+        targets.push({
+          ref: String(targets.length + 1),
+          suggestionId: row.id,
+          slug: skill.name,
+          description: row.description,
+          fresh,
+        });
+      }
+    }
+    return targets;
+  }
+
+  /**
+   * The one lane call. `null` on every path that did not produce clauses, so
+   * the caller has exactly one fallback to reason about.
+   *
+   * A `SkillLaneFailure` is logged with `kind` and `reason` as SEPARATE
+   * structured fields and is deliberately not collapsed into a token any
+   * consumer reads — see this file's header for why it cannot be handed
+   * further out than this.
+   */
+  private async authorClauses(
+    targets: readonly RewriteTarget[],
+  ): Promise<Map<string, string> | null> {
+    const runner = this.laneRunner;
+    if (!runner) return null;
+
+    let result;
+    try {
+      result = await runner.run({
+        laneId: 'synthesis',
+        prompt: buildRewritePrompt(targets),
+        // FIXED instructions on the half `maxInputChars` does not clip.
+        systemPromptAppend: DIGEST_REWRITE_RUBRIC,
+        outputSchema: DIGEST_REWRITE_SCHEMA,
+      });
+    } catch (error: unknown) {
+      this.logger.warn('[skill-digest] rewrite lane threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+
+    if (result.status === 'unavailable') {
+      this.logger.debug(
+        '[skill-digest] no synthesis lane in this host; appending verbatim intents',
+        { reason: result.reason },
+      );
+      return null;
+    }
+    if (result.status === 'failed') {
+      this.logger.warn(
+        '[skill-digest] rewrite lane failed; appending verbatim intents',
+        { kind: result.failure.kind, reason: result.failure.reason },
+      );
+      return null;
+    }
+
+    const clauses = parseRewrites(result.run.json);
+    return clauses.size > 0 ? clauses : null;
   }
 
   // ── Sweep (b): friction clusters with no success ──────────────────────────
@@ -741,9 +1105,18 @@ export class SkillGapCuratorService {
     }
   }
 
-  private readWinRates(): Map<string, SkillWinRate> {
+  /**
+   * The win rates for THIS workspace. The argument is passed through verbatim,
+   * `''` included, so sweep (c) scopes exactly as `listByWorkspace` scopes the
+   * other three — a digest whose four sweeps disagree about what "here" means
+   * is one the user can catch out. Pre-`0037` rows carry a NULL
+   * `workspace_root` and the store's predicate keeps them; see `getWinRates`.
+   */
+  private readWinRates(workspaceRoot: string): Map<string, SkillWinRate> {
     try {
-      return new Map(this.candidates.getWinRates().map((r) => [r.slug, r]));
+      return new Map(
+        this.candidates.getWinRates(workspaceRoot).map((r) => [r.slug, r]),
+      );
     } catch (error: unknown) {
       this.logger.warn('[skill-digest] win-rate join unavailable', {
         error: error instanceof Error ? error.message : String(error),

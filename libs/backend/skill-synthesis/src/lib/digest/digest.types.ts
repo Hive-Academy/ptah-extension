@@ -51,11 +51,19 @@ export type DigestItemKind = (typeof DIGEST_ITEM_KINDS)[number];
  *
  * A LOCAL MIRROR OF THE `getWinRates()` SQL, ON PURPOSE AND UNDER TEST. The
  * canonical partition lives in that query's `CASE` arms
- * (`skill-candidate.store.ts`), which this file may not edit. Rather than
- * inferring the partition a second way and letting the two drift silently,
+ * (`skill-candidate.store.ts`). Rather than inferring the partition a second
+ * way and letting the two drift silently,
  * `skill-gap-curator.service.spec.ts` scans the store's source and fails if any
  * member here is missing from it. `no-correction` is deliberately ABSENT: it is
  * weak evidence of success — not a win, and not unknown either.
+ *
+ * THE MIRROR TEST IS SUPPOSED TO BREAK WHEN THAT SQL CHANGES — that is the
+ * whole mechanism. B4.7 gave `getWinRates` an optional `workspaceRoot` and two
+ * statement bodies instead of one, and the scan was widened WITH it (it now
+ * anchors on `getWinRates(` and additionally asserts the workspace predicate
+ * and the `NULL` arm that keeps pre-`0037` events in a scoped read). Making a
+ * failing mirror pass by loosening or deleting the scan removes the only thing
+ * keeping these three literals honest.
  */
 export const DIGEST_WIN_EVIDENCE_CLASSES: readonly EvidenceClass[] = [
   'tests-green',

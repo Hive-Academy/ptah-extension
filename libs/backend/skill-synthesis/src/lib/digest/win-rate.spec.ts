@@ -73,17 +73,25 @@ function makeStore(db: TestDatabase): SkillCandidateStore {
   );
 }
 
-/** One invocation event through the REAL store write path, not raw SQL. */
+/**
+ * One invocation event through the REAL store write path, not raw SQL.
+ *
+ * `workspaceRoot` defaults to `/ws` and takes `null` explicitly, which is how
+ * the pre-`0037` rows below are seeded — through the same INSERT every historic
+ * event went through rather than a hand-written column list that could drift
+ * from it.
+ */
 function invoke(
   store: SkillCandidateStore,
   slug: string,
   sessionId: string,
   invokedAt: number,
+  workspaceRoot: string | null = '/ws',
 ): void {
   store.recordSkillEvent({
     skillSlug: slug,
     sessionId,
-    workspaceRoot: '/ws',
+    workspaceRoot,
     contextId: null,
     source: 'tool-use',
     succeeded: true,
@@ -315,6 +323,139 @@ describe('getWinRates — the P4-2 numbers', () => {
     } finally {
       db.close();
     }
+  });
+
+  describe('the optional workspaceRoot scope (B4.7)', () => {
+    maybe('is GLOBAL when omitted — four callers depend on that', () => {
+      // The enhancer, promotion and the scorecard all ask a cross-project
+      // question. Omitting the argument is a different question from passing
+      // one, never a defaulted version of it.
+      const db = createDb();
+      try {
+        const store = makeStore(db);
+        invoke(store, 'shared', 's-here', 10, '/ws');
+        invoke(store, 'shared', 's-there', 20, '/other');
+        verdict(db, 's-here', 'tests-green');
+        verdict(db, 's-there', 'tests-green');
+
+        expect(bySlug(store.getWinRates(), 'shared').invocations).toBe(2);
+      } finally {
+        db.close();
+      }
+    });
+
+    maybe('drops another workspace’s events when given one', () => {
+      const db = createDb();
+      try {
+        const store = makeStore(db);
+        // Won here, lost there. Unscoped that averages to 0.5; scoped to `/ws`
+        // it is a 1, and a sweep that reported 0.5 in a `/ws` digest would be
+        // showing the user another repo's result.
+        invoke(store, 'shared', 's-here', 10, '/ws');
+        invoke(store, 'shared', 's-there', 20, '/other');
+        verdict(db, 's-here', 'tests-green');
+        verdict(db, 's-there', 'no-correction');
+
+        expect(bySlug(store.getWinRates(), 'shared').winRate).toBe(0.5);
+        const scoped = bySlug(store.getWinRates('/ws'), 'shared');
+        expect(scoped.invocations).toBe(1);
+        expect(scoped.wins).toBe(1);
+        expect(scoped.winRate).toBe(1);
+      } finally {
+        db.close();
+      }
+    });
+
+    maybe(
+      'reports null — NOT 0 — for a workspace with no measured session',
+      () => {
+        // THE null RULE, on the scoped path. Scoping moves the denominator, so
+        // the rule has to be re-proved here: the skill has a measured loss in
+        // `/other` and nothing settled in `/ws`, and `/ws` must answer "never
+        // measured", not "loses every time". A `0` here would rank this skill
+        // top of the digest's win-rate sweep on the strength of another repo's
+        // evidence being absent.
+        const db = createDb();
+        try {
+          const store = makeStore(db);
+          invoke(store, 'shared', 's-here', 10, '/ws');
+          invoke(store, 'shared', 's-there', 20, '/other');
+          verdict(db, 's-here', 'unverified');
+          verdict(db, 's-there', 'no-correction');
+
+          const scoped = bySlug(store.getWinRates('/ws'), 'shared');
+          expect(scoped.invocations).toBe(1);
+          expect(scoped.unknown).toBe(1);
+          // `toBeNull`, never `toBeFalsy`: both candidate values are falsy.
+          expect(scoped.winRate).toBeNull();
+          expect(scoped.winRate).not.toBe(0);
+          // And the measured loss is still visible unscoped, so the null is a
+          // statement about `/ws` and not about the skill.
+          expect(bySlug(store.getWinRates(), 'shared').winRate).toBe(0);
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'reports null — NOT 0 — for a workspace with no events at all',
+      () => {
+        const db = createDb();
+        try {
+          const store = makeStore(db);
+          invoke(store, 'elsewhere-only', 's-there', 10, '/other');
+          verdict(db, 's-there', 'tests-green');
+
+          // No row at all, rather than a row reading `0`. A fabricated zero row
+          // here would file a "wins 0% of measured sessions" digest item for a
+          // skill this workspace has never run.
+          expect(store.getWinRates('/ws')).toEqual([]);
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe('KEEPS a pre-0037 NULL workspace_root row in a scoped read', () => {
+      // The decision `0037`'s header forces: NULL is "provenance unknown", not
+      // "another workspace". Excluding it would empty the denominator on every
+      // install with history and retitle a real measured track record as an
+      // ABSENT measurement — the null-is-never-a-measurement inversion arriving
+      // from the other side.
+      const db = createDb();
+      try {
+        const store = makeStore(db);
+        invoke(store, 'historic', 's-old', 10, null);
+        verdict(db, 's-old', 'tests-green');
+
+        const scoped = bySlug(store.getWinRates('/ws'), 'historic');
+        expect(scoped.invocations).toBe(1);
+        expect(scoped.wins).toBe(1);
+        expect(scoped.winRate).toBe(1);
+      } finally {
+        db.close();
+      }
+    });
+
+    maybe('does NOT fold the cross-project `""` into a named workspace', () => {
+      // `''` is a KNOWN value meaning "deliberately cross-project", so under a
+      // named root it is a different workspace and stays out. Only NULL — the
+      // unknown — is kept. `0037` forbids coalescing the two.
+      const db = createDb();
+      try {
+        const store = makeStore(db);
+        invoke(store, 'crossproject', 's-x', 10, '');
+        verdict(db, 's-x', 'tests-green');
+
+        expect(store.getWinRates('/ws')).toEqual([]);
+        expect(bySlug(store.getWinRates(''), 'crossproject').invocations).toBe(
+          1,
+        );
+      } finally {
+        db.close();
+      }
+    });
   });
 
   maybe(

@@ -39,7 +39,17 @@ import {
   noopLogger,
   type TestDatabase,
 } from '../queue/queue-db.test-support';
+import type { LaneRunnerService } from '../lanes/lane-runner.service';
+import { LaneRunnerService as RealLaneRunnerService } from '../lanes/lane-runner.service';
 import {
+  makeBudgetStub,
+  makeQueryStub,
+  makeResolverStub,
+  resolvedLane,
+  resultMessage,
+} from '../lanes/lane-runner.test-support';
+import {
+  DIGEST_REWRITE_RUBRIC,
   DIGEST_TRIGGER_CLAUSE_PREFIX,
   DIGEST_WIN_RATE_UNMEASURED,
   SkillGapCuratorService,
@@ -51,6 +61,60 @@ const opener = resolveOpener();
 const maybe = opener ? it : it.skip;
 
 const WORKSPACE = '/ws';
+
+/** Read once; both source scans below anchor on the same text. */
+function readSource(file: string): string {
+  return fs.readFileSync(path.join(__dirname, file), 'utf8');
+}
+
+function curatorSource(): string {
+  return readSource('skill-gap-curator.service.ts');
+}
+
+/** `getWinRates`'s body only — up to the next method, so the scan cannot drift. */
+function winRatesSource(): string {
+  const source = readSource(path.join('..', 'skill-candidate.store.ts'));
+  const start = source.indexOf('getWinRates(');
+  const end = source.indexOf('reconcileSubagentEvent', start);
+  return source.slice(start, end === -1 ? undefined : end);
+}
+
+/**
+ * A `LaneRunnerService` that answers with the given clauses, and counts calls.
+ *
+ * The call COUNT is the assertion that matters as much as the text: sweep (a)
+ * walks every promoted skill, and a per-skill call on a weekly pass is a cost
+ * surprise. One batched call, or none.
+ */
+function makeLaneStub(
+  clauses: Record<string, string>,
+): LaneRunnerService & { run: jest.Mock } {
+  const run = jest.fn(async () => ({
+    status: 'ok' as const,
+    run: {
+      json: {
+        rewrites: Object.entries(clauses).map(([ref, clause]) => ({
+          ref,
+          clause,
+        })),
+      },
+    },
+  }));
+  return { run } as unknown as LaneRunnerService & { run: jest.Mock };
+}
+
+/** A lane that resolved but produced nothing usable — the fallback path. */
+function makeFailingLaneStub(): LaneRunnerService & { run: jest.Mock } {
+  const run = jest.fn(async () => ({
+    status: 'failed' as const,
+    failure: {
+      kind: 'timeout' as const,
+      reason: 'Lane synthesis: timed out',
+      retryAfterMs: 60_000,
+    },
+  }));
+  return { run } as unknown as LaneRunnerService & { run: jest.Mock };
+}
 
 /** Every bundled migration's base SQL, ascending — the real lineage. */
 function createDb(): TestDatabase {
@@ -73,7 +137,11 @@ interface Harness {
   readonly curator: SkillGapCuratorService;
 }
 
-function makeHarness(db: TestDatabase, memory: IMemoryReader | null): Harness {
+function makeHarness(
+  db: TestDatabase,
+  memory: IMemoryReader | null,
+  lane: LaneRunnerService | null = null,
+): Harness {
   const connection = { db, vecExtensionLoaded: false, isOpen: true } as never;
   const vecStatus = {
     available: false,
@@ -99,8 +167,27 @@ function makeHarness(db: TestDatabase, memory: IMemoryReader | null): Harness {
       verdicts,
       suggestions,
       memory,
+      lane,
     ),
   };
+}
+
+/** A pending suggestion for `slug`, through the real store path. */
+function seedSuggestion(
+  h: Harness,
+  slug: string,
+  description: string,
+): { id: string } {
+  return h.suggestions.insertPending({
+    name: slug,
+    description,
+    body: '# body',
+    memberSessionIds: ['s-old'],
+    memberCandidateIds: ['c-old'],
+    clusterSize: 3,
+    technologyFingerprint: 'ts',
+    judgeScore: 8,
+  });
 }
 
 /** A promoted skill in the library, through the real store path. */
@@ -197,20 +284,53 @@ describe('SkillGapCuratorService', () => {
   describe('the win-evidence partition', () => {
     it('mirrors the getWinRates SQL member for member', () => {
       // `DIGEST_WIN_EVIDENCE_CLASSES` is a LOCAL copy of the partition the
-      // store's query owns, because this batch may not edit that file. A copy
-      // that drifts is worse than no copy: the digest would call a session a
-      // success that the win rate counts as a loss. Scanned from source rather
-      // than re-derived, so the pin cannot be satisfied by the copy itself.
-      const source = fs.readFileSync(
-        path.join(__dirname, '..', 'skill-candidate.store.ts'),
-        'utf8',
-      );
-      const query = source.slice(source.indexOf('getWinRates()'));
+      // store's query owns. A copy that drifts is worse than no copy: the
+      // digest would call a session a success that the win rate counts as a
+      // loss. Scanned from source rather than re-derived, so the pin cannot be
+      // satisfied by the copy itself.
+      //
+      // ANCHORED ON `getWinRates(`, NOT `getWinRates()`. B4.7 gave the method
+      // an optional `workspaceRoot`, and the closing paren in the old anchor
+      // made `indexOf` return -1 — `slice(-1)` is one character, so every
+      // assertion below would have failed. That break is the mirror WORKING;
+      // the fix is to widen the scan with the SQL, never to loosen it.
+      const query = winRatesSource();
       for (const cls of DIGEST_WIN_EVIDENCE_CLASSES) {
         expect(query).toContain(`'${cls}'`);
       }
       // `no-correction` is weak evidence and belongs to NEITHER bucket.
       expect(DIGEST_WIN_EVIDENCE_CLASSES).not.toContain('no-correction');
+    });
+
+    it('mirrors the workspace predicate, NULL arm included', () => {
+      // The second half of the mirror, added with the scope. The `IS NULL` arm
+      // is what keeps every pre-`0037` event inside a scoped read; dropping it
+      // empties the denominator on any install with history and turns a real
+      // measured rate into `null`. Scanned rather than only asserted through
+      // the store because this folder is where the decision is written down.
+      const query = winRatesSource();
+      expect(query).toContain('e.workspace_root = ?');
+      expect(query).toContain('e.workspace_root IS NULL');
+      // Static SQL only — a predicate spliced in at runtime is exactly the
+      // shape this directory's no-interpolation rule exists to keep out.
+      expect(query).not.toContain('${');
+    });
+  });
+
+  describe('the autonomy boundary, scanned from source', () => {
+    it('never CALLS insertPending', () => {
+      // The DB-count assertion further down only catches this on a seeded pass
+      // with a pending suggestion in reach. This catches it unconditionally:
+      // the digest may SHARPEN a proposal the user has not decided on and may
+      // never FILE one. Same shape as the judge service's `score: 10` scan.
+      // Matched with the open paren so the file may still SAY the word.
+      expect(curatorSource()).not.toContain('insertPending(');
+    });
+
+    it('writes through updatePending, from exactly one call site', () => {
+      expect(curatorSource()).toContain('this.suggestions.updatePending(');
+      // A second write site would be a second policy.
+      expect(curatorSource().split('updatePending(').length - 1).toBe(1);
     });
   });
 
@@ -418,6 +538,348 @@ describe('SkillGapCuratorService', () => {
           const row = h.candidates.findById(id);
           expect(row?.status).toBe('promoted');
           expect(row?.residency).toBe('resident');
+        } finally {
+          db.close();
+        }
+      },
+    );
+  });
+
+  describe('sweep (a) — the authored clause on the synthesis lane (B4.7)', () => {
+    const AUTHORED = 'researching sqlite library documentation for a summary';
+
+    maybe(
+      'authors the clause, on the synthesis lane, in ONE call',
+      async () => {
+        const db = createDb();
+        try {
+          const lane = makeLaneStub({ '1': AUTHORED, '2': AUTHORED });
+          const h = makeHarness(db, null, lane);
+          promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+          promoteSkill(h, 'doc-research', RESEARCH_DESCRIPTION);
+          saveVerdict(h, 's-research', 'tests-green', {
+            intent: RESEARCH_INTENT,
+          });
+          const a = seedSuggestion(h, 'deep-research', 'Research things.');
+          const b = seedSuggestion(h, 'doc-research', 'Research things.');
+
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+
+          // ONE call for BOTH skills. A per-skill call is the cost surprise the
+          // batching exists to avoid, and two promoted skills is enough to catch
+          // it: a loop would show 2 here.
+          expect(lane.run).toHaveBeenCalledTimes(1);
+          // Not a fifth lane id. `synthesis` is the authoring lane, and adding
+          // one would mean eight new settings keys for the same question.
+          expect(lane.run.mock.calls[0][0].laneId).toBe('synthesis');
+          expect(h.suggestions.findById(a.id)?.description).toContain(AUTHORED);
+          expect(h.suggestions.findById(b.id)?.description).toContain(AUTHORED);
+          // The authored clause REPLACED the verbatim intent — it did not arrive
+          // beside it, which would double the field every pass.
+          expect(h.suggestions.findById(a.id)?.description).not.toContain(
+            RESEARCH_INTENT,
+          );
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'is IDEMPOTENT: the second pass makes no lane call and no write',
+      async () => {
+        // The assertion the whole coverage threshold exists for. A generative
+        // rewrite is nondeterministic, so idempotency cannot rest on the model
+        // answering the same way twice — the lane below answers DIFFERENTLY on
+        // the second call, and the description must still not move, because the
+        // freshness gate runs first and finds the evidence already named.
+        const db = createDb();
+        try {
+          const lane = makeLaneStub({ '1': AUTHORED });
+          const h = makeHarness(db, null, lane);
+          promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+          saveVerdict(h, 's-research', 'tests-green', {
+            intent: RESEARCH_INTENT,
+          });
+          const s = seedSuggestion(h, 'deep-research', 'Research things.');
+
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+          const first = h.suggestions.findById(s.id)?.description;
+          expect(first).toContain(AUTHORED);
+          expect(lane.run).toHaveBeenCalledTimes(1);
+
+          lane.run.mockResolvedValue({
+            status: 'ok',
+            run: {
+              json: {
+                rewrites: [
+                  { ref: '1', clause: 'totally different wording this week' },
+                ],
+              },
+            },
+          });
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+
+          expect(h.suggestions.findById(s.id)?.description).toBe(first);
+          // And it did not even ASK. Nothing was fresh, so nothing was spent.
+          expect(lane.run).toHaveBeenCalledTimes(1);
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe('spends nothing when there is no pending suggestion', async () => {
+      const db = createDb();
+      try {
+        const lane = makeLaneStub({ '1': AUTHORED });
+        const h = makeHarness(db, null, lane);
+        promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+        saveVerdict(h, 's-research', 'tests-green', {
+          intent: RESEARCH_INTENT,
+        });
+
+        const items = await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+
+        expect(lane.run).not.toHaveBeenCalled();
+        // The item is still filed: the nudge does not depend on the write.
+        expect(byKind(items, 'missed-trigger')).toHaveLength(1);
+        expect(
+          byKind(items, 'missed-trigger')[0].evidence.counts
+            .descriptionRewrites,
+        ).toBe(0);
+      } finally {
+        db.close();
+      }
+    });
+
+    maybe('falls back to the verbatim intent when the lane FAILS', async () => {
+      // A lane failure has nowhere to go from here — `runDigest` returns
+      // items, not an outcome — so the sweep degrades to exactly what B4.2
+      // shipped rather than losing the write. It must not reject and must not
+      // leave the suggestion untouched.
+      const db = createDb();
+      try {
+        const lane = makeFailingLaneStub();
+        const h = makeHarness(db, null, lane);
+        promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+        saveVerdict(h, 's-research', 'tests-green', {
+          intent: RESEARCH_INTENT,
+        });
+        const s = seedSuggestion(h, 'deep-research', 'Research things.');
+
+        const items = await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+
+        expect(lane.run).toHaveBeenCalledTimes(1);
+        const after = h.suggestions.findById(s.id)?.description;
+        expect(after).toContain(DIGEST_TRIGGER_CLAUSE_PREFIX);
+        expect(after).toContain(RESEARCH_INTENT);
+        expect(
+          byKind(items, 'missed-trigger')[0].evidence.counts
+            .descriptionRewrites,
+        ).toBe(1);
+      } finally {
+        db.close();
+      }
+    });
+
+    maybe(
+      'DISCARDS an authored clause that does not name the evidence',
+      async () => {
+        // The acceptance half of the fixed point. A clause that drops the
+        // intent's distinctive words is prose, not evidence — and accepting it
+        // would ALSO break idempotency, because next week's freshness gate
+        // would not find the intent in the description and would rewrite again.
+        const db = createDb();
+        try {
+          const lane = makeLaneStub({
+            '1': 'general purpose assistance across many different situations',
+          });
+          const h = makeHarness(db, null, lane);
+          promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+          saveVerdict(h, 's-research', 'tests-green', {
+            intent: RESEARCH_INTENT,
+          });
+          const s = seedSuggestion(h, 'deep-research', 'Research things.');
+
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+
+          const after = h.suggestions.findById(s.id)?.description ?? '';
+          expect(after).not.toContain('general purpose assistance');
+          // …and the verbatim fallback was used instead of nothing.
+          expect(after).toContain(RESEARCH_INTENT);
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    maybe(
+      'sends the rubric on systemPromptAppend, which maxInputChars does not clip',
+      async () => {
+        // Driven through the REAL `LaneRunnerService` at `maxInputChars: 40`,
+        // because that is the only way to prove the claim: a rubric placed on
+        // `prompt` would lose its "reply with ONLY JSON" tail first and every
+        // call on this lane would come back unparseable, while a stub asserting
+        // the field name would pass against exactly that defect.
+        const db = createDb();
+        try {
+          const query = makeQueryStub([
+            [
+              resultMessage({
+                structured_output: {
+                  rewrites: [{ ref: '1', clause: AUTHORED }],
+                },
+              }),
+            ],
+          ]);
+          const runner = new RealLaneRunnerService(
+            noopLogger as Logger,
+            makeResolverStub(
+              resolvedLane('synthesis', { config: { maxInputChars: 40 } }),
+            ).service,
+            makeBudgetStub().store,
+            query.query,
+            null,
+          );
+          const h = makeHarness(db, null, runner);
+          promoteSkill(h, 'deep-research', RESEARCH_DESCRIPTION);
+          saveVerdict(h, 's-research', 'tests-green', {
+            intent: RESEARCH_INTENT,
+          });
+          const s = seedSuggestion(h, 'deep-research', 'Research things.');
+
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE });
+
+          const call = query.calls[0];
+          // The prompt WAS clipped at 40 chars — so this is a real test of the
+          // split and not a coincidence about a short prompt.
+          expect(call.prompt).toContain('…(truncated)…');
+          expect(call.prompt).not.toContain(RESEARCH_INTENT);
+          // …and the rubric came through whole on the unclipped half.
+          expect(call.systemPromptAppend).toBe(DIGEST_REWRITE_RUBRIC);
+          expect(call.systemPromptAppend).toContain('{"rewrites"');
+          expect(call.prompt).not.toContain('{"rewrites"');
+          // The answer still landed, through the clip.
+          expect(h.suggestions.findById(s.id)?.description).toContain(AUTHORED);
+        } finally {
+          db.close();
+        }
+      },
+    );
+  });
+
+  describe('sweep (c) is scoped to the workspace (B4.7)', () => {
+    maybe('reads only this workspace’s invocation events', async () => {
+      // The mixed-scope defect: (a), (b) and (d) were workspace-scoped through
+      // `listByWorkspace` while (c) read every project, so a `/ws` digest could
+      // report a rate driven by another repo. Won here, lost elsewhere: scoped
+      // is 100%, cross-project would be 50%.
+      const db = createDb();
+      try {
+        const h = makeHarness(db, null);
+        promoteSkill(h, 'shared-skill', 'Runs the release checklist');
+        h.candidates.recordSkillEvent({
+          skillSlug: 'shared-skill',
+          sessionId: 's-here',
+          workspaceRoot: WORKSPACE,
+          contextId: null,
+          source: 'tool-use',
+          succeeded: true,
+          isError: false,
+          invokedAt: 10,
+        });
+        h.candidates.recordSkillEvent({
+          skillSlug: 'shared-skill',
+          sessionId: 's-there',
+          workspaceRoot: '/other',
+          contextId: null,
+          source: 'tool-use',
+          succeeded: true,
+          isError: false,
+          invokedAt: 20,
+        });
+        saveVerdict(h, 's-here', 'tests-green');
+        h.verdicts.save(
+          {
+            sessionId: 's-there',
+            workspaceRoot: '/other',
+            intent: null,
+            outcome: null,
+            evidenceClass: 'no-correction',
+            frictionMap: [],
+            turnCount: 8,
+          },
+          10,
+        );
+
+        const items = byKind(
+          await h.curator.runDigest({ workspaceRoot: WORKSPACE }),
+          'win-rate',
+        );
+        expect(items).toHaveLength(1);
+        expect(items[0].evidence.winRate).toBe(1);
+        expect(items[0].evidence.counts.invocations).toBe(1);
+        expect(items[0].title).toContain('100%');
+      } finally {
+        db.close();
+      }
+    });
+
+    maybe(
+      'reports null — NOT 0 — for a skill measured only elsewhere',
+      async () => {
+        // The null rule surviving the scope change. `/ws` ran the skill and
+        // settled nothing; the loss belongs to `/other`. A `0` here would put
+        // this skill at the TOP of the sweep on another repo's evidence.
+        const db = createDb();
+        try {
+          const h = makeHarness(db, null);
+          promoteSkill(h, 'shared-skill', 'Runs the release checklist');
+          h.candidates.recordSkillEvent({
+            skillSlug: 'shared-skill',
+            sessionId: 's-here',
+            workspaceRoot: WORKSPACE,
+            contextId: null,
+            source: 'tool-use',
+            succeeded: true,
+            isError: false,
+            invokedAt: 10,
+          });
+          h.candidates.recordSkillEvent({
+            skillSlug: 'shared-skill',
+            sessionId: 's-there',
+            workspaceRoot: '/other',
+            contextId: null,
+            source: 'tool-use',
+            succeeded: true,
+            isError: false,
+            invokedAt: 20,
+          });
+          saveVerdict(h, 's-here', 'unverified');
+          h.verdicts.save(
+            {
+              sessionId: 's-there',
+              workspaceRoot: '/other',
+              intent: null,
+              outcome: null,
+              evidenceClass: 'no-correction',
+              frictionMap: [],
+              turnCount: 8,
+            },
+            10,
+          );
+
+          const items = byKind(
+            await h.curator.runDigest({ workspaceRoot: WORKSPACE }),
+            'win-rate',
+          );
+          expect(items).toHaveLength(1);
+          // `toBeNull`, never `toBeFalsy` — both candidates are falsy.
+          expect(items[0].evidence.winRate).toBeNull();
+          expect(items[0].evidence.winRate).not.toBe(0);
+          expect(items[0].score).toBe(DIGEST_WIN_RATE_UNMEASURED);
+          expect(items[0].title).toContain('no measured outcome yet');
         } finally {
           db.close();
         }
