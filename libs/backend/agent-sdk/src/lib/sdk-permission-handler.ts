@@ -674,7 +674,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       );
       return {
         behavior: 'deny' as const,
-        message: `SYSTEM ABORT — this was NOT a user decision. Ptah cancelled the pending permission request for tool "${toolName}" because the session was being torn down (for example an authentication or configuration change). No human ever saw this prompt, and nobody reviewed or refused the tool call. Do NOT treat this as a user denial and do NOT abandon the work you were asked to do. The operation may be retried once the session is available again. Internal reason: "${
+        message: `SYSTEM ABORT — this was NOT a user decision. Ptah cancelled the pending permission request for tool "${toolName}" because the session was being torn down (for example an authentication or configuration change) or the prompt could not be routed to any UI surface before its deny window expired. No human ever saw this prompt, and nobody reviewed or refused the tool call. Do NOT treat this as a user denial and do NOT abandon the work you were asked to do. The operation may be retried once the session is available again. Internal reason: "${
           response.reason || 'Session aborted'
         }".`,
         interrupt: false,
@@ -847,6 +847,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           pending.resolve({
             id: requestId,
             decision: 'deny',
+            systemAbort: true,
             reason: `Permission request timed out after ${timeoutMs}ms with no UI surface to route it to (unroutable request) — denying to prevent a permanent hang.`,
           });
         }, timeoutMs);

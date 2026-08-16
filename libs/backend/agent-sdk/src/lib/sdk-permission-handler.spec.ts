@@ -768,8 +768,16 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
 
       await jest.advanceTimersByTimeAsync(60_000);
 
-      const result = await pending;
-      expect(result).toMatchObject({ behavior: 'deny' });
+      const result = (await pending) as unknown as DenyResult;
+      expect(result.behavior).toBe('deny');
+
+      // A timeout is a system abort, not a refusal — nobody ever saw the
+      // prompt. interrupt:true is what makes the CLI swap in its canned
+      // "the user doesn't want to take this action" string, which is how this
+      // path used to read to the model as a deliberate deny (TASK_2026_247).
+      expect(result.interrupt).toBe(false);
+      expect(result.message).toMatch(/NOT a user decision/i);
+      expect(result.message).not.toMatch(/denied by user/i);
 
       const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
         String(call[0]).toLowerCase().includes('timed out'),

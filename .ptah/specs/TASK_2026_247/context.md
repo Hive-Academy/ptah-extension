@@ -180,3 +180,34 @@ conversation'}`, which arrives over the webview wire and so correctly carries
    claim that surfaces "run full-auto with auto-allow at the SDK layer".
 4. **The reproduction in "Verification" above was never run.** The fix is pinned
    by unit specs, not by the live auth-change reproduction. Worth doing once.
+
+---
+
+## A FOURTH laundering path, found and fixed 2026-08-16
+
+The unroutable-request deny timeout (`sdk-permission-handler.ts:847`, added by
+`8d4056003` for TASK_2026_155 F2 — before this task's marker existed) resolved a
+bare `{decision:'deny'}` with no `systemAbort`. It therefore landed on the
+hard-deny branch with `interrupt: true` and produced the canned user-denial
+string for a request **no human could have seen** — by construction, the timeout
+only arms when there is no UI surface to route the prompt to (gateway `gw-*`
+tabs, headless/background lanes). Same defect as Fix 2, different origin, and it
+is the one that reaches BACKGROUND agents rather than foreground tabs.
+
+Fixed by marking that resolve `systemAbort: true`. The system-abort message text
+was widened to name the second cause ("or the prompt could not be routed to any
+UI surface before its deny window expired") so one branch stays accurate for
+both. Pinned by extending the existing timeout spec
+(`sdk-permission-handler.spec.ts:738`) — it previously asserted only
+`behavior: 'deny'`, which passed either way; it now asserts `interrupt: false`
+and the "NOT a user decision" text. Mutation-tested: dropping the marker fails
+exactly 1 of 28. `agent-sdk`: 68 suites, 903 passed, 0 failed (baseline 903).
+
+Open item 3 (`stream-router.service.ts:444-448`) was deliberately NOT taken up
+with it. The `deny_with_message` swap this file proposed as "the cheapest correct
+fix" is cheap but not correct: that branch's message
+(`sdk-permission-handler.ts:653`) hard-codes "Permission denied by user … The
+user reviewed this tool call and explicitly chose to deny it", so it drops the
+interrupt while still asserting a human refused. A correct fix needs the
+system/user distinction to survive the webview wire, which is a design decision
+about `PermissionResponse` — not a one-literal change.
