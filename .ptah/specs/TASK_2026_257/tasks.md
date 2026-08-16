@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_257
 
-**Total Tasks**: 15 | **Batches**: 5 | **Status**: 1/5 complete
+**Total Tasks**: 15 | **Batches**: 5 | **Status**: 2/5 complete (Batches 3-5 collapsed into one pass)
 
 **Defect**: 38 plain `.md` pages under `apps/ptah-docs/src/content/docs/` carry a
 `@astrojs/starlight/components` import. Plain `.md` processes neither imports nor
@@ -145,7 +145,7 @@ Reference for the correct shape of a working page:
 
 ## Batch 1: Pilot — prove the recipe end-to-end ✅ COMPLETE
 
-**Commit**: _(recorded below after commit)_
+**Commit**: `1062fda2a` — _fix(docs): give the tribunal page an extension that runs its imports_
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
 **Execution Mode**: sequential
@@ -237,7 +237,9 @@ inherently sequential and judgement-bearing, not mechanical. One executor, one b
 
 ---
 
-## Batch 2: Card/CardGrid hub pages — high tag density + the `&` risk 🔄 IN PROGRESS
+## Batch 2: Card/CardGrid hub pages — high tag density + the `&` risk ✅ COMPLETE
+
+**Commit**: _(recorded below after commit)_
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -248,7 +250,7 @@ attribute). Front-loading them means the single remaining unknown is resolved on
 15, not task 30. Sequential so a failure attributes to one file.
 **Tasks**: 4 | **Dependencies**: Batch 1 (recipe proven)
 
-### Task 2.1: `agents/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 2.1: `agents/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\agents\index.md`
 
@@ -265,7 +267,7 @@ attribute). Front-loading them means the single remaining unknown is resolved on
 
 ---
 
-### Task 2.2: `memory/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 2.2: `memory/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\memory\index.md`
 **Dependencies**: Task 2.1 (inherits the `&` verdict)
@@ -277,7 +279,7 @@ attribute). Front-loading them means the single remaining unknown is resolved on
 
 ---
 
-### Task 2.3: `git/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 2.3: `git/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\git\index.md`
 
@@ -287,7 +289,7 @@ attribute). Front-loading them means the single remaining unknown is resolved on
 
 ---
 
-### Task 2.4: `automation/index.md` → `.mdx` 🔄 IN PROGRESS
+### Task 2.4: `automation/index.md` → `.mdx` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\automation\index.md`
 
@@ -306,27 +308,60 @@ attribute). Front-loading them means the single remaining unknown is resolved on
 
 ---
 
-## Batch 3: Card/CardGrid hub pages — remainder ⏸️ PENDING
+## ORCHESTRATOR DECISION (post-Batch 2): Batches 3, 4 and 5 collapse into one pass
+
+**Decided**: after Batch 2 verified and committed. **Supersedes** the 3/4/5 split planned
+above; the batch sections below are kept verbatim as the task inventory for the collapsed
+pass, not as three separate assignments.
+
+**What changes**: Batches 3, 4 and 5 (32 files, 8 tasks) are executed as a **single
+execution pass** by one `frontend-developer`, producing one commit rather than three.
+
+**Rationale**:
+
+1. The only reason Batch 3 was split from Batch 2 was to isolate the `&`-in-attribute
+   verdict in its own revertible commit. **That verdict is now resolved: no change
+   needed.** MDX accepted all four bare `&` in string-literal attributes; built HTML emits
+   `Planning & Leadership` with zero `&amp;amp;`. The thing the split was insuring against
+   does not exist, so the insurance has no premium left to pay.
+2. The remaining 32 files are mechanically identical `git mv` renames with **zero measured
+   hazards** — every one was surveyed in the validation pass and none carries a construct
+   the pilot and Batch 2 have not already proven.
+3. **Failure localization is preserved**, not traded away. The per-directory build gate
+   inside the collapsed pass (build after each directory task, stop on non-zero) delivers
+   the same "a failure attributes to one directory, not to a set of 32" property that the
+   4/5 split was buying. The split bought commit granularity, not diagnostic granularity,
+   and commit granularity is worth less once the risky construct is cleared.
+
+**Execution contract for the collapsed pass**: tasks run in the documented order
+(3.1 → 3.3, then 4.1 → 4.3, then 5.1 → 5.2). `npx nx build ptah-docs` after **each** task.
+Any non-zero exit stops the pass immediately and reports the offending directory — do not
+continue into the next directory on a red build.
+
+---
+
+## Batch 3: Card/CardGrid hub pages — remainder 🔄 IN PROGRESS (collapsed pass, part 1 of 3)
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
 **Execution Mode**: sequential
-**Rationale**: CLI delegation disabled. Same page class as Batch 2 with the risky
-attributes already cleared, so this is a clean mechanical sweep. Kept separate from
-Batch 2 so the `&` verdict lands in its own commit and can be reverted independently.
-**Tasks**: 3 | **Dependencies**: Batch 2
+**Rationale**: ~~Kept separate from Batch 2 so the `&` verdict lands in its own commit and
+can be reverted independently.~~ **Superseded** — the `&` verdict came back "no change
+needed", so the isolating commit has nothing to isolate. Merged into the collapsed 3–5
+pass; see the orchestrator decision above.
+**Tasks**: 3 | **Dependencies**: Batch 2 ✅
 
-### Task 3.1: `sessions/index.md` → `.mdx` ⏸️ PENDING
+### Task 3.1: `sessions/index.md` → `.mdx` 🔄 IN PROGRESS
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\sessions\index.md`
 **Validation Notes**: 14 component tags, `Card, CardGrid`. No measured hazards.
 
-### Task 3.2: `workspace/index.md` → `.mdx` ⏸️ PENDING
+### Task 3.2: `workspace/index.md` → `.mdx` 🔄 IN PROGRESS
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\workspace\index.md`
 **Validation Notes**: 16 component tags, `Card, CardGrid`. No measured hazards.
 
-### Task 3.3: `skill-synthesis/index.md` → `.mdx` ⏸️ PENDING
+### Task 3.3: `skill-synthesis/index.md` → `.mdx` 🔄 IN PROGRESS
 
 **File**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\skill-synthesis\index.md`
 **Validation Notes**: 14 component tags, `Card, CardGrid`. No measured hazards. Note this
@@ -343,7 +378,7 @@ pages handled in Batch 5.
 
 ---
 
-## Batch 4: `Aside` sweep A — browser-automation, reference, settings ⏸️ PENDING
+## Batch 4: `Aside` sweep A — browser-automation, reference, settings 🔄 IN PROGRESS (collapsed pass, part 2 of 3)
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -354,7 +389,7 @@ overhead. Grouped one task per content directory so a build failure localizes to
 directory rather than to a set of 16.
 **Tasks**: 3 | **Dependencies**: Batch 3
 
-### Task 4.1: `browser-automation/` — rename 7 `Aside` pages ⏸️ PENDING
+### Task 4.1: `browser-automation/` — rename 7 `Aside` pages 🔄 IN PROGRESS
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\browser-automation\`
 
@@ -374,7 +409,7 @@ directory rather than to a set of 16.
   in Task 1.3 and must stay `.md`.
 - Each file: 1 `<Aside>` pair, import on line 6. No measured hazards.
 
-### Task 4.2: `reference/` — rename 2 `Aside` pages ⏸️ PENDING
+### Task 4.2: `reference/` — rename 2 `Aside` pages 🔄 IN PROGRESS
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\reference\`
 
@@ -382,7 +417,7 @@ directory rather than to a set of 16.
 
 **Validation Notes**: 1 `<Aside>` pair each. No measured hazards.
 
-### Task 4.3: `settings/` — rename 7 `Aside` pages ⏸️ PENDING
+### Task 4.3: `settings/` — rename 7 `Aside` pages 🔄 IN PROGRESS
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\settings\`
 
@@ -407,7 +442,7 @@ directory rather than to a set of 16.
 
 ---
 
-## Batch 5: `Aside` sweep B — skill-synthesis, troubleshooting ⏸️ PENDING
+## Batch 5: `Aside` sweep B — skill-synthesis, troubleshooting 🔄 IN PROGRESS (collapsed pass, part 3 of 3)
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -418,7 +453,7 @@ left and splitting a directory would make a build failure _harder_ to localize, 
 easier — the deviation is deliberate.
 **Tasks**: 2 | **Dependencies**: Batch 4
 
-### Task 5.1: `skill-synthesis/` — rename 5 `Aside` pages ⏸️ PENDING
+### Task 5.1: `skill-synthesis/` — rename 5 `Aside` pages 🔄 IN PROGRESS
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\skill-synthesis\`
 
@@ -433,7 +468,7 @@ easier — the deviation is deliberate.
   in `astro.config.mjs` line 95. The slug is extension-free, so the rename is safe — this
   is the closest the sidebar comes to naming a file, and it still does not.
 
-### Task 5.2: `troubleshooting/` — rename 8 `Aside` pages ⏸️ PENDING
+### Task 5.2: `troubleshooting/` — rename 8 `Aside` pages 🔄 IN PROGRESS
 
 **Directory**: `D:\projects\ptah-extension\apps\ptah-docs\src\content\docs\troubleshooting\`
 
