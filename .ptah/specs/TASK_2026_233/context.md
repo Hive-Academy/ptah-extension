@@ -163,14 +163,28 @@ prompt carries TypeScript samples with deliberately escaped interpolations.
 **Gates**: `vscode-lm-tools` 798 tests green across 41 suites (763 before),
 `nx affected -t typecheck` clean across 91 projects, lint 0 errors.
 
-### Still open
+### F3, F4, F6 — dispositioned, not carried
 
-- **F3** — the `.github/skills` clones are still stale; needs the skill-clone
-  UI, not a hand-edit.
-- **F4** — Relay and Crucible still unreachable from the Tribunal wizard.
-  Crucible needs a two-role executor/judge lane picker, so this is its own task.
-- **F6** — no `nx` IO error reproduced while committing this work or
-  TASK_2026_252 immediately before it. Unreproduced, not fixed.
+- **F3** — the `.github/skills` clones reconcile when this version is deployed
+  and installed locally. Nothing to do in the repo; hand-editing the clone
+  would fight the mirror service, which is why `5cdb14d89` left it alone.
+- **F4** — **already shipped**, in `06cf3ed68` (`feat(webview): launch Relay and
+Crucible from the Tribunal panel`), after this task was filed. The finding is
+  stale, and it under-described the work: `TribunalMove` carries all five moves;
+  `step-pick-move` renders five cards each with its own icon (the `default` arm
+  that let the union widen silently was removed, so a sixth move breaks the
+  build rather than borrowing Council's icon); `step-role-roster` is the
+  two-role picker the finding said was needed; `step-crucible-rubric` adds a
+  rubric + round-cap step Crucible alone gets; and `tribunal-page` renders
+  `RelayPhaseRailComponent` and `CrucibleVerdictPanelComponent`. It also handles
+  cases the finding never reached — Crucible disables itself with a stated
+  reason when discovery finds fewer than two vendor families, and both moves
+  carry a skill-missing advisory while staying enabled. Verified by 330 passing
+  tribunal-panel tests, including `step-pick-move.component.spec.ts` asserting
+  both moves ship enabled, the family-count gate, and the badge behaviour.
+- **F6** — outdated. No `nx` IO error occurred while committing this work or
+  TASK_2026_252 before it; the only hook rejections were commitlint on the
+  subject line. Not reproducible, closed rather than fixed.
 
 ## Not included here
 

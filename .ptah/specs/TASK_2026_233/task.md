@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_233
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   Hardcoded vendor lists survive in the MCP tool descriptions and four other
