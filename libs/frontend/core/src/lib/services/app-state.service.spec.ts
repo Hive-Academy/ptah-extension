@@ -640,13 +640,13 @@ describe('AppStateManager', () => {
       const service = createService();
       const resolve = jest.fn();
       service.requestChatPrompt({
-        prompt: '/ptah-core:orchestrate TASK_2026_200',
+        prompt: '/orchestrate TASK_2026_200',
         sessionName: 'TASK_2026_200',
         resolve,
       });
 
       const req = service.chatPromptRequest();
-      expect(req?.prompt).toBe('/ptah-core:orchestrate TASK_2026_200');
+      expect(req?.prompt).toBe('/orchestrate TASK_2026_200');
       expect(req?.sessionName).toBe('TASK_2026_200');
       expect(req?.resolve).toBe(resolve);
 

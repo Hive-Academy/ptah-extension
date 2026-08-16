@@ -476,7 +476,7 @@ export class SessionLifecycleManager {
 
   /**
    * Execute a slash command as a new query within an existing session.
-   * Used when follow-up messages contain slash commands (e.g., /compact, /ptah-core:orchestrate).
+   * Used when follow-up messages contain slash commands (e.g., /compact, /orchestrate).
    * The SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects,
    * so we must start a new query with resume to maintain conversation context.
    */

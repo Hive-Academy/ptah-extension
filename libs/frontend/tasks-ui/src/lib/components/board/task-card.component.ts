@@ -14,8 +14,10 @@ import {
   CircleX,
   Copy,
   CornerLeftUp,
+  Eye,
   GitBranch,
   ListTree,
+  Loader,
   LucideAngularModule,
   MoreVertical,
   Play,
@@ -32,6 +34,7 @@ import type { TaskBulkOutcome } from '../../services/tasks-store.service';
 import {
   TASK_ESTIMATE_LABELS,
   TASK_STATUS_LABELS,
+  isStartableStatus,
   labelChipClass,
   taskEstimateBadge,
   taskTypeBadge,
@@ -395,9 +398,9 @@ export interface TaskSelectionToggle {
         }
 
         <!-- Actions: agent-managed worktree isolation toggle + Start.
-             Terminal tasks (done / cancelled) are not startable — show a
-             completed footer instead of the launch controls. -->
-        @if (!isTerminal()) {
+             Only backlog and blocked tasks are startable — everything else
+             shows a status footer instead of the launch controls. -->
+        @if (canStart()) {
           <div
             class="flex items-center justify-between pt-1 mt-0.5 border-t border-base-content/10"
           >
@@ -443,7 +446,7 @@ export interface TaskSelectionToggle {
             [class.text-base-content]="task().status !== 'done'"
             [class.text-opacity-50]="task().status !== 'done'"
           >
-            <lucide-angular [img]="terminalIcon()" class="w-3 h-3" />
+            <lucide-angular [img]="statusFooterIcon()" class="w-3 h-3" />
             {{ statusLabel(task().status) }}
           </div>
         }
@@ -665,14 +668,30 @@ export class TaskCardComponent {
     );
   });
 
-  /** Terminal tasks (done / cancelled) cannot be started. */
-  protected readonly isTerminal = computed(() => {
-    const status = this.task().status;
-    return status === 'done' || status === 'cancelled';
-  });
-  protected readonly terminalIcon = computed(() =>
-    this.task().status === 'done' ? CheckCircle2 : Ban,
+  /** Only backlog / blocked are startable — see `isStartableStatus`. */
+  protected readonly canStart = computed(() =>
+    isStartableStatus(this.task().status),
   );
+
+  /**
+   * The glyph on the footer a non-startable card shows in place of Start.
+   *
+   * Four statuses land here, not two: the finished pair keeps its check and its
+   * ban, and the two live statuses say which stage of a run the task is in
+   * rather than borrowing an ending they have not reached.
+   */
+  protected readonly statusFooterIcon = computed(() => {
+    switch (this.task().status) {
+      case 'done':
+        return CheckCircle2;
+      case 'cancelled':
+        return Ban;
+      case 'in_review':
+        return Eye;
+      default:
+        return Loader;
+    }
+  });
 
   protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly MoreVerticalIcon = MoreVertical;

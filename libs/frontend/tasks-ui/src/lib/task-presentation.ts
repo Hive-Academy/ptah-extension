@@ -49,6 +49,35 @@ export function taskTypeBadge(type: TaskType | null): string {
 }
 
 // ---------------------------------------------------------------------------
+// Startability
+// ---------------------------------------------------------------------------
+
+/**
+ * The two statuses the Start action is offered on: work nobody has picked up,
+ * and work that was picked up and put back down.
+ *
+ * NOT "anything that is not done or cancelled", which is the question both
+ * layouts used to ask (TASK_2026_252). `in_progress` and `in_review` already
+ * have a run against them, and Start is not idempotent — it opens a second
+ * session and then writes `in_progress` over the carrier the first one is
+ * working from.
+ *
+ * This lives here, next to the label and badge maps, because `task-card` and
+ * `task-list` are interchangeable at the host: a predicate re-derived per
+ * layout is a predicate that drifts per layout, which is how the row and the
+ * card come to disagree about which tasks are launchable.
+ */
+export const STARTABLE_TASK_STATUSES: readonly TaskStatus[] = [
+  'backlog',
+  'blocked',
+];
+
+/** Whether the Start action should be offered for a task in this status. */
+export function isStartableStatus(status: TaskStatus): boolean {
+  return STARTABLE_TASK_STATUSES.includes(status);
+}
+
+// ---------------------------------------------------------------------------
 // Estimates
 // ---------------------------------------------------------------------------
 

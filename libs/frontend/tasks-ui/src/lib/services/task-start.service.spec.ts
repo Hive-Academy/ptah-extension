@@ -55,9 +55,7 @@ describe('TaskStartService', () => {
 
     expect(rpcCall).not.toHaveBeenCalled(); // no host-side worktree RPC
     expect(requestChatPrompt).toHaveBeenCalledTimes(1);
-    expect(lastPromptRequest?.prompt).toBe(
-      '/ptah-core:orchestrate TASK_2026_200',
-    );
+    expect(lastPromptRequest?.prompt).toBe('/orchestrate TASK_2026_200');
     expect(lastPromptRequest?.prompt).not.toContain(ISOLATION_HINT);
     expect(lastPromptRequest?.sessionName).toBe('TASK_2026_200');
 
@@ -76,9 +74,7 @@ describe('TaskStartService', () => {
     // The whole point of F-D1: no host-created worktree, no git RPC.
     expect(rpcCall).not.toHaveBeenCalled();
     expect(requestChatPrompt).toHaveBeenCalledTimes(1);
-    expect(lastPromptRequest?.prompt).toContain(
-      '/ptah-core:orchestrate TASK_2026_201',
-    );
+    expect(lastPromptRequest?.prompt).toContain('/orchestrate TASK_2026_201');
     expect(lastPromptRequest?.prompt).toContain(ISOLATION_HINT);
     expect(lastPromptRequest?.prompt).toContain('worktree');
 

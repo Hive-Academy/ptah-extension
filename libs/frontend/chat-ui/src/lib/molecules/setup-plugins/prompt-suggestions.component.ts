@@ -44,7 +44,7 @@ interface PromptItem {
  *
  * Features:
  * - 6 category tabs in a 3×2 mini-card grid (Build, Fix, Review, Agents, Explore, Creative)
- * - Covers all Ptah skills: orchestration, /ptah-core:simplify, /review-*, CLI agents, MCP tools, 3D scenes, GSAP, content
+ * - Covers all Ptah skills: orchestration, /simplify, /review-*, CLI agents, MCP tools, 3D scenes, GSAP, content
  * - Selected tab shows prompt cards below with fade animation
  * - Clicking a prompt card emits full text to parent for chat input fill
  * - Egyptian/Anubis theme with hieroglyphic symbols
@@ -187,17 +187,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Orchestrate a feature',
-          text: '/ptah-core:orchestrate Build [describe your feature] with full workflow orchestration',
+          text: '/orchestrate Build [describe your feature] with full workflow orchestration',
           description: 'PM → Architect → Dev → QA pipeline',
         },
         {
           label: 'Create API endpoint',
-          text: '/ptah-core:orchestrate Create a REST API endpoint for [resource] with CRUD operations',
+          text: '/orchestrate Create a REST API endpoint for [resource] with CRUD operations',
           description: 'REST CRUD scaffold',
         },
         {
           label: 'Build a component',
-          text: '/ptah-core:orchestrate Add a new [component name] component with tests and documentation',
+          text: '/orchestrate Add a new [component name] component with tests and documentation',
           description: 'Component + tests + docs',
         },
       ],
@@ -210,17 +210,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Fix a bug',
-          text: "/ptah-core:orchestrate BUGFIX: Fix [describe the bug you're seeing]",
+          text: "/orchestrate BUGFIX: Fix [describe the bug you're seeing]",
           description: 'Diagnose → fix → verify',
         },
         {
           label: 'Simplify changed code',
-          text: '/ptah-core:simplify',
+          text: '/simplify',
           description: 'Review recent changes for reuse & quality',
         },
         {
           label: 'Refactor module',
-          text: '/ptah-core:orchestrate REFACTORING: Modernize [component/module] to use current patterns',
+          text: '/orchestrate REFACTORING: Modernize [component/module] to use current patterns',
           description: 'Modernize + optimize',
         },
       ],
@@ -233,17 +233,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Code quality review',
-          text: '/ptah-core:review-code',
+          text: '/review-code',
           description: 'Style, patterns, best practices',
         },
         {
           label: 'Logic correctness review',
-          text: '/ptah-core:review-logic',
+          text: '/review-logic',
           description: 'Business logic & edge cases',
         },
         {
           label: 'Security vulnerability scan',
-          text: '/ptah-core:review-security',
+          text: '/review-security',
           description: 'OWASP top 10, auth, injection',
         },
       ],
@@ -289,7 +289,7 @@ export class PromptSuggestionsComponent {
         },
         {
           label: 'Analyze architecture',
-          text: '/ptah-core:orchestrate RESEARCH: Analyze the codebase architecture, map dependency graph, and document key patterns and boundaries.',
+          text: '/orchestrate RESEARCH: Analyze the codebase architecture, map dependency graph, and document key patterns and boundaries.',
           description: 'Architecture + dependency deep-dive',
         },
         {
@@ -312,7 +312,7 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Design a landing page',
-          text: '/ptah-core:orchestrate CREATIVE: Design and build a landing page with hero section, features, and pricing',
+          text: '/orchestrate CREATIVE: Design and build a landing page with hero section, features, and pricing',
           description: 'UI/UX → Content → Frontend',
         },
         {
@@ -327,7 +327,7 @@ export class PromptSuggestionsComponent {
         },
         {
           label: 'Write technical content',
-          text: '/ptah-core:orchestrate CREATIVE: Write a technical blog post about [topic] based on our codebase implementation',
+          text: '/orchestrate CREATIVE: Write a technical blog post about [topic] based on our codebase implementation',
           description: 'Blog, docs, or video scripts',
         },
       ],

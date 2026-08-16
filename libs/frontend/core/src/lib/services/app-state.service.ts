@@ -72,7 +72,7 @@ export interface PendingSettingsTab {
 
 /**
  * Request to launch a chat session seeded with an initial prompt — e.g. the
- * standalone Tasks board firing `/ptah-core:orchestrate <TASK_ID>`. Consumed by
+ * standalone Tasks board firing `/orchestrate <TASK_ID>`. Consumed by
  * the chat lib (a root-provided bridge service), which creates/focuses a
  * session, submits the prompt through the normal send path, then settles
  * `resolve`. Kept in `core` so `tasks-ui` never imports `chat` — the same
