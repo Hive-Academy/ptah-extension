@@ -18,7 +18,38 @@ unstarted batches.
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
 - `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. **ID ALLOCATION IS BROKEN ACROSS WORKTREES — do not trust a folder scan.** Ids `237`–`241` were allocated on this branch AND independently in `D:/projects/ptah-extension` during the same session, for different tasks. This branch renumbered ITS carriers TWICE (237/238 → 240/241, then 239/240/241 → 242/243/244) because the other worktree's were real work. **The folder-scan rule in the root CLAUDE.md cannot work when two worktrees allocate concurrently** — any scan is stale the moment the other side commits. Until that is fixed: re-check BOTH worktrees immediately before committing a carrier, and expect to renumber anyway. **Confirmed again on 2026-08-15, live**: `TASK_2026_246` appeared in the main worktree at 19:11 while B3.5 was mid-flight, created by a concurrently running Ptah session. A scan taken minutes earlier had topped out at `244`. `245` and `247` are this task's; `246` is the other session's. **Next free across both is `248`** — and re-scan anyway, because that number can go stale while you are reading this sentence.
 
-## 2. Status: Commits 0-3 COMPLETE, B4.1 landed — B4.2/B4.3 are next
+## 2. Status: 34 of 37 — only B4.5, B5.2 and the weekly-cap decision remain
+
+**Updated 2026-08-15 (late).** Phases 0-3 closed. Phase 4 is B4.1-B4.4 done,
+**B4.5 remaining**. Phase 5 is B5.1 done, **B5.2 remaining**.
+
+```
+7c3c9bf7f  TASK_2026_247  permission abort scope + distinguishability
+a0eef370f  B4.1  migration 0037 + workspaceRoot + getWinRates()
+9c167fb14  docs  handoff re-baselined
+a5df85a49  B4.2  SkillGapCuratorService, the four sweeps
+dd54e65b7  B4.3  win rate → scorecard, enhancer, dormancy (nulls last)
+f4ba19b63  B5.1  Electron tray keep-alive
+5043c8ab5  B4.4  skillSynthesis:digest + AgentScorecard.winRate
+```
+
+**Every one of those was verified by the orchestrator independently** — full
+suites re-run with the box idle, every mutation test re-run by hand, diffs read.
+Two agent claims did not survive contact and are corrected below (§3, §7).
+
+**B4.5 and B5.2 are file-disjoint** (`libs/frontend/skill-synthesis-ui` vs
+`apps/ptah-electron-e2e`) and can run concurrently.
+
+**One item is owned by no batch and should be decided before C4 is called done:**
+`DRAIN_TIER_LIMITS.weekly` still has the starvation defect B0.10 fixed for
+nightly — one tick a week, single round, cap 4. It was harmless while weekly had
+no producers; phase 3 gave it `judge-panel` and `trigger-eval` producers, so it
+now has real supply against a cap nobody revisited. `tasks.md` §6 flags this and
+warns that three existing specs (`failures`, `idempotency`, `budget`) drain
+`tier: 'weekly'` while setting `maxItemsPerRun`, so changing which key weekly
+reads breaks them. It is a real batch, not a number bump.
+
+### Superseded status (kept for the batch-count arithmetic)
 
 **30 of 37 batches done** (34 planned + 3 added mid-flight: B0.8, B0.9, B0.10).
 **Phases 0, 1, 2 and 3 are all closed and fully gated.** Phase 3 was built
@@ -113,16 +144,33 @@ file before staging.**
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
-**CURRENT — full gate run by the orchestrator AFTER B4.1 (`a0eef370f`),
+**CURRENT — full gate run by the orchestrator AFTER B4.4 + B5.1 (`5043c8ab5`),
 everything idle, no agent writing. Use these:**
 
 ```
-skill-synthesis     59 of 65  |  1137 passed, 37 skipped, 1174 total
-rpc-handlers        77 suites |  2095 passed, 31 skipped, 2126 total
+skill-synthesis     60 of 66  |  1190 passed, 37 skipped, 1227 total
+rpc-handlers        78 suites |  2106 passed, 31 skipped, 2137 total
 persistence-sqlite  17 of 25  |   173 passed, 65 skipped,  238 total
 agent-sdk           68 suites |   903 passed,  0 skipped,  903 total
-npm run typecheck:all                                  → 90 projects clean
+shared              32 suites |   762 passed,  0 skipped,  762 total
+ptah-electron       18 of 19  |   236 passed,  4 skipped,  242 total  ← 2 FAILED
+npm run typecheck:all                                  → 91 projects clean
 ```
+
+**`ptah-electron`'s 2 failures are REAL, PRE-EXISTING and now filed as
+`TASK_2026_251`.** Both are in `di/container.smoke.spec.ts`, both throw
+`registerChatServices(): registerOutputStyleServices() must run first` from
+`rpc-handlers/src/lib/chat/di.ts:90`. They are the R1/R2 token-aliasing guards,
+so two risk guards are currently asserting nothing. Reproduced identically
+before B5.1, after B5.1, and after B4.4. **Do not treat a red `ptah-electron` as
+normal beyond exactly these two** — 236 passed / 4 skipped is the rest.
+
+Project count moved 90 → 91 between runs. Not from this task; nothing here adds
+a project.
+
+Pre-B4.2/B4.3/B4.4 numbers, for attributing a delta:
+`skill-synthesis 59 of 65 | 1137 passed, 37 skipped, 1174 total`;
+`rpc-handlers 77 suites | 2095 passed, 31 skipped, 2126 total`.
 
 **The load-bearing skip counts are UNCHANGED: 37 / 31 / 65.** B4.1 added +1 suite
 and +14 tests to `skill-synthesis`, +1 suite and +12 tests to `persistence-sqlite`,
@@ -296,7 +344,7 @@ Also settled by the user this session:
 
 ## 7. Environment traps that cost real time
 
-1. **`--testPathPattern` is IGNORED.** Use `npx jest --config <lib>/jest.config.ts --runTestsByPath <path>`.
+1. **`--testPathPattern` is IGNORED, and it is WORSE than that: `nx test <project> --runTestsByPath <path>` does not filter either** — it runs every suite in the project anyway. For a LIB use `npx jest --config <lib>/jest.config.ts --runTestsByPath <path>`; for an APP you also need `--rootDir`, e.g. `npx jest -c apps/ptah-electron/jest.config.ts --rootDir apps/ptah-electron --runInBand --runTestsByPath <path>`. Found the hard way in B5.1.
 2. **`better-sqlite3` is built against Electron's ABI** (`NODE_MODULE_VERSION 143` vs Node's `137`). The house native-gated spec pattern makes specs **skip silently — green while asserting nothing.** Reuse `skill-synthesis/src/lib/queue/queue-db.test-support.ts` (`node:sqlite` fallback; it applies `0035` after `0032`). **Always demand per-spec passed/skipped counts from agents.**
 3. **`persistence-sqlite` has 8 entirely dark suites — 65 tests asserting nothing.** Native-gated migration specs for `0014`–`0027`. Pre-existing, not caused by this task, and worth its own cleanup: migration coverage that reports green while running nothing. The `node:sqlite` fallback built here is the fix.
 4. **The pre-commit hook takes ~3 minutes** (lint-staged + full Electron `validate-deps` across 30 projects). Use a 600000 ms timeout.
@@ -321,6 +369,41 @@ Also settled by the user this session:
 - **When an agent flags a decision that reinterprets an approved decision, surface it rather than deciding.** The `auth-unresolvable` ceiling was exactly this.
 
 ## 9. Follow-ups filed, deliberately NOT in this task
+
+- **`TASK_2026_251`** — the two red Electron DI risk guards (R1/R2 token
+  aliasing) described in §3. Filed with a full context.md, including the one
+  thing to check first: whether the REAL bootstrap has the same ordering as the
+  spec's container, because that decides whether the fix is a harness change or
+  a bootstrap change.
+- **Decisions from B4.2/B4.4 the user should rule on, none of them blocking:**
+  - **Sweep (a) writes to pending suggestions.** The batch authorised a
+    description rewrite through `SkillSuggestionStore.updatePending`, but no LLM
+    lane is provisioned for the curator, so it appends the archaeologist's
+    VERBATIM session intents instead of generating prose — idempotently, only to
+    rows still `pending`, and `insertPending` is never called. Strictly more
+    conservative than authorised, and it respects the autonomy boundary. Removing
+    it is a one-method deletion, but `DigestItem` has nowhere to carry a
+    suggestion id, so the RPC would need a new field.
+  - **The digest MIXES SCOPES.** Sweeps (a), (b) and (d) are workspace-scoped via
+    `listByWorkspace`; sweep (c) is cross-project because `getWinRates()` takes
+    no arguments. A per-workspace digest containing one cross-project row is
+    something a user can notice. Adding the predicate means editing
+    `skill-candidate.store.ts`.
+  - **B4.4 introduced OUTBOUND Zod validation, which this codebase had no
+    precedent for.** `SkillDigestItemSchema` validates items on the way out, not
+    params on the way in; it also makes `sessionIds.min(1)` mechanically
+    enforced, so a contract violation surfaces as an error instead of an empty
+    evidence list in the UI. Defensible, but it is new house style — decide
+    whether it spreads or gets reverted (deleting the two schemas and the
+    `.parse()` call is self-contained).
+  - The wire type is **`SkillDigestItem`**, not `DigestItem`, because the handler
+    imports the backend type and the wire type into the same file.
+- **B4.4.3 shipped untested and the orchestrator wrote the test.** The
+  `AgentScorecard` win-rate merge distinguishes three inputs that must not
+  collapse into two — a measured `0`, a stored `null`, and an ABSENT row.
+  Mutating it to `measured?.winRate || null` fails exactly ONE test, the one
+  added in `skills-synthesis-rpc.handlers.spec.ts`. If that test is ever deleted,
+  nothing else covers the branch.
 
 - **THREE SPECS HAND-WRITE `skill_invocation_events` AND WILL BREAK THE DAY
   `better-sqlite3` IS REBUILT.** Found by B4.1, not fixed by it (outside its
