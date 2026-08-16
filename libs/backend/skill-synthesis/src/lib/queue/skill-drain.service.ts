@@ -59,12 +59,13 @@
  * ## The item cap is PER TIER, and so is the number of rounds
  *
  * `DRAIN_TIER_LIMITS` is the throughput half of `DRAIN_TIER_STAGES`. The
- * frequent tier takes `maxItemsPerRun` in ONE round; the nightly tier takes
- * `nightlyMaxItemsPerRun` dealt out over as many rounds as it needs. The reason
- * is cadence, not preference: the frequent tier fires 96 times a day, so its
- * round-robin fairness is delivered across ticks, while the nightly tier fires
- * once and has to be fair inside the single tick it gets. Full rationale, and
- * the measurement that forced it, sits on `DRAIN_TIER_LIMITS` below.
+ * frequent tier takes `maxItemsPerRun` in ONE round; the nightly and weekly
+ * tiers take `nightlyMaxItemsPerRun` / `weeklyMaxItemsPerRun` dealt out over as
+ * many rounds as they need. The reason is cadence, not preference: the frequent
+ * tier fires 96 times a day, so its round-robin fairness is delivered across
+ * ticks, while the once-a-day and once-a-week tiers have to be fair inside the
+ * single tick each of them gets. Full rationale, and the measurements that
+ * forced it, sit on `DRAIN_TIER_LIMITS` below.
  *
  * The cap is a THROUGHPUT throttle, never a cost control. The daily token
  * budget is the only cost ceiling and it is unchanged — a bigger cap simply
@@ -241,6 +242,7 @@ export const SKILL_DRAIN_KEYS = {
   enabled: 'skillSynthesis.enabled',
   maxItemsPerRun: 'skillSynthesis.drain.maxItemsPerRun',
   nightlyMaxItemsPerRun: 'skillSynthesis.drain.nightlyMaxItemsPerRun',
+  weeklyMaxItemsPerRun: 'skillSynthesis.drain.weeklyMaxItemsPerRun',
   perWorkspaceBatch: 'skillSynthesis.drain.perWorkspaceBatch',
   foregroundBackoffMs: 'skillSynthesis.drain.foregroundBackoffMs',
   pauseOnBattery: 'skillSynthesis.drain.pauseOnBattery',
@@ -258,6 +260,7 @@ export const SKILL_DRAIN_DEFAULTS = {
   enabled: true,
   maxItemsPerRun: 4,
   nightlyMaxItemsPerRun: 40,
+  weeklyMaxItemsPerRun: 400,
   perWorkspaceBatch: 1,
   foregroundBackoffMs: 300_000,
   pauseOnBattery: true,
@@ -271,6 +274,7 @@ export interface SkillDrainConfig {
   enabled: boolean;
   maxItemsPerRun: number;
   nightlyMaxItemsPerRun: number;
+  weeklyMaxItemsPerRun: number;
   perWorkspaceBatch: number;
   foregroundBackoffMs: number;
   pauseOnBattery: boolean;
@@ -371,11 +375,40 @@ export const DRAIN_TIER_STAGES: Record<
  * frequent tier 96 times a day, which nothing measured asks for. So the nightly
  * tier reads its own key and the frequent tier is untouched.
  *
- * `weekly` deliberately keeps `maxItemsPerRun`. Its own three stages
- * (`judge-panel`, `replay`, `trigger-eval`) have no producers yet, and every
- * stage it shares with the nightly tier was already drained by that night's
- * 03:00 tick an hour earlier. Give it its own cap when those producers land,
- * not before.
+ * ## Why the weekly tier now has its own cap too
+ *
+ * It used to share `maxItemsPerRun` on the stated ground that its own three
+ * stages had no producers. Phase 3 ended that: `judge-panel` and `trigger-eval`
+ * are both chained off the successful end of every `prefilter` handler run,
+ * beside `enqueueArchaeology`. So the weekly tier carries roughly TWO rows per
+ * eligible session — the same producer point as `archaeology`, at one seventh
+ * the drain cadence.
+ *
+ * Re-measured on the same harness B0.10 used (`prefilter-corpus-measurement`,
+ * 828 sessions over 31 days): ~163 prefilter-eligible sessions a WEEK, hence
+ * ~325 weekly rows a week of demand against a supply of FOUR. That is the
+ * nightly defect again, an order of magnitude worse, because the tick that has
+ * to absorb it comes 7× less often. `replay` is weekly-only as well but has no
+ * producer on purpose (TASK_2026_245), so it contributes nothing to the demand
+ * and its absence is not what makes the cap safe.
+ *
+ * The stages the weekly tier SHARES with the cheaper tiers still cost it almost
+ * nothing: that night's 03:00 nightly tick drains 40 against ~33 rows/day of
+ * demand, so it keeps up and leaves no residue for 04:00 to inherit. The cap is
+ * therefore spent on the weekly-only stages, which is what it is for.
+ *
+ * 400 is ~1.2× measured demand — the same "cover the mean, let peaks smooth
+ * across ticks" rule B0.10 applied (its 40 does not cover the busiest measured
+ * day either). And as there, the cap is a THROUGHPUT throttle and never a cost
+ * control: `maxTokensPerDay` is the only cost ceiling, it is unchanged, and it
+ * is a hard stop checked once per tick and again per item. A cap larger than
+ * the budget can pay for does not overspend — it stops, having stopped the
+ * queue from growing.
+ *
+ * `multiRound` comes with it and is not optional. Raising the number alone
+ * reproduces B0.10's exact near-miss: with `perWorkspaceBatch` at 1 and one
+ * workspace holding 88 % of the measured corpus, a single-pass deal returns ONE
+ * row a week whatever the cap says.
  *
  * ## Why `multiRound` is not simply `true` everywhere
  *
@@ -402,7 +435,7 @@ export const DRAIN_TIER_LIMITS: Record<
 > = {
   frequent: { itemCap: (cfg) => cfg.maxItemsPerRun, multiRound: false },
   nightly: { itemCap: (cfg) => cfg.nightlyMaxItemsPerRun, multiRound: true },
-  weekly: { itemCap: (cfg) => cfg.maxItemsPerRun, multiRound: false },
+  weekly: { itemCap: (cfg) => cfg.weeklyMaxItemsPerRun, multiRound: true },
 };
 
 /**
@@ -942,6 +975,10 @@ export class SkillDrainService {
       nightlyMaxItemsPerRun: get(
         SKILL_DRAIN_KEYS.nightlyMaxItemsPerRun,
         SKILL_DRAIN_DEFAULTS.nightlyMaxItemsPerRun,
+      ),
+      weeklyMaxItemsPerRun: get(
+        SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun,
+        SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun,
       ),
       perWorkspaceBatch: get(
         SKILL_DRAIN_KEYS.perWorkspaceBatch,

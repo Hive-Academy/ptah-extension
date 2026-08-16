@@ -257,6 +257,13 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // supply for every nightly-only stage. Raising the shared key instead would
   // multiply the frequent tier's load 96 times over to fix a once-a-day tick.
   'skillSynthesis.drain.nightlyMaxItemsPerRun',
+  // The WEEKLY tier's own item cap, for the same reason one notch further out:
+  // the weekly tick fires once every SEVEN days, so `maxItemsPerRun` was one
+  // week's entire supply for `judge-panel` / `trigger-eval`. It was harmless
+  // while those stages had no producers and became a starvation defect the
+  // moment phase 3 chained both off every successful prefilter — two rows per
+  // eligible session against a supply of four a week.
+  'skillSynthesis.drain.weeklyMaxItemsPerRun',
   'skillSynthesis.drain.perWorkspaceBatch',
   'skillSynthesis.drain.foregroundBackoffMs',
   'skillSynthesis.drain.pauseOnBattery',
@@ -474,6 +481,13 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // number cannot outspend the budget gate — it only stops the queue from
   // growing monotonically while the budget sits 70 % unused.
   'skillSynthesis.drain.nightlyMaxItemsPerRun': 40,
+  // Ten times the nightly cap, and derived the same way: measured demand plus
+  // headroom, with the budget still the real ceiling. A 828-session corpus over
+  // 31 days yields ~163 prefilter-eligible sessions a WEEK, and phase 3 chains
+  // TWO weekly rows off each one (`judge-panel` + `trigger-eval`), so steady
+  // demand is ~325 rows/week against a supply that was 4. `replay` is weekly
+  // too but has no producer on purpose (TASK_2026_245), so it adds nothing.
+  'skillSynthesis.drain.weeklyMaxItemsPerRun': 400,
   'skillSynthesis.drain.perWorkspaceBatch': 1,
   // `0` disables the foreground gate entirely.
   'skillSynthesis.drain.foregroundBackoffMs': 300000,

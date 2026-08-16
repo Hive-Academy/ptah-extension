@@ -346,6 +346,7 @@ describe('isFileBasedSettingKey', () => {
       'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
       'skillSynthesis.drain.maxItemsPerRun': 4,
       'skillSynthesis.drain.nightlyMaxItemsPerRun': 40,
+      'skillSynthesis.drain.weeklyMaxItemsPerRun': 400,
       'skillSynthesis.drain.perWorkspaceBatch': 1,
       'skillSynthesis.drain.foregroundBackoffMs': 300000,
       'skillSynthesis.drain.pauseOnBattery': true,
@@ -413,6 +414,41 @@ describe('isFileBasedSettingKey', () => {
       ] as number;
       expect(nightly).toBeGreaterThan(frequent);
       expect(nightly).toBe(40);
+    });
+
+    /**
+     * The same argument one cadence further out. The weekly tick fires once
+     * every SEVEN days, so its cap is a whole week's supply for `judge-panel`
+     * and `trigger-eval` — both of which phase 3 chains off every successful
+     * prefilter, roughly two rows per eligible session. A weekly cap that is
+     * merely EQUAL to the nightly one already gives the rarer tier 7× less
+     * throughput per unit time, so "strictly larger" is the invariant, not
+     * "different".
+     */
+    it('gives the weekly tier a strictly larger item cap than the nightly one', () => {
+      const nightly = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.drain.nightlyMaxItemsPerRun'
+      ] as number;
+      const weekly = FILE_BASED_SETTINGS_DEFAULTS[
+        'skillSynthesis.drain.weeklyMaxItemsPerRun'
+      ] as number;
+      expect(weekly).toBeGreaterThan(nightly);
+      expect(weekly).toBe(400);
+    });
+
+    /**
+     * Measured, not chosen: ~163 prefilter-eligible sessions a week over an
+     * 828-session corpus, times the two weekly rows phase 3 chains off each
+     * one, is ~325 rows a week of demand. A cap below that is the starvation
+     * defect this key exists to remove, whatever number is in the table.
+     */
+    it('keeps the weekly cap above measured weekly demand', () => {
+      const MEASURED_WEEKLY_DEMAND_ROWS = 325;
+      expect(
+        FILE_BASED_SETTINGS_DEFAULTS[
+          'skillSynthesis.drain.weeklyMaxItemsPerRun'
+        ] as number,
+      ).toBeGreaterThan(MEASURED_WEEKLY_DEMAND_ROWS);
     });
 
     it('uses the quarter-hour cadence for the frequent tier (Q5)', () => {

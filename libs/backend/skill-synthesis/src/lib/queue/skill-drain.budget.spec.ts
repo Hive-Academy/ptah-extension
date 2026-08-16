@@ -109,7 +109,11 @@ function makeDrainOver(
     makeTracker(),
     makeWorkspace({
       [SKILL_DRAIN_KEYS.maxTokensPerDay]: MAX_TOKENS,
+      // Both caps, because this file drains BOTH tiers: the `weekly` cases
+      // below read `weeklyMaxItemsPerRun` and the `frequent` ones further down
+      // read `maxItemsPerRun`. Same number, so no case changes shape.
       [SKILL_DRAIN_KEYS.maxItemsPerRun]: 4,
+      [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 4,
       [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 1,
       ...settings,
     }),
@@ -124,7 +128,13 @@ describe('SkillDrainService — budget (R3)', () => {
         makeRow('cheap', 'prefilter', 'D:/repo'),
       ],
     });
-    const drain = makeDrainOver(queue.store, makeBudget(800_000).store);
+    // ONE item this tick, so `ran` observes the ORDER of the eligible window
+    // rather than its contents. The weekly tier deals in rounds now, so a lone
+    // workspace holding two rows would otherwise drain both and the assertion
+    // would stop being about ordering at all.
+    const drain = makeDrainOver(queue.store, makeBudget(800_000).store, {
+      [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 1,
+    });
     const ran: string[] = [];
     for (const stage of ['archaeology', 'prefilter'] as const) {
       drain.registerStageHandler(stage, async (ctx) => {
@@ -149,7 +159,10 @@ describe('SkillDrainService — budget (R3)', () => {
         makeRow('cheap', 'prefilter', 'D:/repo'),
       ],
     });
-    const drain = makeDrainOver(queue.store, makeBudget(799_999).store);
+    // Same single-item window as above, and for the same reason.
+    const drain = makeDrainOver(queue.store, makeBudget(799_999).store, {
+      [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 1,
+    });
     const ran: string[] = [];
     for (const stage of ['archaeology', 'prefilter'] as const) {
       drain.registerStageHandler(stage, async (ctx) => {

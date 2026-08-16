@@ -145,7 +145,11 @@ maybe('SkillDrainService — lane failures (P1-7)', () => {
       makeBudgetStub(0).store,
       makeTracker(),
       makeWorkspace({
-        [SKILL_DRAIN_KEYS.maxItemsPerRun]: 8,
+        // Every case here drains the WEEKLY tier, which reads its own cap —
+        // `maxItemsPerRun` would be dead config in this file. 8 against the two
+        // seeded rows, so the cap is deliberately not the limiter: these are
+        // lane-failure tests, not throughput tests.
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 8,
         [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 8,
         ...settings,
       }),

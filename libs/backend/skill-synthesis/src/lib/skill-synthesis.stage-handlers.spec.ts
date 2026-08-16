@@ -276,7 +276,10 @@ function makeDrainOver(queue: unknown): SkillDrainService {
     makeBudgetStub(0).store,
     makeTracker(),
     makeDrainWorkspace({
+      // Both caps: the gate cases below drain `weekly` (which reads its own
+      // key) and the rest drain `frequent`. Same number, so neither changes.
       [SKILL_DRAIN_KEYS.maxItemsPerRun]: 4,
+      [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 4,
       [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 2,
     }),
   );

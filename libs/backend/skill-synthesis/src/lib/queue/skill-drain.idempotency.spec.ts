@@ -52,7 +52,10 @@ maybe('SkillDrainService — idempotency (P4-3)', () => {
       makeBudgetStub(0).store,
       makeTracker(),
       makeWorkspace({
-        [SKILL_DRAIN_KEYS.maxItemsPerRun]: 8,
+        // Weekly tier throughout this file, so the cap it reads is the weekly
+        // one. 8 against two seeded rows — the cap is not the limiter here;
+        // at-most-once claiming is what is under test.
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 8,
         [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 8,
       }),
     );

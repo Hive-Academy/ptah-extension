@@ -36,6 +36,23 @@
  * workspace visited on one tick carries the identical `last_drained_at` and the
  * order among them then falls back to `workspace_root ASC`.
  *
+ * ## The weekly tier had the identical defect, and it was not hypothetical
+ *
+ * B0.10 left `weekly` on the shared cap and said so, on the ground that its own
+ * three stages had no producers. Phase 3 removed that ground: `judge-panel` and
+ * `trigger-eval` are now chained off the successful end of every `prefilter`
+ * run, beside `enqueueArchaeology`, so the weekly tier carries roughly TWO rows
+ * per eligible session at one seventh the drain cadence. Re-measured on the
+ * same corpus harness (828 sessions / 31 days): ~163 eligible sessions a week,
+ * so ~325 rows a week of demand against a supply of FOUR.
+ *
+ * The weekly cases below are therefore the nightly cases again, and they exist
+ * to fail against the two ways this fix can be half-applied — the number
+ * without the rounds, and the rounds while the cap still points at the shared
+ * key. `replay` is weekly-only too but is deliberately absent from these
+ * fixtures: it has no producer (TASK_2026_245), so seeding it would test a
+ * queue shape production cannot currently reach.
+ *
  * Runs the REAL store over a real SQLite file: the round-robin order lives in
  * `ELIGIBLE_WORKSPACES_SQL` and the eligibility window in `ELIGIBLE_SQL`, so a
  * mocked store would assert the test's own arithmetic instead of the product's.
@@ -85,12 +102,19 @@ maybe('SkillDrainService — per-tier throughput (DRAIN_TIER_LIMITS)', () => {
         // The SHIPPED values, restated so a default change is visible here as a
         // failure rather than as a silently different test.
         [SKILL_DRAIN_KEYS.maxItemsPerRun]: SKILL_DRAIN_DEFAULTS.maxItemsPerRun,
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]:
+          SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun,
         [SKILL_DRAIN_KEYS.perWorkspaceBatch]:
           SKILL_DRAIN_DEFAULTS.perWorkspaceBatch,
         ...settings,
       }),
     );
-    for (const stage of ['prefilter', 'archaeology'] as SkillQueueStage[]) {
+    for (const stage of [
+      'prefilter',
+      'archaeology',
+      'judge-panel',
+      'trigger-eval',
+    ] as SkillQueueStage[]) {
       drain.registerStageHandler(stage, async (ctx) => {
         handled.push(ctx.row);
         return { outcome: 'done' };
@@ -272,15 +296,15 @@ maybe('SkillDrainService — per-tier throughput (DRAIN_TIER_LIMITS)', () => {
     });
   });
 
-  describe('the weekly tier keeps the shared cap', () => {
-    it('takes maxItemsPerRun, not the nightly cap', async () => {
-      // Weekly's own stages have no producers yet, and everything it shares
-      // with the nightly tier was drained by that night's 03:00 tick an hour
-      // earlier. Giving it an unmeasured cap now would be the scope creep the
-      // nightly measurement specifically avoided.
-      for (let i = 0; i < 6; i++) {
-        seed(`D:/repo-${i}`, 'prefilter', 1, i * 100);
-      }
+  describe('the weekly tier', () => {
+    it('takes the whole weekly cap from a single workspace', async () => {
+      // The same shape as the nightly case, one cadence further out, and the
+      // stage is the one that actually starves: `judge-panel` is weekly-only
+      // and phase 3 chains it off every successful prefilter. 88 % of the
+      // measured corpus is a single project, so a lone workspace IS the real
+      // shape — and with `perWorkspaceBatch` at 1, only repeated rounds can
+      // reach a cap of 400. A single-pass deal returns exactly 1.
+      seed(WS_A, 'judge-panel', SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun + 50);
 
       const summary = await makeDrainOver().drain({
         tier: 'weekly',
@@ -288,7 +312,97 @@ maybe('SkillDrainService — per-tier throughput (DRAIN_TIER_LIMITS)', () => {
         onBattery: false,
       });
 
-      expect(summary.claimed).toBe(SKILL_DRAIN_DEFAULTS.maxItemsPerRun);
+      expect(handled).toHaveLength(SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun);
+      expect(summary).toMatchObject({
+        skipped: false,
+        claimed: SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun,
+        done: SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun,
+        workspacesVisited: 1,
+      });
+    });
+
+    it('reads its own settings key, not the frequent or nightly one', async () => {
+      seed(WS_A, 'judge-panel', 60);
+
+      const summary = await makeDrainOver({
+        // Three deliberately divergent numbers. Falling back to the shared key
+        // takes 9, reading the nightly key takes 33, ignoring its own key takes
+        // 400 — every wrong wiring lands on a different, unequal count.
+        [SKILL_DRAIN_KEYS.maxItemsPerRun]: 9,
+        [SKILL_DRAIN_KEYS.nightlyMaxItemsPerRun]: 33,
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 25,
+      }).drain({ tier: 'weekly', signal: liveSignal(), onBattery: false });
+
+      expect(summary.claimed).toBe(25);
+    });
+
+    it('scans past the 20-row eligibility floor when the cap is larger', async () => {
+      // `ELIGIBLE_SCAN_LIMIT` is 20 and the shipped weekly cap is 400, so a
+      // scan still pinned at 20 would cut the tick by a factor of twenty and
+      // look like fairness rather than an off-by-a-constant.
+      seed(WS_A, 'judge-panel', 60);
+
+      const summary = await makeDrainOver({
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 50,
+      }).drain({ tier: 'weekly', signal: liveSignal(), onBattery: false });
+
+      expect(summary.claimed).toBe(50);
+    });
+
+    it('splits the weekly cap evenly between two busy workspaces', async () => {
+      // The rejected alternative — a big weekly `perWorkspaceBatch` — gives
+      // 24/0 here: both roots carry the same `last_drained_at`, so
+      // `workspace_root ASC` would decide the whole tick, every week, forever.
+      // At one tick a WEEK that is the most damaging cadence R4 has.
+      seed(WS_A, 'judge-panel', 60);
+      seed(WS_B, 'judge-panel', 60, 1000);
+
+      await makeDrainOver({
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 24,
+      }).drain({ tier: 'weekly', signal: liveSignal(), onBattery: false });
+
+      expect(countByWorkspace(handled)).toEqual({ [WS_A]: 12, [WS_B]: 12 });
+    });
+
+    it('does not end the walk at the first workspace that could fill the cap', async () => {
+      seed(WS_A, 'judge-panel', 60);
+      seed(WS_B, 'trigger-eval', 1, 1000);
+
+      const summary = await makeDrainOver({
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 25,
+      }).drain({ tier: 'weekly', signal: liveSignal(), onBattery: false });
+
+      expect(summary.workspacesVisited).toBe(2);
+      expect(countByWorkspace(handled)).toEqual({ [WS_A]: 24, [WS_B]: 1 });
+    });
+
+    it('still drains the stages it shares with the cheaper tiers', async () => {
+      // The weekly tier is a SUPERSET. Its own cap must not turn into a filter:
+      // anything the 03:00 nightly tick could not finish has to be reachable at
+      // 04:00, or the superset guarantee is prose only.
+      seed(WS_A, 'prefilter', 5);
+      seed(WS_B, 'archaeology', 5, 1000);
+
+      const summary = await makeDrainOver({
+        [SKILL_DRAIN_KEYS.weeklyMaxItemsPerRun]: 10,
+      }).drain({ tier: 'weekly', signal: liveSignal(), onBattery: false });
+
+      expect(summary.claimed).toBe(10);
+      expect(countByWorkspace(handled)).toEqual({ [WS_A]: 5, [WS_B]: 5 });
+    });
+
+    it('keeps the shipped weekly cap above measured weekly demand', () => {
+      // 828 sessions over 31 days measured ~163 prefilter-eligible sessions a
+      // week; phase 3 chains TWO weekly rows off each (`judge-panel` +
+      // `trigger-eval`). A cap under that number is the starvation defect
+      // itself, so this is the assertion that outlives any re-tuning.
+      const MEASURED_WEEKLY_DEMAND_ROWS = 325;
+      expect(SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun).toBeGreaterThan(
+        MEASURED_WEEKLY_DEMAND_ROWS,
+      );
+      expect(SKILL_DRAIN_DEFAULTS.weeklyMaxItemsPerRun).toBeGreaterThan(
+        SKILL_DRAIN_DEFAULTS.nightlyMaxItemsPerRun,
+      );
     });
   });
 });
