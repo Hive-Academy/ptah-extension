@@ -108,3 +108,59 @@ against pinned ids.
 ## Suggested executor
 
 Whoever holds TASK_2026_180 — same files, same contract.
+
+---
+
+## Decided 2026-08-16 — the question above is now answered
+
+TASK_2026_180 closed `done` (40/40, `5201dcd71`), so reason 3 for not fixing on
+sight — the lib being under concurrent edit by the session that owns the lane
+contract — no longer holds. The handover is available. Two decisions were taken
+at the orchestration scope checkpoint.
+
+### Decision 1 — "inherit" keeps the pinned id, ON PURPOSE
+
+The nothing-configured fallback stays `JUDGE_DEFAULT_MODEL_ID`. Inherit means
+_inherit the workspace-pinned model, else ship a known-good Anthropic model_ —
+the FIRST reading in "The question that decides this", not the curator's.
+
+**This is a divergence from TASK_2026_159 and it is deliberate.** It is therefore
+not enough to leave the code alone: `skill-synthesis/CLAUDE.md`'s lane-resolution
+rule currently justifies the branch as _"byte-identical to today's call, which is
+the untouched-existing-installs guarantee"_ and then, one clause later, argues
+that a pinned dated Claude id 404s off-Anthropic. A reader cannot tell from that
+which half is the intent. The rule must state the pinned default as a CHOICE
+carrying its own reason, so the next person who finds this stops rather than
+re-filing it. `model-resolver.ts`'s docblock describes the mechanism and not the
+reason, and has the same problem.
+
+`lane-resolver.service.spec.ts:116` and the `JUDGE_DEFAULT_MODEL_ID` constant
+both stay as they are. The one-line change proposed in "What the fix would be"
+above is NOT taken.
+
+### Decision 2 — the `llm.vscode.model` read IS in scope
+
+Found at the checkpoint, not on the carrier. The inherit branch reads
+`ptah.llm.vscode.model` — a VS Code Language Model key whose shipped example
+value is `copilot/gpt-4o` (`platform-core/src/file-settings-keys.ts:386`).
+Nothing on this path reads the user's active chat provider or model, so the
+branch has two outcomes and the carrier only described the second:
+
+- key set → a `copilot/…`-shaped id is sent to the lane's endpoint
+- key unset → the pinned `claude-haiku-4-5-20251001`
+
+That is the SAME defect the carrier describes, one layer up: a model id from one
+provider family handed to another family's endpoint. Fixing only the fallback
+would leave the function correct exactly when the key is unset. Under Decision 1
+the unset case is now correct by definition, which leaves this read as the whole
+of the remaining defect.
+
+Constraint on the fix: the nothing-configured result must remain
+`JUDGE_DEFAULT_MODEL_ID`. What the configured case should read instead is an
+implementation decision for the executor, to be justified in the report.
+
+### Blast radius
+
+`JUDGE_DEFAULT_MODEL_ID` has one production consumer (`model-resolver.ts:31,33`),
+one spec reference (`lane-resolver.service.spec.ts:116`), and a barrel export at
+`src/index.ts:394` with no importer outside the lib.

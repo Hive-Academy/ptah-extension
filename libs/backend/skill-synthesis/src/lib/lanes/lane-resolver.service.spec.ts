@@ -94,9 +94,15 @@ describe('LaneResolverService.resolve — tier scope (P1-3)', () => {
 });
 
 describe('LaneResolverService.resolve — untouched existing installs', () => {
-  it('resolves a fully blank lane to {auth: undefined} and the legacy model', async () => {
+  it('resolves a fully blank lane to {auth: undefined} and the active provider s model', async () => {
     const resolve = jest.fn().mockResolvedValue(null);
-    const ws = makeWorkspace({ 'llm.vscode.model': 'workspace-pinned-model' });
+    // The active provider's selected model — the one key on this branch whose
+    // value the endpoint the blank lane rides is known to serve. This seeded
+    // `llm.vscode.model` until TASK_2026_250, which was a VS Code Language
+    // Model `vendor/family` id and belonged to no endpoint reachable here.
+    const ws = makeWorkspace({
+      'provider.apiKey.selectedModel': 'workspace-pinned-model',
+    });
     const out = await new LaneResolverService(logger, ws, { resolve }).resolve(
       'judge',
     );
@@ -131,7 +137,9 @@ describe('LaneResolverService.resolve — untouched existing installs', () => {
 });
 
 describe('resolveLaneModel — the three-line ladder', () => {
-  const ws = makeWorkspace({ 'llm.vscode.model': 'legacy-model' });
+  const ws = makeWorkspace({
+    'provider.apiKey.selectedModel': 'active-provider-model',
+  });
 
   it('prefers an explicitly pinned lane model', () => {
     expect(
@@ -143,9 +151,9 @@ describe('resolveLaneModel — the three-line ladder', () => {
     ).toBe('pinned');
   });
 
-  it('inherits the legacy judge model when NEITHER provider nor model is set', () => {
+  it('inherits the ACTIVE PROVIDER s model when NEITHER provider nor model is set', () => {
     expect(resolveLaneModel(SKILL_LANE_DEFAULTS.judge, 'inherit', ws)).toBe(
-      'legacy-model',
+      'active-provider-model',
     );
   });
 

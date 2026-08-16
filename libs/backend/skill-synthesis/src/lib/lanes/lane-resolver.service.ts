@@ -67,16 +67,34 @@ const JUDGE_MODEL_DEFAULT = 'inherit';
 /**
  * Three lines, no provider branching.
  *
- * Line 2 is the untouched-existing-installs guarantee: with both `provider`
- * and `model` empty — every install that has never opened the Lanes panel —
- * this returns exactly what `SkillJudgeService` and `SkillSynthesizerService`
- * pass today.
+ * Lines 2 and 3 answer the same question — "no model was pinned on this lane,
+ * so what do we send?" — with different KINDS of value, and the difference is
+ * not an inconsistency. It follows from the auth env each branch runs under:
  *
- * Line 3 returns a BARE TIER ALIAS, and that is the correct value to send
- * rather than a weakness. A bare alias resolves through both
- * `ANTHROPIC_DEFAULT_<TIER>_MODEL` and the provider entry's `defaultTiers`,
- * whereas a pinned dated Claude id reaches a non-Anthropic endpoint verbatim
- * and 404s.
+ *  - **Line 2, no lane provider.** The resolver returns `null` for a blank
+ *    provider id, so the call rides the user's ambient chat auth env, where
+ *    that provider's `ANTHROPIC_DEFAULT_<TIER>_MODEL` values are populated.
+ *    `resolveJudgeModel` therefore inherits the ACTIVE PROVIDER'S selected
+ *    model, and where the user pinned none it ships `JUDGE_DEFAULT_MODEL_ID` —
+ *    a pinned dated Claude id, ON PURPOSE. `ModelResolver.resolve` detects the
+ *    tier from that id and substitutes the ambient tier override
+ *    (`auth-providers/.../model-resolver.ts:38-48`), so a non-Anthropic user
+ *    gets their own haiku-tier model rather than this literal. See
+ *    `resolveJudgeModel`'s docblock for why the pinned id is the deliberate
+ *    answer to "no preference expressed anywhere" (TASK_2026_250, Decision 1).
+ *
+ *  - **Line 3, a lane provider is set.** That lane gets an override env whose
+ *    chat `ANTHROPIC_DEFAULT_*_MODEL` keys are BLANKED by design (R2), so a
+ *    pinned dated id has no tier mapping left to travel through and would
+ *    reach a non-Anthropic endpoint verbatim and 404. Only a BARE TIER ALIAS
+ *    resolves there, through the provider entry's `defaultTiers`. That is why
+ *    this line returns the alias, and it is a correct value rather than a
+ *    weakness.
+ *
+ * Line 2 is also the untouched-existing-installs guarantee: with both
+ * `provider` and `model` empty — every install that has never opened the Lanes
+ * panel — this returns exactly what `SkillJudgeService` and
+ * `SkillSynthesizerService` pass today.
  */
 export function resolveLaneModel(
   cfg: SkillLaneConfig,

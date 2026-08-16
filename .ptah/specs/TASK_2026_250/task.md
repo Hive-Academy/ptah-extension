@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_250
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   The judge lane's inherit branch still falls back to a pinned Claude id, the
