@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_262
-status: in_progress
+status: in_review
 type: bugfix
 title: >-
   Dynamic-catalogue providers get an unresolvable model string whenever nothing

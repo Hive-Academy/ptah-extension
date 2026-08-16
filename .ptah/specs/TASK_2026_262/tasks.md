@@ -1,6 +1,6 @@
 # Development Tasks — TASK_2026_262
 
-**Total Tasks**: 13 | **Batches**: 4 (one conditional) | **Status**: 0/4 complete
+**Total Tasks**: 13 | **Batches**: 4 (one conditional) | **Status**: 3 complete, 1 cancelled
 **Branch**: `ak/tui-defects` | **Decomposed**: 2026-08-16
 
 Live-model-list resolution for tier-shaped values on the three providers that
@@ -127,7 +127,7 @@ touched file.
 
 ---
 
-## Batch 1: Live-tier source + the chat path ⏸️ PENDING
+## Batch 1: Live-tier source + the chat path ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -139,7 +139,7 @@ alone makes the most user-visible instance — the chat path's `'default'` —
 resolve, so it is independently verifiable.
 **Tasks**: 7 | **Dependencies**: none
 
-### Task 1.1: Read the ground truth before writing anything ⏸️ PENDING
+### Task 1.1: Read the ground truth before writing anything ✅ COMPLETE
 
 **Files** (read-only):
 
@@ -156,7 +156,7 @@ asserts and why, before any edit is made.
 
 ---
 
-### Task 1.2: The catalogue → tier derivation rule ⏸️ PENDING
+### Task 1.2: The catalogue → tier derivation rule ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\provider-models.service.ts` (or a new sibling module in the same lib — developer's call, argue it)
 
@@ -182,7 +182,7 @@ count reported.
 
 ---
 
-### Task 1.3: Wire the derived tiers into `applyPersistedTiers` ⏸️ PENDING
+### Task 1.3: Wire the derived tiers into `applyPersistedTiers` ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\provider-models.service.ts:617-643`
 **Dependencies**: 1.2
@@ -207,7 +207,7 @@ writes nothing).
 
 ---
 
-### Task 1.4: Cold cache and offline local server — design Q1 ⏸️ PENDING
+### Task 1.4: Cold cache and offline local server — design Q1 ✅ COMPLETE
 
 **Files**: `provider-models.service.ts`; whichever refresh trigger is chosen
 **Dependencies**: 1.3
@@ -235,7 +235,7 @@ throw and a defined outcome.
 
 ---
 
-### Task 1.5: Rewrite the characterization pair — deliberately ⏸️ PENDING
+### Task 1.5: Rewrite the characterization pair — deliberately ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\auth\model-resolver.spec.ts`
 **Dependencies**: 1.3, 1.4
@@ -260,7 +260,7 @@ with the reason for the change.
 
 ---
 
-### Task 1.6: Warn disposition (R8) + the `claude-*` asymmetry (design Q3) ⏸️ PENDING
+### Task 1.6: Warn disposition (R8) + the `claude-*` asymmetry (design Q3) ✅ COMPLETE — both LEFT, argued
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\auth\model-resolver.ts:117-128`, `:39-50`
 **Dependencies**: 1.3
@@ -281,7 +281,7 @@ valid outcome; "not mentioned" is not.
 
 ---
 
-### Task 1.7: Design Q2 recommendation — error vs verbatim send ⏸️ PENDING
+### Task 1.7: Design Q2 recommendation — error vs verbatim send ✅ COMPLETE — recommended NO, Batch 3 cancelled
 
 **Dependencies**: 1.4
 **No production code.** Output is a recommendation in the batch report.
@@ -319,7 +319,7 @@ preference. This gates Batch 3.
 
 ---
 
-## Batch 2: The remaining three callers ⏸️ PENDING
+## Batch 2: The remaining three callers ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `general-purpose`
@@ -330,7 +330,7 @@ whose expected result depends on how 2.1 lands. Cross-lib (`auth-providers` →
 `skill-synthesis` → `rpc-handlers`) with one shared invariant.
 **Tasks**: 3 | **Dependencies**: Batch 1
 
-### Task 2.1: Per-workspace profile resolver ⏸️ PENDING
+### Task 2.1: Per-workspace profile resolver ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\auth\workspace-provider-profile-resolver.ts:334-345` and `:353-369`
 
@@ -352,7 +352,7 @@ provider resolving to a real catalogue id. Mutation count reported.
 
 ---
 
-### Task 2.2: skill-synthesis — verify, do not assume ⏸️ PENDING
+### Task 2.2: skill-synthesis — verify, do not assume ✅ COMPLETE — zero production change here; a FOURTH tier-writer found one lib down
 
 **Files**: `D:\projects\ptah-extension\libs\backend\skill-synthesis\src\lib\model-resolver.ts`, `lanes\lane-resolver.service.ts`, `lanes\lane-resolver.providers.spec.ts`
 **Dependencies**: 2.1
@@ -378,7 +378,7 @@ lane alias both resolve once the tier env var is populated. Verify it.
 
 ---
 
-### Task 2.3: OpenRouter passthrough + chat `'default'` substitution ⏸️ PENDING
+### Task 2.3: OpenRouter passthrough + chat `'default'` substitution ✅ COMPLETE — no_change_needed
 
 **Files**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\providers\openrouter\openrouter-translation-proxy.ts:80-82`; `D:\projects\ptah-extension\libs\backend\rpc-handlers\src\lib\chat\session\chat-session.service.ts:418`, `:1009`
 **Dependencies**: 2.1
@@ -406,7 +406,7 @@ the proxy would send.
 
 ---
 
-## Batch 3: Unresolvable-tier surfacing ⏸️ CONDITIONAL — PENDING
+## Batch 3: Unresolvable-tier surfacing ❌ CANCELLED
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Execution Mode**: sequential
@@ -422,7 +422,57 @@ on Task 1.7's recommendation.
 > reason recorded and go straight to Batch 4. That is a good outcome, not a
 > skipped one.
 
-### Task 3.1: Implement the agreed surfacing ⏸️ PENDING
+### ❌ CANCELLED — the go/no-go, and why it went no
+
+The conditional above fired the way it was written to fire. Task 1.7 recommended
+**against** giving an unresolvable tier a failure channel, and Task 1.4's
+residual hole turned out to be a timing window rather than a steady state. Both
+halves of the condition were met, so this is the good outcome, not a skipped one.
+Recorded here rather than left as a status flip, because the reasoning is the
+part a future reader needs.
+
+**The structural argument — this is the one that decides it.**
+`ModelResolver.resolve` returns `string` and is reached through `IModelResolver`
+from **five synchronous call sites**, and **three of them are session-history
+reads** (`session-history-reader.service.ts:499,589,725`). Giving `resolve` a
+failure mode therefore makes a **past** session unreadable because the
+**present** provider has no catalogue. That cost is inherent in putting a
+failure on a shared resolver — it cannot be engineered away, only relocated —
+and it is strictly worse than sending a string the endpoint rejects. The other
+two callers make it no better: the OpenRouter passthrough has no error channel
+at all and its 404 _is_ the error, and the profile resolver's ladder terminates
+in `model` with no failure route.
+
+**The proportionality argument.** Before Batch 1 the chat path's failure was
+permanent, silent and universal across three providers, which is what would have
+justified building the channel. After Batches 1 and 2 it is none of those three.
+Building an error channel now would size machinery for a permanent condition one
+batch after the change that stopped it being permanent — the YAGNI failure the
+standing constraints name.
+
+**The cost that was accepted, stated plainly.** A user who sends a message inside
+the refresh window, or whose LM Studio `/v1/models` is down while its inference
+endpoint is up, gets a **raw provider 404** rather than an actionable message.
+Ptah's log carries `warnUnservableTierValue`, so support can diagnose it in one
+line, but **the user cannot self-diagnose without opening the log.** That is the
+accepted cost and it is not zero.
+
+**If that cost is ever judged unacceptable**, the proportionate answer is to
+**surface the existing warn where the user already is** — the message still
+sends and the explanation sits next to the 404 — **not** to thread a failure
+channel through four callers and a synchronous history-read path. Re-opening
+this batch as originally scoped means re-arguing the five-call-site point above.
+
+If budget is spent here at all, the higher-value re-point is Batch 1 residual
+hole item 3: `provider:listModels` warms both catalogue caches but never re-runs
+`applyPersistedTiers`, so a user who opens the model picker inside the refresh
+window warms the cache and still waits for the next provider activation. That is
+a few lines, needs no new channel, and wants the guard
+`providerId === resolveActiveProviderId()` because `applyPersistedTiers` does not
+check activeness. Batch 2 reviewed that assessment and found nothing to change
+in it.
+
+### Task 3.1: Implement the agreed surfacing ❌ CANCELLED
 
 Scope from 1.7. Likely shape: a typed unresolvable-tier result the chat path
 can render, aligned with the lanes' existing `auth-unresolvable` stall channel.
@@ -433,7 +483,7 @@ a stack trace.
 
 ---
 
-### Task 3.2: RPC dual registration, if a namespace is added ⏸️ PENDING
+### Task 3.2: RPC dual registration, if a namespace is added ❌ CANCELLED — no_change_needed
 
 **Files**: `D:\projects\ptah-extension\libs\shared\src\lib\...\rpc.types.ts`; `D:\projects\ptah-extension\libs\backend\vscode-core\src\messaging\rpc-handler.ts:46`
 
@@ -445,12 +495,14 @@ runtime only.
 
 ---
 
-**Batch 3 verification**: gate green; new failure path has a spec that fails
-without it; no existing working path changed behaviour.
+**Batch 3 verification**: n/a — cancelled. No RPC namespace was added anywhere in
+this carrier, so R6's dual-registration hazard (`libs/shared/.../rpc.types.ts`
+**and** `rpc-handler.ts:46` `ALLOWED_METHOD_PREFIXES`) was never armed. No file
+in `libs/shared` or `libs/backend/vscode-core` was touched by any batch.
 
 ---
 
-## Batch 4: Documentation and carrier close ⏸️ PENDING
+## Batch 4: Documentation and carrier close ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Execution Mode**: sequential
@@ -459,7 +511,7 @@ without it; no existing working path changed behaviour.
 parallel-CLI candidate for that reason.
 **Tasks**: 1 | **Dependencies**: Batches 1–3
 
-### Task 4.1: Update the docs the earlier tasks made stale ⏸️ PENDING
+### Task 4.1: Update the docs the earlier tasks made stale ✅ COMPLETE
 
 **Files**:
 
