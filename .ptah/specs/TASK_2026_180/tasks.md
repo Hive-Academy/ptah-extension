@@ -2,7 +2,13 @@
 
 **Agentic skill synthesis: queued execution, provider routing, session archaeologist, replay validation, proactive curator**
 
-**Total Batches**: 34 | **Total Tasks**: 118 | **Commits**: 6 | **Status**: 0/34 complete
+**Total Batches**: 39 | **Status**: 39/39 complete (2026-08-16)
+
+Grew 34 → 37 during execution (B0.8, B0.9, B0.10 added mid-flight), then
+37 → 39 when two of the user's design rulings became batches (B4.6, B4.7) and a
+cross-batch defect found in verification became a third (B4.8). The six-commit
+collapse in §0 was abandoned — see §6 — so the working commits ARE the shipped
+history.
 
 Source of truth: `.ptah/specs/TASK_2026_180/implementation-plan.md` (USER-APPROVED, 1,123 lines).
 All paths below are **worktree-relative** to
@@ -1960,10 +1966,36 @@ flag-on spec.
 | B4.5  | C4     | B4.4                 | frontend-developer       | sequential   | 2     |
 | B5.1  | C5     | B0.5                 | backend-developer        | sequential   | 3     |
 | B5.2  | C5     | B5.1                 | senior-tester            | sequential   | 2     |
+| B4.6  | C4     | B0.10, B3.x          | backend-developer        | **parallel** | 4     |
+| B4.7  | C4     | B4.1, B4.2           | backend-developer        | **parallel** | 2     |
+| B4.8  | C4     | B4.5, B4.7           | backend-developer        | sequential   | 1     |
+| B4.9  | C4     | all batches + review | backend-developer        | sequential   | 2     |
 
-**34 batches, 118 tasks.** One CLI-delegated batch (B1.1), inside Phase 1, as
-context.md scopes it. One parallel batch (B1.11 — two file-disjoint e2e specs
-against different harnesses).
+One CLI-delegated batch (B1.1), inside Phase 1, as context.md scopes it.
+
+**The last four batches ran as two concurrent file-disjoint pairs** — B4.5 with
+B5.2, then B4.6 with B4.7 — on explicit per-file ownership, with `di/tokens.ts`,
+`di/register.ts` and `src/index.ts` granted exclusively to one agent. That
+worked. **What it did NOT catch is the interaction**: B4.5 and B4.7 were each
+correct alone and together created unbudgeted LLM spend, which is why B4.8
+exists. Parallel batches make the seams between them the orchestrator's problem,
+and no agent's.
+
+### The three batches added after the plan
+
+- **B4.6** — `DRAIN_TIER_LIMITS.weekly` carried B0.10's starvation defect and was
+  owned by no batch. Full B0.10-shaped fix: own key, own cap, `multiRound`.
+  Default `400` derived from a MEASURED 828-session corpus (162.6 eligible
+  sessions/week mean, 88.6 % in one workspace), not estimated.
+- **B4.7** — the user ruled that sweep (a) should get the LLM lane B4.2 was
+  authorised to use, and that sweep (c) should be workspace-scoped. Reused the
+  `synthesis` lane; no fifth lane id, so no new settings keys.
+- **B4.8** — made the B4.7 rewrite lane opt-in. See §6 and CONTINUATION §2.
+- **B4.9** — the two defects the post-completion reviews found: R5's stale-claim
+  guard was measuring against a constant its own comment said it would stop
+  using, and `enqueueGate`'s re-open + re-point spanned two transactions, so a
+  second host could claim between them and grade a superseded candidate. Both
+  fixed and mutation-tested. See CONTINUATION §8b.
 
 ---
 

@@ -18,12 +18,20 @@ unstarted batches.
 - **Use complete absolute Windows paths** for every Read/Write/Edit — known Claude Code bug with relative paths here.
 - `D:/projects/ptah-extension` is a **different worktree** on unrelated TUI work. Do not touch it. It also holds `TASK_2026_236`, which this worktree does not — **scan both when allocating a task id**, or you will burn one. **ID ALLOCATION IS BROKEN ACROSS WORKTREES — do not trust a folder scan.** Ids `237`–`241` were allocated on this branch AND independently in `D:/projects/ptah-extension` during the same session, for different tasks. This branch renumbered ITS carriers TWICE (237/238 → 240/241, then 239/240/241 → 242/243/244) because the other worktree's were real work. **The folder-scan rule in the root CLAUDE.md cannot work when two worktrees allocate concurrently** — any scan is stale the moment the other side commits. Until that is fixed: re-check BOTH worktrees immediately before committing a carrier, and expect to renumber anyway. **Confirmed again on 2026-08-15, live**: `TASK_2026_246` appeared in the main worktree at 19:11 while B3.5 was mid-flight, created by a concurrently running Ptah session. A scan taken minutes earlier had topped out at `244`. `245` and `247` are this task's; `246` is the other session's. **Next free across both is `248`** — and re-scan anyway, because that number can go stale while you are reading this sentence.
 
-## 2. Status: 34 of 37 — only B4.5, B5.2 and the weekly-cap decision remain
+## 2. Status: 40 of 40 — ALL BATCHES LANDED, REVIEWED, AND THE REVIEW FIXES SHIPPED.
 
-**Updated 2026-08-15 (late).** Phases 0-3 closed. Phase 4 is B4.1-B4.4 done,
-**B4.5 remaining**. Phase 5 is B5.1 done, **B5.2 remaining**.
+**Updated 2026-08-16.** Every phase is closed. The count moved 37 → 40: two of
+the user's four design rulings became real batches (B4.6, B4.7), a cross-batch
+defect found during verification became a third (B4.8), and the three
+post-completion reviews produced a fourth (B4.9).
 
 ```
+9aa14d3bf  B4.9  R5 guard reads lanes; re-open + re-point made atomic
+868da42d1  B4.8  digest rewrite lane is opt-in, never automatic
+a73facb7f  B5.2  tray e2e — quit parity, keep-alive, packaged icon   (closes C5)
+b4864bcea  B4.5  digest panel + nudges on the existing event push
+8c8e33ab8  B4.7  curator authoring lane + workspace-scoped win rate
+3251f41d1  B4.6  weekly drain tier gets its own item cap
 7c3c9bf7f  TASK_2026_247  permission abort scope + distinguishability
 a0eef370f  B4.1  migration 0037 + workspaceRoot + getWinRates()
 9c167fb14  docs  handoff re-baselined
@@ -32,6 +40,40 @@ dd54e65b7  B4.3  win rate → scorecard, enhancer, dormancy (nulls last)
 f4ba19b63  B5.1  Electron tray keep-alive
 5043c8ab5  B4.4  skillSynthesis:digest + AgentScorecard.winRate
 ```
+
+**B4.8 exists because two batches were each individually correct and wrong
+together, and only the orchestrator could see it.** B4.7 put an LLM call in
+`runDigest` on the strength of a batch-text claim that the drain's budget gate
+covered it — it does not, because `digest` has no registered handler and no
+producer, so `runDigest`'s only caller is the foreground RPC. Independently,
+B4.5 wired the UI to call that RPC automatically on four background event kinds
+and again on tab init. Neither agent could see the other half. **When batches are
+run in parallel, the interaction between them is nobody's ownership but yours.**
+
+**One live gap, deliberately left open:** nothing passes `allowRewrite: true`,
+because no explicit-refresh affordance exists on the digest panel. The authoring
+lane B4.7 built is therefore **dormant in production** — correct by default
+rather than by accident. Wiring a control is a product decision and its own
+batch. Do not "finish the wiring" without deciding whether the digest should
+have a user-triggered refresh at all.
+
+### A hazard this session hit that the previous one did not
+
+**A SECOND PTAH SESSION WAS COMMITTING INTO THIS WORKTREE, LIVE.** It landed
+`d8ff2bf75` on top of HEAD mid-verification, later `d9f0cf290` and three docs
+commits, and it created `TASK_2026_252` and `TASK_2026_254` while this session
+created `253`. Two consequences worth carrying:
+
+- **Its unfinished work blocked commits.** The pre-commit hook runs
+  `nx affected --target=lint` across ~70 projects, not just staged files, so two
+  `no-useless-escape` errors in ITS in-flight `vscode-lm-tools` edit rejected a
+  commit of files it had never touched. It cleared on its own minutes later.
+  **Re-run the lint on the offending project before concluding you are blocked**
+  — the window can close while you are drafting the question.
+- **Never leave files staged while another session is active.** `git commit`
+  commits the whole INDEX, so anything staged is swept into whatever commit that
+  session makes next. Unstage (`git reset`, which leaves the working tree alone)
+  if you have to pause.
 
 **Every one of those was verified by the orchestrator independently** — full
 suites re-run with the box idle, every mutation test re-run by hand, diffs read.
@@ -144,17 +186,46 @@ file before staging.**
 
 Re-measure before you claim a regression; these were all run with no agents writing.
 
-**CURRENT — full gate run by the orchestrator AFTER B4.4 + B5.1 (`5043c8ab5`),
-everything idle, no agent writing. Use these:**
+**CURRENT — full gate run by the orchestrator at `9aa14d3bf` (B4.9), everything
+idle, no agent writing. These supersede everything below. Use these:**
+
+```
+skill-synthesis     61 of 67  |  1230 passed, 37 skipped, 1267 total
+rpc-handlers        78 suites |  2110 passed, 31 skipped, 2141 total
+skill-synthesis-ui  23 suites |   328 passed,  0 skipped,  328 total
+platform-core       29 suites |   502 passed,  4 todo,     506 total
+persistence-sqlite  17 of 25  |   173 passed, 65 skipped,  238 total
+ptah-electron-e2e             |   135 passed, 13 skipped
+npm run typecheck:all                                  → 91 projects clean
+```
+
+**`ptah-electron-e2e` was run through the REAL `nx e2e` chain, not a workaround**
+— 21.9 minutes, exit 0, `+5 passed` over the `130 passed / 13 skipped` baseline,
+which is exactly B5.2's five specs. It matters that this one was measured in
+full: B5.2's own agent could only verify its specs standalone and correctly
+refused to claim the suite. **A note on how it nearly went unmeasured twice:**
+both that agent and the orchestrator piped the run through a buffering filter
+(`tail`, `Select-Object -Last N`), which writes nothing until the process exits,
+so an in-progress run is indistinguishable from a dead one. The agent killed a
+healthy run on that evidence and orphaned four Electron processes. **Run it
+unbuffered.**
+
+**THE RECORDED `platform-core` BASELINE WAS STALE BY 31 TESTS AND THIS COST AN
+AGENT TIME.** The `466 passed` figure below dates from `c699bca9f`; HEAD was
+already `497` before B4.6 added five. B4.6 proved it by stashing only its own two
+files and re-running. Nothing was dark — the number was simply old. **Re-measure
+every baseline at HEAD before handing one to an agent**, including the ones in
+this document, and including the ones you measured yourself two batches ago.
+
+Superseded, kept only to attribute a delta — measured after B4.4 + B5.1 at
+`5043c8ab5`:
 
 ```
 skill-synthesis     60 of 66  |  1190 passed, 37 skipped, 1227 total
 rpc-handlers        78 suites |  2106 passed, 31 skipped, 2137 total
-persistence-sqlite  17 of 25  |   173 passed, 65 skipped,  238 total
 agent-sdk           68 suites |   903 passed,  0 skipped,  903 total
 shared              32 suites |   762 passed,  0 skipped,  762 total
 ptah-electron       18 of 19  |   236 passed,  4 skipped,  242 total  ← 2 FAILED
-npm run typecheck:all                                  → 91 projects clean
 ```
 
 **`ptah-electron`'s 2 failures are REAL, PRE-EXISTING and now filed as
@@ -368,6 +439,41 @@ Also settled by the user this session:
   - B1.10 found the shared picker could not display a pinned provider → fixed in `9e42f9c81`.
 - **When an agent flags a decision that reinterprets an approved decision, surface it rather than deciding.** The `auth-unresolvable` ceiling was exactly this.
 
+## 8b. The three post-completion reviews — what they found, and what it cost
+
+Run at `868da42d1` after every batch had landed: `code-logic-reviewer`,
+`code-style-reviewer`, and a security pass. **Scoped to 335 files derived from
+this task's own 36 commits** (`git log --format=%H main..HEAD -- libs/backend/skill-synthesis apps/ptah-electron/src/services/tray libs/frontend/skill-synthesis-ui`),
+NOT the branch diff — `ak/tui-defects` is ~3300 files ahead of `main` and 85-90 %
+of that is unrelated. Scoping this way is the difference between three real
+findings and a hundred pages of noise.
+
+**Three findings across 335 files.** Two were fixed in B4.9; both are described
+in that commit. The third — `registerAnalyzeNow` returning raw `error.message`
+to the client where all 18 sibling handlers throw a generic `toUserError` — is
+**pre-existing on `main` (3 instances) and the user chose not to file it.**
+
+**Both reviewers corrected the orchestrator, and both were right.** The style
+reviewer corrected "21 of 22 `tsconfig.spec.json` arity errors" to 15 of 22 (one
+is enum drift, two are null/string, and four belong to `libs/frontend/editor`);
+that number had been passed on from a batch report without being checked. The
+security reviewer traced its own finding to `main` and said so rather than
+presenting a pre-existing issue as a regression. **Give reviewers the
+"do-not-re-open" list and the already-filed list** — both said explicitly that
+they went looking for what per-batch verification could not see, instead of
+restating design decisions, and that is why the output was three items and not
+thirty.
+
+**Found by B4.9 and NOT fixed — `SkillDrainService.reapStaleClaims` has no
+callers anywhere in the repo.** Verified: zero production callers, zero specs.
+Its own doc and `SkillQueueStore.reapStale`'s doc both claim
+`SkillSynthesisService.start()` calls it. It does not, and `assertStaleClaimTtl`
+carried the same false claim until B4.9 removed it. Reaping at the head of every
+drain (`skill-drain.service.ts:616`) does work, so the impact is bounded to a
+missing STARTUP reap — after a crash, orphaned claims wait for the next tick
+rather than being cleared at boot, which for the frequent tier is ≤15 minutes.
+Small, but it is dead code plus two lying comments.
+
 ## 9. Follow-ups filed, deliberately NOT in this task
 
 - **`TASK_2026_251`** — the two red Electron DI risk guards (R1/R2 token
@@ -375,7 +481,34 @@ Also settled by the user this session:
   thing to check first: whether the REAL bootstrap has the same ordering as the
   spec's container, because that decides whether the fix is a harness change or
   a bootstrap change.
-- **Decisions from B4.2/B4.4 the user should rule on, none of them blocking:**
+- **✅ ALL FOUR OPEN DESIGN CALLS WERE RULED ON BY THE USER 2026-08-16.** The
+  originals are kept below for the reasoning they record; the rulings are here.
+  Two of them became new batches, which is why the count moved 37 → 39.
+
+  | Call                           | Ruling                                                                          | Lands as                             |
+  | ------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------ |
+  | `DRAIN_TIER_LIMITS.weekly`     | **Full B0.10-shaped fix** — new `weeklyMaxItemsPerRun` key + `multiRound: true` | **B4.6** (new)                       |
+  | Sweep (a) writes pending       | **Provision an LLM lane for the curator** — do what B4.2 actually authorised    | **B4.7** part 1 (new)                |
+  | Digest mixes scopes            | **Scope sweep (c) to the workspace** — `getWinRates()` gains the predicate      | **B4.7** part 2 (new)                |
+  | B4.4's outbound Zod validation | **Keep it, scoped to this handler.** Do not spread it, do not revert it.        | doc note in `rpc-handlers/CLAUDE.md` |
+
+  Three consequences worth carrying forward:
+  - **B4.6 must not raise `perWorkspaceBatch`** — it stays `1` on every tier, for
+    the R4 reason B0.10 recorded. The weekly key is **file-settings only, off the
+    RPC wire**, exactly like `nightlyMaxItemsPerRun`. That makes the settings
+    panel's single "Max items per run" number false for TWO tiers now, not one —
+    append it to `TASK_2026_242`.
+  - **B4.7 reuses the `synthesis` lane and adds NO fifth lane id.** A new lane id
+    means ~8 new settings keys in `platform-core`, and `SkillCuratorService`
+    already runs its overlap pass on `synthesis` (`skill-curator.service.ts:264`).
+    The lane is injected `{isOptional: true}` with the verbatim-intent path kept
+    as the lane-less fallback, because `drain()` must never throw in a CLI host.
+  - **Sweep (a)'s conservative guarantees survive the LLM.** `updatePending` only,
+    never `insertPending`; `pending` rows only; idempotent. Those are the reason
+    the lane was approved, not incidental.
+
+- **Decisions from B4.2/B4.4 the user should rule on** — ✅ **ALL RULED ON, see
+  the table above.** Kept verbatim for the reasoning:
   - **Sweep (a) writes to pending suggestions.** The batch authorised a
     description rewrite through `SkillSuggestionStore.updatePending`, but no LLM
     lane is provisioned for the curator, so it appends the archaeologist's
