@@ -798,6 +798,91 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
     }
   });
 
+  it('emits prompt lifecycle events with the raw routing hint: requested (unroutable, 60s) then resolved timed-out (TASK_2026_271 #1)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler } = makeHandler();
+      const seen: Array<Record<string, unknown>> = [];
+      const unsubscribe = handler.onPromptLifecycle((e) => {
+        seen.push(e as unknown as Record<string, unknown>);
+      });
+      const callback = handler.createCallback(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'gw-conv-9',
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Write',
+        { file_path: '/tmp/a', content: 'x' },
+        { signal: ac.signal, toolUseID: 'tool-lc' },
+      );
+      await flushMicrotasks();
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({
+        phase: 'requested',
+        routingHint: 'gw-conv-9',
+        toolName: 'Write',
+        routable: false,
+        timeoutMs: 60_000,
+      });
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      await pending;
+
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).toMatchObject({
+        phase: 'resolved',
+        routingHint: 'gw-conv-9',
+        toolName: 'Write',
+        outcome: 'timed-out',
+      });
+      expect(seen[1]['requestId']).toBe(seen[0]['requestId']);
+
+      unsubscribe();
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a routable prompt answered allow emits requested (routable, no timeout) then resolved allowed', async () => {
+    const { handler, sent } = makeHandler();
+    const seen: Array<Record<string, unknown>> = [];
+    handler.onPromptLifecycle((e) => {
+      seen.push(e as unknown as Record<string, unknown>);
+    });
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(
+      asSessionId(TAB_ID),
+      undefined,
+      asTabId(TAB_ID),
+      undefined,
+      TAB_ID,
+    );
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-lc2' },
+    );
+    await flushMicrotasks();
+    const requestId = (
+      sent.find((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST)!
+        .payload as unknown as PermissionRequestPayload
+    ).id;
+    expect(seen[0]).toMatchObject({ phase: 'requested', routable: true });
+    expect(seen[0]['timeoutMs']).toBeUndefined();
+
+    handler.handleResponse(requestId, { id: requestId, decision: 'allow' });
+    await pending;
+    expect(seen[1]).toMatchObject({ phase: 'resolved', outcome: 'allowed' });
+  });
+
   it('routed request (valid UUID sessionId) is NEVER auto-denied — no timer armed, still pending past 60s+', async () => {
     jest.useFakeTimers();
     try {

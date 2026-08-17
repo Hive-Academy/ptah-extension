@@ -91,10 +91,19 @@ lost, `bf55272c2` 2000-char truncation). This task closes the rest of the class.
    `discord.adapter.spec.ts`, 3 in `gateway.service.spec.ts`. Not done:
    Telegram/Slack transport events (grammy / bolt expose fewer; follow-up),
    periodic heartbeat probe.
-3. #1 — either a real approval surface for gateway turns (Discord button /
-   reply through the pending-response registry) or an interim "waiting on
-   approval for X … denied" outbound message plus a shorter timeout; add a
-   typing/ack signal in `IMessagingAdapter`.
+3. **DONE (notice path) 2026-08-17** — #1. `SdkPermissionHandler` now emits
+   `PermissionPromptLifecycleEvent` (`requested` / `resolved` with
+   `routingHint` = raw tab id, `routable`, `timeoutMs`, `outcome`) via
+   `onPromptLifecycle`; `SdkQueryOptionsBuilder` passes the raw
+   `sessionConfig.tabId` as the hint. `GatewayChatBridge` subscribes and, for
+   the running `gw-*` turn, sends `gateway.sendNotice` ("needs approval to
+   run `Write`… within 60s… or set gateway.permissionLevel") and on
+   `timed-out` ("No approval arrived… skipped"). Bypasses the coalescer.
+   Specs: 2 in `sdk-permission-handler.spec.ts`, 1 in bridge spec.
+   **Deliberately NOT done**: a Discord-side approve button. TASK_2026_192
+   decided remote chat must not approve local writes; revisit only as its
+   own security-reviewed task. Also not done: typing/ack indicator (needs
+   `IMessagingAdapter.sendTyping?` — follow-up).
 4. #7 — push last-turn outcome/error through `GatewayStatusChangedPayload`.
 5. #6, #8, medium/low as follow-ups.
 

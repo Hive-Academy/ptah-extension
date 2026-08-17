@@ -59,6 +59,8 @@ import { ExitPlanModeService } from './permission/exit-plan-mode.service';
  */
 type InternalPermissionResponse = PermissionResponse & {
   readonly systemAbort?: true;
+  /** Set only by the unroutable deny-window timer. */
+  readonly timedOut?: true;
 };
 
 interface PendingRequest {
@@ -75,12 +77,45 @@ interface PendingRequest {
  */
 const UNROUTABLE_PERMISSION_TIMEOUT_MS = 60_000;
 
+/**
+ * Lifecycle of one user-facing permission prompt, observed out-of-band by
+ * hosts that own a surface the webview cannot reach — the messaging gateway
+ * tells the Discord user "Ptah is waiting for approval in the desktop app"
+ * instead of going silent for the deny window (TASK_2026_271 #1).
+ * `routingHint` is the caller's raw tab id (e.g. `gw-<conversationId>`) even
+ * when it is not a UUID and therefore not a routable webview surface.
+ */
+export type PermissionPromptLifecycleEvent =
+  | {
+      readonly phase: 'requested';
+      readonly requestId: string;
+      readonly routingHint?: string;
+      readonly toolName: string;
+      readonly description: string;
+      readonly routable: boolean;
+      /** Deny window in ms; `undefined` when the prompt waits indefinitely. */
+      readonly timeoutMs?: number;
+    }
+  | {
+      readonly phase: 'resolved';
+      readonly requestId: string;
+      readonly routingHint?: string;
+      readonly toolName: string;
+      readonly outcome: 'allowed' | 'denied' | 'timed-out' | 'aborted';
+    };
+
+export type PermissionPromptLifecycleListener = (
+  event: PermissionPromptLifecycleEvent,
+) => void;
+
 @injectable()
 export class SdkPermissionHandler implements ISdkPermissionHandler {
   private _permissionLevel: PermissionLevel = 'ask';
 
   private pendingRequests = new Map<string, PendingRequest>();
   private readonly ruleStore: PermissionRuleStore;
+  private readonly lifecycleListeners =
+    new Set<PermissionPromptLifecycleListener>();
 
   private pendingRequestContext = new Map<
     string,
@@ -129,6 +164,31 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   getPermissionLevel(): PermissionLevel {
     return this._permissionLevel;
+  }
+
+  /**
+   * Observe permission prompts as they are raised and settled. Returns the
+   * unsubscribe function. Listeners must not throw; a throwing listener is
+   * logged and never blocks the prompt.
+   */
+  onPromptLifecycle(listener: PermissionPromptLifecycleListener): () => void {
+    this.lifecycleListeners.add(listener);
+    return () => {
+      this.lifecycleListeners.delete(listener);
+    };
+  }
+
+  private emitLifecycle(event: PermissionPromptLifecycleEvent): void {
+    for (const listener of this.lifecycleListeners) {
+      try {
+        listener(event);
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[SdkPermissionHandler] prompt lifecycle listener threw',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+      }
+    }
   }
 
   private initializePermissionEmitter(): void {
@@ -291,7 +351,29 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
      * CLI-agent path omits it and falls back to the global default.
      */
     levelResolver?: () => PermissionLevel,
+    /**
+     * Raw routing id of the caller (its tab id, UUID or not). Carried onto the
+     * prompt lifecycle events so out-of-band observers can match prompts to
+     * their own conversations even when the id is not a routable surface.
+     */
+    routingHint?: string,
   ): CanUseTool {
+    const requestUserPermission = (
+      toolName: string,
+      input: Record<string, unknown>,
+      options: { toolUseID: string; agentID?: string; signal: AbortSignal },
+    ): Promise<PermissionResult> =>
+      this.requestUserPermission(
+        toolName,
+        input,
+        options.toolUseID,
+        sessionId,
+        options.agentID,
+        options.signal,
+        cliAgentResolver,
+        tabId,
+        routingHint,
+      );
     return async (
       toolName: string,
       input: Record<string, unknown>,
@@ -438,32 +520,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for dangerous tool: ${toolName}`,
         );
-        return await this.requestUserPermission(
-          toolName,
-          input,
-          options.toolUseID,
-          sessionId,
-          options.agentID,
-          options.signal,
-          cliAgentResolver,
-          tabId,
-        );
+        return await requestUserPermission(toolName, input, options);
       }
 
       if (NETWORK_TOOLS.includes(toolName)) {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for network tool: ${toolName}`,
         );
-        return await this.requestUserPermission(
-          toolName,
-          input,
-          options.toolUseID,
-          sessionId,
-          options.agentID,
-          options.signal,
-          cliAgentResolver,
-          tabId,
-        );
+        return await requestUserPermission(toolName, input, options);
       }
 
       if (SUBAGENT_TOOLS.includes(toolName)) {
@@ -480,31 +544,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for MCP tool: ${toolName}`,
         );
-        return await this.requestUserPermission(
-          toolName,
-          input,
-          options.toolUseID,
-          sessionId,
-          options.agentID,
-          options.signal,
-          cliAgentResolver,
-          tabId,
-        );
+        return await requestUserPermission(toolName, input, options);
       }
 
       this.logger.warn(
         `[SdkPermissionHandler] Unknown tool encountered, requesting user permission: ${toolName}`,
       );
-      return await this.requestUserPermission(
-        toolName,
-        input,
-        options.toolUseID,
-        sessionId,
-        options.agentID,
-        options.signal,
-        cliAgentResolver,
-        tabId,
-      );
+      return await requestUserPermission(toolName, input, options);
     };
   }
 
@@ -535,6 +581,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     signal?: AbortSignal,
     cliAgentResolver?: () => string | undefined,
     tabId?: TabId,
+    routingHint?: string,
   ): Promise<PermissionResult> {
     const startTime = Date.now();
 
@@ -551,6 +598,16 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       : startTime + UNROUTABLE_PERMISSION_TIMEOUT_MS;
 
     const description = generateDescription(toolName, sanitizedInput);
+
+    this.emitLifecycle({
+      phase: 'requested',
+      requestId,
+      routingHint,
+      toolName,
+      description,
+      routable: isRoutable,
+      timeoutMs: isRoutable ? undefined : UNROUTABLE_PERMISSION_TIMEOUT_MS,
+    });
 
     let agentToolCallId: string | undefined;
     if (agentID) {
@@ -614,6 +671,22 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       requestId,
       totalLatency: Date.now() - startTime,
       decision: response?.decision ?? 'aborted',
+    });
+
+    this.emitLifecycle({
+      phase: 'resolved',
+      requestId,
+      routingHint,
+      toolName,
+      outcome: !response
+        ? 'aborted'
+        : response.decision === 'allow' || response.decision === 'always_allow'
+          ? 'allowed'
+          : response.timedOut
+            ? 'timed-out'
+            : response.systemAbort
+              ? 'aborted'
+              : 'denied',
     });
 
     if (!response) {
@@ -862,6 +935,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             id: requestId,
             decision: 'deny',
             systemAbort: true,
+            timedOut: true,
             reason: `Permission request timed out after ${timeoutMs}ms with no UI surface to route it to (unroutable request) — denying to prevent a permanent hang.`,
           });
         }, timeoutMs);

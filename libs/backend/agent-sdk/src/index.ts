@@ -32,6 +32,10 @@ export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter'
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
+export type {
+  PermissionPromptLifecycleEvent,
+  PermissionPromptLifecycleListener,
+} from './lib/sdk-permission-handler';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';

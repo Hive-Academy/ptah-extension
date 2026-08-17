@@ -56,7 +56,9 @@ import {
 import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SDK_TOKENS,
+  type PermissionPromptLifecycleEvent,
   type PluginLoaderService,
+  type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import {
   AGENT_GENERATION_TOKENS,
@@ -88,6 +90,28 @@ const WORKSPACE_UNAVAILABLE_MESSAGE =
  */
 const DELIVERY_FAILED_MESSAGE =
   'Ptah finished this request but could not deliver the reply here. Please try again.';
+
+/** Prefix of the tab id every gateway turn runs under (`gw-<conversationId>`). */
+const GATEWAY_TAB_PREFIX = 'gw-';
+
+/**
+ * Out-of-band notices for permission prompts (TASK_2026_271 #1). At the
+ * default `'ask'` level a gateway turn cannot render an approval prompt on the
+ * chat platform; the prompt goes to the local Ptah window with a deny window.
+ * Before these notices the chat user saw nothing for the whole window and then
+ * a reply that quietly skipped the tool.
+ */
+function approvalRequestedNotice(toolName: string, timeoutMs?: number): string {
+  const window = timeoutMs ? ` within ${Math.round(timeoutMs / 1000)}s` : '';
+  return (
+    `Ptah needs approval to run \`${toolName}\`. Approve it in the Ptah desktop app${window}, ` +
+    `or set gateway.permissionLevel to auto-edit/yolo to allow it from chat.`
+  );
+}
+
+function approvalTimedOutNotice(toolName: string): string {
+  return `No approval arrived for \`${toolName}\` — Ptah skipped it and is continuing without it.`;
+}
 
 /**
  * Settings key (under the `ptah` section) for the gateway inbound permission
@@ -140,6 +164,9 @@ interface TurnCancellation {
 export class GatewayChatBridge {
   private readonly queue = new ConversationQueue();
   private listener: ((event: GatewayInboundEvent) => void) | null = null;
+  private unsubscribePrompts: (() => void) | null = null;
+  /** Route of the turn currently running under each `gw-*` tab id. */
+  private readonly activeRoutes = new Map<string, OutboundRoute>();
   private stopped = false;
 
   constructor(
@@ -162,6 +189,8 @@ export class GatewayChatBridge {
     private readonly pluginLoader: PluginLoaderService,
     @inject(GATEWAY_TOKENS.GATEWAY_TURN_TRACKER)
     private readonly turnTracker: ConversationTurnTracker,
+    @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+    private readonly permissionHandler: SdkPermissionHandler,
   ) {}
 
   start(): void {
@@ -172,6 +201,9 @@ export class GatewayChatBridge {
     };
     this.listener = listener;
     this.gateway.on('inbound', listener);
+    this.unsubscribePrompts = this.permissionHandler.onPromptLifecycle(
+      (event) => this.onPermissionPrompt(event),
+    );
     this.logger.info('[gateway-chat-bridge] subscribed to inbound events');
   }
 
@@ -181,7 +213,38 @@ export class GatewayChatBridge {
       this.gateway.off('inbound', this.listener);
       this.listener = null;
     }
+    this.unsubscribePrompts?.();
+    this.unsubscribePrompts = null;
     this.logger.info('[gateway-chat-bridge] unsubscribed from inbound events');
+  }
+
+  /**
+   * Relay permission-prompt lifecycle to the chat user for the turn that
+   * raised it. Only `gw-*` hints belong to us; only the unroutable case (the
+   * one with a deny window) is worth a notice — a routable prompt has a real
+   * surface and no timeout. Notices bypass the coalescer so the turn's own
+   * reply is unaffected; a failed notice is logged, never fatal.
+   */
+  private onPermissionPrompt(event: PermissionPromptLifecycleEvent): void {
+    if (!event.routingHint?.startsWith(GATEWAY_TAB_PREFIX)) return;
+    const route = this.activeRoutes.get(event.routingHint);
+    if (!route) return;
+    let text: string | null = null;
+    if (event.phase === 'requested' && !event.routable) {
+      text = approvalRequestedNotice(event.toolName, event.timeoutMs);
+    } else if (event.phase === 'resolved' && event.outcome === 'timed-out') {
+      text = approvalTimedOutNotice(event.toolName);
+    }
+    if (!text) return;
+    void this.gateway.sendNotice(route, text).catch((error: unknown) => {
+      this.logger.warn(
+        '[gateway-chat-bridge] permission notice not delivered',
+        {
+          toolName: event.toolName,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    });
   }
 
   private onInbound(event: GatewayInboundEvent): void {
@@ -237,7 +300,8 @@ export class GatewayChatBridge {
       await this.gateway.completeOutboundTurn(route.conversationKey);
     };
 
-    const tabId = `gw-${conversation.id}`;
+    const tabId = `${GATEWAY_TAB_PREFIX}${conversation.id}`;
+    this.activeRoutes.set(tabId, route);
     let sessionToEnd: string | null = conversation.ptahSessionId ?? null;
 
     const sdkContext = await this.resolveSdkContext(workspaceRoot);
@@ -340,6 +404,7 @@ export class GatewayChatBridge {
       if (watchdogTimer) {
         clearTimeout(watchdogTimer);
       }
+      this.activeRoutes.delete(tabId);
       await sealTurn().catch(async (sealErr: unknown) => {
         // The reply was generated but the platform rejected it (deleted
         // channel, revoked permission, network). The buffer is already reset

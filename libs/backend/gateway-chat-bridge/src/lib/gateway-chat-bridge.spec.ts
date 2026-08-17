@@ -69,6 +69,7 @@ import type {
   FlatStreamEventUnion,
   IAgentAdapter,
 } from '@ptah-extension/shared';
+import type { PermissionPromptLifecycleEvent } from '@ptah-extension/agent-sdk';
 
 function createLogger(): Logger {
   return {
@@ -87,6 +88,27 @@ class FakeGateway extends EventEmitter {
   completeOutboundTurn = jest.fn<Promise<void>, [ConversationKey]>(async () => {
     /* no-op */
   });
+  sendNotice = jest.fn<Promise<void>, [OutboundRoute, string]>(async () => {
+    /* no-op */
+  });
+}
+
+/** Captures the bridge's prompt-lifecycle listener so specs can fire events. */
+class FakePermissionHandler {
+  listener: ((e: PermissionPromptLifecycleEvent) => void) | null = null;
+  unsubscribed = 0;
+  onPromptLifecycle = jest.fn(
+    (l: (e: PermissionPromptLifecycleEvent) => void): (() => void) => {
+      this.listener = l;
+      return () => {
+        this.unsubscribed += 1;
+        this.listener = null;
+      };
+    },
+  );
+  fire(e: PermissionPromptLifecycleEvent): void {
+    this.listener?.(e);
+  }
 }
 
 function makeBinding(
@@ -245,6 +267,7 @@ interface Harness {
     getWorkspacePluginConfig: jest.Mock;
     resolvePluginPaths: jest.Mock;
   };
+  permissionHandler: FakePermissionHandler;
 }
 
 function setup(options?: {
@@ -320,6 +343,7 @@ function setup(options?: {
       .fn()
       .mockReturnValue(options?.resolvedPluginPaths ?? []),
   };
+  const permissionHandler = new FakePermissionHandler();
 
   const ctorArgs = [
     createLogger(),
@@ -332,6 +356,7 @@ function setup(options?: {
     enhancedPromptsService,
     pluginLoader,
     turnTracker,
+    permissionHandler,
   ] as unknown as ConstructorParameters<typeof GatewayChatBridge>;
   const bridge = new GatewayChatBridge(...ctorArgs);
   return {
@@ -345,6 +370,7 @@ function setup(options?: {
     codeExecutionMcp,
     enhancedPromptsService,
     pluginLoader,
+    permissionHandler,
   };
 }
 
@@ -443,6 +469,83 @@ describe('GatewayChatBridge', () => {
     );
     expect(errorAppend?.[0].conversationKey).toBe(key);
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+  });
+
+  it('relays unroutable permission prompts to the chat user mid-turn (TASK_2026_271 #1)', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { id: 'conv-7' });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    h.adapter.startChatSession.mockResolvedValue(
+      gatedStream(gate, [textDelta(SDK_UUID, 'ok'), messageComplete(SDK_UUID)]),
+    );
+
+    h.bridge.start();
+    expect(h.permissionHandler.onPromptLifecycle).toHaveBeenCalledTimes(1);
+    h.gateway.emit('inbound', makeEvent(binding, 'write it', { conversation }));
+    await flushUntil(() => h.adapter.startChatSession.mock.calls.length > 0);
+
+    // Mid-turn: the SDK asks for Write, unroutable, 60s deny window.
+    h.permissionHandler.fire({
+      phase: 'requested',
+      requestId: 'r1',
+      routingHint: 'gw-conv-7',
+      toolName: 'Write',
+      description: 'Write /ws/proj/a.ts',
+      routable: false,
+      timeoutMs: 60_000,
+    });
+    // A routable prompt (real webview surface) is not our business.
+    h.permissionHandler.fire({
+      phase: 'requested',
+      requestId: 'r2',
+      routingHint: 'some-uuid-tab',
+      toolName: 'Bash',
+      description: 'ls',
+      routable: true,
+    });
+    h.permissionHandler.fire({
+      phase: 'resolved',
+      requestId: 'r1',
+      routingHint: 'gw-conv-7',
+      toolName: 'Write',
+      outcome: 'timed-out',
+    });
+    await flushUntil(() => h.gateway.sendNotice.mock.calls.length >= 2);
+
+    const notices = h.gateway.sendNotice.mock.calls.map(([, t]) => t);
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toContain('needs approval to run `Write`');
+    expect(notices[0]).toContain('within 60s');
+    expect(notices[1]).toContain('No approval arrived for `Write`');
+    // Notices bypass the coalescer — the reply buffer is untouched by them.
+    expect(h.gateway.appendOutboundChunk).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('approval'),
+    );
+
+    release();
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+    // After the turn the route is gone: a stray late event sends nothing.
+    h.permissionHandler.fire({
+      phase: 'requested',
+      requestId: 'r3',
+      routingHint: 'gw-conv-7',
+      toolName: 'Bash',
+      description: 'late',
+      routable: false,
+      timeoutMs: 60_000,
+    });
+    await flushUntil(() => false, 3);
+    expect(h.gateway.sendNotice).toHaveBeenCalledTimes(2);
+
+    h.bridge.stop();
+    expect(h.permissionHandler.unsubscribed).toBe(1);
   });
 
   it('includes conversationId in the outbound route for threaded inbound', async () => {

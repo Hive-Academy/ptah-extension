@@ -811,6 +811,26 @@ export class GatewayService extends EventEmitter {
     this.coalescer.append(route, chunk);
   }
 
+  /**
+   * Send a short out-of-band notice ("waiting for approval…") straight to
+   * the platform, bypassing the coalescer so the turn's accumulating reply
+   * is neither flushed early nor polluted. Not persisted as an outbound
+   * message row. Throws on delivery failure so the caller can decide.
+   */
+  async sendNotice(route: OutboundRoute, text: string): Promise<void> {
+    const adapter = this.adapters.get(route.platform);
+    if (!adapter) {
+      throw new Error(`gateway: no adapter for platform ${route.platform}`);
+    }
+    await adapter.sendMessage(
+      route.externalChatId,
+      text,
+      route.conversationId !== undefined
+        ? { conversationId: route.conversationId }
+        : undefined,
+    );
+  }
+
   async drainOutbound(conversationKey: ConversationKey): Promise<void> {
     try {
       await this.coalescer?.drain(conversationKey);

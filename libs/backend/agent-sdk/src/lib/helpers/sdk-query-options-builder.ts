@@ -673,6 +673,7 @@ export class SdkQueryOptionsBuilder {
         undefined,
         routingTabId ?? undefined,
         permissionLevelResolver,
+        sessionConfig?.tabId,
       );
     const hooks = this.createHooks(
       cwd,
