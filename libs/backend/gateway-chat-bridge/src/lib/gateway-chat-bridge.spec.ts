@@ -61,6 +61,8 @@ import {
   type GatewayConversationId,
   type GatewayInboundEvent,
   type GatewayService,
+  type GatewayTurnState,
+  type InterruptedInboundConversation,
   type OutboundRoute,
 } from '@ptah-extension/messaging-gateway';
 
@@ -99,6 +101,10 @@ class FakeGateway extends EventEmitter {
     void,
     [string, { ok: true } | { ok: false; reason: string }]
   >();
+  markInboundTurnState = jest.fn<void, [string, GatewayTurnState]>();
+  claimInterruptedInboundTurns = jest.fn<InterruptedInboundConversation[], []>(
+    () => [],
+  );
 }
 
 /** Captures the bridge's prompt-lifecycle listener so specs can fire events. */
@@ -161,12 +167,17 @@ function makeConversation(
 function makeEvent(
   binding: GatewayBinding,
   body: string,
-  opts: { conversation?: GatewayConversation; conversationId?: string } = {},
+  opts: {
+    conversation?: GatewayConversation;
+    conversationId?: string;
+    messageId?: string;
+  } = {},
 ): GatewayInboundEvent {
   const conversation = opts.conversation ?? makeConversation(binding);
   return {
     binding,
     conversation,
+    messageId: opts.messageId ?? 'gwmsg-1',
     message: {
       platform: binding.platform,
       externalChatId: binding.externalChatId,
@@ -1978,5 +1989,234 @@ describe('GatewayChatBridge — typing indicator (TASK_2026_271)', () => {
 
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
     expect(h.gateway.sendTyping).not.toHaveBeenCalled();
+  });
+});
+
+const INTERRUPTED_NOTICE =
+  'Ptah restarted while working on your last message. Please send it again.';
+
+describe('GatewayChatBridge — inbound turn state (TASK_2026_277)', () => {
+  /** Advance zero-length ticks until `predicate` (fake-timer specs only). */
+  async function settle(predicate: () => boolean, ticks = 10): Promise<void> {
+    for (let i = 0; i < ticks && !predicate(); i++) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("marks the row 'running' at turn start and 'done' in the finally", async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'hello', { messageId: 'gwmsg-7' }),
+    );
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.markInboundTurnState.mock.calls).toEqual([
+      ['gwmsg-7', 'running'],
+      ['gwmsg-7', 'done'],
+    ]);
+  });
+
+  it("marks 'failed' when the agent turn throws", async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockRejectedValue(new Error('sdk exploded'));
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'hello', { messageId: 'gwmsg-7' }),
+    );
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.markInboundTurnState).toHaveBeenLastCalledWith(
+      'gwmsg-7',
+      'failed',
+    );
+  });
+
+  it("marks 'failed' when the turn fails closed on workspace resolution", async () => {
+    const h = setup({ workspaceRoot: null });
+    const binding = makeBinding({ workspaceRoot: null });
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'hello', { messageId: 'gwmsg-7' }),
+    );
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    // A turn that never reached the SDK still leaves a terminal state, or the
+    // next boot would tell the user to resend a message that WAS answered.
+    expect(h.gateway.markInboundTurnState.mock.calls).toEqual([
+      ['gwmsg-7', 'running'],
+      ['gwmsg-7', 'failed'],
+    ]);
+  });
+
+  it("marks 'failed' when the watchdog force-terminates the turn", async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        await new Promise<void>(() => {
+          /* never resolves */
+        });
+        yield textDelta(SDK_UUID, 'unreachable');
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'hangs', { messageId: 'gwmsg-7' }),
+    );
+    await jest.advanceTimersByTimeAsync(10 * 60_000); // TURN_WATCHDOG_MS
+    await settle(() => h.gateway.completeOutboundTurn.mock.calls.length > 0);
+
+    expect(h.gateway.markInboundTurnState).toHaveBeenLastCalledWith(
+      'gwmsg-7',
+      'failed',
+    );
+  });
+});
+
+describe('GatewayChatBridge.start — interrupted-turn recovery (TASK_2026_277)', () => {
+  function routeFor(
+    conversationId?: string,
+  ): InterruptedInboundConversation['route'] {
+    return {
+      conversationKey: ConversationKey.for(
+        'telegram',
+        'chat-1',
+        conversationId,
+      ),
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      ...(conversationId !== undefined ? { conversationId } : {}),
+    };
+  }
+
+  it('sends exactly one notice per interrupted conversation and starts no turn', async () => {
+    const h = setup();
+    h.gateway.claimInterruptedInboundTurns.mockReturnValue([
+      { route: routeFor(), messageCount: 3 },
+      { route: routeFor('thread-9'), messageCount: 1 },
+    ]);
+
+    h.bridge.start();
+    await flushUntil(() => h.gateway.sendNotice.mock.calls.length >= 2);
+
+    expect(h.gateway.sendNotice).toHaveBeenCalledTimes(2);
+    expect(h.gateway.sendNotice).toHaveBeenNthCalledWith(
+      1,
+      routeFor(),
+      INTERRUPTED_NOTICE,
+    );
+    expect(h.gateway.sendNotice).toHaveBeenNthCalledWith(
+      2,
+      routeFor('thread-9'),
+      INTERRUPTED_NOTICE,
+    );
+    // NEVER replay: a dead turn may already have run Write/Bash.
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+    expect(h.gateway.appendOutboundChunk).not.toHaveBeenCalled();
+    expect(h.gateway.completeOutboundTurn).not.toHaveBeenCalled();
+  });
+
+  it('sends the exact resend wording', async () => {
+    const h = setup();
+    h.gateway.claimInterruptedInboundTurns.mockReturnValue([
+      { route: routeFor(), messageCount: 1 },
+    ]);
+
+    h.bridge.start();
+    await flushUntil(() => h.gateway.sendNotice.mock.calls.length > 0);
+
+    expect(h.gateway.sendNotice.mock.calls[0][1]).toBe(
+      'Ptah restarted while working on your last message. Please send it again.',
+    );
+  });
+
+  it('does nothing when there was nothing in flight', async () => {
+    const h = setup();
+    h.gateway.claimInterruptedInboundTurns.mockReturnValue([]);
+
+    h.bridge.start();
+    await flushUntil(() => false, 3);
+
+    expect(h.gateway.sendNotice).not.toHaveBeenCalled();
+  });
+
+  it('keeps going — and never throws out of start() — when a notice fails to send', async () => {
+    const h = setup();
+    h.gateway.claimInterruptedInboundTurns.mockReturnValue([
+      { route: routeFor('thread-a'), messageCount: 1 },
+      { route: routeFor('thread-b'), messageCount: 1 },
+    ]);
+    h.gateway.sendNotice.mockRejectedValueOnce(new Error('Unknown Channel'));
+
+    expect(() => h.bridge.start()).not.toThrow();
+    await flushUntil(() => h.gateway.sendNotice.mock.calls.length >= 2);
+
+    // The rows are already claimed by `claimInterruptedInboundTurns`, so the
+    // failed notice is lost rather than retried — and the second conversation
+    // is still told.
+    expect(h.gateway.sendNotice).toHaveBeenCalledTimes(2);
+  });
+
+  it('survives a claim that throws, and still subscribes to inbound', async () => {
+    const h = setup();
+    h.gateway.claimInterruptedInboundTurns.mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    expect(() => h.bridge.start()).not.toThrow();
+    h.gateway.emit('inbound', makeEvent(binding, 'still works'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.sendNotice).not.toHaveBeenCalled();
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sweep again on a second start() while already subscribed', async () => {
+    const h = setup();
+    h.gateway.claimInterruptedInboundTurns.mockReturnValue([
+      { route: routeFor(), messageCount: 1 },
+    ]);
+
+    h.bridge.start();
+    h.bridge.start();
+    await flushUntil(() => h.gateway.sendNotice.mock.calls.length > 0);
+
+    expect(h.gateway.claimInterruptedInboundTurns).toHaveBeenCalledTimes(1);
   });
 });

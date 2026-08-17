@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_277
-status: backlog
+status: in_review
 type: feature
 title: >-
   Gateway inbound survives an Electron restart mid-turn

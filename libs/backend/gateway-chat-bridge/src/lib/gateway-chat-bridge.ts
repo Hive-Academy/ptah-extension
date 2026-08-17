@@ -41,6 +41,7 @@ import {
   type GatewayConversation,
   type GatewayInboundEvent,
   type GatewayService,
+  type InterruptedInboundConversation,
   type OutboundRoute,
 } from '@ptah-extension/messaging-gateway';
 import {
@@ -99,6 +100,19 @@ const WORKSPACE_UNAVAILABLE_MESSAGE =
  */
 const DELIVERY_FAILED_MESSAGE =
   'Ptah finished this request but could not deliver the reply here. Please try again.';
+
+/**
+ * Sent once per conversation on the first `start()` after the host process died
+ * mid-turn (TASK_2026_277).
+ *
+ * It asks for a resend instead of replaying. A gateway turn at `auto-edit` or
+ * `yolo` may already have run `Write`/`Bash` before the process went down, and
+ * re-running the same prompt from the top would repeat those side effects with
+ * no idempotency guarantee. The watchdog path already established the safe
+ * shape: stop, tell the user, let them decide.
+ */
+const INTERRUPTED_TURN_MESSAGE =
+  'Ptah restarted while working on your last message. Please send it again.';
 
 /** Prefix of the tab id every gateway turn runs under (`gw-<conversationId>`). */
 const GATEWAY_TAB_PREFIX = 'gw-';
@@ -214,6 +228,60 @@ export class GatewayChatBridge {
       (event) => this.onPermissionPrompt(event),
     );
     this.logger.info('[gateway-chat-bridge] subscribed to inbound events');
+    // Deliberately not awaited: `start()` is called during host activation and
+    // must not be gated on a chat platform's round-trip. `notifyInterrupted`
+    // owns every failure internally, so nothing here can reject.
+    void this.notifyInterrupted();
+  }
+
+  /**
+   * Tell each conversation whose turn died with the previous process that it
+   * needs to resend (TASK_2026_277).
+   *
+   * `claimInterruptedInboundTurns` has already moved the rows to
+   * `'interrupted'` by the time it returns, so a notice that fails to send is
+   * lost rather than retried — which is the intended trade. Retrying forever
+   * would mean every subsequent boot re-notifying a channel that may have been
+   * deleted, and the rows would never leave the sweep.
+   *
+   * NO agent turn is started here for any interrupted row.
+   */
+  private async notifyInterrupted(): Promise<void> {
+    let interrupted: readonly InterruptedInboundConversation[] = [];
+    try {
+      interrupted = this.gateway.claimInterruptedInboundTurns();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[gateway-chat-bridge] could not claim interrupted turns',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return;
+    }
+    if (interrupted.length === 0) return;
+
+    this.logger.info(
+      '[gateway-chat-bridge] notifying conversations interrupted by a restart',
+      {
+        conversations: interrupted.length,
+        messages: interrupted.reduce((sum, i) => sum + i.messageCount, 0),
+      },
+    );
+    for (const { route } of interrupted) {
+      // One notice per conversation, however many of its messages were caught
+      // mid-flight — a burst of five would otherwise produce five identical
+      // "please resend" lines.
+      await this.gateway
+        .sendNotice(route, INTERRUPTED_TURN_MESSAGE)
+        .catch((error: unknown) => {
+          this.logger.warn(
+            '[gateway-chat-bridge] interrupted-turn notice not delivered',
+            {
+              platform: route.platform,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        });
+    }
   }
 
   stop(): void {
@@ -276,6 +344,12 @@ export class GatewayChatBridge {
     const route = this.resolveRoute(event);
     const body = event.message.body;
 
+    // The row leaves `'queued'` the moment the turn actually begins, so a crash
+    // from here on is recoverable as `'interrupted'` (TASK_2026_277). Every
+    // path out of this method below marks a terminal state.
+    const messageId = event.messageId;
+    this.gateway.markInboundTurnState(messageId, 'running');
+
     const resolved = resolveEffectiveWorkspaceRoot({
       conversationRoot: conversation.workspaceRoot,
       bindingRoot: binding.workspaceRoot,
@@ -288,10 +362,12 @@ export class GatewayChatBridge {
           ? WORKSPACE_UNAVAILABLE_MESSAGE
           : 'No workspace is open in Ptah. Open a project folder, then try again.',
       );
+      this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     if (!(await this.workspaceRootExists(resolved.root))) {
       await this.sendError(route, WORKSPACE_UNAVAILABLE_MESSAGE);
+      this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     const workspaceRoot = resolved.root;
@@ -332,6 +408,7 @@ export class GatewayChatBridge {
     } catch (error: unknown) {
       stopTyping();
       this.activeRoutes.delete(tabId);
+      this.gateway.markInboundTurnState(messageId, 'failed');
       throw error;
     }
 
@@ -471,6 +548,12 @@ export class GatewayChatBridge {
         turnFailure === null
           ? { ok: true }
           : { ok: false, reason: turnFailure },
+      );
+      // Same `finally`, same verdict as `recordTurnOutcome`: one turn lifecycle,
+      // not two. Once this lands the row can never be swept as interrupted.
+      this.gateway.markInboundTurnState(
+        messageId,
+        turnFailure === null ? 'done' : 'failed',
       );
     }
   }

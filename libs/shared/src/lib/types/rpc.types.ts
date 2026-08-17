@@ -2856,6 +2856,12 @@ export type GatewayAttachSessionResult =
       error:
         | 'binding-not-found'
         | 'binding-not-approved'
+        /**
+         * The binding's platform transport is stopped or disconnected. Attach
+         * hands the tab over to that platform, so accepting it here would
+         * produce a read-only tab nothing can ever drive (TASK_2026_272 #2).
+         */
+        | 'adapter-not-running'
         | 'session-not-resumable';
     };
 

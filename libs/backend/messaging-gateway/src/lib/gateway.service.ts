@@ -40,7 +40,7 @@ import { GATEWAY_TOKENS } from './di/tokens';
 import type { ITokenVault } from './token-vault.interface';
 import { BindingStore } from './binding.store';
 import { ConversationStore } from './conversation.store';
-import { MessageStore } from './message.store';
+import { MessageStore, type UnfinishedInboundTurn } from './message.store';
 import { AttachedSessionRegistry } from './attached-session-registry';
 import type { ISessionResumabilityChecker } from './session-resumability';
 import type { FlushPayload, OutboundRoute } from './stream-coalescer';
@@ -70,7 +70,9 @@ import {
   ConversationKey,
   GatewayBinding,
   GatewayConversation,
+  GatewayMessageId,
   GatewayPlatform,
+  GatewayTurnState,
 } from './types';
 
 export { OutboundDeliveryError } from './outbound-delivery.service';
@@ -93,7 +95,23 @@ export const ABUSE_CAP_NOTICE =
 export interface GatewayInboundEvent {
   binding: GatewayBinding;
   conversation: GatewayConversation;
+  /**
+   * Id of the persisted `gateway_messages` row this event came from. The bridge
+   * stamps the turn's lifecycle onto it (TASK_2026_277), which is what lets a
+   * restart notice reach the sender of a turn that never finished.
+   */
+  messageId: GatewayMessageId;
   message: InboundMessage;
+}
+
+/**
+ * One conversation with at least one inbound turn the previous process left
+ * unfinished — the unit the restart notice is batched by.
+ */
+export interface InterruptedInboundConversation {
+  route: OutboundRoute;
+  /** How many of this conversation's messages were caught mid-flight. */
+  messageCount: number;
 }
 
 /** Test seam: lets tests inject fake adapters, timers and a flush path. */
@@ -277,6 +295,14 @@ export class GatewayService extends EventEmitter {
    * the session link — so `isResumable(ptahSessionId,
    * effectiveWorkspace(conversation))` holds under conversation-first
    * resolution even if the binding root is later repointed (AC-7.4, Data-3).
+   *
+   * The binding's transport must be RUNNING (TASK_2026_272 #2). Attaching is
+   * not a passive bookmark — it makes the webview tab read-only and hands the
+   * conversation to the platform. Against a stopped or disconnected adapter
+   * that produces a tab nobody can type into and a channel nothing arrives
+   * from, so the attach is refused rather than silently accepted. `isRunning()`
+   * means "started AND transport usable", so a bot that died since boot is
+   * caught too, not just one that was never started.
    */
   async attachSession(
     bindingId: BindingId,
@@ -290,6 +316,7 @@ export class GatewayService extends EventEmitter {
         error:
           | 'binding-not-found'
           | 'binding-not-approved'
+          | 'adapter-not-running'
           | 'session-not-resumable';
       }
   > {
@@ -299,6 +326,19 @@ export class GatewayService extends EventEmitter {
     }
     if (existing.approvalStatus !== 'approved') {
       return { ok: false, error: 'binding-not-approved' };
+    }
+    // Checked before the (I/O-bound) resumability probe: it is the cheaper
+    // gate, and the same error code `sendTest` already returns for this exact
+    // condition.
+    if (!this.lifecycle.adapterFor(existing.platform)?.isRunning()) {
+      this.logger.warn(
+        '[gateway] attachSession rejected — adapter not running',
+        {
+          bindingId: String(bindingId),
+          platform: existing.platform,
+        },
+      );
+      return { ok: false, error: 'adapter-not-running' };
     }
 
     const resumable = await this.resumability.isResumable(
@@ -705,29 +745,162 @@ export class GatewayService extends EventEmitter {
         : await this.resolvePairedBinding(msg);
     if (!binding) return;
 
+    // The conversation is resolved BEFORE the row is written so the row can
+    // carry `conversation_id` (TASK_2026_277) — the restart notice is batched
+    // per conversation, and a binding may serve many Discord threads. Both
+    // resolvers are idempotent, so the duplicate that the insert below drops
+    // costs at most one redundant lookup of a row that already exists.
+    const externalConversationId = msg.conversationId
+      ? msg.conversationId
+      : 'default';
+    const conversation =
+      msg.conversationMode === 'attach' && msg.platform === 'discord'
+        ? this.conversations.resolveOrAdopt(binding.id, externalConversationId)
+        : this.conversations.resolveOrCreate(
+            binding.id,
+            externalConversationId,
+          );
+
     const persisted = this.messages.insert({
       bindingId: binding.id,
       direction: 'inbound',
       externalMsgId: msg.externalMsgId,
       body,
       voicePath: msg.voicePath ?? null,
+      conversationId: conversation.id,
+      turnState: 'queued',
     });
     if (!persisted) return; // duplicate
 
-    const conversationId = msg.conversationId ? msg.conversationId : 'default';
-    const conversation =
-      msg.conversationMode === 'attach' && msg.platform === 'discord'
-        ? this.conversations.resolveOrAdopt(binding.id, conversationId)
-        : this.conversations.resolveOrCreate(binding.id, conversationId);
     this.conversations.touch(conversation.id);
-
     this.bindings.touch(binding.id);
     const event: GatewayInboundEvent = {
       binding,
       conversation,
+      messageId: persisted.id,
       message: { ...msg, body },
     };
     this.emit('inbound', event);
+  }
+
+  /**
+   * Record where an inbound message's agent turn has got to (TASK_2026_277).
+   * Called by `gateway-chat-bridge` at turn start and in the turn's `finally`;
+   * persistence belongs here rather than in the bridge, which owns no stores.
+   *
+   * Best-effort by design: a SQLite hiccup while bookkeeping must not fail a
+   * turn that is otherwise fine. The cost of a lost write is one spurious
+   * "please resend" notice after a restart, which is the safe direction.
+   */
+  markInboundTurnState(
+    messageId: GatewayMessageId,
+    state: GatewayTurnState,
+  ): void {
+    try {
+      this.messages.markTurnState([messageId], state);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] failed to record inbound turn state', {
+        messageId: String(messageId),
+        state,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Claim every inbound turn the previous process left in flight
+   * (TASK_2026_277) and return one entry per conversation for the bridge to
+   * notify.
+   *
+   * The rows are moved to `'interrupted'` BEFORE the caller sends anything.
+   * That ordering is the whole point: a platform that rejects the notice
+   * (deleted channel, revoked permission, offline transport) must not leave the
+   * rows claimable, or every subsequent boot would sweep and re-notify the same
+   * messages forever.
+   *
+   * NO turn is started for these rows, here or in the caller. A turn that died
+   * at `auto-edit`/`yolo` may already have run `Write`/`Bash`; replaying it
+   * would repeat side effects with no idempotency guarantee.
+   */
+  claimInterruptedInboundTurns(): InterruptedInboundConversation[] {
+    const unfinished = this.messages.listUnfinishedInboundTurns();
+    if (unfinished.length === 0) return [];
+
+    this.messages.markTurnState(
+      unfinished.map((row) => row.id),
+      'interrupted',
+    );
+
+    // Group first, resolve second: one notice per conversation, however many
+    // messages of theirs were caught mid-flight. Rows from before migration
+    // 0038 carry no conversation id — they fall back to one notice per binding
+    // (the parent chat) rather than being dropped silently.
+    const groups = new Map<string, UnfinishedInboundTurn[]>();
+    for (const row of unfinished) {
+      const groupKey = row.conversationId
+        ? `conversation:${row.conversationId}`
+        : `binding:${row.bindingId}`;
+      const bucket = groups.get(groupKey);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        groups.set(groupKey, [row]);
+      }
+    }
+
+    const claimed: InterruptedInboundConversation[] = [];
+    for (const rows of groups.values()) {
+      const route = this.routeForInterrupted(rows[0]);
+      if (!route) continue;
+      claimed.push({ route, messageCount: rows.length });
+    }
+    if (claimed.length > 0) {
+      this.logger.info('[gateway] claimed interrupted inbound turns', {
+        messages: unfinished.length,
+        conversations: claimed.length,
+      });
+    }
+    return claimed;
+  }
+
+  /**
+   * Rebuild the outbound route for an interrupted row. Returns null when the
+   * binding is gone (revoked mid-turn, then restarted) — the row is already
+   * marked `'interrupted'`, so there is nothing left to do but skip it.
+   */
+  private routeForInterrupted(
+    row: UnfinishedInboundTurn,
+  ): OutboundRoute | null {
+    const binding = this.bindings.findById(row.bindingId);
+    if (!binding) {
+      this.logger.debug(
+        '[gateway] interrupted inbound has no binding — no notice',
+        { bindingId: String(row.bindingId) },
+      );
+      return null;
+    }
+    const conversation = row.conversationId
+      ? this.conversations.findById(row.conversationId)
+      : null;
+    // `'default'` is the non-threaded sentinel: it must stay OUT of both the
+    // conversation key and the route, exactly as `ConversationKey.for` and the
+    // bridge's own `resolveRoute` treat it.
+    const externalConversationId =
+      conversation && conversation.externalConversationId !== 'default'
+        ? conversation.externalConversationId
+        : undefined;
+    return {
+      conversationKey: ConversationKey.for(
+        binding.platform,
+        binding.externalChatId,
+        externalConversationId,
+      ),
+      platform: binding.platform,
+      externalChatId: binding.externalChatId,
+      ...(externalConversationId !== undefined
+        ? { conversationId: externalConversationId }
+        : {}),
+    };
   }
 
   /**

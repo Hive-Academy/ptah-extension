@@ -139,8 +139,12 @@ function createConversationStore(): jest.Mocked<ConversationStore> {
     findById: jest.fn(),
     findByExternal: jest.fn(),
     listByBinding: jest.fn().mockReturnValue([]),
-    resolveOrCreate: jest.fn(),
-    resolveOrAdopt: jest.fn(),
+    // `handleInbound` resolves the conversation BEFORE persisting the message
+    // row (it needs `conversation_id` on the row, TASK_2026_277), so these two
+    // must return a row by default or every inbound spec would explode on the
+    // resolution step rather than exercising what it is about.
+    resolveOrCreate: jest.fn().mockReturnValue(makeConversation()),
+    resolveOrAdopt: jest.fn().mockReturnValue(makeConversation()),
     setPtahSessionId: jest.fn(),
     setPtahSessionIdAndWorkspaceRoot: jest.fn(),
     clearPtahSessionId: jest.fn(),
@@ -154,6 +158,8 @@ function createMessageStore(): jest.Mocked<MessageStore> {
     insert: jest.fn(),
     list: jest.fn(),
     listVoicePathsOlderThan: jest.fn().mockReturnValue([]),
+    listUnfinishedInboundTurns: jest.fn().mockReturnValue([]),
+    markTurnState: jest.fn(),
   } as unknown as jest.Mocked<MessageStore>;
 }
 
@@ -1717,6 +1723,499 @@ describe('GatewayService.attachSession', () => {
     expect(conversations.resolveOrCreate).toHaveBeenCalledWith(
       approved.id,
       'thread-9',
+    );
+  });
+});
+
+describe('GatewayService.attachSession — adapter must be running (TASK_2026_272 #2)', () => {
+  it('rejects with adapter-not-running when the platform has no live adapter', async () => {
+    const { service, bindings, resumability, conversations } = buildSuite();
+    // buildSuite configures telegram + discord only, so slack has no adapter —
+    // the same condition as a platform that was never started.
+    bindings.findById.mockReturnValue(
+      makeBinding({
+        platform: 'slack',
+        externalChatId: 'C123',
+        approvalStatus: 'approved',
+      }),
+    );
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+    );
+
+    expect(result).toEqual({ ok: false, error: 'adapter-not-running' });
+    // Nothing was handed over: no session link, no registry entry, and the
+    // expensive resumability probe was never reached.
+    expect(resumability.isResumable).not.toHaveBeenCalled();
+    expect(
+      conversations.setPtahSessionIdAndWorkspaceRoot,
+    ).not.toHaveBeenCalled();
+    expect(bindings.setWorkspaceRoot).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the adapter exists but its transport is down', async () => {
+    const { service, bindings, discordAdapter, attachedSessionRegistry } =
+      buildSuite();
+    // `isRunning()` is "started AND transport usable" — a bot that lost its
+    // websocket since boot must be refused just like one never started.
+    discordAdapter.isRunning.mockReturnValue(false);
+    bindings.findById.mockReturnValue(
+      makeBinding({
+        platform: 'discord',
+        externalChatId: 'chan-1',
+        approvalStatus: 'approved',
+      }),
+    );
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+    );
+
+    expect(result).toEqual({ ok: false, error: 'adapter-not-running' });
+    expect(attachedSessionRegistry.isAttached('uuid-1')).toBe(false);
+  });
+
+  it('still rejects an unapproved binding before it ever looks at the adapter', async () => {
+    const { service, bindings, discordAdapter } = buildSuite();
+    discordAdapter.isRunning.mockReturnValue(false);
+    bindings.findById.mockReturnValue(
+      makeBinding({
+        platform: 'discord',
+        externalChatId: 'chan-1',
+        approvalStatus: 'pending',
+      }),
+    );
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+    );
+
+    // Approval is the more fundamental problem and keeps its own error code.
+    expect(result).toEqual({ ok: false, error: 'binding-not-approved' });
+  });
+});
+
+describe('GatewayService — externalConversationId routing (TASK_2026_272 #5)', () => {
+  // The webview hardcodes `externalConversationId: 'default'` on attach. These
+  // pin which conversation row inbound from each adapter actually targets, so
+  // the hand-off cannot silently create a row nothing ever routes to.
+  it("telegram inbound carries no conversationId and targets the attached 'default' row", async () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      approvalStatus: 'approved',
+      id: 'binding-t',
+    });
+    const attachedRow = makeConversation({
+      bindingId: binding.id,
+      externalConversationId: 'default',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.bindings.setWorkspaceRoot.mockReturnValue(binding);
+    suite.bindings.upsertPending.mockReturnValue(binding);
+    suite.conversations.resolveOrCreate.mockReturnValue(attachedRow);
+    suite.messages.insert.mockReturnValue({ id: 'm-1' } as never);
+
+    await suite.service.attachSession(binding.id, 'uuid-1', '/repo');
+    const attachTarget = suite.conversations.resolveOrCreate.mock.calls[0][1];
+
+    await dispatchInbound(
+      suite.service,
+      makeInbound({ platform: 'telegram', externalChatId: 'chat-1' }),
+    );
+    const inboundTarget = suite.conversations.resolveOrCreate.mock.calls[1][1];
+
+    expect(attachTarget).toBe('default');
+    expect(inboundTarget).toBe(attachTarget);
+  });
+
+  it("slack inbound carries no conversationId and targets the attached 'default' row", async () => {
+    const suite = buildSuite();
+    const slackAdapter = createAdapter('slack');
+    suite.service.configureForTest({ slack: slackAdapter });
+    const binding = makeBinding({
+      platform: 'slack',
+      externalChatId: 'C123',
+      approvalStatus: 'approved',
+      id: 'binding-s',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.bindings.setWorkspaceRoot.mockReturnValue(binding);
+    suite.bindings.upsertPending.mockReturnValue(binding);
+    suite.conversations.resolveOrCreate.mockReturnValue(
+      makeConversation({
+        bindingId: binding.id,
+        externalConversationId: 'default',
+      }),
+    );
+    suite.messages.insert.mockReturnValue({ id: 'm-1' } as never);
+
+    await suite.service.attachSession(binding.id, 'uuid-1', '/repo');
+    const attachTarget = suite.conversations.resolveOrCreate.mock.calls[0][1];
+
+    await dispatchInbound(
+      suite.service,
+      makeInbound({ platform: 'slack', externalChatId: 'C123' }),
+    );
+    const inboundTarget = suite.conversations.resolveOrCreate.mock.calls[1][1];
+
+    expect(attachTarget).toBe('default');
+    expect(inboundTarget).toBe(attachTarget);
+  });
+
+  it("discord ALWAYS carries a thread conversationId, so the attached 'default' row is reached only by adoption", async () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      approvalStatus: 'approved',
+      id: 'binding-d',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.bindings.findByExternal.mockReturnValue(binding);
+    suite.bindings.setWorkspaceRoot.mockReturnValue(binding);
+    suite.conversations.resolveOrCreate.mockReturnValue(
+      makeConversation({
+        bindingId: binding.id,
+        externalConversationId: 'default',
+      }),
+    );
+    suite.conversations.resolveOrAdopt.mockReturnValue(
+      makeConversation({
+        bindingId: binding.id,
+        externalConversationId: 'thread-9',
+      }),
+    );
+    suite.messages.insert.mockReturnValue({ id: 'm-1' } as never);
+
+    await suite.service.attachSession(binding.id, 'uuid-1', '/repo');
+    expect(suite.conversations.resolveOrCreate).toHaveBeenCalledWith(
+      binding.id,
+      'default',
+    );
+
+    // A message in an existing Ptah thread: 'attach' mode ADOPTS the 'default'
+    // row (renames it to the thread id), which is the ONLY reason the webview's
+    // hardcoded 'default' works on Discord at all.
+    await dispatchInbound(
+      suite.service,
+      makeInbound({
+        platform: 'discord',
+        externalChatId: 'chan-1',
+        conversationId: 'thread-9',
+        conversationMode: 'attach',
+      }),
+    );
+    expect(suite.conversations.resolveOrAdopt).toHaveBeenCalledWith(
+      binding.id,
+      'thread-9',
+    );
+  });
+
+  it('a fresh discord /ptah thread opens its OWN row and never adopts the attached default', async () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      approvalStatus: 'approved',
+      id: 'binding-d',
+    });
+    suite.bindings.upsertPending.mockReturnValue(binding);
+    suite.conversations.resolveOrCreate.mockReturnValue(
+      makeConversation({
+        bindingId: binding.id,
+        externalConversationId: 'thread-new',
+      }),
+    );
+    suite.messages.insert.mockReturnValue({ id: 'm-1' } as never);
+
+    await dispatchInbound(
+      suite.service,
+      makeInbound({
+        platform: 'discord',
+        externalChatId: 'chan-1',
+        conversationId: 'thread-new',
+        conversationMode: 'open',
+      }),
+    );
+
+    // This is the residual gap behind finding #5: an 'open'-mode thread creates
+    // a separate conversation, so a session attached to 'default' does NOT
+    // drive it. Pinned here so the behaviour is a decision, not a surprise.
+    expect(suite.conversations.resolveOrCreate).toHaveBeenCalledWith(
+      binding.id,
+      'thread-new',
+    );
+    expect(suite.conversations.resolveOrAdopt).not.toHaveBeenCalled();
+  });
+});
+
+describe('GatewayService — inbound turn state (TASK_2026_277)', () => {
+  function approvedTelegram(suite: Suite): GatewayBinding {
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      approvalStatus: 'approved',
+      id: 'binding-t',
+    });
+    suite.bindings.upsertPending.mockReturnValue(binding);
+    return binding;
+  }
+
+  it("persists an inbound row as 'queued' with its conversation id", async () => {
+    const suite = buildSuite();
+    const binding = approvedTelegram(suite);
+    const conversation = makeConversation({
+      id: 'conv-77' as GatewayConversationId,
+      bindingId: binding.id,
+    });
+    suite.conversations.resolveOrCreate.mockReturnValue(conversation);
+    suite.messages.insert.mockReturnValue({ id: 'msg-77' } as never);
+
+    await dispatchInbound(
+      suite.service,
+      makeInbound({ platform: 'telegram', externalChatId: 'chat-1' }),
+    );
+
+    expect(suite.messages.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'inbound',
+        turnState: 'queued',
+        conversationId: 'conv-77',
+      }),
+    );
+  });
+
+  it('emits the persisted row id on the inbound event so the bridge can stamp it', async () => {
+    const suite = buildSuite();
+    approvedTelegram(suite);
+    suite.messages.insert.mockReturnValue({ id: 'msg-77' } as never);
+
+    await dispatchInbound(
+      suite.service,
+      makeInbound({ platform: 'telegram', externalChatId: 'chat-1' }),
+    );
+
+    expect(suite.events).toHaveLength(1);
+    expect(suite.events[0].messageId).toBe('msg-77');
+  });
+
+  it('leaves outbound rows with a NULL turn state', async () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-42',
+      id: 'binding-7',
+    });
+    suite.bindings.list.mockReturnValue([binding]);
+
+    await suite.service.sendTest({ platform: 'telegram' });
+
+    const args = suite.messages.insert.mock.calls[0][0];
+    expect(args.direction).toBe('outbound');
+    expect(args.turnState ?? null).toBeNull();
+    expect(args.conversationId ?? null).toBeNull();
+  });
+
+  it('markInboundTurnState swallows a store failure — bookkeeping must not fail a turn', () => {
+    const suite = buildSuite();
+    suite.messages.markTurnState.mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+
+    expect(() =>
+      suite.service.markInboundTurnState('msg-1' as never, 'done'),
+    ).not.toThrow();
+    expect(suite.logger.warn).toHaveBeenCalledWith(
+      '[gateway] failed to record inbound turn state',
+      expect.objectContaining({ error: 'database is locked' }),
+    );
+  });
+});
+
+describe('GatewayService.claimInterruptedInboundTurns (TASK_2026_277)', () => {
+  it('returns nothing and writes nothing when no turn was in flight', () => {
+    const suite = buildSuite();
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([]);
+
+    expect(suite.service.claimInterruptedInboundTurns()).toEqual([]);
+    expect(suite.messages.markTurnState).not.toHaveBeenCalled();
+  });
+
+  it("marks every unfinished row 'interrupted' and batches ONE entry per conversation", () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      id: 'binding-t',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.conversations.findById.mockReturnValue(
+      makeConversation({
+        id: 'conv-1' as GatewayConversationId,
+        bindingId: binding.id,
+        externalConversationId: 'default',
+      }),
+    );
+    // Three messages of ONE conversation caught mid-flight: the sender gets one
+    // "please resend", not three.
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([
+      { id: 'm-1', bindingId: binding.id, conversationId: 'conv-1' },
+      { id: 'm-2', bindingId: binding.id, conversationId: 'conv-1' },
+      { id: 'm-3', bindingId: binding.id, conversationId: 'conv-1' },
+    ] as never);
+
+    const claimed = suite.service.claimInterruptedInboundTurns();
+
+    expect(suite.messages.markTurnState).toHaveBeenCalledWith(
+      ['m-1', 'm-2', 'm-3'],
+      'interrupted',
+    );
+    expect(claimed).toEqual([
+      {
+        route: {
+          conversationKey: 'telegram:chat-1',
+          platform: 'telegram',
+          externalChatId: 'chat-1',
+        },
+        messageCount: 3,
+      },
+    ]);
+  });
+
+  it('claims the rows BEFORE the caller can send anything, so a failed notice never re-sweeps', () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      id: 'binding-t',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.conversations.findById.mockReturnValue(makeConversation());
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([
+      { id: 'm-1', bindingId: binding.id, conversationId: 'conv-1' },
+    ] as never);
+
+    suite.service.claimInterruptedInboundTurns();
+
+    // The write is unconditional and already done by the time the routes are
+    // handed back — the notice is best-effort on top of a durable claim.
+    expect(suite.messages.markTurnState).toHaveBeenCalledWith(
+      ['m-1'],
+      'interrupted',
+    );
+  });
+
+  it('routes a discord thread conversation to the thread, with a 3-segment key', () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      id: 'binding-d',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.conversations.findById.mockReturnValue(
+      makeConversation({
+        id: 'conv-thread' as GatewayConversationId,
+        bindingId: binding.id,
+        externalConversationId: 'thread-9',
+      }),
+    );
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([
+      { id: 'm-1', bindingId: binding.id, conversationId: 'conv-thread' },
+    ] as never);
+
+    const [claimed] = suite.service.claimInterruptedInboundTurns();
+
+    expect(claimed.route).toEqual({
+      conversationKey: 'discord:chan-1:thread-9',
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      conversationId: 'thread-9',
+    });
+  });
+
+  it('keeps separate conversations of one binding separate', () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      id: 'binding-d',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.conversations.findById.mockImplementation((id: string) =>
+      makeConversation({
+        id: id as GatewayConversationId,
+        bindingId: binding.id,
+        externalConversationId: id === 'conv-a' ? 'thread-a' : 'thread-b',
+      }),
+    );
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([
+      { id: 'm-1', bindingId: binding.id, conversationId: 'conv-a' },
+      { id: 'm-2', bindingId: binding.id, conversationId: 'conv-b' },
+    ] as never);
+
+    const claimed = suite.service.claimInterruptedInboundTurns();
+
+    // Grouping by binding would have sent ONE notice to the wrong thread.
+    expect(claimed).toHaveLength(2);
+    expect(claimed.map((c) => c.route.conversationId)).toEqual([
+      'thread-a',
+      'thread-b',
+    ]);
+  });
+
+  it('falls back to one notice per binding for legacy rows with no conversation id', () => {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      id: 'binding-t',
+    });
+    suite.bindings.findById.mockReturnValue(binding);
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([
+      { id: 'm-1', bindingId: binding.id, conversationId: null },
+      { id: 'm-2', bindingId: binding.id, conversationId: null },
+    ] as never);
+
+    const claimed = suite.service.claimInterruptedInboundTurns();
+
+    expect(suite.conversations.findById).not.toHaveBeenCalled();
+    expect(claimed).toEqual([
+      {
+        route: {
+          conversationKey: 'telegram:chat-1',
+          platform: 'telegram',
+          externalChatId: 'chat-1',
+        },
+        messageCount: 2,
+      },
+    ]);
+  });
+
+  it('skips a row whose binding is gone but still claims it', () => {
+    const suite = buildSuite();
+    suite.bindings.findById.mockReturnValue(null);
+    suite.messages.listUnfinishedInboundTurns.mockReturnValue([
+      { id: 'm-1', bindingId: 'binding-gone', conversationId: 'conv-1' },
+    ] as never);
+
+    const claimed = suite.service.claimInterruptedInboundTurns();
+
+    expect(claimed).toEqual([]);
+    // Still claimed — otherwise the revoked binding's row would be re-swept on
+    // every boot forever.
+    expect(suite.messages.markTurnState).toHaveBeenCalledWith(
+      ['m-1'],
+      'interrupted',
     );
   });
 });

@@ -68,3 +68,66 @@ Already good: double-click guarded via `_attaching` / detach in-flight signals
 - `libs/backend/rpc-handlers/src/lib/handlers/gateway-rpc.handlers.ts` (354-403)
 - `libs/frontend/canvas/src/lib/canvas-tile.component.ts` (mount)
 - `libs/frontend/messaging-gateway-ui/src/lib/components/gateway-platform-pane.component.ts` (pattern to reuse)
+
+## Backend resolution (2026-08-18)
+
+Findings **#2** and **#5** are closed backend-side (done alongside
+TASK_2026_277). Frontend agent: read this before touching the picker.
+
+### #2 — attach now refuses an offline adapter
+
+`GatewayService.attachSession` gained a fourth rejection, checked after
+`binding-not-approved` and **before** the resumability probe:
+
+```
+{ ok: false, error: 'adapter-not-running' }
+```
+
+`adapter-not-running` is not new vocabulary — it is the code `sendTest` already
+returns for this exact condition. The gate is
+`lifecycle.adapterFor(platform)?.isRunning()`, and `isRunning()` means "started
+AND transport usable", so a bot that lost its websocket since boot is refused
+too, not only one that was never started.
+
+`GatewayAttachSessionResult` in `libs/shared/.../rpc.types.ts` is widened
+accordingly. `attachErrorLabel` has a `default` branch so nothing breaks — but
+it currently falls through to the raw string `"adapter-not-running"`. **The UI
+copy is yours**: target-workflow item 3 (grey out offline rows, "platform
+offline — start it in Gateway tab") is the right home for it, with the mapped
+error as the fallback for a binding that goes offline between listing and
+attaching.
+
+### #5 — `'default'` is correct for Telegram and Slack, NOT for Discord
+
+Not the "pin it with one test" outcome the finding hoped for. What the adapters
+actually emit:
+
+| Adapter  | `msg.conversationId`                        | Inbound resolves to |
+| -------- | ------------------------------------------- | ------------------- |
+| Telegram | never set (`grammy.adapter.ts:356`)         | `'default'` ✅      |
+| Slack    | never set (`bolt.adapter.ts:299`)           | `'default'` ✅      |
+| Discord  | **always** a thread id (`:490/514/722/750`) | that thread id ⚠️   |
+
+For Telegram and Slack the webview's hardcoded `'default'` is exactly right and
+always will be — neither platform has a thread concept the gateway models.
+
+Discord never routes to `'default'`. It works today only because
+`'attach'`-mode inbound (a message in an **existing** Ptah thread) goes through
+`ConversationStore.resolveOrAdopt`, which renames the `'default'` row to the
+thread id. That adoption is the entire reason the hand-off functions on Discord.
+
+**Residual gap, deliberately left open:** an `'open'`-mode Discord inbound — a
+fresh `/ptah`, or a new parent-channel mention — calls `resolveOrCreate` and
+gets its **own** conversation row, so a session attached to `'default'` does not
+drive it. Surfacing "the real conversation key" from the webview cannot fix
+this: the thread does not exist yet at attach time. Closing it properly is a
+product decision (does attach bind the _binding_ or a _thread_?), not a
+drive-by change.
+
+All four behaviours are pinned in `gateway.service.spec.ts` under
+`GatewayService — externalConversationId routing (TASK_2026_272 #5)`, so
+whichever way that decision goes, the tests say what changed.
+
+Frontend consequence: **keep sending `externalConversationId: 'default'`.** It
+is correct for two of three platforms and load-bearing for the third's adoption
+path. Do not invent a thread id client-side.

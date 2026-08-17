@@ -52,10 +52,15 @@ describe('migration 0037_skill_invocation_session_join — registry entry', () =
     expect(entry?.run).toBeUndefined();
   });
 
-  it('is registered exactly once, appended after 36, and is the tail', () => {
+  it('is registered exactly once and appended after 36', () => {
     expect(MIGRATIONS.filter((m) => m.version === 37)).toHaveLength(1);
     expect(MIGRATIONS.map((m) => m.version)).toContain(36);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(37);
+    // 0037 stopped being the tail when TASK_2026_277 appended 38. What still
+    // matters here is that it was APPENDED, not inserted — so nothing sits
+    // between 36 and 37, and everything after it is strictly greater.
+    const versions = MIGRATIONS.map((m) => m.version);
+    expect(versions.indexOf(37)).toBe(versions.indexOf(36) + 1);
+    expect([...versions].sort((a, b) => a - b)).toEqual(versions);
   });
 });
 
