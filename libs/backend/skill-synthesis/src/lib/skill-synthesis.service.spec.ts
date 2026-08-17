@@ -171,7 +171,7 @@ describe('SkillSynthesisService', () => {
             findBySession: jest.fn(() => opts.verdict ?? null),
           } as unknown as ConstructorParameters<
             typeof SkillSynthesisService
-          >[17]);
+          >[15]);
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
@@ -185,8 +185,6 @@ describe('SkillSynthesisService', () => {
       sessionEndRegistry,
       synthesizer,
       registry,
-      null,
-      null,
       null,
       null,
       null,

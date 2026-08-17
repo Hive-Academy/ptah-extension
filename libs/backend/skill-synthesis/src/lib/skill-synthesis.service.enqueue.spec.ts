@@ -33,6 +33,7 @@ import {
   SkillDrainService,
   SKILL_DRAIN_KEYS,
 } from './queue/skill-drain.service';
+import { SkillStageHandlersService } from './queue/stage-handlers.service';
 import {
   liveSignal,
   makeBudgetStub,
@@ -477,6 +478,27 @@ describe('SkillSynthesisService — the archaeology stage (P2-4)', () => {
     );
     const archaeologist = { analyze } as unknown as SessionArchaeologistService;
 
+    const candidateStore = {
+      findByTrajectoryHash: jest.fn(() => null),
+      registerCandidate: jest.fn(() => ({
+        candidate: { id: 'cand-1' },
+        reused: false,
+      })),
+      recordInvocation: jest.fn(),
+      getDominantSkillSlugForSessions: jest.fn(() => null),
+    } as unknown as jest.Mocked<SkillCandidateStore>;
+
+    // TASK_2026_256 — the `prefilter → archaeology` chain lives in the stage
+    // handlers now. `start()` is still the registration seam, so these tests
+    // still reach the chain through `svc.start()`.
+    const stageHandlers = new SkillStageHandlersService(
+      noopLogger,
+      candidateStore,
+      queue as never,
+      drain,
+      opts.withArchaeologist === false ? null : archaeologist,
+    );
+
     let sessionEnd: SessionEndCallback | null = null;
     const svc = new SkillSynthesisService(
       noopLogger,
@@ -486,15 +508,7 @@ describe('SkillSynthesisService — the archaeology stage (P2-4)', () => {
       } as never,
       { available: false } as never,
       makeDrainWorkspace({}) as never,
-      {
-        findByTrajectoryHash: jest.fn(() => null),
-        registerCandidate: jest.fn(() => ({
-          candidate: { id: 'cand-1' },
-          reused: false,
-        })),
-        recordInvocation: jest.fn(),
-        getDominantSkillSlugForSessions: jest.fn(() => null),
-      } as unknown as jest.Mocked<SkillCandidateStore>,
+      candidateStore,
       {
         candidatesRoot: jest.fn(() => '/tmp/cands'),
         writeCandidate: jest.fn(() => ({
@@ -519,9 +533,8 @@ describe('SkillSynthesisService — the archaeology stage (P2-4)', () => {
       null,
       null,
       queue as never,
-      drain,
-      opts.withArchaeologist === false ? null : archaeologist,
       null,
+      stageHandlers,
     );
 
     async function fireSessionEnd(sessionId = 's1'): Promise<void> {

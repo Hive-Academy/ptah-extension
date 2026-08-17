@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_256
-status: backlog
+status: done
 type: refactoring
 title: >-
   Extract the six queue stage handlers out of skill-synthesis.service.ts, which
