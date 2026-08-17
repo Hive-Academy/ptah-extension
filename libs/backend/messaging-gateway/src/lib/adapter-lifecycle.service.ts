@@ -128,6 +128,28 @@ export class AdapterLifecycleService extends EventEmitter {
   >();
   private readonly reconnectAttempts = new Map<GatewayPlatform, number>();
 
+  /**
+   * Platforms the operator (or shutdown) has asked to be DOWN.
+   *
+   * Cancelling a reconnect used to mean cancelling a pending timer, which does
+   * nothing once the timer has already fired: its callback removes itself from
+   * {@link reconnectTimers} and runs {@link reconnect} as an independent chain
+   * that nobody holds a handle to. That chain checks the enable flag once at
+   * entry and then calls `maybeStart(platform, true)` — and `force` exists
+   * precisely to walk past that flag. A `stopPlatform()` / `stop()` landing in
+   * the window between the check and `adapter.start()` (a window that contains
+   * a real network `login()`) therefore brought the adapter back up after the
+   * caller believed it stopped; at shutdown that leaves a live Discord /
+   * Telegram / Slack connection running past `will-quit`.
+   *
+   * This set is the standing answer to "should this platform be up?", so it
+   * survives the awaits a cancellation flag scoped to one reconnect would not.
+   * It is checked in {@link maybeStart} and again in {@link startAdapter} —
+   * the last gate before the network call — and OUTRANKS `force`. Only an
+   * explicit start ({@link startPlatform} / {@link startEnabled}) clears it.
+   */
+  private readonly stopping = new Set<GatewayPlatform>();
+
   /** Test seam: swap the timer so specs do not wait for real backoff. */
   private scheduleTimer: (
     fn: () => void,
@@ -208,6 +230,10 @@ export class AdapterLifecycleService extends EventEmitter {
       this.logger.info('[gateway] master switch off; not starting adapters');
       return;
     }
+    // An explicit start supersedes any earlier stop request: this is the boot
+    // path, and a `stopping` entry left over from a previous `stop()` in the
+    // same process would silently make every adapter unstartable.
+    this.stopping.clear();
     for (const platform of ALL_PLATFORMS) await this.maybeStart(platform);
   }
 
@@ -217,6 +243,7 @@ export class AdapterLifecycleService extends EventEmitter {
    * auto-starts it.
    */
   async startPlatform(platform: GatewayPlatform): Promise<void> {
+    this.stopping.delete(platform);
     await this.maybeStart(platform, true);
     if (this.adapters.get(platform)?.isRunning() !== true) return;
     await this.workspace.setConfiguration(
@@ -233,6 +260,10 @@ export class AdapterLifecycleService extends EventEmitter {
    * silently disables Discord at the next boot.
    */
   async stopPlatform(platform: GatewayPlatform): Promise<void> {
+    // Before anything that awaits: a reconnect already past its enable check
+    // must find this flag when it resumes, or `force: true` restarts what we
+    // are stopping. Cleared only by an explicit `startPlatform`.
+    this.stopping.add(platform);
     this.cancelReconnect(platform);
     const adapter = this.adapters.get(platform);
     if (adapter) {
@@ -262,9 +293,16 @@ export class AdapterLifecycleService extends EventEmitter {
     }
   }
 
-  /** Disarm every pending reconnect — first move of a graceful shutdown. */
+  /**
+   * First move of a graceful shutdown: disarm every pending reconnect AND mark
+   * every platform as stopping, so a reconnect whose timer already fired
+   * cannot bring a transport back up between here and `will-quit`. Clearing
+   * the timers alone is not enough — a fired timer's chain holds no handle we
+   * could clear (see {@link stopping}).
+   */
   cancelAllReconnects(): void {
-    for (const platform of [...this.reconnectTimers.keys()]) {
+    for (const platform of ALL_PLATFORMS) {
+      this.stopping.add(platform);
       this.cancelReconnect(platform);
     }
   }
@@ -430,6 +468,7 @@ export class AdapterLifecycleService extends EventEmitter {
   }
 
   private scheduleReconnect(platform: GatewayPlatform, reason: string): void {
+    if (this.stopping.has(platform)) return; // stopped on purpose
     if (this.reconnectTimers.has(platform)) return; // one in flight
     const attempt = this.reconnectAttempts.get(platform) ?? 0;
     const delay =
@@ -457,7 +496,10 @@ export class AdapterLifecycleService extends EventEmitter {
 
   private async reconnect(platform: GatewayPlatform): Promise<void> {
     // Still enabled? The user may have switched it off while we waited.
-    if (!readBool(this.workspace, enabledKeyFor(platform), false)) {
+    if (
+      !readBool(this.workspace, enabledKeyFor(platform), false) ||
+      this.stopping.has(platform)
+    ) {
       this.reconnectAttempts.delete(platform);
       return;
     }
@@ -470,6 +512,11 @@ export class AdapterLifecycleService extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    // Re-checked AFTER the await, and again inside `maybeStart` /
+    // `startAdapter`: the checks above are stale the moment we yield, and
+    // `force: true` below would otherwise walk straight past the enable flag a
+    // concurrent `stopPlatform()` just cleared.
+    if (this.stopping.has(platform)) return;
     await this.maybeStart(platform, true);
     this.emit('status-changed', {
       platform,
@@ -495,6 +542,10 @@ export class AdapterLifecycleService extends EventEmitter {
     platform: GatewayPlatform,
     run: () => Promise<void>,
   ): Promise<void> {
+    // Last gate before the network call. `maybeStart` already checked, but
+    // decrypting the token awaits, and a stop landing in that window must win
+    // — otherwise `login()` fires and leaks a live connection past `will-quit`.
+    if (this.stopping.has(platform)) return;
     try {
       await run();
       this.lastErrors.delete(platform);
@@ -514,11 +565,17 @@ export class AdapterLifecycleService extends EventEmitter {
    *
    * A missing or unreadable token is NOT an error here — `decryptToken` has
    * already recorded why — it simply means there is nothing to start.
+   *
+   * A pending stop request OUTRANKS `force`: `force` exists so the Start
+   * button and the reconnect loop can ignore the enable *flag*, never so a
+   * reconnect can resurrect a platform the operator (or shutdown) just
+   * stopped.
    */
   private async maybeStart(
     platform: GatewayPlatform,
     force = false,
   ): Promise<void> {
+    if (this.stopping.has(platform)) return;
     if (!force && !readBool(this.workspace, enabledKeyFor(platform), false)) {
       return;
     }

@@ -355,18 +355,26 @@ export class GatewayChatBridge {
       bindingRoot: binding.workspaceRoot,
       workspace: this.workspace,
     });
+    // Both exits below return BEFORE the end-of-turn seal is wired, so they own
+    // their own outbound cleanup — which is why they go through `sendError`
+    // (drain + discard) and not a raw drain.
     if (!resolved.ok) {
-      await this.sendError(
+      await this.sendErrorQuietly(
         route,
         resolved.reason === 'conversation-root-revoked'
           ? WORKSPACE_UNAVAILABLE_MESSAGE
           : 'No workspace is open in Ptah. Open a project folder, then try again.',
+        'workspace-unresolved',
       );
       this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     if (!(await this.workspaceRootExists(resolved.root))) {
-      await this.sendError(route, WORKSPACE_UNAVAILABLE_MESSAGE);
+      await this.sendErrorQuietly(
+        route,
+        WORKSPACE_UNAVAILABLE_MESSAGE,
+        'workspace-missing-on-disk',
+      );
       this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
@@ -408,6 +416,21 @@ export class GatewayChatBridge {
     } catch (error: unknown) {
       stopTyping();
       this.activeRoutes.delete(tabId);
+      // Report before rethrowing. The throw lands in `onInbound`'s swallowing
+      // `.catch`, so without these three lines this path is total silence —
+      // no reply, no Gateway-tab status, no terminal turn state — which is the
+      // exact failure class this task exists to close.
+      await this.sendErrorQuietly(
+        route,
+        'Ptah could not complete this request. Please try again.',
+        'sdk-context',
+      );
+      this.gateway.recordTurnOutcome(route.platform, {
+        ok: false,
+        reason: `session context failed (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      });
       this.gateway.markInboundTurnState(messageId, 'failed');
       throw error;
     }
@@ -455,18 +478,11 @@ export class GatewayChatBridge {
           turnFailure = `agent turn failed (${
             error instanceof Error ? error.message : String(error)
           })`;
-          await this.sendError(
+          await this.sendErrorQuietly(
             route,
             'Ptah could not complete this request. Please try again.',
-          ).catch((sendErr: unknown) => {
-            this.logger.warn(
-              '[gateway-chat-bridge] failed to send turn-failure error reply',
-              {
-                error:
-                  sendErr instanceof Error ? sendErr.message : String(sendErr),
-              },
-            );
-          });
+            'turn-failure',
+          );
         }
       }
     };
@@ -496,18 +512,11 @@ export class GatewayChatBridge {
         });
         this.endSessionAfterTurn(sessionToEnd ?? tabId);
         turnFailure = `stopped by the ${Math.round(TURN_WATCHDOG_MS / 60_000)}-minute turn watchdog`;
-        await this.sendError(
+        await this.sendErrorQuietly(
           route,
           'This request took too long and was stopped. Please try again.',
-        ).catch((sendErr: unknown) => {
-          this.logger.warn(
-            '[gateway-chat-bridge] failed to send watchdog error reply',
-            {
-              error:
-                sendErr instanceof Error ? sendErr.message : String(sendErr),
-            },
-          );
-        });
+          'watchdog',
+        );
       }
     } finally {
       if (watchdogTimer) {
@@ -530,16 +539,10 @@ export class GatewayChatBridge {
         turnFailure = `reply not delivered (${
           sealErr instanceof Error ? sealErr.message : String(sealErr)
         })`;
-        await this.sendError(route, DELIVERY_FAILED_MESSAGE).catch(
-          (sendErr: unknown) => {
-            this.logger.warn(
-              '[gateway-chat-bridge] failed to send delivery-failure reply',
-              {
-                error:
-                  sendErr instanceof Error ? sendErr.message : String(sendErr),
-              },
-            );
-          },
+        await this.sendErrorQuietly(
+          route,
+          DELIVERY_FAILED_MESSAGE,
+          'delivery-failure',
         );
       });
       this.endSessionAfterTurn(sessionToEnd ?? tabId);
@@ -889,12 +892,57 @@ export class GatewayChatBridge {
     }
   }
 
+  /**
+   * Send a short error reply as its own outbound message.
+   *
+   * Drains AND THEN discards. The coalescer's body is cumulative per
+   * conversation key and `drainOutbound` alone leaves it in place — only
+   * `discardOutbound` clears it. Every `sendError` that is NOT followed by
+   * `completeOutboundTurn` therefore used to strand its own text in the
+   * buffer, so the next turn's reply was flushed with a stale error prepended:
+   * the two fail-closed workspace exits (which return before the seal is even
+   * wired) and the post-seal delivery-failure reply (which runs after
+   * `completeOutboundTurn` already ran). Discarding HERE rather than at each
+   * call site is deliberate — the guarantee then holds for any future early
+   * return too, and the call sites that do seal afterwards see a no-op discard.
+   *
+   * The discard is in a `finally` because a drain that throws
+   * (`OutboundDeliveryError`) is exactly the case where the undelivered body
+   * must not survive into the next turn.
+   */
   private async sendError(
     route: OutboundRoute,
     message: string,
   ): Promise<void> {
     this.gateway.appendOutboundChunk(route, message);
-    await this.gateway.drainOutbound(route.conversationKey);
+    try {
+      await this.gateway.drainOutbound(route.conversationKey);
+    } finally {
+      this.gateway.discardOutbound(route.conversationKey);
+    }
+  }
+
+  /**
+   * {@link sendError} for the paths that must never fail because of it. An
+   * error reply is already the consolation prize; letting its delivery failure
+   * propagate would unwind the turn past `recordTurnOutcome` /
+   * `markInboundTurnState` and land in `onInbound`'s swallowing `.catch`,
+   * leaving no record of the turn anywhere — the exact silence this task
+   * exists to remove.
+   */
+  private async sendErrorQuietly(
+    route: OutboundRoute,
+    message: string,
+    context: string,
+  ): Promise<void> {
+    try {
+      await this.sendError(route, message);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway-chat-bridge] error reply not delivered', {
+        context,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private resolveRoute(event: GatewayInboundEvent): OutboundRoute {

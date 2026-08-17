@@ -214,6 +214,53 @@ per-platform "stopping" guard `maybeStart` respects even under `force: true`.
 _consumption_ of `PermissionPromptLifecycleEvent` was verified but
 `SdkPermissionHandler` / `SdkQueryOptionsBuilder` were not.
 
+### Blockers closed 2026-08-18 (orchestrated: `backend-developer`, red-then-green)
+
+**Blocker A** — fixed in `sendError` rather than at the two call sites:
+`append → drain → discard`, discard in a `finally` so a drain throwing
+`OutboundDeliveryError` still cannot strand a body. That shape closes a **third
+entrance the review did not find**: the post-seal delivery-failure reply at the
+end of `runTurn`'s `finally` also calls `sendError` after `completeOutboundTurn`
+has already run, so `DELIVERY_FAILED_MESSAGE` was stranding itself too. Call
+sites that do seal afterwards see a no-op discard. Proof: three specs, each
+running a **second turn** on the same conversation key against the real
+`StreamCoalescer` in `'complete'` mode — the plain `FakeGateway` cannot observe
+this bug class at all, since its `drainOutbound` is a no-op with no buffer to
+leak. Before: 3 failed, e.g. received `"This thread's workspace is no longer
+available…second reply"`. After: 64 passed. The ~L982 spec's `flushUntil` now
+polls `discardOutbound` instead of a `completeOutboundTurn` that never comes.
+
+**Blocker B** — a per-platform `stopping: Set<GatewayPlatform>`, not a
+per-reconnect cancellation flag. A flag scoped to one `reconnect()` call does
+not survive the interleave that actually bites: `reconnect` parks in
+`await adapter.stop()`, `stopPlatform` completes and clears the flag, then
+`reconnect` resumes and restarts anyway. The set is added synchronously before
+any await by `stopPlatform` and by `cancelAllReconnects` (which is the first
+move of `GatewayService.stop()`, so shutdown is covered without touching
+`gateway.service.ts`), and cleared only by an explicit `startPlatform` /
+`startEnabled`. Checked in `maybeStart` **above** the `force` branch, again at
+the top of `startAdapter` (the last gate before the network `login()`, closing
+the `decryptToken` await window), and in `scheduleReconnect` / both sides of
+`reconnect`'s `adapter.stop()`. Proof: two specs cancel a reconnect already in
+flight — parked inside `adapter.stop()`, past its own enable check, with
+`maybeStart(…, true)` still ahead. Guards disabled: 2 failed, adapter called
+twice. Guards on: 274 passed.
+
+Follow-ups from that list also done: all five `sendError` sites consolidated
+onto `sendErrorQuietly(route, message, context)`; `resolveSdkContext` failure
+now sends a reply, records the turn outcome and marks the row `'failed'` before
+preserving the rethrow; `notifyAbuseCap` keeps stamping before the send (a burst
+must not fire N concurrent notices) but rolls the stamp back when the send
+throws, so a failed notice no longer costs the whole 60s window.
+
+Still open, same silence family: the two fail-closed workspace exits skip
+`recordTurnOutcome`, so a revoked-workspace turn shows nothing in the Gateway
+tab.
+
+`gateway.service.ts` is now 792 lines against the 700 warn ceiling. No third
+facade split — the guardrails say the ~100-line fragment and a 13th constructor
+dep would be the worse outcome.
+
 ## Related
 
 - TASK_2026_155 (turns hung forever — permission level, watchdog)

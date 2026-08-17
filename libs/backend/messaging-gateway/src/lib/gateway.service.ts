@@ -718,7 +718,10 @@ export class GatewayService extends EventEmitter {
       },
     );
     const adapter = this.lifecycle.adapterFor(msg.platform);
-    if (!adapter) return;
+    if (!adapter) {
+      this.restoreAbuseStamp(allowListId, lastNotified);
+      return;
+    }
     try {
       await adapter.sendMessage(
         msg.externalChatId,
@@ -728,11 +731,24 @@ export class GatewayService extends EventEmitter {
           : undefined,
       );
     } catch (error: unknown) {
+      // The stamp is set BEFORE the send so a burst cannot fire N concurrent
+      // notices, but a notice that never landed must not cost the sender the
+      // whole window in silence — roll back so the next drop tries again.
+      this.restoreAbuseStamp(allowListId, lastNotified);
       this.logger.warn('[gateway] abuse-cap notice not delivered', {
         platform: msg.platform,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /** Undo an optimistic {@link abuseNotified} stamp after a failed notice. */
+  private restoreAbuseStamp(
+    allowListId: string,
+    previous: number | undefined,
+  ): void {
+    if (previous === undefined) this.abuseNotified.delete(allowListId);
+    else this.abuseNotified.set(allowListId, previous);
   }
 
   private async handleInbound(msg: InboundMessage): Promise<void> {

@@ -1207,6 +1207,87 @@ describe('GatewayService — adapter reconnect + status push (TASK_2026_271 #3/#
         ?.lastError,
     ).toBeUndefined();
   });
+
+  /**
+   * Park a reconnect that has ALREADY fired inside `adapter.stop()`, so it sits
+   * past its own enable-flag check with `maybeStart(platform, true)` still
+   * ahead of it — the same window a real network `login()` occupies. The spec
+   * above only cancels a timer that has not fired yet, which the fired chain
+   * does not care about (TASK_2026_271 blocker B).
+   */
+  async function armInFlightReconnect(
+    suite: Suite,
+    timers: ReturnType<typeof fakeTimers>,
+  ): Promise<{ release: () => void; startCalls: number }> {
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    suite.service.configureForTest({ scheduleTimer: timers.schedule });
+    suite.workspace.settings.set('gateway.discord.enabled', true);
+    suite.discordAdapter.start.mockRejectedValueOnce(new Error('down'));
+
+    await suite.service.startPlatform('discord');
+    expect(timers.pending).toHaveLength(1);
+
+    let release = (): void => undefined;
+    suite.discordAdapter.stop.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => resolve();
+        }),
+    );
+    const startCalls = suite.discordAdapter.start.mock.calls.length;
+    timers.pending.shift()?.fn(); // the timer fires: reconnect() is now running
+    await Promise.resolve(); // let it reach the parked stop()
+    return { release, startCalls };
+  }
+
+  /** Give the released reconnect every chance to reach `adapter.start()`. */
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it('stopPlatform beats a reconnect that is already in flight — force must not resurrect it', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    const timers = fakeTimers();
+    const { release, startCalls } = await armInFlightReconnect(suite, timers);
+
+    // The operator hits Stop while the reconnect sits between its enable check
+    // and `maybeStart(..., true)`.
+    await suite.service.stopPlatform('discord');
+    release();
+    await settle();
+
+    expect(suite.discordAdapter.start).toHaveBeenCalledTimes(startCalls);
+    expect(timers.pending).toHaveLength(0);
+
+    // And the stop is durable: nothing re-arms a reconnect behind it.
+    expect(suite.workspace.settings.get('gateway.discord.enabled')).toBe(false);
+  });
+
+  it('shutdown beats a reconnect that is already in flight — no live connection past will-quit', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    const timers = fakeTimers();
+    const { release, startCalls } = await armInFlightReconnect(suite, timers);
+
+    await suite.service.stop();
+    release();
+    await settle();
+
+    expect(suite.discordAdapter.start).toHaveBeenCalledTimes(startCalls);
+    expect(timers.pending).toHaveLength(0);
+  });
+
+  it('an explicit startPlatform after a stop clears the stop request', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    suite.workspace.settings.set('gateway.discord.enabled', true);
+
+    await suite.service.stopPlatform('discord');
+    const startCalls = suite.discordAdapter.start.mock.calls.length;
+
+    await suite.service.startPlatform('discord');
+
+    expect(suite.discordAdapter.start).toHaveBeenCalledTimes(startCalls + 1);
+  });
 });
 
 describe('GatewayService.recordTurnOutcome — turn errors reach status (TASK_2026_271 #7)', () => {

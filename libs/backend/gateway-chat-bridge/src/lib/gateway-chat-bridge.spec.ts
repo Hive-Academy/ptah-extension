@@ -55,7 +55,9 @@ import {
   BindingId,
   ConversationKey,
   ConversationTurnTracker,
+  StreamCoalescer,
   type ConversationStore,
+  type FlushPayload,
   type GatewayBinding,
   type GatewayConversation,
   type GatewayConversationId,
@@ -104,6 +106,58 @@ class FakeGateway extends EventEmitter {
   markInboundTurnState = jest.fn<void, [string, GatewayTurnState]>();
   claimInterruptedInboundTurns = jest.fn<InterruptedInboundConversation[], []>(
     () => [],
+  );
+}
+
+/**
+ * A gateway whose outbound primitives are backed by the REAL
+ * {@link StreamCoalescer} the production `OutboundDeliveryService` uses, in the
+ * same `'complete'` mode, with the flush recorded instead of sent.
+ *
+ * The plain {@link FakeGateway} above cannot see the stranded-buffer class of
+ * bug at all: its `drainOutbound` is a no-op mock, so a turn that drains
+ * without discarding looks identical to one that cleans up. The coalescer's
+ * `body` is cumulative per conversation key and is cleared ONLY by `discard()`
+ * — that is the entire mechanism, so a regression test has to run it.
+ */
+class DeliveringGateway extends FakeGateway {
+  /** Bodies handed to the platform, in order — one entry per flush. */
+  readonly delivered: string[] = [];
+
+  private readonly coalescer = new StreamCoalescer(
+    (payload: FlushPayload) => {
+      this.delivered.push(payload.body);
+    },
+    { mode: 'complete' },
+  );
+
+  override appendOutboundChunk = jest.fn<void, [OutboundRoute, string]>(
+    (route, chunk) => {
+      this.coalescer.append(route, chunk);
+    },
+  );
+
+  /** Mirrors `OutboundDeliveryService.drain` — flushes, does NOT reset. */
+  override drainOutbound = jest.fn<Promise<void>, [ConversationKey]>(
+    async (key) => {
+      await this.coalescer.drain(key);
+    },
+  );
+
+  /** Mirrors `OutboundDeliveryService.discard`. */
+  override discardOutbound = jest.fn<void, [ConversationKey]>((key) => {
+    this.coalescer.discard(key);
+  });
+
+  /** Mirrors `OutboundDeliveryService.completeTurn` — drain, then reset. */
+  override completeOutboundTurn = jest.fn<Promise<void>, [ConversationKey]>(
+    async (key) => {
+      try {
+        await this.coalescer.drain(key);
+      } finally {
+        this.coalescer.discard(key);
+      }
+    },
   );
 }
 
@@ -303,8 +357,13 @@ function setup(options?: {
    * exercising the safe fallback. A non-enum string exercises the reject path.
    */
   gatewayPermissionLevel?: string;
+  /**
+   * Swap in a gateway whose outbound calls have real behaviour (see
+   * {@link DeliveringGateway}) instead of the default no-op mocks.
+   */
+  gateway?: FakeGateway;
 }): Harness {
-  const gateway = new FakeGateway();
+  const gateway = options?.gateway ?? new FakeGateway();
   const conversations = {
     setPtahSessionId: jest.fn(),
   } as unknown as Harness['conversations'];
@@ -997,9 +1056,9 @@ describe('GatewayChatBridge', () => {
     h.bridge.start();
     const key = ConversationKey.for(binding.platform, binding.externalChatId);
     h.gateway.emit('inbound', makeEvent(binding, 'go'));
-    await flushUntil(
-      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
-    );
+    // NOT `completeOutboundTurn` — this path returns before the seal is wired,
+    // so polling for it would time out silently and assert nothing.
+    await flushUntil(() => h.gateway.discardOutbound.mock.calls.length > 0);
 
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
     expect(h.adapter.resumeSession).not.toHaveBeenCalled();
@@ -1008,6 +1067,8 @@ describe('GatewayChatBridge', () => {
       key,
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+    // The error text must not survive into the next turn's buffer.
+    expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
   });
 
   it('drains and sends an error message when the adapter throws mid-stream', async () => {
@@ -1778,6 +1839,7 @@ describe('GatewayChatBridge — conversation-first workspace resolution (TASK_20
       WORKSPACE_UNAVAILABLE_MESSAGE,
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+    expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
   });
 
   it('an allowlisted conversation root that vanished on disk fails the turn closed', async () => {
@@ -1802,6 +1864,7 @@ describe('GatewayChatBridge — conversation-first workspace resolution (TASK_20
       WORKSPACE_UNAVAILABLE_MESSAGE,
     );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+    expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
   });
 });
 
@@ -2218,5 +2281,128 @@ describe('GatewayChatBridge.start — interrupted-turn recovery (TASK_2026_277)'
     await flushUntil(() => h.gateway.sendNotice.mock.calls.length > 0);
 
     expect(h.gateway.claimInterruptedInboundTurns).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A turn that ends early must not leak its text into the NEXT turn
+// (TASK_2026_271 blocker A — verification review 2026-08-18)
+// ---------------------------------------------------------------------------
+const DELIVERY_FAILED_MESSAGE =
+  'Ptah finished this request but could not deliver the reply here. Please try again.';
+
+describe('GatewayChatBridge — a failed turn never pollutes the next reply', () => {
+  /**
+   * These specs run the real {@link StreamCoalescer} (see
+   * {@link DeliveringGateway}) and always assert on the SECOND turn's delivered
+   * body. Asserting that `discardOutbound` was called would pass against a
+   * `drain`-only implementation too, because the mock has no buffer to leak.
+   */
+  function twoTurnHarness(): {
+    h: Harness;
+    gateway: DeliveringGateway;
+    binding: GatewayBinding;
+  } {
+    const gateway = new DeliveringGateway();
+    const h = setup({ gateway, workspaceFolders: ['/ws/proj'] });
+    return {
+      h,
+      gateway,
+      binding: makeBinding({ workspaceRoot: '/ws/proj' }),
+    };
+  }
+
+  /** A second turn on the SAME conversation key that replies normally. */
+  async function runSecondTurn(
+    h: Harness,
+    gateway: DeliveringGateway,
+    binding: GatewayBinding,
+  ): Promise<void> {
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'second reply'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+    const delivered = gateway.delivered.length;
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'try again', {
+        conversation: makeConversation(binding, { workspaceRoot: null }),
+      }),
+    );
+    await flushUntil(() => gateway.delivered.length > delivered);
+  }
+
+  it('a turn that fails closed on a revoked workspace root leaves nothing behind for the next turn', async () => {
+    const { h, gateway, binding } = twoTurnHarness();
+
+    h.bridge.start();
+    // Turn 1: conversation pinned to a root that left the allowlist — the
+    // fail-closed early return, which happens BEFORE the end-of-turn seal is
+    // wired and so has to clean up after itself.
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'go', {
+        conversation: makeConversation(binding, { workspaceRoot: '/ws/gone' }),
+      }),
+    );
+    await flushUntil(() => gateway.delivered.length > 0);
+    expect(gateway.delivered).toEqual([WORKSPACE_UNAVAILABLE_MESSAGE]);
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+
+    // Turn 2 on the same conversation key resolves fine and answers.
+    await runSecondTurn(h, gateway, binding);
+
+    expect(gateway.delivered).toHaveLength(2);
+    expect(gateway.delivered[1]).toBe('second reply');
+    expect(gateway.delivered[1]).not.toContain('no longer available');
+  });
+
+  it('a turn that fails closed because the root vanished on disk leaves nothing behind either', async () => {
+    const { h, gateway, binding } = twoTurnHarness();
+    accessMock.mockRejectedValueOnce(new Error('ENOENT'));
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(() => gateway.delivered.length > 0);
+    expect(gateway.delivered).toEqual([WORKSPACE_UNAVAILABLE_MESSAGE]);
+
+    await runSecondTurn(h, gateway, binding);
+
+    expect(gateway.delivered).toHaveLength(2);
+    expect(gateway.delivered[1]).toBe('second reply');
+    expect(gateway.delivered[1]).not.toContain('no longer available');
+  });
+
+  it('the post-seal delivery-failure reply does not survive into the next turn', async () => {
+    const { h, gateway, binding } = twoTurnHarness();
+    // The seal throws — the reply was generated but the platform rejected it —
+    // so the bridge sends DELIVERY_FAILED_MESSAGE *after* `completeOutboundTurn`
+    // already reset the buffer. That reply is the third entrance to the same
+    // bug: nothing seals again behind it.
+    gateway.completeOutboundTurn.mockImplementationOnce(async (key) => {
+      // Production `completeTurn` resets the buffer in a `finally` even when
+      // the flush throws — only the error propagates.
+      gateway.discardOutbound(key);
+      throw new Error('Missing Permissions');
+    });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'first reply'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(() => gateway.delivered.length > 0);
+    expect(gateway.delivered).toEqual([DELIVERY_FAILED_MESSAGE]);
+
+    await runSecondTurn(h, gateway, binding);
+
+    expect(gateway.delivered).toHaveLength(2);
+    expect(gateway.delivered[1]).toBe('second reply');
+    expect(gateway.delivered[1]).not.toContain('could not deliver');
   });
 });
