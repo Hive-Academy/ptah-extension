@@ -4,6 +4,7 @@ import { VSCodeService } from '@ptah-extension/core';
 import type {
   GatewayBindingDto,
   GatewayPlatformId,
+  GatewayRegisterDiscordCommandsResult,
 } from '@ptah-extension/shared';
 
 import { MessagingGatewayTabComponent } from './messaging-gateway-tab.component';
@@ -53,11 +54,13 @@ function makeStub() {
     loadAllowList: jest.fn(async () => undefined),
     saveDiscordAppId: jest.fn(async () => ({ ok: true as const })),
     loadDiscordGuilds: jest.fn(async () => undefined),
-    registerDiscordCommands: jest.fn(async () => ({
-      ok: true as const,
-      registered: 1,
-      scope: 'guild' as const,
-    })),
+    registerDiscordCommands: jest.fn(
+      async (): Promise<GatewayRegisterDiscordCommandsResult> => ({
+        ok: true,
+        registered: 1,
+        scope: 'guild',
+      }),
+    ),
     setToken: jest.fn(async () => undefined),
     approveBinding: jest.fn(async () => ({ ok: true as const })),
     rejectBinding: jest.fn(async () => undefined),
@@ -620,11 +623,119 @@ describe('MessagingGatewayTabComponent (shell)', () => {
       await settle(fixture);
 
       expect(stub.registerDiscordCommands).toHaveBeenCalledTimes(1);
+      const feedback = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-register-feedback"]',
+      ) as HTMLElement;
+      expect(feedback.textContent).toContain('Registered /ptah on 2 server(s)');
+      expect(feedback.classList).toContain('text-base-content-muted');
+      expect(feedback.classList).not.toContain('text-warning');
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '[data-testid^="gateway-discord-register-failure-"]',
+        ),
+      ).toHaveLength(0);
+    });
+
+    it('renders a warning line per guild when registration partially failed', async () => {
+      const stub = makeStub();
+      stub.discordGuilds.set([
+        { id: 'g1', name: 'Alpha' },
+        { id: 'g2', name: 'Beta' },
+      ]);
+      const { fixture } = mount(stub);
+      stub.registerDiscordCommands.mockResolvedValueOnce({
+        ok: true,
+        registered: 2,
+        scope: 'guild',
+        failed: [
+          { guildId: 'g2', error: 'Missing Access' },
+          { guildId: 'g9', error: 'rate limited (429)' },
+        ],
+      });
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-register"]',
+        ) as HTMLButtonElement
+      ).click();
+      await settle(fixture);
+
+      const feedback = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-register-feedback"]',
+      ) as HTMLElement;
+      expect(feedback.textContent).toContain(
+        'Registered /ptah for 2 of 4 servers.',
+      );
+      expect(feedback.classList).toContain('text-warning');
+
+      // Known guild resolves to its name; unknown guild falls back to the id.
       expect(
         fixture.nativeElement.querySelector(
-          '[data-testid="gateway-discord-register-feedback"]',
+          '[data-testid="gateway-discord-register-failure-g2"]',
         )?.textContent,
-      ).toContain('Registered /ptah on 2 server(s)');
+      ).toContain('Failed: Beta — Missing Access');
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-register-failure-g9"]',
+        )?.textContent,
+      ).toContain('Failed: g9 — rate limited (429)');
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '[data-testid^="gateway-discord-register-failure-"]',
+        ),
+      ).toHaveLength(2);
+    });
+
+    it('treats an empty failed list as full success', async () => {
+      const { fixture, stub } = mount();
+      stub.registerDiscordCommands.mockResolvedValueOnce({
+        ok: true,
+        registered: 3,
+        scope: 'guild',
+        failed: [],
+      });
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-register"]',
+        ) as HTMLButtonElement
+      ).click();
+      await settle(fixture);
+
+      const feedback = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-register-feedback"]',
+      ) as HTMLElement;
+      expect(feedback.textContent).toContain('Registered /ptah on 3 server(s)');
+      expect(feedback.classList).not.toContain('text-warning');
+    });
+
+    it('renders a failed registration unchanged, with no per-guild lines', async () => {
+      const { fixture, stub } = mount();
+      stub.registerDiscordCommands.mockResolvedValueOnce({
+        ok: false,
+        error: 'missing-token',
+      });
+
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="gateway-discord-register"]',
+        ) as HTMLButtonElement
+      ).click();
+      await settle(fixture);
+
+      const feedback = fixture.nativeElement.querySelector(
+        '[data-testid="gateway-discord-register-feedback"]',
+      ) as HTMLElement;
+      expect(feedback.textContent).toContain(
+        'Registration failed: save the bot token first',
+      );
+      expect(feedback.classList).toContain('text-base-content-muted');
+      expect(feedback.classList).not.toContain('text-warning');
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '[data-testid^="gateway-discord-register-failure-"]',
+        ),
+      ).toHaveLength(0);
     });
 
     it('ticking a server adds it to the allow-list', async () => {

@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 
-import { GrammyTelegramAdapter } from './grammy.adapter';
+import {
+  GrammyTelegramAdapter,
+  TELEGRAM_TOKEN_REJECTED_REASON,
+} from './grammy.adapter';
 import type { TelegramBotLike, TelegramContext } from './grammy.adapter';
 import type { InboundMessage } from '../adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -145,7 +148,7 @@ describe('GrammyTelegramAdapter — transport lifecycle (TASK_2026_271)', () => 
   it('a rejected polling loop is invalidated (grammy will not restart it) and a later start() rebuilds the bot', async () => {
     const { adapter, bot, logger, states } = await startAdapter();
 
-    bot.failPolling(new Error('401: Unauthorized'));
+    bot.failPolling(new Error('ECONNRESET'));
     await Promise.resolve();
     await Promise.resolve();
 
@@ -153,18 +156,61 @@ describe('GrammyTelegramAdapter — transport lifecycle (TASK_2026_271)', () => 
     expect(states).toEqual([
       {
         state: 'invalidated',
-        reason: 'Telegram long-polling failed: 401: Unauthorized',
+        reason: 'Telegram long-polling failed: ECONNRESET',
       },
     ]);
     expect(logger.warn).toHaveBeenCalledWith(
       '[gateway] telegram polling ended',
-      expect.objectContaining({ reason: expect.stringContaining('401') }),
+      expect.objectContaining({
+        reason: expect.stringContaining('ECONNRESET'),
+        willReconnect: true,
+      }),
     );
 
     // The lifecycle flag was released, so Start (UI or backoff) is not a
     // no-op on the dead adapter.
     await adapter.start('token');
     expect(adapter.isRunning()).toBe(true);
+  });
+
+  it('a 401 GrammyError is disconnected, NOT invalidated — a rejected token cannot be reconnected into working', async () => {
+    const { adapter, bot, logger, states } = await startAdapter();
+
+    // Shape of grammy's GrammyError for `getUpdates` under a revoked token.
+    const grammyError = Object.assign(
+      new Error('Call to "getUpdates" failed! (401: Unauthorized)'),
+      { error_code: 401, description: 'Unauthorized' },
+    );
+    bot.failPolling(grammyError);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(adapter.isRunning()).toBe(false);
+    expect(states).toEqual([
+      { state: 'disconnected', reason: TELEGRAM_TOKEN_REJECTED_REASON },
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] telegram polling ended',
+      expect.objectContaining({ willReconnect: false }),
+    );
+
+    // running/connected/bot are still released, so a start() with a fresh
+    // token is not a no-op.
+    await adapter.start('a-new-token');
+    expect(adapter.isRunning()).toBe(true);
+  });
+
+  it('recognises a 401 that only shows up in the message (HttpError / plain rejection carrying no error_code)', async () => {
+    const { adapter, bot, states } = await startAdapter();
+
+    bot.failPolling(new Error('401: Unauthorized'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(adapter.isRunning()).toBe(false);
+    expect(states).toEqual([
+      { state: 'disconnected', reason: TELEGRAM_TOKEN_REJECTED_REASON },
+    ]);
   });
 
   it('a polling loop that ends without an error is invalidated too', async () => {

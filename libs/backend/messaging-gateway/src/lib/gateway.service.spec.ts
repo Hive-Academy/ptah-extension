@@ -19,6 +19,8 @@ import {
   type GatewayConversationId,
   type GatewayPlatform,
 } from './types';
+import { AdapterLifecycleService } from './adapter-lifecycle.service';
+import { OutboundDeliveryService } from './outbound-delivery.service';
 import { AttachedSessionRegistry } from './attached-session-registry';
 import type { BindingStore } from './binding.store';
 import type { ConversationStore } from './conversation.store';
@@ -292,6 +294,25 @@ function buildSuite(options?: SuiteOptions): Suite {
     handleAutocomplete: jest.fn().mockResolvedValue([]),
   } as unknown as jest.Mocked<IGatewayCommandHandler>;
 
+  // The façade's two collaborators are constructed the way tsyringe would.
+  const gatewaySettings = createMockGatewaySettings(options?.ciphers);
+  const lifecycle = new AdapterLifecycleService(
+    logger as unknown as Logger,
+    workspace.provider,
+    vault as unknown as ITokenVault,
+    gatewaySettings,
+    placeholderTelegram,
+    placeholderDiscord,
+    placeholderSlack,
+    commandHandler,
+  );
+  const outbound = new OutboundDeliveryService(
+    logger as unknown as Logger,
+    bindings,
+    messages,
+    lifecycle,
+  );
+
   const service = new GatewayService(
     logger as unknown as Logger,
     workspace.provider,
@@ -299,14 +320,12 @@ function buildSuite(options?: SuiteOptions): Suite {
     bindings,
     conversations,
     messages,
-    placeholderTelegram,
-    placeholderDiscord,
-    placeholderSlack,
     voiceSelector,
-    createMockGatewaySettings(options?.ciphers),
+    gatewaySettings,
     attachedSessionRegistry,
     resumability,
-    commandHandler,
+    lifecycle,
+    outbound,
   );
   service.configureForTest({
     telegram: telegramAdapter,

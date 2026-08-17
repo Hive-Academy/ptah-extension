@@ -14,6 +14,8 @@ export type {
   GatewayStatus,
   GatewayTestOverrides,
 } from './lib/gateway.service';
+export { AdapterLifecycleService } from './lib/adapter-lifecycle.service';
+export { OutboundDeliveryService } from './lib/outbound-delivery.service';
 
 export { BindingStore } from './lib/binding.store';
 export { ConversationStore } from './lib/conversation.store';

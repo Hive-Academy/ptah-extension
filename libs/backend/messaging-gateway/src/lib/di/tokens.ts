@@ -9,6 +9,10 @@
 export const GATEWAY_TOKENS = {
   /** GatewayService — top-level facade. */
   GATEWAY_SERVICE: Symbol.for('PtahGatewayService'),
+  /** AdapterLifecycleService — transport start/stop, reconnect backoff, status. */
+  GATEWAY_ADAPTER_LIFECYCLE: Symbol.for('PtahGatewayAdapterLifecycle'),
+  /** OutboundDeliveryService — reply coalescing + paginated delivery. */
+  GATEWAY_OUTBOUND_DELIVERY: Symbol.for('PtahGatewayOutboundDelivery'),
   /** ITokenVault — encrypts/decrypts platform tokens. */
   GATEWAY_TOKEN_VAULT: Symbol.for('PtahGatewayTokenVault'),
   /** BindingStore — gateway_bindings persistence. */

@@ -19,6 +19,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { GatewayService } from './gateway.service';
+import { AdapterLifecycleService } from './adapter-lifecycle.service';
+import { OutboundDeliveryService } from './outbound-delivery.service';
 import { AttachedSessionRegistry } from './attached-session-registry';
 import type { GrammyTelegramAdapter } from './adapters/telegram/grammy.adapter';
 import type { DiscordAdapter } from './adapters/discord/discord.adapter';
@@ -205,16 +207,38 @@ function buildServiceWithRealStore(
   const store = makeSecretsStore(secretsFileStore, masterKeyProvider);
   const gatewaySettings = new GatewaySettings(store);
 
-  const service = new GatewayService(
-    createLogger(),
-    createWorkspace(),
+  const logger = createLogger();
+  const workspace = createWorkspace();
+  const bindings = createBindingStore();
+  const messages = createMessageStore();
+
+  const lifecycle = new AdapterLifecycleService(
+    logger,
+    workspace,
     vault,
-    createBindingStore(),
-    createConversationStore(),
-    createMessageStore(),
+    gatewaySettings,
     {} as unknown as GrammyTelegramAdapter,
     {} as unknown as DiscordAdapter,
     {} as unknown as BoltSlackAdapter,
+    {
+      handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'ok' }),
+      handleAutocomplete: jest.fn().mockResolvedValue([]),
+    },
+  );
+  const outbound = new OutboundDeliveryService(
+    logger,
+    bindings,
+    messages,
+    lifecycle,
+  );
+
+  const service = new GatewayService(
+    logger,
+    workspace,
+    vault,
+    bindings,
+    createConversationStore(),
+    messages,
     {
       activeStt: jest.fn().mockReturnValue({
         transcribe: jest.fn().mockResolvedValue({ text: '' }),
@@ -226,10 +250,8 @@ function buildServiceWithRealStore(
     gatewaySettings,
     new AttachedSessionRegistry(),
     { isResumable: jest.fn().mockResolvedValue(true) },
-    {
-      handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'ok' }),
-      handleAutocomplete: jest.fn().mockResolvedValue([]),
-    },
+    lifecycle,
+    outbound,
   );
 
   return { service, gatewaySettings };

@@ -77,6 +77,38 @@ const defaultFactory: TelegramBotFactory = (token) => {
 const GLOBAL_LIMIT_PER_SEC = 30;
 const PER_CHAT_INTERVAL_MS = 1_000;
 
+/**
+ * Reported when Telegram answers the polling loop with `401 Unauthorized`.
+ * Deliberately actionable: nothing the gateway can do fixes a rejected token,
+ * only the operator can.
+ */
+export const TELEGRAM_TOKEN_REJECTED_REASON =
+  'Telegram rejected the bot token (401) — update the token in the Gateway tab';
+
+/** `401` as a standalone number, or the word Telegram sends alongside it. */
+const UNAUTHORIZED_PATTERN = /\b401\b|unauthorized/i;
+
+/**
+ * Did the polling loop die because Telegram refuses the token?
+ *
+ * grammy rejects with a `GrammyError` carrying the API's `error_code` (401 for
+ * a revoked, mistyped or regenerated token) or an `HttpError` wrapping the
+ * transport failure. We match structurally rather than with `instanceof` — the
+ * grammy classes are only reachable through the lazily-`require`d factory, and
+ * a test double must be able to reproduce the shape.
+ */
+function isTokenRejected(err: unknown): boolean {
+  if (err === null || err === undefined) return false;
+  if (
+    typeof err === 'object' &&
+    (err as { error_code?: unknown }).error_code === 401
+  ) {
+    return true;
+  }
+  const text = err instanceof Error ? err.message : String(err);
+  return UNAUTHORIZED_PATTERN.test(text);
+}
+
 @injectable()
 export class GrammyTelegramAdapter implements IMessagingAdapter {
   readonly platform = 'telegram' as const;
@@ -179,24 +211,40 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
   /**
    * The polling loop settled. If we did not ask for it (`stop()` clears
    * `this.bot`), the transport is gone for good — grammy does not restart the
-   * loop on its own. Leave the start/stop lifecycle so a later `start()` (the
-   * gateway's backoff reconnect, or the operator's Start button) is not
-   * short-circuited by a stale `running`, and report `invalidated` so
-   * `GatewayService` schedules that reconnect.
+   * loop on its own. Either way the start/stop lifecycle is released so a later
+   * `start()` (the gateway's backoff reconnect, or the operator's Start button)
+   * is not short-circuited by a stale `running`.
+   *
+   * Which state we report decides whether the gateway retries:
+   *
+   *   - `'invalidated'` — recoverable (network drop, `ECONNRESET`, a clean
+   *     stop we did not ask for). `GatewayService` arms its bounded backoff.
+   *   - `'disconnected'` — Telegram rejected the token (401). Retrying re-sends
+   *     the same rejected token every few minutes forever and can only end in
+   *     the same 401, so we stop here and let the reason tell the operator what
+   *     to fix (TASK_2026_271).
    */
   private handlePollingEnded(bot: TelegramBotLike, err: unknown): void {
     if (this.bot !== bot || !this.running) return;
     this.connected = false;
     this.running = false;
     this.bot = null;
-    const reason =
-      err === null
+    const tokenRejected = isTokenRejected(err);
+    const reason = tokenRejected
+      ? TELEGRAM_TOKEN_REJECTED_REASON
+      : err === null
         ? 'Telegram long-polling stopped'
         : `Telegram long-polling failed: ${
             err instanceof Error ? err.message : String(err)
           }`;
-    this.logger.warn('[gateway] telegram polling ended', { reason });
-    this.emitConnection({ state: 'invalidated', reason });
+    this.logger.warn('[gateway] telegram polling ended', {
+      reason,
+      willReconnect: !tokenRejected,
+    });
+    this.emitConnection({
+      state: tokenRejected ? 'disconnected' : 'invalidated',
+      reason,
+    });
   }
 
   private emitConnection(event: AdapterConnectionEvent): void {

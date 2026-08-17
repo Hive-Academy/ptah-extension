@@ -135,10 +135,23 @@ connected`. grammy: polling promise no longer discarded — settled loop
      window; debug per drop.
    - Discord `messagesById` capped at 500; `channelEdits` pruned.
    - Docs: guild-only intents decision recorded (DMs no-op by design).
-7. Still open (own tasks): restart-mid-turn replay (needs durable inbound
-   queue); Telegram 401 → `invalidated` escalation (grammy error code
-   inspection); UI rendering of `failed` guild list; `gateway.service.ts`
-   facade split (1200+ lines, warn-level).
+7. **DONE 2026-08-18** (orchestrated: backend + frontend lanes,
+   `code-logic-reviewer` found no behaviour drift):
+   - Telegram 401 → `disconnected` + `TELEGRAM_TOKEN_REJECTED_REASON` (no
+     pointless backoff); other polling ends stay `invalidated`.
+   - Facade split per root CLAUDE.md rule: `GatewayService` (1546→901
+     raw / 677 code lines) delegates to `AdapterLifecycleService`
+     (adapters, start/stop/reconnect/status/lastError/recordTurnOutcome,
+     emits `status-changed`) and `OutboundDeliveryService` (coalescer,
+     flush, paginate, `OutboundDeliveryError`, sendTest);
+     `gateway-settings-access.ts` holds keys + readers. Every public
+     signature, token and event kept. Tokens `GATEWAY_ADAPTER_LIFECYCLE`
+     / `GATEWAY_OUTBOUND_DELIVERY`.
+   - Gateway tab renders partial guild registration failure ("Registered
+     for 2 of 3 servers. Failed: Beta — Missing Access"), name-mapped via
+     the guild picker list.
+8. Split out: TASK_2026_277 (restart-mid-turn: notify, don't replay).
+   TASK_2026_272 (send-to-messaging rework) still backlog.
 
 ## Related
 
