@@ -30,9 +30,12 @@
  *    This is the highest-confidence signal available: if a router carries
  *    `anthropic/claude-opus-4.5`, then "opus" on that router means that model
  *    and nothing else. `.sort().at(-1)` as "newest version last" is the
- *    convention already used by `autoResolveDefaultTiers`
- *    (`provider-models.service.ts:527-538`); it is reused here rather than
- *    invented. Two known flaws, both stated rather than hidden: a lexicographic
+ *    convention inherited from the auto-resolver this rule replaced (deleted in
+ *    TASK_2026_265 because it persisted its answer into the user-choice slot);
+ *    it was reused here rather than invented — though note that the old one's
+ *    `.sort()` had no comparator and was provably inert, so this is the first
+ *    implementation where the convention actually sorts. Two known flaws, both
+ *    stated rather than hidden: a lexicographic
  *    compare orders `4.10` before `4.9`, and a suffixed variant
  *    (`...:beta`) sorts above its own base id. Both still yield a servable id
  *    from the family the user asked for, which is the bar this rule sets.

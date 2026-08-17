@@ -409,7 +409,6 @@ export class ProviderModelsService {
       const models = this.transformApiModels(data.data);
       this.feedPricingMap(models);
       this.modelCache.set(providerId, { models, timestamp: now });
-      await this.autoResolveDefaultTiers(providerId, models);
 
       this.logger.info(
         `[ProviderModelsService] Fetched models from ${provider.name}`,
@@ -518,49 +517,6 @@ export class ProviderModelsService {
       scope,
       envVar: scope === 'mainAgent' ? envVar : '(not set â€” cliAgent scope)',
     });
-  }
-
-  /**
-   * Auto-resolve default tier mappings from a freshly-fetched model list.
-   *
-   * Only runs when the user has NO persisted tier values for this provider
-   * (sonnet, opus, haiku all null on the `mainAgent` scope). Pattern-matches
-   * the newest Claude model per tier from the model list and persists it.
-   */
-  private async autoResolveDefaultTiers(
-    providerId: string,
-    models: ProviderModelInfo[],
-  ): Promise<void> {
-    const existing = this.getModelTiers(providerId, 'mainAgent');
-    if (existing.sonnet || existing.opus || existing.haiku) {
-      return;
-    }
-
-    const resolved: Record<ProviderModelTier, string | undefined> = {
-      sonnet: models
-        .filter((m) => /claude.*(sonnet)/i.test(m.id || m.name))
-        .sort()
-        .at(-1)?.id,
-      opus: models
-        .filter((m) => /claude.*(opus)/i.test(m.id || m.name))
-        .sort()
-        .at(-1)?.id,
-      haiku: models
-        .filter((m) => /claude.*(haiku)/i.test(m.id || m.name))
-        .sort()
-        .at(-1)?.id,
-    };
-
-    for (const [tier, modelId] of Object.entries(resolved)) {
-      if (modelId) {
-        await this.setModelTier(
-          providerId,
-          tier as ProviderModelTier,
-          modelId,
-          'mainAgent',
-        );
-      }
-    }
   }
 
   /**
@@ -836,8 +792,9 @@ export class ProviderModelsService {
    *    env. Re-applying for a provider the user merely browsed in the picker
    *    would repoint the ACTIVE provider's tiers at another provider's model
    *    ids — a silent wrong-model send, which is worse than the 404 this whole
-   *    carrier is about. (`autoResolveDefaultTiers` has this hazard today and
-   *    is recorded as a pre-existing violation; do not copy it.)
+   *    carrier is about. A second writer on the fetch path used to have exactly
+   *    this hazard and was deleted for it (TASK_2026_265); do not reintroduce a
+   *    tier write that runs off a fetch without this guard.
    * 2. **Only fill a hole.** Returns when every tier env var already has a
    *    value. This is what makes the method incapable of disturbing a working
    *    configuration; combined with `applyPersistedTiers`' own

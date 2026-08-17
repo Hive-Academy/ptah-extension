@@ -82,8 +82,9 @@ describe('deriveTiersFromCatalog', () => {
     });
 
     it('prefers the greatest id among several models naming the same tier', () => {
-      // `.sort().at(-1)` — "newest version sorts last" — reused from
-      // autoResolveDefaultTiers rather than invented here.
+      // `.sort().at(-1)` — "newest version sorts last" — the convention
+      // inherited from the fetch-path auto-resolver this rule replaced,
+      // rather than invented here.
       const derived = deriveTiersFromCatalog(ROUTER_CATALOG);
       expect(derived.opus).toBe('anthropic/claude-opus-4.5');
       expect(derived.opus).not.toBe('anthropic/claude-opus-4.1');

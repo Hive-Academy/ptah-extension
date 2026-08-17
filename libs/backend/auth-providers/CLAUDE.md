@@ -152,7 +152,7 @@ instead". That sentence was **aspirational until TASK_2026_262 and is now
 implemented** — it describes `deriveTiersFromCatalog` and the three writers
 above. Read it as a spec that is met, not as a TODO.
 
-### Precedence, and the one thing that violates it
+### Precedence, and the violation that was removed from it
 
 `user pick ?? registry defaultTiers ?? live-derived`, in exactly that order, at
 all three writers. A user's pick is a choice and a registry map is a verified
@@ -160,15 +160,41 @@ statement by whoever added the entry; a heuristic over a live list outranks
 neither. The derivation is consulted **lazily**, so a provider whose static data
 covers all three tiers never reads a catalogue.
 
-**Known violation, not introduced here**: `ProviderModelsService.autoResolveDefaultTiers`
-runs a claude-only version of the nominal pass and persists the result through
-`setModelTier` — i.e. into the **user-choice slot**, the top of the chain. That
-conflates "we guessed this" with "the user chose this", and the guess then
-outranks a `defaultTiers` map the registry might gain later. It also writes tier
-env vars for whichever provider was fetched with no activeness guard. Deleting
-it in favour of the read-time rule is the recommended fix — a value that is
-never persisted can be re-derived when the catalogue changes, whereas a
-persisted guess is permanent.
+**`provider.<id>.<scope>.modelTier.<tier>` is the user-choice slot and nothing
+derived may be written into it.** The model-catalogue fetch path used to violate
+that: `ProviderModelsService.autoResolveDefaultTiers`, called from
+`fetchDynamicModels` right after the catalogue was cached, ran a claude-only
+version of the nominal pass and persisted its answer through `setModelTier` —
+into the top of the chain, for whichever provider was fetched, with no check
+that it was the ACTIVE one. **TASK_2026_265 deleted the function and its call
+site outright.** Nothing replaced it, because nothing needed to: the fetch still
+warms `modelCache` and still calls `persistCatalog`, which is exactly the source
+`getLiveDerivedTiers` reads, so every catalogue that used to feed the guess now
+feeds the read-time rule instead — and a value that is never persisted is
+re-derived whenever the catalogue changes. Both specs live in
+`provider-models-cross-provider-contamination.spec.ts` and are mutation-proven:
+one pins that browsing a non-active provider leaves the active session's tier
+env and `AuthEnv` untouched, the other pins that a fetch of the ACTIVE provider
+still writes no `modelTier` key (an activeness guard alone would pass the first
+and fail the second).
+
+**Accepted residual — the hole is closed for new writes only.** An install that
+opened the `openrouter` or `requesty` model picker before this fix has a guess
+sitting in `provider.<id>.mainAgent.modelTier.<tier>` today, and **it is not
+self-healing**. Nothing reads it as suspect, nothing clears it, and because it
+occupies the top link, `deriveTiersFromCatalog` is never even consulted for that
+provider/tier — permanently, until the user sets that tier explicitly (or clears
+it) from the model picker. **No migration was shipped, deliberately.** There is
+no marker anywhere — no flag, no timestamp, no separate key — distinguishing a
+guess from a deliberate pick, so a one-time clear of "auto-shaped" keys would
+silently discard real user choices on exactly the two providers most likely to
+have them, writing to saved settings with no undo in order to fix a
+quality-only problem. The residue is servable, not broken: the stale id came
+from that provider's own catalogue and is only read when that provider is
+active, so it costs an arbitrary pick outranking a `defaultTiers` map the
+registry may later gain — not a failing session. If you are here because a
+user's `openrouter` tiers look wrong and predate this fix, the fix is for them
+to set or clear the tier, not to add the migration.
 
 ### Freshness
 
