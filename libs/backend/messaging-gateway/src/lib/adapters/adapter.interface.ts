@@ -118,6 +118,17 @@ export interface IMessagingAdapter {
     externalMsgId: string,
     body: string,
   ): Promise<void>;
+  /**
+   * Optional "bot is working" signal (Discord `sendTyping`, Telegram
+   * `sendChatAction('typing')`, Slack has no equivalent → omit). Best-effort:
+   * failures are the adapter's to swallow and log; never throws to the caller.
+   * The bridge calls it when a turn starts and re-arms it while the turn runs
+   * so a long tool call or an approval wait does not look like a dead bot.
+   */
+  sendTyping?(
+    externalChatId: string,
+    opts?: { conversationId?: string },
+  ): Promise<void>;
   /** Register the inbound listener — exactly ONE listener per adapter. */
   on(event: 'inbound', listener: InboundListener): void;
   /**

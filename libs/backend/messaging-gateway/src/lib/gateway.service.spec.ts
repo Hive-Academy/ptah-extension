@@ -1,6 +1,12 @@
 import 'reflect-metadata';
 
+jest.mock('./adapters/discord/discord-command-registration', () => ({
+  registerDiscordSlashCommands: jest.fn(),
+}));
+import { registerDiscordSlashCommands } from './adapters/discord/discord-command-registration';
+
 import {
+  ABUSE_CAP_NOTICE,
   GatewayService,
   OutboundDeliveryError,
   type GatewayInboundEvent,
@@ -162,6 +168,7 @@ function createAdapter(
       .fn()
       .mockResolvedValue({ externalMsgId: 'msg-1' } as SendResult),
     editMessage: jest.fn(),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
     on: jest.fn(),
   } as unknown as jest.Mocked<IMessagingAdapter>;
 }
@@ -1223,6 +1230,234 @@ describe('GatewayService.recordTurnOutcome — turn errors reach status (TASK_20
 
     suite.service.recordTurnOutcome('discord', { ok: true });
     expect(discordStatus(suite)?.lastError).toBe('login failed');
+  });
+});
+
+describe('GatewayService.sendTyping — bot-is-working indicator (TASK_2026_271)', () => {
+  const discordRoute: OutboundRoute = {
+    conversationKey: ConversationKey.for('discord', 'chan-1', 'thread-9'),
+    platform: 'discord',
+    externalChatId: 'chan-1',
+    conversationId: 'thread-9',
+  };
+  const telegramRoute: OutboundRoute = {
+    conversationKey: ConversationKey.for('telegram', 'chat-1'),
+    platform: 'telegram',
+    externalChatId: 'chat-1',
+  };
+
+  it('routes into the sub-conversation when the route has one and omits opts when it does not', async () => {
+    const suite = buildSuite();
+
+    await suite.service.sendTyping(discordRoute);
+    await suite.service.sendTyping(telegramRoute);
+
+    expect(suite.discordAdapter.sendTyping).toHaveBeenCalledWith('chan-1', {
+      conversationId: 'thread-9',
+    });
+    expect(suite.telegramAdapter.sendTyping).toHaveBeenCalledWith(
+      'chat-1',
+      undefined,
+    );
+  });
+
+  it('is best-effort: a rejecting adapter, a capability-less adapter, and an absent platform all resolve quietly', async () => {
+    const suite = buildSuite();
+    (suite.discordAdapter.sendTyping as jest.Mock).mockRejectedValue(
+      new Error('Missing Access'),
+    );
+    // Telegram stands in for a platform whose adapter omits the optional member
+    // entirely (Slack has no typing API at all).
+    delete (suite.telegramAdapter as { sendTyping?: unknown }).sendTyping;
+
+    await expect(
+      suite.service.sendTyping(discordRoute),
+    ).resolves.toBeUndefined();
+    await expect(
+      suite.service.sendTyping(telegramRoute),
+    ).resolves.toBeUndefined();
+    // No slack adapter was configured on this suite.
+    await expect(
+      suite.service.sendTyping({
+        conversationKey: ConversationKey.for('slack', 'C123'),
+        platform: 'slack',
+        externalChatId: 'C123',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(
+      suite.logger.debug.mock.calls.filter(([msg]) =>
+        String(msg).includes('typing indicator failed'),
+      ),
+    ).toHaveLength(1);
+    expect(suite.logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('GatewayService.handleInbound — abuse cap tells the sender (TASK_2026_271)', () => {
+  const LIMIT = 60;
+  const ALLOW_LIST_ID = 'user-9';
+
+  function approvedSuite(): Suite {
+    const suite = buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      id: 'binding-t',
+      allowListId: ALLOW_LIST_ID,
+    });
+    suite.bindings.upsertPending.mockReturnValue(binding);
+    suite.conversations.resolveOrCreate.mockReturnValue(
+      makeConversation({ bindingId: binding.id }),
+    );
+    suite.messages.insert.mockReturnValue({} as never);
+    return suite;
+  }
+
+  function inbound(seq: number): InboundMessage {
+    return makeInbound({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      externalMsgId: `in-${seq}`,
+      allowListId: ALLOW_LIST_ID,
+    });
+  }
+
+  /** Send `count` messages "instantly" (the clock is frozen by fake timers). */
+  async function flood(suite: Suite, from: number, count: number) {
+    for (let i = 0; i < count; i++) {
+      await dispatchInbound(suite.service, inbound(from + i));
+    }
+  }
+
+  const notices = (suite: Suite) =>
+    suite.telegramAdapter.sendMessage.mock.calls.filter(
+      ([, body]) => body === ABUSE_CAP_NOTICE,
+    );
+  const onsetWarnings = (suite: Suite) =>
+    suite.logger.warn.mock.calls.filter(([msg]) =>
+      String(msg).includes('abuse cap reached'),
+    );
+  const dropDebugs = (suite: Suite) =>
+    suite.logger.debug.mock.calls.filter(([msg]) =>
+      String(msg).includes('abuse cap'),
+    );
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('drops past the cap with exactly ONE notice per window — the 62nd message adds none', async () => {
+    const suite = approvedSuite();
+
+    await flood(suite, 0, LIMIT);
+    expect(suite.events).toHaveLength(LIMIT);
+    expect(notices(suite)).toHaveLength(0);
+
+    await flood(suite, LIMIT, 2); // 61st + 62nd
+
+    // Both dropped — the cap still drops, it just stopped being silent.
+    expect(suite.events).toHaveLength(LIMIT);
+    expect(notices(suite)).toHaveLength(1);
+    expect(notices(suite)[0]).toEqual(['chat-1', ABUSE_CAP_NOTICE, undefined]);
+    // One warn for the onset, one debug per dropped message.
+    expect(onsetWarnings(suite)).toHaveLength(1);
+    expect(dropDebugs(suite)).toHaveLength(2);
+  });
+
+  it('a sender still flooding a window later is told again', async () => {
+    const suite = approvedSuite();
+
+    await flood(suite, 0, LIMIT + 1);
+    expect(notices(suite)).toHaveLength(1);
+
+    // Window elapses: the counter drains, so the next burst is accepted again
+    // and only the burst's overflow is dropped — this time with a fresh notice.
+    jest.advanceTimersByTime(60_001);
+    await flood(suite, 100, LIMIT + 1);
+
+    expect(suite.events).toHaveLength(LIMIT * 2);
+    expect(notices(suite)).toHaveLength(2);
+    expect(onsetWarnings(suite)).toHaveLength(2);
+  });
+
+  it('a notice the platform rejects is warn-logged and still drops the message', async () => {
+    const suite = approvedSuite();
+    suite.telegramAdapter.sendMessage.mockRejectedValue(
+      new Error('Forbidden: bot was blocked by the user'),
+    );
+
+    await flood(suite, 0, LIMIT + 1);
+
+    expect(suite.events).toHaveLength(LIMIT);
+    expect(
+      suite.logger.warn.mock.calls.filter(([msg]) =>
+        String(msg).includes('abuse-cap notice not delivered'),
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+describe('GatewayService.registerDiscordCommands — partial guild failure (TASK_2026_271 #8)', () => {
+  const registerMock = registerDiscordSlashCommands as jest.MockedFunction<
+    typeof registerDiscordSlashCommands
+  >;
+  beforeEach(() => registerMock.mockReset());
+
+  it('reports the guilds that failed alongside ok:true and warns', async () => {
+    const suite = buildSuite({
+      settings: {
+        'gateway.discord.applicationId': 'app-1',
+        'gateway.discord.allowedGuildIds': ['g1', 'g2', 'g3'],
+      },
+      ciphers: { discord: 'cipher-d' },
+    });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    registerMock.mockResolvedValue({
+      registered: 2,
+      scope: 'guild',
+      results: [
+        { guildId: 'g1', ok: true },
+        { guildId: 'g2', ok: false, error: 'HTTP 429 after 3 retries' },
+        { guildId: 'g3', ok: true },
+      ],
+    });
+
+    const result = await suite.service.registerDiscordCommands();
+
+    expect(result).toEqual({
+      ok: true,
+      registered: 2,
+      scope: 'guild',
+      failed: [{ guildId: 'g2', error: 'HTTP 429 after 3 retries' }],
+    });
+    expect(suite.logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord slash commands registered for some guilds only',
+      expect.objectContaining({ registered: 2 }),
+    );
+  });
+
+  it('omits `failed` when every guild registered', async () => {
+    const suite = buildSuite({
+      settings: {
+        'gateway.discord.applicationId': 'app-1',
+        'gateway.discord.allowedGuildIds': ['g1'],
+      },
+      ciphers: { discord: 'cipher-d' },
+    });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    registerMock.mockResolvedValue({
+      registered: 1,
+      scope: 'guild',
+      results: [{ guildId: 'g1', ok: true }],
+    });
+
+    const result = await suite.service.registerDiscordCommands();
+    expect(result).toEqual({ ok: true, registered: 1, scope: 'guild' });
+    expect('failed' in result).toBe(false);
   });
 });
 

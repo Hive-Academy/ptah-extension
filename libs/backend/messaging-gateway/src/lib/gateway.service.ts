@@ -20,8 +20,9 @@
  *     exceeds `maxMessageChars`). No mid-turn flush, no live `editMessage`.
  *   - Voice retention: on `start()`, delete `voice_path` files older than
  *     7 days (architecture §11 default 5).
- *   - Inbound abuse guard: drop silently when a single allow-list id sends
- *     >60 messages/min (architecture §9.9).
+ *   - Inbound abuse guard: drop when a single allow-list id sends >60
+ *     messages/min (architecture §9.9), telling the sender ONCE per window
+ *     why they stopped getting replies.
  */
 import { EventEmitter } from 'node:events';
 import { timingSafeEqual } from 'node:crypto';
@@ -113,6 +114,17 @@ const SETTINGS_KEYS = {
 
 const VOICE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
+/** Sliding window for both the abuse counter and the abuse-notice throttle. */
+const INBOUND_ABUSE_WINDOW_MS = 60_000;
+
+/**
+ * Sent once per allow-list id per {@link INBOUND_ABUSE_WINDOW_MS} when the
+ * inbound cap starts dropping messages (TASK_2026_271). Before this the drop
+ * was completely silent, which from the chat side is indistinguishable from a
+ * crashed bot.
+ */
+export const ABUSE_CAP_NOTICE =
+  "You're sending messages faster than Ptah can take them — please slow down.";
 
 /**
  * Bounded backoff for adapter (re)connects: a boot-time login that fails on
@@ -197,6 +209,8 @@ export class GatewayService extends EventEmitter {
   private lastErrors = new Map<GatewayPlatform, string>();
   private coalescer: StreamCoalescer | null = null;
   private inboundCounters = new Map<string, number[]>();
+  /** allowListId → timestamp of the last "you're too fast" reply we sent. */
+  private abuseNotified = new Map<string, number>();
   /** Map conversationKey → ordered outbound message ids (one per page). */
   private streamHandles = new Map<ConversationKey, { pageMsgIds: string[] }>();
 
@@ -768,7 +782,12 @@ export class GatewayService extends EventEmitter {
    * surface a precise reason without throwing.
    */
   async registerDiscordCommands(): Promise<
-    | { ok: true; registered: number; scope: 'guild' | 'global' }
+    | {
+        ok: true;
+        registered: number;
+        scope: 'guild' | 'global';
+        failed?: ReadonlyArray<{ guildId: string; error: string }>;
+      }
     | { ok: false; error: string }
   > {
     const applicationId = this.getDiscordAppId();
@@ -786,11 +805,26 @@ export class GatewayService extends EventEmitter {
         applicationId,
         guildIds,
       });
-      this.logger.info('[gateway] discord slash commands registered', {
+      const failed = result.results
+        .filter((r) => !r.ok)
+        .map((r) => ({ guildId: r.guildId, error: r.error ?? 'unknown' }));
+      if (failed.length > 0) {
+        this.logger.warn(
+          '[gateway] discord slash commands registered for some guilds only',
+          { registered: result.registered, failed },
+        );
+      } else {
+        this.logger.info('[gateway] discord slash commands registered', {
+          registered: result.registered,
+          scope: result.scope,
+        });
+      }
+      return {
+        ok: true,
         registered: result.registered,
         scope: result.scope,
-      });
-      return { ok: true, registered: result.registered, scope: result.scope };
+        ...(failed.length > 0 ? { failed } : {}),
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn('[gateway] discord command registration failed', {
@@ -865,6 +899,32 @@ export class GatewayService extends EventEmitter {
         ? { conversationId: route.conversationId }
         : undefined,
     );
+  }
+
+  /**
+   * Show the platform's "bot is typing" affordance for a route (TASK_2026_271).
+   * Purely cosmetic and strictly best-effort: platforms without the capability
+   * omit `sendTyping` entirely, and a failure must never disturb the turn — a
+   * gateway reply is already slow, it should not also be fragile. The indicator
+   * decays on its own (Discord ≈10 s), so the bridge re-arms it while a turn
+   * runs rather than this method holding any state.
+   */
+  async sendTyping(route: OutboundRoute): Promise<void> {
+    const adapter = this.adapters.get(route.platform);
+    if (!adapter) return;
+    try {
+      await adapter.sendTyping?.(
+        route.externalChatId,
+        route.conversationId !== undefined
+          ? { conversationId: route.conversationId }
+          : undefined,
+      );
+    } catch (error: unknown) {
+      this.logger.debug('[gateway] typing indicator failed', {
+        platform: route.platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -1060,22 +1120,82 @@ export class GatewayService extends EventEmitter {
     );
   }
 
-  private async handleInbound(msg: InboundMessage): Promise<void> {
-    if (msg.allowListId) {
-      const now = Date.now();
-      const recent = (this.inboundCounters.get(msg.allowListId) ?? []).filter(
-        (ts) => ts > now - 60_000,
-      );
-      if (recent.length >= INBOUND_ABUSE_LIMIT_PER_MIN) {
-        this.logger.warn('[gateway] dropping inbound — abuse cap', {
-          allowListId: msg.allowListId,
-          platform: msg.platform,
-        });
-        return;
-      }
+  /**
+   * Sliding-window inbound cap, per allow-list id (architecture §9.9).
+   *
+   * A drop is logged at `debug` — one line per dropped message is noise, not
+   * signal — while the *onset* of throttling gets a single `warn` and a single
+   * reply to the sender per window (TASK_2026_271). Both are throttled by the
+   * same {@link abuseNotified} stamp, so a sender hammering the bot sees one
+   * explanation a minute rather than 500 or, as before, none at all.
+   *
+   * @returns `true` when the caller must drop the message.
+   */
+  private async isRateLimited(msg: InboundMessage): Promise<boolean> {
+    const allowListId = msg.allowListId;
+    if (!allowListId) return false;
+    const now = Date.now();
+    const recent = (this.inboundCounters.get(allowListId) ?? []).filter(
+      (ts) => ts > now - INBOUND_ABUSE_WINDOW_MS,
+    );
+    this.inboundCounters.set(allowListId, recent);
+    if (recent.length < INBOUND_ABUSE_LIMIT_PER_MIN) {
       recent.push(now);
-      this.inboundCounters.set(msg.allowListId, recent);
+      return false;
     }
+    this.logger.debug('[gateway] dropping inbound — abuse cap', {
+      allowListId,
+      platform: msg.platform,
+    });
+    await this.notifyAbuseCap(msg, allowListId, now);
+    return true;
+  }
+
+  /**
+   * One-per-window "slow down" reply. Best-effort: the sender is already over
+   * the cap, so a failed notice is worth a warn and nothing more.
+   */
+  private async notifyAbuseCap(
+    msg: InboundMessage,
+    allowListId: string,
+    now: number,
+  ): Promise<void> {
+    const lastNotified = this.abuseNotified.get(allowListId);
+    if (
+      lastNotified !== undefined &&
+      now - lastNotified < INBOUND_ABUSE_WINDOW_MS
+    ) {
+      return;
+    }
+    this.abuseNotified.set(allowListId, now);
+    this.logger.warn(
+      '[gateway] inbound abuse cap reached — throttling sender',
+      {
+        allowListId,
+        platform: msg.platform,
+        limitPerMin: INBOUND_ABUSE_LIMIT_PER_MIN,
+      },
+    );
+    const adapter = this.adapters.get(msg.platform);
+    if (!adapter) return;
+    try {
+      await adapter.sendMessage(
+        msg.externalChatId,
+        ABUSE_CAP_NOTICE,
+        msg.conversationId !== undefined
+          ? { conversationId: msg.conversationId }
+          : undefined,
+      );
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] abuse-cap notice not delivered', {
+        platform: msg.platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async handleInbound(msg: InboundMessage): Promise<void> {
+    if (await this.isRateLimited(msg)) return;
     let body = msg.body;
     if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
       try {

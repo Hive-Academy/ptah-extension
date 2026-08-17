@@ -116,9 +116,29 @@ lost, `bf55272c2` 2000-char truncation). This task closes the rest of the class.
    stranded partial from the failed resume is never glued in front of the
    retry's reply. Spec in bridge spec (resume streams then throws → fresh
    session; discard ordered before the retry's first append).
-6. Remaining follow-ups: #8 (command registration 429/Retry-After + partial
-   results), Telegram/Slack transport events, typing indicator, abuse-cap
-   reply, `messagesById` eviction, restart-mid-turn replay, DM intents.
+6. **DONE 2026-08-18** (orchestrated: two `backend-developer` lanes +
+   `code-logic-reviewer` verify):
+   - #8 `discord-command-registration`: 429 → `Retry-After` header / body
+     `retry_after`, ≤3 retries, cap 60s; per-guild `results`, throw only if
+     all fail. `registerDiscordCommands` now returns optional
+     `failed: [{guildId, error}]` (shared RPC type widened) and warns.
+   - Telegram (grammy) + Slack (bolt) `onConnectionChange` + `running &&
+connected`. grammy: polling promise no longer discarded — settled loop
+     = `invalidated` (gateway backoff-reconnects), `bot.catch` keeps live
+     state. bolt: socket `error` listened, `connected`/`reconnecting`/
+     `disconnected` mapped. Every adapter's `start()` rebuilds on a
+     started-but-dead transport (review finding: stale `running` made the
+     Start button a no-op).
+   - `sendTyping` on Discord/Telegram; bridge heartbeat every 8s
+     (`unref`, stopped in `finally` / on cancel / on context failure).
+   - Abuse cap: one warn + one "slow down" reply per allowListId per 60s
+     window; debug per drop.
+   - Discord `messagesById` capped at 500; `channelEdits` pruned.
+   - Docs: guild-only intents decision recorded (DMs no-op by design).
+7. Still open (own tasks): restart-mid-turn replay (needs durable inbound
+   queue); Telegram 401 → `invalidated` escalation (grammy error code
+   inspection); UI rendering of `failed` guild list; `gateway.service.ts`
+   facade split (1200+ lines, warn-level).
 
 ## Related
 

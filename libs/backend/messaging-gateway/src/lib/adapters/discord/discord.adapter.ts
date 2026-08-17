@@ -67,6 +67,12 @@ export interface DiscordThreadLike {
 
 export interface DiscordSendableChannelLike {
   send(payload: string | { content: string }): Promise<DiscordMessageLike>;
+  /**
+   * Discord's "Ptah is typing…" indicator. Optional because threads created
+   * through `threads.create` and older channel shapes may not expose it; the
+   * adapter treats its absence as a no-op.
+   */
+  sendTyping?(): Promise<unknown>;
   threads?: {
     create(opts: {
       name: string;
@@ -141,6 +147,13 @@ function resolvePublicThreadType(): number {
 
 const PER_CHANNEL_EDIT_LIMIT = 5;
 const PER_CHANNEL_WINDOW_MS = 5_000;
+/**
+ * Outbound message handles kept for `editMessage`. Only the tail of a
+ * conversation is ever edited (the coalescer edits the page it just sent), so
+ * a bounded LRU-by-insertion map is enough — without the cap a desktop app
+ * left running for weeks holds every message it ever sent (TASK_2026_271).
+ */
+const MAX_TRACKED_MESSAGES = 500;
 const THREAD_AUTO_ARCHIVE_MINUTES = 10_080;
 const THREAD_NAME_PROMPT_CHARS = 40;
 const PUBLIC_THREAD_TYPE_FALLBACK = 11;
@@ -199,7 +212,12 @@ export class DiscordAdapter implements IMessagingAdapter {
   }
 
   async start(token: string): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      if (this.connected) return;
+      // Started but the gateway connection is gone (invalidated / never
+      // resumed). A Start from the UI must rebuild the client, not no-op.
+      await this.stop();
+    }
     if (!token) throw new Error('Discord token is empty');
     this.client = this.factory();
     this.client.on('interactionCreate', async (interaction) => {
@@ -323,8 +341,40 @@ export class DiscordAdapter implements IMessagingAdapter {
     await this.respectChannelRateLimit(targetId);
     const channel = await this.requireChannel(targetId);
     const message = await channel.send({ content: body });
-    this.messagesById.set(message.id, message);
+    this.trackMessage(message);
     return { externalMsgId: message.id };
+  }
+
+  /** Records the handle for a later `editMessage`, evicting the oldest. */
+  private trackMessage(message: DiscordMessageLike): void {
+    this.messagesById.delete(message.id);
+    this.messagesById.set(message.id, message);
+    while (this.messagesById.size > MAX_TRACKED_MESSAGES) {
+      const oldest = this.messagesById.keys().next();
+      if (oldest.done) break;
+      this.messagesById.delete(oldest.value);
+    }
+  }
+
+  /**
+   * Best-effort "Ptah is working" indicator (TASK_2026_271). Discord expires
+   * it after ~10s, so the bridge re-arms it while a turn runs. A failure here
+   * is cosmetic — it must never surface to the caller or abort a turn.
+   */
+  async sendTyping(
+    externalChatId: string,
+    opts?: { conversationId?: string },
+  ): Promise<void> {
+    const targetId = opts?.conversationId ?? externalChatId;
+    try {
+      const channel = await this.requireChannel(targetId);
+      await channel.sendTyping?.();
+    } catch (error: unknown) {
+      this.logger.debug('[gateway] discord sendTyping failed', {
+        targetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async editMessage(
@@ -712,6 +762,7 @@ export class DiscordAdapter implements IMessagingAdapter {
 
   private async respectChannelRateLimit(channelId: string): Promise<void> {
     const now = Date.now();
+    this.pruneChannelEdits(now, channelId);
     const recent = (this.channelEdits.get(channelId) ?? []).filter(
       (ts) => ts > now - PER_CHANNEL_WINDOW_MS,
     );
@@ -721,5 +772,18 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     recent.push(Date.now());
     this.channelEdits.set(channelId, recent);
+  }
+
+  /**
+   * Drops throttle windows for channels nothing has been sent to inside the
+   * window. Every Ptah thread is a distinct key here, so without this the map
+   * accumulates one dead entry per thread for the life of the process.
+   */
+  private pruneChannelEdits(now: number, keep: string): void {
+    const cutoff = now - PER_CHANNEL_WINDOW_MS;
+    for (const [id, stamps] of this.channelEdits) {
+      if (id === keep) continue;
+      if (!stamps.some((ts) => ts > cutoff)) this.channelEdits.delete(id);
+    }
   }
 }

@@ -15,6 +15,8 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
+  AdapterConnectionEvent,
+  ConnectionListener,
   IMessagingAdapter,
   InboundListener,
   InboundMessage,
@@ -33,12 +35,23 @@ export interface TelegramBotLike {
     ): Promise<unknown>;
     /** Best-effort download of a Telegram file id to a local path. */
     getFileUrl?(fileId: string): Promise<string>;
+    /** `sendChatAction` — powers the "typing…" indicator. */
+    sendChatAction?(chatId: string, action: string): Promise<unknown>;
   };
   on(
     event: string,
     handler: (ctx: TelegramContext) => void | Promise<void>,
   ): void;
-  start(opts?: { drop_pending_updates?: boolean }): Promise<void>;
+  /**
+   * grammy's global error boundary. Without it grammy rethrows out of the
+   * update handler and the polling loop dies with an unhandled rejection.
+   */
+  catch?(handler: (err: unknown) => void): void;
+  start(opts?: {
+    drop_pending_updates?: boolean;
+    /** grammy calls this once long-polling is actually live. */
+    onStart?: (info: { username?: string }) => void;
+  }): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -69,8 +82,16 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
   readonly platform = 'telegram' as const;
   private bot: TelegramBotLike | null = null;
   private listener: InboundListener | null = null;
+  private connectionListener: ConnectionListener | null = null;
   private factory: TelegramBotFactory = defaultFactory;
   private running = false;
+  /**
+   * Long-polling health, separate from the start/stop lifecycle. grammy has no
+   * shard events, so the signal is narrower than Discord's: `bot.start()`
+   * settling means the polling loop ended, and `bot.catch` fires for update
+   * failures grammy will keep retrying (TASK_2026_271).
+   */
+  private connected = false;
 
   /** Sliding 1-second window of outbound timestamps (global cap). */
   private globalRecent: number[] = [];
@@ -94,14 +115,19 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
   }
 
   isRunning(): boolean {
-    return this.running;
+    return this.running && this.connected;
+  }
+
+  onConnectionChange(listener: ConnectionListener): void {
+    this.connectionListener = listener;
   }
 
   async start(token: string): Promise<void> {
     if (this.running) return;
     if (!token) throw new Error('Telegram token is empty');
-    this.bot = this.factory(token);
-    this.bot.on('message', async (ctx) => {
+    const bot = this.factory(token);
+    this.bot = bot;
+    bot.on('message', async (ctx) => {
       try {
         await this.handleInbound(ctx);
       } catch (err) {
@@ -110,22 +136,92 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
         });
       }
     });
-    void this.bot.start({ drop_pending_updates: true });
+    this.wireTransportEvents(bot);
     this.running = true;
+    // Polling is live from grammy's point of view the moment `start()` is
+    // called; `onStart` confirms it and the loop's own rejection revokes it.
+    this.connected = true;
     this.logger.info('[gateway] telegram adapter started');
+  }
+
+  /**
+   * grammy surfaces two things: errors inside update handling (`bot.catch`,
+   * which it recovers from on its own) and the end of the polling loop (the
+   * promise returned by `start()`). Both were previously unlistened — a
+   * rejected polling loop became an unhandled rejection and `isRunning()`
+   * stayed green for the rest of the process.
+   */
+  private wireTransportEvents(bot: TelegramBotLike): void {
+    bot.catch?.((err: unknown) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[gateway] telegram bot error', { error: reason });
+      // grammy recovers from handler errors on its own — report the reason
+      // but do not flip a live connection to "reconnecting" and leave it there.
+      this.emitConnection({
+        state: this.connected ? 'connected' : 'reconnecting',
+        reason,
+      });
+    });
+    const started = bot.start({
+      drop_pending_updates: true,
+      onStart: () => {
+        if (this.bot !== bot) return;
+        this.connected = true;
+        this.emitConnection({ state: 'connected' });
+      },
+    });
+    void Promise.resolve(started).then(
+      () => this.handlePollingEnded(bot, null),
+      (err: unknown) => this.handlePollingEnded(bot, err),
+    );
+  }
+
+  /**
+   * The polling loop settled. If we did not ask for it (`stop()` clears
+   * `this.bot`), the transport is gone for good — grammy does not restart the
+   * loop on its own. Leave the start/stop lifecycle so a later `start()` (the
+   * gateway's backoff reconnect, or the operator's Start button) is not
+   * short-circuited by a stale `running`, and report `invalidated` so
+   * `GatewayService` schedules that reconnect.
+   */
+  private handlePollingEnded(bot: TelegramBotLike, err: unknown): void {
+    if (this.bot !== bot || !this.running) return;
+    this.connected = false;
+    this.running = false;
+    this.bot = null;
+    const reason =
+      err === null
+        ? 'Telegram long-polling stopped'
+        : `Telegram long-polling failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`;
+    this.logger.warn('[gateway] telegram polling ended', { reason });
+    this.emitConnection({ state: 'invalidated', reason });
+  }
+
+  private emitConnection(event: AdapterConnectionEvent): void {
+    try {
+      this.connectionListener?.(event);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] telegram connection listener threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.running) return;
     this.running = false;
+    this.connected = false;
+    const bot = this.bot;
+    this.bot = null;
     try {
-      await this.bot?.stop();
+      await bot?.stop();
     } catch (err) {
       this.logger.warn('[gateway] telegram bot stop failed', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    this.bot = null;
     this.globalRecent = [];
     this.perChatLast.clear();
   }
@@ -148,6 +244,22 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
     if (!Number.isFinite(id))
       throw new Error(`invalid telegram message id: ${externalMsgId}`);
     await this.bot.api.editMessageText(externalChatId, id, body);
+  }
+
+  /**
+   * Best-effort "typing…" chat action (TASK_2026_271). Telegram clears it
+   * after ~5s, so the bridge re-arms it while a turn runs. Cosmetic — a
+   * failure is logged and swallowed, never raised to the caller.
+   */
+  async sendTyping(externalChatId: string): Promise<void> {
+    try {
+      await this.bot?.api.sendChatAction?.(externalChatId, 'typing');
+    } catch (error: unknown) {
+      this.logger.debug('[gateway] telegram sendChatAction failed', {
+        chatId: externalChatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   on(event: 'inbound', listener: InboundListener): void {

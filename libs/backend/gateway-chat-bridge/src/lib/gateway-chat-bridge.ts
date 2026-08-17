@@ -75,6 +75,15 @@ import { ConversationQueue } from './conversation-queue';
 const TURN_WATCHDOG_MS = 10 * 60_000;
 
 /**
+ * Re-arm interval for the "bot is typing" indicator (TASK_2026_271). Every
+ * platform expires the indicator on its own — Discord after ~10 s — so a turn
+ * that spends minutes in a tool call or an approval wait must keep pinging or
+ * it looks dead. 8 s leaves headroom under the shortest expiry without turning
+ * the indicator into a rate-limit problem of its own.
+ */
+const TYPING_REARM_MS = 8_000;
+
+/**
  * Fail-closed reply when the conversation's pinned workspace root is no longer
  * allowlisted or no longer exists on disk (Data-2). The user must explicitly
  * re-pick via `/workspace use` — the turn never silently falls back to the
@@ -304,12 +313,28 @@ export class GatewayChatBridge {
     this.activeRoutes.set(tabId, route);
     let sessionToEnd: string | null = conversation.ptahSessionId ?? null;
 
-    const sdkContext = await this.resolveSdkContext(workspaceRoot);
-
     // Tripped by the watchdog below. `turnWork` and everything it calls check
     // this before touching shared per-conversation state, so a timed-out turn's
     // background continuation cannot interfere with the next dequeued turn.
     const cancellation: TurnCancellation = { cancelled: false };
+
+    // Typing starts before the (potentially slow) context resolution, so the
+    // chat user sees the bot react to their message immediately rather than
+    // when the first token lands. Stopped in the `finally`.
+    const stopTyping = this.startTypingHeartbeat(route, cancellation);
+
+    // `resolveSdkContext` guards every step internally, but it runs before the
+    // try/finally below owns the heartbeat and the active-route entry — if it
+    // ever did throw, both would leak. Clean up and rethrow.
+    let sdkContext: SdkSessionContext;
+    try {
+      sdkContext = await this.resolveSdkContext(workspaceRoot);
+    } catch (error: unknown) {
+      stopTyping();
+      this.activeRoutes.delete(tabId);
+      throw error;
+    }
+
     // How this turn ended, for the Gateway tab (TASK_2026_271 #7). Set at
     // each failure site below; `null` at the end means success.
     let turnFailure: string | null = null;
@@ -411,6 +436,10 @@ export class GatewayChatBridge {
       if (watchdogTimer) {
         clearTimeout(watchdogTimer);
       }
+      // Before the seal: the reply itself is about to land, and a typing dot
+      // that outlives the turn is exactly the "still working" lie this feature
+      // exists to remove.
+      stopTyping();
       this.activeRoutes.delete(tabId);
       await sealTurn().catch(async (sealErr: unknown) => {
         // The reply was generated but the platform rejected it (deleted
@@ -444,6 +473,36 @@ export class GatewayChatBridge {
           : { ok: false, reason: turnFailure },
       );
     }
+  }
+
+  /**
+   * Show "Ptah is typing…" for the life of a turn (TASK_2026_271). The
+   * indicator is fire-and-forget on every platform that has one and expires by
+   * itself, so this pings once immediately and re-arms every
+   * {@link TYPING_REARM_MS} until the returned stopper runs in the turn's
+   * `finally`. The interval is `unref()`'d — a pending re-arm must never be the
+   * reason the process stays alive — and checks the turn's cancellation flag so
+   * a watchdog-terminated turn stops pinging even before the stopper runs.
+   *
+   * @returns idempotent stopper for the turn's `finally`.
+   */
+  private startTypingHeartbeat(
+    route: OutboundRoute,
+    cancellation: TurnCancellation,
+  ): () => void {
+    // `sendTyping` swallows its own failures; the `.catch` is defence in depth,
+    // because an unhandled rejection on this untracked promise would take the
+    // host process down over a cosmetic indicator.
+    const ping = (): void => {
+      void this.gateway.sendTyping(route).catch(() => undefined);
+    };
+    ping();
+    const timer = setInterval(() => {
+      if (cancellation.cancelled) return;
+      ping();
+    }, TYPING_REARM_MS);
+    (timer as { unref?: () => void }).unref?.();
+    return () => clearInterval(timer);
   }
 
   /**

@@ -91,6 +91,9 @@ class FakeGateway extends EventEmitter {
   sendNotice = jest.fn<Promise<void>, [OutboundRoute, string]>(async () => {
     /* no-op */
   });
+  sendTyping = jest.fn<Promise<void>, [OutboundRoute]>(async () => {
+    /* no-op */
+  });
   discardOutbound = jest.fn<void, [ConversationKey]>();
   recordTurnOutcome = jest.fn<
     void,
@@ -1882,5 +1885,98 @@ describe('GatewayChatBridge — turn tracker wiring (TASK_2026_156)', () => {
 
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
     expect(h.turnTracker.isBusy(key)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('GatewayChatBridge — typing indicator (TASK_2026_271)', () => {
+  // Mirrors the module-private `TYPING_REARM_MS` in gateway-chat-bridge.ts,
+  // the same way TURN_WATCHDOG_MS is mirrored above.
+  const TYPING_REARM_MS = 8_000;
+
+  /** Advance zero-length ticks (never the 8 s interval) until `predicate`. */
+  async function settle(predicate: () => boolean, ticks = 10): Promise<void> {
+    for (let i = 0; i < ticks && !predicate(); i++) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('types once when the turn starts, re-arms while it runs, and stops when it ends', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    h.adapter.startChatSession.mockResolvedValue(
+      gatedStream(gate, [textDelta(SDK_UUID, 'hi'), messageComplete(SDK_UUID)]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'hello agent'));
+
+    // Immediate ping — the user sees the bot react before the first token.
+    await settle(() => h.gateway.sendTyping.mock.calls.length > 0);
+    expect(h.gateway.sendTyping).toHaveBeenCalledTimes(1);
+    expect(h.gateway.sendTyping.mock.calls[0][0]).toMatchObject({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+    });
+
+    // A long tool call / approval wait: the indicator is re-armed, not dropped.
+    await jest.advanceTimersByTimeAsync(TYPING_REARM_MS * 3);
+    expect(h.gateway.sendTyping).toHaveBeenCalledTimes(4);
+
+    release();
+    await settle(() => h.gateway.completeOutboundTurn.mock.calls.length > 0);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+
+    // Turn over — the interval was cleared, so nothing keeps typing.
+    const afterTurn = h.gateway.sendTyping.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(TYPING_REARM_MS * 3);
+    expect(h.gateway.sendTyping).toHaveBeenCalledTimes(afterTurn);
+  });
+
+  it('stops typing when the watchdog force-terminates a hung turn', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        await new Promise<void>(() => {
+          /* never resolves */
+        });
+        yield textDelta(SDK_UUID, 'unreachable');
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'hangs'));
+
+    await jest.advanceTimersByTimeAsync(10 * 60_000); // TURN_WATCHDOG_MS
+    await settle(() => h.gateway.completeOutboundTurn.mock.calls.length > 0);
+
+    const afterWatchdog = h.gateway.sendTyping.mock.calls.length;
+    expect(afterWatchdog).toBeGreaterThan(1); // it did keep typing while hung
+    await jest.advanceTimersByTimeAsync(TYPING_REARM_MS * 3);
+    expect(h.gateway.sendTyping).toHaveBeenCalledTimes(afterWatchdog);
+  });
+
+  it('never types for a turn that fails closed before it starts', async () => {
+    // No binding root, no active workspace -> the turn is rejected up front.
+    const h = setup({ workspaceRoot: null });
+    const binding = makeBinding({ workspaceRoot: null });
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'hello agent'));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.gateway.sendTyping).not.toHaveBeenCalled();
   });
 });

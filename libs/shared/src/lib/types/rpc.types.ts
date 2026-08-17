@@ -2821,7 +2821,17 @@ export interface GatewaySetDiscordAppIdResult {
 
 export type GatewayRegisterDiscordCommandsParams = Record<string, never>;
 export type GatewayRegisterDiscordCommandsResult =
-  | { ok: true; registered: number; scope: 'guild' | 'global' }
+  | {
+      ok: true;
+      registered: number;
+      scope: 'guild' | 'global';
+      /**
+       * Guilds whose registration failed while others succeeded (429 after
+       * retries, missing access, network). Empty/absent when all succeeded.
+       * `ok` is still true — the caller must look here to see partial failure.
+       */
+      failed?: ReadonlyArray<{ guildId: string; error: string }>;
+    }
   | { ok: false; error: string };
 
 /**
