@@ -966,6 +966,33 @@ export interface RpcMethodRegistry {
     params: AgentPermissionDecision;
     result: { success: boolean; error?: string };
   };
+  /**
+   * TEST-ONLY seam (TASK_2026_264). Invokes the real
+   * `SdkPermissionHandler.createCallback()` — the exact entry point the SDK
+   * itself calls for every tool permission check — so an out-of-process e2e
+   * can populate the REAL `pendingRequests` map without a live model. No-ops
+   * with `{success:false, error:'e2e-only'}` unless `PTAH_E2E=1`, the same
+   * flag the e2e launcher already sets and the same gating precedent used by
+   * `apps/ptah-extension-vscode/src/activation/bootstrap.ts`'s license seed.
+   * Awaits the full permission round trip, so a call with no routable
+   * `sessionId`/`tabId` blocks for up to the 60s unroutable-deny timeout.
+   */
+  'agent:e2eSeedPermission': {
+    params: {
+      toolName: string;
+      input: Record<string, unknown>;
+      toolUseId: string;
+      sessionId?: string;
+      tabId?: string;
+    };
+    result: {
+      success: boolean;
+      error?: string;
+      behavior?: 'allow' | 'deny';
+      message?: string;
+      interrupt?: boolean;
+    };
+  };
   /** Stop a running CLI agent by agentId */
   'agent:stop': {
     params: { agentId: string };
@@ -3233,6 +3260,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:detectClis': true,
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
+  'agent:e2eSeedPermission': true, // TEST-ONLY seam, PTAH_E2E-gated (TASK_2026_264)
   'agent:stop': true,
   'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
