@@ -24,6 +24,7 @@ import type { DiscordAdapter } from './adapters/discord/discord.adapter';
 import type { BoltSlackAdapter } from './adapters/slack/bolt.adapter';
 import type { IVoiceProviderSelector } from '@ptah-extension/voice-contracts';
 import type {
+  AdapterConnectionEvent,
   IMessagingAdapter,
   InboundMessage,
   SendResult,
@@ -1059,6 +1060,120 @@ describe('GatewayService — enabled-flag persistence (Item 2)', () => {
       (call) => call[1],
     );
     expect(writtenKeys).toEqual(['gateway.discord.enabled', 'gateway.enabled']);
+  });
+});
+
+describe('GatewayService — adapter reconnect + status push (TASK_2026_271 #3/#4/#6)', () => {
+  /** Capture scheduled timers so specs fire them by hand. */
+  function fakeTimers(): {
+    schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+    pending: Array<{ fn: () => void; ms: number }>;
+    fireNext(): Promise<void>;
+  } {
+    const pending: Array<{ fn: () => void; ms: number }> = [];
+    return {
+      pending,
+      schedule: (fn, ms) => {
+        pending.push({ fn, ms });
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      },
+      async fireNext() {
+        const next = pending.shift();
+        next?.fn();
+        await new Promise((r) => setTimeout(r, 0));
+      },
+    };
+  }
+
+  it('retries a failed boot-time start with backoff instead of staying dead', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    const timers = fakeTimers();
+    suite.service.configureForTest({ scheduleTimer: timers.schedule });
+    suite.workspace.settings.set('gateway.discord.enabled', true);
+    suite.discordAdapter.start
+      .mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND'))
+      .mockResolvedValueOnce(undefined);
+
+    await suite.service.startPlatform('discord');
+    expect(
+      suite.service.status().adapters.find((a) => a.platform === 'discord')
+        ?.lastError,
+    ).toContain('ENOTFOUND');
+    expect(timers.pending).toHaveLength(1);
+    expect(timers.pending[0].ms).toBe(5_000);
+
+    await timers.fireNext();
+    expect(suite.discordAdapter.start).toHaveBeenCalledTimes(2);
+    expect(
+      suite.service.status().adapters.find((a) => a.platform === 'discord')
+        ?.lastError,
+    ).toBeUndefined();
+  });
+
+  it('backoff grows across consecutive failures and stopPlatform cancels it', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    const timers = fakeTimers();
+    suite.service.configureForTest({ scheduleTimer: timers.schedule });
+    suite.workspace.settings.set('gateway.discord.enabled', true);
+    suite.discordAdapter.start.mockRejectedValue(new Error('down'));
+
+    await suite.service.startPlatform('discord');
+    expect(timers.pending.map((t) => t.ms)).toEqual([5_000]);
+    await timers.fireNext();
+    expect(timers.pending.map((t) => t.ms)).toEqual([15_000]);
+    await timers.fireNext();
+    expect(timers.pending.map((t) => t.ms)).toEqual([45_000]);
+
+    await suite.service.stopPlatform('discord');
+    // The armed timer is cleared; firing the captured fn is what a stale
+    // setTimeout would do — nothing should start.
+    const calls = suite.discordAdapter.start.mock.calls.length;
+    suite.workspace.settings.set('gateway.discord.enabled', false);
+    await timers.fireNext();
+    expect(suite.discordAdapter.start).toHaveBeenCalledTimes(calls);
+  });
+
+  it('an invalidated transport restarts the adapter and pushes status-changed', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    const timers = fakeTimers();
+    suite.service.configureForTest({ scheduleTimer: timers.schedule });
+    suite.workspace.settings.set('gateway.discord.enabled', true);
+    const hook: { listener?: (e: AdapterConnectionEvent) => void } = {};
+    (
+      suite.discordAdapter as unknown as { onConnectionChange: jest.Mock }
+    ).onConnectionChange = jest.fn((l: (e: AdapterConnectionEvent) => void) => {
+      hook.listener = l;
+    });
+    const pushed: Array<{ platform: string; state: string }> = [];
+    suite.service.on('status-changed', (p) => pushed.push(p));
+
+    await suite.service.startPlatform('discord');
+    expect(hook.listener).toBeDefined();
+    const connectionListener = hook.listener;
+
+    connectionListener?.({ state: 'disconnected', reason: 'code 1006' });
+    expect(pushed).toEqual([{ platform: 'discord', state: 'disconnected' }]);
+    expect(
+      suite.service.status().adapters.find((a) => a.platform === 'discord')
+        ?.lastError,
+    ).toBe('code 1006');
+    expect(timers.pending).toHaveLength(0); // discord.js retries these itself
+
+    connectionListener?.({ state: 'invalidated', reason: 'session invalid' });
+    expect(timers.pending).toHaveLength(1);
+    await timers.fireNext();
+    expect(suite.discordAdapter.stop).toHaveBeenCalled();
+    expect(suite.discordAdapter.start).toHaveBeenCalledTimes(2);
+    expect(pushed.at(-1)).toEqual({ platform: 'discord', state: 'connected' });
+
+    connectionListener?.({ state: 'connected' });
+    expect(
+      suite.service.status().adapters.find((a) => a.platform === 'discord')
+        ?.lastError,
+    ).toBeUndefined();
   });
 });
 

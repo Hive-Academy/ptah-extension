@@ -43,6 +43,27 @@ export interface InboundMessage {
 export type InboundListener = (msg: InboundMessage) => void | Promise<void>;
 
 /**
+ * Live connection state of an adapter's transport, as opposed to the
+ * start/stop lifecycle. `'connected'` = messages flow; `'reconnecting'` = the
+ * client library is retrying on its own; `'invalidated'` = the platform
+ * revoked the session and the library will NOT retry — the gateway must
+ * destroy and re-login (TASK_2026_271 #3/#4).
+ */
+export type AdapterConnectionState =
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'invalidated';
+
+export interface AdapterConnectionEvent {
+  readonly state: AdapterConnectionState;
+  /** Human-readable cause when the transition was an error. */
+  readonly reason?: string;
+}
+
+export type ConnectionListener = (event: AdapterConnectionEvent) => void;
+
+/**
  * Outbound send result — `externalMsgId` is the provider's id for the
  * outbound message. `editMessage` requires this id to make in-place
  * edits work (Discord followup, Slack chat.update, Telegram editMessageText).
@@ -64,8 +85,20 @@ export interface IMessagingAdapter {
   start(token: string, opts?: { appToken?: string }): Promise<void>;
   /** Close all sockets, cancel timers. Idempotent. */
   stop(): Promise<void>;
-  /** True between successful start() and stop(). */
+  /**
+   * True between successful start() and stop() AND while the transport is
+   * usable. An adapter whose client library reports a disconnect or a
+   * revoked session must return false here even though stop() was never
+   * called — the Gateway tab renders this flag as the green/red dot.
+   */
   isRunning(): boolean;
+  /**
+   * Optional connection-state hook. Adapters whose client library surfaces
+   * transport events (discord.js shard events) forward them here so
+   * `GatewayService` can update status, record the error, and — on
+   * `'invalidated'` — restart the adapter. Exactly ONE listener per adapter.
+   */
+  onConnectionChange?(listener: ConnectionListener): void;
   /**
    * Send an outbound message. Rate-limited internally. When
    * `opts.conversationId` is provided the adapter routes into that

@@ -127,6 +127,7 @@ export class GatewayRpcHandlers {
     this.registerDetachSession();
     this.subscribeBindingChanges();
     this.subscribeSessionAttachChanges();
+    this.subscribeStatusChanges();
 
     this.logger.debug('Gateway RPC handlers registered', {
       methods: GatewayRpcHandlers.METHODS,
@@ -175,6 +176,22 @@ export class GatewayRpcHandlers {
           });
       },
     );
+  }
+
+  /**
+   * Push adapter status when the transport itself changes (Discord shard
+   * disconnect / resume / invalidated, reconnect outcome). Without this the
+   * Gateway tab only learns status from its own start/stop calls and shows a
+   * green dot for a bot that dropped off hours ago (TASK_2026_271 #3/#7).
+   */
+  private subscribeStatusChanges(): void {
+    this.gateway.on('status-changed', () => {
+      void this.broadcastStatus(null).catch((err: unknown) => {
+        this.logger.warn('[gateway] broadcast statusChanged failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    });
   }
 
   private async broadcastBindings(): Promise<void> {

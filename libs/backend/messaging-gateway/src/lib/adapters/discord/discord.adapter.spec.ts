@@ -87,6 +87,8 @@ function fakeChannel(byId: ChannelRegistry, id = 'chan-1'): FakeChannel {
 interface FakeClient extends DiscordClientLike {
   emitInteraction(interaction: DiscordInteractionLike): Promise<void>;
   emitMessage(message: DiscordIncomingMessageLike): Promise<void>;
+  /** Fire a transport event (`error`, `shardDisconnect`, ...) if registered. */
+  emitTransport(event: string, ...args: unknown[]): boolean;
   channelsFetch: jest.Mock;
 }
 
@@ -125,6 +127,12 @@ function fakeClient(
       if (!handlers.messageCreate)
         throw new Error('no messageCreate handler registered');
       await handlers.messageCreate(message);
+    },
+    emitTransport(event, ...args) {
+      const h = (handlers as Record<string, unknown>)[event];
+      if (typeof h !== 'function') return false;
+      (h as (...a: unknown[]) => void)(...args);
+      return true;
     },
   };
 }
@@ -223,6 +231,58 @@ async function startAdapter(
   await adapter.start('token');
   return { adapter, client, channel, byId, inbound, logger };
 }
+
+describe('DiscordAdapter — transport lifecycle (TASK_2026_271 #3)', () => {
+  it('registers an error listener so a client error cannot crash the host', async () => {
+    const { client, logger } = await startAdapter();
+    expect(client.emitTransport('error', new Error('ws boom'))).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord client error',
+      expect.objectContaining({ error: 'ws boom' }),
+    );
+  });
+
+  it('isRunning() goes false on shardDisconnect and true again on shardResume', async () => {
+    const { adapter, client } = await startAdapter();
+    const seen: string[] = [];
+    adapter.onConnectionChange((e) => seen.push(e.state));
+    expect(adapter.isRunning()).toBe(true);
+
+    client.emitTransport('shardDisconnect', { code: 1006, reason: 'gone' });
+    expect(adapter.isRunning()).toBe(false);
+
+    client.emitTransport('shardReconnecting');
+    expect(adapter.isRunning()).toBe(false);
+
+    client.emitTransport('shardResume');
+    expect(adapter.isRunning()).toBe(true);
+    expect(seen).toEqual(['disconnected', 'reconnecting', 'connected']);
+  });
+
+  it('reports invalidated with a reason so the gateway can restart the adapter', async () => {
+    const { adapter, client } = await startAdapter();
+    const events: Array<{ state: string; reason?: string }> = [];
+    adapter.onConnectionChange((e) => events.push(e));
+
+    client.emitTransport('invalidated');
+    expect(adapter.isRunning()).toBe(false);
+    expect(events[0]?.state).toBe('invalidated');
+    expect(events[0]?.reason).toContain('invalidated');
+  });
+
+  it('shardError flips to reconnecting and carries the error text', async () => {
+    const { adapter, client } = await startAdapter();
+    const events: Array<{ state: string; reason?: string }> = [];
+    adapter.onConnectionChange((e) => events.push(e));
+
+    client.emitTransport('shardError', new Error('heartbeat timeout'));
+    expect(adapter.isRunning()).toBe(false);
+    expect(events[0]).toEqual({
+      state: 'reconnecting',
+      reason: 'heartbeat timeout',
+    });
+  });
+});
 
 describe('DiscordAdapter — inbound thread lifecycle', () => {
   beforeEach(() => {

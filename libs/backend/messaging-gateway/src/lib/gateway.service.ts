@@ -71,6 +71,7 @@ import {
   type SlackAppFactory,
 } from './adapters/slack/bolt.adapter';
 import type {
+  AdapterConnectionEvent,
   IMessagingAdapter,
   InboundMessage,
   SendResult,
@@ -112,6 +113,17 @@ const SETTINGS_KEYS = {
 
 const VOICE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
+
+/**
+ * Bounded backoff for adapter (re)connects: a boot-time login that fails on
+ * a flaky network, or a Discord session the platform invalidated. Before this
+ * a failed start left the adapter dead until the user toggled it by hand
+ * (TASK_2026_271 #4/#6). Attempts beyond the last delay reuse it; the retry
+ * loop stops only on success, `stopPlatform`, or `stop`.
+ */
+const RECONNECT_DELAYS_MS: readonly number[] = [
+  5_000, 15_000, 45_000, 120_000, 300_000,
+];
 
 function paginate(body: string, limit?: number): string[] {
   if (!limit || body.length <= limit) return [body];
@@ -169,6 +181,7 @@ export interface GatewayTestOverrides {
   discord?: IMessagingAdapter;
   slack?: IMessagingAdapter;
   flushCallback?: (payload: FlushPayload) => Promise<void> | void;
+  scheduleTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
 }
 
 @injectable()
@@ -182,6 +195,18 @@ export class GatewayService extends EventEmitter {
 
   /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
   private decryptFailures = new Set<GatewayPlatform>();
+
+  /** Pending reconnect timers, one per platform; cleared on stop. */
+  private reconnectTimers = new Map<
+    GatewayPlatform,
+    ReturnType<typeof setTimeout>
+  >();
+  private reconnectAttempts = new Map<GatewayPlatform, number>();
+  /** Test seam: swap the timer so specs do not wait for real backoff. */
+  private scheduleTimer: (
+    fn: () => void,
+    ms: number,
+  ) => ReturnType<typeof setTimeout> = (fn, ms) => setTimeout(fn, ms);
 
   /**
    * Bindings that have already received the one-shot pairing prompt this
@@ -229,6 +254,7 @@ export class GatewayService extends EventEmitter {
     if (overrides.flushCallback) {
       this.coalescer = this.createCoalescer(overrides.flushCallback);
     }
+    if (overrides.scheduleTimer) this.scheduleTimer = overrides.scheduleTimer;
   }
 
   /**
@@ -331,6 +357,7 @@ export class GatewayService extends EventEmitter {
   }
 
   async stopPlatform(platform: GatewayPlatform): Promise<void> {
+    this.cancelReconnect(platform);
     const adapter = this.adapters.get(platform);
     if (adapter) {
       try {
@@ -364,6 +391,9 @@ export class GatewayService extends EventEmitter {
 
   /** LIFO cleanup hook called by `main.ts` `will-quit`. */
   async stop(): Promise<void> {
+    for (const platform of [...this.reconnectTimers.keys()]) {
+      this.cancelReconnect(platform);
+    }
     await this.coalescer?.drainAll();
     for (const [platform, adapter] of this.adapters) {
       try {
@@ -817,6 +847,105 @@ export class GatewayService extends EventEmitter {
     this.adapters.set(platform, adapter);
     adapter.on('inbound', (msg) => this.handleInbound(msg));
     adapter.setCommandHandler?.(this.commandHandler);
+    adapter.onConnectionChange?.((event) =>
+      this.onAdapterConnection(platform, event),
+    );
+  }
+
+  /**
+   * Transport state from an adapter. Keeps `lastError` truthful, pushes a
+   * `status-changed` so the Gateway tab flips its dot without a reload, and
+   * on `'invalidated'` (client library gave up) restarts the adapter with
+   * backoff. Errors from other states are recorded but not acted on — the
+   * client library reconnects those on its own.
+   */
+  private onAdapterConnection(
+    platform: GatewayPlatform,
+    event: AdapterConnectionEvent,
+  ): void {
+    if (event.state === 'connected') {
+      this.lastErrors.delete(platform);
+      this.reconnectAttempts.delete(platform);
+    } else if (event.reason) {
+      this.lastErrors.set(platform, event.reason);
+    }
+    this.emit('status-changed', { platform, state: event.state });
+    if (event.state === 'invalidated') {
+      this.scheduleReconnect(platform, event.reason ?? 'session invalidated');
+    }
+  }
+
+  private scheduleReconnect(platform: GatewayPlatform, reason: string): void {
+    if (this.reconnectTimers.has(platform)) return; // one in flight
+    const attempt = this.reconnectAttempts.get(platform) ?? 0;
+    const delay =
+      RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)];
+    this.reconnectAttempts.set(platform, attempt + 1);
+    this.logger.warn('[gateway] scheduling adapter reconnect', {
+      platform,
+      attempt: attempt + 1,
+      delayMs: delay,
+      reason,
+    });
+    const timer = this.scheduleTimer(() => {
+      this.reconnectTimers.delete(platform);
+      void this.reconnect(platform);
+    }, delay);
+    this.reconnectTimers.set(platform, timer);
+  }
+
+  private cancelReconnect(platform: GatewayPlatform): void {
+    const timer = this.reconnectTimers.get(platform);
+    if (timer) clearTimeout(timer);
+    this.reconnectTimers.delete(platform);
+    this.reconnectAttempts.delete(platform);
+  }
+
+  private async reconnect(platform: GatewayPlatform): Promise<void> {
+    // Still enabled? The user may have switched it off while we waited.
+    if (!this.cfgBool(this.enabledKeyFor(platform), false)) {
+      this.reconnectAttempts.delete(platform);
+      return;
+    }
+    const adapter = this.adapters.get(platform);
+    try {
+      await adapter?.stop();
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] adapter stop before reconnect failed', {
+        platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (platform === 'telegram') await this.maybeStartTelegram(true);
+    else if (platform === 'discord') await this.maybeStartDiscord(true);
+    else await this.maybeStartSlack(true);
+    this.emit('status-changed', {
+      platform,
+      state: this.adapters.get(platform)?.isRunning()
+        ? 'connected'
+        : 'disconnected',
+    });
+  }
+
+  /**
+   * Shared tail of every `maybeStart*`: run the adapter's `start`, record the
+   * outcome, and on failure arm a bounded-backoff retry instead of leaving the
+   * adapter dead until the user notices the red dot and toggles it.
+   */
+  private async startAdapter(
+    platform: GatewayPlatform,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await run();
+      this.lastErrors.delete(platform);
+      this.reconnectAttempts.delete(platform);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.lastErrors.set(platform, msg);
+      this.logger.warn(`[gateway] ${platform} start failed`, { error: msg });
+      this.scheduleReconnect(platform, msg);
+    }
   }
 
   private async maybeStartTelegram(force = false): Promise<void> {
@@ -830,14 +959,7 @@ export class GatewayService extends EventEmitter {
     }
     const token = await this.decryptToken('telegram');
     if (!token) return;
-    try {
-      await existing.start(token);
-      this.lastErrors.delete('telegram');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.lastErrors.set('telegram', msg);
-      this.logger.warn('[gateway] telegram start failed', { error: msg });
-    }
+    await this.startAdapter('telegram', () => existing.start(token));
   }
 
   private async maybeStartDiscord(force = false): Promise<void> {
@@ -851,14 +973,7 @@ export class GatewayService extends EventEmitter {
     }
     const token = await this.decryptToken('discord');
     if (!token) return;
-    try {
-      await existing.start(token);
-      this.lastErrors.delete('discord');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.lastErrors.set('discord', msg);
-      this.logger.warn('[gateway] discord start failed', { error: msg });
-    }
+    await this.startAdapter('discord', () => existing.start(token));
   }
 
   private async maybeStartSlack(force = false): Promise<void> {
@@ -873,14 +988,9 @@ export class GatewayService extends EventEmitter {
     const botToken = await this.decryptToken('slack');
     const appToken = await this.decryptSlackAppToken();
     if (!botToken || !appToken) return;
-    try {
-      await existing.start(botToken, { appToken });
-      this.lastErrors.delete('slack');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.lastErrors.set('slack', msg);
-      this.logger.warn('[gateway] slack start failed', { error: msg });
-    }
+    await this.startAdapter('slack', () =>
+      existing.start(botToken, { appToken }),
+    );
   }
 
   private async handleInbound(msg: InboundMessage): Promise<void> {

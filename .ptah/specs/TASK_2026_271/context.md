@@ -80,9 +80,17 @@ lost, `bf55272c2` 2000-char truncation). This task closes the rest of the class.
    message. Specs added in `gateway.service.spec.ts` (retry-then-succeed,
    throw-after-retry + buffer reset, multi-page partial failure) and
    `gateway-chat-bridge.spec.ts` (delivery-failure reply).
-2. #3 + #4 — register discord.js lifecycle events, route into
-   `running`/`lastErrors`; bounded exponential backoff on initial connect;
-   heartbeat/health in `gateway:status`.
+2. **DONE 2026-08-17** — #3 + #4 + #6. `DiscordAdapter` now listens to
+   `error` / `shardError` / `shardDisconnect` / `shardReconnecting` /
+   `shardResume` / `shardReady` / `invalidated`; `isRunning()` = started AND
+   connected. New optional `IMessagingAdapter.onConnectionChange` hook.
+   `GatewayService` records reasons in `lastError`, emits `status-changed`
+   (pushed to the Gateway tab by `GatewayRpcHandlers`), and on `invalidated`
+   or any failed `start()` reconnects with bounded backoff
+   (5s/15s/45s/2m/5m); `stopPlatform`/`stop` cancel. Specs: 4 in
+   `discord.adapter.spec.ts`, 3 in `gateway.service.spec.ts`. Not done:
+   Telegram/Slack transport events (grammy / bolt expose fewer; follow-up),
+   periodic heartbeat probe.
 3. #1 — either a real approval surface for gateway turns (Discord button /
    reply through the pending-response registry) or an interim "waiting on
    approval for X … denied" outbound message plus a shorter timeout; add a
