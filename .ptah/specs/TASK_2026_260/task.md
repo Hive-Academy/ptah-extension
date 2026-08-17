@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_260
-status: backlog
+status: in_review
 type: bugfix
 title: '27 broken screenshot references ship to production on docs.ptah.live'
 description: >-

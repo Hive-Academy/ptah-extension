@@ -84,3 +84,38 @@ cause.** The options are not equivalent:
 
 Do not fix this by deleting references without checking `SCREENSHOTS.md` first. If a
 capture pipeline already exists, option 2 throws away work that only needs re-running.
+
+## Outcome (2026-08-17)
+
+`SCREENSHOTS.md` held a shot list and a manual "use Snip & Sketch" workflow — no
+pipeline. One was built: `nx run ptah-docs:screenshots` drives the real Electron app
+through Playwright and writes PNGs into `public/screenshots/`
+(`apps/ptah-electron-e2e/docs-screenshots.config.ts` + `src/docs-screenshots/`).
+
+**Option 3 (mixed), decided per reference by whether the surface exists.**
+
+- **13 captured**: `file-tree-panel`, `git-status-bar`, `commit-composer`,
+  `diff-side-by-side`, `workspace-switcher`, `recent-workspaces`, `settings-overview`,
+  `agents-orchestration`, `theme-toggle`, `setup-new-project`, `sessions-overview`,
+  `sessions-history`, `sessions-tabs`.
+- **14 references removed**, each because the app has no such surface (native folder
+  dialog, no charts on a card-only dashboard, no auto-import banner, no import-history
+  or CLI-sync UI, no Templates panel, no context inspector) or because the frame would
+  contradict the page (`browser-settings` is one "Allow Localhost" toggle where the
+  page describes three controls; `diff-agent-proposed` needs a live agent turn). The
+  full table with reasons is in `apps/ptah-docs/SCREENSHOTS.md`.
+
+**Guard**: `apps/ptah-docs/scripts/check-screenshot-refs.mjs` walks
+`src/content/docs/` and fails on any `/screenshots/…` reference with no file. It runs
+ahead of `astro build` in the `ptah-docs:build` target, so this cannot recur silently.
+
+**Harness constraints learned the hard way.** The first pass pointed the app at this
+repository: the app rewrote 15 `.codex/agents/*.toml` through its CLI agent sync, and a
+click in the Source Control panel staged 81 files. Both were reverted. Git shots now run
+against a throwaway sample repo; the profile is a copy of `~/.ptah` with the secret
+envelopes and the cached license excluded, so no key, name or email can reach an asset.
+
+**Left for a docs-prose pass** (out of scope here): `browser-automation/launching-a-
+browser.mdx` documents a browser executable path, headless toggle and user-data dir that
+the Settings panel does not have; `sessions/analytics.md` documents trend charts on a
+dashboard that is card-only by design.

@@ -9,8 +9,6 @@ Once you've tuned a roster of agents in Ptah, you can push them to the external 
 
 Agent sync is a standard Ptah feature — use built-in and custom agents inside Ptah and sync them to external CLIs, all included at no cost.
 
-![Sync targets](/screenshots/agents-sync-targets.png)
-
 ## Supported targets
 
 | Target             | Installed to                  |
@@ -40,8 +38,6 @@ What is **not** synced:
 3. Pick which targets to include.
 4. Review the diff — Ptah shows added, changed, and removed agents per target.
 5. Click **Apply**.
-
-![Sync diff view](/screenshots/agents-sync-diff.png)
 
 ### Sync modes
 

@@ -7,8 +7,6 @@ description: Bring your Claude CLI sessions into Ptah automatically.
 
 If you've been using the Claude CLI before Ptah, your conversations aren't stranded. Ptah auto-imports sessions from the standard Claude CLI storage location so you can pick up where you left off — full transcripts, metadata, costs, and all.
 
-![Auto-import in progress](/screenshots/agents-import.png)
-
 ## Where Ptah looks
 
 ```
@@ -63,8 +61,6 @@ In the import dialog you can:
 - Limit to sessions newer than N days
 - Exclude archived / trashed CLI sessions
 - Pick specific projects only
-
-![Import filters](/screenshots/agents-import-filters.png)
 
 ## Continuing a CLI session in Ptah
 

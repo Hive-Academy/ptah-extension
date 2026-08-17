@@ -10,6 +10,12 @@ export interface LaunchOptions {
   args?: string[];
   /** Override launch timeout in ms (default 30_000). */
   timeout?: number;
+  /**
+   * Profile directory to launch against. Defaults to a fresh `mkdtemp` dir that
+   * is removed when the app exits. The docs-screenshot harness passes a
+   * pre-seeded copy of the real profile so surfaces paint real data.
+   */
+  userDataDir?: string;
 }
 
 /**
@@ -59,7 +65,9 @@ export async function launchPtah(
     ? ['--no-sandbox', '--disable-dev-shm-usage']
     : [];
 
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-udd-'));
+  const userDataDir =
+    opts.userDataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-udd-'));
+  const ownsUserDataDir = opts.userDataDir === undefined;
 
   const app = await _electron.launch({
     args: [
@@ -71,9 +79,11 @@ export async function launchPtah(
     env: env as Record<string, string>,
     timeout: opts.timeout ?? 30_000,
   });
-  app.process().on('exit', () => {
-    fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
-  });
+  if (ownsUserDataDir) {
+    app.process().on('exit', () => {
+      fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
+    });
+  }
   app.process().stdout?.on('data', (chunk: Buffer) => {
     process.stderr.write(`[ptah-electron stdout] ${chunk.toString('utf8')}`);
   });
