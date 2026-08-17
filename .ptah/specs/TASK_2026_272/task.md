@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_272
-status: backlog
+status: in_review
 type: feature
 title: >-
   Rework "Send to messaging" into a predictable session hand-off flow
