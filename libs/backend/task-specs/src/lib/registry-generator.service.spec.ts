@@ -88,6 +88,39 @@ describe('RegistryGeneratorService', () => {
     );
   });
 
+  /**
+   * The registry is the ONE file an agent is most likely to read when it wants
+   * "the next task ID", and it is the one file that cannot answer that question:
+   * it is a snapshot, so its highest ID lags the folders on disk and "highest +
+   * 1" lands on a live folder. That is how TASK_2026_264 was allocated twice in
+   * one day and one session's carrier was overwritten by another's.
+   *
+   * The defence is the header telling the reader so, in the file itself. These
+   * assertions exist so a refactor of `render` cannot quietly drop it — the
+   * warning is load-bearing output, not a comment.
+   */
+  it('warns in-file against allocating IDs from the registry', async () => {
+    const fs = createMockFileSystemProvider();
+    await seed(fs);
+    const generator = makeGenerator(fs);
+
+    await generator.generate(ROOT);
+    const content = await fs.readFile(path.join(specsDir(), 'registry.md'));
+
+    expect(content).toContain('DERIVED, NOT AUTHORITATIVE');
+    expect(content).toContain('NEVER ALLOCATE A TASK ID FROM THIS FILE');
+    // Names the correct allocation routes: the atomic RPC, and the offline
+    // folder-scan + exclusive-mkdir lock.
+    expect(content).toContain('tasks:create');
+    expect(content).toContain('fail-if-exists mkdir');
+    // Every added line stays inside an HTML comment so rendered markdown is
+    // unchanged, and stays static so `render` remains wall-clock free.
+    const header = content.split('\n# Task Registry')[0];
+    for (const line of header.split('\n').filter((l) => l.trim() !== '')) {
+      expect(line.startsWith('<!--') && line.endsWith('-->')).toBe(true);
+    }
+  });
+
   it('is deterministic and write-if-changed (two runs byte-identical)', async () => {
     const fs = createMockFileSystemProvider();
     await seed(fs);
