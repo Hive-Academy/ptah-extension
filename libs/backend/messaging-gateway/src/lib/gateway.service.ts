@@ -867,6 +867,17 @@ export class GatewayService extends EventEmitter {
     );
   }
 
+  /**
+   * Drop whatever the current turn has accumulated for a conversation WITHOUT
+   * sending it. Used when a resumed stream fails part-way and the bridge
+   * retries on a fresh session: the stranded partial text must not be glued
+   * in front of the retry's reply (TASK_2026_271 #6).
+   */
+  discardOutbound(conversationKey: ConversationKey): void {
+    this.coalescer?.discard(conversationKey);
+    this.streamHandles.delete(conversationKey);
+  }
+
   async drainOutbound(conversationKey: ConversationKey): Promise<void> {
     try {
       await this.coalescer?.drain(conversationKey);

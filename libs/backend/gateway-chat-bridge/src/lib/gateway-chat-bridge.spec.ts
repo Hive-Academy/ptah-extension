@@ -91,6 +91,7 @@ class FakeGateway extends EventEmitter {
   sendNotice = jest.fn<Promise<void>, [OutboundRoute, string]>(async () => {
     /* no-op */
   });
+  discardOutbound = jest.fn<void, [ConversationKey]>();
   recordTurnOutcome = jest.fn<
     void,
     [string, { ok: true } | { ok: false; reason: string }]
@@ -1022,6 +1023,51 @@ describe('GatewayChatBridge', () => {
         ([, msg]) => typeof msg === 'string' && msg.length > 0,
       ),
     ).toBe(true);
+  });
+
+  it('discards a stranded partial reply before retrying a failed resume on a fresh session (TASK_2026_271 #6)', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
+      ptahSessionId: SDK_UUID,
+    });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    // Resume streams half an answer, then dies.
+    h.adapter.resumeSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield textDelta(SDK_UUID, 'stranded half');
+        throw new Error('resume died');
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+    // Fresh session answers cleanly.
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID_B, 'full answer'),
+        messageComplete(SDK_UUID_B),
+      ]),
+    );
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+    // The buffer holding "stranded half" is dropped BEFORE the retry appends.
+    const discardIdx = h.gateway.discardOutbound.mock.invocationCallOrder[0];
+    const retryAppend = h.gateway.appendOutboundChunk.mock.calls.findIndex(
+      ([, t]) => t === 'full answer',
+    );
+    expect(h.gateway.discardOutbound).toHaveBeenCalledWith(key);
+    expect(retryAppend).toBeGreaterThanOrEqual(0);
+    expect(
+      h.gateway.appendOutboundChunk.mock.invocationCallOrder[retryAppend],
+    ).toBeGreaterThan(discardIdx);
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: true,
+    });
   });
 
   it('seals the turn once via completeOutboundTurn in the finally (success path)', async () => {

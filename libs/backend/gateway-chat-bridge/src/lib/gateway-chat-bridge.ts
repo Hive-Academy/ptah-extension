@@ -700,6 +700,11 @@ export class GatewayChatBridge {
       },
     );
     try {
+      // The failed resume may already have streamed part of an answer into
+      // the conversation buffer. Drop it — otherwise the fresh session's reply
+      // is appended after a stranded fragment and the user gets two unrelated
+      // generations in one message.
+      this.gateway.discardOutbound(route.conversationKey);
       const stream = await this.startNew(
         body,
         workspaceRoot,

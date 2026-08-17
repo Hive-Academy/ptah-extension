@@ -111,7 +111,14 @@ lost, `bf55272c2` 2000-char truncation). This task closes the rest of the class.
    `finally` for agent failure, watchdog stop, delivery failure, or success.
    Reconnect timers are `unref()`'d. Specs: 2 in `gateway.service.spec.ts`,
    assertions in bridge spec.
-5. #6, #8, medium/low as follow-ups.
+5. **DONE 2026-08-17** — #6. `GatewayService.discardOutbound(key)` added;
+   `tryFallbackStart` calls it before starting the fresh session so a
+   stranded partial from the failed resume is never glued in front of the
+   retry's reply. Spec in bridge spec (resume streams then throws → fresh
+   session; discard ordered before the retry's first append).
+6. Remaining follow-ups: #8 (command registration 429/Retry-After + partial
+   results), Telegram/Slack transport events, typing indicator, abuse-cap
+   reply, `messagesById` eviction, restart-mid-turn replay, DM intents.
 
 ## Related
 
