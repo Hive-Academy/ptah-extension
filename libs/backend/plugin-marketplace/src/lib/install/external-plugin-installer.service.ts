@@ -209,13 +209,27 @@ export class ExternalPluginInstallerService {
     // plan the user approved describes a complete tree, not a diff.
     await fsPromises.rm(targetDir, { recursive: true, force: true });
 
-    for (const file of files) {
-      const destination = path.resolve(
-        targetDir,
-        ...file.relativePath.split('/'),
-      );
-      assertContainedIn(destination, targetDir, file.relativePath);
-      await writeFileAtomic(destination, file.bytes);
+    // A write that dies partway (disk full, permissions, process killed) would
+    // otherwise strand a half-written tree with no consent record: invisible to
+    // `listInstalled`, unresolvable by `PluginLoaderService` (which answers from
+    // the store, never from the filesystem), and skipped by `pruneStaleFiles`
+    // because `external/` is a reserved root. Nothing would ever clean it up
+    // except re-installing that exact plugin. So the partial tree is removed
+    // here and the original failure re-thrown.
+    try {
+      for (const file of files) {
+        const destination = path.resolve(
+          targetDir,
+          ...file.relativePath.split('/'),
+        );
+        assertContainedIn(destination, targetDir, file.relativePath);
+        await writeFileAtomic(destination, file.bytes);
+      }
+    } catch (error: unknown) {
+      await fsPromises
+        .rm(targetDir, { recursive: true, force: true })
+        .catch(() => undefined);
+      throw error;
     }
 
     await this.store.recordInstall({

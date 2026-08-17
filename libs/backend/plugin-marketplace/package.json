@@ -1,0 +1,14 @@
+{
+  "name": "@ptah-extension/plugin-marketplace",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "tsyringe": "^4.10.0",
+    "zod": "^4.1.12",
+    "@ptah-extension/shared": "0.0.1",
+    "@ptah-extension/vscode-core": "0.0.1"
+  }
+}

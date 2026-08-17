@@ -51,7 +51,7 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/memory-contracts`
+**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/memory-contracts`, `@ptah-extension/plugin-marketplace`
 **External**: `@anthropic-ai/claude-agent-sdk`, `@openai/codex-sdk`, `axios`, `tsyringe`, `zod`, `eventemitter3`, `cross-spawn`, `which`, `uuid`
 
 ## Guidelines

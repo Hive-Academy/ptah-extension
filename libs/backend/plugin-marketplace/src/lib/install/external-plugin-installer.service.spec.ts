@@ -460,4 +460,32 @@ describe('ExternalPluginInstallerService', () => {
       expect(fs.existsSync(pluginsBasePath)).toBe(true);
     });
   });
+
+  describe('a write that fails partway leaves nothing behind', () => {
+    it('removes the partial tree and rethrows', async () => {
+      // A repo whose file list is self-contradictory: `conflict` is a file, and
+      // `conflict/nested.md` needs it to be a directory. The first write
+      // succeeds, the second cannot, which is a real failure a hostile or
+      // simply broken marketplace can produce — no mocking required.
+      github.files = {
+        ...healthyRepoFiles(),
+        [`${SUBTREE}/conflict`]: 'i am a file',
+        [`${SUBTREE}/conflict/nested.md`]: 'i need conflict to be a directory',
+      };
+      registry.invalidate(SOURCE);
+
+      const plan = await installer.planInstall(SOURCE, PLUGIN);
+
+      // Without the rollback the half-written tree would be invisible forever:
+      // no consent record, so `listInstalled` never shows it,
+      // `PluginLoaderService` never resolves it, and `pruneStaleFiles` treats
+      // `external/` as a reserved root it must not touch.
+      await expect(
+        installer.confirmInstall(plan.consentToken),
+      ).rejects.toThrow();
+
+      expect(fs.existsSync(targetDir())).toBe(false);
+      expect(store.isInstalled(PLUGIN_ID)).toBe(false);
+    });
+  });
 });

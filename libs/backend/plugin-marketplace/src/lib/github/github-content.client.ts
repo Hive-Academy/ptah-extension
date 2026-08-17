@@ -42,6 +42,37 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
  */
 const USER_AGENT = 'Ptah-Plugin-Marketplace';
 
+/**
+ * Hosts a redirect is allowed to land on.
+ *
+ * The redirect-following here was modelled on `ContentDownloadService`, where
+ * following blindly is harmless because the target is one hardcoded URL owned
+ * by us. Here the URL is built from a user-typed `owner/repo`, so the trust
+ * boundary is different: an open redirect, a compromised CDN edge, or DNS
+ * trickery could otherwise point the request at an internal host and hand it
+ * whatever came back. GitHub only ever redirects within its own domains, so
+ * pinning costs nothing legitimate.
+ */
+const ALLOWED_REDIRECT_HOSTS: ReadonlySet<string> = new Set([
+  'raw.githubusercontent.com',
+  'api.github.com',
+  'github.com',
+  'objects.githubusercontent.com',
+  'codeload.github.com',
+]);
+
+/**
+ * True when a redirect target is somewhere plugin content may legitimately come
+ * from. Exported so the rule can be tested without standing up a redirecting
+ * server — the guard is one comparison, and the thing worth pinning is the
+ * decision, not the socket.
+ */
+export function isAllowedRedirectTarget(target: URL): boolean {
+  return (
+    target.protocol === 'https:' && ALLOWED_REDIRECT_HOSTS.has(target.hostname)
+  );
+}
+
 /** One entry of the recursive trees response we actually care about. */
 export interface GitTreeEntry {
   /** Repo-relative path with forward slashes. */
@@ -239,9 +270,18 @@ export class GitHubContentClient {
           const status = response.statusCode ?? 0;
 
           if (status >= 300 && status < 400 && response.headers.location) {
-            const next = new URL(response.headers.location, url).toString();
+            const next = new URL(response.headers.location, url);
             response.resume();
-            this.fetchBlob(next, headers, redirectsLeft - 1).then(
+            if (!isAllowedRedirectTarget(next)) {
+              reject(
+                new PluginMarketplaceError(
+                  'network',
+                  `Refused a redirect to ${next.protocol}//${next.hostname} — plugin content is only fetched from GitHub`,
+                ),
+              );
+              return;
+            }
+            this.fetchBlob(next.toString(), headers, redirectsLeft - 1).then(
               resolve,
               reject,
             );

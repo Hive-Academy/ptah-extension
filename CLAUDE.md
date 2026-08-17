@@ -37,6 +37,7 @@ ptah-extension/
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
 │   ├── vscode-lm-tools/               # Code-exec MCP + browser/web capabilities
 │   ├── settings-core/                 # ~/.ptah/settings.json store + secret envelopes
+│   ├── plugin-marketplace/            # External marketplaces + two-call consent install
 │   ├── output-styles/                 # Output-style discovery + activation decision
 │   ├── persistence-sqlite/            # ~/.ptah/ptah.db + migrations + IEmbedder
 │   ├── memory-contracts/              # Zero-dep memory port interfaces
@@ -194,6 +195,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [vscode-core](./libs/backend/vscode-core/CLAUDE.md) — Logger, License, RPC infra
 - [vscode-lm-tools](./libs/backend/vscode-lm-tools/CLAUDE.md) — Code-exec MCP + browser
 - settings-core — `~/.ptah/settings.json` store + secret envelopes (no CLAUDE.md yet)
+- plugin-marketplace — External `.claude-plugin/marketplace.json` repos + the two-call consent install. Nothing reaches disk without a token bound to the resolved version + file hashes; `PluginLoaderService` resolves an external id only if the consent store has a record (never `fs.existsSync`) (no CLAUDE.md yet)
 - [output-styles](./libs/backend/output-styles/CLAUDE.md) — Output-style discovery + activation
 - [persistence-sqlite](./libs/backend/persistence-sqlite/CLAUDE.md) — SQLite + migrations
 - [memory-contracts](./libs/backend/memory-contracts/CLAUDE.md) — Memory port interfaces
