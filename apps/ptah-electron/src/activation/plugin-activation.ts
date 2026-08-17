@@ -13,6 +13,7 @@ import {
   type UserLayerMirrorService,
   type UserLayerRoots,
 } from '@ptah-extension/agent-generation';
+import { initializePluginMarketplace } from '@ptah-extension/plugin-marketplace';
 import {
   SKILL_SYNTHESIS_TOKENS,
   type SkillCandidateStore,
@@ -35,6 +36,10 @@ export function initPluginLoader(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
     pluginLoader.initialize(pluginsPath, workspaceStateStorage);
+    // Same base path, same moment: PluginLoaderService asks this store whether
+    // an external plugin id was consented to, and an unbound store reports an
+    // empty allowlist — so the two must never be initialized apart.
+    initializePluginMarketplace(container, pluginsPath);
 
     const pluginConfig = pluginLoader.getWorkspacePluginConfig();
     const pluginPaths = pluginLoader.resolvePluginPaths(

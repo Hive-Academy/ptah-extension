@@ -8,9 +8,23 @@
  *   plugins + disabled skills)
  * - plugins:list-skills - Enumerate skills inside the given plugin IDs
  *
+ * ...and the external marketplace surface (TASK_2026_270):
+ * - plugins:list-marketplaces / :add-marketplace / :remove-marketplace
+ * - plugins:browse-marketplace
+ * - plugins:install-external / :uninstall-external
+ *
  * Activation asymmetry these handlers must preserve: bundled plugins are
  * opt-in via `enabledPluginIds`, harness-authored ones are opt-out via
- * `disabledPluginIds`. See `PluginSource` in `@ptah-extension/shared`.
+ * `disabledPluginIds`. External plugins are opt-in like bundled, and a
+ * successful install flips them on here — the consent dialog was the decision
+ * point, so a second switch would be ceremony. See `PluginSource` in
+ * `@ptah-extension/shared`.
+ *
+ * WHAT THIS FILE MUST NOT DO: decide whether consent was given.
+ * `ExternalPluginInstallerService` owns that, and it answers from the plan it
+ * minted, not from anything a caller sends. Keep it that way — an `if` here
+ * that skips straight to `confirmInstall` would be a silent bypass of the
+ * entire consent gate.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -22,12 +36,32 @@ import {
   SkillJunctionService,
 } from '@ptah-extension/agent-sdk';
 import { CommandDiscoveryService } from '@ptah-extension/workspace-intelligence';
+import {
+  ExternalPluginInstallerService,
+  MarketplaceRegistryService,
+  PLUGIN_MARKETPLACE_TOKENS,
+  PluginMarketplaceError,
+} from '@ptah-extension/plugin-marketplace';
 import type {
   PluginInfo,
   PluginConfigState,
   PluginSkillEntry,
+  ExternalConsentReason,
+  ExternalInstallResponse,
+  ExternalInstallResult,
+  ExternalMarketplace,
+  ExternalMarketplaceBrowseResult,
+  ExternalSkillCollision,
+  ExternalUninstallResult,
+  ListMarketplacesResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import {
+  ExternalInstallParamsSchema,
+  ExternalUninstallParamsSchema,
+  MarketplaceBrowseParamsSchema,
+  MarketplaceSourceParamsSchema,
+} from './plugin-rpc.schema';
 
 /**
  * RPC handlers for plugin configuration operations.
@@ -47,6 +81,12 @@ export class PluginRpcHandlers {
     'plugins:get-config',
     'plugins:save-config',
     'plugins:list-skills',
+    'plugins:list-marketplaces',
+    'plugins:add-marketplace',
+    'plugins:remove-marketplace',
+    'plugins:browse-marketplace',
+    'plugins:install-external',
+    'plugins:uninstall-external',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -60,6 +100,10 @@ export class PluginRpcHandlers {
     private readonly commandDiscovery: CommandDiscoveryService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PLUGIN_MARKETPLACE_TOKENS.REGISTRY)
+    private readonly marketplaceRegistry: MarketplaceRegistryService,
+    @inject(PLUGIN_MARKETPLACE_TOKENS.INSTALLER)
+    private readonly externalInstaller: ExternalPluginInstallerService,
   ) {}
 
   /**
@@ -70,14 +114,15 @@ export class PluginRpcHandlers {
     this.registerGetConfig();
     this.registerSaveConfig();
     this.registerListSkills();
+    this.registerListMarketplaces();
+    this.registerAddMarketplace();
+    this.registerRemoveMarketplace();
+    this.registerBrowseMarketplace();
+    this.registerInstallExternal();
+    this.registerUninstallExternal();
 
     this.logger.debug('Plugin RPC handlers registered', {
-      methods: [
-        'plugins:list-available',
-        'plugins:get-config',
-        'plugins:save-config',
-        'plugins:list-skills',
-      ],
+      methods: PluginRpcHandlers.METHODS,
     });
   }
 
@@ -341,5 +386,326 @@ export class PluginRpcHandlers {
         throw error;
       }
     });
+  }
+
+  /**
+   * plugins:list-marketplaces - Registered external marketplaces + suggestions
+   *
+   * Suggestions (currently `dotnet/skills`) are served from the backend rather
+   * than hardcoded in the UI so the recommendation list is one thing, not two.
+   */
+  private registerListMarketplaces(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      ListMarketplacesResult
+    >('plugins:list-marketplaces', async () =>
+      this.guard('registerListMarketplaces', () =>
+        Promise.resolve(this.marketplaceRegistry.listMarketplaces()),
+      ),
+    );
+  }
+
+  /**
+   * plugins:add-marketplace - Register an `owner/repo`
+   *
+   * The registry fetches and validates the manifest before persisting, so a
+   * repo that is not a marketplace fails here rather than half-registering.
+   */
+  private registerAddMarketplace(): void {
+    this.rpcHandler.registerMethod<
+      { source: string },
+      { marketplace: ExternalMarketplace }
+    >('plugins:add-marketplace', async (params) => {
+      const parsed = MarketplaceSourceParamsSchema.parse(params);
+      return this.guard('registerAddMarketplace', async () => ({
+        marketplace: await this.marketplaceRegistry.addMarketplace(
+          parsed.source,
+        ),
+      }));
+    });
+  }
+
+  /** plugins:remove-marketplace - Deregister. Installed plugins are kept. */
+  private registerRemoveMarketplace(): void {
+    this.rpcHandler.registerMethod<{ source: string }, { removed: boolean }>(
+      'plugins:remove-marketplace',
+      async (params) => {
+        const parsed = MarketplaceSourceParamsSchema.parse(params);
+        return this.guard('registerRemoveMarketplace', async () => ({
+          removed: await this.marketplaceRegistry.removeMarketplace(
+            parsed.source,
+          ),
+        }));
+      },
+    );
+  }
+
+  /** plugins:browse-marketplace - Plugins a registered marketplace advertises. */
+  private registerBrowseMarketplace(): void {
+    this.rpcHandler.registerMethod<
+      { source: string; refresh?: boolean },
+      ExternalMarketplaceBrowseResult
+    >('plugins:browse-marketplace', async (params) => {
+      const parsed = MarketplaceBrowseParamsSchema.parse(params);
+      return this.guard('registerBrowseMarketplace', () =>
+        this.marketplaceRegistry.browse(parsed.source, {
+          refresh: parsed.refresh,
+        }),
+      );
+    });
+  }
+
+  /**
+   * plugins:install-external - The two-call consent protocol
+   *
+   * No `consentToken` ⇒ build a plan, write nothing, return
+   * `status: 'consent-required'`. With a token ⇒ install exactly the payload
+   * that plan described.
+   *
+   * The handler is deliberately thin here: it does NOT decide whether consent
+   * was given. `ExternalPluginInstallerService.confirmInstall` rejects an
+   * unknown or expired token, so there is no branch in this file that could be
+   * edited into a bypass. What the handler adds is the two things the
+   * installer cannot know — which skills are currently junctioned (for the
+   * collision warning) and how to activate the plugin once it is on disk.
+   */
+  private registerInstallExternal(): void {
+    this.rpcHandler.registerMethod<
+      { source: string; plugin: string; consentToken?: string },
+      ExternalInstallResponse
+    >('plugins:install-external', async (params) => {
+      const parsed = ExternalInstallParamsSchema.parse(params);
+
+      return this.guard('registerInstallExternal', async () => {
+        if (!parsed.consentToken) {
+          return this.buildConsentResponse(
+            parsed.source,
+            parsed.plugin,
+            'not-yet-approved',
+          );
+        }
+
+        let result: ExternalInstallResult;
+        try {
+          result = await this.externalInstaller.confirmInstall(
+            parsed.consentToken,
+          );
+        } catch (error: unknown) {
+          // A token that no longer validates is not an error the user can do
+          // anything with — the plan expired, the host restarted, or upstream
+          // moved. Re-plan and ask again rather than dead-ending, so consent
+          // is re-obtained against current facts. This is also the version-
+          // change path: the token hashes the payload, so a new upstream
+          // version can never satisfy an old approval.
+          if (
+            error instanceof PluginMarketplaceError &&
+            error.code === 'consent-required'
+          ) {
+            return this.buildConsentResponse(
+              parsed.source,
+              parsed.plugin,
+              'approval-expired',
+            );
+          }
+          throw error;
+        }
+
+        const collisions = await this.activateExternalPlugin(result.pluginId);
+
+        this.logger.debug('RPC: plugins:install-external installed', {
+          pluginId: result.pluginId,
+          version: result.installedVersion,
+          filesWritten: result.filesWritten,
+          skipped: result.skippedBinaryFiles.length,
+          collisions: collisions.length,
+        });
+
+        return {
+          status: 'installed' as const,
+          result: { ...result, collisions },
+        };
+      });
+    });
+  }
+
+  /** plugins:uninstall-external - Remove the tree, the record and the toggle. */
+  private registerUninstallExternal(): void {
+    this.rpcHandler.registerMethod<
+      { pluginId: string },
+      ExternalUninstallResult
+    >('plugins:uninstall-external', async (params) => {
+      const parsed = ExternalUninstallParamsSchema.parse(params);
+
+      return this.guard('registerUninstallExternal', async () => {
+        const removed = await this.externalInstaller.uninstall(parsed.pluginId);
+        if (removed) {
+          await this.deactivateExternalPlugin(parsed.pluginId);
+        }
+        return { pluginId: parsed.pluginId, removed };
+      });
+    });
+  }
+
+  /**
+   * Build a fresh plan and wrap it as a `consent-required` response.
+   *
+   * The one place a plan is enriched with collisions, so the "first ask" and
+   * the "ask again" paths cannot drift into showing different information.
+   */
+  private async buildConsentResponse(
+    source: string,
+    plugin: string,
+    reason: ExternalConsentReason,
+  ): Promise<ExternalInstallResponse> {
+    const plan = await this.externalInstaller.planInstall(source, plugin);
+    return {
+      status: 'consent-required',
+      reason,
+      plan: {
+        ...plan,
+        collisions: this.predictCollisions(plan.pluginId, plan.skills),
+      },
+    };
+  }
+
+  /**
+   * Turn a freshly-installed plugin on in this workspace and re-junction.
+   *
+   * Installing implies enabling: the consent dialog already listed the skills,
+   * the scripts and the declared MCP servers, so making the user find a second
+   * switch afterwards would add ceremony without adding a decision.
+   *
+   * @returns the skills that ended up shadowed by an already-active skill.
+   */
+  private async activateExternalPlugin(
+    pluginId: string,
+  ): Promise<ExternalSkillCollision[]> {
+    const config = this.pluginLoader.getWorkspacePluginConfig();
+    const enabledPluginIds = [
+      ...new Set([...config.enabledPluginIds, pluginId]),
+    ];
+
+    await this.pluginLoader.saveWorkspacePluginConfig({
+      enabledPluginIds,
+      disabledSkillIds: config.disabledSkillIds,
+      // Undefined preserves the persisted denylist — see saveWorkspacePluginConfig.
+      disabledPluginIds: undefined,
+    });
+
+    this.commandDiscovery.invalidateCache();
+    this.skillJunction.createJunctions(
+      this.pluginLoader.resolveCurrentPluginPaths(),
+      config.disabledSkillIds,
+    );
+
+    // Now that junctions have been rebuilt, report what actually lost, rather
+    // than what we predicted would lose.
+    return this.skillJunction
+      .getShadowedSkills()
+      .filter((shadow) => shadow.shadowedPluginId === pluginId)
+      .map((shadow) => ({
+        skillName: shadow.skillName,
+        shadowedBy: this.findSkillOwner(shadow.skillName) ?? 'another plugin',
+      }));
+  }
+
+  /** Drop an uninstalled plugin from the workspace config and re-junction. */
+  private async deactivateExternalPlugin(pluginId: string): Promise<void> {
+    const config = this.pluginLoader.getWorkspacePluginConfig();
+
+    await this.pluginLoader.saveWorkspacePluginConfig({
+      enabledPluginIds: config.enabledPluginIds.filter((id) => id !== pluginId),
+      disabledSkillIds: config.disabledSkillIds,
+      disabledPluginIds: (config.disabledPluginIds ?? []).filter(
+        (id) => id !== pluginId,
+      ),
+    });
+
+    this.commandDiscovery.invalidateCache();
+    this.skillJunction.createJunctions(
+      this.pluginLoader.resolveCurrentPluginPaths(),
+      config.disabledSkillIds,
+    );
+  }
+
+  /**
+   * Which skills in `candidateSkills` an already-active skill would shadow.
+   *
+   * Computed here, not in the marketplace lib, because "currently junctioned"
+   * is workspace state that lib has no business knowing. Prediction is
+   * necessarily approximate — it compares names against the skills discoverable
+   * right now — which is why the post-install result reports the real outcome
+   * from `SkillJunctionService` instead of repeating this.
+   */
+  private predictCollisions(
+    pluginId: string,
+    candidateSkills: string[],
+  ): ExternalSkillCollision[] {
+    if (candidateSkills.length === 0) return [];
+
+    const owners = this.activeSkillOwners();
+
+    return candidateSkills
+      .filter((skillName) => {
+        const owner = owners.get(skillName);
+        return owner !== undefined && owner !== pluginId;
+      })
+      .map((skillName) => ({
+        skillName,
+        shadowedBy: owners.get(skillName) ?? 'another plugin',
+      }));
+  }
+
+  /** Owner plugin id for every skill currently discoverable, first wins. */
+  private activeSkillOwners(): Map<string, string> {
+    const owners = new Map<string, string>();
+    const active = this.pluginLoader.discoverSkillsForPlugins(
+      this.pluginLoader.resolveCurrentPluginPaths(),
+    );
+
+    for (const skill of active) {
+      if (!owners.has(skill.skillId)) owners.set(skill.skillId, skill.pluginId);
+    }
+
+    return owners;
+  }
+
+  /** Plugin id that currently owns `skillName`, or undefined. */
+  private findSkillOwner(skillName: string): string | undefined {
+    return this.activeSkillOwners().get(skillName);
+  }
+
+  /**
+   * Run `operation`, logging + reporting failures once.
+   *
+   * `PluginMarketplaceError` messages are written for end users and are
+   * re-thrown verbatim. Anything else is reported to Sentry and re-thrown with
+   * its own message — these are Ptah's own errors, not third-party library
+   * output, so there is nothing here to sanitize away.
+   */
+  private async guard<T>(
+    errorSource: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error: unknown) {
+      if (error instanceof PluginMarketplaceError) {
+        this.logger.warn(`RPC: plugins external operation rejected`, {
+          errorSource,
+          code: error.code,
+          message: error.message,
+        });
+        throw error;
+      }
+
+      const normalized =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(`RPC: plugins external operation failed`, normalized);
+      this.sentryService.captureException(normalized, {
+        errorSource: `PluginRpcHandlers.${errorSource}`,
+      });
+      throw normalized;
+    }
   }
 }

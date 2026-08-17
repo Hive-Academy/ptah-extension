@@ -184,6 +184,7 @@ export {
   SkillJunctionService,
   type SkillJunctionActivateOptions,
   type SkillJunctionResult,
+  type SkillShadowing,
 } from './skill-junction.service';
 export {
   SessionForkService,

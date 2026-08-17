@@ -3,8 +3,14 @@ import * as path from 'path';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { getStackProfile, matchesStackGlob } from '@ptah-extension/shared';
 import { MonorepoType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
+
+/** The registry's solution-file patterns — `*.sln` and `*.slnx`. */
+const DOTNET_SOLUTION_GLOBS = getStackProfile('dotnet').detect.globs.filter(
+  (pattern) => pattern.endsWith('sln') || pattern.endsWith('slnx'),
+);
 
 /**
  * Result of monorepo detection for a workspace.
@@ -26,6 +32,13 @@ export interface MonorepoDetectionResult {
  * - Turborepo (turbo.json)
  * - pnpm workspaces (pnpm-workspace.yaml)
  * - Yarn workspaces (package.json workspaces field)
+ * - .NET solutions (.sln, .slnx)
+ * - uv workspaces ([tool.uv.workspace]) and Poetry path-dependency roots
+ *
+ * The JavaScript tools are probed first and in their original order. That is
+ * not incidental: a repo with both `nx.json` and a `.sln` is an Nx workspace
+ * that happens to contain .NET projects, and reporting it as a bare solution
+ * would lose the tool that actually runs its targets.
  */
 @injectable()
 export class MonorepoDetectorService {
@@ -69,6 +82,14 @@ export class MonorepoDetectorService {
     const yarnResult = await this.detectYarnWorkspace(workspacePath);
     if (yarnResult.isMonorepo) {
       return yarnResult;
+    }
+    const pythonResult = await this.detectPythonWorkspace(workspacePath);
+    if (pythonResult.isMonorepo) {
+      return pythonResult;
+    }
+    const dotnetResult = await this.detectDotNetSolution(workspacePath);
+    if (dotnetResult.isMonorepo) {
+      return dotnetResult;
     }
     return this.noMonorepoResult();
   }
@@ -321,6 +342,139 @@ export class MonorepoDetectorService {
     }
 
     return this.noMonorepoResult();
+  }
+
+  /**
+   * Detect a .NET solution grouping several projects.
+   *
+   * A solution IS the .NET monorepo unit — before this, a 20-project `.sln`
+   * reported `isMonorepo: false` and every downstream consumer treated it as a
+   * single app.
+   *
+   * A solution with one project is not a monorepo, so the project count is the
+   * gate rather than a decoration. `.sln` is a line-oriented text format whose
+   * project entries each begin `Project("{GUID}")`; `.slnx` is its XML
+   * successor with one `<Project Path="..."/>` element per project. Counting
+   * those is enough — resolving the referenced projects would mean reading
+   * every one of them to answer a yes/no question.
+   */
+  private async detectDotNetSolution(
+    workspacePath: string,
+  ): Promise<MonorepoDetectionResult> {
+    let entries: Array<{ name: string }>;
+    try {
+      entries = await this.fileSystem.readDirectory(workspacePath);
+    } catch {
+      return this.noMonorepoResult();
+    }
+
+    const solutionFiles = entries
+      .map((entry) => entry.name)
+      .filter((name) =>
+        DOTNET_SOLUTION_GLOBS.some((pattern) =>
+          matchesStackGlob(pattern, name),
+        ),
+      );
+
+    if (solutionFiles.length === 0) {
+      return this.noMonorepoResult();
+    }
+
+    let packageCount = 0;
+    for (const solutionFile of solutionFiles) {
+      try {
+        const content = await this.fileSystem.readFile(
+          path.join(workspacePath, solutionFile),
+        );
+        packageCount += solutionFile.toLowerCase().endsWith('.slnx')
+          ? (content.match(/<Project\b/g) ?? []).length
+          : (content.match(/^Project\(/gm) ?? []).length;
+      } catch {
+        continue;
+      }
+    }
+
+    if (packageCount < 2) {
+      return this.noMonorepoResult();
+    }
+
+    return {
+      isMonorepo: true,
+      type: MonorepoType.DotNetSolution,
+      workspaceFiles: solutionFiles,
+      packageCount,
+    };
+  }
+
+  /**
+   * Detect a uv workspace or a Poetry path-dependency root.
+   *
+   * uv has an explicit `[tool.uv.workspace]` table, so that is exact. Poetry
+   * has no workspace concept at all — its monorepo idiom is a root project
+   * whose dependencies point at sibling directories with `{ path = "..." }`.
+   * Requiring two or more such dependencies keeps a single vendored local
+   * package from being mistaken for a monorepo.
+   */
+  private async detectPythonWorkspace(
+    workspacePath: string,
+  ): Promise<MonorepoDetectionResult> {
+    const pyprojectPath = path.join(workspacePath, 'pyproject.toml');
+    if (!(await this.fileSystem.exists(pyprojectPath))) {
+      return this.noMonorepoResult();
+    }
+
+    let content: string;
+    try {
+      content = await this.fileSystem.readFile(pyprojectPath);
+    } catch {
+      return this.noMonorepoResult();
+    }
+
+    if (content.includes('[tool.uv.workspace]')) {
+      return {
+        isMonorepo: true,
+        type: MonorepoType.UvWorkspace,
+        workspaceFiles: ['pyproject.toml'],
+        packageCount: this.countTomlArrayEntries(content, 'members'),
+      };
+    }
+
+    if (content.includes('[tool.poetry')) {
+      const pathDependencies = (content.match(/\bpath\s*=\s*["']/g) ?? [])
+        .length;
+      if (pathDependencies >= 2) {
+        return {
+          isMonorepo: true,
+          type: MonorepoType.PoetryWorkspace,
+          workspaceFiles: ['pyproject.toml'],
+          packageCount: pathDependencies,
+        };
+      }
+    }
+
+    return this.noMonorepoResult();
+  }
+
+  /**
+   * Count the quoted entries of a TOML inline array such as
+   * `members = ["packages/*", "apps/api"]`.
+   *
+   * Returns `undefined` when the key is absent or holds no entries — the same
+   * "count not determinable" signal the JavaScript detectors already use, which
+   * is why this does not fall back to 0.
+   */
+  private countTomlArrayEntries(
+    content: string,
+    key: string,
+  ): number | undefined {
+    const match = content.match(
+      new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)\\]`, 'm'),
+    );
+    if (!match) {
+      return undefined;
+    }
+    const count = (match[1].match(/["'][^"']*["']/g) ?? []).length;
+    return count > 0 ? count : undefined;
   }
 
   /**

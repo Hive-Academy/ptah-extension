@@ -13,6 +13,7 @@ import {
 } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { initializePluginMarketplace } from '@ptah-extension/plugin-marketplace';
 import { DIContainer } from '../di/container';
 
 const USER_LAYER_MIRRORED_AT = 'user_layer_mirrored_at';
@@ -27,6 +28,10 @@ export function initPluginLoader(pluginsPath: string, logger: Logger): void {
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
     pluginLoader.initialize(pluginsPath, workspaceStateStorage);
+    // Same base path, same moment: PluginLoaderService asks this store whether
+    // an external plugin id was consented to, and an unbound store reports an
+    // empty allowlist.
+    initializePluginMarketplace(DIContainer.getContainer(), pluginsPath);
     logger.info('Plugin loader initialized');
   } catch (pluginLoaderError) {
     logger.warn('Plugin loader initialization failed', {

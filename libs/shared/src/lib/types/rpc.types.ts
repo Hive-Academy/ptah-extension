@@ -33,6 +33,20 @@ export * from './rpc/rpc-tasks.types';
 
 export * from './rpc/rpc-output-style.types';
 
+export * from './rpc/rpc-plugin-marketplace.types';
+
+import type {
+  ExternalInstallParams,
+  ExternalInstallResponse,
+  ExternalMarketplaceBrowseResult,
+  ExternalMarketplace,
+  ExternalUninstallParams,
+  ExternalUninstallResult,
+  ListMarketplacesResult,
+  MarketplaceBrowseParams,
+  MarketplaceSourceParams,
+} from './rpc/rpc-plugin-marketplace.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -950,6 +964,40 @@ export interface RpcMethodRegistry {
   'plugins:list-skills': {
     params: { pluginIds: string[] };
     result: { skills: PluginSkillEntry[] };
+  };
+  /** Registered external marketplaces plus the built-in suggestions. */
+  'plugins:list-marketplaces': {
+    params: Record<string, never>;
+    result: ListMarketplacesResult;
+  };
+  /** Register an `owner/repo` after fetching and validating its manifest. */
+  'plugins:add-marketplace': {
+    params: MarketplaceSourceParams;
+    result: { marketplace: ExternalMarketplace };
+  };
+  /** Deregister a marketplace. Installed plugins from it are NOT removed. */
+  'plugins:remove-marketplace': {
+    params: MarketplaceSourceParams;
+    result: { removed: boolean };
+  };
+  /** List the plugins a registered marketplace advertises. */
+  'plugins:browse-marketplace': {
+    params: MarketplaceBrowseParams;
+    result: ExternalMarketplaceBrowseResult;
+  };
+  /**
+   * Two-call install. Without `consentToken` this writes nothing and returns a
+   * plan; with a valid token it performs the install. See
+   * `rpc-plugin-marketplace.types.ts` for the security model.
+   */
+  'plugins:install-external': {
+    params: ExternalInstallParams;
+    result: ExternalInstallResponse;
+  };
+  /** Remove an installed external plugin and its consent record. */
+  'plugins:uninstall-external': {
+    params: ExternalUninstallParams;
+    result: ExternalUninstallResult;
   };
   'agent:getConfig': {
     params: void;
@@ -3262,6 +3310,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'plugins:get-config': true,
   'plugins:save-config': true,
   'plugins:list-skills': true,
+  'plugins:list-marketplaces': true,
+  'plugins:add-marketplace': true,
+  'plugins:remove-marketplace': true,
+  'plugins:browse-marketplace': true,
+  'plugins:install-external': true,
+  'plugins:uninstall-external': true,
   'agent:getConfig': true,
   'agent:setConfig': true,
   'agent:detectClis': true,

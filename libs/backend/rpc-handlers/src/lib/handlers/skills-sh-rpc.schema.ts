@@ -15,9 +15,17 @@
  */
 
 import { z } from 'zod';
+import { SAFE_SOURCE_PATTERN } from '@ptah-extension/shared';
 
-/** `owner/repo` slug guard — matches the handler's install `source` check. */
-export const SAFE_SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+/**
+ * `owner/repo` slug guard — matches the handler's install `source` check.
+ *
+ * The literal moved to `@ptah-extension/shared` when the external plugin
+ * marketplace registry needed the same guard and could not import this file
+ * (`rpc-handlers` sits above it in the graph). Re-exported here unchanged so
+ * the EXTRACTION CONTRACT above still describes this module's public surface.
+ */
+export { SAFE_SOURCE_PATTERN };
 
 /** Single-token guard for `skillId` and skill `name`. */
 export const SAFE_SKILL_ID_PATTERN = /^[a-zA-Z0-9_.-]+$/;

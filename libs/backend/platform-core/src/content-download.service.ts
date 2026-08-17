@@ -44,6 +44,21 @@ interface ContentManifest {
   };
 }
 
+/**
+ * First path segments under a mirror root that this manifest NEVER owns.
+ *
+ * `external` is `~/.ptah/plugins/external/`, where third-party marketplace
+ * plugins are installed after an explicit per-plugin consent dialog. The
+ * bundled content manifest has no business there, so prune must not reason
+ * about it at all.
+ *
+ * `@ptah-extension/plugin-marketplace` declares the same literal as
+ * `EXTERNAL_PLUGINS_DIRNAME`. The duplication is deliberate: `platform-core` is
+ * the leaf every other lib imports and must not import anything itself.
+ * Renaming one means renaming the other.
+ */
+const RESERVED_PRUNE_ROOTS: ReadonlySet<string> = new Set(['external']);
+
 /** Progress callback for UI integration */
 export type ContentProgressCallback = (
   phase: string,
@@ -283,6 +298,15 @@ export class ContentDownloadService {
    * Individual unlink failures are logged and skipped, never thrown: prune
    * runs BEFORE any download, so a single locked file used to abort the whole
    * content refresh and recur identically on every launch.
+   *
+   * RESERVED ROOTS (TASK_2026_270). `external/` holds plugins the user
+   * installed from third-party marketplaces through an explicit consent flow.
+   * It is never populated by this manifest, so today the rule above already
+   * spares it — but only by coincidence, because `external` happens not to
+   * appear in `manifestRoots`. The day someone adds a bundled file under an
+   * `external/` path upstream, that coincidence turns into silent deletion of
+   * content the user deliberately installed. {@link RESERVED_PRUNE_ROOTS}
+   * makes the exemption a rule instead of an accident.
    */
   private pruneStaleFiles(localDir: string, manifestFiles: string[]): void {
     const manifestSet = new Set(manifestFiles);
@@ -302,6 +326,13 @@ export class ContentDownloadService {
       }
 
       const segments = relPath.split('/');
+
+      // Reserved roots are never manifest-owned, whatever the manifest claims.
+      // Checked before the ownership test so a manifest cannot opt itself in.
+      if (RESERVED_PRUNE_ROOTS.has(segments[0])) {
+        continue;
+      }
+
       const isManifestOwned =
         segments.length === 1
           ? manifestOwnsRootFiles

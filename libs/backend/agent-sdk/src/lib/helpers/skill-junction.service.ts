@@ -116,6 +116,14 @@ const LEGACY_PTAH_WORKSPACE_DIR = '.ptah';
  * main.ts after DI setup to provide the plugins base path. Workspace root is resolved
  * via the injected IWorkspaceProvider.
  */
+/** A skill that exists on disk but lost a flat-namespace name collision. */
+export interface SkillShadowing {
+  /** Skill directory name, e.g. `run-tests`. */
+  skillName: string;
+  /** Plugin whose copy of the skill is NOT junctioned. */
+  shadowedPluginId: string;
+}
+
 @injectable()
 export class SkillJunctionService {
   private pluginsBasePath: string | null = null;
@@ -126,6 +134,36 @@ export class SkillJunctionService {
 
   /** Track which junction paths we created, for cleanup */
   private managedJunctions = new Set<string>();
+
+  /**
+   * Skills that lost a name collision during the most recent
+   * `createJunctions()` — i.e. skills that exist on disk but are NOT junctioned
+   * and therefore will never run.
+   *
+   * WHY THIS IS RECORDED RATHER THAN NAMESPACED (TASK_2026_270). External
+   * marketplaces make collisions likely: `dotnet/skills` ships `run-tests`,
+   * and so does plenty of other content. The tempting fix is to namespace
+   * external skills on junction (`dotnet-skills--run-tests`). We deliberately
+   * do not, for three reasons:
+   *
+   * 1. A skill's identity is its frontmatter `name`, and skills reference each
+   *    other by that name in prose ("hand off to `dotnet-test`"). Renaming the
+   *    junction directory desynchronizes the two and silently breaks every
+   *    cross-skill reference in the pack.
+   * 2. `disabledSkillIds` is keyed by directory name. Namespacing would
+   *    invalidate every per-skill toggle the user has already saved, with no
+   *    migration available — the old and new names are not derivable from each
+   *    other without knowing which plugin won at the time.
+   * 3. Namespacing hides the problem instead of resolving it. Two skills called
+   *    `run-tests` in one workspace is a decision the user should make, and
+   *    they cannot make it if the collision never surfaces.
+   *
+   * So the flat first-wins rule stays, and the OUTCOME becomes visible: the
+   * install consent dialog warns before you install a colliding skill, and this
+   * list reports what actually got shadowed afterwards. A warning in a log file
+   * nobody opens was the actual defect.
+   */
+  private lastShadowedSkills: SkillShadowing[] = [];
 
   /** Subscription disposer for workspace folder changes */
   private workspaceFolderDisposer: (() => void) | null = null;
@@ -211,6 +249,18 @@ export class SkillJunctionService {
    * @param pluginPaths - Absolute paths to enabled plugin directories
    * @returns Result with counts of created/skipped/removed/errors
    */
+  /**
+   * Skills shadowed by the most recent {@link createJunctions} call.
+   *
+   * Empty before the first call. Callers that want to REPORT a collision (the
+   * marketplace install flow) read this; callers that want to PREDICT one
+   * before installing compute it from the discovered skill names instead,
+   * because a plugin that is not installed yet cannot appear here.
+   */
+  getShadowedSkills(): readonly SkillShadowing[] {
+    return this.lastShadowedSkills;
+  }
+
   createJunctions(
     pluginPaths: string[],
     disabledSkillIds: string[] = [],
@@ -410,6 +460,7 @@ export class SkillJunctionService {
       ? this.buildSkillsMapFromUserLayer(userSkillsRoot, disabledSkillIds)
       : new Map<string, string>();
     const userLayerNames = new Set(skillsMap.keys());
+    this.lastShadowedSkills = [];
 
     for (const pluginPath of pluginPaths) {
       const skillsDir = join(pluginPath, 'skills');
@@ -450,6 +501,13 @@ export class SkillJunctionService {
               `[SkillJunctionService] Skill "${entry}" already sourced from the user layer, skipping ${pluginId}`,
             );
           } else {
+            // Recorded, not just logged: this skill will never run, and the
+            // marketplace surface reports it to the user. See
+            // `lastShadowedSkills` for why we shadow instead of namespacing.
+            this.lastShadowedSkills.push({
+              skillName: entry,
+              shadowedPluginId: pluginId,
+            });
             this.logger.warn(
               `[SkillJunctionService] Skill name collision: "${entry}" already registered, skipping from ${pluginId}`,
             );

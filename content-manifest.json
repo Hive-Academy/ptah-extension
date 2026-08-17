@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:7fd75b013feaccf2aa657bcbdb1c9df8e4021fff94a6f0b95db0376bc6f143bb",
-  "generatedAt": "2026-08-15T15:46:58.092Z",
+  "contentHash": "sha256:98c4080c6e02e5422963c392e8f3c8cc8b582a560185057053994d5f2ef3fbdc",
+  "generatedAt": "2026-08-17T17:57:04.797Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -102,6 +102,12 @@
       "ptah-core/skills/ui-ux-designer/NICHE-DISCOVERY.md",
       "ptah-core/skills/ui-ux-designer/REFERENCE-LIBRARY.md",
       "ptah-core/skills/ui-ux-designer/SKILL.md",
+      "ptah-dotnet/.claude-plugin/plugin.json",
+      "ptah-dotnet/skills/dotnet-solution-architect/SKILL.md",
+      "ptah-dotnet/skills/dotnet-solution-architect/references/central-package-management.md",
+      "ptah-dotnet/skills/dotnet-solution-architect/references/clean-architecture-vs-vertical-slices.md",
+      "ptah-dotnet/skills/dotnet-solution-initializer/SKILL.md",
+      "ptah-dotnet/skills/nx-dotnet-workspace/SKILL.md",
       "ptah-nx-saas/.claude-plugin/plugin.json",
       "ptah-nx-saas/commands/init-saas.md",
       "ptah-nx-saas/commands/initialize-workspace.md",

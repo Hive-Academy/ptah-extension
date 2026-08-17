@@ -7,6 +7,10 @@ description: Two-stage SaaS bootstrap workflow. Stage A (this skill, single chat
 
 Two-stage bootstrap for SaaS applications. Recommended default stack is Nx + NestJS + Angular/React, but the discovery answers in Step a override the default whenever the user picks a different stack. This skill owns Stage A only: discovery, domain/workspace design, roadmap, and foundation scaffold. Stage B (every other module) runs in separate sessions, one task at a time.
 
+## Shared Stage A contract
+
+This skill is the canonical home of the **Stage A contract** every per-stack initializer specializes: the two-round `AskUserQuestion` discovery protocol (Round 1 business questions are stack-agnostic and reused verbatim), the `.ptah/roadmap.md` schema in [references/roadmap-format.md](references/roadmap-format.md), and the foundation-scaffold-then-stop rule (Steps c-e). A per-stack initializer such as [`dotnet-solution-initializer`](../dotnet-solution-initializer/SKILL.md) (ptah-dotnet plugin -- the link resolves because every plugin's skills land as siblings in the flat `.claude/skills/` namespace at runtime, regardless of which plugin's source directory they ship from) links back here for Round 1 and the roadmap schema instead of duplicating them, and only states its own stack-specific Round 2 questions and foundation triggers. When editing Round 1's questions or the roadmap schema, remember every specializing initializer inherits the change -- verify them too, not just this plugin's own command and companion skills.
+
 ## Trigger Keywords
 
 - "new SaaS project", "start SaaS", "create SaaS", "bootstrap SaaS"

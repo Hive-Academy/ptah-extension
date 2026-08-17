@@ -291,11 +291,18 @@ export interface QualityExportResult {
  *   `~/.ptah/plugins/ptah-harness-{slug}/`. OPT-OUT — the user created it by
  *   clicking Apply, so it is active on discovery and stays active until its id
  *   is listed in `disabledPluginIds`.
+ * - `external`: installed from a third-party marketplace into
+ *   `~/.ptah/plugins/external/<owner>/<repo>/<plugin>/`. OPT-IN like bundled,
+ *   so it must appear in `enabledPluginIds` to take effect — but the consent
+ *   dialog already showed the user its skills, scripts and declared MCP
+ *   servers, so a successful install enables it in the current workspace
+ *   rather than making the user hunt for a second switch. Turning it off
+ *   afterwards is the ordinary bundled-plugin toggle.
  *
  * Optional on {@link PluginInfo} for back-compat: payloads produced before this
  * field existed carry only bundled plugins, so `undefined` means `'bundled'`.
  */
-export type PluginSource = 'bundled' | 'harness';
+export type PluginSource = 'bundled' | 'harness' | 'external';
 
 /** Plugin metadata for UI display */
 export interface PluginInfo {
@@ -311,7 +318,8 @@ export interface PluginInfo {
     | 'backend-tools'
     | 'frontend-tools'
     | 'creative-tools'
-    | 'harness-tools';
+    | 'harness-tools'
+    | 'external-tools';
   /** Number of skills in this plugin */
   skillCount: number;
   /** Number of commands in this plugin */

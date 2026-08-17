@@ -135,6 +135,9 @@
       "@ptah-extension/output-styles": [
         "./libs/backend/output-styles/src/index.ts"
       ],
+      "@ptah-extension/plugin-marketplace": [
+        "./libs/backend/plugin-marketplace/src/index.ts"
+      ],
       "@ptah-extension/task-specs": ["./libs/backend/task-specs/src/index.ts"],
       "@ptah-extension/thoth-runtime": [
         "./libs/backend/thoth-runtime/src/index.ts"

@@ -36,13 +36,19 @@ interface CategoryGroup {
 /** Ordered category definitions for display grouping.
  * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS
  * plus the dynamic `harness-tools` category the loader assigns to discovered
- * `ptah-harness-*` directories. */
+ * `ptah-harness-*` directories and `external-tools` for plugins installed from
+ * a registered external marketplace.
+ *
+ * The `Record` is exhaustive over `PluginInfo['category']` deliberately: widening
+ * that union without adding a label here is a compile error rather than a group
+ * that silently renders with no heading. */
 const CATEGORY_LABELS: Record<PluginInfo['category'], string> = {
   'core-tools': 'Core Tools',
   'backend-tools': 'Backend Tools',
   'frontend-tools': 'Frontend Tools',
   'creative-tools': 'Creative Tools',
   'harness-tools': 'Your Skills',
+  'external-tools': 'From Marketplaces',
 };
 
 const CATEGORY_ORDER: PluginInfo['category'][] = [
@@ -51,6 +57,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
   'frontend-tools',
   'creative-tools',
   'harness-tools',
+  'external-tools',
 ];
 
 /**

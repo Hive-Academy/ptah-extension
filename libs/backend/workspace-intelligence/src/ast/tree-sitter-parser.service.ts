@@ -114,6 +114,7 @@ export class TreeSitterParserService {
     const tsWasmPath = resolveWasmPath('tree-sitter-typescript.wasm');
     const pyWasmPath = resolveWasmPath('tree-sitter-python.wasm');
     const goWasmPath = resolveWasmPath('tree-sitter-go.wasm');
+    const csWasmPath = resolveWasmPath('tree-sitter-c-sharp.wasm');
     const runtimeWasmPath = resolveWasmPath('tree-sitter.wasm');
 
     try {
@@ -124,11 +125,13 @@ export class TreeSitterParserService {
       const tsLanguage = await Language.load(tsWasmPath);
       const pyLanguage = await Language.load(pyWasmPath);
       const goLanguage = await Language.load(goWasmPath);
+      const csLanguage = await Language.load(csWasmPath);
 
       this.languageGrammars.set('javascript', jsLanguage);
       this.languageGrammars.set('typescript', tsLanguage);
       this.languageGrammars.set('python', pyLanguage);
       this.languageGrammars.set('go', goLanguage);
+      this.languageGrammars.set('csharp', csLanguage);
 
       this.isInitialized = true;
       this.logger.info(
@@ -139,7 +142,7 @@ export class TreeSitterParserService {
       this.isInitialized = false;
       this.initPromise = null; // Allow retry on failure
       const initError = this._handleAndLogError(
-        `TreeSitterParserService WASM initialization failed. Attempted paths: runtime=${runtimeWasmPath}, JS=${jsWasmPath}, TS=${tsWasmPath}, PY=${pyWasmPath}, GO=${goWasmPath}`,
+        `TreeSitterParserService WASM initialization failed. Attempted paths: runtime=${runtimeWasmPath}, JS=${jsWasmPath}, TS=${tsWasmPath}, PY=${pyWasmPath}, GO=${goWasmPath}, CS=${csWasmPath}`,
         error,
       );
       return Result.err(initError);

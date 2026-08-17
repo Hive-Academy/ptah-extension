@@ -12,7 +12,22 @@ import {
   PluginStatusWidgetComponent,
   PluginBrowserModalComponent,
 } from '@ptah-extension/chat-ui';
+import { ExternalMarketplacesComponent } from './external-marketplaces.component';
 
+/**
+ * PluginsSurfaceComponent — the `plugins` provider surface of the Marketplace
+ * hub, and a thin composer only.
+ *
+ * It stacks two independent concerns and owns neither:
+ *  - BUNDLED plugins (top): {@link PluginStatusWidgetComponent} +
+ *    {@link PluginBrowserModalComponent}. These ship with Ptah; the user only
+ *    enables or disables them.
+ *  - EXTERNAL marketplaces (below): {@link ExternalMarketplacesComponent},
+ *    which registers GitHub-hosted marketplaces and installs their plugins
+ *    behind the two-call consent protocol.
+ *
+ * Complexity Level: 1 — composition and one modal-open flag.
+ */
 @Component({
   selector: 'ptah-plugins-surface',
   standalone: true,
@@ -20,6 +35,7 @@ import {
     LucideAngularModule,
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
+    ExternalMarketplacesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -44,6 +60,10 @@ import {
       </div>
 
       <ptah-plugin-status-widget (configureClicked)="openBrowser()" />
+
+      <div class="divider my-1"></div>
+
+      <ptah-external-marketplaces [refreshTrigger]="refreshTrigger()" />
     </div>
 
     <ptah-plugin-browser-modal
@@ -56,7 +76,7 @@ import {
 export class PluginsSurfaceComponent {
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
-  readonly refreshTrigger = input(0);
+  public readonly refreshTrigger = input(0);
 
   protected readonly PuzzleIcon = Puzzle;
   protected readonly browserOpen = signal(false);

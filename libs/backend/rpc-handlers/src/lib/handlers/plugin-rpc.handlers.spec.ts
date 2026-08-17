@@ -158,6 +158,41 @@ function createMockCommandDiscovery(): MockCommandDiscovery {
   return { invalidateCache: jest.fn() };
 }
 
+/**
+ * The external-marketplace collaborators. These specs cover the bundled-plugin
+ * namespace only; the marketplace methods have their own suite. Both mocks are
+ * inert so a bundled-plugin test can never reach the network by accident.
+ */
+interface MockMarketplaceRegistry {
+  listMarketplaces: jest.Mock;
+  addMarketplace: jest.Mock;
+  removeMarketplace: jest.Mock;
+  browse: jest.Mock;
+}
+
+function createMockMarketplaceRegistry(): MockMarketplaceRegistry {
+  return {
+    listMarketplaces: jest.fn().mockReturnValue({ marketplaces: [] }),
+    addMarketplace: jest.fn(),
+    removeMarketplace: jest.fn().mockResolvedValue(false),
+    browse: jest.fn(),
+  };
+}
+
+interface MockExternalInstaller {
+  planInstall: jest.Mock;
+  confirmInstall: jest.Mock;
+  uninstall: jest.Mock;
+}
+
+function createMockExternalInstaller(): MockExternalInstaller {
+  return {
+    planInstall: jest.fn(),
+    confirmInstall: jest.fn(),
+    uninstall: jest.fn().mockResolvedValue(false),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -211,6 +246,8 @@ interface Harness {
   skillJunction: MockSkillJunction;
   commandDiscovery: MockCommandDiscovery;
   sentry: MockSentryService;
+  marketplaceRegistry: MockMarketplaceRegistry;
+  externalInstaller: MockExternalInstaller;
 }
 
 function makeHarness(
@@ -229,6 +266,8 @@ function makeHarness(
   const skillJunction = createMockSkillJunction();
   const commandDiscovery = createMockCommandDiscovery();
   const sentry = createMockSentryService();
+  const marketplaceRegistry = createMockMarketplaceRegistry();
+  const externalInstaller = createMockExternalInstaller();
 
   const handlers = new PluginRpcHandlers(
     logger as unknown as Logger,
@@ -237,6 +276,12 @@ function makeHarness(
     skillJunction as unknown as SkillJunctionService,
     commandDiscovery as unknown as CommandDiscoveryService,
     sentry as unknown as SentryService,
+    marketplaceRegistry as unknown as ConstructorParameters<
+      typeof PluginRpcHandlers
+    >[6],
+    externalInstaller as unknown as ConstructorParameters<
+      typeof PluginRpcHandlers
+    >[7],
   );
 
   return {
@@ -247,6 +292,8 @@ function makeHarness(
     skillJunction,
     commandDiscovery,
     sentry,
+    marketplaceRegistry,
+    externalInstaller,
   };
 }
 
@@ -272,17 +319,35 @@ async function call<TResult>(
 
 describe('PluginRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all four plugin RPC methods', () => {
+    it('registers every plugin RPC method — bundled config and external marketplaces', () => {
       const h = makeHarness();
       h.handlers.register();
 
+      // Asserted as a whole list rather than a count: the transport rejects any
+      // prefix it does not know, so a method that is declared but never
+      // registered fails at runtime, not here.
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
           'plugins:get-config',
           'plugins:list-available',
           'plugins:list-skills',
           'plugins:save-config',
+          'plugins:list-marketplaces',
+          'plugins:add-marketplace',
+          'plugins:remove-marketplace',
+          'plugins:browse-marketplace',
+          'plugins:install-external',
+          'plugins:uninstall-external',
         ].sort(),
+      );
+    });
+
+    it('declares exactly the methods it registers', () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
+        [...PluginRpcHandlers.METHODS].sort(),
       );
     });
   });

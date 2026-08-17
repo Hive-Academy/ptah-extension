@@ -586,6 +586,63 @@ describe('ContentDownloadService', () => {
       expect(fs.existsSync(sideloaded)).toBe(true);
     });
 
+    // -----------------------------------------------------------------------
+    // Reserved roots (TASK_2026_270)
+    //
+    // `plugins/external/` holds third-party plugins the user installed through
+    // an explicit consent dialog. The scoping rule above already spares them,
+    // but only because `external` happens not to appear in `manifestRoots`.
+    // These two specs pin the exemption as a RULE: the second one fails on the
+    // pre-TASK_2026_270 implementation, because it hands the manifest a file
+    // under `external/` and thereby makes `external` a manifest-owned root.
+    // -----------------------------------------------------------------------
+
+    const EXTERNAL_SKILL = path.join(
+      PLUGINS_DIR,
+      'external',
+      'dotnet',
+      'skills',
+      'dotnet-test',
+      'skills',
+      'run-tests',
+      'SKILL.md',
+    );
+
+    it('does NOT delete an externally-installed plugin the manifest never lists', async () => {
+      seedFile(EXTERNAL_SKILL, '# run tests');
+      routeManifestOwningPtahCore();
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(EXTERNAL_SKILL)).toBe(true);
+      expect(fs.readFileSync(EXTERNAL_SKILL, 'utf-8')).toBe('# run tests');
+    });
+
+    it('does NOT delete external content even when the manifest claims that root', async () => {
+      seedFile(EXTERNAL_SKILL, '# run tests');
+      // A manifest that lists ANY file under `external/` would, under the
+      // plain ownership rule, make every other file under `external/`
+      // prunable — silently deleting plugins the user consented to install.
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            pluginFiles: [MANIFEST_PLUGIN_FILE, 'external/decoy.md'],
+            templateFiles: [],
+          }),
+        }),
+      );
+      addRoute(
+        () => true,
+        () => ({ statusCode: 200, body: '{}' }),
+      );
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(EXTERNAL_SKILL)).toBe(true);
+    });
+
     // Guard against "fixing" the defect by disabling the feature: this spec
     // passes both BEFORE and AFTER the scoping change.
     it('DOES delete a stale file inside a manifest-owned plugin directory', async () => {

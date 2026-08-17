@@ -59,6 +59,7 @@ import {
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
+import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -91,6 +92,10 @@ export function registerPhase2Libraries(
 ): void {
   registerWorkspaceIntelligenceServices(container, logger);
   registerAuthProvidersServices(container, logger);
+  // MUST precede registerSdkServices: PluginLoaderService injects the external
+  // consent store as its allowlist source. Its late `initialize()` runs from
+  // plugin activation, next to `pluginLoader.initialize()`.
+  registerPluginMarketplaceServices(container, logger);
   registerSdkServices(container, logger);
   registerCuratorAuthServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);

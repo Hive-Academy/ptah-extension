@@ -3,17 +3,31 @@ import * as path from 'path';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { getStackProfile, matchesStackProfile } from '@ptah-extension/shared';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
+
+const NODE_TS_PROFILE = getStackProfile('node-ts');
+const DOTNET_PROFILE = getStackProfile('dotnet');
+const PYTHON_PROFILE = getStackProfile('python');
 
 /**
  * Detects project type based on workspace configuration files and dependencies.
  *
+ * Stacks with a `StackProfile` (Node/TypeScript, .NET, Python) take their
+ * filename tests from `STACK_PROFILES` — this service maps a matched profile
+ * onto a `ProjectType`, it does not decide what a manifest looks like. Stacks
+ * without a profile (Java, Rust, Go, PHP, Ruby) keep their inline tests: Ptah
+ * can name them but cannot scaffold or route them, so they have no profile to
+ * read from.
+ *
  * Supports detection for:
  * - Node.js ecosystems (React, Vue, Angular, Next.js, Express)
- * - Python (requirements.txt, pyproject.toml, setup.py)
+ * - Python (registry: pyproject.toml, requirements.txt, setup.py, setup.cfg,
+ *   Pipfile, uv.lock, poetry.lock)
  * - Java (Maven, Gradle)
- * - .NET (C#/F#)
+ * - .NET (registry: *.sln, *.slnx, *.csproj, *.fsproj, *.vbproj, global.json,
+ *   Directory.Build.props, Directory.Packages.props)
  * - Rust (Cargo)
  * - Go (go.mod)
  * - PHP (Composer)
@@ -75,18 +89,13 @@ export class ProjectDetectorService {
     try {
       const entries = await this.fileSystem.readDirectory(workspacePath);
       const fileNames = new Set(entries.map((entry) => entry.name));
-      if (fileNames.has('package.json')) {
+      if (matchesStackProfile(NODE_TS_PROFILE, fileNames)) {
         const nodeType = await this.detectNodeProjectType(workspacePath);
         if (nodeType !== ProjectType.Node) {
           return nodeType; // Specific framework detected
         }
       }
-      if (
-        fileNames.has('requirements.txt') ||
-        fileNames.has('pyproject.toml') ||
-        fileNames.has('setup.py') ||
-        fileNames.has('Pipfile')
-      ) {
+      if (matchesStackProfile(PYTHON_PROFILE, fileNames)) {
         return ProjectType.Python;
       }
       if (fileNames.has('pom.xml')) {
@@ -95,7 +104,7 @@ export class ProjectDetectorService {
       if (fileNames.has('build.gradle') || fileNames.has('build.gradle.kts')) {
         return ProjectType.Java; // Gradle
       }
-      if (this.hasDotNetProject(fileNames)) {
+      if (matchesStackProfile(DOTNET_PROFILE, fileNames)) {
         return ProjectType.DotNet;
       }
       if (fileNames.has('Cargo.toml')) {
@@ -131,7 +140,7 @@ export class ProjectDetectorService {
       ) {
         return ProjectType.Node; // Webpack is build tool, not framework
       }
-      if (fileNames.has('package.json')) {
+      if (matchesStackProfile(NODE_TS_PROFILE, fileNames)) {
         return ProjectType.Node;
       }
 
@@ -194,27 +203,7 @@ export class ProjectDetectorService {
   }
 
   /**
-   * Checks if workspace contains .NET project files.
-   *
-   * @param fileNames - Set of file names in workspace root
-   * @returns True if any .csproj, .fsproj, or .sln file exists
-   */
-  private hasDotNetProject(fileNames: Set<string>): boolean {
-    for (const fileName of fileNames) {
-      if (
-        fileName.endsWith('.csproj') ||
-        fileName.endsWith('.fsproj') ||
-        fileName.endsWith('.sln')
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
    * Cleanup resources (currently no-op, reserved for future use).
    */
-  dispose(): void {
-  }
+  dispose(): void {}
 }

@@ -64,6 +64,10 @@ import {
 } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import {
+  registerPluginMarketplaceServices,
+  initializePluginMarketplace,
+} from '@ptah-extension/plugin-marketplace';
+import {
   registerSdkServices,
   SDK_TOKENS,
   wireAgentAdapterAliases,
@@ -497,6 +501,9 @@ export class CliDIContainer {
     const phase2Start = phaseStart('2');
     registerWorkspaceIntelligenceServices(container, logger);
     registerAuthProvidersServices(container, logger);
+    // MUST precede registerSdkServices: PluginLoaderService injects the
+    // external consent store as its allowlist source.
+    registerPluginMarketplaceServices(container, logger);
     registerSdkServices(container, logger);
     registerCliAgentRuntimeServices(container, logger);
 
@@ -671,6 +678,13 @@ export class CliDIContainer {
               pluginLoader.initialize(
                 contentDownload.getPluginsPath(),
                 wsStorage,
+              );
+              // Same base path, same moment: the allowlist store must be bound
+              // before anything asks PluginLoaderService to resolve an
+              // external plugin id.
+              initializePluginMarketplace(
+                container,
+                contentDownload.getPluginsPath(),
               );
               logger.info('[CLI DI] PluginLoaderService initialized');
             } catch (pluginError) {

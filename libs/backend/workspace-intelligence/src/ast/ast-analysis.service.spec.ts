@@ -434,7 +434,7 @@ describe('AstAnalysisService', () => {
     });
   });
 
-  describe('multi-language support (python, go)', () => {
+  describe('multi-language support (python, go, csharp)', () => {
     const matchWith = (caps: Record<string, string>): QueryMatch => ({
       pattern: 0,
       captures: Object.entries(caps).map(([name, text]) => ({
@@ -446,16 +446,18 @@ describe('AstAnalysisService', () => {
       })),
     });
 
-    it('registers query + extension entries for python and go', () => {
-      for (const lang of ['python', 'go'] as const) {
+    it('registers query + extension entries for python, go and csharp', () => {
+      for (const lang of ['python', 'go', 'csharp'] as const) {
         expect(LANGUAGE_QUERIES_MAP[lang].functionQuery).toBeTruthy();
         expect(LANGUAGE_QUERIES_MAP[lang].classQuery).toBeTruthy();
         expect(LANGUAGE_QUERIES_MAP[lang].importQuery).toBeTruthy();
-        // Neither language has export statements.
+        // None of these languages has export statements.
         expect(LANGUAGE_QUERIES_MAP[lang].exportQuery).toBe('');
       }
       expect(EXTENSION_LANGUAGE_MAP['.py']).toBe('python');
       expect(EXTENSION_LANGUAGE_MAP['.go']).toBe('go');
+      expect(EXTENSION_LANGUAGE_MAP['.cs']).toBe('csharp');
+      expect(EXTENSION_LANGUAGE_MAP['.csx']).toBe('csharp');
     });
 
     it('extracts python functions, classes, and imports from matches', async () => {
@@ -529,6 +531,63 @@ describe('AstAnalysisService', () => {
       expect(result.value?.functions[0].name).toBe('Area');
       expect(result.value?.classes[0].name).toBe('Rect');
       expect(result.value?.imports[0].source).toBe('fmt');
+    });
+
+    it('extracts csharp members, types, and aliased usings from matches', async () => {
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(
+          new Map<string, QueryMatch[]>([
+            [
+              'functions',
+              [
+                matchWith({
+                  'method.name': 'FindAsync',
+                  'method.params': '(Guid id)',
+                  'method.declaration': 'public Task FindAsync(Guid id) {}',
+                }),
+                matchWith({
+                  'function.name': 'Helper',
+                  'function.params': '(int y)',
+                  'function.declaration': 'int Helper(int y) {}',
+                }),
+              ],
+            ],
+            [
+              'classes',
+              [
+                matchWith({
+                  'class.name': 'Invoice',
+                  'class.declaration': 'public partial class Invoice {}',
+                }),
+              ],
+            ],
+            [
+              'imports',
+              [
+                matchWith({ 'import.source': 'System.Threading.Tasks' }),
+                matchWith({
+                  'import.named': 'Alias',
+                  'import.source': 'System.Text.StringBuilder',
+                }),
+              ],
+            ],
+          ]),
+        ),
+      );
+
+      const result = await service.analyzeSource('', 'csharp', 'Invoice.cs');
+
+      expect(result.isOk()).toBe(true);
+      // Methods and local functions both land in `functions`.
+      expect(result.value?.functions.map((f) => f.name)).toEqual([
+        'FindAsync',
+        'Helper',
+      ]);
+      expect(result.value?.classes[0].name).toBe('Invoice');
+      expect(result.value?.imports[0].source).toBe('System.Threading.Tasks');
+      expect(result.value?.imports[1].importedSymbols).toEqual(['Alias']);
+      // C# has no export statement, so `analyzeSource` never runs one.
+      expect(result.value?.exports).toBeUndefined();
     });
   });
 

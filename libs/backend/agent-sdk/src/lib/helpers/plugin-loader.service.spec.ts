@@ -37,7 +37,30 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import { ExternalPluginStateStore } from '@ptah-extension/plugin-marketplace';
+
 import { PluginLoaderService } from './plugin-loader.service';
+
+/**
+ * A consent record for an external plugin, shaped as the store persists it.
+ *
+ * Written straight into the store so the specs can express the distinction
+ * that matters: files on disk versus an approval on record.
+ */
+function externalRecord(pluginId: string, plugin: string) {
+  return {
+    pluginId,
+    source: 'dotnet/skills',
+    plugin,
+    displayName: plugin,
+    version: '1.0.0',
+    installedAt: '2026-08-17T00:00:00.000Z',
+    consentToken: 'a'.repeat(64),
+    files: [],
+    skippedBinaryFiles: [],
+    mcpServers: [],
+  };
+}
 
 function createStateStorage(initial?: PluginConfigState): IStateStorage {
   const store = new Map<string, unknown>();
@@ -57,6 +80,7 @@ interface Harness {
   service: PluginLoaderService;
   logger: MockLogger;
   pluginsBasePath: string;
+  externalStore: ExternalPluginStateStore;
 }
 
 function makeHarness(options: {
@@ -134,10 +158,15 @@ function makeHarness(options: {
   }
 
   const logger = createMockLogger();
-  const service = new PluginLoaderService(logger as unknown as Logger);
+  const externalStore = new ExternalPluginStateStore();
+  externalStore.initialize(pluginsBasePath);
+  const service = new PluginLoaderService(
+    logger as unknown as Logger,
+    externalStore,
+  );
   service.initialize(pluginsBasePath, createStateStorage(persisted));
 
-  return { service, logger, pluginsBasePath };
+  return { service, logger, pluginsBasePath, externalStore };
 }
 
 const created: string[] = [];
@@ -194,7 +223,10 @@ describe('PluginLoaderService.discoverHarnessPluginPaths', () => {
 
   it('returns an empty array when the service is not initialized', () => {
     const logger = createMockLogger();
-    const service = new PluginLoaderService(logger as unknown as Logger);
+    const service = new PluginLoaderService(
+      logger as unknown as Logger,
+      new ExternalPluginStateStore(),
+    );
 
     expect(service.discoverHarnessPluginPaths()).toEqual([]);
   });
@@ -635,5 +667,163 @@ describe('PluginLoaderService.saveWorkspacePluginConfig (disable persistence)', 
     expect(h.service.resolveCurrentPluginPaths()).toEqual([
       path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
     ]);
+  });
+});
+
+/**
+ * THE ALLOWLIST BOUNDARY (TASK_2026_270).
+ *
+ * External plugins are the only kind whose bytes came from a third party, so
+ * they are the only kind for which "is this on disk" is the wrong question.
+ * The right question is "did the user approve this", and the only thing that
+ * can answer it is the consent record.
+ *
+ * Every test below exists to make one specific regression loud: someone
+ * widening the check to `id.startsWith('external:')`, or to a directory scan,
+ * because either would make the marketplace feature look like it still works.
+ */
+describe('PluginLoaderService — external plugin allowlist', () => {
+  const PLUGIN_ID = 'external:dotnet/skills/dotnet-test';
+
+  /** Put a real plugin tree on disk WITHOUT recording any consent for it. */
+  function seedExternalTree(pluginsBasePath: string, plugin: string): string {
+    const dir = path.join(
+      pluginsBasePath,
+      'external',
+      'dotnet',
+      'skills',
+      plugin,
+    );
+    const skillDir = path.join(dir, 'skills', 'run-tests');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: "run-tests"\ndescription: "runs tests"\n---\n\nbody\n',
+      'utf-8',
+    );
+    return dir;
+  }
+
+  it('REJECTS an id whose directory exists but which was never installed', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toEqual([]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[PluginLoaderService] Unknown plugin ID filtered out',
+      { pluginId: PLUGIN_ID },
+    );
+  });
+
+  it('resolves the same id once a consent record exists', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    const dir = seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+    await h.externalStore.recordInstall(
+      externalRecord(PLUGIN_ID, 'dotnet-test'),
+    );
+
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toEqual([dir]);
+  });
+
+  it('stops resolving it again the moment the record is removed', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+    await h.externalStore.recordInstall(
+      externalRecord(PLUGIN_ID, 'dotnet-test'),
+    );
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toHaveLength(1);
+
+    await h.externalStore.removeInstall(PLUGIN_ID);
+
+    // The directory is untouched — only the approval went away.
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toEqual([]);
+  });
+
+  it('rejects a recorded id whose segments are traversal', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    const hostile = 'external:dotnet/skills/..';
+    await h.externalStore.recordInstall(externalRecord(hostile, '..'));
+
+    expect(h.service.resolvePluginPaths([hostile])).toEqual([]);
+  });
+
+  it.each([
+    ['bare prefix', 'external:'],
+    ['too few segments', 'external:dotnet/skills'],
+    ['too many segments', 'external:dotnet/skills/a/b'],
+    ['parent traversal in owner', 'external:../../etc/x'],
+    ['backslash separators', 'external:dotnet\\skills\\x'],
+  ])('rejects a malformed external id (%s)', (_label, id) => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+
+    expect(h.service.resolvePluginPaths([id])).toEqual([]);
+  });
+
+  it('still rejects unknown bundled ids exactly as before', () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+
+    expect(
+      h.service.resolvePluginPaths(['not-a-plugin', '../../etc/passwd']),
+    ).toEqual([]);
+  });
+
+  it('does not disturb bundled resolution when an external id is present', async () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        enabledPluginIds: ['ptah-core'],
+      }),
+    );
+
+    expect(h.service.resolvePluginPaths(['ptah-core', PLUGIN_ID])).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+    ]);
+  });
+
+  describe('getAvailablePlugins', () => {
+    it('does NOT advertise an external directory with no consent record', () => {
+      const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+      seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+
+      expect(
+        h.service.getAvailablePlugins().some((p) => p.source === 'external'),
+      ).toBe(false);
+    });
+
+    it('advertises a recorded external plugin with its real skill count', async () => {
+      const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+      seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+      await h.externalStore.recordInstall(
+        externalRecord(PLUGIN_ID, 'dotnet-test'),
+      );
+
+      const entry = h.service
+        .getAvailablePlugins()
+        .find((p) => p.id === PLUGIN_ID);
+
+      expect(entry).toMatchObject({
+        source: 'external',
+        category: 'external-tools',
+        skillCount: 1,
+        // Third-party plugins never carry Ptah's "Recommended" badge.
+        isDefault: false,
+      });
+    });
+
+    it('still lists a recorded plugin whose directory has vanished', async () => {
+      // Otherwise a half-deleted install becomes unreachable: invisible in the
+      // UI, still recorded, and impossible for the user to clean up.
+      const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+      await h.externalStore.recordInstall(
+        externalRecord(PLUGIN_ID, 'dotnet-test'),
+      );
+
+      const entry = h.service
+        .getAvailablePlugins()
+        .find((p) => p.id === PLUGIN_ID);
+
+      expect(entry).toBeDefined();
+      expect(entry?.skillCount).toBe(0);
+    });
   });
 });

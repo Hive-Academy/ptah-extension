@@ -197,6 +197,7 @@ export {
   SkillJunctionService,
   type SkillJunctionActivateOptions,
   type SkillJunctionResult,
+  type SkillShadowing,
 } from './lib/helpers';
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';

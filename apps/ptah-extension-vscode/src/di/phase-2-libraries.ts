@@ -19,6 +19,7 @@ import {
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
+import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -64,6 +65,11 @@ export function registerPhase2Libraries(
   // depend only on the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER,
   // WORKSPACE_PROVIDER) and are consumed by Phase 3/4 handlers.
   registerOutputStyleServices(container, logger);
+  // plugin-marketplace registered in all three hosts, and BEFORE
+  // registerSdkServices below, because PluginLoaderService injects the external
+  // consent store as its allowlist source. Its own late `initialize()` runs
+  // from plugin activation, next to `pluginLoader.initialize()`.
+  registerPluginMarketplaceServices(container, logger);
   registerVsCodeLmToolsServices(container, logger);
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),
