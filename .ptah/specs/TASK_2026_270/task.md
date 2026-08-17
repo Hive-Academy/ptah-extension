@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_270
-status: in_progress
+status: in_review
 type: feature
 title: >-
   Stack Profile registry — multi-language New Project with first-class .NET,
