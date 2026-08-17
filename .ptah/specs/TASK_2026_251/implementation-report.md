@@ -27,7 +27,7 @@ and neither registered `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION` by hand.
 The `isRegistered(token, true)` parent recursion is not defeated by anything
 subtle — it recursed to the tsyringe root container, where the token is genuinely
 not bound. The first describe in the same file (`buildMinimalContainer`,
-spec line 42) registers only onto its *own* child, so it cannot bleed the token
+spec line 42) registers only onto its _own_ child, so it cannot bleed the token
 onto the root either. The recursion worked correctly and correctly found nothing.
 
 ### Evidence — the real Electron bootstrap is fine
@@ -81,7 +81,7 @@ Exactly one file. `apps/ptah-electron/src/di/phase-4-handlers.ts` was
 2. **Line 27** — added
    `import { registerOutputStyleServices } from '@ptah-extension/output-styles';`
 3. **Lines 175-205** — new `buildPhase4Container()` helper plus a docblock that
-   records *why* phase 4 has a registration-time phase-2 precondition and where
+   records _why_ phase 4 has a registration-time phase-2 precondition and where
    the real boot satisfies it (`phase-2-libraries.ts:188` via `container.ts:43`,
    three phases before `phase-4-handlers.ts:85` via `container.ts:45`). The
    helper creates the child container, builds the logger mock, and calls the
@@ -92,7 +92,7 @@ Exactly one file. `apps/ptah-electron/src/di/phase-4-handlers.ts` was
 Two incidental cleanups fell out of the helper: the duplicated five-method logger
 mock collapsed to one definition, and the two
 `as unknown as Parameters<typeof registerPhase4Handlers>[1]` casts are gone —
-that parameter *is* `Logger`, so the helper's return type satisfies it directly.
+that parameter _is_ `Logger`, so the helper's return type satisfies it directly.
 No new cast was introduced; no `@ts-ignore`; no test deleted or skipped.
 
 ### Why the real `registerOutputStyleServices`, not a token stub
@@ -100,7 +100,7 @@ No new cast was introduced; no `@ts-ignore`; no test deleted or skipped.
 `rpc-handlers/src/lib/chat/di.spec.ts:49` sets the precedent for stubbing
 (`c.register(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { useValue: {} })`), and it
 is right for that spec — it is testing the guard itself. Here the subject is the
-*Electron phase wiring*, so the harness calls the same function phase 2 calls.
+_Electron phase wiring_, so the harness calls the same function phase 2 calls.
 A stub would satisfy the guard forever even if phase 2's contract moved; the real
 call keeps the harness tracking it. It is also cheap: `registerOutputStyleServices`
 only performs five `registerSingleton` + five `useToken` binds and resolves

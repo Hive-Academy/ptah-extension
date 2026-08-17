@@ -2,15 +2,15 @@
 
 ## Review Summary
 
-| Metric              | Value                                |
-| -------------------- | ------------------------------------ |
-| Overall Score        | 9/10                                  |
-| Assessment            | APPROVED                              |
-| Critical Issues      | 0                                     |
-| Serious Issues       | 0                                     |
-| Moderate Issues      | 0                                     |
-| Minor / Nits         | 1                                     |
-| Failure Modes Probed | 4 (all closed by the current fix)    |
+| Metric               | Value                             |
+| -------------------- | --------------------------------- |
+| Overall Score        | 9/10                              |
+| Assessment           | APPROVED                          |
+| Critical Issues      | 0                                 |
+| Serious Issues       | 0                                 |
+| Moderate Issues      | 0                                 |
+| Minor / Nits         | 1                                 |
+| Failure Modes Probed | 4 (all closed by the current fix) |
 
 ## Scope of the diff (independently confirmed)
 
@@ -29,7 +29,7 @@ DI ordering path this task is about.
 
 It doesn't, and that's the point being defended. Before the fix, the two specs
 threw during `registerPhase4Handlers` (a loud, obvious jest failure) rather than
-silently passing — so there was no silent-failure risk in the *old* state either.
+silently passing — so there was no silent-failure risk in the _old_ state either.
 The risk this task guards against is the opposite kind of silent failure: a guard
 that stops throwing but also stops asserting anything (a vacuous pass). I checked
 for that specifically (see Q3) and it is not present — both specs still reach and
@@ -68,7 +68,7 @@ shape).
 I then reverted the mutation (`git diff --stat` on `phase-4-handlers.ts` is
 empty) and re-ran the same command: **6 passed, 6 total**, restoration confirmed.
 
-Note: on the *first* mutation attempt I hit an unrelated `ts-jest` compile error
+Note: on the _first_ mutation attempt I hit an unrelated `ts-jest` compile error
 in `chat-rpc.handlers.ts` (from the pre-existing, out-of-scope concurrent work
 mentioned above) that only surfaced after touching a file and invalidating the
 ts-jest cache; `--no-cache` made this reproducible and deterministic. This is a
@@ -154,7 +154,7 @@ Verified independently for all three hosts, not just re-read from the report:
   enclosing try in that function). `phase-3-handlers.ts:60` = `registerChatServices`.
   Correctly ordered. **Nit**: this file's own docblock (lines 5-6) says
   "Runs AFTER `registerPhase3Handlers`" — that's stale/backwards relative to what
-  `container.ts` actually does (phase 2 runs *before* phase 3). Pre-existing,
+  `container.ts` actually does (phase 2 runs _before_ phase 3). Pre-existing,
   untouched by this diff, does not affect runtime behavior — flagged as a
   drive-by nit only, not a task finding.
 - **CLI engine** (`libs/backend/cli-engine/src/lib/container.ts:529,700`):
@@ -226,15 +226,15 @@ All three hosts confirmed independently correct. The SPEC-ONLY verdict holds.
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|---|---|---|
-| R1/R2 specs pass (6/6) | COMPLETE | None — reproduced directly |
-| Assertions still meaningfully guard aliasing | COMPLETE | Reproduced via independent mutation test |
-| No test deleted/skipped | COMPLETE | Grep confirms zero skip/todo/xit; test count unchanged (6) |
-| `chat/di.ts` guard untouched | COMPLETE | `git status --porcelain` clean on that file |
+| Requirement                                       | Status   | Concern                                                                         |
+| ------------------------------------------------- | -------- | ------------------------------------------------------------------------------- |
+| R1/R2 specs pass (6/6)                            | COMPLETE | None — reproduced directly                                                      |
+| Assertions still meaningfully guard aliasing      | COMPLETE | Reproduced via independent mutation test                                        |
+| No test deleted/skipped                           | COMPLETE | Grep confirms zero skip/todo/xit; test count unchanged (6)                      |
+| `chat/di.ts` guard untouched                      | COMPLETE | `git status --porcelain` clean on that file                                     |
 | Fix confined to the harness (no bootstrap change) | COMPLETE | `phase-4-handlers.ts` diff empty; all three hosts re-verified correctly ordered |
-| Whole-project skip count unchanged | COMPLETE | 1 skipped suite / 4 skipped tests, matches baseline exactly |
-| Typecheck clean | COMPLETE | `npx nx typecheck ptah-electron` succeeds |
+| Whole-project skip count unchanged                | COMPLETE | 1 skipped suite / 4 skipped tests, matches baseline exactly                     |
+| Typecheck clean                                   | COMPLETE | `npx nx typecheck ptah-electron` succeeds                                       |
 
 ## Verdict
 
@@ -250,7 +250,7 @@ should fix.
 
 ## What Would Make This Even More Robust (not required for approval)
 
-- A dedicated negative-path test (assert the guard *does* throw when phase 2 is
+- A dedicated negative-path test (assert the guard _does_ throw when phase 2 is
   skipped) would make Failure Mode 3 unnecessary to re-verify by hand on every
   future change to this file, but the existing coverage in `chat/di.spec.ts`
   likely already covers that for the guard itself — out of scope for this task.
