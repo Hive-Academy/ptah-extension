@@ -30,6 +30,7 @@ interface TabManagerSignalsMock {
   activeTabId: ReturnType<typeof signal<string | null>>;
   activeTabMessages: ReturnType<typeof signal<unknown[]>>;
   activeTabStreamingState: ReturnType<typeof signal<StreamingState | null>>;
+  tabs: ReturnType<typeof signal<{ id: string }[]>>;
 }
 
 function makePermissionRequest(
@@ -87,6 +88,7 @@ describe('PermissionHandlerService', () => {
       activeTabId: signal<string | null>('tab-1'),
       activeTabMessages: signal<unknown[]>([]),
       activeTabStreamingState: signal<StreamingState | null>(null),
+      tabs: signal<{ id: string }[]>([{ id: 'tab-1' }]),
     };
     vscodePostMessage = jest.fn();
 
@@ -96,6 +98,7 @@ describe('PermissionHandlerService', () => {
       activeTabStreamingState: computed(() =>
         tabSignals.activeTabStreamingState(),
       ),
+      tabs: computed(() => tabSignals.tabs()),
     } as unknown as TabManagerService;
 
     const vscodeMock = {
@@ -660,6 +663,61 @@ describe('PermissionHandlerService', () => {
     it('Q10: clearQuestionTargets is idempotent — clearing an unresolved target list is a no-op', () => {
       expect(() => service.clearQuestionTargets('never-existed')).not.toThrow();
       expect(service.questionTargetTabsFor('never-existed')).toEqual([]);
+    });
+  });
+
+  describe('TASK_2026_263 — hasSurfaceQuestionTargets', () => {
+    beforeEach(() => {
+      tabSignals.tabs.set([{ id: 'tab-A' }, { id: 'tab-B' }]);
+    });
+
+    it('returns true when every target is a non-tab surface id', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-surface' }));
+      service.attachQuestionTargets('q-surface', ['surface-harness-1']);
+
+      expect(service.hasSurfaceQuestionTargets('q-surface')).toBe(true);
+    });
+
+    it('returns false when a target is a live tab id', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-tab' }));
+      service.attachQuestionTargets('q-tab', ['tab-A']);
+
+      expect(service.hasSurfaceQuestionTargets('q-tab')).toBe(false);
+    });
+
+    it('returns false for a mixed tab + surface target list', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-mixed' }));
+      service.attachQuestionTargets('q-mixed', ['surface-1', 'tab-B']);
+
+      expect(service.hasSurfaceQuestionTargets('q-mixed')).toBe(false);
+    });
+
+    it('returns false when the question has no attached targets', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-none' }));
+
+      expect(service.hasSurfaceQuestionTargets('q-none')).toBe(false);
+    });
+
+    it('reads the question map, not the permission map (the recurring bug)', () => {
+      // Same id used for a permission prompt and a question. The permission
+      // predicate must not answer for the question and vice versa.
+      service.attachPromptTargets('shared-id', ['surface-harness-1']);
+      expect(service.hasSurfaceTargets('shared-id')).toBe(true);
+      expect(service.hasSurfaceQuestionTargets('shared-id')).toBe(false);
+
+      service.attachQuestionTargets('question-only', ['surface-harness-1']);
+      expect(service.hasSurfaceTargets('question-only')).toBe(false);
+      expect(service.hasSurfaceQuestionTargets('question-only')).toBe(true);
+    });
+
+    it('flips back to false once the question is answered (targets dropped)', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-done' }));
+      service.attachQuestionTargets('q-done', ['surface-harness-1']);
+      expect(service.hasSurfaceQuestionTargets('q-done')).toBe(true);
+
+      service.handleQuestionResponse({ id: 'q-done', answers: {} });
+
+      expect(service.hasSurfaceQuestionTargets('q-done')).toBe(false);
     });
   });
 });

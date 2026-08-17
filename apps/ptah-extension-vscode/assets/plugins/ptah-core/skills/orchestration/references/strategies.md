@@ -280,8 +280,9 @@ Invoke SAAS_INIT strategy when task involves:
 ### Strategy Flow
 
 ```
-Phase 0: SCOPE CLARIFICATION (Orchestrator)
-         Ask SaaS-specific discovery questions
+Phase 0: DISCOVERY (Orchestrator)
+         Run saas-workspace-initializer Step a: mandatory two-round
+         AskUserQuestion (Round 1 business, Round 2 stack)
          |
          USER ANSWERS (clarifies business/technical context)
          |
@@ -321,18 +322,14 @@ Phase 5: team-leader MODE 3
          Final verification, summary
 ```
 
-### SaaS Discovery Questions (Phase 0)
+### Discovery (Phase 0)
 
-**Required before invoking PM:**
+Single source of truth: `saas-workspace-initializer` Step a. Do not maintain a separate discovery question list here. Ask through the `AskUserQuestion` tool, in the skill's two rounds, before invoking PM:
 
-| Category     | Questions                                         |
-| ------------ | ------------------------------------------------- |
-| Business     | B2B/B2C? Core domains (2-3)? MVP features?        |
-| Tenancy      | Shared DB or separate? Row-level isolation?       |
-| Auth         | Built-in JWT or external provider (Clerk, Auth0)? |
-| Integrations | Payment needed for MVP? Which provider?           |
-| Deployment   | Docker/K8s, Serverless, or PaaS?                  |
-| Scale        | Team size? Timeline (MVP vs production-ready)?    |
+- **Round 1 — business**: what is being built, customer type (B2B/B2C/internal), core jobs-to-be-done (2-3 candidate domains), MVP scope, monetization yes/no.
+- **Round 2 — stack**: frontend, API, DB/ORM, auth shape, tenancy — each with a "Recommend for me" option.
+
+See `saas-workspace-initializer/SKILL.md` Step a for the exact question wording and the "never proceed with unanswered required questions" rule.
 
 ### PM Agent Extension
 
@@ -372,12 +369,7 @@ The implementation-plan.md MUST include:
 
 ### Batch Templates
 
-| Batch | Purpose        | Tasks                                                       |
-| ----- | -------------- | ----------------------------------------------------------- |
-| 1     | Foundation     | Nx workspace, ESLint, Prisma, shared/domain, api-interfaces |
-| 2     | Infrastructure | ZenStack schema, auth module, multitenancy, JWT, guards     |
-| 3     | First Domain   | domain/, application/, infrastructure/, feature/ libraries  |
-| 4     | Verification   | Build all, lint, generate Prisma, verify boundaries         |
+Batch structure follows the phase schema in `saas-workspace-initializer/references/roadmap-format.md` — do not duplicate a separate breakdown here. Batch 1 scaffolds exactly the Foundation phase (Nx workspace, ESLint, shared/domain, api-interfaces, plus tenant/auth/DB primitives only if Phase 0 discovery makes them load-bearing — see `saas-workspace-initializer/SKILL.md` Step c). Later batches implement roadmap Phase 2 (Tenancy & Auth) and Phase 3 (Domain Modules) items, one item per batch, in the dependency order given by each item's `Depends on:` field. A final batch always runs verification (build all, lint, typecheck, boundaries) before handoff.
 
 ### Developer Skill References
 

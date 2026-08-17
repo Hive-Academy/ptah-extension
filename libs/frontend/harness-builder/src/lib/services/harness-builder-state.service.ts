@@ -151,8 +151,12 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
    * nothing to follow, so a switch is a no-op. Kept `true` across idle-switch
    * resets (so rapid switches keep following the active workspace) and only
    * cleared by the hard `reset()` teardown (page close).
+   *
+   * Exposed as {@link hasInitialized} so the view can skip a redundant
+   * `harness:initialize` when it re-mounts on top of a live workflow — that
+   * call would re-pin the workspace root and clear the mid-build switch badge.
    */
-  private hasInitialized = false;
+  private readonly _hasInitialized = signal(false);
 
   /**
    * Monotonic stamp for idle-switch re-initializes. On rapid A→B→C switches
@@ -182,6 +186,7 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public readonly currentOperationId = this._currentOperationId.asReadonly();
   public readonly pinnedWorkspaceRoot = this._pinnedWorkspaceRoot.asReadonly();
   public readonly buildInProgress = this._buildInProgress.asReadonly();
+  public readonly hasInitialized = this._hasInitialized.asReadonly();
   public readonly workspaceSwitchedDuringBuild =
     this._workspaceSwitchedDuringBuild.asReadonly();
 
@@ -217,7 +222,7 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
       this._workspaceSwitchedDuringBuild.set(true);
       return;
     }
-    if (!this.hasInitialized) return;
+    if (!this._hasInitialized()) return;
     this.resetSessionState();
     void this.reinitialize();
   }
@@ -477,7 +482,7 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._error.set(null);
     // Latch that the builder is live and following the active workspace so an
     // idle switch re-initializes rather than leaving a silently-empty view.
-    this.hasInitialized = true;
+    this._hasInitialized.set(true);
   }
 
   /**
@@ -669,7 +674,7 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
    */
   public reset(): void {
     this.resetSessionState();
-    this.hasInitialized = false;
+    this._hasInitialized.set(false);
     this.reinitSeq++;
   }
 }

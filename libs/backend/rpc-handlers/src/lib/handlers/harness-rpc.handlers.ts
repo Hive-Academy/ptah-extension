@@ -80,12 +80,13 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { HARNESS_TOKENS } from '../harness/tokens';
 import {
-  NEW_PROJECT_CHAT_SEED_PROMPT,
+  buildNewProjectSeedPrompt,
   SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID,
   WIZARD_VIEW_TYPE,
 } from '../harness/harness-constants';
 import type { WebviewBroadcaster } from '../harness/streaming';
 import {
+  HarnessStartNewProjectParamsSchema,
   HarnessWorkflowPromptParamsSchema,
   HarnessWorkspacePinParamsSchema,
 } from './harness-rpc.schema';
@@ -587,9 +588,12 @@ export class HarnessRpcHandlers {
     this.rpcHandler.registerMethod<
       HarnessStartNewProjectParams,
       HarnessStartNewProjectResult
-    >('harness:start-new-project', async () => {
+    >('harness:start-new-project', async (params) => {
       this.logger.debug('RPC: harness:start-new-project called');
       try {
+        // Validate BEFORE any side effect: a malformed intake must not leave
+        // the SaaS plugin half-enabled or the wizard panel disposed.
+        const { intake } = HarnessStartNewProjectParamsSchema.parse(params);
         const config = this.pluginLoader.getWorkspacePluginConfig();
         const enabled = new Set(config.enabledPluginIds);
         let pluginConfigChanged = false;
@@ -650,7 +654,13 @@ export class HarnessRpcHandlers {
           );
           await webviewManager.broadcastMessage(
             MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
-            { mode: 'new-project', seedPrompt: NEW_PROJECT_CHAT_SEED_PROMPT },
+            {
+              mode: 'new-project',
+              // What the agent receives …
+              seedPrompt: buildNewProjectSeedPrompt(intake),
+              // … and what the user sees rendered as their first bubble.
+              intake,
+            },
           );
         } catch (error: unknown) {
           this.logger.warn(

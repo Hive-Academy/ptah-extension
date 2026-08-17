@@ -507,6 +507,12 @@ describe('HarnessRpcHandlers (thin facade)', () => {
   });
 
   describe('harness:start-new-project', () => {
+    const VALID_INTAKE = {
+      what: 'A booking tool for physiotherapy clinics',
+      audience: 'b2b',
+      constraints: 'Must run on-premise',
+      stack: 'recommend',
+    };
     const WEBVIEW_MANAGER = Symbol.for('WebviewManager');
     const WIZARD_WEBVIEW_LIFECYCLE = Symbol.for(
       'WizardWebviewLifecycleService',
@@ -527,7 +533,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
-      )({});
+      )({ intake: VALID_INTAKE });
 
       expect(result).toEqual({ success: true });
       expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalledWith(
@@ -573,7 +579,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
-      )({});
+      )({ intake: VALID_INTAKE });
 
       expect(result).toEqual({ success: true });
       expect(
@@ -589,7 +595,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
-      )({});
+      )({ intake: VALID_INTAKE });
 
       expect(result).toEqual({ success: true });
       expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalled();
@@ -604,12 +610,64 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
-      )({});
+      )({ intake: VALID_INTAKE });
 
       expect(result).toEqual({ success: false, error: 'save failed' });
       expect(suite.sentry.captureException).toHaveBeenCalledWith(boom, {
         errorSource: 'HarnessRpcHandlers.registerStartNewProject',
       });
+    });
+
+    it('broadcasts the intake alongside a seed prompt built from it', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+      suite.container.__register(WEBVIEW_MANAGER, { broadcastMessage });
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({
+        intake: {
+          what: 'A booking tool for physiotherapy clinics',
+          audience: 'b2b',
+          stack: 'other',
+          stackOther: 'Remix + Go',
+        },
+      });
+
+      const [, payload] = broadcastMessage.mock.calls[0];
+      // The user's own words must survive into the agent's first turn …
+      expect(payload.seedPrompt).toContain(
+        'A booking tool for physiotherapy clinics',
+      );
+      expect(payload.seedPrompt).toContain('Remix + Go');
+      // … and the raw answers ride along so the surface can render them
+      // instead of the instruction block.
+      expect(payload.intake).toEqual({
+        what: 'A booking tool for physiotherapy clinics',
+        audience: 'b2b',
+        stack: 'other',
+        stackOther: 'Remix + Go',
+      });
+    });
+
+    it('rejects an intake with no brief without touching plugin config', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const result = (await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: { what: '  ', audience: 'b2b', stack: 'recommend' } })) as {
+        success: boolean;
+      };
+
+      expect(result.success).toBe(false);
+      expect(
+        suite.pluginLoader.saveWorkspacePluginConfig,
+      ).not.toHaveBeenCalled();
+      expect(suite.platformCommands.focusChat).not.toHaveBeenCalled();
     });
   });
 

@@ -9,18 +9,18 @@ Strategic and tactical DDD patterns for NestJS + Angular applications.
 
 ## When to Engage User
 
-DDD is highly context-dependent. ALWAYS discuss with user before implementing:
+DDD is highly context-dependent. ALWAYS discuss with user before implementing.
+
+If this skill is invoked from `saas-workspace-initializer` Step a2, the Round 1 discovery answers (jobs-to-be-done, candidate domains, MVP scope) are already available — use them and do not re-ask the equivalent questions below. Ask only what those answers leave open.
 
 ### Discovery Questions
 
 1. **Domain Complexity**
-
    - "What are your core business entities and their relationships?"
    - "Which operations are most critical to get right?"
    - "Are there complex business rules or validations?"
 
 2. **Bounded Contexts**
-
    - "Are there distinct business areas that use different terminology?"
    - "Which teams will own which parts of the system?"
    - "Do you have existing systems that define boundaries?"
@@ -169,7 +169,10 @@ export class Order {
 ```typescript
 // libs/shared/domain/src/lib/value-objects/money.ts
 export class Money {
-  private constructor(private readonly _amount: number, private readonly _currency: string = 'USD') {
+  private constructor(
+    private readonly _amount: number,
+    private readonly _currency: string = 'USD',
+  ) {
     if (_amount < 0) {
       throw new DomainException('Money cannot be negative');
     }

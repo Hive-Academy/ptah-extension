@@ -16,6 +16,7 @@ import {
   type PermissionRule,
   type ISdkPermissionHandler,
   type PermissionLevel,
+  type AskUserQuestionRequest,
 } from '@ptah-extension/shared';
 import {
   CanUseTool,
@@ -100,8 +101,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   ) {
     this.ruleStore = new PermissionRuleStore(this.logger);
 
-    const questionRegistry =
-      new PendingResponseRegistry<AskUserQuestionResponse>(this.logger);
+    const questionRegistry = new PendingResponseRegistry<
+      AskUserQuestionResponse,
+      AskUserQuestionRequest
+    >(this.logger);
     this.askUserQuestion = new AskUserQuestionService(
       this.webviewManager,
       this.logger,
@@ -784,6 +787,17 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   handleQuestionResponse(response: AskUserQuestionResponse): void {
     this.askUserQuestion.handleQuestionResponse(response);
+  }
+
+  /**
+   * AskUserQuestion requests this session is still blocked on.
+   *
+   * Serves the `chat:pending-questions` RPC: a webview reload discards the
+   * rendered prompt while the SDK call stays parked, so the reloaded UI
+   * re-fetches the outstanding requests and renders them again.
+   */
+  listPendingQuestions(sessionId: string): AskUserQuestionRequest[] {
+    return this.askUserQuestion.listPendingBySession(sessionId);
   }
 
   private async awaitResponse(

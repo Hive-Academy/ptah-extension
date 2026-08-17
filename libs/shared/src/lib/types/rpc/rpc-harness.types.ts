@@ -391,8 +391,41 @@ export interface HarnessConversationMessage {
   content: string;
 }
 
+/** Who the new project is being built for. */
+export type NewProjectAudience = 'b2b' | 'b2c' | 'internal' | 'unsure';
+
+/** Tech-stack preference expressed up front, before discovery runs. */
+export type NewProjectStack =
+  | 'recommend'
+  | 'angular-nestjs'
+  | 'react-nestjs'
+  | 'other';
+
+/**
+ * Answers collected by the Setup Hub intake form BEFORE the agent starts.
+ *
+ * These become the first real user turn: the backend renders them verbatim
+ * into the seed prompt so discovery never re-asks what the user already
+ * told us, and the frontend renders a readable summary of the same object
+ * as the first transcript bubble.
+ */
+export interface NewProjectIntake {
+  /** "What are you building?" — required, freeform. */
+  what: string;
+  /** "Who is it for?" */
+  audience: NewProjectAudience;
+  /** "Must-haves / constraints" — optional, freeform. */
+  constraints?: string;
+  /** Stack preference; `recommend` defers the choice to the agent. */
+  stack: NewProjectStack;
+  /** Free text captured when `stack === 'other'`. */
+  stackOther?: string;
+}
+
 /** harness:start-new-project — hand the New Project flow off to the chat surface */
-export type HarnessStartNewProjectParams = Record<string, never>;
+export interface HarnessStartNewProjectParams {
+  intake: NewProjectIntake;
+}
 export interface HarnessStartNewProjectResult {
   success: boolean;
   error?: string;

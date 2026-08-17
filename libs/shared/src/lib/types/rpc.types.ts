@@ -56,6 +56,8 @@ import type {
   ChatResumeResult,
   ChatAbortParams,
   ChatAbortResult,
+  ChatPendingQuestionsParams,
+  ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
 } from './rpc/rpc-chat.types';
@@ -578,6 +580,10 @@ export interface RpcMethodRegistry {
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
   'chat:resume': { params: ChatResumeParams; result: ChatResumeResult };
   'chat:abort': { params: ChatAbortParams; result: ChatAbortResult };
+  'chat:pending-questions': {
+    params: ChatPendingQuestionsParams;
+    result: ChatPendingQuestionsResult;
+  };
   'chat:running-agents': {
     params: ChatRunningAgentsParams;
     result: ChatRunningAgentsResult;
@@ -3163,6 +3169,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:start': true,
   'chat:continue': true,
   'chat:abort': true,
+  'chat:pending-questions': true,
   'chat:running-agents': true,
   'chat:resume': true,
   'session:list': true,

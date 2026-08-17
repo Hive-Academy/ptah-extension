@@ -5,7 +5,11 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
-import { WorkspaceInfo, MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  WorkspaceInfo,
+  MESSAGE_TYPES,
+  type NewProjectIntake,
+} from '@ptah-extension/shared';
 import { MessageHandler } from './message-router.types';
 
 export type ViewType =
@@ -56,7 +60,14 @@ export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
  */
 export interface HarnessWorkflowRequest {
   mode: 'new-project' | 'configure-harness';
+  /** Prompt sent to the agent. Not what the transcript renders. */
   seedPrompt?: string;
+  /**
+   * Setup Hub intake answers behind `seedPrompt`, so the harness surface can
+   * show the user's own words as the first bubble rather than the full
+   * instruction prompt. `new-project` only.
+   */
+  intake?: NewProjectIntake;
 }
 
 export type SettingsTabId =

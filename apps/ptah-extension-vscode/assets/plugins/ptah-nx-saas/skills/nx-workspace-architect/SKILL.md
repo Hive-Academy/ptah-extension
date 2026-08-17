@@ -9,7 +9,7 @@ Guide for building scalable, maintainable Nx monorepos with Angular and NestJS.
 
 ## Activation scope
 
-This skill activates **per-module during Stage B** of the SaaS bootstrap (one roadmap item per chat session). It is NOT bundled into the Stage A foundation scaffold produced by `saas-workspace-initializer`. Use it when adding a new library, enforcing module boundaries on a specific module, or restructuring an existing area — not to redesign the whole workspace from scratch.
+This skill activates twice in the SaaS bootstrap: once in Stage A, Step a2 of `saas-workspace-initializer` (derives the initial lib layout and tags from the discovery answers and bounded contexts, before scaffolding), and again **per-module during Stage B** (one roadmap item per chat session) when adding a new library, enforcing module boundaries on a specific module, or restructuring an existing area. Neither activation redesigns the whole workspace from scratch — Stage A sets the initial layout once; Stage B extends it per module.
 
 ## Core Principle: Libs Over Apps
 

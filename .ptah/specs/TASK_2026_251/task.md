@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_251
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Two Electron DI risk guards are red — PTY_HOST and APP_UPDATER cannot resolve

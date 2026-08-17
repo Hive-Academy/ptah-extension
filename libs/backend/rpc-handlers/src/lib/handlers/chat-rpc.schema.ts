@@ -85,3 +85,14 @@ export const ChatAbortParamsSchema = z
     sessionId: uuidString('sessionId'),
   })
   .passthrough();
+
+/**
+ * `chat:pending-questions` params — `sessionId` is required. The handler uses
+ * it as a lookup key against the live AskUserQuestion registry, so a
+ * malformed id must be rejected here rather than silently matching nothing.
+ */
+export const ChatPendingQuestionsParamsSchema = z
+  .object({
+    sessionId: uuidString('sessionId'),
+  })
+  .passthrough();

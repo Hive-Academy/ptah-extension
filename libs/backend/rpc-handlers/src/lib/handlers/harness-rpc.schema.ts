@@ -4,7 +4,8 @@
  * Most harness methods validate their params via the static TypeScript types
  * exported from `@ptah-extension/shared` plus inline guards. The two
  * agent-driven workflow methods carry boundary-validated shapes:
- *   - `harness:start-new-project` takes no params (`Record<string, never>`).
+ *   - `harness:start-new-project` carries the Setup Hub intake answers, which
+ *     are interpolated straight into the agent's first turn.
  *   - `harness:workflow-prompt` carries a discriminating `mode` literal and a
  *     freeform `intent` string that must be validated before prompt assembly.
  */
@@ -12,7 +13,30 @@
 import * as path from 'node:path';
 import { z } from 'zod';
 
-export const HarnessStartNewProjectParamsSchema = z.object({}).passthrough();
+/**
+ * Intake answers behind the New Project flow. `what` is the only required
+ * freeform field; it lands verbatim in the seed prompt, so an empty string
+ * would produce a prompt with a blank brief. `stackOther` is only meaningful
+ * when `stack === 'other'` and is dropped otherwise, so a stale value from a
+ * changed radio selection can never leak into the prompt.
+ */
+export const NewProjectIntakeSchema = z
+  .object({
+    what: z.string().trim().min(1).max(4000),
+    audience: z.enum(['b2b', 'b2c', 'internal', 'unsure']),
+    constraints: z.string().trim().max(4000).optional(),
+    stack: z.enum(['recommend', 'angular-nestjs', 'react-nestjs', 'other']),
+    stackOther: z.string().trim().max(500).optional(),
+  })
+  .transform((intake) =>
+    intake.stack === 'other'
+      ? intake
+      : { ...intake, stackOther: undefined as string | undefined },
+  );
+
+export const HarnessStartNewProjectParamsSchema = z.object({
+  intake: NewProjectIntakeSchema,
+});
 
 /**
  * Boundary schema for the workspace-pinning param shared by file-mutating

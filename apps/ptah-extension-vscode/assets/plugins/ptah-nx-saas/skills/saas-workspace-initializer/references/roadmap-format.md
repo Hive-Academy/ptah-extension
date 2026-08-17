@@ -58,7 +58,9 @@ Phases are level-2 headings (`## Phase N: <name>`). Standard phases, in order:
 
 Drop any phase that discovery proved out of scope. Do not invent extra phases unless the project clearly warrants them.
 
-## Full example
+**Derive phases and items from the discovered domains (Step a2 output), not from the example below.** The example uses a project tracker to show the schema shape only — its phases, slugs, and domains are illustrative, not a template to copy. A different project's Domain Modules phase will have different items entirely.
+
+## Full example (illustrative only — do not copy verbatim)
 
 ```markdown
 # Roadmap — Acme Project Tracker
