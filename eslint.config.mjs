@@ -288,6 +288,52 @@ export default [
     },
   },
   {
+    /**
+     * File-size ceiling (TASK_2026_268). `skill-synthesis.service.ts` grew
+     * 906 -> 2027 lines with nothing in the repo to flag it. This is the
+     * tripwire, not a sweep: 137 files already sit over 700 lines and 50
+     * over 1000 (measured 2026-08-17, see .ptah/specs/TASK_2026_268/context.md),
+     * so this MUST stay 'warn' — an 'error' here blocks every commit in the
+     * workspace and gets reverted within a day. The pre-commit hook runs
+     * `nx affected --target=lint --max-warnings=-1`, which does not fail on
+     * warnings, so the existing 137 keep committing while new growth gets a
+     * visible nudge. See CLAUDE.md "Coding Standards" for the accompanying
+     * facade rule and guardrails against fragment sprawl.
+     *
+     * Scope is `**\/*.ts` only — the exact population the 700/1000 figures
+     * above were measured against (2681 files). `.tsx` (Ink TUI components)
+     * was not part of that measurement and is deliberately left out rather
+     * than silently widening the ceiling to an unmeasured population.
+     *
+     * `*.spec.ts` is excluded: a long spec is usually parameterized cases or
+     * fixture data, not a buried concern, and a warning there is noise
+     * against files nobody is trying to keep small.
+     *
+     * `generated-prisma-client/**` is excluded: generated code has no author
+     * to hand the warning to.
+     *
+     * `skipComments: true` because this codebase documents WHY at length
+     * (see any CLAUDE.md in libs/backend) — counting comment lines against a
+     * class that earns its comments would push teams to delete the
+     * explanation instead of shrinking the code. `skipBlankLines: true`
+     * because blank lines are formatting, not a signal of size or
+     * complexity, and counting them would make the same file trip or clear
+     * the ceiling purely based on how it happens to be spaced.
+     */
+    files: ['**/*.ts'],
+    ignores: [
+      '**/*.spec.ts',
+      '**/*.d.ts',
+      'libs/api/core/src/lib/generated-prisma-client/**',
+    ],
+    rules: {
+      'max-lines': [
+        'warn',
+        { max: 700, skipBlankLines: true, skipComments: true },
+      ],
+    },
+  },
+  {
     files: ['apps/**/*.ts'],
     ignores: APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION,
     rules: {
