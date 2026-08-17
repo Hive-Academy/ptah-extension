@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_242
-status: backlog
+status: done
 type: BUGFIX
 title: Skills settings panel shows a max-items value the nightly tier ignores
 description: >-
