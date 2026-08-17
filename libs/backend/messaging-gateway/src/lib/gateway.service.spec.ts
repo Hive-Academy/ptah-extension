@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 
-import { GatewayService, type GatewayInboundEvent } from './gateway.service';
+import {
+  GatewayService,
+  OutboundDeliveryError,
+  type GatewayInboundEvent,
+} from './gateway.service';
 import {
   BindingId,
   ConversationKey,
@@ -759,6 +763,84 @@ describe('GatewayService.completeOutboundTurn — per-turn reset (bugfix)', () =
     );
     expect(suite.discordAdapter.editMessage).not.toHaveBeenCalled();
 
+    await suite.service.stop();
+  });
+});
+
+describe('GatewayService.flushOutbound — delivery failure (TASK_2026_271 #2)', () => {
+  const discordRoute: OutboundRoute = {
+    conversationKey: ConversationKey.for('discord', 'chan-1', 'thread-9'),
+    platform: 'discord',
+    externalChatId: 'chan-1',
+    conversationId: 'thread-9',
+  };
+
+  it('retries a failed send once and succeeds silently', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValueOnce({ externalMsgId: 'ok' } as SendResult);
+
+    suite.service.appendOutboundChunk(discordRoute, 'hello');
+    await expect(
+      suite.service.completeOutboundTurn(discordRoute.conversationKey),
+    ).resolves.toBeUndefined();
+
+    expect(suite.discordAdapter.sendMessage).toHaveBeenCalledTimes(2);
+    await suite.service.stop();
+  });
+
+  it('throws OutboundDeliveryError when a send fails twice — never swallows the turn', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage.mockRejectedValue(
+      new Error('Missing Permissions'),
+    );
+
+    suite.service.appendOutboundChunk(discordRoute, 'hello');
+    await expect(
+      suite.service.completeOutboundTurn(discordRoute.conversationKey),
+    ).rejects.toBeInstanceOf(OutboundDeliveryError);
+    expect(suite.discordAdapter.sendMessage).toHaveBeenCalledTimes(2);
+
+    // Buffer must be reset despite the failure: the next turn sends ONLY its
+    // own body, not the undelivered one prepended.
+    suite.discordAdapter.sendMessage.mockResolvedValue({
+      externalMsgId: 'next',
+    } as SendResult);
+    suite.service.appendOutboundChunk(discordRoute, 'next turn');
+    await suite.service.completeOutboundTurn(discordRoute.conversationKey);
+    const last = suite.discordAdapter.sendMessage.mock.calls.at(-1);
+    expect(last?.[1]).toBe('next turn');
+    await suite.service.stop();
+  });
+
+  it('a multi-page reply that fails on page 2 still delivers page 1 and reports the failed page', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage
+      .mockResolvedValueOnce({ externalMsgId: 'p0' } as SendResult)
+      .mockRejectedValue(new Error('rate limited'));
+
+    suite.service.appendOutboundChunk(discordRoute, 'x'.repeat(2500));
+    const failure = await suite.service
+      .completeOutboundTurn(discordRoute.conversationKey)
+      .catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(OutboundDeliveryError);
+    const err = failure as OutboundDeliveryError;
+    expect(err.failedPage).toBe(1);
+    expect(err.totalPages).toBe(2);
+    expect(err.platform).toBe('discord');
+    // page 0 went out, page 1 attempted twice (send + retry)
+    expect(suite.discordAdapter.sendMessage).toHaveBeenCalledTimes(3);
     await suite.service.stop();
   });
 });

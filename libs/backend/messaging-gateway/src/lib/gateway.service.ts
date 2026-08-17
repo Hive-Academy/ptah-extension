@@ -73,6 +73,7 @@ import {
 import type {
   IMessagingAdapter,
   InboundMessage,
+  SendResult,
 } from './adapters/adapter.interface';
 import type { IGatewayCommandHandler } from './commands/gateway-command.types';
 import {
@@ -124,6 +125,27 @@ function paginate(body: string, limit?: number): string[] {
   }
   if (rest.length) pages.push(rest);
   return pages;
+}
+
+/**
+ * Thrown by the outbound flush when a reply page could not be delivered to
+ * the platform even after a retry. Carries enough for the caller to tell the
+ * user which platform failed and how much of the reply (if any) went out.
+ */
+export class OutboundDeliveryError extends Error {
+  constructor(
+    readonly platform: GatewayPlatform,
+    readonly failedPage: number,
+    readonly totalPages: number,
+    override readonly cause: unknown,
+  ) {
+    super(
+      `Outbound delivery to ${platform} failed on page ${failedPage + 1}/${totalPages}: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    this.name = 'OutboundDeliveryError';
+  }
 }
 
 export interface GatewayInboundEvent {
@@ -760,8 +782,11 @@ export class GatewayService extends EventEmitter {
   }
 
   async drainOutbound(conversationKey: ConversationKey): Promise<void> {
-    await this.coalescer?.drain(conversationKey);
-    this.streamHandles.delete(conversationKey);
+    try {
+      await this.coalescer?.drain(conversationKey);
+    } finally {
+      this.streamHandles.delete(conversationKey);
+    }
   }
 
   /**
@@ -774,9 +799,15 @@ export class GatewayService extends EventEmitter {
    * mid-turn flush primitive and must NOT seal the turn.
    */
   async completeOutboundTurn(conversationKey: ConversationKey): Promise<void> {
-    await this.coalescer?.drain(conversationKey); // flush whatever is pending
-    this.coalescer?.discard(conversationKey); // reset cumulative body
-    this.streamHandles.delete(conversationKey); // next turn -> sendMessage (new msg)
+    try {
+      await this.coalescer?.drain(conversationKey); // flush whatever is pending
+    } finally {
+      // Reset even when delivery failed — otherwise the undelivered body
+      // stays in the buffer and the NEXT turn re-sends it prepended to its
+      // own reply. The delivery error propagates to the caller.
+      this.coalescer?.discard(conversationKey); // reset cumulative body
+      this.streamHandles.delete(conversationKey); // next turn -> sendMessage (new msg)
+    }
   }
 
   private wireAdapter(
@@ -980,46 +1011,86 @@ export class GatewayService extends EventEmitter {
       payload.conversationId !== undefined
         ? { conversationId: payload.conversationId }
         : undefined;
-    try {
-      for (
-        let i = Math.max(0, handle.pageMsgIds.length - 1);
-        i < pages.length;
-        i++
-      ) {
-        if (i < handle.pageMsgIds.length) {
+    const errorText = (error: unknown): string =>
+      error instanceof Error ? error.message : String(error);
+
+    // Per-page recovery. An edit that fails (message deleted by the user,
+    // evicted from the adapter's cache, transient API error) must NOT abort the
+    // rest of the reply — the page is re-sent as a fresh message instead. A
+    // send that fails after one retry is fatal for this flush and is rethrown
+    // so the caller (`completeOutboundTurn` → bridge) can tell the user; the
+    // old behaviour swallowed it into a warn-log and the turn vanished.
+    for (
+      let i = Math.max(0, handle.pageMsgIds.length - 1);
+      i < pages.length;
+      i++
+    ) {
+      if (i < handle.pageMsgIds.length) {
+        try {
           await adapter.editMessage(
             payload.externalChatId,
             handle.pageMsgIds[i],
             pages[i],
           );
           continue;
+        } catch (error: unknown) {
+          this.logger.warn(
+            '[gateway] flushOutbound: edit failed, re-sending page as new message',
+            { platform: payload.platform, page: i, error: errorText(error) },
+          );
+          handle.pageMsgIds.length = i; // drop this and later stale ids
         }
-        const res = await adapter.sendMessage(
+      }
+      let res: SendResult;
+      try {
+        res = await adapter.sendMessage(
           payload.externalChatId,
           pages[i],
           sendOpts,
         );
-        handle.pageMsgIds.push(res.externalMsgId);
-        if (i === 0) {
-          const binding = this.bindings.findByExternal(
-            payload.platform,
+      } catch (firstError: unknown) {
+        this.logger.warn(
+          '[gateway] flushOutbound: send failed, retrying once',
+          {
+            platform: payload.platform,
+            page: i,
+            error: errorText(firstError),
+          },
+        );
+        try {
+          res = await adapter.sendMessage(
             payload.externalChatId,
+            pages[i],
+            sendOpts,
           );
-          if (binding) {
-            this.messages.insert({
-              bindingId: binding.id,
-              direction: 'outbound',
-              externalMsgId: res.externalMsgId,
-              body: pages[i],
-            });
-          }
+        } catch (error: unknown) {
+          this.logger.error(
+            '[gateway] flushOutbound: send failed after retry — reply not delivered',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          throw new OutboundDeliveryError(
+            payload.platform,
+            i,
+            pages.length,
+            error,
+          );
         }
       }
-    } catch (error: unknown) {
-      this.logger.warn('[gateway] flushOutbound failed', {
-        platform: payload.platform,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      handle.pageMsgIds.push(res.externalMsgId);
+      if (i === 0) {
+        const binding = this.bindings.findByExternal(
+          payload.platform,
+          payload.externalChatId,
+        );
+        if (binding) {
+          this.messages.insert({
+            bindingId: binding.id,
+            direction: 'outbound',
+            externalMsgId: res.externalMsgId,
+            body: pages[i],
+          });
+        }
+      }
     }
   }
 

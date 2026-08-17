@@ -82,6 +82,14 @@ const WORKSPACE_UNAVAILABLE_MESSAGE =
   "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
 
 /**
+ * Reply sent when the agent finished but the platform rejected the outbound
+ * message (deleted thread, revoked permission, network). Without it the turn
+ * vanished with only a backend warn-log (TASK_2026_271 #2).
+ */
+const DELIVERY_FAILED_MESSAGE =
+  'Ptah finished this request but could not deliver the reply here. Please try again.';
+
+/**
  * Settings key (under the `ptah` section) for the gateway inbound permission
  * level. Read per turn via `IWorkspaceProvider.getConfiguration`, mirroring
  * `GatewayService`'s config reads.
@@ -332,10 +340,26 @@ export class GatewayChatBridge {
       if (watchdogTimer) {
         clearTimeout(watchdogTimer);
       }
-      await sealTurn().catch((sealErr: unknown) => {
-        this.logger.warn('[gateway-chat-bridge] drain failed', {
+      await sealTurn().catch(async (sealErr: unknown) => {
+        // The reply was generated but the platform rejected it (deleted
+        // channel, revoked permission, network). The buffer is already reset
+        // by `completeOutboundTurn`, so this error reply goes out on a fresh
+        // message; if THAT fails too there is nothing left to try but log.
+        this.logger.warn('[gateway-chat-bridge] reply delivery failed', {
+          conversationId: String(conversation.id),
           error: sealErr instanceof Error ? sealErr.message : String(sealErr),
         });
+        await this.sendError(route, DELIVERY_FAILED_MESSAGE).catch(
+          (sendErr: unknown) => {
+            this.logger.warn(
+              '[gateway-chat-bridge] failed to send delivery-failure reply',
+              {
+                error:
+                  sendErr instanceof Error ? sendErr.message : String(sendErr),
+              },
+            );
+          },
+        );
       });
       this.endSessionAfterTurn(sessionToEnd ?? tabId);
     }

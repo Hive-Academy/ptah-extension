@@ -8,7 +8,7 @@
  *   - `libs/backend/rpc-handlers/src/lib/handlers/gateway-rpc.handlers.ts`
  *     (drives `gateway:*` RPC methods through the service).
  */
-export { GatewayService } from './lib/gateway.service';
+export { GatewayService, OutboundDeliveryError } from './lib/gateway.service';
 export type {
   GatewayInboundEvent,
   GatewayStatus,

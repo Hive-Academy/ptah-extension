@@ -416,6 +416,35 @@ describe('GatewayChatBridge', () => {
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
   });
 
+  it('tells the user when the platform rejects the finished reply at seal (TASK_2026_271 #2)', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'foo'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+    h.gateway.completeOutboundTurn.mockRejectedValueOnce(
+      new Error(
+        'Outbound delivery to discord failed on page 1/1: Missing Permissions',
+      ),
+    );
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    // A fresh error reply goes out on the same route via the mid-turn primitive
+    // (the seal already reset the buffer), instead of vanishing into a log.
+    const errorAppend = h.gateway.appendOutboundChunk.mock.calls.find(
+      ([, text]) => text.includes('could not deliver the reply'),
+    );
+    expect(errorAppend?.[0].conversationKey).toBe(key);
+    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+  });
+
   it('includes conversationId in the outbound route for threaded inbound', async () => {
     const h = setup();
     const binding = makeBinding({
