@@ -1177,6 +1177,55 @@ describe('GatewayService — adapter reconnect + status push (TASK_2026_271 #3/#
   });
 });
 
+describe('GatewayService.recordTurnOutcome — turn errors reach status (TASK_2026_271 #7)', () => {
+  const discordStatus = (suite: Suite) =>
+    suite.service.status().adapters.find((a) => a.platform === 'discord');
+
+  it('a failed turn shows as lastError and pushes status-changed; a clean turn clears it', () => {
+    const suite = buildSuite();
+    const pushed: unknown[] = [];
+    suite.service.on('status-changed', (p) => pushed.push(p));
+
+    suite.service.recordTurnOutcome('discord', {
+      ok: false,
+      reason: 'reply not delivered (Missing Permissions)',
+    });
+    expect(discordStatus(suite)?.lastError).toBe(
+      'Last turn: reply not delivered (Missing Permissions)',
+    );
+    expect(pushed).toEqual([{ platform: 'discord', state: 'turn' }]);
+
+    // Same failure again — no duplicate push.
+    suite.service.recordTurnOutcome('discord', {
+      ok: false,
+      reason: 'reply not delivered (Missing Permissions)',
+    });
+    expect(pushed).toHaveLength(1);
+
+    suite.service.recordTurnOutcome('discord', { ok: true });
+    expect(discordStatus(suite)?.lastError).toBeUndefined();
+    expect(pushed).toHaveLength(2);
+
+    // ok with nothing to clear is silent.
+    suite.service.recordTurnOutcome('discord', { ok: true });
+    expect(pushed).toHaveLength(2);
+  });
+
+  it('a clean turn never hides a live transport error', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    suite.discordAdapter.start.mockRejectedValue(new Error('login failed'));
+    suite.service.configureForTest({
+      scheduleTimer: () => 0 as unknown as ReturnType<typeof setTimeout>,
+    });
+    await suite.service.startPlatform('discord');
+    expect(discordStatus(suite)?.lastError).toBe('login failed');
+
+    suite.service.recordTurnOutcome('discord', { ok: true });
+    expect(discordStatus(suite)?.lastError).toBe('login failed');
+  });
+});
+
 describe('GatewayService — command handler wiring (TASK_2026_156)', () => {
   it('startPlatform(discord) hands the injected command handler to adapters exposing setCommandHandler', async () => {
     const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });

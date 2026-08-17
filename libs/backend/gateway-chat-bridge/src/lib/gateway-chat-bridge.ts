@@ -310,6 +310,9 @@ export class GatewayChatBridge {
     // this before touching shared per-conversation state, so a timed-out turn's
     // background continuation cannot interfere with the next dequeued turn.
     const cancellation: TurnCancellation = { cancelled: false };
+    // How this turn ended, for the Gateway tab (TASK_2026_271 #7). Set at
+    // each failure site below; `null` at the end means success.
+    let turnFailure: string | null = null;
 
     const turnWork = async (): Promise<void> => {
       try {
@@ -347,6 +350,9 @@ export class GatewayChatBridge {
             '[gateway-chat-bridge] turn failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          turnFailure = `agent turn failed (${
+            error instanceof Error ? error.message : String(error)
+          })`;
           await this.sendError(
             route,
             'Ptah could not complete this request. Please try again.',
@@ -387,6 +393,7 @@ export class GatewayChatBridge {
           timeoutMs: TURN_WATCHDOG_MS,
         });
         this.endSessionAfterTurn(sessionToEnd ?? tabId);
+        turnFailure = `stopped by the ${Math.round(TURN_WATCHDOG_MS / 60_000)}-minute turn watchdog`;
         await this.sendError(
           route,
           'This request took too long and was stopped. Please try again.',
@@ -414,6 +421,9 @@ export class GatewayChatBridge {
           conversationId: String(conversation.id),
           error: sealErr instanceof Error ? sealErr.message : String(sealErr),
         });
+        turnFailure = `reply not delivered (${
+          sealErr instanceof Error ? sealErr.message : String(sealErr)
+        })`;
         await this.sendError(route, DELIVERY_FAILED_MESSAGE).catch(
           (sendErr: unknown) => {
             this.logger.warn(
@@ -427,6 +437,12 @@ export class GatewayChatBridge {
         );
       });
       this.endSessionAfterTurn(sessionToEnd ?? tabId);
+      this.gateway.recordTurnOutcome(
+        route.platform,
+        turnFailure === null
+          ? { ok: true }
+          : { ok: false, reason: turnFailure },
+      );
     }
   }
 

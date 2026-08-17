@@ -91,6 +91,10 @@ class FakeGateway extends EventEmitter {
   sendNotice = jest.fn<Promise<void>, [OutboundRoute, string]>(async () => {
     /* no-op */
   });
+  recordTurnOutcome = jest.fn<
+    void,
+    [string, { ok: true } | { ok: false; reason: string }]
+  >();
 }
 
 /** Captures the bridge's prompt-lifecycle listener so specs can fire events. */
@@ -440,6 +444,10 @@ describe('GatewayChatBridge', () => {
     expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
+    // A clean turn reports ok so a previous turn error clears in the UI.
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: true,
+    });
   });
 
   it('tells the user when the platform rejects the finished reply at seal (TASK_2026_271 #2)', async () => {
@@ -469,6 +477,11 @@ describe('GatewayChatBridge', () => {
     );
     expect(errorAppend?.[0].conversationKey).toBe(key);
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+    await flushUntil(() => h.gateway.recordTurnOutcome.mock.calls.length > 0);
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: expect.stringContaining('reply not delivered'),
+    });
   });
 
   it('relays unroutable permission prompts to the chat user mid-turn (TASK_2026_271 #1)', async () => {

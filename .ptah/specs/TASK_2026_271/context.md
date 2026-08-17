@@ -104,7 +104,13 @@ lost, `bf55272c2` 2000-char truncation). This task closes the rest of the class.
    decided remote chat must not approve local writes; revisit only as its
    own security-reviewed task. Also not done: typing/ack indicator (needs
    `IMessagingAdapter.sendTyping?` — follow-up).
-4. #7 — push last-turn outcome/error through `GatewayStatusChangedPayload`.
+4. **DONE 2026-08-17** — #7. `GatewayService.recordTurnOutcome(platform,
+{ok} | {ok:false, reason})` writes `Last turn: <reason>` into `lastError`
+   (prefix so a clean turn clears only turn errors, never a live transport
+   error) and emits `status-changed`; the bridge calls it in `runTurn`'s
+   `finally` for agent failure, watchdog stop, delivery failure, or success.
+   Reconnect timers are `unref()`'d. Specs: 2 in `gateway.service.spec.ts`,
+   assertions in bridge spec.
 5. #6, #8, medium/low as follow-ups.
 
 ## Related

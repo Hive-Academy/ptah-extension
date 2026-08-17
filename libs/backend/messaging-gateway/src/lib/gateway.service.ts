@@ -125,6 +125,13 @@ const RECONNECT_DELAYS_MS: readonly number[] = [
   5_000, 15_000, 45_000, 120_000, 300_000,
 ];
 
+/**
+ * Marks a `lastError` that came from an agent turn rather than the transport,
+ * so a later successful turn clears only its own kind of error and never
+ * hides a live connect failure.
+ */
+const TURN_ERROR_PREFIX = 'Last turn: ';
+
 function paginate(body: string, limit?: number): string[] {
   if (!limit || body.length <= limit) return [body];
   const pages: string[] = [];
@@ -206,7 +213,12 @@ export class GatewayService extends EventEmitter {
   private scheduleTimer: (
     fn: () => void,
     ms: number,
-  ) => ReturnType<typeof setTimeout> = (fn, ms) => setTimeout(fn, ms);
+  ) => ReturnType<typeof setTimeout> = (fn, ms) => {
+    const timer = setTimeout(fn, ms);
+    // A pending reconnect must never keep the process alive on its own.
+    (timer as { unref?: () => void }).unref?.();
+    return timer;
+  };
 
   /**
    * Bindings that have already received the one-shot pairing prompt this
@@ -809,6 +821,30 @@ export class GatewayService extends EventEmitter {
       this.coalescer = this.createCoalescer();
     }
     this.coalescer.append(route, chunk);
+  }
+
+  /**
+   * Record how the last agent turn on a platform ended so the Gateway tab
+   * can show it (TASK_2026_271 #7). Transport events already keep
+   * `lastError` truthful for connect/disconnect; without this, a turn that
+   * hit the watchdog, failed to deliver, or errored left the tab green and
+   * silent. A successful turn clears a previous turn error. Emits
+   * `status-changed` only when the visible status actually changes.
+   */
+  recordTurnOutcome(
+    platform: GatewayPlatform,
+    outcome: { ok: true } | { ok: false; reason: string },
+  ): void {
+    const before = this.lastErrors.get(platform);
+    if (outcome.ok) {
+      if (before === undefined || !before.startsWith(TURN_ERROR_PREFIX)) return;
+      this.lastErrors.delete(platform);
+    } else {
+      const next = `${TURN_ERROR_PREFIX}${outcome.reason}`;
+      if (before === next) return;
+      this.lastErrors.set(platform, next);
+    }
+    this.emit('status-changed', { platform, state: 'turn' });
   }
 
   /**
