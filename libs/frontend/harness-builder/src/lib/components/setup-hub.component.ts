@@ -47,14 +47,28 @@ import type {
   HarnessPreset,
   NewProjectAudience,
   NewProjectIntake,
+  NewProjectPlatform,
   NewProjectStack,
+} from '@ptah-extension/shared';
+import {
+  isNewProjectStack,
+  stackOptionsForPlatform,
 } from '@ptah-extension/shared';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessWorkflowService } from '../services/harness-workflow.service';
 import {
   NEW_PROJECT_AUDIENCE_OPTIONS,
-  NEW_PROJECT_STACK_OPTIONS,
+  NEW_PROJECT_PLATFORM_OPTIONS,
 } from '../services/new-project-intake';
+
+/**
+ * The platform an intake means when it says nothing.
+ *
+ * The chip starts here and the payload OMITS it when it is still here, so a
+ * user who never looks at the platform question sends exactly the payload they
+ * sent before the question existed.
+ */
+const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
 
 @Component({
   selector: 'ptah-setup-hub',
@@ -998,10 +1012,31 @@ import {
 
             <fieldset>
               <legend class="block text-sm font-medium text-base-content mb-2">
+                What platform is it built on?
+              </legend>
+              <div class="flex flex-wrap gap-2">
+                @for (option of platformOptions; track option.value) {
+                  <button
+                    class="btn btn-sm rounded-full"
+                    type="button"
+                    [class.btn-primary]="platform() === option.value"
+                    [class.btn-outline]="platform() !== option.value"
+                    [attr.aria-pressed]="platform() === option.value"
+                    [attr.data-testid]="'intake-platform-' + option.value"
+                    (click)="selectPlatform(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                }
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend class="block text-sm font-medium text-base-content mb-2">
                 Tech stack preference
               </legend>
               <div class="flex flex-wrap gap-2">
-                @for (option of stackOptions; track option.value) {
+                @for (option of stackOptions(); track option.value) {
                   <button
                     class="btn btn-sm rounded-full"
                     type="button"
@@ -1145,11 +1180,12 @@ export class SetupHubComponent implements OnInit {
   // ==========================================================================
 
   protected readonly audienceOptions = NEW_PROJECT_AUDIENCE_OPTIONS;
-  protected readonly stackOptions = NEW_PROJECT_STACK_OPTIONS;
+  protected readonly platformOptions = NEW_PROJECT_PLATFORM_OPTIONS;
 
   private readonly _showIntake = signal(false);
   private readonly _showDiscardConfirm = signal(false);
   private readonly _audience = signal<NewProjectAudience>('unsure');
+  private readonly _platform = signal<NewProjectPlatform>(DEFAULT_PLATFORM);
   private readonly _stack = signal<NewProjectStack>('recommend');
   private readonly _isStarting = signal(false);
   private readonly _intakeError = signal<string | null>(null);
@@ -1164,7 +1200,20 @@ export class SetupHubComponent implements OnInit {
   readonly showIntake = this._showIntake.asReadonly();
   readonly showDiscardConfirm = this._showDiscardConfirm.asReadonly();
   readonly audience = this._audience.asReadonly();
+  readonly platform = this._platform.asReadonly();
   readonly stack = this._stack.asReadonly();
+
+  /**
+   * The stack chips for the selected platform — the whole platform-to-stack
+   * derivation, delegated to the registry.
+   *
+   * There is no local list to keep in step: picking `.NET` re-renders these
+   * from `STACK_PROFILES`, and a platform with no profile (`Other`) falls back
+   * to the two platform-independent chips.
+   */
+  readonly stackOptions = computed(() =>
+    stackOptionsForPlatform(this.platform()),
+  );
   readonly isStarting = this._isStarting.asReadonly();
   readonly intakeError = this._intakeError.asReadonly();
 
@@ -1292,7 +1341,31 @@ export class SetupHubComponent implements OnInit {
     this._audience.set(value);
   }
 
-  selectStack(value: NewProjectStack): void {
+  /**
+   * Pick a platform, and reset the stack answer with it.
+   *
+   * The reset is not optional: `aspnetcore-blazor` is meaningless once the user
+   * switches back to Node, and leaving it selected would submit a stack that
+   * has no chip on screen. `recommend` is in every profile's options, so it is
+   * always a legal landing place.
+   */
+  selectPlatform(value: NewProjectPlatform): void {
+    if (this._platform() === value) return;
+    this._platform.set(value);
+    this._stack.set('recommend');
+    this.intakeStackOther = '';
+    this._stackOtherFilled.set(false);
+  }
+
+  /**
+   * Take a chip's value as the stack answer.
+   *
+   * Accepts `string` because that is what `StackOption.value` is — the registry
+   * is plain data. `isNewProjectStack` is the one narrowing point, so a chip
+   * whose value is not on the wire union is ignored rather than cast through.
+   */
+  selectStack(value: string): void {
+    if (!isNewProjectStack(value)) return;
     this._stack.set(value);
     if (value !== 'other') {
       this.intakeStackOther = '';
@@ -1308,10 +1381,16 @@ export class SetupHubComponent implements OnInit {
     const stackOther = this.intakeStackOther.trim();
     if (stack === 'other' && !stackOther) return null;
     const constraints = this.intakeConstraints.trim();
+    const platform = this._platform();
 
     return {
       what,
       audience: this._audience(),
+      // Omitted at the default. Absence already means Node/TypeScript on the
+      // wire, so a user who never touched the platform question sends the
+      // payload they sent before the question existed — which is what keeps
+      // the existing New Project e2e suite a valid regression bar.
+      ...(platform === DEFAULT_PLATFORM ? {} : { platform }),
       stack,
       ...(constraints ? { constraints } : {}),
       ...(stack === 'other' ? { stackOther } : {}),

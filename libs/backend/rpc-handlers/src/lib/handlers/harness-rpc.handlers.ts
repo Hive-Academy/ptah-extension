@@ -41,6 +41,12 @@ import {
   type IWorkspaceProvider,
   type IPlatformCommands,
 } from '@ptah-extension/platform-core';
+import { probeStackToolchain } from '@ptah-extension/workspace-intelligence';
+import {
+  PLUGIN_MARKETPLACE_TOKENS,
+  buildExternalPluginId,
+  type ExternalPluginStateStore,
+} from '@ptah-extension/plugin-marketplace';
 import type {
   HarnessInitializeParams,
   HarnessInitializeResponse,
@@ -75,13 +81,19 @@ import type {
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
   RpcMethodName,
+  ExternalPluginRef,
+  StackProfile,
+  StackProfileId,
+  ToolchainProbeResult,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  resolveStackProfileForPlatform,
+} from '@ptah-extension/shared';
 
 import { HARNESS_TOKENS } from '../harness/tokens';
 import {
   buildNewProjectSeedPrompt,
-  SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID,
   WIZARD_VIEW_TYPE,
 } from '../harness/harness-constants';
 import type { WebviewBroadcaster } from '../harness/streaming';
@@ -110,6 +122,19 @@ interface WizardWebviewLifecycleLike {
 const WIZARD_WEBVIEW_LIFECYCLE_TOKEN = Symbol.for(
   'WizardWebviewLifecycleService',
 );
+
+/**
+ * Profiles whose toolchain is the runtime Ptah is ALREADY executing in, so the
+ * probe is skipped for them.
+ *
+ * `node --version` answers "is there a Node on PATH", which is a different
+ * question from "can this project be scaffolded". Electron ships its own Node,
+ * and plenty of desktop users have none installed system-wide — probing them
+ * would print "Node.js is not installed" into the seed prompt of every
+ * TypeScript project on those machines, which is both false and a change to a
+ * path that must not change.
+ */
+const RUNTIME_PROVIDED_PROFILE_IDS: readonly StackProfileId[] = ['node-ts'];
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
 type RpcHandlerFn<TParams, TResp> = (params: TParams) => Promise<TResp>;
@@ -584,6 +609,85 @@ export class HarnessRpcHandlers {
     return service;
   }
 
+  /**
+   * Split a profile's `requiredPlugins` into "turn these on" and "tell the user
+   * these are missing".
+   *
+   * The asymmetry is the point. A bundled plugin ships inside Ptah, so enabling
+   * it is a configuration flip the user already consented to by installing
+   * Ptah. An external one is code downloaded from a third-party GitHub repo,
+   * possibly carrying scripts and an MCP server, and the ONLY way it may reach
+   * disk is the two-call consent flow in `ExternalPluginInstallerService`.
+   * This method therefore never installs and never enables an external plugin —
+   * it reads the consent record and reports what is absent, and the seed prompt
+   * tells the user where to approve it.
+   *
+   * A host with no marketplace registered (the store fails to resolve) reports
+   * every external ref as missing. Failing closed is the honest answer: we
+   * cannot show the user something we cannot verify is there.
+   */
+  private partitionRequiredPlugins(profile: StackProfile | null): {
+    bundled: string[];
+    missingExternal: ExternalPluginRef[];
+  } {
+    const bundled: string[] = [];
+    const external: ExternalPluginRef[] = [];
+    for (const ref of profile?.requiredPlugins ?? []) {
+      if (typeof ref === 'string') {
+        bundled.push(ref);
+      } else {
+        external.push(ref);
+      }
+    }
+
+    if (external.length === 0) {
+      return { bundled, missingExternal: [] };
+    }
+
+    let stateStore: ExternalPluginStateStore | null = null;
+    try {
+      stateStore = this.container.resolve<ExternalPluginStateStore>(
+        PLUGIN_MARKETPLACE_TOKENS.STATE_STORE,
+      );
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[harness:start-new-project] External plugin state store unavailable; treating every external requirement as missing',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+
+    const missingExternal = external.filter((ref) => {
+      const [owner, repo] = ref.marketplace.split('/');
+      if (!owner || !repo) {
+        return true;
+      }
+      const pluginId = buildExternalPluginId({
+        owner,
+        repo,
+        plugin: ref.plugin,
+      });
+      return !stateStore?.isInstalled(pluginId);
+    });
+
+    return { bundled, missingExternal };
+  }
+
+  /**
+   * Probe the profile's toolchain so the prompt can warn about a missing SDK.
+   *
+   * Skipped for the profiles in {@link RUNTIME_PROVIDED_PROFILE_IDS} — see that
+   * constant for why probing PATH there produces false alarms rather than
+   * information.
+   */
+  private async probeProfileToolchain(
+    profile: StackProfile | null,
+  ): Promise<ToolchainProbeResult | undefined> {
+    if (!profile || RUNTIME_PROVIDED_PROFILE_IDS.includes(profile.id)) {
+      return undefined;
+    }
+    return probeStackToolchain(profile);
+  }
+
   private registerStartNewProject(): void {
     this.rpcHandler.registerMethod<
       HarnessStartNewProjectParams,
@@ -592,20 +696,28 @@ export class HarnessRpcHandlers {
       this.logger.debug('RPC: harness:start-new-project called');
       try {
         // Validate BEFORE any side effect: a malformed intake must not leave
-        // the SaaS plugin half-enabled or the wizard panel disposed.
+        // a plugin half-enabled or the wizard panel disposed.
         const { intake } = HarnessStartNewProjectParamsSchema.parse(params);
+        const profile = resolveStackProfileForPlatform(intake.platform);
+        const { bundled, missingExternal } =
+          this.partitionRequiredPlugins(profile);
+
         const config = this.pluginLoader.getWorkspacePluginConfig();
         const enabled = new Set(config.enabledPluginIds);
+        const newlyEnabled = bundled.filter((id) => !enabled.has(id));
         let pluginConfigChanged = false;
-        if (!enabled.has(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID)) {
-          enabled.add(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID);
+        if (newlyEnabled.length > 0) {
+          for (const id of newlyEnabled) {
+            enabled.add(id);
+          }
           await this.pluginLoader.saveWorkspacePluginConfig({
             enabledPluginIds: Array.from(enabled),
             disabledSkillIds: config.disabledSkillIds,
           });
           pluginConfigChanged = true;
           this.logger.info(
-            '[harness:start-new-project] Enabled ptah-nx-saas plugin for workspace',
+            '[harness:start-new-project] Enabled bundled plugins for workspace',
+            { pluginIds: newlyEnabled },
           );
         }
         if (pluginConfigChanged) {
@@ -637,6 +749,13 @@ export class HarnessRpcHandlers {
             );
           }
         }
+        // Composed before the broadcast, and outside its try, so a probe or a
+        // consent-record read can never be mistaken for a broadcast failure.
+        const seedPrompt = buildNewProjectSeedPrompt(intake, {
+          toolchain: await this.probeProfileToolchain(profile),
+          missingExternalPlugins: missingExternal,
+        });
+
         try {
           await this.platformCommands.focusChat();
         } catch (error: unknown) {
@@ -657,7 +776,7 @@ export class HarnessRpcHandlers {
             {
               mode: 'new-project',
               // What the agent receives …
-              seedPrompt: buildNewProjectSeedPrompt(intake),
+              seedPrompt,
               // … and what the user sees rendered as their first bubble.
               intake,
             },

@@ -71,6 +71,26 @@ export interface StackWorkspacePlan {
    * is only what the question defaults to.
    */
   readonly monorepoTool: 'nx' | 'none';
+  /**
+   * Whether {@link monorepoTool} is settled for this stack or is itself a
+   * discovery question.
+   *
+   * `given` — the stack's own scaffolding IS the monorepo tool (a Node/TS
+   * workspace is created BY Nx), or there is no tool to argue about
+   * (`monorepoTool: 'none'`). Nothing to ask.
+   *
+   * `ask` — the tool would be layered on top of native scaffolding, so the
+   * answer depends on the project. `monorepoTool` is then the DEFAULT the
+   * agent should carry into that question, not the outcome. This is the .NET
+   * case: `@nx/dotnet` is officially experimental, so a single service should
+   * stay on plain `dotnet new sln` while a multi-project or mixed
+   * .NET-plus-frontend solution benefits from Nx.
+   *
+   * The seed prompt reads this field: `ask` adds a discovery instruction, and
+   * `given` adds nothing — which is what keeps the Node/TypeScript prompt
+   * identical to what it was before profiles existed.
+   */
+  readonly monorepoDecision: 'given' | 'ask';
   /** Nx plugins to add when the user does choose Nx. */
   readonly nxPlugins: readonly string[];
   /** Native scaffolding commands, in the order they should run. */

@@ -12,6 +12,10 @@
 
 import * as path from 'node:path';
 import { z } from 'zod';
+import {
+  NEW_PROJECT_PLATFORM_VALUES,
+  NEW_PROJECT_STACK_VALUES,
+} from '@ptah-extension/shared';
 
 /**
  * Intake answers behind the New Project flow. `what` is the only required
@@ -19,13 +23,25 @@ import { z } from 'zod';
  * would produce a prompt with a blank brief. `stackOther` is only meaningful
  * when `stack === 'other'` and is dropped otherwise, so a stale value from a
  * changed radio selection can never leak into the prompt.
+ *
+ * `platform` and `stack` take their enums from the shared `as const` tuples
+ * rather than repeating the members here. That is the TS/Zod parity mechanism:
+ * the union and the enum are built from the SAME array, so they cannot drift —
+ * previously they were two hand-written lists that agreed only by inspection.
+ *
+ * `platform` is optional because absence means `node-ts` (see
+ * `NewProjectIntake.platform`). It is NOT defaulted here: writing the default
+ * in would put a `platform` key into a payload the caller did not send, and
+ * `renderIntakeBlock` uses that key's presence to decide whether the prompt
+ * mentions a platform at all.
  */
 export const NewProjectIntakeSchema = z
   .object({
     what: z.string().trim().min(1).max(4000),
     audience: z.enum(['b2b', 'b2c', 'internal', 'unsure']),
     constraints: z.string().trim().max(4000).optional(),
-    stack: z.enum(['recommend', 'angular-nestjs', 'react-nestjs', 'other']),
+    platform: z.enum(NEW_PROJECT_PLATFORM_VALUES).optional(),
+    stack: z.enum(NEW_PROJECT_STACK_VALUES),
     stackOther: z.string().trim().max(500).optional(),
   })
   .transform((intake) =>

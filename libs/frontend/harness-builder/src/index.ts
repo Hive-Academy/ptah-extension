@@ -8,8 +8,9 @@ export {
 } from './lib/services/harness-workflow.service';
 export {
   formatIntakeSummary,
+  platformLabel,
   NEW_PROJECT_AUDIENCE_OPTIONS,
-  NEW_PROJECT_STACK_OPTIONS,
+  NEW_PROJECT_PLATFORM_OPTIONS,
 } from './lib/services/new-project-intake';
 export { HarnessWorkflowMessageHandler } from './lib/services/harness-workflow-message.handler';
 export { HarnessBuilderViewComponent } from './lib/components/harness-builder-view.component';

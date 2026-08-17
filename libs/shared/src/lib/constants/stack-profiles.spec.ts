@@ -1,4 +1,10 @@
 import {
+  NEW_PROJECT_PLATFORM_VALUES,
+  NEW_PROJECT_STACK_VALUES,
+  isNewProjectStack,
+} from '../types/rpc/rpc-harness.types';
+import {
+  PLATFORM_AGNOSTIC_STACK_OPTIONS,
   STACK_MANIFEST_FILES,
   STACK_PROFILES,
   STACK_SOURCE_EXTENSIONS,
@@ -6,6 +12,9 @@ import {
   getStackProfile,
   matchesStackGlob,
   matchesStackProfile,
+  resolveStackProfileForPlatform,
+  stackLabelForPlatform,
+  stackOptionsForPlatform,
 } from './stack-profiles';
 
 /**
@@ -53,6 +62,132 @@ describe('STACK_PROFILES registry', () => {
     for (const profile of STACK_PROFILES) {
       expect(profile.skills.domain).toBe('ddd-architecture');
     }
+  });
+
+  it('only asks about the workspace tool where there is something to ask', () => {
+    // `given` means the stack's own scaffolding settles it; `ask` means the
+    // tool is layered on top and the answer is per-project. Only .NET is the
+    // latter, and node-ts being `given` is what keeps its seed prompt as it was.
+    expect(
+      STACK_PROFILES.map((profile) => [
+        profile.id,
+        profile.workspace.monorepoDecision,
+      ]),
+    ).toEqual([
+      ['node-ts', 'given'],
+      ['dotnet', 'ask'],
+      ['python', 'given'],
+    ]);
+  });
+
+  it('never marks a stack `ask` when it has no tool to argue about', () => {
+    for (const profile of STACK_PROFILES) {
+      if (profile.workspace.monorepoTool === 'none') {
+        expect(profile.workspace.monorepoDecision).toBe('given');
+      }
+    }
+  });
+});
+
+/**
+ * The drift guard that replaced the two hand-written label mirrors. Before
+ * this, `NEW_PROJECT_STACK_OPTIONS` (frontend chips) and `STACK_LABELS`
+ * (backend prompt) each carried their own copy of these values and agreed only
+ * because someone checked.
+ */
+describe('intake vocabulary parity', () => {
+  it('offers exactly the registered platforms, plus `other`', () => {
+    expect(NEW_PROJECT_PLATFORM_VALUES).toEqual([
+      ...STACK_PROFILES.map((profile) => profile.id),
+      'other',
+    ]);
+  });
+
+  it('lists every profile chip value on the wire union', () => {
+    for (const profile of STACK_PROFILES) {
+      for (const option of profile.stackOptions) {
+        expect(isNewProjectStack(option.value)).toBe(true);
+      }
+    }
+  });
+
+  it('has no wire stack value that no profile offers', () => {
+    const offered = new Set(
+      [...STACK_PROFILES, { stackOptions: PLATFORM_AGNOSTIC_STACK_OPTIONS }]
+        .flatMap((profile) => [...profile.stackOptions])
+        .map((option) => option.value),
+    );
+    expect([...NEW_PROJECT_STACK_VALUES].sort()).toEqual([...offered].sort());
+  });
+
+  it('gives every profile the two platform-independent chips', () => {
+    // `recommend` is what `selectPlatform` resets to, so a profile missing it
+    // would leave the intake on a stack with no chip on screen.
+    for (const profile of STACK_PROFILES) {
+      const values = profile.stackOptions.map((option) => option.value);
+      expect(values).toContain('recommend');
+      expect(values).toContain('other');
+    }
+  });
+});
+
+describe('platform → profile resolution', () => {
+  it('treats an absent platform as node-ts', () => {
+    // Absence is what every client that predates the platform question sends.
+    expect(resolveStackProfileForPlatform(undefined)).toBe(
+      getStackProfile('node-ts'),
+    );
+  });
+
+  it('resolves each registered platform to its own profile', () => {
+    for (const profile of STACK_PROFILES) {
+      expect(resolveStackProfileForPlatform(profile.id)).toBe(profile);
+    }
+  });
+
+  it('resolves `other` to no profile at all, not to node-ts', () => {
+    // "None of these" is an answer. Falling back to node-ts would scaffold an
+    // Nx/TypeScript workspace for someone who just declined it.
+    expect(resolveStackProfileForPlatform('other')).toBeNull();
+  });
+});
+
+describe('platform → stack chip derivation', () => {
+  it('renders each platform its own chips, from the registry', () => {
+    for (const profile of STACK_PROFILES) {
+      expect(stackOptionsForPlatform(profile.id)).toBe(profile.stackOptions);
+    }
+  });
+
+  it('falls back to the two platform-independent chips for `other`', () => {
+    expect(
+      stackOptionsForPlatform('other').map((option) => option.value),
+    ).toEqual(['recommend', 'other']);
+  });
+
+  it('gives .NET the ASP.NET chips and no Node ones', () => {
+    const values = stackOptionsForPlatform('dotnet').map(
+      (option) => option.value,
+    );
+    expect(values).toContain('aspnetcore-blazor');
+    expect(values).not.toContain('angular-nestjs');
+  });
+
+  it('labels a stack under its own platform', () => {
+    expect(stackLabelForPlatform('dotnet', 'aspnetcore-api')).toBe(
+      'ASP.NET Core API only',
+    );
+    expect(stackLabelForPlatform(undefined, 'angular-nestjs')).toBe(
+      'Angular + NestJS',
+    );
+  });
+
+  it('degrades to the raw value when the pairing is impossible', () => {
+    // A .NET chip value under the Node platform cannot come from the UI, but a
+    // hand-built RPC payload can carry it — better readable than `undefined`.
+    expect(stackLabelForPlatform('node-ts', 'aspnetcore-api')).toBe(
+      'aspnetcore-api',
+    );
   });
 });
 

@@ -17,9 +17,11 @@
  */
 
 import type {
+  StackOption,
   StackProfile,
   StackProfileId,
 } from '../types/stack-profile.types';
+import type { NewProjectPlatform } from '../types/rpc/rpc-harness.types';
 
 /**
  * Node / TypeScript.
@@ -46,6 +48,11 @@ const NODE_TS_PROFILE: StackProfile = {
   },
   workspace: {
     monorepoTool: 'nx',
+    // `given`, because the scaffold command IS Nx — you do not add Nx to a
+    // workspace `create-nx-workspace` just made. Asking would be a new
+    // question in an existing flow, which is exactly the behaviour change the
+    // node-ts entry exists to prevent.
+    monorepoDecision: 'given',
     nxPlugins: ['@nx/js'],
     scaffoldCommands: ['npx create-nx-workspace@latest'],
   },
@@ -55,10 +62,10 @@ const NODE_TS_PROFILE: StackProfile = {
     domain: 'ddd-architecture',
   },
   requiredPlugins: ['ptah-nx-saas'],
-  // Mirrors NEW_PROJECT_STACK_OPTIONS (frontend intake chips) and STACK_LABELS
-  // (backend prompt rendering). Both mirrors are deleted in Batch 4, which
-  // makes this the only copy; until then `stack-profiles.spec.ts` pins the
-  // values so the three cannot drift apart in the meantime.
+  // THE intake vocabulary for this stack. `NEW_PROJECT_STACK_OPTIONS`
+  // (frontend chips) and `STACK_LABELS` (backend prompt rendering) used to
+  // mirror this list and both were deleted; the chips and the prompt now read
+  // these labels directly, so there is nothing left to drift.
   stackOptions: [
     { value: 'recommend', label: 'Recommend for me' },
     { value: 'angular-nestjs', label: 'Angular + NestJS' },
@@ -101,6 +108,10 @@ const DOTNET_PROFILE: StackProfile = {
   },
   workspace: {
     monorepoTool: 'nx',
+    // The one `ask` in the registry. `dotnet new sln` stands on its own and Nx
+    // goes on top of it, so whether it should is a property of the project,
+    // not of the language.
+    monorepoDecision: 'ask',
     nxPlugins: ['@nx/dotnet'],
     scaffoldCommands: ['dotnet new sln'],
   },
@@ -161,6 +172,10 @@ const PYTHON_PROFILE: StackProfile = {
   },
   workspace: {
     monorepoTool: 'none',
+    // `given` because there is nothing to decide: with no first-party Nx
+    // plugin, uv workspaces are the only honest answer, so raising the
+    // question would offer a choice Ptah cannot follow through on.
+    monorepoDecision: 'given',
     nxPlugins: [],
     scaffoldCommands: ['uv init'],
   },
@@ -203,6 +218,67 @@ export function getStackProfile(id: StackProfileId): StackProfile {
     throw new Error(`Unknown stack profile: ${id}`);
   }
   return profile;
+}
+
+/**
+ * The stack chips offered when no profile applies — the `other` platform.
+ *
+ * Only the two platform-independent values survive: defer to the agent, or
+ * describe it yourself. Anything more would be guessing at a stack we have
+ * just been told we do not know.
+ */
+export const PLATFORM_AGNOSTIC_STACK_OPTIONS: readonly StackOption[] = [
+  { value: 'recommend', label: 'Recommend for me' },
+  { value: 'other', label: 'Other' },
+];
+
+/**
+ * The profile behind an intake's platform answer, or `null` when there is none.
+ *
+ * `undefined` maps to `node-ts`: absence on the wire means the client predates
+ * the platform question, and every such client meant Node/TypeScript. `other`
+ * maps to `null` — deliberately not to `node-ts`, because "none of these" is an
+ * answer, not a missing one.
+ *
+ * Unlike {@link getStackProfile} this never throws: its input is a wire value,
+ * and a wire value that does not resolve is a `null`, not a bug.
+ */
+export function resolveStackProfileForPlatform(
+  platform: NewProjectPlatform | undefined,
+): StackProfile | null {
+  if (platform === 'other') {
+    return null;
+  }
+  const id = platform ?? 'node-ts';
+  return STACK_PROFILES.find((candidate) => candidate.id === id) ?? null;
+}
+
+/**
+ * The stack chips to render for a platform answer.
+ *
+ * This is the whole platform-to-stack derivation: pick the profile, hand back
+ * its `stackOptions`. There is no second list anywhere.
+ */
+export function stackOptionsForPlatform(
+  platform: NewProjectPlatform | undefined,
+): readonly StackOption[] {
+  return (
+    resolveStackProfileForPlatform(platform)?.stackOptions ??
+    PLATFORM_AGNOSTIC_STACK_OPTIONS
+  );
+}
+
+/**
+ * The label a stack value carries under a given platform, falling back to the
+ * raw value so an unknown pairing degrades to something readable rather than
+ * to `undefined`.
+ */
+export function stackLabelForPlatform(
+  platform: NewProjectPlatform | undefined,
+  stack: string,
+): string {
+  const options = stackOptionsForPlatform(platform);
+  return options.find((option) => option.value === stack)?.label ?? stack;
 }
 
 /**

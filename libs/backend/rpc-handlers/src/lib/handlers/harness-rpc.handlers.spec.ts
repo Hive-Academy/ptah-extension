@@ -11,6 +11,20 @@
 
 import 'reflect-metadata';
 
+/**
+ * `probeStackToolchain` lives behind the `workspace-intelligence` barrel, and
+ * that barrel also re-exports the tree-sitter loader, which reads
+ * `import.meta.url` — legal in the bundled hosts, unparseable under Jest's CJS
+ * transform. Mocking the module keeps this spec loadable AND makes the probe
+ * observable, which is what the two "who gets probed" cases below need.
+ */
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  probeStackToolchain: jest.fn(),
+}));
+
+import { probeStackToolchain } from '@ptah-extension/workspace-intelligence';
+import type { ToolchainProbeResult } from '@ptah-extension/shared';
+
 import type {
   Logger,
   RpcHandler,
@@ -650,6 +664,177 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         stack: 'other',
         stackOther: 'Remix + Go',
       });
+    });
+
+    // ---- platform routing (TASK_2026_270 Batch 4) --------------------------
+
+    // The probe mock is module-level, so its call log survives `buildSuite()`.
+    beforeEach(() => {
+      (probeStackToolchain as jest.Mock).mockReset();
+    });
+
+    const DOTNET_INTAKE = {
+      what: 'A claims processing service',
+      audience: 'b2b',
+      platform: 'dotnet',
+      stack: 'aspnetcore-api',
+    };
+
+    const DOTNET_NOT_INSTALLED: ToolchainProbeResult = {
+      profileId: 'dotnet',
+      command: 'dotnet --version',
+      installed: false,
+      satisfiesMin: false,
+      minVersion: '8.0.0',
+      installHint: 'Install the .NET SDK 8.0 or newer.',
+    };
+
+    /** Register the two optional services and return the broadcast spy. */
+    function withBroadcast(suite: Suite): jest.Mock {
+      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+      suite.container.__register(WEBVIEW_MANAGER, { broadcastMessage });
+      suite.container.__register(WIZARD_WEBVIEW_LIFECYCLE, {
+        disposeWebview: jest.fn(),
+      });
+      return broadcastMessage;
+    }
+
+    it('enables the profile’s BUNDLED plugin, not the hardcoded SaaS one', async () => {
+      const suite = buildSuite();
+      withBroadcast(suite);
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: DOTNET_INTAKE });
+
+      expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalledWith(
+        { enabledPluginIds: ['ptah-dotnet'], disabledSkillIds: [] },
+      );
+    });
+
+    it('never enables or installs an external plugin — it reports it missing', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: DOTNET_INTAKE });
+
+      // The consent record is unreachable here (no marketplace store in the
+      // container), so both external refs count as missing — fail closed.
+      const [saved] =
+        suite.pluginLoader.saveWorkspacePluginConfig.mock.calls[0];
+      expect(saved.enabledPluginIds).not.toContain('dotnet');
+      expect(saved.enabledPluginIds).not.toContain(
+        'external:dotnet/skills/dotnet',
+      );
+
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).toContain('`dotnet-template-engine`');
+      expect(payload.seedPrompt).toContain('do not try to install or invoke');
+    });
+
+    it('treats an external plugin with a consent record as present', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      suite.container.__register(Symbol.for('PluginMarketplaceStateStore'), {
+        isInstalled: (id: string) =>
+          id === 'external:dotnet/skills/dotnet' ||
+          id === 'external:dotnet/skills/dotnet-template-engine',
+      });
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: DOTNET_INTAKE });
+
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).not.toContain('are NOT installed');
+    });
+
+    it('carries a missing toolchain and its hint into the seed prompt', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      (probeStackToolchain as jest.Mock).mockResolvedValueOnce(
+        DOTNET_NOT_INSTALLED,
+      );
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: DOTNET_INTAKE });
+
+      expect(probeStackToolchain).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'dotnet' }),
+      );
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).toContain('is NOT installed');
+      expect(payload.seedPrompt).toContain(
+        'Install the .NET SDK 8.0 or newer.',
+      );
+    });
+
+    it('does NOT probe for Node/TypeScript, whose runtime is already running', async () => {
+      const suite = buildSuite();
+      withBroadcast(suite);
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: VALID_INTAKE });
+
+      // Probing PATH for `node` would print a false "not installed" on every
+      // Electron machine without a system Node.
+      expect(probeStackToolchain).not.toHaveBeenCalled();
+    });
+
+    it('rejects a platform that is not in the registry', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const result = (await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({
+        intake: { ...VALID_INTAKE, platform: 'rust' },
+      })) as { success: boolean };
+
+      expect(result.success).toBe(false);
+      expect(
+        suite.pluginLoader.saveWorkspacePluginConfig,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('enables nothing when the platform has no profile behind it', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({
+        intake: {
+          ...VALID_INTAKE,
+          platform: 'other',
+          stack: 'other',
+          stackOther: 'Elixir + Phoenix',
+        },
+      });
+
+      expect(
+        suite.pluginLoader.saveWorkspacePluginConfig,
+      ).not.toHaveBeenCalled();
+      expect(probeStackToolchain).not.toHaveBeenCalled();
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).toContain('Elixir + Phoenix');
     });
 
     it('rejects an intake with no brief without touching plugin config', async () => {

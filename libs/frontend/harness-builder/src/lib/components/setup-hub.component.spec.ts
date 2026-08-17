@@ -18,6 +18,7 @@ import {
   ClaudeRpcService,
   WebviewNavigationService,
 } from '@ptah-extension/core';
+import { STACK_PROFILES, getStackProfile } from '@ptah-extension/shared';
 import type { NewProjectIntake } from '@ptah-extension/shared';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessWorkflowService } from '../services/harness-workflow.service';
@@ -49,6 +50,20 @@ describe('SetupHubComponent — New Project intake', () => {
   function click(testId: string): void {
     required(testId).click();
     fixture.detectChanges();
+  }
+
+  /**
+   * The stack chip values currently on screen, in order. Buttons only — the
+   * free-text input for `other` shares its sibling chip's testid.
+   */
+  function stackChipValues(): string[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll<HTMLElement>(
+        'button[data-testid^="intake-stack-"]',
+      ),
+    ).map((chip) =>
+      (chip.dataset['testid'] ?? '').replace('intake-stack-', ''),
+    );
   }
 
   function typeWhat(text: string): void {
@@ -132,6 +147,126 @@ describe('SetupHubComponent — New Project intake', () => {
     click('intake-stack-other');
 
     expect((required('intake-start') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // ---- platform → stack derivation (TASK_2026_270 Batch 4) -----------------
+
+  it('renders one platform chip per registered stack profile, plus Other', () => {
+    click('new-project-start');
+
+    const ids = Array.from(
+      fixture.nativeElement.querySelectorAll<HTMLElement>(
+        '[data-testid^="intake-platform-"]',
+      ),
+    ).map((chip) => chip.dataset['testid']);
+
+    expect(ids).toEqual([
+      ...STACK_PROFILES.map((profile) => `intake-platform-${profile.id}`),
+      'intake-platform-other',
+    ]);
+  });
+
+  it('opens on Node/TypeScript, so the stack chips are the ones they always were', () => {
+    click('new-project-start');
+
+    expect(stackChipValues()).toEqual([
+      'recommend',
+      'angular-nestjs',
+      'react-nestjs',
+      'other',
+    ]);
+  });
+
+  it('re-renders the stack chips from the selected platform’s profile', () => {
+    click('new-project-start');
+    click('intake-platform-dotnet');
+
+    expect(stackChipValues()).toEqual(
+      getStackProfile('dotnet').stackOptions.map((option) => option.value),
+    );
+    // The Node chips are gone, not merely deselected.
+    expect(el('intake-stack-angular-nestjs')).toBeNull();
+  });
+
+  it('falls back to the two platform-independent chips for Other', () => {
+    click('new-project-start');
+    click('intake-platform-other');
+
+    expect(stackChipValues()).toEqual(['recommend', 'other']);
+  });
+
+  it('resets the stack when the platform changes under it', async () => {
+    click('new-project-start');
+    typeWhat('A claims processing service');
+    click('intake-stack-angular-nestjs');
+    // `angular-nestjs` has no chip under .NET; leaving it selected would submit
+    // a stack the user can no longer see.
+    click('intake-platform-dotnet');
+    click('intake-start');
+    await fixture.whenStable();
+
+    expect(harnessRpc.startNewProject).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: 'dotnet', stack: 'recommend' }),
+    );
+  });
+
+  it('submits the platform once it is no longer the default', async () => {
+    click('new-project-start');
+    typeWhat('A claims processing service');
+    click('intake-platform-dotnet');
+    click('intake-stack-aspnetcore-api');
+    click('intake-start');
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const expected: NewProjectIntake = {
+      what: 'A claims processing service',
+      audience: 'unsure',
+      platform: 'dotnet',
+      stack: 'aspnetcore-api',
+    };
+    expect(harnessRpc.startNewProject).toHaveBeenCalledWith(expected);
+  });
+
+  it('omits the platform entirely while it is still Node/TypeScript', async () => {
+    click('new-project-start');
+    typeWhat('A scheduling tool');
+    // Selecting the default explicitly must still produce the pre-Batch-4
+    // payload — that is what keeps the existing e2e suite a valid bar.
+    click('intake-platform-dotnet');
+    click('intake-platform-node-ts');
+    click('intake-start');
+    await fixture.whenStable();
+
+    const [sent] = harnessRpc.startNewProject.mock.calls[0] as [
+      NewProjectIntake,
+    ];
+    expect('platform' in sent).toBe(false);
+  });
+
+  it('clears a stale free-text stack when the platform changes', async () => {
+    click('new-project-start');
+    typeWhat('A claims processing service');
+    click('intake-stack-other');
+    // Chip and input share the testid (mirrors the e2e spec) — reach the
+    // input by tag.
+    const freeText = fixture.nativeElement.querySelector(
+      'input[data-testid="intake-stack-other"]',
+    ) as HTMLInputElement;
+    freeText.value = 'Ruby on Rails';
+    freeText.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    click('intake-platform-python');
+    click('intake-stack-django');
+    click('intake-start');
+    await fixture.whenStable();
+
+    const [sent] = harnessRpc.startNewProject.mock.calls[0] as [
+      NewProjectIntake,
+    ];
+    expect(sent).toMatchObject({ platform: 'python', stack: 'django' });
+    expect(sent.stackOther).toBeUndefined();
   });
 
   // ---- submit --------------------------------------------------------------
