@@ -245,6 +245,10 @@ export {
   type SkillStageResult,
 } from './lib/queue/skill-drain.service';
 export {
+  SkillStageHandlersService,
+  type SkillStageWorkers,
+} from './lib/queue/stage-handlers.service';
+export {
   EVIDENCE_CLASSES,
   FRICTION_KINDS,
   SESSION_VERDICT_DEGRADED_REASONS,

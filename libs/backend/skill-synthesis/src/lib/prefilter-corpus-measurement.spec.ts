@@ -128,7 +128,6 @@ suite('prefilter widening — corpus measurement (opt-in)', () => {
       null,
       null,
       null,
-      null,
     );
     const passesNew = (t: ExtractedTrajectory): boolean =>
       (

@@ -109,6 +109,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_BUDGET_STORE: Symbol.for('PtahSkillSynthesisBudgetStore'),
   /** SkillDrainService — gated, round-robin drain of the synthesis queue. */
   SKILL_DRAIN_SERVICE: Symbol.for('PtahSkillSynthesisDrainService'),
+  /** SkillStageHandlersService — the six queue stage protocols + their producers. */
+  SKILL_STAGE_HANDLERS_SERVICE: Symbol.for('PtahSkillStageHandlersService'),
   /** ForegroundActivityTracker — ms since the last chat turn, for the backoff gate. */
   FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
   /** LaneResolverService — lane id → {auth snapshot, model} via the shared auth chain. */

@@ -49,6 +49,7 @@ import {
   SkillDrainService,
   SKILL_DRAIN_KEYS,
 } from './queue/skill-drain.service';
+import { SkillStageHandlersService } from './queue/stage-handlers.service';
 import type {
   EnqueueInput,
   EnqueueResult,
@@ -209,6 +210,20 @@ function makeService(opts: {
     }),
   } as unknown as ConstructorParameters<typeof SkillSynthesisService>[9];
 
+  // TASK_2026_256 moved the six stage protocols out of the synthesis service.
+  // `start()` is still the registration seam — it hands itself over as the
+  // `SkillStageWorkers` port — so every test below still drives `svc.start()`.
+  const stageHandlers = new SkillStageHandlersService(
+    logger,
+    store,
+    opts.queue as never,
+    opts.drain,
+    null,
+    (opts.judgePanel ?? null) as never,
+    (opts.replayValidator ?? null) as never,
+    (opts.triggerEval ?? null) as never,
+  );
+
   const svc = new SkillSynthesisService(
     logger,
     connection,
@@ -225,12 +240,8 @@ function makeService(opts: {
     embedder as never,
     null,
     opts.queue as never,
-    opts.drain,
     null,
-    null,
-    (opts.judgePanel ?? null) as never,
-    (opts.replayValidator ?? null) as never,
-    (opts.triggerEval ?? null) as never,
+    stageHandlers,
   );
 
   async function fireSessionEnd(
