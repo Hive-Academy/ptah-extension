@@ -153,6 +153,67 @@ connected`. grammy: polling promise no longer discarded — settled loop
 8. Split out: TASK_2026_277 (restart-mid-turn: notify, don't replay).
    TASK_2026_272 (send-to-messaging rework) still backlog.
 
+## Verification review 2026-08-18 — does NOT hold at in_review
+
+A `code-logic-reviewer` pass over the committed range `024d00940^..3ae02313e`
+read the "Fix order" list above as a claim to falsify. It confirmed the facade
+split (`3ae02313e`) is signature- and token-identical, that no duplicate
+listener accumulates across reconnects, and that the Discord 429 retry and the
+partial-guild-failure UI match their claims. It also found two defects that
+send the task back to `in_progress`.
+
+### Blocker A (critical) — the stranded-buffer bug has a second entrance
+
+`gateway-chat-bridge.ts:279-298`: the two workspace-resolution early returns in
+`runTurn` call `sendError()` and return _before_ `sealTurn` /
+`completeOutboundTurn` is wired at `:305-306`. `OutboundDeliveryService.drain()`
+only drops the `streamHandles` entry; the coalescer's `body` is cumulative per
+conversation key and is cleared **only** by `discard()`. So a turn that dies on
+a revoked workspace root leaves its error text in the buffer, and the next
+turn's reply is flushed with that stale text prepended.
+
+This is the exact class fix-order item 5 (`2f0d16d32`, `discardOutbound` in
+`tryFallbackStart`) closed — but only on the resume-failure retry path. The
+three specs covering these early returns assert only that `appendOutboundChunk`
+/ `drainOutbound` were called; their `flushUntil(() => completeOutboundTurn...)`
+polls for something that never happens and then gives up silently instead of
+failing, which is how it passed review.
+
+Fix: call `discardOutbound` / `completeOutboundTurn` — not raw `drainOutbound` —
+on both early-return paths, or have `sendError` discard after draining.
+
+### Blocker B (high) — a stopped adapter can restart itself
+
+`adapter-lifecycle.service.ts`: `cancelReconnect` / `cancelAllReconnects` clear
+only a _pending_ timer. Once the timer fires, its callback removes itself from
+`reconnectTimers` and calls `reconnect()` as an independent, uncancellable
+chain. `reconnect()` checks the enable flag once at entry, then calls
+`maybeStart(platform, true)` — and `force: true` bypasses that same check inside
+`maybeStart`. A `stopPlatform()` / `stop()` landing while a `reconnect()` is
+between its check and `adapter.start()` (a window containing a real network
+`login()`) brings the adapter back after the caller believed it stopped; during
+shutdown that leaks a live connection past `will-quit`. The existing spec
+cancels a timer that has not fired yet, so it never reaches this.
+
+Fix: a cancellation flag `reconnect()` re-checks before `maybeStart`, or a
+per-platform "stopping" guard `maybeStart` respects even under `force: true`.
+
+### Follow-up, not blocking
+
+- `gateway-chat-bridge.ts:284-298` — `await this.sendError(...)` unprotected at
+  the early returns, unlike the `.catch`-wrapped call inside `turnWork`.
+- `gateway-chat-bridge.ts:325-336` — `resolveSdkContext` failure rethrows
+  without `sendError` or `recordTurnOutcome`: total silence, by design
+  unreachable.
+- `notifyAbuseCap` sets `abuseNotified` before `sendMessage` resolves; a failed
+  send costs the whole 60s window.
+
+### Coverage gap in the review itself
+
+`libs/backend/agent-sdk` was outside the scoped paths, so the bridge's
+_consumption_ of `PermissionPromptLifecycleEvent` was verified but
+`SdkPermissionHandler` / `SdkQueryOptionsBuilder` were not.
+
 ## Related
 
 - TASK_2026_155 (turns hung forever — permission level, watchdog)

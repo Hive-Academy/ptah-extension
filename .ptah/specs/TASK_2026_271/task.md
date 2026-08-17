@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_271
-status: in_review
+status: in_progress
 type: bugfix
 title: >-
   Messaging gateway reliability — stop turning failures into silence
