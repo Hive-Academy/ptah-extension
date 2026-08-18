@@ -97,6 +97,25 @@ export interface GatewayConversation {
   lastActiveAt: number | null;
 }
 
+/**
+ * Durable lifecycle of the agent turn an INBOUND message drives (TASK_2026_277).
+ *
+ * `'queued'` is stamped at persist time, `'running'` when the bridge actually
+ * starts the turn, and `'done'` / `'failed'` in the turn's `finally`. A row left
+ * in `'queued'` or `'running'` can only mean the host process died mid-flight;
+ * the next boot moves it to `'interrupted'` and tells the sender to resend.
+ *
+ * `'interrupted'` is deliberately terminal: a half-finished turn at
+ * `auto-edit` / `yolo` may already have run `Write` or `Bash`, so replaying it
+ * would repeat side effects with no idempotency guarantee. Notify, never replay.
+ */
+export type GatewayTurnState =
+  | 'queued'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'interrupted';
+
 export interface GatewayMessage {
   id: GatewayMessageId;
   bindingId: BindingId;
@@ -106,4 +125,12 @@ export interface GatewayMessage {
   body: string;
   voicePath: string | null;
   createdAt: number;
+  /** Turn lifecycle for inbound rows; NULL for outbound and pre-0038 rows. */
+  turnState: GatewayTurnState | null;
+  /**
+   * Conversation the message belongs to. Carried on the row so the restart
+   * notice can be batched per conversation — a binding may serve several
+   * Discord threads. NULL for outbound and pre-0038 rows.
+   */
+  conversationId: GatewayConversationId | null;
 }

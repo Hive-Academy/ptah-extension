@@ -30,6 +30,7 @@ import {
   resolveBeats,
 } from './lib/selfshot-resolve.mjs';
 import { getMediaDurationMs, getVideoSize } from './lib/media.mjs';
+import { masterAudio, describeMasterResult } from './lib/master-audio.mjs';
 
 const ROOT_ENTRY = 'src/Root.tsx';
 const WHOOSH_ASSET = path.join(APP_ROOT, 'assets', 'sfx', 'whoosh.mp3');
@@ -122,7 +123,10 @@ function buildProps(slug, mode, res, ctx) {
   return {
     slug,
     mode,
-    fps: 30,
+    // Default 30 for the ingest-recorded self-shots. A manifest that splices
+    // back into an existing edit MUST declare the host timeline's rate — a 30fps
+    // render dropped into 60fps footage judders at the splice.
+    fps: manifest.fps ?? 30,
     res,
     bodyMs,
     durationMs: bodyMs + endMs,
@@ -167,8 +171,16 @@ function main() {
   if (!primary || !fs.existsSync(primary)) {
     throw new Error(`Primary media for mode "${mode}" not found in ${dir}.`);
   }
-  const bodyMs = getMediaDurationMs(primary);
-  if (!bodyMs) throw new Error(`Could not read duration of ${path.basename(primary)}.`);
+  // `bodyMs` normally IS the source length. A manifest may declare a shorter one
+  // to land on an exact frame count — a stream-copy extract overshoots to the
+  // next packet boundary, so a splice-back segment trims here rather than
+  // re-encoding the source just to lose five frames.
+  const sourceMs = getMediaDurationMs(primary);
+  if (!sourceMs) throw new Error(`Could not read duration of ${path.basename(primary)}.`);
+  const bodyMs = manifest.bodyMs ?? sourceMs;
+  if (bodyMs > sourceMs) {
+    throw new Error(`manifest.bodyMs (${bodyMs}ms) exceeds ${path.basename(primary)} (${sourceMs}ms).`);
+  }
   console.log(`[selfshot] ${slug}: mode=${mode}, body=${(bodyMs / 1000).toFixed(1)}s (${path.basename(primary)}).`);
 
   // Stage b-roll sources referenced by beats and rewrite their src to staged names.
@@ -211,6 +223,10 @@ function main() {
 
     console.log(`[selfshot] ${slug} [${format}] → ${outFile}${args.range ? ` (frames ${args.range})` : ''}`);
     execFileSync('npx', cmd, { cwd: APP_ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
+
+    // Absolute-level master (see lib/master-audio.mjs) — Remotion only sets the
+    // mix balance, so without this the file plays ~8 dB under platform target.
+    console.log(`[selfshot] ${slug} [${format}] master: ${describeMasterResult(masterAudio(outFile))}`);
   }
 
   console.log(`[selfshot] Done. Rendered ${formats.length} format(s) for ${slug}.`);

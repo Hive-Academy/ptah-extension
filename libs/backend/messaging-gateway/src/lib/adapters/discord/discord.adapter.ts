@@ -1,6 +1,8 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
+  AdapterConnectionEvent,
+  ConnectionListener,
   IMessagingAdapter,
   InboundListener,
   InboundMessage,
@@ -65,6 +67,12 @@ export interface DiscordThreadLike {
 
 export interface DiscordSendableChannelLike {
   send(payload: string | { content: string }): Promise<DiscordMessageLike>;
+  /**
+   * Discord's "Ptah is typing…" indicator. Optional because threads created
+   * through `threads.create` and older channel shapes may not expose it; the
+   * adapter treats its absence as a no-op.
+   */
+  sendTyping?(): Promise<unknown>;
   threads?: {
     create(opts: {
       name: string;
@@ -89,6 +97,19 @@ export interface DiscordClientLike {
   on(
     event: 'messageCreate',
     handler: (message: DiscordIncomingMessageLike) => void | Promise<void>,
+  ): void;
+  /**
+   * Transport lifecycle events. `error` MUST be listened to — an unlistened
+   * `error` on a Node EventEmitter throws and takes the host process down.
+   */
+  on(event: 'error' | 'shardError', handler: (error: Error) => void): void;
+  on(
+    event: 'shardDisconnect',
+    handler: (event: { code: number; reason?: string }) => void,
+  ): void;
+  on(
+    event: 'shardReconnecting' | 'shardResume' | 'shardReady' | 'invalidated',
+    handler: () => void,
   ): void;
 }
 
@@ -126,6 +147,13 @@ function resolvePublicThreadType(): number {
 
 const PER_CHANNEL_EDIT_LIMIT = 5;
 const PER_CHANNEL_WINDOW_MS = 5_000;
+/**
+ * Outbound message handles kept for `editMessage`. Only the tail of a
+ * conversation is ever edited (the coalescer edits the page it just sent), so
+ * a bounded LRU-by-insertion map is enough — without the cap a desktop app
+ * left running for weeks holds every message it ever sent (TASK_2026_271).
+ */
+const MAX_TRACKED_MESSAGES = 500;
 const THREAD_AUTO_ARCHIVE_MINUTES = 10_080;
 const THREAD_NAME_PROMPT_CHARS = 40;
 const PUBLIC_THREAD_TYPE_FALLBACK = 11;
@@ -143,9 +171,16 @@ export class DiscordAdapter implements IMessagingAdapter {
   readonly maxMessageChars = 2000;
   private client: DiscordClientLike | null = null;
   private listener: InboundListener | null = null;
+  private connectionListener: ConnectionListener | null = null;
   private commandHandler: IGatewayCommandHandler | null = null;
   private factory: DiscordClientFactory = defaultFactory;
   private running = false;
+  /**
+   * Transport health, separate from the start/stop lifecycle. Flipped by the
+   * discord.js shard events; `isRunning()` is the AND of both so a dropped
+   * gateway connection shows red in the UI instead of a permanent green.
+   */
+  private connected = false;
 
   private allowedGuildIds = new Set<string>();
   private messagesById = new Map<string, DiscordMessageLike>();
@@ -164,7 +199,11 @@ export class DiscordAdapter implements IMessagingAdapter {
   }
 
   isRunning(): boolean {
-    return this.running;
+    return this.running && this.connected;
+  }
+
+  onConnectionChange(listener: ConnectionListener): void {
+    this.connectionListener = listener;
   }
 
   listGuilds(): DiscordGuildLike[] {
@@ -173,7 +212,12 @@ export class DiscordAdapter implements IMessagingAdapter {
   }
 
   async start(token: string): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      if (this.connected) return;
+      // Started but the gateway connection is gone (invalidated / never
+      // resumed). A Start from the UI must rebuild the client, not no-op.
+      await this.stop();
+    }
     if (!token) throw new Error('Discord token is empty');
     this.client = this.factory();
     this.client.on('interactionCreate', async (interaction) => {
@@ -194,14 +238,88 @@ export class DiscordAdapter implements IMessagingAdapter {
         });
       }
     });
+    this.wireTransportEvents(this.client);
     await this.client.login(token);
     this.running = true;
+    // `login()` resolves once the shard is READY, so the transport is usable
+    // now; later shard events flip `connected` as the connection moves.
+    this.connected = true;
     this.logger.info('[gateway] discord adapter started');
+  }
+
+  /**
+   * discord.js transport events. Without an `error` listener the client's
+   * first websocket error is an uncaught EventEmitter throw; without the shard
+   * events `isRunning()` lies for the rest of the process lifetime.
+   */
+  private wireTransportEvents(client: DiscordClientLike): void {
+    const errorText = (error: unknown): string =>
+      error instanceof Error ? error.message : String(error);
+    client.on('error', (error) => {
+      this.logger.warn('[gateway] discord client error', {
+        error: errorText(error),
+      });
+      // A client `error` alone does not mean the shard is gone; discord.js
+      // reconnects on its own for most of them. Report the reason, keep state.
+      this.emitConnection({
+        state: this.connected ? 'connected' : 'reconnecting',
+        reason: errorText(error),
+      });
+    });
+    client.on('shardError', (error) => {
+      this.logger.warn('[gateway] discord shard error', {
+        error: errorText(error),
+      });
+      this.connected = false;
+      this.emitConnection({ state: 'reconnecting', reason: errorText(error) });
+    });
+    client.on('shardDisconnect', (event) => {
+      this.connected = false;
+      const reason = `Discord gateway closed (code ${event.code}${
+        event.reason ? `: ${event.reason}` : ''
+      })`;
+      this.logger.warn('[gateway] discord shard disconnected', { reason });
+      this.emitConnection({ state: 'disconnected', reason });
+    });
+    client.on('shardReconnecting', () => {
+      this.connected = false;
+      this.emitConnection({ state: 'reconnecting' });
+    });
+    client.on('shardResume', () => {
+      this.connected = true;
+      this.logger.info('[gateway] discord shard resumed');
+      this.emitConnection({ state: 'connected' });
+    });
+    client.on('shardReady', () => {
+      this.connected = true;
+      this.emitConnection({ state: 'connected' });
+    });
+    client.on('invalidated', () => {
+      // Session revoked (token reset, too many resumes). discord.js gives up
+      // here — only a destroy + fresh login recovers, which the gateway owns.
+      this.connected = false;
+      this.logger.warn('[gateway] discord session invalidated');
+      this.emitConnection({
+        state: 'invalidated',
+        reason: 'Discord session invalidated — reconnecting',
+      });
+    });
+  }
+
+  private emitConnection(event: AdapterConnectionEvent): void {
+    try {
+      this.connectionListener?.(event);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] discord connection listener threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.running) return;
     this.running = false;
+    this.connected = false;
     try {
       await this.client?.destroy();
     } catch (error: unknown) {
@@ -223,8 +341,40 @@ export class DiscordAdapter implements IMessagingAdapter {
     await this.respectChannelRateLimit(targetId);
     const channel = await this.requireChannel(targetId);
     const message = await channel.send({ content: body });
-    this.messagesById.set(message.id, message);
+    this.trackMessage(message);
     return { externalMsgId: message.id };
+  }
+
+  /** Records the handle for a later `editMessage`, evicting the oldest. */
+  private trackMessage(message: DiscordMessageLike): void {
+    this.messagesById.delete(message.id);
+    this.messagesById.set(message.id, message);
+    while (this.messagesById.size > MAX_TRACKED_MESSAGES) {
+      const oldest = this.messagesById.keys().next();
+      if (oldest.done) break;
+      this.messagesById.delete(oldest.value);
+    }
+  }
+
+  /**
+   * Best-effort "Ptah is working" indicator (TASK_2026_271). Discord expires
+   * it after ~10s, so the bridge re-arms it while a turn runs. A failure here
+   * is cosmetic — it must never surface to the caller or abort a turn.
+   */
+  async sendTyping(
+    externalChatId: string,
+    opts?: { conversationId?: string },
+  ): Promise<void> {
+    const targetId = opts?.conversationId ?? externalChatId;
+    try {
+      const channel = await this.requireChannel(targetId);
+      await channel.sendTyping?.();
+    } catch (error: unknown) {
+      this.logger.debug('[gateway] discord sendTyping failed', {
+        targetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async editMessage(
@@ -612,6 +762,7 @@ export class DiscordAdapter implements IMessagingAdapter {
 
   private async respectChannelRateLimit(channelId: string): Promise<void> {
     const now = Date.now();
+    this.pruneChannelEdits(now, channelId);
     const recent = (this.channelEdits.get(channelId) ?? []).filter(
       (ts) => ts > now - PER_CHANNEL_WINDOW_MS,
     );
@@ -621,5 +772,18 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     recent.push(Date.now());
     this.channelEdits.set(channelId, recent);
+  }
+
+  /**
+   * Drops throttle windows for channels nothing has been sent to inside the
+   * window. Every Ptah thread is a distinct key here, so without this the map
+   * accumulates one dead entry per thread for the life of the process.
+   */
+  private pruneChannelEdits(now: number, keep: string): void {
+    const cutoff = now - PER_CHANNEL_WINDOW_MS;
+    for (const [id, stamps] of this.channelEdits) {
+      if (id === keep) continue;
+      if (!stamps.some((ts) => ts > cutoff)) this.channelEdits.delete(id);
+    }
   }
 }

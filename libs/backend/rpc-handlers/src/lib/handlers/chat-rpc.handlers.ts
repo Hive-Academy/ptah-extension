@@ -1,16 +1,18 @@
 /**
  * Chat RPC Handlers — thin facade.
  *
- * Registers the six `chat:*` / `agent:backgroundList` RPC methods and delegates
- * each call to one of the extracted chat sub-services:
+ * Registers the `chat:*` / `agent:backgroundList` RPC methods and delegates
+ * each call to one of the extracted chat sub-services (except
+ * `chat:pending-questions`, which is a direct read of the SDK permission
+ * handler's live registry and has no session-service counterpart):
  *
  *   - `ChatSdkContextService`     — MCP-running probe + prompt/plugin resolution.
  *   - `ChatPtahCliService`        — Ptah CLI dispatch + the two private session maps.
  *   - `ChatStreamBroadcaster`     — webview event loop + background-agent subscription.
  *   - `ChatSessionService`        — SDK orchestration for the six chat methods.
  *
- * The six-entry METHODS tuple is preserved verbatim so `SHARED_HANDLERS`
- * coverage + runtime disjoint-ness keep working.
+ * The METHODS tuple is the manifest's source of truth for this namespace, so
+ * `SHARED_HANDLERS` coverage + runtime disjoint-ness keep working.
  *
  * Error handling: each `ChatSessionService` method already wraps its body in
  * try/catch and returns a result-shaped failure (`{ success: false, error }`)
@@ -35,7 +37,11 @@ import {
   PLATFORM_TOKENS,
   type ISessionAttachmentGuard,
 } from '@ptah-extension/platform-core';
-import { ModelNotAvailableError } from '@ptah-extension/agent-sdk';
+import {
+  ModelNotAvailableError,
+  SDK_TOKENS,
+  type SdkPermissionHandler,
+} from '@ptah-extension/agent-sdk';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -43,6 +49,8 @@ import type {
   ChatContinueResult,
   ChatAbortParams,
   ChatAbortResult,
+  ChatPendingQuestionsParams,
+  ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
   ChatResumeParams,
@@ -60,6 +68,7 @@ import {
   ChatContinueParamsSchema,
   ChatResumeParamsSchema,
   ChatAbortParamsSchema,
+  ChatPendingQuestionsParamsSchema,
 } from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
@@ -79,6 +88,7 @@ export class ChatRpcHandlers {
     'chat:continue',
     'chat:resume',
     'chat:abort',
+    'chat:pending-questions',
     'chat:running-agents',
     'agent:backgroundList',
   ] as const satisfies readonly RpcMethodName[];
@@ -96,6 +106,8 @@ export class ChatRpcHandlers {
     private readonly session: ChatSessionService,
     @inject(PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD)
     private readonly attachmentGuard: ISessionAttachmentGuard,
+    @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+    private readonly permissionHandler: SdkPermissionHandler,
   ) {}
 
   /**
@@ -235,6 +247,29 @@ export class ChatRpcHandlers {
         return this.session.abortSession(params);
       },
     );
+    this.wire<ChatPendingQuestionsParams, ChatPendingQuestionsResult>(
+      'chat:pending-questions',
+      'registerChatPendingQuestions',
+      async (params) => {
+        ChatPendingQuestionsParamsSchema.parse(params);
+        // Reload recovery: the webview lost the rendered AskUserQuestion
+        // prompt but the SDK call is still parked on it. Replay whatever the
+        // permission handler is still holding for this session so the user
+        // can answer instead of waiting out the idle timeout.
+        try {
+          return {
+            success: true,
+            questions: this.permissionHandler.listPendingQuestions(
+              params.sessionId,
+            ),
+          };
+        } catch (error: unknown) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.error('RPC: chat:pending-questions lookup failed', err);
+          return { success: false, questions: [], error: err.message };
+        }
+      },
+    );
     this.wire<ChatRunningAgentsParams, ChatRunningAgentsResult>(
       'chat:running-agents',
       'registerChatRunningAgents',
@@ -261,6 +296,7 @@ export class ChatRpcHandlers {
         'chat:continue',
         'chat:resume',
         'chat:abort',
+        'chat:pending-questions',
         'chat:running-agents',
         'agent:backgroundList',
         'agent:backgroundStop',

@@ -64,7 +64,6 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import { existsSync } from 'fs';
 import { Result } from '@ptah-extension/shared';
-import type { CliGenerationResult } from '@ptah-extension/shared';
 import {
   ProjectType,
   Framework,
@@ -85,7 +84,6 @@ import type { ITemplateStorageService } from '../interfaces/template-storage.int
 import type { IContentGenerationService } from '../interfaces/content-generation.interface';
 import type { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
 import type { IOutputValidationService } from '../interfaces/output-validation.interface';
-import type { MultiCliAgentWriterService } from './cli-agent-transforms/multi-cli-agent-writer.service';
 import type {
   AgentTemplate,
   AgentProjectContext,
@@ -167,7 +165,6 @@ interface OrchestratorMocks {
   projectDetector: jest.Mocked<ProjectDetectorService>;
   frameworkDetector: jest.Mocked<FrameworkDetectorService>;
   monorepoDetector: jest.Mocked<MonorepoDetectorService>;
-  multiCliWriter: jest.Mocked<MultiCliAgentWriterService>;
   sentryService: jest.Mocked<SentryService>;
   outputValidation: jest.Mocked<IOutputValidationService>;
 }
@@ -219,10 +216,6 @@ function createOrchestrator(): {
     detectMonorepo: jest.fn(),
   } as unknown as jest.Mocked<MonorepoDetectorService>;
 
-  const multiCliWriter = {
-    writeForClis: jest.fn(),
-  } as unknown as jest.Mocked<MultiCliAgentWriterService>;
-
   const sentryService = {
     captureException: jest.fn(),
     captureMessage: jest.fn(),
@@ -245,7 +238,6 @@ function createOrchestrator(): {
     projectDetector,
     frameworkDetector,
     monorepoDetector,
-    multiCliWriter,
     sentryService,
     outputValidation,
   );
@@ -262,7 +254,6 @@ function createOrchestrator(): {
       projectDetector,
       frameworkDetector,
       monorepoDetector,
-      multiCliWriter,
       sentryService,
       outputValidation,
     },
@@ -607,30 +598,6 @@ describe('AgentGenerationOrchestratorService', () => {
       });
 
       expect(result.value!.enhancedPromptsUsed).toBe(true);
-    });
-
-    it('runs Phase 5 multi-CLI distribution when targetClis is supplied', async () => {
-      const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
-
-      const cliResults: CliGenerationResult[] = [
-        {
-          cli: 'cursor',
-          agentsWritten: 1,
-          agentsFailed: 0,
-          paths: ['/home/user/.cursor/agents/backend-developer.md'],
-          errors: [],
-        },
-      ];
-      mocks.multiCliWriter.writeForClis.mockResolvedValue(cliResults);
-
-      const result = await service.generateAgents({
-        workspacePath: '/workspace/test-project',
-        targetClis: ['cursor'],
-      });
-
-      expect(mocks.multiCliWriter.writeForClis).toHaveBeenCalledTimes(1);
-      expect(result.value!.cliResults).toEqual(cliResults);
     });
 
     it('detects build tools and testing frameworks from devDependencies', async () => {
@@ -1016,88 +983,16 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(mocks.sentryService.captureException).toHaveBeenCalled();
       expect(result.error?.message).toContain('Catastrophic init failure');
     });
-
-    it('treats Phase 5 failure as non-fatal (warning only)', async () => {
-      const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
-      mocks.multiCliWriter.writeForClis.mockRejectedValue(
-        new Error('Phase 5 crashed'),
-      );
-
-      const result = await service.generateAgents({
-        workspacePath: '/workspace/test-project',
-        targetClis: ['cursor'],
-      });
-
-      expect(result.isOk()).toBe(true);
-      expect(
-        result.value!.warnings.some((w) =>
-          w.includes('Multi-CLI distribution failed'),
-        ),
-      ).toBe(true);
-    });
-
-    it('appends per-CLI errors as warnings even when Phase 5 itself succeeded', async () => {
-      const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
-      mocks.multiCliWriter.writeForClis.mockResolvedValue([
-        {
-          cli: 'codex',
-          agentsWritten: 0,
-          agentsFailed: 1,
-          paths: [],
-          errors: ['No transformer registered for codex'],
-        },
-      ]);
-
-      const result = await service.generateAgents({
-        workspacePath: '/workspace/test-project',
-        targetClis: ['codex'],
-      });
-
-      expect(result.isOk()).toBe(true);
-      expect(
-        result.value!.warnings.some((w) =>
-          w.includes('No transformer registered for codex'),
-        ),
-      ).toBe(true);
-    });
   });
 
   // ===========================================================================
   // 5. CANCELLATION SEMANTICS (gating + steer)
   //    The orchestrator's cancellation surface is its set of deterministic
-  //    "stop the pipeline" gates: validation gating, conditional Phase 5
-  //    dispatch, and content-generation refusal. Each gate must short-circuit
-  //    a single agent or the entire pipeline without leaking partial output.
+  //    "stop the pipeline" gates: validation gating and content-generation
+  //    refusal. Each gate must short-circuit a single agent or the entire
+  //    pipeline without leaking partial output.
   // ===========================================================================
   describe('Cancellation semantics (validation gates)', () => {
-    it('skips Phase 5 entirely when targetClis is undefined', async () => {
-      const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
-
-      const result = await service.generateAgents({
-        workspacePath: '/workspace/test-project',
-      });
-
-      expect(result.isOk()).toBe(true);
-      expect(mocks.multiCliWriter.writeForClis).not.toHaveBeenCalled();
-      expect(result.value!.cliResults).toBeUndefined();
-    });
-
-    it('skips Phase 5 when targetClis is an empty array', async () => {
-      const { service, mocks } = createOrchestrator();
-      wireHappyPath(mocks);
-
-      const result = await service.generateAgents({
-        workspacePath: '/workspace/test-project',
-        targetClis: [],
-      });
-
-      expect(result.isOk()).toBe(true);
-      expect(mocks.multiCliWriter.writeForClis).not.toHaveBeenCalled();
-    });
-
     it('falls back to the authored template (never drops) on a critical SAFETY validation failure', async () => {
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);

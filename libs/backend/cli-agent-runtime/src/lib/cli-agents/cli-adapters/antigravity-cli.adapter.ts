@@ -52,6 +52,11 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
+import {
+  createMcpFacet,
+  PTAH_SPAWN_MCP_KEY,
+  type IHarnessMcpFacet,
+} from '@ptah-extension/harness-sync';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -282,72 +287,68 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   /**
-   * Path to the global MCP config `agy` reads at startup.
-   * The documented (post-migration) location is ~/.gemini/config/mcp_config.json.
+   * The ONE writer of `~/.gemini/config/mcp_config.json`.
+   *
+   * This adapter used to hand-roll its own read-modify-write of that file. Then
+   * `agy` became a user-installable MCP target (TASK_2026_285) and the harness
+   * reconciler started writing the SAME file, which made the hand-rolled copy a
+   * second writer with a second idea of the format and no serialization at all
+   * — one lost update and the user's installed server disappears after an agent
+   * run, silently.
+   *
+   * So both sides go through the facet from `harness-sync`, which owns the
+   * schema (`mcpServers`, `serverUrl` for remote), the atomic write and the
+   * config-file lock. The dependency direction is the allowed one:
+   * `cli-agent-runtime` → `harness-sync`, never the reverse.
+   *
+   * `homeDir` is resolved env-first for the same reason `geminiRoot()` is —
+   * tests and sandboxes reassign `HOME` after module load, and the facet's
+   * default would otherwise resolve `os.homedir()` and write to the real one.
    */
-  private static mcpConfigPath(): string {
-    return join(
-      AntigravityCliAdapter.geminiRoot(),
-      'config',
-      'mcp_config.json',
-    );
+  private static mcpFacet(): IHarnessMcpFacet {
+    return createMcpFacet('antigravity', {
+      homeDir: process.env['HOME'] || process.env['USERPROFILE'] || homedir(),
+    });
   }
 
   /**
-   * Configure the Ptah MCP server in ~/.gemini/config/mcp_config.json.
-   * `agy` uses a `mcpServers` map; remote servers are declared with a
-   * `serverUrl` field (SSE transport). Non-fatal: errors are silently caught.
+   * Publish Ptah's own MCP server for this run.
+   *
+   * The key is `PTAH_SPAWN_MCP_KEY`, shared with the reconciler so the two
+   * writers cannot disagree about which name is ephemeral. The facet's write is
+   * read-modify-write of ONE key, so a user's servers — installed through the
+   * marketplace or by hand — are carried through untouched.
+   *
+   * Non-fatal: a failure here costs MCP tools for this run, and the CLI still
+   * functions, so it must not abort the spawn.
    */
   private async configureMcpServer(port: number): Promise<void> {
     try {
-      const configPath = AntigravityCliAdapter.mcpConfigPath();
-
-      let config: Record<string, unknown> = {};
-      try {
-        const content = await readFile(configPath, 'utf8');
-        if (content.trim()) {
-          config = JSON.parse(content) as Record<string, unknown>;
-        }
-      } catch {
-        // Missing or malformed file — start fresh.
-      }
-
-      const mcpServers =
-        (config['mcpServers'] as Record<string, unknown>) || {};
-      mcpServers['ptah'] = {
-        serverUrl: `http://localhost:${port}`,
-      };
-      config['mcpServers'] = mcpServers;
-
-      await mkdir(join(AntigravityCliAdapter.geminiRoot(), 'config'), {
-        recursive: true,
-      });
-      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+      await AntigravityCliAdapter.mcpFacet().write(
+        '',
+        PTAH_SPAWN_MCP_KEY,
+        // `agy`'s remote transport is SSE and the facet serializes this as
+        // `{ serverUrl }`, which is the only remote shape the CLI reads.
+        { type: 'sse', url: `http://localhost:${port}` },
+      );
     } catch {
       // MCP tools won't be available this run; CLI still functions.
     }
   }
 
   /**
-   * Remove the ptah MCP entry from ~/.gemini/config/mcp_config.json.
-   * Called after the process exits to avoid stale port references.
-   * Non-fatal: errors are silently caught.
+   * Retract the per-run entry after the process exits, so no stale localhost
+   * port is left pointing at a closed server.
+   *
+   * Removes exactly `PTAH_SPAWN_MCP_KEY` and nothing else. The previous version
+   * also deleted the whole `mcpServers` map once it looked empty, which was
+   * safe only while Ptah was the sole writer; now that a user's install can
+   * live in that map, "empty" is a claim this code is no longer entitled to
+   * make. Non-fatal: a leftover entry is overwritten by the next spawn.
    */
   private async cleanupMcpEntry(): Promise<void> {
     try {
-      const configPath = AntigravityCliAdapter.mcpConfigPath();
-      const content = await readFile(configPath, 'utf8');
-      const config = JSON.parse(content) as Record<string, unknown>;
-      const mcpServers = config['mcpServers'] as
-        | Record<string, unknown>
-        | undefined;
-      if (!mcpServers?.['ptah']) return;
-
-      delete mcpServers['ptah'];
-      if (Object.keys(mcpServers).length === 0) {
-        delete config['mcpServers'];
-      }
-      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+      await AntigravityCliAdapter.mcpFacet().remove('', PTAH_SPAWN_MCP_KEY);
     } catch {
       // Stale ptah entry will be overwritten on next configureMcpServer().
     }

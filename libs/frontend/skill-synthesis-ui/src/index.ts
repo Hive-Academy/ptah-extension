@@ -1,6 +1,7 @@
 export { SkillSynthesisTabComponent } from './lib/components/skill-synthesis-tab.component';
 export { SkillStatsStripComponent } from './lib/components/skill-stats-strip.component';
 export { SkillPipelineStatusComponent } from './lib/components/skill-pipeline-status.component';
+export { SkillDigestPanelComponent } from './lib/components/skill-digest-panel.component';
 export { SkillCandidatesTableComponent } from './lib/components/skill-candidates-table.component';
 export type { SkillCandidateAction } from './lib/components/skill-candidates-table.component';
 export { SkillInvocationsPanelComponent } from './lib/components/skill-invocations-panel.component';

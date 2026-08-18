@@ -59,6 +59,7 @@ import {
   spawnCli,
   killProcessTree,
   createBufferedEmitter,
+  withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 
 /**
@@ -122,19 +123,33 @@ interface OpencodeEvent {
   };
 }
 
+/** Resolves a module request to its on-disk path (`require.resolve`). */
+type ModulePathResolver = (request: string) => string;
+
+/** Default seam implementation; keeps `require` off the module's top level. */
+const requireResolveModulePath: ModulePathResolver = (request) =>
+  require.resolve(request);
+
 /**
  * Resolve the opencode native binary inside its Windows platform package.
  *
  * The npm `.ps1` wrapper opencode generates has been reported to invoke
  * `/bin/sh.exe`, which does not exist on stock Windows. When that path breaks,
  * spawning the bundled `.exe` directly bypasses the wrapper entirely. Mirrors
- * the resolution-order strategy of CodexCliAdapter.resolveCodexNativeBinary().
+ * the resolution-order strategy of CodexCliAdapter.resolveCodexNativeBinary(),
+ * including the `app.asar` → `app.asar.unpacked` twin for module-resolved
+ * candidates, which a packaged Electron build needs to reach a spawnable file.
  *
  * Returns `undefined` off-Windows, on unsupported arches, or when no candidate
  * exists (e.g. the tool was installed via Homebrew/Scoop/curl rather than npm).
+ *
+ * @internal Exported for unit tests only. `resolveModulePath` is a seam: Jest's
+ * `require.resolve` can never yield an `app.asar` path, so the asar branch is
+ * unreachable otherwise. Production callers pass `detectedCliPath` alone.
  */
-function resolveOpencodeNativeBinary(
+export function resolveOpencodeNativeBinary(
   detectedCliPath?: string,
+  resolveModulePath: ModulePathResolver = requireResolveModulePath,
 ): string | undefined {
   if (process.platform !== 'win32') return undefined;
   const platformPkg = OPENCODE_WINDOWS_PACKAGES[process.arch];
@@ -151,9 +166,11 @@ function resolveOpencodeNativeBinary(
   }
 
   try {
-    const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
+    const platformPkgJson = resolveModulePath(`${platformPkg}/package.json`);
     candidates.push(
-      path.join(path.dirname(platformPkgJson), 'bin', 'opencode.exe'),
+      ...withAsarUnpackedTwin(
+        path.join(path.dirname(platformPkgJson), 'bin', 'opencode.exe'),
+      ),
     );
   } catch {
     // noop — platform package not resolvable from here.
@@ -161,9 +178,11 @@ function resolveOpencodeNativeBinary(
 
   try {
     // opencode-ai nests its platform package under its own node_modules.
-    const cliPkgJson = require.resolve('opencode-ai/package.json');
+    const cliPkgJson = resolveModulePath('opencode-ai/package.json');
     candidates.push(
-      path.join(path.dirname(cliPkgJson), 'node_modules', relFromNodeModules),
+      ...withAsarUnpackedTwin(
+        path.join(path.dirname(cliPkgJson), 'node_modules', relFromNodeModules),
+      ),
     );
   } catch {
     // noop — opencode-ai not resolvable from here.

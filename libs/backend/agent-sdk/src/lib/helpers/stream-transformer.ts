@@ -312,16 +312,17 @@ export class StreamTransformer {
                     if (model.startsWith('<') && model.endsWith('>')) {
                       continue;
                     }
-                    const resolvedModel = modelResolver.resolveForPricing(
-                      model,
-                      authEnv,
-                    );
+                    const priced = modelResolver.resolveForCost(model, authEnv);
+                    const resolvedModel = priced.modelId;
                     let costUSD: number | null;
                     if (isDirect) {
                       costUSD = usage.costUSD;
                     } else {
+                      // Prefer the already-hydrated map; only pay for a catalog
+                      // round-trip when the model is genuinely unknown to it.
                       const pricing =
-                        await pricingProvider.getPricing(resolvedModel);
+                        priced.pricing ??
+                        (await pricingProvider.getPricing(resolvedModel));
                       costUSD = pricing
                         ? calculateMessageCost(
                             resolvedModel,

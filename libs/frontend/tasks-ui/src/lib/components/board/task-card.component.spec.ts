@@ -101,6 +101,42 @@ describe('TaskCardComponent', () => {
     expect(emitted).toEqual({ taskId: 'TASK_2026_200', isolate: true });
   });
 
+  /**
+   * The gate is startability, not terminality (TASK_2026_252). The card used to
+   * ask "is this finished?", which offered Start on `in_progress` and
+   * `in_review` — a second launch racing the run already against the task, and
+   * `TaskStartService` then writes `in_progress` over the carrier the first one
+   * is working from. All six statuses are asserted here, so a status added to
+   * the shared union cannot slip in unclassified.
+   */
+  describe.each([
+    ['backlog' as const, true],
+    ['blocked' as const, true],
+    ['in_progress' as const, false],
+    ['in_review' as const, false],
+    ['done' as const, false],
+    ['cancelled' as const, false],
+  ])('start affordance on a %s card', (status, offered) => {
+    it(`${offered ? 'renders' : 'hides'} Start and the isolate toggle`, () => {
+      const host = render(makeTask({ status })).nativeElement as HTMLElement;
+
+      expect(
+        host.querySelector('button[aria-label="Start task TASK_2026_200"]'),
+      ).toEqual(offered ? expect.anything() : null);
+      expect(
+        host.querySelector(
+          'input[aria-label="Run implementation in an isolated git worktree"]',
+        ),
+      ).toEqual(offered ? expect.anything() : null);
+    });
+  });
+
+  it('names the status on the footer a non-startable card shows instead', () => {
+    const host = render(makeTask({ status: 'in_review' }))
+      .nativeElement as HTMLElement;
+    expect(host.textContent ?? '').toContain('In Review');
+  });
+
   it('emits statusChange when a different status is picked', () => {
     const fixture = render(makeTask({ status: 'backlog' }));
     let emitted: TaskStatusChange | undefined;

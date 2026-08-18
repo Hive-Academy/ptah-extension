@@ -586,7 +586,8 @@ export class SessionHistoryReaderService {
       cacheRead: number,
       cacheCreation: number,
     ): void => {
-      const resolvedModel = this.modelResolver.resolveForPricing(rawModel);
+      const priced = this.modelResolver.resolveForCost(rawModel);
+      const resolvedModel = priced.modelId;
       const modelKey = resolvedModel || rawModel || 'unknown';
       const existing = perModelUsage.get(modelKey) || {
         input: 0,
@@ -596,12 +597,16 @@ export class SessionHistoryReaderService {
       };
       existing.input += input;
       existing.output += output;
-      const contribution = calculateMessageCost(resolvedModel, {
-        input,
-        output,
-        cacheHit: cacheRead,
-        cacheCreation,
-      });
+      const contribution = calculateMessageCost(
+        resolvedModel,
+        {
+          input,
+          output,
+          cacheHit: cacheRead,
+          cacheCreation,
+        },
+        priced.pricing,
+      );
       if (contribution !== null) {
         existing.cost += contribution;
         existing.hasCostContribution = true;
@@ -717,14 +722,16 @@ export class SessionHistoryReaderService {
           ? contributors.reduce((sum, entry) => sum + (entry.costUSD ?? 0), 0)
           : null;
     } else {
+      const priced = this.modelResolver.resolveForCost(detectedModel || '');
       totalCost = calculateMessageCost(
-        this.modelResolver.resolveForPricing(detectedModel || ''),
+        priced.modelId,
         {
           input: totalInput,
           output: totalOutput,
           cacheHit: totalCacheRead,
           cacheCreation: totalCacheCreation,
         },
+        priced.pricing,
       );
     }
 

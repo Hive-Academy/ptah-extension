@@ -116,16 +116,25 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'memory:setTriggers',
   'memory:stats',
   'memory:unpin',
+  // The whole `skillSynthesis:*` namespace requires the `skillSynthesis`
+  // capability (manifest.ts `requires: ['skillSynthesis']`), which
+  // `createVscodeRpcHostProfile` never turns on: the queue, candidate store and
+  // budget ledger are all better-sqlite3-backed, so this host serves none of it.
   'skillSynthesis:acceptSuggestion',
   'skillSynthesis:analyzeNow',
   'skillSynthesis:applyProposal',
   'skillSynthesis:clearStaleSpecs',
   'skillSynthesis:diagnostics',
+  // Weekly gap digest — reads the SQLite candidate/invocation tables.
+  'skillSynthesis:digest',
   'skillSynthesis:dismissSuggestion',
   'skillSynthesis:enhanceNow',
   'skillSynthesis:getCandidate',
   'skillSynthesis:getClone',
   'skillSynthesis:getHistoryBody',
+  // Lane config read — lanes only exist to route the background drain, which
+  // this host does not run.
+  'skillSynthesis:getLanes',
   'skillSynthesis:getScorecardDetail',
   'skillSynthesis:getScorecards',
   'skillSynthesis:getSettings',
@@ -143,12 +152,16 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:previewEnhancement',
   'skillSynthesis:promote',
   'skillSynthesis:promoteBulk',
+  // Durable synthesis-queue inspection — the queue table is SQLite-only.
+  'skillSynthesis:queue',
   'skillSynthesis:rebaseClone',
   'skillSynthesis:reject',
   'skillSynthesis:rejectBulk',
   'skillSynthesis:rejectByPattern',
   'skillSynthesis:revertEnhancement',
   'skillSynthesis:runCurator',
+  // Lane config write — counterpart of `getLanes`, same reason.
+  'skillSynthesis:setLanes',
   'skillSynthesis:setTriggers',
   'skillSynthesis:stats',
   'skillSynthesis:unpin',

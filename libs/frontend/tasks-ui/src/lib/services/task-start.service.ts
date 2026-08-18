@@ -6,6 +6,18 @@ import { TasksStore } from './tasks-store.service';
 const RESOLVE_GUARD_TIMEOUT_MS = 30_000;
 
 /**
+ * The slash command Start submits — UN-NAMESPACED, and it has to stay that way.
+ *
+ * This was `/ptah-core:orchestrate` and every Start click answered "Unknown
+ * command" for zero tokens (TASK_2026_252). The harness reconciler copies
+ * skills into `.claude/skills/` and commands into `.claude/commands/`
+ * precisely so the SDK sees them un-namespaced — plugins are not passed via the
+ * SDK query option, so a `plugin:command` form resolves to nothing. See
+ * `CommandDiscoveryService`'s header in `@ptah-extension/workspace-intelligence`.
+ */
+const ORCHESTRATE_COMMAND = '/orchestrate';
+
+/**
  * Self-contained natural-language directive appended to the orchestrate prompt
  * when the user asks for isolated implementation. Rather than the host creating
  * a worktree up front (which the session can't be authorized into), the AGENT
@@ -23,7 +35,7 @@ const ISOLATION_DIRECTIVE =
  *
  * Sequence (all frontend; only `AppStateManager` + `TasksStore` are touched —
  * **no `chat` import**, NFR-11):
- *   1. Build the prompt `/ptah-core:orchestrate <TASK_ID>`, appending an
+ *   1. Build the prompt `/orchestrate <TASK_ID>`, appending an
  *      agent-managed worktree-isolation directive when `isolate` is chosen (the
  *      agent isolates its own work; the host never creates a worktree — F-D1).
  *   2. `appState.requestChatPrompt(...)` behind a 30s resolve guard.
@@ -115,8 +127,8 @@ export class TaskStartService {
       );
 
       const prompt = isolate
-        ? `/ptah-core:orchestrate ${taskId}${ISOLATION_DIRECTIVE}`
-        : `/ptah-core:orchestrate ${taskId}`;
+        ? `${ORCHESTRATE_COMMAND} ${taskId}${ISOLATION_DIRECTIVE}`
+        : `${ORCHESTRATE_COMMAND} ${taskId}`;
 
       this.appState.requestChatPrompt({
         prompt,

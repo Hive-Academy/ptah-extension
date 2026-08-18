@@ -1,0 +1,11 @@
+{
+  "name": "ptah-dotnet",
+  "description": ".NET workspace discovery, domain modelling, solution/project layout, and the Nx integration decision -- hands off dotnet new, testing, EF Core, MSBuild, NuGet, ASP.NET Core, and Blazor execution to Microsoft's dotnet/skills plugins",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ptah"
+  },
+  "repository": "https://github.com/Hive-Academy/ptah-extension",
+  "homepage": "https://github.com/Hive-Academy/ptah-extension",
+  "license": "MIT"
+}

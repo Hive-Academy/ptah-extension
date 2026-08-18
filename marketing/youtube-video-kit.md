@@ -42,15 +42,22 @@ Paste-ready titles, descriptions, tags, and chapters — reusable metadata for t
 3. tribunal-tour
 4. gateway-tour
 5. memory-recall
-6. skills-tour
-7. cron-tour
-8. thoth-tour
-9. marketplace-tour
-10. settings-tour
-11. dashboard-tour
-12. editor-tour
-13. setup-wizard-tour
-14. landing-page-tour _(marketing overview — pin as channel trailer, keep out of the feature run)_
+6. memory-explorer _(pairs with 5 — `memory-recall` is how retrieval works, this is what the store looks like)_
+7. skills-tour
+8. cron-tour
+9. thoth-tour
+10. marketplace-tour
+11. settings-tour
+12. dashboard-tour
+13. editor-tour
+14. setup-wizard-tour
+15. landing-page-tour _(marketing overview — pin as channel trailer, keep out of the feature run)_
+
+> [!NOTE]
+> The numbers above are the **playlist sequence**. The `## N.` numbers on the
+> sections below are stable document anchors and stopped tracking playlist
+> position when `memory-explorer` was inserted at 6 — don't renumber the
+> sections to match, the older copy is linked to by section number elsewhere.
 
 > [!NOTE]
 > **Chapters:** only `landing-page-tour` (3:06) is long enough to warrant YouTube chapters — YouTube requires ≥3 chapters with the last ≥10s, which sub-90s videos can't satisfy. Its chapter list is at the bottom of this file. The rest are single-topic clips; no chapters needed.
@@ -422,3 +429,63 @@ Ptah is free & open source — install it today. Want to shape where it goes nex
 2:36 How it's different (vs Cursor & Copilot)
 2:51 VS Code, CLI & free / open source
 ```
+
+---
+
+## 15. memory-explorer — 1:35 _(playlist position 6)_
+
+Source: `apps/ptah-video-studio/selfshot/graph-memory-reel/` (self-shot recut of a
+Memory Explorer session on this monorepo — shot list in `shots.tsv`, VO in
+`narration.json`, camera + overlays in `beats.json`).
+
+> [!NOTE]
+> This one carries **narration on the founder's ElevenLabs voice clone**, the same
+> treatment `tribunal-reel` shipped with — not the AI narrator the banner at the
+> top of this file bans. If that distinction ever gets ruled out, re-record
+> `audio.wav` against the existing `narration.json` timings and re-render; the cut
+> and the beats don't move.
+
+**Title:** 24,828 memories from one codebase — Ptah Memory Explorer
+**Short/X title:** 24,828 memories — and nobody wrote a single one by hand
+
+**Description:**
+
+```
+Ptah indexes your codebase into a memory graph. This is what 24,828 of those memories look like on a real Nx monorepo — no mock data, no seeded demo.
+
+Two views over the same local database. The graph draws the concepts your agents keep writing about: 150 nodes, 574 edges, and node size is simply how many memories mention it. Click one and you get the memory itself — its kind, its salience, its tags, and the exact source file it came from. Nobody wrote these by hand; they're curated while the agents work, and they outlive the session that produced them. Filter to a single concept and it tells you exactly how much it knows.
+
+The vector space is the other half. Every memory is also a 384-dimension embedding stored in SQLite next to your code, and clicking any point pulls its nearest neighbours by cosine similarity — the same bug, described three different ways, weeks apart. That's what your agents read before they answer.
+
+Ptah is the AI coding orchestra — persistent memory, compounding skills, and up to nine agents at once, on desktop, in VS Code, or headless CLI.
+
+▶ More Ptah tours: [PLAYLIST_LINK]
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 70% off their first year: https://ptah.live/?utm_source=youtube#waitlist
+📚 Docs: https://docs.ptah.live
+💬 Community: [DISCORD_LINK]
+```
+
+**Tags:** vector database, knowledge graph, embeddings, codebase indexing, semantic search, rag, ai memory, local first ai, sqlite vector search
+
+**Chapters (optional — paste into description):**
+
+```
+0:00 24,828 memories on a real codebase
+0:19 Inside a single memory — kind, tags, source file
+0:31 Curated automatically, not written by hand
+0:43 One concept, 40 memories
+0:55 The vector space — 384d embeddings in local SQLite
+1:03 Nearest neighbours by cosine similarity
+```
+
+> [!NOTE]
+> The banner rule above says sub-90s clips can't carry chapters. At 1:35 this one
+> clears YouTube's bar (6 chapters, last runs 32s) — but it's still a single-topic
+> clip, so the house convention would skip them. Timings are read off `beats.json`,
+> not estimated.
+
+**Alternate titles** (if leading with a number tests badly):
+
+- Seeing everything your AI agents remember — Ptah Memory Explorer
+- Your codebase as a graph and a vector space — Ptah Memory Explorer

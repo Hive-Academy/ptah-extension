@@ -47,7 +47,9 @@
             (change)="onWindowChange($event)"
           >
             @for (d of windowOptions; track d) {
-              <option [value]="d">Next {{ d }} days</option>
+              <option [value]="d" [selected]="d === daysAhead()">
+                Next {{ d }} days
+              </option>
             }
           </select>
         </label>

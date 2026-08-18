@@ -47,7 +47,9 @@ Checking for existing design system...
 
 ```typescript
 // Check if design system exists
-const designSystemPath = '.claude/skills/technical-content-writer/DESIGN-SYSTEM.md';
+// Resolve against the technical-content-writer skill's own directory
+// (from the Skill tool / plugin root), never a workspace-relative path.
+const designSystemPath = `${technicalContentWriterSkillDir}/DESIGN-SYSTEM.md`;
 const exists = await fileExists(designSystemPath);
 // Result: false
 
@@ -57,7 +59,7 @@ const exists = await fileExists(designSystemPath);
 **Orchestrator Output**:
 
 ```
-Design system not found at: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+Design system not found: DESIGN-SYSTEM.md is missing from the technical-content-writer skill directory
 
 Invoking ui-ux-designer to create brand identity and design system...
 ```
@@ -317,7 +319,7 @@ Task({
   prompt: `You are technical-content-writer for TASK_2026_047.
 
 **Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_047
-**Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: Read DESIGN-SYSTEM.md from the technical-content-writer skill directory
 **Visual Spec**: Read .ptah/specs/TASK_2026_047/visual-design-specification.md
 
 Create landing page content that integrates with the design system.
@@ -357,7 +359,7 @@ Technical Accuracy Verified.
 ## Design System Reference
 
 Colors, typography, and effects defined in:
-`.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
+`DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 
 ---
 
@@ -596,7 +598,7 @@ Task({
   prompt: `You are frontend-developer for TASK_2026_047.
 
 **Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_047
-**Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: Read DESIGN-SYSTEM.md from the technical-content-writer skill directory
 **Content Spec**: Read .ptah/specs/TASK_2026_047/content-specification.md
 
 Implement the landing page with design system integration.
@@ -727,7 +729,7 @@ Summary:
 - Implementation: 9 components created
 
 Deliverables:
-1. Brand Design System (.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
+1. Brand Design System (DESIGN-SYSTEM.md, in the technical-content-writer skill directory)
 2. Visual Specification (.ptah/specs/TASK_2026_047/visual-design-specification.md)
 3. Content Specification (.ptah/specs/TASK_2026_047/content-specification.md)
 4. Landing Page Components (apps/landing/src/app/*)

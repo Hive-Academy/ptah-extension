@@ -26,6 +26,10 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  HARNESS_SYNC_TOKENS,
+  type HarnessReconcilerService,
+} from '@ptah-extension/harness-sync';
 import type {
   IWorkspaceProvider,
   IUserInteraction,
@@ -121,7 +125,11 @@ export class McpDirectoryRpcHandlers {
   private readonly smitheryResolver: SmitheryConnectionResolver;
   private readonly smitheryManifest: SmitheryInstalledManifestStore;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
-  private readonly installService = new McpInstallService();
+  /**
+   * Assigned in the constructor, not here: the reconciler comes from the
+   * container, and a field initializer runs before the constructor body has it.
+   */
+  private readonly installService: McpInstallService;
   private readonly oauthManifest = new McpOAuthInstalledManifestStore();
   private readonly oauthService: McpOAuthService;
 
@@ -143,6 +151,18 @@ export class McpDirectoryRpcHandlers {
   ) {
     this.registryProvider = new McpRegistryProvider(this.logger);
     this.sourceRegistry.register(this.registryProvider);
+
+    // Installing an MCP server records an intent and asks the reconciler to
+    // apply it; the per-target config writers live behind `IHarnessMcpFacet`
+    // (TASK_2026_278 Batch 2). A host without `harness-sync` gets a service
+    // that reports a clear error per target rather than a second write path.
+    this.installService = new McpInstallService(
+      container.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER)
+        ? container.resolve<HarnessReconcilerService>(
+            HARNESS_SYNC_TOKENS.RECONCILER,
+          )
+        : null,
+    );
 
     const getSmitheryApiKey = async (): Promise<string | null> =>
       (await this.authSecretsService.getProviderKey(

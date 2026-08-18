@@ -45,13 +45,22 @@ export function shouldComposerSubmit(state: ComposerInputState): boolean {
  * So Ctrl+S opened Settings AND typed "s", Ctrl+K opened the palette AND typed
  * "k" — both handlers firing on one key, which is what made the shortcuts feel
  * broken.
+ *
+ * `escapePrefixed` covers the Alt chord the terminal delivered as two separate
+ * keypresses, where `key.meta` is false and this test would otherwise let the
+ * letter stand — which is the visible half of that defect: `Alt+L` typing an
+ * `l` into the message instead of opening the sessions panel. The shell decides
+ * that a lone character following a bare Escape IS a chord
+ * (`lib/meta-chord.ts`); this makes the composer agree, so exactly one of the
+ * two reads it that way.
  */
 export function shouldRollBackChord(
   state: ComposerInputState,
   key: { readonly ctrl?: boolean; readonly meta?: boolean },
   input: string,
+  escapePrefixed = false,
 ): boolean {
   if (!isComposerFocused(state)) return false;
-  if (key.ctrl !== true && key.meta !== true) return false;
+  if (key.ctrl !== true && key.meta !== true && !escapePrefixed) return false;
   return input.length > 0;
 }

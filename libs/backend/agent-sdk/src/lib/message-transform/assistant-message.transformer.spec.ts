@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { findModelPricing } from '@ptah-extension/shared';
 import { AssistantMessageTransformer } from './assistant-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
@@ -51,6 +52,12 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
     },
     modelResolver: {
       resolveForPricing: jest.fn().mockImplementation((m: string) => m),
+      isSubscriptionCovered: jest.fn().mockReturnValue(false),
+      resolveForCost: jest.fn().mockImplementation((m: string) => ({
+        modelId: m,
+        pricing: findModelPricing(m),
+        subscriptionCovered: false,
+      })),
     },
     sessionLifecycle: {
       getActiveSessionIds: jest.fn().mockReturnValue([]),

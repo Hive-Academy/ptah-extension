@@ -21,6 +21,7 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
+import { findModelPricing } from '@ptah-extension/shared';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 
@@ -62,10 +63,19 @@ function makeSessionLifecycle(
 }
 
 function makeModelResolver(): jest.Mocked<
-  Pick<IModelResolver, 'resolveForPricing'>
+  Pick<
+    IModelResolver,
+    'resolveForPricing' | 'resolveForCost' | 'isSubscriptionCovered'
+  >
 > {
   return {
     resolveForPricing: jest.fn().mockImplementation((m: string) => m),
+    isSubscriptionCovered: jest.fn().mockReturnValue(false),
+    resolveForCost: jest.fn().mockImplementation((m: string) => ({
+      modelId: m,
+      pricing: findModelPricing(m),
+      subscriptionCovered: false,
+    })),
   };
 }
 

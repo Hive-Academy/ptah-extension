@@ -768,8 +768,16 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
 
       await jest.advanceTimersByTimeAsync(60_000);
 
-      const result = await pending;
-      expect(result).toMatchObject({ behavior: 'deny' });
+      const result = (await pending) as unknown as DenyResult;
+      expect(result.behavior).toBe('deny');
+
+      // A timeout is a system abort, not a refusal — nobody ever saw the
+      // prompt. interrupt:true is what makes the CLI swap in its canned
+      // "the user doesn't want to take this action" string, which is how this
+      // path used to read to the model as a deliberate deny (TASK_2026_247).
+      expect(result.interrupt).toBe(false);
+      expect(result.message).toMatch(/NOT a user decision/i);
+      expect(result.message).not.toMatch(/denied by user/i);
 
       const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
         String(call[0]).toLowerCase().includes('timed out'),
@@ -788,6 +796,91 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('emits prompt lifecycle events with the raw routing hint: requested (unroutable, 60s) then resolved timed-out (TASK_2026_271 #1)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler } = makeHandler();
+      const seen: Array<Record<string, unknown>> = [];
+      const unsubscribe = handler.onPromptLifecycle((e) => {
+        seen.push(e as unknown as Record<string, unknown>);
+      });
+      const callback = handler.createCallback(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'gw-conv-9',
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Write',
+        { file_path: '/tmp/a', content: 'x' },
+        { signal: ac.signal, toolUseID: 'tool-lc' },
+      );
+      await flushMicrotasks();
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({
+        phase: 'requested',
+        routingHint: 'gw-conv-9',
+        toolName: 'Write',
+        routable: false,
+        timeoutMs: 60_000,
+      });
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      await pending;
+
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).toMatchObject({
+        phase: 'resolved',
+        routingHint: 'gw-conv-9',
+        toolName: 'Write',
+        outcome: 'timed-out',
+      });
+      expect(seen[1]['requestId']).toBe(seen[0]['requestId']);
+
+      unsubscribe();
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a routable prompt answered allow emits requested (routable, no timeout) then resolved allowed', async () => {
+    const { handler, sent } = makeHandler();
+    const seen: Array<Record<string, unknown>> = [];
+    handler.onPromptLifecycle((e) => {
+      seen.push(e as unknown as Record<string, unknown>);
+    });
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(
+      asSessionId(TAB_ID),
+      undefined,
+      asTabId(TAB_ID),
+      undefined,
+      TAB_ID,
+    );
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-lc2' },
+    );
+    await flushMicrotasks();
+    const requestId = (
+      sent.find((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST)!
+        .payload as unknown as PermissionRequestPayload
+    ).id;
+    expect(seen[0]).toMatchObject({ phase: 'requested', routable: true });
+    expect(seen[0]['timeoutMs']).toBeUndefined();
+
+    handler.handleResponse(requestId, { id: requestId, decision: 'allow' });
+    await pending;
+    expect(seen[1]).toMatchObject({ phase: 'resolved', outcome: 'allowed' });
   });
 
   it('routed request (valid UUID sessionId) is NEVER auto-denied — no timer armed, still pending past 60s+', async () => {
@@ -922,5 +1015,118 @@ describe('PermissionRequestSchema - UUID validation', () => {
   it('PermissionRequestSchema accepts missing optional tabId and sessionId', () => {
     const result = PermissionRequestSchema.safeParse(BASE_VALID);
     expect(result.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// TASK_2026_247 — a system abort must not launder itself as a user denial.
+//
+// Both halves are asserted in contrast, because the whole defect is that the
+// two were INDISTINGUISHABLE at the tool-result layer: a teardown-deny and a
+// human deny produced byte-identical `{ behavior: 'deny', interrupt: true }`,
+// so the CLI substituted its canned "The user doesn't want to take this action
+// right now. STOP what you are doing..." string and the agent stopped working.
+// Asserting only one side cannot tell them apart and would not catch that.
+// ===========================================================================
+
+interface DenyResult {
+  behavior: string;
+  message?: string;
+  interrupt?: boolean;
+}
+
+describe('SdkPermissionHandler - system abort vs user deny mapping', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+
+  function startRequest(handler: SdkPermissionHandler, sent: SentMessage[]) {
+    const callback = handler.createCallback(
+      asSessionId(SESSION_UUID),
+      undefined,
+      asTabId(TAB_ID),
+    );
+    return callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: `tool-${sent.length}`,
+      },
+    );
+  }
+
+  function requestIdOf(sent: SentMessage[]): string {
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    return (broadcast!.payload as unknown as PermissionRequestPayload).id;
+  }
+
+  it('a system-aborted request yields interrupt:false and a message that says it was NOT a user decision', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    // Teardown path — nobody clicked anything.
+    handler.cleanupPendingPermissions(TAB_ID);
+
+    const result = (await pending) as unknown as DenyResult;
+
+    expect(result.behavior).toBe('deny');
+
+    // interrupt:true is what makes the CLI swap in its canned user-denial
+    // string. A system abort MUST NOT take that path.
+    expect(result.interrupt).toBe(false);
+
+    // The message must state, in words that reach the model, that no human
+    // decided this and that the operation is retryable.
+    expect(result.message).toMatch(/NOT a user decision/i);
+    expect(result.message).toMatch(/retried/i);
+
+    // And it must not read as a refusal.
+    expect(result.message).not.toMatch(/denied by user/i);
+  });
+
+  it('a genuine user deny still yields interrupt:true and the user’s own reason', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    const requestId = requestIdOf(sent);
+    handler.handleResponse(requestId, {
+      id: requestId,
+      decision: 'deny',
+      reason: 'I do not want you running shell commands here',
+    });
+
+    const result = (await pending) as unknown as DenyResult;
+
+    expect(result.behavior).toBe('deny');
+    // A real refusal keeps the hard-stop semantics — the agent SHOULD stop.
+    expect(result.interrupt).toBe(true);
+    expect(result.message).toBe(
+      'I do not want you running shell commands here',
+    );
+    // It must NOT be relabelled as a system abort.
+    expect(result.message).not.toMatch(/NOT a user decision/i);
+  });
+
+  it('the global (no-arg) cleanup also marks its denials as system aborts', async () => {
+    const { handler, sent } = makeHandler();
+    const pending = startRequest(handler, sent);
+    await flushMicrotasks();
+
+    handler.cleanupPendingPermissions();
+
+    const result = (await pending) as unknown as DenyResult;
+    expect(result.behavior).toBe('deny');
+    expect(result.interrupt).toBe(false);
+    expect(result.message).toMatch(/NOT a user decision/i);
   });
 });

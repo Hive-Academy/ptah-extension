@@ -8,8 +8,22 @@
  * input here. Only FILE visibility varies, because HU gates directory scans
  * on i3('userSettings') / i3('projectSettings').
  *
- * Mirrors sdk-query-options-builder.ts:625-629 exactly. If that predicate
- * changes, this must change with it — see the guard spec.
+ * ## Why this takes a boolean and not a base URL
+ *
+ * It used to take `providerBaseUrl` and INFER user-tier visibility from a
+ * localhost regex duplicated out of `sdk-query-options-builder.ts`. That
+ * inference was only ever valid because one caller existed and its
+ * `settingSources` rule was known here. It is not a property of the provider —
+ * it is a property of the SESSION's `settingSources`, which the caller owns:
+ * `SdkQueryOptionsBuilder` drops `'user'` on a local proxy, while
+ * `PtahCliRegistry` hardcodes all three sources for every spawn. A caller that
+ * always keeps the user tier and got the inferred answer would take the inject
+ * branch and apply the style TWICE — once from the file the binary reads, once
+ * from the appended body.
+ *
+ * So the caller states the fact. Callers that derive it from a base URL use
+ * `includesUserSettingSource` (shared) — the same function the builder uses to
+ * BUILD `settingSources`, which is what makes the two impossible to separate.
  */
 import { injectable } from 'tsyringe';
 import type {
@@ -17,24 +31,14 @@ import type {
   OutputStyleEntry,
 } from '@ptah-extension/shared';
 
-/**
- * Provider base URLs whose sessions drop the `'user'` tier from
- * `settingSources` — the ONE axis on which a style file can be invisible.
- *
- * This is a deliberate duplicate of the literal in
- * `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`, not a
- * shared import: `output-styles` must not depend on `agent-sdk` (that would
- * invert the lib graph). The duplication is held honest by a drift guard in
- * `output-style-activation.resolver.spec.ts`, which reads the builder source
- * and fails CI if the two literals separate.
- */
-export const LOCALHOST_BASE_URL_RE = /^https?:\/\/(127\.0\.0\.1|localhost)/i;
-
 export interface ResolveActivationInput {
   /** The already name-resolved winner from discovery, or `null` for "no style". */
   readonly style: OutputStyleEntry | null;
-  /** `ProviderProfile.baseUrl` for the session being started. */
-  readonly providerBaseUrl: string | undefined;
+  /**
+   * Whether this session's `Options.settingSources` includes `'user'` — the
+   * ONE axis on which a style file can be invisible to the binary.
+   */
+  readonly userSettingSourceIncluded: boolean;
 }
 
 export function resolveActivation(
@@ -49,8 +53,8 @@ export function resolveActivation(
     input.style.tier === 'builtin' ||
     input.style.tier === 'plugin' ||
     input.style.tier === 'project' ||
-    // user tier is the ONLY one HU drops, and only for localhost providers
-    !LOCALHOST_BASE_URL_RE.test(input.providerBaseUrl?.trim() ?? '');
+    // user tier is the ONLY one HU can drop
+    input.userSettingSourceIncluded;
 
   return fileVisible
     ? { path: 'flag', styleName: input.style.name }

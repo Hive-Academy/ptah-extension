@@ -429,7 +429,6 @@ export class MultiPhaseAnalysisService {
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,
         abortController: phaseAbortController,
-        pluginPaths,
       });
 
       this.logger.info(

@@ -16,6 +16,7 @@ import {
   type PermissionRule,
   type ISdkPermissionHandler,
   type PermissionLevel,
+  type AskUserQuestionRequest,
 } from '@ptah-extension/shared';
 import {
   CanUseTool,
@@ -44,8 +45,26 @@ import {
 } from './permission/ask-user-question.service';
 import { ExitPlanModeService } from './permission/exit-plan-mode.service';
 
+/**
+ * Internal superset of the wire type {@link PermissionResponse}.
+ *
+ * `systemAbort` marks a response Ptah itself manufactured while tearing a
+ * session down (auth/config change, extension deactivation) — NOT a decision a
+ * human made. It is deliberately NOT part of `PermissionResponse`: that type is
+ * what the WEBVIEW sends, and a system abort never originates there.
+ *
+ * Without this distinction an abort-deny is indistinguishable from a user deny
+ * at the tool-result layer, so the model reads a teardown as a deliberate
+ * refusal and correctly stops working. See TASK_2026_247.
+ */
+type InternalPermissionResponse = PermissionResponse & {
+  readonly systemAbort?: true;
+  /** Set only by the unroutable deny-window timer. */
+  readonly timedOut?: true;
+};
+
 interface PendingRequest {
-  resolve: (response: PermissionResponse) => void;
+  resolve: (response: InternalPermissionResponse) => void;
   sessionId?: SessionId;
   tabId?: TabId;
 }
@@ -58,12 +77,45 @@ interface PendingRequest {
  */
 const UNROUTABLE_PERMISSION_TIMEOUT_MS = 60_000;
 
+/**
+ * Lifecycle of one user-facing permission prompt, observed out-of-band by
+ * hosts that own a surface the webview cannot reach — the messaging gateway
+ * tells the Discord user "Ptah is waiting for approval in the desktop app"
+ * instead of going silent for the deny window (TASK_2026_271 #1).
+ * `routingHint` is the caller's raw tab id (e.g. `gw-<conversationId>`) even
+ * when it is not a UUID and therefore not a routable webview surface.
+ */
+export type PermissionPromptLifecycleEvent =
+  | {
+      readonly phase: 'requested';
+      readonly requestId: string;
+      readonly routingHint?: string;
+      readonly toolName: string;
+      readonly description: string;
+      readonly routable: boolean;
+      /** Deny window in ms; `undefined` when the prompt waits indefinitely. */
+      readonly timeoutMs?: number;
+    }
+  | {
+      readonly phase: 'resolved';
+      readonly requestId: string;
+      readonly routingHint?: string;
+      readonly toolName: string;
+      readonly outcome: 'allowed' | 'denied' | 'timed-out' | 'aborted';
+    };
+
+export type PermissionPromptLifecycleListener = (
+  event: PermissionPromptLifecycleEvent,
+) => void;
+
 @injectable()
 export class SdkPermissionHandler implements ISdkPermissionHandler {
   private _permissionLevel: PermissionLevel = 'ask';
 
   private pendingRequests = new Map<string, PendingRequest>();
   private readonly ruleStore: PermissionRuleStore;
+  private readonly lifecycleListeners =
+    new Set<PermissionPromptLifecycleListener>();
 
   private pendingRequestContext = new Map<
     string,
@@ -84,8 +136,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   ) {
     this.ruleStore = new PermissionRuleStore(this.logger);
 
-    const questionRegistry =
-      new PendingResponseRegistry<AskUserQuestionResponse>(this.logger);
+    const questionRegistry = new PendingResponseRegistry<
+      AskUserQuestionResponse,
+      AskUserQuestionRequest
+    >(this.logger);
     this.askUserQuestion = new AskUserQuestionService(
       this.webviewManager,
       this.logger,
@@ -110,6 +164,31 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   getPermissionLevel(): PermissionLevel {
     return this._permissionLevel;
+  }
+
+  /**
+   * Observe permission prompts as they are raised and settled. Returns the
+   * unsubscribe function. Listeners must not throw; a throwing listener is
+   * logged and never blocks the prompt.
+   */
+  onPromptLifecycle(listener: PermissionPromptLifecycleListener): () => void {
+    this.lifecycleListeners.add(listener);
+    return () => {
+      this.lifecycleListeners.delete(listener);
+    };
+  }
+
+  private emitLifecycle(event: PermissionPromptLifecycleEvent): void {
+    for (const listener of this.lifecycleListeners) {
+      try {
+        listener(event);
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[SdkPermissionHandler] prompt lifecycle listener threw',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+      }
+    }
   }
 
   private initializePermissionEmitter(): void {
@@ -272,7 +351,29 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
      * CLI-agent path omits it and falls back to the global default.
      */
     levelResolver?: () => PermissionLevel,
+    /**
+     * Raw routing id of the caller (its tab id, UUID or not). Carried onto the
+     * prompt lifecycle events so out-of-band observers can match prompts to
+     * their own conversations even when the id is not a routable surface.
+     */
+    routingHint?: string,
   ): CanUseTool {
+    const requestUserPermission = (
+      toolName: string,
+      input: Record<string, unknown>,
+      options: { toolUseID: string; agentID?: string; signal: AbortSignal },
+    ): Promise<PermissionResult> =>
+      this.requestUserPermission(
+        toolName,
+        input,
+        options.toolUseID,
+        sessionId,
+        options.agentID,
+        options.signal,
+        cliAgentResolver,
+        tabId,
+        routingHint,
+      );
     return async (
       toolName: string,
       input: Record<string, unknown>,
@@ -419,32 +520,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for dangerous tool: ${toolName}`,
         );
-        return await this.requestUserPermission(
-          toolName,
-          input,
-          options.toolUseID,
-          sessionId,
-          options.agentID,
-          options.signal,
-          cliAgentResolver,
-          tabId,
-        );
+        return await requestUserPermission(toolName, input, options);
       }
 
       if (NETWORK_TOOLS.includes(toolName)) {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for network tool: ${toolName}`,
         );
-        return await this.requestUserPermission(
-          toolName,
-          input,
-          options.toolUseID,
-          sessionId,
-          options.agentID,
-          options.signal,
-          cliAgentResolver,
-          tabId,
-        );
+        return await requestUserPermission(toolName, input, options);
       }
 
       if (SUBAGENT_TOOLS.includes(toolName)) {
@@ -461,31 +544,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Requesting user permission for MCP tool: ${toolName}`,
         );
-        return await this.requestUserPermission(
-          toolName,
-          input,
-          options.toolUseID,
-          sessionId,
-          options.agentID,
-          options.signal,
-          cliAgentResolver,
-          tabId,
-        );
+        return await requestUserPermission(toolName, input, options);
       }
 
       this.logger.warn(
         `[SdkPermissionHandler] Unknown tool encountered, requesting user permission: ${toolName}`,
       );
-      return await this.requestUserPermission(
-        toolName,
-        input,
-        options.toolUseID,
-        sessionId,
-        options.agentID,
-        options.signal,
-        cliAgentResolver,
-        tabId,
-      );
+      return await requestUserPermission(toolName, input, options);
     };
   }
 
@@ -516,6 +581,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     signal?: AbortSignal,
     cliAgentResolver?: () => string | undefined,
     tabId?: TabId,
+    routingHint?: string,
   ): Promise<PermissionResult> {
     const startTime = Date.now();
 
@@ -532,6 +598,16 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       : startTime + UNROUTABLE_PERMISSION_TIMEOUT_MS;
 
     const description = generateDescription(toolName, sanitizedInput);
+
+    this.emitLifecycle({
+      phase: 'requested',
+      requestId,
+      routingHint,
+      toolName,
+      description,
+      routable: isRoutable,
+      timeoutMs: isRoutable ? undefined : UNROUTABLE_PERMISSION_TIMEOUT_MS,
+    });
 
     let agentToolCallId: string | undefined;
     if (agentID) {
@@ -597,6 +673,22 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       decision: response?.decision ?? 'aborted',
     });
 
+    this.emitLifecycle({
+      phase: 'resolved',
+      requestId,
+      routingHint,
+      toolName,
+      outcome: !response
+        ? 'aborted'
+        : response.decision === 'allow' || response.decision === 'always_allow'
+          ? 'allowed'
+          : response.timedOut
+            ? 'timed-out'
+            : response.systemAbort
+              ? 'aborted'
+              : 'denied',
+    });
+
     if (!response) {
       this.logger.warn(
         `[SdkPermissionHandler] Permission request ${requestId} aborted`,
@@ -635,6 +727,32 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       return {
         behavior: 'deny' as const,
         message: `Permission denied by user for tool "${toolName}". The user reviewed this tool call and explicitly chose to deny it. User's message: "${userReason}". You MUST respect this decision — do NOT retry the same tool call. Adjust your approach based on the user's feedback.`,
+        interrupt: false,
+      };
+    }
+
+    // A system abort is NOT a user decision. `interrupt: true` is what makes the
+    // CLI substitute its canned "The user doesn't want to take this action right
+    // now. STOP what you are doing..." string, which launders a teardown into a
+    // deliberate refusal. `deny_with_message` above proves `interrupt: false`
+    // plus a rich message is the path whose text actually reaches the model.
+    // The turn is torn down by the session's abortController regardless, so
+    // dropping `interrupt` here leaves nothing running. See TASK_2026_247.
+    if (response.systemAbort) {
+      this.logger.warn(
+        `[SdkPermissionHandler] Permission request ${requestId} aborted by the system (not a user decision) for tool ${toolName}`,
+        {
+          decision: 'deny',
+          systemAbort: true,
+          reason: response.reason || 'Session aborted',
+          interrupt: false,
+        },
+      );
+      return {
+        behavior: 'deny' as const,
+        message: `SYSTEM ABORT — this was NOT a user decision. Ptah cancelled the pending permission request for tool "${toolName}" because the session was being torn down (for example an authentication or configuration change) or the prompt could not be routed to any UI surface before its deny window expired. No human ever saw this prompt, and nobody reviewed or refused the tool call. Do NOT treat this as a user denial and do NOT abandon the work you were asked to do. The operation may be retried once the session is available again. Internal reason: "${
+          response.reason || 'Session aborted'
+        }".`,
         interrupt: false,
       };
     }
@@ -744,14 +862,25 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     this.askUserQuestion.handleQuestionResponse(response);
   }
 
+  /**
+   * AskUserQuestion requests this session is still blocked on.
+   *
+   * Serves the `chat:pending-questions` RPC: a webview reload discards the
+   * rendered prompt while the SDK call stays parked, so the reloaded UI
+   * re-fetches the outstanding requests and renders them again.
+   */
+  listPendingQuestions(sessionId: string): AskUserQuestionRequest[] {
+    return this.askUserQuestion.listPendingBySession(sessionId);
+  }
+
   private async awaitResponse(
     requestId: string,
     signal?: AbortSignal,
     sessionId?: SessionId,
     tabId?: TabId,
     timeoutMs?: number,
-  ): Promise<PermissionResponse | null> {
-    return new Promise<PermissionResponse | null>((resolve) => {
+  ): Promise<InternalPermissionResponse | null> {
+    return new Promise<InternalPermissionResponse | null>((resolve) => {
       if (signal?.aborted) {
         this.pendingRequests.delete(requestId);
         this.pendingRequestContext.delete(requestId);
@@ -805,6 +934,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           pending.resolve({
             id: requestId,
             decision: 'deny',
+            systemAbort: true,
+            timedOut: true,
             reason: `Permission request timed out after ${timeoutMs}ms with no UI surface to route it to (unroutable request) — denying to prevent a permanent hang.`,
           });
         }, timeoutMs);
@@ -847,6 +978,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             id: requestId,
             decision: 'deny',
             reason: 'Session aborted',
+            systemAbort: true,
           });
           this.pendingRequests.delete(requestId);
           this.pendingRequestContext.delete(requestId);
@@ -871,6 +1003,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           id: requestId,
           decision: 'deny',
           reason: 'Session aborted',
+          systemAbort: true,
         });
       }
       this.pendingRequests.clear();

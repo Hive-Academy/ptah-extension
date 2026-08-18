@@ -5,21 +5,20 @@ description: One hub to add MCP servers, skills, and plugins to your workspace �
 
 The **Marketplace** is Ptah's in-app hub for extending any workspace with new capabilities. It brings several catalogs together behind one screen: skill packs, the official MCP registry, community skills, and hosted MCP providers — each installable without leaving the app.
 
-![Marketplace overview](/screenshots/marketplace-overview.png)
-
 ## Opening the Marketplace
 
 In the Ptah desktop app, click the **Marketplace** entry in the navigation rail. Pick a provider from the list and its catalog mounts on the right.
 
 ## Providers
 
-| Provider         | Adds                                                      | Status      |
-| ---------------- | --------------------------------------------------------- | ----------- |
-| **Plugins**      | Bundled skill packs for orchestration, frontend & backend | Live        |
-| **MCP Registry** | Servers from the official Model Context Protocol registry | Live        |
-| **Skills**       | Community skills you can discover and install             | Live        |
-| **Smithery**     | Hosted MCP servers with one-click setup                   | Live        |
-| **Composio**     | Managed-auth MCP toolkits                                 | Coming soon |
+| Provider           | Adds                                                          | Status      |
+| ------------------ | ------------------------------------------------------------- | ----------- |
+| **Plugins**        | Bundled skill packs for orchestration, frontend & backend     | Live        |
+| **MCP Registry**   | Servers from the official Model Context Protocol registry     | Live        |
+| **Skills**         | Community skills you can discover and install                 | Live        |
+| **Smithery**       | Hosted MCP servers with one-click setup                       | Live        |
+| **Connected Apps** | OAuth-secured remote MCP servers you authorize in the browser | Live        |
+| **Composio**       | Managed-auth MCP toolkits                                     | Coming soon |
 
 Only the provider you select loads — unselected and coming-soon providers fire no network calls.
 
@@ -39,6 +38,10 @@ Discover and install **community skills** — scoped knowledge packs invoked on 
 
 **Hosted MCP servers** with a guided, often one-click, setup. See [Smithery](/marketplace/smithery/).
 
+### Connected Apps
+
+Remote MCP servers secured with **OAuth** — paste the server URL, authorize in your browser, and Ptah keeps the tokens encrypted on your machine. See [Connected Apps](/marketplace/connected-apps/).
+
 ### Composio (coming soon)
 
 Managed-auth MCP toolkits — connect SaaS tools without hand-managing tokens. Listed in the hub and will go live in a future release.
@@ -51,5 +54,6 @@ After you install a skill or resolve an MCP server, Ptah refreshes its autocompl
 
 - [Smithery setup](/marketplace/smithery/)
 - [MCP Registry](/marketplace/mcp-registry/)
+- [Connected Apps](/marketplace/connected-apps/) — OAuth-secured MCP servers
 - [Third-party MCP servers](/mcp-and-skills/third-party-mcp/) — manual configuration
 - [Plugins](/plugins/)

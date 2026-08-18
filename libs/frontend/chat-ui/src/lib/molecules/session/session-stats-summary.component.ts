@@ -754,11 +754,26 @@ export class SessionStatsSummaryComponent {
     return list.reduce((sum, m) => sum + m.outputTokens, 0);
   });
 
-  /** Total cost across all models in the breakdown */
-  readonly totalModelCost = computed(() => {
+  /**
+   * Total cost across all models in the breakdown, or null when not one model
+   * contributed a known cost.
+   *
+   * `?? 0` on every row would print "$0.00" in the Total while each individual
+   * row printed "—" — the exact false-free-tier claim a user-defined provider
+   * with no configured pricing would produce (TASK_2026_236). Rows with an
+   * unknown cost are skipped, not counted as zero.
+   */
+  readonly totalModelCost = computed<number | null>(() => {
     const list = this.modelUsageList();
-    if (!list) return 0;
-    return list.reduce((sum, m) => sum + (m.costUSD ?? 0), 0);
+    if (!list) return null;
+    let total = 0;
+    let contributors = 0;
+    for (const model of list) {
+      if (model.costUSD === null || model.costUSD === undefined) continue;
+      total += model.costUSD;
+      contributors++;
+    }
+    return contributors > 0 ? total : null;
   });
 
   /** Computed session summary using utility functions or preloaded stats */

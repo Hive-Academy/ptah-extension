@@ -139,6 +139,7 @@ export {
   SdkQueryOptionsBuilder,
   assembleSystemPrompt,
   buildModelIdentityPrompt,
+  buildFlagSettings,
   getActiveProviderId,
   type AssembleSystemPromptInput,
   type SystemPromptAssemblyResult,
@@ -158,7 +159,7 @@ export {
 export { MemoryPromptInjector } from './memory-prompt-injector';
 export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
-export type { ICuratorAuthResolver } from '../curator-llm-adapter';
+export type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 export {
   SdkModelService,
   TIER_ENV_VAR_MAP,
@@ -179,11 +180,6 @@ export {
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
-export {
-  SkillJunctionService,
-  type SkillJunctionActivateOptions,
-  type SkillJunctionResult,
-} from './skill-junction.service';
 export {
   SessionForkService,
   type ForkSessionParams,

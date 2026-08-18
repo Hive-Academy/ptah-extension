@@ -36,6 +36,7 @@ import { HarnessSubagentDesignService } from './ai/harness-subagent-design.servi
 import { HarnessSkillGenerationService } from './ai/harness-skill-generation.service';
 import { HarnessDocumentGenerationService } from './ai/harness-document-generation.service';
 import { HarnessWorkflowPromptService } from './ai/harness-workflow-prompt.service';
+import { HarnessHealthRpcService } from './health/harness-health-rpc.service';
 
 export { HARNESS_TOKENS } from './tokens';
 
@@ -87,4 +88,8 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HARNESS_TOKENS.WORKFLOW_PROMPT,
     HarnessWorkflowPromptService,
   );
+  // Last, and a singleton for a reason beyond cost: its constructor subscribes
+  // to the reconciler's health stream to drive the `harness:healthChanged`
+  // push. A transient would add a listener per resolve and push N copies.
+  container.registerSingleton(HARNESS_TOKENS.HEALTH, HarnessHealthRpcService);
 }

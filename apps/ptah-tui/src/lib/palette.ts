@@ -94,7 +94,13 @@ export function resolveColorDepth(
   const colorTerm = env['COLORTERM'] ?? '';
   if (/truecolor|24bit/i.test(colorTerm)) return 'truecolor';
 
-  if (term !== undefined && /256|direct/i.test(term)) return 'truecolor';
+  // `direct` only. A `-256color` TERM says the terminal has a 256-entry
+  // indexed palette, which is not 24-bit and does not imply it: macOS
+  // Terminal.app sets `TERM=xterm-256color`, sets no `COLORTERM`, and renders
+  // a truecolor SGR as one flat foreground — collapsing the whole semantic
+  // palette this module exists to preserve. A 256-colour terminal that really
+  // does 24-bit advertises it in `COLORTERM`, which is checked above.
+  if (term !== undefined && /direct/i.test(term)) return 'truecolor';
   if (term !== undefined && term.length > 0) return 'ansi16';
 
   // No TERM at all: Windows Terminal and the VS Code terminal both leave it

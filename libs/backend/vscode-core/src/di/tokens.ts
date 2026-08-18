@@ -84,7 +84,6 @@ export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
 export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 export const AGENT_PROCESS_MANAGER = Symbol.for('AgentProcessManager');
 export const CLI_DETECTION_SERVICE = Symbol.for('CliDetectionService');
-export const CLI_PLUGIN_SYNC_SERVICE = Symbol.for('CliPluginSyncService');
 export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
 export const LICENSE_SERVICE = Symbol.for('LicenseService');
 export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
@@ -218,7 +217,6 @@ export const TOKENS = {
   QUALITY_EXPORT_SERVICE,
   AGENT_PROCESS_MANAGER,
   CLI_DETECTION_SERVICE,
-  CLI_PLUGIN_SYNC_SERVICE,
   AUTH_SECRETS_SERVICE,
   LICENSE_SERVICE,
   LICENSE_COMMANDS,

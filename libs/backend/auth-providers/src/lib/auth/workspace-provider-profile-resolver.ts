@@ -38,9 +38,9 @@ import {
   type AuthEnv,
   type ProviderProfile,
   type AnthropicProvider,
+  type ProviderModelTier,
   createEmptyAuthEnv,
   getAnthropicProvider,
-  getProviderBaseUrl,
   getProviderAuthEnvVar,
   OLLAMA_CLOUD_DIRECT_BASE_URL,
   ANTHROPIC_DIRECT_PROVIDER_ID,
@@ -51,6 +51,7 @@ import {
 } from '@ptah-extension/settings-core';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
+import type { DerivedTierMap } from '../model-tier-derivation';
 import { ActiveProviderResolver } from './active-provider-resolver';
 import type { ModelResolver } from './model-resolver';
 import type { ProviderProxyPool } from './provider-proxy-pool';
@@ -197,7 +198,16 @@ export class WorkspaceProviderProfileResolver {
   /**
    * Anthropic-native and api-key-passthrough third-party providers that speak
    * the Anthropic protocol directly (no local translation proxy): Ollama, Ollama
-   * Cloud, Moonshot, Z.AI. Fully isolatable.
+   * Cloud, Moonshot, Z.AI, and user-defined `lane: 'anthropic'` entries. Fully
+   * isolatable — these need no proxy at all, which is why they never reach
+   * {@link ProviderProxyPool}.
+   *
+   * The registry default comes off the ALREADY-RESOLVED `provider` rather than
+   * from `getProviderBaseUrl(providerId)`. For built-ins the two are the same
+   * value, but `getProviderBaseUrl` falls back to the DEFAULT provider's URL
+   * (OpenRouter's) for an id it cannot resolve — for a user-defined entry that
+   * would forward the user's API key to a vendor they never chose. Reading
+   * `provider.baseUrl` cannot mis-resolve.
    */
   private async buildDirectThirdPartyProfile(
     providerId: string,
@@ -220,12 +230,11 @@ export class WorkspaceProviderProfileResolver {
           snapshot.ANTHROPIC_BASE_URL = OLLAMA_CLOUD_DIRECT_BASE_URL;
           snapshot.ANTHROPIC_AUTH_TOKEN = cloudKey;
         } else {
-          snapshot.ANTHROPIC_BASE_URL = getProviderBaseUrl(providerId);
+          snapshot.ANTHROPIC_BASE_URL = provider.baseUrl;
           snapshot.ANTHROPIC_AUTH_TOKEN = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
         }
       } else {
-        snapshot.ANTHROPIC_BASE_URL =
-          customUrl || getProviderBaseUrl(providerId);
+        snapshot.ANTHROPIC_BASE_URL = customUrl || provider.baseUrl;
         snapshot.ANTHROPIC_AUTH_TOKEN = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
       }
       snapshot.ANTHROPIC_API_KEY = '';
@@ -250,7 +259,7 @@ export class WorkspaceProviderProfileResolver {
       );
       return undefined;
     }
-    const baseUrl = customUrl || getProviderBaseUrl(providerId);
+    const baseUrl = customUrl || provider.baseUrl;
     const authEnvVar = getProviderAuthEnvVar(providerId);
     snapshot.ANTHROPIC_API_KEY = '';
     snapshot.ANTHROPIC_BASE_URL = baseUrl;
@@ -315,9 +324,53 @@ export class WorkspaceProviderProfileResolver {
   }
 
   /**
-   * Apply the provider's persisted main-agent tier mappings (falling back to the
-   * registry defaults) to the snapshot's `ANTHROPIC_DEFAULT_*_MODEL` vars —
-   * without touching the global AuthEnv or `process.env`.
+   * Apply the provider's tier mapping to the snapshot's
+   * `ANTHROPIC_DEFAULT_*_MODEL` vars — without touching the global AuthEnv or
+   * `process.env`.
+   *
+   * ## Precedence: user tier → registry `defaultTiers` → live catalogue
+   *
+   * Exactly the chain `ProviderModelsService.applyPersistedTiers` applies to
+   * the global env, and deliberately the same ORDER: a tier the user picked and
+   * a tier map the registry actually verified both outrank a heuristic over a
+   * live model list, which is consulted only for a hole the two of them left.
+   *
+   * The third link is TASK_2026_262. This method had its own copy of the first
+   * two links, so the fix that closed the foreground chat path did not reach
+   * here: a workspace pinned to `openrouter`, `lm-studio` or `requesty` wrote
+   * nothing into its snapshot, `resolveModel` then found nothing to resolve
+   * `'default'` through, and the bare word `'opus'` went to an endpoint that
+   * cannot serve it. The derivation is REUSED rather than re-implemented
+   * ({@link ProviderModelsService.getLiveDerivedTiers}); a second copy of the
+   * rule would be a second thing to get wrong, and the three sites that write
+   * these three env var names must agree on what a tier means.
+   *
+   * ## No out-of-band refresh here, on purpose
+   *
+   * `applyPersistedTiers` ends by firing an async catalogue fetch when a tier
+   * is still unresolved. This method deliberately does not, for three reasons
+   * that compound:
+   *
+   *  1. **That refresh re-applies tiers into the GLOBAL env.** Calling it from
+   *     here would let a per-workspace profile repoint the process-global
+   *     `authEnv` — for a provider that is very likely NOT the globally active
+   *     one — which is the exact cross-workspace contamination this class was
+   *     written to prevent.
+   *  2. **It could not help this session anyway.** The snapshot is built
+   *     synchronously and handed straight to `startChatSession`; a catalogue
+   *     that lands a round trip later cannot retro-fill an object already
+   *     passed on.
+   *  3. **The warm is inherited.** Reaching any of the three call sites
+   *     requires stored credentials for that provider, and storing them ran a
+   *     strategy `configure` → `switchActiveProvider` → `applyPersistedTiers`,
+   *     which already fired the refresh and persisted the catalogue to
+   *     `provider.<id>.modelCatalog`. So by the time a workspace can pin a
+   *     provider, the synchronous read below normally finds a catalogue.
+   *
+   * The residual is the same one Batch 1 measured, not a new one: if that
+   * earlier fetch failed (offline at configure time), this snapshot derives
+   * nothing and `resolveModel`'s backstop takes over. Retried on the next
+   * activation, never on a timer.
    */
   private applyProviderTiers(
     snapshot: AuthEnv,
@@ -329,9 +382,18 @@ export class WorkspaceProviderProfileResolver {
       'mainAgent',
     );
     const defaults = provider.defaultTiers;
-    const sonnet = persisted.sonnet ?? defaults?.sonnet;
-    const opus = persisted.opus ?? defaults?.opus;
-    const haiku = persisted.haiku ?? defaults?.haiku;
+
+    // Lazy: a provider whose static data covers all three tiers never reads a
+    // catalogue at all.
+    let derived: DerivedTierMap | undefined;
+    const derivedFor = (tier: ProviderModelTier): string | undefined => {
+      derived ??= this.providerModels.getLiveDerivedTiers(providerId);
+      return derived[tier];
+    };
+
+    const sonnet = persisted.sonnet ?? defaults?.sonnet ?? derivedFor('sonnet');
+    const opus = persisted.opus ?? defaults?.opus ?? derivedFor('opus');
+    const haiku = persisted.haiku ?? defaults?.haiku ?? derivedFor('haiku');
     if (sonnet) snapshot.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
     if (opus) snapshot.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
     if (haiku) snapshot.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
@@ -340,8 +402,42 @@ export class WorkspaceProviderProfileResolver {
   /**
    * Resolve the requested model against the SNAPSHOT env (not the global one) so
    * a tier alias / 'default' maps to the workspace provider's model, then fall
-   * back to a concrete tier/static id if the alias survives (direct-Anthropic
-   * keeps 'default', which is a valid SDK sentinel).
+   * back to a concrete static id if the alias survives (direct-Anthropic keeps
+   * 'default', which is a valid SDK sentinel).
+   *
+   * ## The post-fallback ladder NARROWS; it does not go away
+   *
+   * TASK_2026_262 gave {@link applyProviderTiers} a third link, so the snapshot
+   * now carries tier values for the providers that previously left it empty and
+   * `modelResolver.resolve` maps the alias itself. This ladder is therefore
+   * reached far less often — but it is reached, so it stays. What it does NOT
+   * keep is a rung that can never decide:
+   *
+   *  - `provider?.defaultTiers?.opus` is **removed**. It was already
+   *    unreachable, before this change and after it. Every call site that
+   *    passes a defined `provider` runs `applyProviderTiers` with that same
+   *    `provider` first, and that method writes
+   *    `persisted ?? defaults ?? derived` into the snapshot — so the three
+   *    snapshot rungs above are falsy only when `defaults.opus` is falsy too.
+   *    A rung that fires exactly when its own value is empty is noise, and
+   *    worse, it implies the snapshot might NOT already include `defaultTiers`,
+   *    which is the one thing a reader must not conclude here. The subsumption
+   *    is pinned by a spec rather than left to this paragraph.
+   *  - `provider?.staticModels?.[0]?.id` **stays**, and is now the only real
+   *    backstop. It is not subsumed: the tier derivation reads the provider's
+   *    LIVE catalogue and deliberately refuses `staticModels` (a repo literal
+   *    frozen at release time), so an entry carrying static models but no
+   *    `defaultTiers` and no fetched catalogue reaches this rung with nothing
+   *    above it having fired. No registry entry is shaped that way TODAY — the
+   *    only two with `staticModels` also declare `defaultTiers` — but that is a
+   *    fact about the data, which the next entry can change, whereas the rung
+   *    removed above is dead by construction whatever the registry contains.
+   *    Delete only what cannot fire; keep what merely does not.
+   *  - `model` stays as the terminal. Sending the tier word verbatim is the
+   *    residual TASK_2026_262 Q2 decided NOT to convert into a failure channel:
+   *    this method has no error route, and a profile that refused to build
+   *    would take the workspace's chat down rather than let the endpoint say
+   *    what is wrong.
    */
   private resolveModel(
     requestedModel: string,
@@ -355,7 +451,6 @@ export class WorkspaceProviderProfileResolver {
         snapshot.ANTHROPIC_DEFAULT_OPUS_MODEL ||
         snapshot.ANTHROPIC_DEFAULT_SONNET_MODEL ||
         snapshot.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
-        provider?.defaultTiers?.opus ||
         provider?.staticModels?.[0]?.id ||
         model;
     }

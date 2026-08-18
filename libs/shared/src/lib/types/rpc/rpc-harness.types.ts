@@ -7,6 +7,7 @@
 
 import type { FlatStreamEventUnion } from '../execution';
 import type { McpInstallTarget, McpServerConfig } from '../mcp-directory.types';
+import type { StackProfileId } from '../stack-profile.types';
 
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {
@@ -391,8 +392,109 @@ export interface HarnessConversationMessage {
   content: string;
 }
 
+/** Who the new project is being built for. */
+export type NewProjectAudience = 'b2b' | 'b2c' | 'internal' | 'unsure';
+
+/**
+ * The platform question, asked BEFORE the stack question.
+ *
+ * Every entry except `other` is a {@link StackProfileId}, and the `satisfies`
+ * clause makes that a compile-time fact rather than a comment — a typo here
+ * fails the build. The reverse direction (every registered profile is
+ * offerable) is a runtime assertion in `stack-profiles.spec.ts`, because a
+ * missing member is not a type error.
+ *
+ * `other` is the escape hatch for a platform Ptah has no profile for. It
+ * resolves to no profile at all rather than falling back to `node-ts`:
+ * scaffolding an Nx/TypeScript workspace for someone who just said "none of
+ * these" is worse than admitting we do not know the stack yet.
+ */
+export const NEW_PROJECT_PLATFORM_VALUES = [
+  'node-ts',
+  'dotnet',
+  'python',
+  'other',
+] as const satisfies readonly (StackProfileId | 'other')[];
+
+export type NewProjectPlatform = (typeof NEW_PROJECT_PLATFORM_VALUES)[number];
+
+/**
+ * Every stack chip value across every profile's `stackOptions`.
+ *
+ * Declared as one `as const` tuple rather than a hand-written union so the
+ * TypeScript type and the Zod enum at the RPC boundary are literally the same
+ * list — `harness-rpc.schema.ts` builds `z.enum` from this array, which is what
+ * makes TS/Zod parity structural instead of a promise. `stack-profiles.spec.ts`
+ * pins the other half: every value here is used by some profile, and every
+ * profile's chips are listed here.
+ *
+ * `recommend` and `other` are platform-independent: the first defers the choice
+ * to the agent, the second opens the free-text field.
+ */
+export const NEW_PROJECT_STACK_VALUES = [
+  'recommend',
+  'angular-nestjs',
+  'react-nestjs',
+  'aspnetcore-blazor',
+  'aspnetcore-angular',
+  'aspnetcore-api',
+  'fastapi',
+  'django',
+  'flask',
+  'other',
+] as const;
+
+/** Tech-stack preference expressed up front, before discovery runs. */
+export type NewProjectStack = (typeof NEW_PROJECT_STACK_VALUES)[number];
+
+/**
+ * Narrow a chip value to the wire union.
+ *
+ * `StackOption.value` is a plain `string` — the registry is data and does not
+ * know about this union — so the intake needs one real check on the way from a
+ * rendered chip to a typed answer. This is that check, and it is why the
+ * component needs no cast.
+ */
+export function isNewProjectStack(value: string): value is NewProjectStack {
+  return (NEW_PROJECT_STACK_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * Answers collected by the Setup Hub intake form BEFORE the agent starts.
+ *
+ * These become the first real user turn: the backend renders them verbatim
+ * into the seed prompt so discovery never re-asks what the user already
+ * told us, and the frontend renders a readable summary of the same object
+ * as the first transcript bubble.
+ */
+export interface NewProjectIntake {
+  /** "What are you building?" — required, freeform. */
+  what: string;
+  /** "Who is it for?" */
+  audience: NewProjectAudience;
+  /** "Must-haves / constraints" — optional, freeform. */
+  constraints?: string;
+  /**
+   * Which platform the project targets, asked before {@link stack} because it
+   * decides which stack chips exist.
+   *
+   * OPTIONAL, and absence means `node-ts`. Two reasons, and they are the same
+   * reason: every client that predates this field meant Node/TypeScript, and
+   * the intake omits the value when it IS `node-ts` so the payload an existing
+   * user produces stays byte-identical to the one they produced before this
+   * field existed.
+   */
+  platform?: NewProjectPlatform;
+  /** Stack preference; `recommend` defers the choice to the agent. */
+  stack: NewProjectStack;
+  /** Free text captured when `stack === 'other'`. */
+  stackOther?: string;
+}
+
 /** harness:start-new-project — hand the New Project flow off to the chat surface */
-export type HarnessStartNewProjectParams = Record<string, never>;
+export interface HarnessStartNewProjectParams {
+  intake: NewProjectIntake;
+}
 export interface HarnessStartNewProjectResult {
   success: boolean;
   error?: string;

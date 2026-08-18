@@ -1957,5 +1957,156 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       });
       warnSpy.mockRestore();
     });
+
+    // TASK_2026_263 — a question that arrives before the surface conversation
+    // knows the real session id must still find the surface, either on the
+    // next tick or on the SESSION_ID_RESOLVED / compaction refresh pass.
+    describe('late session resolution (TASK_2026_263)', () => {
+      function makeInteractiveProbe() {
+        const probe = {
+          surfaceId: SurfaceId.create(),
+          state: createEmptyStreamingState(),
+          getState: jest.fn<StreamingState, []>(),
+          setState: jest.fn<void, [StreamingState]>(),
+        };
+        probe.getState.mockImplementation(() => probe.state);
+        probe.setState.mockImplementation((next) => {
+          probe.state = next;
+        });
+        surfaceRegistry.register(
+          probe.surfaceId,
+          probe.getState,
+          probe.setState,
+          { interactive: true },
+        );
+        return probe;
+      }
+
+      it('microtask fallback attaches interactive surface targets when no tab appears', async () => {
+        const probe = makeInteractiveProbe();
+        const q = makeQuestion({
+          id: 'q-surface-defer',
+          sessionId: SESSION_A as unknown as string,
+        });
+
+        // Nothing knows SESSION_A yet → routing defers to a microtask.
+        const targets = router.routeQuestionPrompt(q);
+        expect(targets).toEqual([]);
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+
+        // Surface binds the session before the microtask drains.
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        await Promise.resolve();
+
+        expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-defer',
+          [probe.surfaceId],
+        );
+        expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+      });
+
+      it('microtask fallback stays silent when the only surface is non-interactive', async () => {
+        const probe = makeSurfaceProbe();
+        router.routeQuestionPrompt(
+          makeQuestion({
+            id: 'q-surface-defer-noninteractive',
+            sessionId: SESSION_A as unknown as string,
+          }),
+        );
+
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        await Promise.resolve();
+
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      });
+
+      it('refreshQuestionTargetsForSession attaches surface targets when the session has no tabs', () => {
+        const probe = makeInteractiveProbe();
+        // Surface claimed before the backend reported a session id.
+        router.onSurfaceCreated(probe.surfaceId);
+
+        const q = makeQuestion({
+          id: 'q-surface-refresh',
+          sessionId: SESSION_A as unknown as string,
+        });
+        permissionHandler._setQuestions([q]);
+
+        // SESSION_ID_RESOLVED: the surface conversation gains the real session,
+        // then the handler asks the router to re-resolve pending questions.
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        router.refreshQuestionTargetsForSession(SESSION_A);
+
+        expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-refresh',
+          [probe.surfaceId],
+        );
+      });
+
+      it('refreshQuestionTargetsForSession does not stomp already-resolved surface targets', () => {
+        const probe = makeInteractiveProbe();
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+        const q = makeQuestion({
+          id: 'q-surface-resolved',
+          sessionId: SESSION_A as unknown as string,
+        });
+        permissionHandler._setQuestions([q]);
+        permissionHandler.attachQuestionTargets('q-surface-resolved', [
+          probe.surfaceId as unknown as string,
+        ]);
+        permissionHandler.attachQuestionTargets.mockClear();
+        permissionHandler.clearQuestionTargets.mockClear();
+
+        router.refreshQuestionTargetsForSession(SESSION_A);
+
+        expect(permissionHandler.clearQuestionTargets).not.toHaveBeenCalled();
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      });
+
+      it('refreshQuestionTargetsForSession is a no-op for a non-interactive surface', () => {
+        const probe = makeSurfaceProbe();
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+        permissionHandler._setQuestions([
+          makeQuestion({
+            id: 'q-surface-background',
+            sessionId: SESSION_A as unknown as string,
+          }),
+        ]);
+
+        router.refreshQuestionTargetsForSession(SESSION_A);
+
+        expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      });
+
+      it('compaction_complete re-resolves stale targets onto the interactive surface', () => {
+        const probe = makeInteractiveProbe();
+        router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+        const q = makeQuestion({
+          id: 'q-surface-compact',
+          sessionId: SESSION_A as unknown as string,
+        });
+        permissionHandler._setQuestions([q]);
+        // Target left over from a tab that is no longer bound.
+        permissionHandler.attachQuestionTargets('q-surface-compact', [
+          'tab-stale-removed-from-binding',
+        ]);
+        permissionHandler.attachQuestionTargets.mockClear();
+        permissionHandler.clearQuestionTargets.mockClear();
+
+        router.routeStreamEventForSurface(
+          compactionComplete(SESSION_A),
+          probe.surfaceId,
+        );
+
+        expect(permissionHandler.clearQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-compact',
+        );
+        expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+          'q-surface-compact',
+          [probe.surfaceId],
+        );
+      });
+    });
   });
 });

@@ -31,16 +31,22 @@
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
-  PluginLoaderService,
-  SkillJunctionService,
-} from '@ptah-extension/agent-sdk';
+  HARNESS_SYNC_TOKENS,
+  type HarnessPropagationService,
+} from '@ptah-extension/harness-sync';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
   type IPlatformCommands,
 } from '@ptah-extension/platform-core';
+import { probeStackToolchain } from '@ptah-extension/workspace-intelligence';
+import {
+  PLUGIN_MARKETPLACE_TOKENS,
+  buildExternalPluginId,
+  type ExternalPluginStateStore,
+} from '@ptah-extension/plugin-marketplace';
 import type {
   HarnessInitializeParams,
   HarnessInitializeResponse,
@@ -74,18 +80,34 @@ import type {
   HarnessStartNewProjectResult,
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
+  HarnessHealthParams,
+  HarnessHealthResult,
+  HarnessReconcileParams,
+  HarnessReconcileResult,
+  HarnessRemoveParams,
+  HarnessRemoveResult,
   RpcMethodName,
+  ExternalPluginRef,
+  StackProfile,
+  StackProfileId,
+  ToolchainProbeResult,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  resolveStackProfileForPlatform,
+} from '@ptah-extension/shared';
 
 import { HARNESS_TOKENS } from '../harness/tokens';
 import {
-  NEW_PROJECT_CHAT_SEED_PROMPT,
-  SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID,
+  buildNewProjectSeedPrompt,
   WIZARD_VIEW_TYPE,
 } from '../harness/harness-constants';
 import type { WebviewBroadcaster } from '../harness/streaming';
 import {
+  HarnessHealthParamsSchema,
+  HarnessReconcileParamsSchema,
+  HarnessRemoveParamsSchema,
+  HarnessStartNewProjectParamsSchema,
   HarnessWorkflowPromptParamsSchema,
   HarnessWorkspacePinParamsSchema,
 } from './harness-rpc.schema';
@@ -101,6 +123,7 @@ import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflo
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
 import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install.service';
 import type { HarnessSkillInstallService } from '../harness/io/harness-skill-install.service';
+import type { HarnessHealthRpcService } from '../harness/health/harness-health-rpc.service';
 
 interface WizardWebviewLifecycleLike {
   disposeWebview(viewType: string): void;
@@ -109,6 +132,19 @@ interface WizardWebviewLifecycleLike {
 const WIZARD_WEBVIEW_LIFECYCLE_TOKEN = Symbol.for(
   'WizardWebviewLifecycleService',
 );
+
+/**
+ * Profiles whose toolchain is the runtime Ptah is ALREADY executing in, so the
+ * probe is skipped for them.
+ *
+ * `node --version` answers "is there a Node on PATH", which is a different
+ * question from "can this project be scaffolded". Electron ships its own Node,
+ * and plenty of desktop users have none installed system-wide — probing them
+ * would print "Node.js is not installed" into the seed prompt of every
+ * TypeScript project on those machines, which is both false and a change to a
+ * path that must not change.
+ */
+const RUNTIME_PROVIDED_PROFILE_IDS: readonly StackProfileId[] = ['node-ts'];
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
 type RpcHandlerFn<TParams, TResp> = (params: TParams) => Promise<TResp>;
@@ -139,6 +175,13 @@ export class HarnessRpcHandlers {
     'harness:analyze-intent',
     'harness:start-new-project',
     'harness:workflow-prompt',
+    // The reconciler surface (TASK_2026_278 Batch 4). Registered here rather
+    // than in a new handler class so the host-profile manifest, both app DI
+    // bundles and the method-coverage specs keep working unchanged; the work
+    // itself lives in `HarnessHealthRpcService`.
+    'harness:health',
+    'harness:reconcile',
+    'harness:remove',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -148,8 +191,8 @@ export class HarnessRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
-    @inject(SDK_TOKENS.SDK_SKILL_JUNCTION)
-    private readonly skillJunction: SkillJunctionService,
+    @inject(HARNESS_SYNC_TOKENS.PROPAGATION)
+    private readonly harnessPropagation: HarnessPropagationService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.PLATFORM_COMMANDS)
@@ -179,6 +222,8 @@ export class HarnessRpcHandlers {
     private readonly mcpInstall: HarnessMcpInstallService,
     @inject(HARNESS_TOKENS.SKILL_INSTALL)
     private readonly skillInstall: HarnessSkillInstallService,
+    @inject(HARNESS_TOKENS.HEALTH)
+    private readonly healthService: HarnessHealthRpcService,
   ) {}
 
   /**
@@ -223,6 +268,48 @@ export class HarnessRpcHandlers {
     );
   }
 
+  /**
+   * Push whatever this handler just wrote out to every harness target.
+   *
+   * Delegates to `HarnessPropagationService`, which refreshes the user layer
+   * FIRST. That ordering is what this handler in particular needs and what it
+   * lacked: `createSkillPlugin` writes into `~/.ptah/plugins/ptah-harness-*`,
+   * and the reconciler's desired state is `~/.ptah/user` — so a bare reconcile
+   * here copied the state from before the skill was authored and reported a
+   * clean pass (TASK_2026_278 Batch 3).
+   *
+   * Returns `null` on success (or when there is no workspace) and a short
+   * message otherwise, so `harness:apply` can turn it into a user-visible
+   * warning without letting it fail the whole apply — the skill files ARE on
+   * disk in the user layer either way, and the next activation heals the copy.
+   */
+  private async reconcileHarness(reason: string): Promise<string | null> {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (workspaceRoot === undefined || workspaceRoot === null) return null;
+    try {
+      const health = await this.harnessPropagation.propagate(
+        workspaceRoot,
+        reason,
+      );
+      if (health === null) return 'harness propagation did not run';
+      const claude = health.targets.find((t) => t.target === 'claude');
+      this.logger.debug('Harness reconciled', {
+        reason,
+        expected: claude?.expected ?? 0,
+        found: claude?.found ?? 0,
+        writeFailed: claude?.writeFailed.length ?? 0,
+      });
+      return null;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn('Harness reconcile failed (non-fatal)', {
+        reason,
+        error: message,
+      });
+      return message;
+    }
+  }
+
   /** Register all harness RPC methods. */
   register(): void {
     this.registerInitialize();
@@ -241,6 +328,9 @@ export class HarnessRpcHandlers {
     this.registerAnalyzeIntent();
     this.registerStartNewProject();
     this.registerWorkflowPrompt();
+    this.registerHealth();
+    this.registerReconcile();
+    this.registerRemove();
 
     this.logger.debug('Harness RPC handlers registered', {
       methods: HarnessRpcHandlers.METHODS,
@@ -314,7 +404,18 @@ export class HarnessRpcHandlers {
     this.wire<HarnessCreateSkillParams, HarnessCreateSkillResponse>(
       'harness:create-skill',
       'registerCreateSkill',
-      (params) => this.fsService.createSkillPlugin(params),
+      async (params) => {
+        const result = await this.fsService.createSkillPlugin(params);
+        // `createSkillPlugin` mirrors the new `ptah-harness-*` dir into the
+        // user layer and stops there. Until Batch 3 nothing carried it the last
+        // step into `{ws}/.claude/skills`, so a skill the user had just
+        // authored — including one the model authored for itself through
+        // `ptah_harness_create_skill` mid-session — did not exist for any tool
+        // until the next activation. Awaited, not fire-and-forget: the caller's
+        // very next act is usually to invoke the skill.
+        await this.reconcileHarness('harness:create-skill');
+        return result;
+      },
     );
   }
 
@@ -460,26 +561,16 @@ export class HarnessRpcHandlers {
           }
         }
 
-        const hasCreatedSkills = createdSkills.length > 0;
-        if (config.skills.selectedSkills.length > 0 || hasCreatedSkills) {
-          try {
-            // resolveCurrentPluginPaths() already appends the harness-authored
-            // ptah-harness-* directories, so the skills written just above are
-            // junctioned without an ad-hoc merge here.
-            const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
-            const disabledSkillIds = this.pluginLoader.getDisabledSkillIds();
-            this.skillJunction.createJunctions(pluginPaths, disabledSkillIds);
-          } catch (junctionError) {
-            const msg =
-              junctionError instanceof Error
-                ? junctionError.message
-                : String(junctionError);
-            warnings.push(`Failed to create skill junctions: ${msg}`);
-            this.logger.error(
-              'RPC: harness:apply junction creation failed',
-              junctionError instanceof Error ? junctionError : new Error(msg),
-            );
-          }
+        // UNCONDITIONAL since TASK_2026_278 Batch 3. The old
+        // `selectedSkills.length > 0 || createdSkills.length > 0` gate read as
+        // an optimisation and was a hole: an apply that wrote only subagents
+        // (the common case for a harness whose skills were already installed)
+        // left `{ws}/.claude/agents` mirrored into the user layer with nothing
+        // fanning it out to Codex, Copilot or Cursor. The pass is idempotent —
+        // an apply that changed nothing costs a directory walk.
+        const failure = await this.reconcileHarness('harness:apply');
+        if (failure !== null) {
+          warnings.push(`Failed to sync harness skills: ${failure}`);
         }
 
         return { appliedPaths, warnings };
@@ -583,56 +674,157 @@ export class HarnessRpcHandlers {
     return service;
   }
 
+  /**
+   * Split a profile's `requiredPlugins` into "turn these on" and "tell the user
+   * these are missing".
+   *
+   * The asymmetry is the point. A bundled plugin ships inside Ptah, so enabling
+   * it is a configuration flip the user already consented to by installing
+   * Ptah. An external one is code downloaded from a third-party GitHub repo,
+   * possibly carrying scripts and an MCP server, and the ONLY way it may reach
+   * disk is the two-call consent flow in `ExternalPluginInstallerService`.
+   * This method therefore never installs and never enables an external plugin —
+   * it reads the consent record and reports what is absent, and the seed prompt
+   * tells the user where to approve it.
+   *
+   * A host with no marketplace registered (the store fails to resolve) reports
+   * every external ref as missing. Failing closed is the honest answer: we
+   * cannot show the user something we cannot verify is there.
+   */
+  private partitionRequiredPlugins(profile: StackProfile | null): {
+    bundled: string[];
+    missingExternal: ExternalPluginRef[];
+  } {
+    const bundled: string[] = [];
+    const external: ExternalPluginRef[] = [];
+    for (const ref of profile?.requiredPlugins ?? []) {
+      if (typeof ref === 'string') {
+        bundled.push(ref);
+      } else {
+        external.push(ref);
+      }
+    }
+
+    if (external.length === 0) {
+      return { bundled, missingExternal: [] };
+    }
+
+    let stateStore: ExternalPluginStateStore | null = null;
+    try {
+      stateStore = this.container.resolve<ExternalPluginStateStore>(
+        PLUGIN_MARKETPLACE_TOKENS.STATE_STORE,
+      );
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[harness:start-new-project] External plugin state store unavailable; treating every external requirement as missing',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+
+    const missingExternal = external.filter((ref) => {
+      const [owner, repo] = ref.marketplace.split('/');
+      if (!owner || !repo) {
+        return true;
+      }
+      const pluginId = buildExternalPluginId({
+        owner,
+        repo,
+        plugin: ref.plugin,
+      });
+      return !stateStore?.isInstalled(pluginId);
+    });
+
+    return { bundled, missingExternal };
+  }
+
+  /**
+   * The skill ids the agent can actually invoke, for the seed prompt to gate
+   * the profile's Stage A skill names on.
+   *
+   * Read AFTER the profile's bundled plugin has been enabled and reconciled, so
+   * a plugin turned on by this very call counts as present. Skills the user
+   * disabled are excluded: `disabledSkillIds` keeps them out of the harness
+   * dirs altogether, so from the agent's side they are not there.
+   *
+   * Anything unreadable comes back empty, which makes the prompt name no preset
+   * skill at all — the same fail-closed posture as
+   * {@link partitionRequiredPlugins}. A generic Stage A contract is a duller
+   * prompt; a named skill that does not exist is a broken one.
+   */
+  private resolveAvailableSkillIds(): string[] {
+    try {
+      return this.workspaceContext
+        .discoverAvailableSkills()
+        .filter((skill) => skill.isActive)
+        .map((skill) => skill.id);
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[harness:start-new-project] Skill discovery unavailable; the seed prompt will use the generic Stage A contract',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Probe the profile's toolchain so the prompt can warn about a missing SDK.
+   *
+   * Skipped for the profiles in {@link RUNTIME_PROVIDED_PROFILE_IDS} — see that
+   * constant for why probing PATH there produces false alarms rather than
+   * information.
+   */
+  private async probeProfileToolchain(
+    profile: StackProfile | null,
+  ): Promise<ToolchainProbeResult | undefined> {
+    if (!profile || RUNTIME_PROVIDED_PROFILE_IDS.includes(profile.id)) {
+      return undefined;
+    }
+    return probeStackToolchain(profile);
+  }
+
   private registerStartNewProject(): void {
     this.rpcHandler.registerMethod<
       HarnessStartNewProjectParams,
       HarnessStartNewProjectResult
-    >('harness:start-new-project', async () => {
+    >('harness:start-new-project', async (params) => {
       this.logger.debug('RPC: harness:start-new-project called');
       try {
+        // Validate BEFORE any side effect: a malformed intake must not leave
+        // a plugin half-enabled or the wizard panel disposed.
+        const { intake } = HarnessStartNewProjectParamsSchema.parse(params);
+        const profile = resolveStackProfileForPlatform(intake.platform);
+        const { bundled, missingExternal } =
+          this.partitionRequiredPlugins(profile);
+
         const config = this.pluginLoader.getWorkspacePluginConfig();
         const enabled = new Set(config.enabledPluginIds);
+        const newlyEnabled = bundled.filter((id) => !enabled.has(id));
         let pluginConfigChanged = false;
-        if (!enabled.has(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID)) {
-          enabled.add(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID);
+        if (newlyEnabled.length > 0) {
+          for (const id of newlyEnabled) {
+            enabled.add(id);
+          }
           await this.pluginLoader.saveWorkspacePluginConfig({
             enabledPluginIds: Array.from(enabled),
             disabledSkillIds: config.disabledSkillIds,
           });
           pluginConfigChanged = true;
           this.logger.info(
-            '[harness:start-new-project] Enabled ptah-nx-saas plugin for workspace',
+            '[harness:start-new-project] Enabled bundled plugins for workspace',
+            { pluginIds: newlyEnabled },
           );
         }
         if (pluginConfigChanged) {
-          try {
-            const refreshedConfig =
-              this.pluginLoader.getWorkspacePluginConfig();
-            // Harness-inclusive: bundled-only paths would make every
-            // harness-authored skill junction look stale and get removed.
-            const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
-            const junctionResult = this.skillJunction.createJunctions(
-              pluginPaths,
-              refreshedConfig.disabledSkillIds,
-            );
-            this.logger.debug(
-              '[harness:start-new-project] Skill junctions refreshed',
-              {
-                created: junctionResult.created,
-                skipped: junctionResult.skipped,
-                removed: junctionResult.removed,
-                errorCount: junctionResult.errors.length,
-              },
-            );
-          } catch (error: unknown) {
-            this.logger.warn(
-              '[harness:start-new-project] Failed to refresh skill junctions (non-fatal)',
-              {
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          }
+          await this.reconcileHarness('harness:start-new-project');
         }
+        // Composed before the broadcast, and outside its try, so a probe or a
+        // consent-record read can never be mistaken for a broadcast failure.
+        const seedPrompt = buildNewProjectSeedPrompt(intake, {
+          toolchain: await this.probeProfileToolchain(profile),
+          missingExternalPlugins: missingExternal,
+          availableSkillIds: this.resolveAvailableSkillIds(),
+        });
+
         try {
           await this.platformCommands.focusChat();
         } catch (error: unknown) {
@@ -650,7 +842,13 @@ export class HarnessRpcHandlers {
           );
           await webviewManager.broadcastMessage(
             MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
-            { mode: 'new-project', seedPrompt: NEW_PROJECT_CHAT_SEED_PROMPT },
+            {
+              mode: 'new-project',
+              // What the agent receives …
+              seedPrompt,
+              // … and what the user sees rendered as their first bubble.
+              intake,
+            },
           );
         } catch (error: unknown) {
           this.logger.warn(
@@ -701,6 +899,43 @@ export class HarnessRpcHandlers {
         const parsed = HarnessWorkflowPromptParamsSchema.parse(params);
         return this.workflowPrompt.composePrompt(parsed);
       },
+    );
+  }
+
+  // -- Reconciler surface (TASK_2026_278 Batch 4) ---------------------------
+  //
+  // Three one-line delegates. The logic, the workspace resolution and the
+  // `harness:healthChanged` push all live in `HarnessHealthRpcService`; what
+  // stays here is registration, Zod parsing and the shared error funnel.
+
+  private registerHealth(): void {
+    this.wire<HarnessHealthParams, HarnessHealthResult>(
+      'harness:health',
+      'registerHealth',
+      async (params) =>
+        this.healthService.health(
+          HarnessHealthParamsSchema.parse(params ?? {}),
+        ),
+    );
+  }
+
+  private registerReconcile(): void {
+    this.wire<HarnessReconcileParams, HarnessReconcileResult>(
+      'harness:reconcile',
+      'registerReconcile',
+      async (params) =>
+        this.healthService.reconcile(
+          HarnessReconcileParamsSchema.parse(params ?? {}),
+        ),
+    );
+  }
+
+  private registerRemove(): void {
+    this.wire<HarnessRemoveParams, HarnessRemoveResult>(
+      'harness:remove',
+      'registerRemove',
+      async (params) =>
+        this.healthService.remove(HarnessRemoveParamsSchema.parse(params)),
     );
   }
 }

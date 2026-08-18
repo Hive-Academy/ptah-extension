@@ -809,10 +809,16 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]cli-engine[\\/]/,
       // auth-providers consumes WorkspaceScopeResolver for per-workspace provider resolution.
       /libs[\\/]backend[\\/]auth-providers[\\/]/,
+      // output-styles reads `outputStyle.selectedName` (and its workspace scope)
+      // to resolve the per-session activation. It owns that read for BOTH the
+      // chat path and the CLI-agent spawn path, which cannot see each other.
+      /libs[\\/]backend[\\/]output-styles[\\/]/,
       // tsconfig files declare path aliases — not runtime consumers.
       /tsconfig(\.\w+)?\.json$/,
       // Documentation mentions the package name in prose — not a runtime import.
       /^docs[\\/]/,
+      // Task specs quote import lines in their plans. Prose, never compiled.
+      /^\.ptah[\\/]specs[\\/]/,
     ];
 
     const unauthorized = lines.filter(

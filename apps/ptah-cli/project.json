@@ -182,6 +182,13 @@
         "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
       }
     },
+    "e2e-pty": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["restore-cli-manifest"],
+      "options": {
+        "command": "jest --config apps/ptah-cli/jest.pty.config.cjs --runInBand"
+      }
+    },
     "publish:dry-run": {
       "executor": "nx:run-commands",
       "dependsOn": ["restore-cli-manifest"],

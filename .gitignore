@@ -202,7 +202,8 @@ skills-lock.json
 .remocn-fetch
 
 apps/coverage/**
-
+apps/ptah-video-studio/build/**
+apps/ptah-video-studio/selfshot/**
 libs/frontend/webview-e2e-harness/test-results/**
 
 # Developer scratch, matching the eslint `ignores` in eslint.config.mjs.

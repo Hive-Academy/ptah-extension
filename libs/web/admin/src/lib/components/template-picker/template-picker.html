@@ -10,9 +10,11 @@
     [disabled]="isLoading()"
     (change)="onSelect($event)"
   >
-    <option value="">— None (use inline content) —</option>
+    <option value="" [selected]="(value() ?? '') === ''">
+      — None (use inline content) —
+    </option>
     @for (t of templates(); track t.id) {
-      <option [value]="t.id">{{ t.name }}</option>
+      <option [value]="t.id" [selected]="t.id === value()">{{ t.name }}</option>
     }
   </select>
 }

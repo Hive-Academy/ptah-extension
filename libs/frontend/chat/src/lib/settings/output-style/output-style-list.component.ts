@@ -496,7 +496,10 @@ const PARITY_TIERS: ReadonlyArray<{
             (change)="onParityTierChange($event)"
           >
             @for (option of parityTiers; track option.tier) {
-              <option [value]="option.tier">
+              <option
+                [value]="option.tier"
+                [selected]="option.tier === parityTier()"
+              >
                 {{ option.displayPath }} — {{ option.scope }}
               </option>
             }

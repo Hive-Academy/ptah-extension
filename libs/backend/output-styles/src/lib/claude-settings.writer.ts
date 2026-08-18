@@ -68,7 +68,11 @@ const SETTINGS_FILE_NAMES: Readonly<Record<SettingsTier, string>> =
     local: 'settings.local.json',
   });
 
-/** Suffix of the pre-write insurance copy. Precedent: `mcp-config-io.utils.ts`. */
+/**
+ * Suffix of the pre-write insurance copy. Precedent: `JsonMcpFacet` in
+ * `@ptah-extension/harness-sync`, which takes the same backup before editing a
+ * config file the user also hand-edits.
+ */
 const BACKUP_SUFFIX = '.ptah-bak';
 
 /** The one key this writer is allowed to touch. */

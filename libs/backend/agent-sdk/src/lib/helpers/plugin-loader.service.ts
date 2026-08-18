@@ -33,6 +33,13 @@ import type {
   PluginSkillEntry,
 } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import {
+  ExternalPluginStateStore,
+  PLUGIN_MARKETPLACE_TOKENS,
+  externalPluginDir,
+  isExternalPluginId,
+  parseExternalPluginId,
+} from '@ptah-extension/plugin-marketplace';
 import { SdkError } from '../errors';
 
 /** VS Code workspaceState key for plugin configuration */
@@ -53,12 +60,23 @@ const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
     id: 'ptah-core',
     name: 'Ptah Core',
     description:
-      'Core development tools including orchestration, code review, testing, and documentation agents',
+      'Core development tools including orchestration, behavior-preserving refactoring, code review, testing, and documentation agents',
     category: 'core-tools',
-    skillCount: 6,
+    skillCount: 8,
     commandCount: 5,
     isDefault: true,
-    keywords: ['orchestrate', 'review', 'test', 'document', 'core'],
+    keywords: [
+      'orchestrate',
+      'review',
+      'test',
+      'document',
+      'core',
+      'humanize',
+      'refactor',
+      'cleanup',
+      'solid',
+      'duplication',
+    ],
   },
   {
     id: 'ptah-nx-saas',
@@ -82,6 +100,26 @@ const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
       'licensing',
       'subscription',
       'resilience',
+    ],
+  },
+  {
+    id: 'ptah-dotnet',
+    name: 'Ptah .NET',
+    description:
+      'Discovery, domain modelling, solution layout and the Nx decision for .NET workspaces — execution mechanics (dotnet new, tests, EF Core, MSBuild, NuGet) come from the .NET team’s own marketplace plugins',
+    category: 'backend-tools',
+    skillCount: 3,
+    commandCount: 0,
+    isDefault: false,
+    keywords: [
+      'dotnet',
+      'csharp',
+      'aspnetcore',
+      'blazor',
+      'msbuild',
+      'nuget',
+      'solution',
+      'backend',
     ],
   },
   {
@@ -128,7 +166,22 @@ const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
   },
 ];
 
-/** Set of valid plugin IDs for path validation */
+/**
+ * Bundled plugin IDs — the STATIC half of the path-validation allowlist.
+ *
+ * There are three kinds of valid id and they are validated three different
+ * ways, on purpose (see `isKnownPluginId`):
+ *
+ * 1. bundled — this constant. Fixed at compile time.
+ * 2. harness — a `ptah-harness-*` directory that exists on disk, because the
+ *    user authored it here through the wizard.
+ * 3. external — an id with a CONSENT RECORD in `ExternalPluginStateStore`.
+ *
+ * Note what case 3 is not: it is not "a directory under `external/` exists".
+ * Externals are the only kind whose bytes came from a third party, so for them
+ * the question is never "is this on disk" but "did the user approve this". See
+ * `ExternalPluginStateStore.isInstalled`.
+ */
 const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
 
 /**
@@ -198,7 +251,11 @@ export class PluginLoaderService {
   /** VS Code Memento for per-workspace persistent state */
   private workspaceState: IStateStorage | null = null;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLUGIN_MARKETPLACE_TOKENS.STATE_STORE)
+    private readonly externalPlugins: ExternalPluginStateStore,
+  ) {}
 
   /**
    * Initialize the plugin loader with the plugins base path and workspace state.
@@ -237,10 +294,81 @@ export class PluginLoaderService {
   getAvailablePlugins(): PluginInfo[] {
     const bundled: PluginInfo[] = AVAILABLE_PLUGINS.map((plugin) => ({
       ...plugin,
+      skillCount: this.countBundledSkills(plugin.id) ?? plugin.skillCount,
       source: 'bundled' as const,
     }));
 
-    return [...bundled, ...this.describeHarnessPlugins()];
+    return [
+      ...bundled,
+      ...this.describeHarnessPlugins(),
+      ...this.describeExternalPlugins(),
+    ];
+  }
+
+  /**
+   * Build a `PluginInfo` for every externally-installed plugin.
+   *
+   * Driven by the CONSENT RECORD, not by a directory scan — the same rule that
+   * governs `resolvePluginPaths`. A record whose directory has since vanished
+   * still appears here (with a zero skill count) rather than disappearing
+   * silently, so the user can see it and uninstall it. The reverse, a directory
+   * with no record, stays invisible: nothing gets promoted into the plugin
+   * catalogue by landing on disk.
+   */
+  private describeExternalPlugins(): PluginInfo[] {
+    if (!this.pluginsBasePath) return [];
+    const pluginsBasePath = this.pluginsBasePath;
+
+    return this.externalPlugins.listInstalled().map((record) => {
+      const coordinate = parseExternalPluginId(record.pluginId);
+      const pluginPath = coordinate
+        ? externalPluginDir(pluginsBasePath, coordinate)
+        : null;
+      const skills = pluginPath
+        ? this.discoverSkillsForPlugins([pluginPath])
+        : [];
+
+      return {
+        id: record.pluginId,
+        name: record.displayName,
+        description:
+          skills[0]?.description ??
+          `Installed from ${record.source} (version ${record.version}).`,
+        category: 'external-tools' as const,
+        skillCount: skills.length,
+        commandCount: pluginPath ? this.countPluginCommands(pluginPath) : 0,
+        // "Recommended" is a Ptah endorsement. Third-party plugins never get it.
+        isDefault: false,
+        keywords: [
+          ...record.plugin.split('-').filter((word) => word.length > 0),
+          'external',
+          record.source,
+        ],
+        source: 'external' as const,
+      };
+    });
+  }
+
+  /**
+   * Real skill count for a bundled plugin, or null when it cannot be counted.
+   *
+   * The catalogue number above is a pre-download placeholder — bundled plugins
+   * ship from GitHub at runtime, so before the first download there is no
+   * `skills/` tree to read. Once there is one, disk wins.
+   *
+   * This exists because the browser modal renders the count as a badge and the
+   * per-skill list underneath it from `plugins:list-skills`, which has always
+   * read disk. A hand-maintained constant drifts the first time someone adds a
+   * skill without bumping it, and the badge then contradicts the list directly
+   * below itself.
+   */
+  private countBundledSkills(pluginId: string): number | null {
+    if (!this.pluginsBasePath) return null;
+
+    const pluginPath = path.join(this.pluginsBasePath, pluginId);
+    if (!fs.existsSync(path.join(pluginPath, 'skills'))) return null;
+
+    return this.discoverSkillsForPlugins([pluginPath]).length;
   }
 
   /**
@@ -401,12 +529,20 @@ export class PluginLoaderService {
    * Resolve plugin IDs to absolute directory paths.
    *
    * Maps each valid plugin ID to its absolute path under the plugins base
-   * directory. An ID is valid when it names a bundled plugin OR a
-   * `ptah-harness-*` directory that actually exists on disk; anything else is
-   * filtered out with a warning to prevent arbitrary path construction
-   * (security). Directory-backed validation is what keeps traversal IDs like
-   * `ptah-harness-../../etc` out — `discoverHarnessPluginPaths()` only ever
-   * yields direct children of the base path.
+   * directory. An ID is valid when it names a bundled plugin, a
+   * `ptah-harness-*` directory that actually exists on disk, or an external
+   * plugin with a consent record; anything else is filtered out with a warning
+   * to prevent arbitrary path construction (security).
+   *
+   * Each kind is kept out of the path by a different mechanism, and none of
+   * them is "the string looks fine":
+   * - bundled ids are a fixed set, so `ptah-core/../../etc` is simply absent
+   *   from it;
+   * - harness ids are validated against `discoverHarnessPluginPaths()`, which
+   *   only ever yields direct children of the base path;
+   * - external ids are validated against the consent record AND re-parsed by
+   *   `parseExternalPluginId`, which rejects any segment that is not a single
+   *   safe path token — so the id never reaches `path.join` as a raw string.
    *
    * @param enabledPluginIds - Array of plugin IDs to resolve
    * @returns Array of absolute paths to plugin directories (only for valid IDs)
@@ -429,29 +565,34 @@ export class PluginLoaderService {
       ? new Set(this.discoverHarnessPluginPaths().map((p) => path.basename(p)))
       : new Set<string>();
 
-    const validIds = enabledPluginIds.filter((id) => {
-      const isValid = KNOWN_PLUGIN_IDS.has(id) || harnessIds.has(id);
-      if (!isValid) {
+    const resolvable = new Map<string, string>();
+    for (const id of enabledPluginIds) {
+      const pluginPath = this.resolveSinglePluginPath(
+        id,
+        pluginsBasePath,
+        harnessIds,
+      );
+      if (pluginPath === null) {
         this.logger.warn(
           '[PluginLoaderService] Unknown plugin ID filtered out',
           { pluginId: id },
         );
+        continue;
       }
-      return isValid;
-    });
+      resolvable.set(id, pluginPath);
+    }
 
-    const paths = validIds
-      .map((id) => path.join(pluginsBasePath, id))
-      .filter((pluginPath) => {
-        if (!fs.existsSync(pluginPath)) {
-          this.logger.warn(
-            '[PluginLoaderService] Plugin directory not found, skipping',
-            { path: pluginPath },
-          );
-          return false;
-        }
-        return true;
-      });
+    const validIds = [...resolvable.keys()];
+    const paths = [...resolvable.values()].filter((pluginPath) => {
+      if (!fs.existsSync(pluginPath)) {
+        this.logger.warn(
+          '[PluginLoaderService] Plugin directory not found, skipping',
+          { path: pluginPath },
+        );
+        return false;
+      }
+      return true;
+    });
 
     this.logger.debug('[PluginLoaderService] Resolved plugin paths', {
       requestedCount: enabledPluginIds.length,
@@ -463,8 +604,42 @@ export class PluginLoaderService {
   }
 
   /**
+   * Absolute directory for one plugin id, or null when the id is not allowed.
+   *
+   * THE ALLOWLIST. Every branch returns a path only after proving the id
+   * belongs to a category that has already been authorized:
+   *
+   * - external: `isInstalled` consults the persisted consent record. An id that
+   *   was never installed through the consent flow returns null here and is
+   *   rejected exactly like a made-up bundled id — which is the security
+   *   property the whole external-marketplace feature rests on. Widening this
+   *   to "any id starting with `external:`", or to "any directory present under
+   *   `external/`", would turn plugin loading into arbitrary code loading.
+   * - harness: must be a directory the scan actually found.
+   * - bundled: must be in the compile-time set.
+   */
+  private resolveSinglePluginPath(
+    id: string,
+    pluginsBasePath: string,
+    harnessIds: ReadonlySet<string>,
+  ): string | null {
+    if (isExternalPluginId(id)) {
+      if (!this.externalPlugins.isInstalled(id)) return null;
+      const coordinate = parseExternalPluginId(id);
+      if (!coordinate) return null;
+      return externalPluginDir(pluginsBasePath, coordinate);
+    }
+
+    if (KNOWN_PLUGIN_IDS.has(id) || harnessIds.has(id)) {
+      return path.join(pluginsBasePath, id);
+    }
+
+    return null;
+  }
+
+  /**
    * Get the current disabled skill IDs from workspace config.
-   * Convenience method for SkillJunctionService callbacks.
+   * Convenience method for the harness reconciler's source resolver.
    */
   getDisabledSkillIds(): string[] {
     return this.getWorkspacePluginConfig().disabledSkillIds;
@@ -542,7 +717,7 @@ export class PluginLoaderService {
    *
    * Both halves are filtered by `disabledPluginIds` so an explicit disable
    * always wins. That exclusion is the whole point of the toggle:
-   * SkillJunctionService prunes any junction whose skill is missing from the
+   * The harness reconciler removes any managed copy whose skill is missing from the
    * supplied paths, so dropping a disabled plugin here is what actually removes
    * its skills from `.claude/skills/`. Conversely, keeping the untouched
    * harness directories here is what stops a marketplace toggle from wiping
@@ -570,7 +745,7 @@ export class PluginLoaderService {
    *
    * For each plugin path, reads the skills/ directory and looks for subdirectories
    * containing a SKILL.md file. Parses YAML frontmatter for display name and description.
-   * The skillId is the directory name (matching SkillJunctionService.buildSkillsMap keys).
+   * The skillId is the directory name (matching HarnessManifestBuilder skill slugs).
    *
    * @param pluginPaths - Absolute paths to plugin directories
    * @returns Flat list of PluginSkillEntry with directory-name-based skillId

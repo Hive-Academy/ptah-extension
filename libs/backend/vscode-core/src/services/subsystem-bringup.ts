@@ -1,17 +1,20 @@
 /**
  * Subsystem bring-up — unconditional activation helper.
  *
- * Starts the Code Execution MCP server and runs the CLI skill/agent syncs
- * once, at activation, for every user. There is no tier or license gate:
- * all local, single-user capabilities are available to everyone.
+ * Starts the Code Execution MCP server once, at activation, for every user.
+ * There is no tier or license gate: all local, single-user capabilities are
+ * available to everyone.
+ *
+ * It used to also drive two app-provided CLI fan-out callbacks, one for skills
+ * and one for agents. Those are gone: harness propagation is now
+ * `HarnessReconciler.reconcile`, which each host already calls from its
+ * activation path before this runs (TASK_2026_278 Batch 2).
  *
  * Design:
  * - Idempotent: the MCP server is only started when it is not already running.
  * - Each subsystem is isolated in its own try/catch so a single failure never
  *   blocks the others.
  * - No DI decorators: this is a plain exported async function.
- * - CLI syncs are delegated to optional app-provided callbacks to avoid
- *   circular dependencies (agent-sdk/agent-generation → vscode-core).
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -25,16 +28,6 @@ export interface SubsystemBringUpDeps {
    * Called after MCP server starts (with port).
    */
   onMcpPortChange?: (port: number | null) => void;
-  /**
-   * App-provided CLI skill sync callback (fire-and-forget).
-   * If omitted, CLI skill sync is skipped.
-   */
-  syncCliSkills?: () => void;
-  /**
-   * App-provided CLI agent sync callback (fire-and-forget).
-   * If omitted, CLI agent sync is skipped.
-   */
-  syncCliAgents?: () => void;
 }
 
 /**
@@ -43,8 +36,6 @@ export interface SubsystemBringUpDeps {
  * Steps:
  * 1. Start CodeExecutionMCP if registered and not already running.
  * 2. Call ensureRegisteredForSubagents on MCP.
- * 3. Run CLI skill sync (fire-and-forget, app-provided callback).
- * 4. Run CLI agent sync (fire-and-forget, app-provided callback).
  */
 export async function bringUpSubsystems(
   deps: SubsystemBringUpDeps,
@@ -89,31 +80,5 @@ export async function bringUpSubsystems(
     logger.warn('[SubsystemBringUp] MCP server start failed (non-fatal)', {
       error: mcpError instanceof Error ? mcpError.message : String(mcpError),
     });
-  }
-
-  if (deps.syncCliSkills) {
-    try {
-      deps.syncCliSkills();
-    } catch (skillSyncError: unknown) {
-      logger.warn('[SubsystemBringUp] CLI skill sync failed (non-fatal)', {
-        error:
-          skillSyncError instanceof Error
-            ? skillSyncError.message
-            : String(skillSyncError),
-      });
-    }
-  }
-
-  if (deps.syncCliAgents) {
-    try {
-      deps.syncCliAgents();
-    } catch (agentSyncError: unknown) {
-      logger.warn('[SubsystemBringUp] CLI agent sync failed (non-fatal)', {
-        error:
-          agentSyncError instanceof Error
-            ? agentSyncError.message
-            : String(agentSyncError),
-      });
-    }
   }
 }

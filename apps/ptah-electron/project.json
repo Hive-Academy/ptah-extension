@@ -8,6 +8,7 @@
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
       "outputs": [
         "{options.outputPath}/main.mjs",
         "{options.outputPath}/main.mjs.map",
@@ -92,16 +93,6 @@
             "output": "assets"
           },
           {
-            "glob": "**/*",
-            "input": "apps/ptah-extension-vscode/assets/plugins",
-            "output": "assets/plugins"
-          },
-          {
-            "glob": "**/*",
-            "input": "libs/backend/agent-generation/templates",
-            "output": "templates"
-          },
-          {
             "glob": "electron-builder.yml",
             "input": "apps/ptah-electron",
             "output": "."
@@ -121,6 +112,7 @@
     },
     "build-preload": {
       "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
       "outputs": ["{options.outputPath}/preload.js"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
@@ -143,6 +135,7 @@
     },
     "build-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
       "outputs": ["{options.outputPath}/embedder-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
@@ -166,6 +159,7 @@
     },
     "build-voice-worker": {
       "executor": "@nx/esbuild:esbuild",
+      "dependsOn": [],
       "outputs": ["{options.outputPath}/voice-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
@@ -252,11 +246,10 @@
     },
     "serve": {
       "executor": "nx:run-commands",
+      "cache": false,
       "options": {
         "commands": [
           "node apps/ptah-electron/scripts/rebuild-native.js",
-          "nx build-embedder-worker ptah-electron",
-          "nx build-voice-worker ptah-electron",
           "nx build-dev ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "nx copy-renderer-dev ptah-electron",

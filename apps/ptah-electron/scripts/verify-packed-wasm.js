@@ -31,6 +31,9 @@ const REQUIRED_WASM = [
   'wasm/web-tree-sitter.wasm',
   'wasm/tree-sitter-typescript.wasm',
   'wasm/tree-sitter-javascript.wasm',
+  // C# (TASK_2026_270 Batch 1b) — largest grammar by far (~4.9 MB raw); see
+  // `scripts/copy-wasm.js` and `workspace-intelligence/src/ast/tree-sitter.config.ts`.
+  'wasm/tree-sitter-c-sharp.wasm',
 ];
 
 /** Recursively collect every app.asar under dist/release (win/linux/mac layouts). */

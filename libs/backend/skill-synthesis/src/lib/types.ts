@@ -17,6 +17,103 @@ export type CandidateId = string & { readonly __brand: 'CandidateId' };
 export type SkillStatus = 'candidate' | 'promoted' | 'rejected';
 
 /**
+ * The judge verdict vocabulary (migration `0033`).
+ *
+ * THIS UNION IS THE ONLY ENFORCEMENT THERE IS. `0033` deliberately ships
+ * `judge_status` with NO `CHECK` constraint: SQLite cannot widen a CHECK with
+ * `ALTER TABLE`, and phases 3/4 add scoring paths, so the vocabulary is not
+ * knowable up front. The price of that choice is that `SkillCandidateStore` —
+ * the single gate every read and write passes through — has to do the
+ * enforcing, on BOTH edges: `recordJudgeVerdict` rejects a non-member, and
+ * `toCandidateRow` refuses to hand an unrecognized string to a consumer that
+ * has been told the type is this union.
+ */
+export const JUDGE_STATUSES = ['scored', 'unscored', 'disabled'] as const;
+
+export type JudgeStatus = (typeof JUDGE_STATUSES)[number];
+
+/**
+ * The five criteria `SkillJudgeService` scores. Persisted individually rather
+ * than only as an average so the UI can render a scorecard, and so a verdict
+ * that is strong on novelty but weak on scope is legible instead of collapsed
+ * into one number. `null` per criterion means "this criterion was not scored".
+ */
+export interface JudgeCriterionScores {
+  novelty: number | null;
+  actionability: number | null;
+  scope: number | null;
+  generalization: number | null;
+  triggerClarity: number | null;
+}
+
+/**
+ * A judge outcome as written by the promotion gate.
+ *
+ * `score: null` IS THE `unscored` VERDICT — it is not a low score and it is not
+ * zero. It is the representation that phase 1 exists to introduce: before it,
+ * an LLM error, a rate limit, or an unparseable reply made the judge fail OPEN
+ * and fabricate `{ passed: true, score: 10 }`, which the UI then rendered as a
+ * genuine perfect verdict. A candidate whose judge call failed must read back
+ * as "we do not know", carry the reason, and stay eligible for a retry.
+ */
+export interface JudgeVerdict {
+  status: JudgeStatus;
+  /** `null` for every non-`scored` status. Never coalesce this to 0. */
+  score: number | null;
+  /** Why. For `unscored` this is the failure ("rate limited"), not a critique. */
+  reason: string | null;
+  /** Omit entirely when the judge produced no per-criterion breakdown. */
+  criteria?: JudgeCriterionScores;
+  /** Defaults to `Date.now()`. */
+  judgedAt?: number;
+}
+
+/**
+ * Who produced one entry in `judge_panel_rationales` (phase 3, B3.4).
+ *
+ * Three roles, not two, because the escalation is a THIRD opinion and not an
+ * edit of either panellist's: when the two panellists disagree by more than
+ * `skillSynthesis.judgePanel.disagreementThreshold` on any criterion, a
+ * `synthesis`-lane call reads both and answers for itself. Storing it under one
+ * of the panellist roles would lose the fact that a disagreement happened,
+ * which is the only reason the third call was ever paid for.
+ */
+export const JUDGE_PANEL_ROLES = [
+  'panellist-a',
+  'panellist-b',
+  'escalation',
+] as const;
+
+export type JudgePanelRole = (typeof JUDGE_PANEL_ROLES)[number];
+
+/**
+ * One panellist's answer, as `judge_panel_rationales` stores it.
+ *
+ * The `status`/`score` pair carries the SAME contract `JudgeVerdict` does and
+ * `SkillCandidateStore.recordJudgePanel` enforces it identically: only
+ * `'scored'` may carry a number. A panel entry is a verdict too, and letting
+ * `{status:'unscored', score:10}` through here would reintroduce the fabricated
+ * score one column to the left of where phase 1 removed it.
+ */
+export interface JudgePanelRationale {
+  readonly role: JudgePanelRole;
+  readonly status: JudgeStatus;
+  /** Populated ONLY on `status: 'scored'`. */
+  readonly score: number | null;
+  /** The per-criterion scorecard, when this panellist produced one. */
+  readonly criteria: JudgeCriterionScores | null;
+  /** A `JUDGE_REASONS` member, or a lane failure's own user-facing reason. */
+  readonly reason: string;
+  /**
+   * The rendering handed to the escalation prompt. Stored rather than re-derived
+   * so what the escalation actually READ is recoverable from the row — a
+   * re-derivation drifts the moment the renderer changes and would make the
+   * stored panel a plausible reconstruction rather than a record.
+   */
+  readonly summary: string;
+}
+
+/**
  * Residency values mirror the SQL CHECK constraint exactly. `resident` skills
  * are fed to the junction layer; `dormant` skills are skipped there (kept in
  * the DB + on disk for future re-promotion) so they no longer consume the
@@ -24,7 +121,16 @@ export type SkillStatus = 'candidate' | 'promoted' | 'rejected';
  */
 export type SkillResidency = 'resident' | 'dormant';
 
-/** Row shape for `skill_candidates`. */
+/**
+ * Row shape for `skill_candidates`.
+ *
+ * The `judge*` / `displayName` block below is the `0033` column set. It lives
+ * ON this type rather than beside it: every row the store can hand back has
+ * been through `toCandidateRow`, which always populates them, so a separate
+ * "judged" row type would have described a shape that never exists at runtime.
+ * A row that predates `0033` reads back with `judgeStatus: null` — "never
+ * judged" — which is a value, not an absence.
+ */
 export interface SkillCandidateRow {
   id: CandidateId;
   name: string;
@@ -42,6 +148,176 @@ export interface SkillCandidateRow {
   rejectedReason: string | null;
   pinned: boolean;
   residency: SkillResidency;
+  // ── 0033 judge verdict ────────────────────────────────────────────────────
+  /** `null` = never judged (every row predating `0033`). */
+  judgeStatus: JudgeStatus | null;
+  /** `null` = unscored. Distinct from a genuine `0`. */
+  judgeScore: number | null;
+  judgeReason: string | null;
+  judgeCriteria: JudgeCriterionScores;
+  /** Raw JSON text; phase 3 owns the shape and the parse. Read-only here. */
+  judgePanelRationales: string | null;
+  judgedAt: number | null;
+  /**
+   * Human-readable title. `name` is a slug derived from the first 140
+   * characters of the first user message — it is an internal id and the
+   * SKILL.md folder name, and must never be rendered as a title.
+   */
+  displayName: string | null;
+  // ── 0036 empirical gates ──────────────────────────────────────────────────
+  // Every number below is `null` when the gate has not spoken, and that is NOT
+  // the same as the gate scoring zero. A replay that aligned with nothing, or a
+  // description that retrieved nothing, scores a genuine `0` and is evidence
+  // AGAINST promotion; `null` means unmeasured and must leave the candidate
+  // retry-eligible. Never coalesce one of these to 0 — the same rule
+  // `judgeScore` carries, for the same reason.
+  /** Plan-vs-actual alignment, 0–1. `null` = replay never ran. */
+  replayConfidence: number | null;
+  /** The cluster member excluded from synthesis and replayed against. */
+  replayHoldoutSessionId: string | null;
+  replayAt: number | null;
+  /** Derived from precision + recall by the trigger-eval stage. */
+  triggerScore: number | null;
+  /** Description-only retrieval precision, 0–1. */
+  triggerPrecision: number | null;
+  /** Description-only retrieval recall, 0–1. */
+  triggerRecall: number | null;
+  triggerEvalAt: number | null;
+}
+
+/**
+ * The replay-validation measurement, as `SkillCandidateStore.recordReplay`
+ * takes it. A whole object rather than four optional arguments: the confidence,
+ * the hold-out it was measured against, and the timestamp are one measurement,
+ * and a write that carried some of them would leave the previous run's hold-out
+ * sitting beside this run's confidence.
+ */
+export interface ReplayMeasurement {
+  /** 0–1, or `null` when the replay produced no trustworthy number. */
+  confidence: number | null;
+  /**
+   * The session held out of synthesis and replayed against. `null` only when
+   * the cluster had no member to hold out, in which case `confidence` is `null`
+   * too — the store rejects a confidence with no hold-out behind it.
+   */
+  holdoutSessionId: string | null;
+  /** Defaults to `Date.now()`. */
+  replayAt?: number;
+}
+
+/**
+ * The trigger-retrieval measurement, as `SkillCandidateStore.recordTriggerEval`
+ * takes it. One object for the same reason `ReplayMeasurement` is one: a
+ * precision without its recall is not a measurement.
+ */
+export interface TriggerEvalMeasurement {
+  /**
+   * The headline number the ranking reads, derived from `precision` and
+   * `recall`. `null` when the eval produced nothing trustworthy.
+   *
+   * Deliberately NOT range-checked by the store: `trigger_precision` and
+   * `trigger_recall` are definitionally 0–1, but the scale this is expressed on
+   * is B3.3's to decide (it replaces the judge's 0–10 `triggerClarity` in
+   * ranking). The store enforces finiteness only; pinning a range here would
+   * pre-empt that decision in a place that cannot be widened cheaply.
+   */
+  score: number | null;
+  /** 0–1. */
+  precision: number | null;
+  /** 0–1. */
+  recall: number | null;
+  /** Defaults to `Date.now()`. */
+  evaluatedAt?: number;
+}
+
+/**
+ * The `0033` columns as a standalone block, projected off the row so the two
+ * can never drift. Consumers that hand a verdict around without the rest of
+ * the candidate (the promotion gate, the RPC summary mapper) take this.
+ */
+export type JudgeVerdictFields = Pick<
+  SkillCandidateRow,
+  | 'judgeStatus'
+  | 'judgeScore'
+  | 'judgeReason'
+  | 'judgeCriteria'
+  | 'judgePanelRationales'
+  | 'judgedAt'
+  | 'displayName'
+>;
+
+/**
+ * @deprecated Use {@link SkillCandidateRow} — the judge fields are on it now.
+ * Kept as an alias only so the phase-1 batches that were written against the
+ * intersection keep compiling; delete once they have all landed.
+ */
+export type JudgedCandidateRow = SkillCandidateRow;
+
+/**
+ * The verdict block of a candidate that has never been judged.
+ *
+ * A fresh factory call rather than a shared frozen constant because the row
+ * fields are mutable and callers spread this into a row they then own; handing
+ * out one shared `judgeCriteria` object would alias five nullable numbers
+ * across every unjudged row in the process.
+ */
+export function unjudgedVerdictFields(): JudgeVerdictFields {
+  return {
+    judgeStatus: null,
+    judgeScore: null,
+    judgeReason: null,
+    judgeCriteria: {
+      novelty: null,
+      actionability: null,
+      scope: null,
+      generalization: null,
+      triggerClarity: null,
+    },
+    judgePanelRationales: null,
+    judgedAt: null,
+    displayName: null,
+  };
+}
+
+/**
+ * The `0036` columns as a standalone block, projected off the row exactly as
+ * {@link JudgeVerdictFields} projects the `0033` block, so the two can never
+ * drift from the row they came off.
+ */
+export type GateMeasurementFields = Pick<
+  SkillCandidateRow,
+  | 'replayConfidence'
+  | 'replayHoldoutSessionId'
+  | 'replayAt'
+  | 'triggerScore'
+  | 'triggerPrecision'
+  | 'triggerRecall'
+  | 'triggerEvalAt'
+>;
+
+/**
+ * The gate block of a candidate no empirical gate has measured.
+ *
+ * A SEPARATE factory from {@link unjudgedVerdictFields} rather than seven more
+ * nulls folded into it, because the two blocks are independent axes written by
+ * different stages at different times: the judge scores at the promotion gate,
+ * the weekly drain replays and evaluates triggers. Folding them together would
+ * also have made the name a lie — these are not verdict fields, and the next
+ * reader would have had to discover that from the body.
+ *
+ * A fresh factory call rather than a shared frozen constant, for the same
+ * reason its sibling is one: callers spread this into a row they then own.
+ */
+export function unmeasuredGateFields(): GateMeasurementFields {
+  return {
+    replayConfidence: null,
+    replayHoldoutSessionId: null,
+    replayAt: null,
+    triggerScore: null,
+    triggerPrecision: null,
+    triggerRecall: null,
+    triggerEvalAt: null,
+  };
 }
 
 /** Row shape for `skill_invocations`. */

@@ -17,7 +17,11 @@ import {
   type DirectoryEntry,
 } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SPECS_README_FILE, renderSpecsReadme } from '@ptah-extension/shared';
+import {
+  SPECS_README_FILE,
+  renderSpecsReadme,
+  roundJudgeFile,
+} from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { TaskScannerService } from './task-scanner.service';
 import { InMemoryTaskIndexStore } from './task-index.store';
@@ -435,6 +439,79 @@ describe('TaskIndexService.getDetail', () => {
     const service = buildService(fs);
 
     expect(await service.getDetail(ROOT, 'TASK_2026_999')).toBeNull();
+    service.dispose();
+  });
+});
+
+describe('TaskIndexService.readRoundJudge', () => {
+  function seedJudge(fs: FakeFs, folder: string, round: number): void {
+    fs.setFile(carrier(folder), validTask(folder));
+    fs.setFile(
+      path.join(specsDir(), folder, roundJudgeFile(round)),
+      `## VERDICT\n\nREVISE (round ${round})`,
+    );
+  }
+
+  it('reads the report for the requested round', async () => {
+    const fs = new FakeFs();
+    seedJudge(fs, 'TASK_2026_001', 1);
+    const service = buildService(fs);
+
+    await expect(
+      service.readRoundJudge(ROOT, 'TASK_2026_001', 1),
+    ).resolves.toBe('## VERDICT\n\nREVISE (round 1)');
+    service.dispose();
+  });
+
+  /**
+   * The path must be COMPOSED from the shared contract, never hand-written —
+   * Duty 1 of the contract guard permits the literal only in
+   * `task-spec.contract.ts`. Asserting against `roundJudgeFile()` rather than
+   * against a string here is what makes a drift in the contract fail this test
+   * instead of silently reading a file that no longer exists.
+   */
+  it('composes the filename via roundJudgeFile(), not a literal', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    fs.setFile(
+      path.join(specsDir(), 'TASK_2026_001', roundJudgeFile(2)),
+      'round two',
+    );
+    const service = buildService(fs);
+
+    await expect(
+      service.readRoundJudge(ROOT, 'TASK_2026_001', 2),
+    ).resolves.toBe('round two');
+    // Round 1 shares the folder but not the name — proves `round` selects.
+    await expect(
+      service.readRoundJudge(ROOT, 'TASK_2026_001', 1),
+    ).resolves.toBeNull();
+    service.dispose();
+  });
+
+  /**
+   * An unjudged round is the ORDINARY state of a run in progress, not a fault.
+   * Round 2 has no report while round 1 is still being revised.
+   */
+  it('returns null for an unjudged round rather than throwing', async () => {
+    const fs = new FakeFs();
+    seedJudge(fs, 'TASK_2026_001', 1);
+    const service = buildService(fs);
+
+    await expect(
+      service.readRoundJudge(ROOT, 'TASK_2026_001', 3),
+    ).resolves.toBeNull();
+    service.dispose();
+  });
+
+  it('returns null for a folder that does not exist', async () => {
+    const fs = new FakeFs();
+    seedTwoValidOneExcluded(fs);
+    const service = buildService(fs);
+
+    await expect(
+      service.readRoundJudge(ROOT, 'TASK_2026_999', 1),
+    ).resolves.toBeNull();
     service.dispose();
   });
 });

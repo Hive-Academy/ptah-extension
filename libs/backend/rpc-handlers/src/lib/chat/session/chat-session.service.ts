@@ -83,7 +83,10 @@ import type {
 } from '../streaming/chat-stream-broadcaster.service';
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
-import type { ChatOutputStyleActivationService } from './chat-output-style-activation.service';
+import {
+  OUTPUT_STYLE_TOKENS,
+  type OutputStyleSessionActivationService,
+} from '@ptah-extension/output-styles';
 import { hasStopIntent } from './chat-stop-intent';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
@@ -154,8 +157,8 @@ export class ChatSessionService {
      * Resolves the output-style activation ONCE per session, at the two
      * `AISessionConfig` literals below, and never caches it (Req 5.6).
      */
-    @inject(CHAT_TOKENS.OUTPUT_STYLE_ACTIVATION)
-    private readonly outputStyleActivation: ChatOutputStyleActivationService,
+    @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION)
+    private readonly outputStyleActivation: OutputStyleSessionActivationService,
   ) {}
 
   /**
@@ -403,12 +406,10 @@ export class ChatSessionService {
 
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-      const pluginPaths = this.sdkContext.resolvePluginPaths();
 
       this.logger.info('[ptah.main] chat:start - prompt config', {
         hasEnhancedPrompts: !!enhancedPromptsContent,
         enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-        pluginCount: pluginPaths?.length ?? 0,
       });
 
       const currentModel =
@@ -438,8 +439,9 @@ export class ChatSessionService {
       // Spreads to at most one field — `outputStyleName` for the flag tier or
       // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
       // both (R3 / Req 5.3).
-      const outputStyle =
-        await this.outputStyleActivation.resolveSessionFields(workspacePath);
+      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
+        { workspaceRoot: workspacePath },
+      );
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
         workspaceId: workspacePath,
@@ -452,7 +454,6 @@ export class ChatSessionService {
         images, // inline pasted/dropped images
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         thinking: options?.thinking,
         effort: options?.effort,
         workflowsDisabled: this.resolveWorkflowsDisabled(),
@@ -993,12 +994,10 @@ export class ChatSessionService {
 
     const enhancedPromptsContent =
       await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-    const pluginPaths = this.sdkContext.resolvePluginPaths();
 
     this.logger.info('[ptah.main] chat:continue resume - prompt config', {
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      pluginCount: pluginPaths?.length ?? 0,
     });
 
     const currentModel =
@@ -1016,8 +1015,9 @@ export class ChatSessionService {
     // Re-resolved for the resumed turn rather than carried over from the
     // original start: the provider or the style may have changed since, and
     // Req 5.6 forbids caching the decision across sessions.
-    const outputStyle =
-      await this.outputStyleActivation.resolveSessionFields(workspacePath);
+    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
+      workspaceRoot: workspacePath,
+    });
 
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
@@ -1025,7 +1025,6 @@ export class ChatSessionService {
         model: currentModel,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         tabId,
         thinking: params.thinking,
         effort: params.effort,

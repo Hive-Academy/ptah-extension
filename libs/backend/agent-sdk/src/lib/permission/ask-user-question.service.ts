@@ -4,6 +4,7 @@ import {
   MESSAGE_TYPES,
   SessionId,
   TabId,
+  type AskUserQuestionRequest,
   type QuestionItem,
 } from '@ptah-extension/shared';
 import type { PermissionResult } from '../types/sdk-types/claude-sdk.types';
@@ -13,17 +14,6 @@ import { PendingResponseRegistry } from './pending-response-registry';
 export interface AskUserQuestionResponse {
   id: string;
   answers: Record<string, string>;
-}
-
-export interface AskUserQuestionRequest {
-  id: string;
-  toolName: 'AskUserQuestion';
-  questions: QuestionItem[];
-  toolUseId?: string;
-  timestamp: number;
-  timeoutAt: number;
-  sessionId?: string;
-  tabId?: string;
 }
 
 export interface WebviewManagerLike {
@@ -40,7 +30,10 @@ export class AskUserQuestionService {
   constructor(
     private readonly webviewManager: WebviewManagerLike,
     private readonly logger: Logger,
-    private readonly registry: PendingResponseRegistry<AskUserQuestionResponse>,
+    private readonly registry: PendingResponseRegistry<
+      AskUserQuestionResponse,
+      AskUserQuestionRequest
+    >,
   ) {}
 
   async handleAskUserQuestion(
@@ -95,11 +88,24 @@ export class AskUserQuestionService {
         MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
         request,
       )
-      .then(() => {
-        this.logger.info(
-          `[SdkPermissionHandler] AskUserQuestion request sent to webview`,
-          { requestId },
+      .then((delivered) => {
+        if (delivered) {
+          this.logger.info(
+            `[SdkPermissionHandler] AskUserQuestion request sent to webview`,
+            { requestId },
+          );
+          return;
+        }
+        this.logger.warn(
+          `[SdkPermissionHandler] AskUserQuestion NOT delivered — webview "ptah.main" not found. ` +
+            `Auto-picking recommended options instead of hanging until the idle timeout.`,
+          {
+            requestId,
+            sessionId: request.sessionId,
+            tabId: request.tabId,
+          },
         );
+        this.autoPickRecommended(requestId, input.questions);
       })
       .catch((error) => {
         this.logger.error(
@@ -110,11 +116,9 @@ export class AskUserQuestionService {
       });
 
     const response = await this.awaitQuestionResponse(
-      requestId,
+      request,
       signal,
       sessionId,
-      input.questions,
-      resolvedTabId,
       tabId,
     );
 
@@ -142,14 +146,27 @@ export class AskUserQuestionService {
     };
   }
 
+  /**
+   * Park until the user answers `request` (or the call is aborted / idles out).
+   *
+   * Takes the whole request rather than its scattered fields so the pending
+   * entry can carry it: `chat:pending-questions` replays exactly the object
+   * that was broadcast, and a reloaded webview re-renders the same prompt.
+   *
+   * `sessionId` / `tabId` stay separate branded parameters — the registry
+   * indexes on the branded ids, while the request carries their plain-string
+   * wire form.
+   */
   awaitQuestionResponse(
-    requestId: string,
+    request: AskUserQuestionRequest,
     signal?: AbortSignal,
     sessionId?: SessionId,
-    questions?: QuestionItem[],
-    resolvedTabId?: string,
     tabId?: TabId,
   ): Promise<AskUserQuestionResponse | null> {
+    const requestId = request.id;
+    const questions = request.questions;
+    const resolvedTabId = request.tabId;
+
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       if (signal?.aborted) {
         this.registry.clear(requestId);
@@ -158,19 +175,11 @@ export class AskUserQuestionService {
       }
 
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      if (
-        ASK_USER_QUESTION_IDLE_TIMEOUT_MS > 0 &&
-        questions &&
-        questions.length > 0
-      ) {
+      if (ASK_USER_QUESTION_IDLE_TIMEOUT_MS > 0 && questions.length > 0) {
         idleTimer = setTimeout(() => {
           const pending = this.registry.getPending(requestId);
           if (!pending) return;
-          const answers: Record<string, string> = {};
-          for (const q of questions) {
-            const recommended = q.options?.[0]?.label;
-            if (recommended) answers[q.question] = recommended;
-          }
+          const answers = this.recommendedAnswers(questions);
           this.logger.warn(
             '[SdkPermissionHandler] AskUserQuestion idle-timeout reached — auto-picking recommended options',
             {
@@ -211,7 +220,42 @@ export class AskUserQuestionService {
         sessionId,
         tabId,
         idleTimer,
+        request,
       });
+    });
+  }
+
+  /**
+   * First option of every question, keyed by question text. The SDK lists the
+   * recommended option first, so this is the same answer set the idle timeout
+   * picks.
+   */
+  private recommendedAnswers(
+    questions: readonly QuestionItem[],
+  ): Record<string, string> {
+    const answers: Record<string, string> = {};
+    for (const q of questions) {
+      const recommended = q.options?.[0]?.label;
+      if (recommended) answers[q.question] = recommended;
+    }
+    return answers;
+  }
+
+  /**
+   * Non-delivery escape hatch, mirroring `SdkPermissionHandler`'s deny-on-
+   * undelivered-prompt path. A question the webview never received can never
+   * be answered, and `awaitQuestionResponse` runs with no deadline other than
+   * the 5-minute idle timer — so resolve it now with the same answers that
+   * timer would eventually pick. No-op when the request was already resolved.
+   */
+  private autoPickRecommended(
+    requestId: string,
+    questions: readonly QuestionItem[],
+  ): void {
+    if (!this.registry.getPending(requestId)) return;
+    this.registry.resolve(requestId, {
+      id: requestId,
+      answers: this.recommendedAnswers(questions),
     });
   }
 
@@ -226,6 +270,17 @@ export class AskUserQuestionService {
     this.logger.debug(
       `[SdkPermissionHandler] Handled question response for request ${response.id}`,
     );
+  }
+
+  /**
+   * Questions this session (or tab) is still waiting on an answer for.
+   *
+   * A webview reload throws away the rendered prompt while the backend keeps
+   * blocking on it, so the reloaded UI asks for the outstanding requests and
+   * re-renders them. Empty array when nothing is pending.
+   */
+  listPendingBySession(sessionId: string): AskUserQuestionRequest[] {
+    return this.registry.listBySession(sessionId);
   }
 
   cleanupBySession(sessionOrTabId: string): void {

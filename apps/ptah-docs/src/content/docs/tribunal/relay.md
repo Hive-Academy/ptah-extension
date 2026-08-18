@@ -52,16 +52,25 @@ The Conductor runs the project's tests/build/lint on the change, then produces a
 - "Run this as a vendor pipeline — plan, build, then a different vendor reviews"
 - "Orchestrate this with CLI vendors instead of sub-agents"
 
+**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard and pick **Relay**. Relay is a **role** move, so instead of a flat lane picker you get one slot per phase — Plan, Architect, Implement, Review — each with a vendor and a model chosen from whatever discovery found on your machine. The same vendor may fill two slots on different models, but the roster is validated before launch: a review lane identical to the implement lane is blocked outright, and a same-family review is flagged as a weaker signal than a cross-vendor one. Launch, then describe the task and its acceptance criteria in the conductor chat.
+
+While the run is live, the panel shows a **four-step phase rail** above the lane tiles: each phase's status, which lane is handling it (and whether it was reassigned mid-run), and a link to its deliverable in the spec folder. If no spec folder could be allocated, the rail says the progress readout is unavailable rather than showing four phases that look like they haven't started.
+
+:::note[Relay needs the tribunal skill]
+Relay and [Crucible](/tribunal/crucible/) are the two role moves, and their protocol ships in the `tribunal` skill that comes with the `ptah-core` plugin. If the skill is missing, the wizard flags it — Relay still launches, and the conductor will ask for the protocol it needs, but it runs best with the skill present.
+:::
+
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then describe the task and its acceptance criteria.
 
 ## Relay vs. the other moves
 
-| Move        | Prompt per vendor          | Shape               | Produces                          |
-| ----------- | -------------------------- | ------------------- | --------------------------------- |
-| **Council** | Same question              | Parallel panel      | A cited verdict (no code)         |
-| **Forge**   | Same coding task           | Parallel + review   | Best of N implementations, merged |
-| **Race**    | Same coding task           | Parallel + verify   | One verified winner               |
-| **Relay**   | Different prompt per phase | Sequential pipeline | Delivered change + spec artifacts |
+| Move                                | Prompt per vendor           | Shape                       | Produces                                    |
+| ----------------------------------- | --------------------------- | --------------------------- | ------------------------------------------- |
+| **Council**                         | Same question               | Parallel panel              | A cited verdict (no code)                   |
+| **Forge**                           | Same coding task            | Parallel + review           | Best of N implementations, merged           |
+| **Race**                            | Same coding task            | Parallel + verify           | One verified winner                         |
+| **Relay**                           | Different prompt per phase  | Sequential pipeline         | Delivered change + spec artifacts           |
+| [**Crucible**](/tribunal/crucible/) | One task, two unequal roles | A loop, until PASS or a cap | Delivered change + the judge's round record |
 
 ## Limitations
 

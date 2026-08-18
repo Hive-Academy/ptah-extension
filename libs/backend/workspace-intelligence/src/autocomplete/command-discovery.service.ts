@@ -166,16 +166,16 @@ export interface CommandSearchRequest {
  * ARCHITECTURE:
  * - Hardcoded built-in commands (6 total)
  * - Scans .claude/commands/ directories (project + user)
- * - Scans .claude/skills/ directory (junctioned by SkillJunctionService)
+ * - Scans .claude/skills/ directory (populated by HarnessReconciler)
  * - Parses YAML frontmatter for command metadata
  * - Watches for file changes (real-time invalidation)
  *
  * Commands and skills are discovered from the workspace .claude/ directory
- * (the source of truth) — NOT from plugin source directories. The
- * SkillJunctionService copies commands to .claude/commands/ and junctions
- * skills to .claude/skills/ at activation time. This avoids plugin-namespaced
- * entries (e.g. ptah-core:orchestrate) that the SDK can't resolve since
- * plugins are not passed via the SDK query option.
+ * (the source of truth) — NOT from plugin source directories.
+ * `HarnessReconciler` (@ptah-extension/harness-sync) copies both surfaces
+ * there from the user layer at activation and on every harness trigger. This
+ * avoids plugin-namespaced entries (e.g. ptah-core:orchestrate) that the SDK
+ * can't resolve since plugins are not passed via the SDK query option.
  */
 @injectable()
 export class CommandDiscoveryService {
@@ -518,12 +518,13 @@ export class CommandDiscoveryService {
   }
 
   /**
-   * Scan workspace .claude/skills/ directory for junctioned skill definitions.
+   * Scan workspace .claude/skills/ for skill definitions.
    *
-   * SkillJunctionService creates junctions/symlinks from .claude/skills/{name}/
-   * to the plugin's skills directory. Each skill directory contains a SKILL.md
-   * with YAML frontmatter (name, description). Skills are listed without a
-   * plugin namespace prefix so they resolve correctly when invoked as /skill-name.
+   * `HarnessReconciler` copies each enabled skill from the user layer into
+   * `.claude/skills/{name}/` — a real directory since TASK_2026_278, not the
+   * junction it used to be. Each contains a SKILL.md with YAML frontmatter
+   * (name, description). Skills are listed without a plugin namespace prefix so
+   * they resolve correctly when invoked as /skill-name.
    */
   private async scanWorkspaceSkills(skillsDir: string): Promise<CommandInfo[]> {
     const skills: CommandInfo[] = [];

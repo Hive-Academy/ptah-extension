@@ -5,8 +5,6 @@ description: Apply a template to your current workspace.
 
 The **Templates** panel lets you browse the catalog, preview any template, and apply it to the active workspace in a single click.
 
-![Templates panel](/screenshots/templates-panel.png)
-
 ## Applying a template
 
 1. Open the **Templates** panel from the primary sidebar.

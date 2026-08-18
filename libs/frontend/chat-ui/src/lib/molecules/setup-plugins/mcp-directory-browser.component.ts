@@ -32,13 +32,21 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'claude',
   'cursor',
   'copilot',
+  'codex',
+  'antigravity',
 ];
 
 const TARGET_LABELS: Record<McpInstallTarget, string> = {
   vscode: 'VS Code',
-  claude: 'Claude / Codex',
+  // Codex has its own target now — it reads ~/.codex/config.toml, never
+  // .mcp.json, so it was never actually covered by the Claude entry.
+  claude: 'Claude Code',
   cursor: 'Cursor',
   copilot: 'Copilot CLI',
+  codex: 'Codex CLI',
+  // Same story as Codex: `agy` reads ~/.gemini/config/mcp_config.json and
+  // nothing else, so until TASK_2026_285 it could not be offered at all.
+  antigravity: 'Antigravity CLI',
 };
 
 /**

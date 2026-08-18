@@ -1,5 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 
+import type {
+  HarnessHealthParams,
+  HarnessHealthResult,
+  HarnessRemoveParams,
+  HarnessRemoveResult,
+} from '@ptah-extension/shared';
+
 import { useTuiContext } from '../context/TuiContext.js';
 import { useThemeContext } from '../context/ThemeContext.js';
 import { useModeContext } from '../context/ModeContext.js';
@@ -40,6 +47,27 @@ interface RemoteCommandInfo {
 
 interface AutocompleteCommandsResult {
   commands?: RemoteCommandInfo[];
+}
+
+/**
+ * Render a harness report for the TUI transcript.
+ *
+ * Only DETECTED targets get a row: an uninstalled CLI carries nothing and is
+ * not a gap, which is the same rule `summarizeHarnessHealth` applies when it
+ * builds the label on the first line.
+ */
+function formatHarnessReport(
+  header: string,
+  result: HarnessHealthResult | HarnessRemoveResult,
+): string {
+  const lines = [`${header}${result.summary.label}`];
+  for (const target of result.health?.targets ?? []) {
+    if (!target.detected) continue;
+    lines.push(
+      `  ${target.target}: ${target.missing.length} missing / ${target.expected} expected`,
+    );
+  }
+  return lines.join('\n');
 }
 
 export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
@@ -132,6 +160,58 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
         name: 'status',
         description: 'Show current TUI session status information',
         scope: 'tui-local',
+      },
+      {
+        // Same RPC verbs as `ptah harness doctor` / `ptah harness remove` —
+        // the harness family dispatches one contract across every surface, so
+        // this is a thin front-end over the identical wire calls.
+        name: 'harness',
+        description: 'Check or remove the Ptah-managed CLI harness',
+        scope: 'tui-local',
+        argumentHint: '<doctor|remove>',
+        handler: async (args: string) => {
+          const action = args.trim().toLowerCase();
+          if (action !== '' && action !== 'doctor' && action !== 'remove') {
+            callbacks.onSystemMessage(
+              `Unknown /harness action '${action}'. Use /harness doctor or /harness remove.`,
+            );
+            return;
+          }
+
+          if (action === 'remove') {
+            const response = await transport.call<
+              HarnessRemoveParams,
+              HarnessRemoveResult
+            >('harness:remove', { confirm: true });
+            if (!response.success || !response.data) {
+              callbacks.onSystemMessage(
+                `Harness remove failed: ${response.error ?? 'unknown error'}`,
+              );
+              return;
+            }
+            callbacks.onSystemMessage(
+              formatHarnessReport(
+                `Harness: removed ${response.data.removed} managed file(s) — `,
+                response.data,
+              ),
+            );
+            return;
+          }
+
+          const response = await transport.call<
+            HarnessHealthParams,
+            HarnessHealthResult
+          >('harness:health', { refresh: true });
+          if (!response.success || !response.data) {
+            callbacks.onSystemMessage(
+              `Harness doctor failed: ${response.error ?? 'unknown error'}`,
+            );
+            return;
+          }
+          callbacks.onSystemMessage(
+            formatHarnessReport('Harness: ', response.data),
+          );
+        },
       },
       {
         name: 'help',

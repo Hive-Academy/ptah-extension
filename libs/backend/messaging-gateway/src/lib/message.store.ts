@@ -6,6 +6,11 @@
  * migration 0005. The store catches the constraint violation and returns
  * `null` so caller (GatewayService) can ignore the duplicate without
  * breaking the inbound pipeline.
+ *
+ * Migration 0038 added `turn_state` + `conversation_id` (TASK_2026_277): an
+ * inbound row now carries the durable state of the agent turn it drives, so a
+ * turn that was in flight when the host process died is still visible on the
+ * next boot instead of vanishing silently.
  */
 import { inject, injectable } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
@@ -17,8 +22,10 @@ import {
 import {
   BindingId,
   Direction,
+  GatewayConversationId,
   GatewayMessage,
   GatewayMessageId,
+  GatewayTurnState,
 } from './types';
 
 interface MessageRow {
@@ -30,10 +37,32 @@ interface MessageRow {
   body: string;
   voice_path: string | null;
   created_at: number;
+  turn_state: GatewayTurnState | null;
+  conversation_id: string | null;
 }
 
 const SELECT_COLS =
-  'id, binding_id, direction, external_msg_id, ptah_message_id, body, voice_path, created_at';
+  'id, binding_id, direction, external_msg_id, ptah_message_id, body, voice_path, created_at, turn_state, conversation_id';
+
+/**
+ * Turn states that mean "this inbound message never reached a conclusion".
+ * Both are only reachable while the owning process is alive, so finding one at
+ * startup is proof the process died mid-turn.
+ */
+const UNFINISHED_TURN_STATES: readonly GatewayTurnState[] = [
+  'queued',
+  'running',
+];
+
+/**
+ * An inbound row whose turn never finished, as found by the startup sweep.
+ * `conversationId` is NULL for rows written before migration 0038.
+ */
+export interface UnfinishedInboundTurn {
+  id: GatewayMessageId;
+  bindingId: BindingId;
+  conversationId: GatewayConversationId | null;
+}
 
 @injectable()
 export class MessageStore {
@@ -54,14 +83,20 @@ export class MessageStore {
     body: string;
     voicePath?: string | null;
     ptahMessageId?: string | null;
+    /** Conversation the row belongs to — set for inbound, omitted for outbound. */
+    conversationId?: GatewayConversationId | null;
+    /** `'queued'` for inbound; omitted (NULL) for outbound. */
+    turnState?: GatewayTurnState | null;
   }): GatewayMessage | null {
     const id = randomUUID();
     const createdAt = Date.now();
+    const turnState = args.turnState ?? null;
+    const conversationId = args.conversationId ?? null;
     try {
       this.sqlite.db
         .prepare(
-          `INSERT INTO gateway_messages (id, binding_id, direction, external_msg_id, ptah_message_id, body, voice_path, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO gateway_messages (id, binding_id, direction, external_msg_id, ptah_message_id, body, voice_path, created_at, turn_state, conversation_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -72,6 +107,8 @@ export class MessageStore {
           args.body,
           args.voicePath ?? null,
           createdAt,
+          turnState,
+          conversationId,
         );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -96,6 +133,8 @@ export class MessageStore {
       body: args.body,
       voicePath: args.voicePath ?? null,
       createdAt,
+      turnState,
+      conversationId,
     };
   }
 
@@ -126,6 +165,57 @@ export class MessageStore {
     return rows.map((r) => r.voice_path);
   }
 
+  /**
+   * Inbound rows still `'queued'` or `'running'` (TASK_2026_277). Called once
+   * at startup: nothing can legitimately be in either state before the bridge
+   * has run a single turn, so every row returned belongs to a turn the previous
+   * process took to its grave.
+   *
+   * Rows written before migration 0038 have a NULL `turn_state` and are
+   * therefore never returned — SQL's three-valued logic excludes NULL from
+   * `IN (...)`, which is exactly why the migration needs no backfill.
+   */
+  listUnfinishedInboundTurns(): UnfinishedInboundTurn[] {
+    const rows = this.sqlite.db
+      .prepare(
+        `SELECT id, binding_id, conversation_id FROM gateway_messages
+          WHERE direction = 'inbound' AND turn_state IN (?, ?)
+          ORDER BY created_at ASC`,
+      )
+      .all(...UNFINISHED_TURN_STATES) as Array<{
+      id: string;
+      binding_id: string;
+      conversation_id: string | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.id as GatewayMessageId,
+      bindingId: r.binding_id as BindingId,
+      conversationId:
+        (r.conversation_id as GatewayConversationId | null) ?? null,
+    }));
+  }
+
+  /**
+   * Move rows to a terminal turn state. Written in ONE transaction so the
+   * startup sweep either claims every interrupted row or none of them — a
+   * partial claim would re-notify the survivors on the next boot.
+   */
+  markTurnState(
+    ids: readonly GatewayMessageId[],
+    state: GatewayTurnState,
+  ): void {
+    if (ids.length === 0) return;
+    const stmt = this.sqlite.db.prepare(
+      'UPDATE gateway_messages SET turn_state = ? WHERE id = ?',
+    );
+    const txn = this.sqlite.db.transaction(() => {
+      for (const id of ids) {
+        stmt.run(state, id);
+      }
+    });
+    txn();
+  }
+
   private toMessage(row: MessageRow): GatewayMessage {
     return {
       id: row.id as GatewayMessageId,
@@ -136,6 +226,9 @@ export class MessageStore {
       body: row.body,
       voicePath: row.voice_path,
       createdAt: row.created_at,
+      turnState: row.turn_state,
+      conversationId:
+        (row.conversation_id as GatewayConversationId | null) ?? null,
     };
   }
 }

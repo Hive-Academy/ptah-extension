@@ -106,8 +106,15 @@ const McpServerConfigSchema = z.discriminatedUnion('type', [
 
 /** Boundary schema for the optional install-target list. */
 const McpInstallTargetsSchema = z
-  .array(z.enum(['vscode', 'claude', 'cursor', 'copilot']))
+  .array(
+    z.enum(['vscode', 'claude', 'cursor', 'copilot', 'codex', 'antigravity']),
+  )
   .nonempty();
+
+/** The same list as prose, so the error message cannot drift from the schema. */
+const MCP_INSTALL_TARGET_NAMES = McpInstallTargetsSchema.element.options
+  .map((option) => `"${option}"`)
+  .join(' | ');
 
 /**
  * A skill returned by searchSkills, tagged with its origin.
@@ -526,7 +533,7 @@ export function buildHarnessNamespace(
         const parsedTargets = McpInstallTargetsSchema.safeParse(targets);
         if (!parsedTargets.success) {
           throw new Error(
-            'Invalid targets: expected a non-empty array of "vscode" | "claude" | "cursor" | "copilot".',
+            `Invalid targets: expected a non-empty array of ${MCP_INSTALL_TARGET_NAMES}.`,
           );
         }
         resolvedTargets = [...parsedTargets.data];

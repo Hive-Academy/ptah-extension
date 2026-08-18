@@ -113,6 +113,39 @@ export const LEGACY_BATCHES_FILE = 'tasks.md';
 export const CONTEXT_FILE = 'context.md';
 
 /**
+ * Crucible's frozen grading rubric (the tribunal skill's `crucible.md`).
+ *
+ * Defined HERE and nowhere else because Duty 1 of the contract guard
+ * (`libs/backend/task-specs/src/lib/contract.guard.spec.ts`) permits a
+ * per-task filename literal only in this module and four allowlisted files.
+ * Every consumer composes its path from this constant.
+ *
+ * Deliberately NOT a member of {@link DOC_FILES}. `DOC_FILES` drives
+ * {@link renderSpecsReadme}, whose output is rewritten into
+ * `.ptah/specs/README.md` in EVERY user workspace on activation — a blast
+ * radius a Crucible-only artifact has no business causing. This is the same
+ * "a SUBSET that `DOC_FILES` does not model as a subset" case the guard
+ * already recognises for graded-critique artifacts.
+ */
+export const RUBRIC_FILE = 'rubric.md';
+
+/**
+ * Crucible's per-round judge report. `round` is 1-based.
+ *
+ * A NUMBER, never a filename: callers pass the round index and the name is
+ * derived here, so a path separator or a `..` cannot be expressed in the
+ * input at all. That makes traversal structurally impossible rather than
+ * something a sanitiser has to catch — the same property the `DocFile` enum
+ * gives `tasks:getArtifact`.
+ *
+ * Not a {@link DocFile} and cannot be one: `N` is a parameter, so the set is
+ * open. See {@link RUBRIC_FILE} for why that is deliberate.
+ */
+export function roundJudgeFile(round: number): string {
+  return `round-${round}-judge.md`;
+}
+
+/**
  * Documents whose presence proves the task reached verification: a test report,
  * or any review. A folder carrying one of these is FINISHED work that merely
  * lost its carrier — adopting it as `backlog` would misreport completed work as

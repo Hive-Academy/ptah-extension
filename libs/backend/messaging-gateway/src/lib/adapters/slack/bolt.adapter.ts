@@ -16,6 +16,8 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
+  AdapterConnectionEvent,
+  ConnectionListener,
   IMessagingAdapter,
   InboundListener,
   InboundMessage,
@@ -51,12 +53,25 @@ export interface SlackClientLike {
   };
 }
 
+/**
+ * The Socket Mode client bolt builds inside its receiver. It is a plain
+ * EventEmitter — `'connected'`, `'disconnected'`, `'reconnecting'`, `'error'`
+ * — and is the only transport-health signal bolt exposes.
+ */
+export interface SlackSocketClientLike {
+  on(event: string, handler: (...args: unknown[]) => void): void;
+}
+
 export interface SlackBoltAppLike {
   client: SlackClientLike;
   event(
     eventType: 'app_mention',
     handler: (args: SlackEventHandlerArgs) => void | Promise<void>,
   ): void;
+  /** bolt's global error boundary; optional so fakes stay minimal. */
+  error?(handler: (err: unknown) => void | Promise<void>): void;
+  /** Present on a Socket Mode app; absent for other receivers. */
+  receiver?: { client?: SlackSocketClientLike };
   start(): Promise<unknown>;
   stop(): Promise<unknown> | unknown;
 }
@@ -88,8 +103,15 @@ export class BoltSlackAdapter implements IMessagingAdapter {
   readonly platform = 'slack' as const;
   private app: SlackBoltAppLike | null = null;
   private listener: InboundListener | null = null;
+  private connectionListener: ConnectionListener | null = null;
   private factory: SlackAppFactory = defaultFactory;
   private running = false;
+  /**
+   * Socket Mode health, separate from the start/stop lifecycle, so a dropped
+   * websocket shows red in the Gateway tab instead of a permanent green
+   * (TASK_2026_271).
+   */
+  private connected = false;
 
   private allowedTeamIds = new Set<string>();
   /** Sliding 60-second window of outbound timestamps (team-wide cap). */
@@ -108,11 +130,21 @@ export class BoltSlackAdapter implements IMessagingAdapter {
   }
 
   isRunning(): boolean {
-    return this.running;
+    return this.running && this.connected;
+  }
+
+  onConnectionChange(listener: ConnectionListener): void {
+    this.connectionListener = listener;
   }
 
   async start(token: string, opts?: { appToken?: string }): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      if (this.connected) return;
+      // Started but the socket died and never came back (bolt's own
+      // auto-reconnect gave up). A Start from the UI or the gateway's backoff
+      // must rebuild the app rather than no-op on the stale `running` flag.
+      await this.stop();
+    }
     if (!token) throw new Error('Slack bot token is empty');
     if (!opts?.appToken)
       throw new Error('Slack app token is required for Socket Mode');
@@ -136,14 +168,76 @@ export class BoltSlackAdapter implements IMessagingAdapter {
         });
       }
     });
+    this.wireTransportEvents(this.app);
     await this.app.start();
     this.running = true;
+    // `start()` resolves once Socket Mode is connected; the receiver's events
+    // take over from here.
+    this.connected = true;
     this.logger.info('[gateway] slack adapter started');
+  }
+
+  /**
+   * bolt's transport signals. The receiver's `error` MUST be listened to — an
+   * unlistened `error` on a Node EventEmitter throws and takes the host down.
+   */
+  private wireTransportEvents(app: SlackBoltAppLike): void {
+    const reasonOf = (value: unknown): string =>
+      value instanceof Error ? value.message : String(value);
+    app.error?.((err: unknown) => {
+      // A bolt-level error is a failed listener, not a dead socket; report the
+      // cause and keep the current state (mirrors DiscordAdapter's `error`).
+      this.logger.warn('[gateway] slack app error', { error: reasonOf(err) });
+      this.emitConnection({
+        state: this.connected ? 'connected' : 'reconnecting',
+        reason: reasonOf(err),
+      });
+    });
+    const socket = app.receiver?.client;
+    if (!socket) return;
+    socket.on('error', (err: unknown) => {
+      this.logger.warn('[gateway] slack socket error', {
+        error: reasonOf(err),
+      });
+      this.connected = false;
+      this.emitConnection({ state: 'reconnecting', reason: reasonOf(err) });
+    });
+    socket.on('connected', () => {
+      this.connected = true;
+      this.emitConnection({ state: 'connected' });
+    });
+    socket.on('reconnecting', () => {
+      this.connected = false;
+      this.emitConnection({ state: 'reconnecting' });
+    });
+    socket.on('disconnected', (err: unknown) => {
+      // bolt also emits this during our own stop(); only an unasked-for
+      // disconnect is worth reporting.
+      if (!this.running) return;
+      this.connected = false;
+      const reason =
+        err === undefined
+          ? 'Slack Socket Mode disconnected'
+          : `Slack Socket Mode disconnected: ${reasonOf(err)}`;
+      this.logger.warn('[gateway] slack socket disconnected', { reason });
+      this.emitConnection({ state: 'disconnected', reason });
+    });
+  }
+
+  private emitConnection(event: AdapterConnectionEvent): void {
+    try {
+      this.connectionListener?.(event);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] slack connection listener threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.running) return;
     this.running = false;
+    this.connected = false;
     try {
       await this.app?.stop();
     } catch (err) {

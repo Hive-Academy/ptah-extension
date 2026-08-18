@@ -336,6 +336,56 @@ describe('ChatStreamController', () => {
     c.dispose();
   });
 
+  it('dispose aborts a turn still in flight', async () => {
+    // Ctrl+S mid-stream unmounts ChatPanel, which disposes this controller.
+    // Without the abort the backend turn kept running and billing with no
+    // surface left that could interrupt it.
+    const { transport, calls } = makeTransport(() => ({
+      success: true,
+      data: { sessionId: 'sdk-9' },
+    }));
+    const pushAdapter = new EventEmitter();
+    let emitted = 0;
+    const c = new ChatStreamController({
+      transport,
+      pushAdapter,
+      onChange: () => {
+        emitted += 1;
+      },
+    });
+    await c.send('hi');
+    expect(c.isStreaming).toBe(true);
+
+    const emittedBeforeDispose = emitted;
+    c.dispose();
+    await Promise.resolve();
+
+    const abort = calls.find((call) => call.method === 'chat:abort');
+    expect(abort?.params).toEqual({ sessionId: 'sdk-9' });
+    expect(c.isStreaming).toBe(false);
+    // Nothing is emitted on the way out: the subscriber is a component that is
+    // already unmounting, so `finalizeStreaming` is deliberately not used.
+    expect(emitted).toBe(emittedBeforeDispose);
+  });
+
+  it('dispose of an idle controller issues no abort', async () => {
+    const { transport, calls } = makeTransport();
+    const pushAdapter = new EventEmitter();
+    const c = new ChatStreamController({
+      transport,
+      pushAdapter,
+      onChange: () => undefined,
+    });
+    await c.send('hi');
+    await c.stop();
+    const before = calls.filter((call) => call.method === 'chat:abort').length;
+    c.dispose();
+    await Promise.resolve();
+    expect(calls.filter((call) => call.method === 'chat:abort')).toHaveLength(
+      before,
+    );
+  });
+
   it('double-submit guard prevents a second concurrent turn', async () => {
     const { transport, calls } = makeTransport();
     const pushAdapter = new EventEmitter();

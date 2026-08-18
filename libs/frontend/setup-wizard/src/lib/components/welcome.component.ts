@@ -158,7 +158,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 aria-label="Select the model used for analysis"
               >
                 @for (model of modelState.availableModels(); track model.id) {
-                  <option [value]="model.id">
+                  <option
+                    [value]="model.id"
+                    [selected]="model.id === modelState.currentModel()"
+                  >
                     {{ model.name
                     }}{{ model.isRecommended ? ' (Recommended)' : '' }}
                   </option>

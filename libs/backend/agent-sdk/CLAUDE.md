@@ -21,6 +21,10 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 - Platform-specific code (must go through `platform-core` ports)
 - RPC handlers (those live in `rpc-handlers`)
 - Persistence beyond what SDK writes to `~/.claude/projects/`
+- Propagating skills/commands/agents into `.claude/` or any rival CLI's harness
+  dir — that fan-out is `@ptah-extension/harness-sync` (TASK_2026_278; replaces
+  the deleted `SkillJunctionService`). `agent-sdk` must never import
+  `harness-sync` — see `src/lib/harness/harness-preflight.port.ts`
 
 ## Public API
 
@@ -36,6 +40,11 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 - `src/lib/detector/claude-cli-detector.ts` — checks Claude CLI availability
 - `src/lib/helpers/history/jsonl-reader.service.ts` — raw JSONL turn reader (consumed by skill-synthesis)
 - `src/lib/helpers/` — system prompt assembly, tier env defaults, compaction registry, subagent dispatcher
+- `src/lib/harness/harness-preflight.port.ts` — `HARNESS_PREFLIGHT_TOKEN` +
+  `IHarnessPreflight`, the structural port `SessionQueryExecutor` calls before
+  a session starts. No import of `harness-sync`; each host aliases the token
+  onto `HARNESS_SYNC_TOKENS.PREFLIGHT` in one line of registration, and
+  `HarnessPreflightService` satisfies the interface with no import back
 - `src/lib/cli-agents/`, `ptah-cli/`, `prompt-harness/` — Ptah CLI subagent wiring
 - `src/lib/curator-llm-adapter/` — bridges `ICuratorLLM` (memory-contracts) onto `InternalQueryService`
 - `src/lib/auth/`, `stream-processing/`, `errors/`, `wiring/`, `di/`, `types/`
@@ -51,8 +60,13 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/memory-contracts`
+**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/memory-contracts`, `@ptah-extension/plugin-marketplace`
 **External**: `@anthropic-ai/claude-agent-sdk`, `@openai/codex-sdk`, `axios`, `tsyringe`, `zod`, `eventemitter3`, `cross-spawn`, `which`, `uuid`
+
+Deliberately NOT `@ptah-extension/harness-sync`. `SessionQueryExecutor` needs
+one bounded call before a session starts; taking a real dependency on the
+reconciler lib would put this 10-concern adapter upstream of a lib that has to
+stay a leaf. The port in `src/lib/harness/` is the whole relationship.
 
 ## Guidelines
 
@@ -66,4 +80,4 @@ Wraps the official `@anthropic-ai/claude-agent-sdk` (plus `@openai/codex-sdk`) i
 ## Cross-Lib Rules
 
 Used by: `rpc-handlers`, `memory-curator` (via curator-llm-adapter), `skill-synthesis` (via `JsonlReaderService` + `InternalQueryService`), app layers.
-Forbidden imports: `platform-{cli,electron,vscode}` (adapter selection lives in app layer).
+Forbidden imports: `platform-{cli,electron,vscode}` (adapter selection lives in app layer), `@ptah-extension/harness-sync` (structural port only, see `src/lib/harness/`).

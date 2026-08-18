@@ -34,7 +34,11 @@ import {
   output,
 } from '@angular/core';
 import { NativeCardComponent, type NativeCardTone } from '@ptah-extension/ui';
-import type { SkillSynthesisCandidateSummary } from '@ptah-extension/shared';
+import type {
+  SkillJudgeCriteriaDto,
+  SkillJudgeStatusDto,
+  SkillSynthesisCandidateSummary,
+} from '@ptah-extension/shared';
 
 export interface SkillCandidateAction {
   readonly candidate: SkillSynthesisCandidateSummary;
@@ -49,13 +53,58 @@ interface CandidateMetric {
   readonly testId: string;
 }
 
+interface CandidateCriterion {
+  readonly key: keyof SkillJudgeCriteriaDto;
+  readonly label: string;
+  readonly value: string;
+}
+
+/**
+ * One empirical gate's measurement (P3-1).
+ *
+ * `measured` is carried alongside `value` rather than being inferred from the
+ * text, because that flag is the whole point: a gate that never ran and a gate
+ * that ran and scored zero are DIFFERENT facts, and only the first may render
+ * without a number. This is the same treatment `CandidateJudge.scoreText`
+ * gives an unscored verdict — an unmeasured gate never shows a digit.
+ */
+interface CandidateGate {
+  readonly key: 'replay' | 'trigger';
+  readonly label: string;
+  readonly measured: boolean;
+  /** The number, or {@link NOT_MEASURED} — never `'0'` for an absent gate. */
+  readonly value: string;
+  readonly title: string;
+}
+
+/**
+ * The judge's verdict, or `null` when no verdict has ever been recorded.
+ *
+ * `scoreText` is `null` — not `'0'` — whenever the candidate was not scored.
+ * The template renders NO score node in that case. This is the whole point of
+ * the type: before `judgeScore` became nullable, a judge call that failed
+ * fabricated a zero, and a fabricated zero rendered identically to a genuine
+ * bottom score. An unscored candidate must never show a number.
+ */
+interface CandidateJudge {
+  readonly status: SkillJudgeStatusDto;
+  readonly badgeClass: string;
+  readonly scoreText: string | null;
+  readonly reason: string | null;
+  readonly criteria: readonly CandidateCriterion[];
+}
+
 /** Per-candidate render model, derived once per `candidates()` change. */
 interface CandidateRow {
   readonly id: string;
   readonly candidate: SkillSynthesisCandidateSummary;
+  /** Never the `name` slug — see {@link buildTitle}. */
+  readonly title: string;
   readonly tone: NativeCardTone;
   readonly dotClass: string;
   readonly metrics: readonly CandidateMetric[];
+  readonly judge: CandidateJudge | null;
+  readonly gates: readonly CandidateGate[];
 }
 
 const STATUS_TONE: Record<CandidateStatus, NativeCardTone> = {
@@ -69,6 +118,41 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
   promoted: 'bg-success',
   rejected: 'bg-error',
 };
+
+const JUDGE_BADGE_CLASS: Record<SkillJudgeStatusDto, string> = {
+  scored: 'bg-success/15 text-success',
+  unscored: 'bg-warning/15 text-warning',
+  disabled: 'bg-base-content/10 text-base-content-muted',
+};
+
+/** Rendered order and human labels for the five judge criteria. */
+const CRITERION_LABELS: ReadonlyArray<{
+  readonly key: keyof SkillJudgeCriteriaDto;
+  readonly label: string;
+}> = [
+  { key: 'novelty', label: 'Novelty' },
+  { key: 'actionability', label: 'Actionability' },
+  { key: 'scope', label: 'Scope' },
+  { key: 'generalization', label: 'Generalization' },
+  { key: 'triggerClarity', label: 'Trigger clarity' },
+];
+
+/** What a candidate with no title yet is called. */
+const UNTITLED_PREFIX = 'Captured workflow';
+
+/**
+ * What an unmeasured gate says. Words, deliberately, and never a digit: `0`,
+ * `0.0` and `—` all read as a measurement, and the state being described is the
+ * absence of one.
+ */
+const NOT_MEASURED = 'not measured';
+
+const GATE_TITLES = {
+  replay:
+    'Plan-vs-actual alignment when the skill was replayed against a held-out session.',
+  trigger:
+    "Retrieval score for the skill's description alone, from precision and recall.",
+} as const;
 
 @Component({
   selector: 'ptah-skill-candidates-table',
@@ -106,7 +190,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                 [selectable]="true"
                 [selected]="selectedCandidateId() === row.id"
                 density="compact"
-                [ariaLabel]="'Open details for ' + row.candidate.name"
+                [ariaLabel]="'Open details for ' + row.title"
                 (activated)="selectRow.emit(row.id)"
               >
                 <div card-header class="flex items-start gap-2.5">
@@ -114,7 +198,7 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                     type="checkbox"
                     class="checkbox checkbox-xs mt-1 shrink-0"
                     data-testid="skills-select-row"
-                    [attr.aria-label]="'Select ' + row.candidate.name"
+                    [attr.aria-label]="'Select ' + row.title"
                     [checked]="selectedIds().has(row.id)"
                     (change)="toggleSelect.emit(row.id)"
                   />
@@ -122,8 +206,9 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                   <div class="min-w-0 flex-1">
                     <p
                       class="flex flex-wrap items-center gap-1.5 text-sm font-medium"
+                      data-testid="skills-candidate-title"
                     >
-                      <span class="truncate">{{ row.candidate.name }}</span>
+                      <span class="truncate">{{ row.title }}</span>
                       @if (row.candidate.pinned) {
                         <span
                           class="text-[11px] font-normal text-base-content-muted"
@@ -150,6 +235,96 @@ const STATUS_DOT: Record<CandidateStatus, string> = {
                     >
                   </span>
                 </div>
+
+                @if (row.judge; as judge) {
+                  <div class="flex flex-col gap-1.5">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span
+                        class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                        [class]="judge.badgeClass"
+                        data-testid="skills-candidate-judge-badge"
+                        >{{ judge.status }}</span
+                      >
+
+                      @if (judge.scoreText; as score) {
+                        <span class="flex items-baseline gap-1 text-xs">
+                          <span
+                            class="tabular-nums font-medium"
+                            data-testid="skills-candidate-judge-score"
+                            >{{ score }}</span
+                          >
+                          <span class="text-base-content-muted">/ 10</span>
+                        </span>
+                      }
+                    </div>
+
+                    @if (judge.reason; as reason) {
+                      <p
+                        class="text-xs text-base-content-muted"
+                        data-testid="skills-candidate-judge-reason"
+                      >
+                        {{ reason }}
+                      </p>
+                    }
+
+                    @if (judge.criteria.length > 0) {
+                      <dl
+                        class="flex flex-wrap gap-x-4 gap-y-1 text-xs"
+                        data-testid="skills-candidate-scorecard"
+                      >
+                        @for (c of judge.criteria; track c.key) {
+                          <div
+                            class="flex items-baseline gap-1.5"
+                            data-testid="skills-candidate-criterion"
+                            [attr.data-criterion]="c.key"
+                          >
+                            <dt
+                              class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                            >
+                              {{ c.label }}
+                            </dt>
+                            <dd class="tabular-nums">{{ c.value }}</dd>
+                          </div>
+                        }
+                      </dl>
+                    }
+                  </div>
+                }
+
+                <dl
+                  class="flex flex-wrap gap-x-5 gap-y-1 text-xs"
+                  data-testid="skills-candidate-gates"
+                >
+                  @for (gate of row.gates; track gate.key) {
+                    <div
+                      class="flex items-baseline gap-1.5"
+                      data-testid="skills-candidate-gate"
+                      [attr.data-gate]="gate.key"
+                    >
+                      <dt
+                        class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                        [title]="gate.title"
+                      >
+                        {{ gate.label }}
+                      </dt>
+                      @if (gate.measured) {
+                        <dd
+                          class="tabular-nums"
+                          data-testid="skills-candidate-gate-value"
+                        >
+                          {{ gate.value }}
+                        </dd>
+                      } @else {
+                        <dd
+                          class="text-base-content-muted"
+                          data-testid="skills-candidate-gate-unmeasured"
+                        >
+                          {{ gate.value }}
+                        </dd>
+                      }
+                    </div>
+                  }
+                </dl>
 
                 @if (row.metrics.length === 0) {
                   <p
@@ -282,9 +457,12 @@ export class SkillCandidatesTableComponent {
     this.candidates().map((candidate) => ({
       id: candidate.id,
       candidate,
+      title: buildTitle(candidate),
       tone: STATUS_TONE[candidate.status],
       dotClass: STATUS_DOT[candidate.status],
       metrics: buildMetrics(candidate),
+      judge: buildJudge(candidate),
+      gates: buildGates(candidate),
     })),
   );
 
@@ -298,6 +476,130 @@ export class SkillCandidatesTableComponent {
     const selected = this.selectedIds();
     return rows.every((c) => selected.has(c.id));
   });
+}
+
+/**
+ * What to call a candidate on screen.
+ *
+ * NEVER the `name` field. That is a SLUG — an internal id and the `SKILL.md`
+ * folder name, historically derived from the opening words of the user's own
+ * prompt. Rendering it echoed a fragment of the prompt back as if it were a
+ * title, which read as though the system had understood something it had not
+ * (P1-10). `displayName` is the title the namer produced; when there is none
+ * yet, the honest answer is that this is an untitled capture, dated.
+ *
+ * The date is formatted from LOCAL calendar parts as `YYYY-MM-DD` — locale-free
+ * so it is unambiguous to every reader and stable to assert on, but still the
+ * user's own day rather than a UTC one.
+ */
+function buildTitle(candidate: SkillSynthesisCandidateSummary): string {
+  const displayName = candidate.displayName?.trim();
+  if (displayName) return displayName;
+  return `${UNTITLED_PREFIX} · ${formatCaptureDate(candidate.createdAt)}`;
+}
+
+function formatCaptureDate(epochMs: number): string {
+  const date = new Date(epochMs);
+  if (Number.isNaN(date.getTime())) return 'unknown date';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * The judge verdict panel, or `null` when no verdict was ever recorded.
+ *
+ * `judgeScore` is passed through as-is. It is NOT coalesced, defaulted, or
+ * compared against zero anywhere on this path: a `null` score yields a `null`
+ * `scoreText`, and the template renders no score node at all. An `unscored`
+ * candidate therefore says "unscored" and shows no number, which is the
+ * difference between "we could not grade this" and "we graded it zero".
+ */
+function buildJudge(
+  candidate: SkillSynthesisCandidateSummary,
+): CandidateJudge | null {
+  // `== null` rather than `=== null`: a host that predates these fields sends
+  // them absent, and an absent verdict is the same thing as no verdict. This
+  // is the ONE tolerance — it can only ever suppress a badge, never invent a
+  // score.
+  const status = candidate.judgeStatus;
+  if (status == null) return null;
+
+  return {
+    status,
+    badgeClass: JUDGE_BADGE_CLASS[status],
+    scoreText:
+      candidate.judgeScore == null ? null : String(candidate.judgeScore),
+    reason: candidate.judgeReason ?? null,
+    criteria: buildCriteria(candidate.judgeCriteria),
+  };
+}
+
+/**
+ * The five-criterion scorecard. An absent breakdown yields an EMPTY list (no
+ * scorecard rendered); a present breakdown always yields all five entries, with
+ * an em dash for any individual criterion the judge left null.
+ */
+function buildCriteria(
+  criteria: SkillJudgeCriteriaDto | null | undefined,
+): readonly CandidateCriterion[] {
+  if (criteria == null) return [];
+  return CRITERION_LABELS.map(({ key, label }) => {
+    const value = criteria[key];
+    return { key, label, value: value == null ? '—' : String(value) };
+  });
+}
+
+/**
+ * The two empirical gates (P3-1), always both, in a fixed order.
+ *
+ * Rendered even when unmeasured — unlike the run counters, which vanish when
+ * they are zero. The cases are not the same: a missing counter is read as "this
+ * has not run", which is what the sentence beside it already says, whereas a
+ * missing gate row would be read as "this candidate has no such gate". Saying
+ * `not measured` states the fact instead of leaving the reader to infer it.
+ */
+function buildGates(
+  candidate: SkillSynthesisCandidateSummary,
+): readonly CandidateGate[] {
+  return [
+    gate('replay', 'Replay', candidate.replayConfidence),
+    gate('trigger', 'Trigger', candidate.triggerScore),
+  ];
+}
+
+/**
+ * One gate row.
+ *
+ * `value == null` yields {@link NOT_MEASURED} and `measured: false`; every
+ * other number — INCLUDING `0` — yields the number itself. Nothing on this path
+ * defaults, coalesces, or falsy-checks the score, because `0` is falsy and a
+ * `||` here would silently retitle a measured failure as an absent
+ * measurement. That is the defect this phase exists to keep out of the UI.
+ *
+ * A non-finite number (`NaN` from a corrupted host) is not a measurement
+ * either, and is treated as absent rather than printed.
+ */
+function gate(
+  key: CandidateGate['key'],
+  label: string,
+  value: number | null | undefined,
+): CandidateGate {
+  const title = GATE_TITLES[key];
+  if (value == null || !Number.isFinite(value)) {
+    return { key, label, measured: false, value: NOT_MEASURED, title };
+  }
+  return { key, label, measured: true, value: formatGateValue(value), title };
+}
+
+/**
+ * Two decimal places at most, and no trailing zeros: a measured `0` prints as
+ * `0` and never as `0.00`, which would imply a precision the gate did not
+ * claim. The scale is left alone — no percentage, no ` / 1` — because the
+ * trigger score's range is the trigger-eval stage's to define.
+ */
+function formatGateValue(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 /**

@@ -25,6 +25,8 @@ import {
 } from '@ptah-extension/platform-core';
 import { GATEWAY_TOKENS } from './tokens';
 import { GatewayService } from '../gateway.service';
+import { AdapterLifecycleService } from '../adapter-lifecycle.service';
+import { OutboundDeliveryService } from '../outbound-delivery.service';
 import { BindingStore } from '../binding.store';
 import { ConversationStore } from '../conversation.store';
 import { MessageStore } from '../message.store';
@@ -114,6 +116,18 @@ export function registerMessagingGatewayServices(
   container.registerSingleton(
     GATEWAY_TOKENS.GATEWAY_COMMAND_SERVICE,
     GatewayCommandService,
+  );
+
+  // The two façade collaborators. Order matters only for readability —
+  // tsyringe resolves lazily — but OutboundDeliveryService genuinely depends
+  // on AdapterLifecycleService for the live adapter of a platform.
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_ADAPTER_LIFECYCLE,
+    AdapterLifecycleService,
+  );
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_OUTBOUND_DELIVERY,
+    OutboundDeliveryService,
   );
 
   container.registerSingleton(GATEWAY_TOKENS.GATEWAY_SERVICE, GatewayService);

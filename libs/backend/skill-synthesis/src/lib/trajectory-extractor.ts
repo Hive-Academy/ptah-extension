@@ -6,14 +6,38 @@ import { SDK_TOKENS, type JsonlReaderService } from '@ptah-extension/agent-sdk';
 /** Minimum number of user/assistant turns required to consider a session. */
 export const MIN_TURNS_FOR_TRAJECTORY = 5;
 
-/** Floor on role-bearing turns below which extraction never produces a trajectory. */
-const MIN_ROLE_TURNS_FLOOR = 2;
+/**
+ * Absolute floor on role-bearing turns. Below this there is no trajectory to
+ * extract at all — one turn is a message, not a session.
+ *
+ * It is also the DEFAULT for `extract`'s `minTurns`, which is the phase-2
+ * split: the extractor answers "is there a readable session here", and
+ * `SkillSynthesisService.passesPrefilter` answers "is it worth spending tokens
+ * on". Those are different questions and were previously fused — badly, because
+ * the fusion did not actually work (see `extract`).
+ */
+export const MIN_ROLE_TURNS_FLOOR = 2;
 
 const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
 const BASH_TEST_PATTERN =
   /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
 
-/** Heuristic phrases interpreted as "task succeeded". */
+/**
+ * Heuristic phrases interpreted as "task succeeded".
+ *
+ * ## THIS IS AN INFORMATIONAL SIGNAL AND NOTHING MAY DECIDE ON IT (phase 2)
+ *
+ * A model writing "Task complete!" is evidence that a model wrote a sentence.
+ * The authority on whether a session succeeded is
+ * `SessionVerdict.evidenceClass`, produced by the archaeologist from the whole
+ * transcript — a session whose tail matches every regex below still comes back
+ * `unverified` when nothing in the transcript settles the outcome.
+ *
+ * So the flag is still COMPUTED — it is a cheap, honest observation and phases
+ * 3/4 may want it as one feature among many — but no promotion, eligibility,
+ * ranking or synthesis path may read it to decide success. `regex-demotion.spec.ts`
+ * pins that with a source scan; keep it true.
+ */
 const SUCCESS_MARKERS = [
   /\btask\s+complete(d)?\b/i,
   /\bdone[!.\s]/i,
@@ -46,7 +70,12 @@ export interface ExtractedTrajectory {
   bashTestPassed: boolean;
   /** Length of the normalized canonical text. */
   charLength: number;
-  /** Informational signal — whether a success marker was found near the tail. */
+  /**
+   * Informational signal — whether a success marker was found near the tail.
+   *
+   * INFORMATIONAL IN THE LITERAL SENSE: nothing may branch on it. The verdict's
+   * `evidenceClass` is the authority on whether the session succeeded.
+   */
   hasSuccessMarker: boolean;
 }
 
@@ -59,14 +88,31 @@ export class TrajectoryExtractor {
   ) {}
 
   /**
-   * Read the JSONL for a session and return an extracted trajectory if the
-   * eligibility rules are met. Returns null when the session is too short
-   * or lacks a success marker.
+   * Read the JSONL for a session and return its trajectory, or `null` when the
+   * transcript cannot be read or carries fewer than `minTurns` role turns.
+   *
+   * A success marker is NEVER a condition — the doc comment that said so was
+   * describing behaviour this class has not had for several releases, and
+   * phase 2 makes the demotion explicit rather than accidental.
+   *
+   * ## `minTurns` IS HONOURED. IT USED TO BE `void`-ed.
+   *
+   * The parameter was neutered (`void minTurns;`) when the arithmetic curation
+   * gates were replaced, leaving every caller setting a threshold that did
+   * nothing while `MIN_ROLE_TURNS_FLOOR` silently decided. It now does what its
+   * name says, and its DEFAULT moved from {@link MIN_TURNS_FOR_TRAJECTORY} to
+   * {@link MIN_ROLE_TURNS_FLOOR} so that restoring it does not quietly NARROW
+   * the harvest phase 2 is deliberately widening: a 3-turn session that lands an
+   * edit is still extractable, and whether it is worth spending tokens on is
+   * `passesPrefilter`'s call, not this method's.
+   *
+   * The value is clamped up to the floor — a caller asking for `0` is asking for
+   * a trajectory over nothing.
    *
    * @param sessionId      Session to analyze.
    * @param workspaceRoot  Used to locate the JSONL file and normalize paths.
-   * @param minTurns       Minimum qualifying turns required. Defaults to
-   *                       {@link MIN_TURNS_FOR_TRAJECTORY} when not supplied.
+   * @param minTurns       Minimum role-bearing turns required. Defaults to
+   *                       {@link MIN_ROLE_TURNS_FLOOR}, which is also the floor.
    * @param transcriptPath When provided, the JSONL at this exact path is read
    *                       instead of resolving the file by session id. Required
    *                       for subagent transcripts which live under
@@ -75,7 +121,7 @@ export class TrajectoryExtractor {
   async extract(
     sessionId: string,
     workspaceRoot: string,
-    minTurns: number = MIN_TURNS_FOR_TRAJECTORY,
+    minTurns: number = MIN_ROLE_TURNS_FLOOR,
     transcriptPath?: string,
   ): Promise<ExtractedTrajectory | null> {
     let filePath: string;
@@ -103,7 +149,9 @@ export class TrajectoryExtractor {
       });
       return null;
     }
-    void minTurns;
+    const requiredTurns = Number.isFinite(minTurns)
+      ? Math.max(MIN_ROLE_TURNS_FLOOR, Math.floor(minTurns))
+      : MIN_ROLE_TURNS_FLOOR;
     let sessionTurnCount = 0;
     let editCount = 0;
     let toolUseCount = 0;
@@ -122,10 +170,12 @@ export class TrajectoryExtractor {
       turns.push({ role, text });
     }
 
-    if (turns.length < MIN_ROLE_TURNS_FLOOR) {
+    if (turns.length < requiredTurns) {
       return null;
     }
 
+    // Computed, carried, and read by NOBODY as a success decision. See the
+    // SUCCESS_MARKERS header.
     const hasSuccessMarker = this.hasSuccessMarker(turns);
 
     const normalized = turns

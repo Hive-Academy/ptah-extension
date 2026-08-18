@@ -518,6 +518,15 @@ export class ChatMessageHandler implements MessageHandler {
     if (realSessionId) {
       const claimedSurface = this.renderedSurfaceFor(tabId);
       if (claimedSurface) {
+        // The surface conversation was minted before the backend knew the
+        // real session id, so it does not contain `realSessionId` yet and
+        // every session→surface lookup (question routing included) misses.
+        // `onSurfaceCreated` is idempotent for an already-bound surface: it
+        // appends the session to the existing conversation and returns it.
+        this.streamRouter.onSurfaceCreated(
+          claimedSurface,
+          realSessionId as ClaudeSessionId,
+        );
         this.streamRouter.refreshQuestionTargetsForSession(
           realSessionId as ClaudeSessionId,
         );

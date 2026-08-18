@@ -20,6 +20,7 @@ import {
   signal,
   computed,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
   Search,
@@ -34,21 +35,45 @@ import {
   ArrowLeft,
   Rocket,
   Scale,
+  X,
+  PlayCircle,
 } from 'lucide-angular';
 import {
   ClaudeRpcService,
   WebviewNavigationService,
-  AppStateManager,
 } from '@ptah-extension/core';
 import type {
   SetupStatusGetResponse,
   HarnessPreset,
+  NewProjectAudience,
+  NewProjectIntake,
+  NewProjectPlatform,
+  NewProjectStack,
 } from '@ptah-extension/shared';
+import {
+  isNewProjectStack,
+  stackOptionsForPlatform,
+} from '@ptah-extension/shared';
+import { HarnessRpcService } from '../services/harness-rpc.service';
+import { HarnessWorkflowService } from '../services/harness-workflow.service';
+import {
+  NEW_PROJECT_AUDIENCE_OPTIONS,
+  NEW_PROJECT_PLATFORM_OPTIONS,
+} from '../services/new-project-intake';
+
+/**
+ * The platform an intake means when it says nothing.
+ *
+ * The chip starts here and the payload OMITS it when it is still here, so a
+ * user who never looks at the platform question sends exactly the payload they
+ * sent before the question existed.
+ */
+const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
 
 @Component({
   selector: 'ptah-setup-hub',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -570,11 +595,16 @@ import type {
                      hover:from-secondary/40 hover:via-secondary/15 hover:to-secondary/30
                      transition-all duration-300 ease-out
                      card-enter card-enter-delay-3"
-              (click)="startNewProject()"
-              (keydown.enter)="startNewProject()"
+              (click)="onNewProjectCardActivate()"
+              (keydown.enter)="onNewProjectCardActivate()"
               role="button"
               tabindex="0"
-              aria-label="Start a new project with guided setup"
+              data-testid="new-project-card"
+              [attr.aria-label]="
+                hasActiveNewProject()
+                  ? 'Resume the New Project workflow already in progress'
+                  : 'Start a new project with guided setup'
+              "
             >
               <div
                 class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
@@ -592,6 +622,21 @@ import type {
                       />
                     </div>
                   </div>
+                  @if (hasActiveNewProject()) {
+                    <div class="flex items-center gap-2">
+                      <div class="relative flex items-center justify-center">
+                        <span
+                          class="w-2 h-2 rounded-full bg-secondary status-dot-breathe"
+                        ></span>
+                        <span
+                          class="absolute w-2 h-2 rounded-full bg-secondary/30 animate-ping"
+                        ></span>
+                      </div>
+                      <span class="text-xs font-medium text-secondary">
+                        {{ newProjectStatusLabel() }}
+                      </span>
+                    </div>
+                  }
                 </div>
 
                 <div>
@@ -599,25 +644,54 @@ import type {
                     New Project
                   </h2>
                   <p class="text-sm text-base-content-muted mt-1">
-                    Plan and scaffold a brand-new SaaS workspace (Nx + Angular /
-                    NestJS) with a generated roadmap and its own AI team.
+                    @if (hasActiveNewProject()) {
+                      A New Project workflow is already running in this
+                      workspace. Pick up where you left off — starting again
+                      would abandon it.
+                    } @else {
+                      Plan and scaffold a brand-new SaaS workspace with a
+                      generated roadmap and its own AI team.
+                    }
                   </p>
                 </div>
 
-                <button
-                  class="btn btn-sm w-full mt-auto gap-1
-                         bg-gradient-to-r from-secondary/10 to-secondary/5
-                         border border-secondary/20
-                         hover:border-secondary/40 hover:from-secondary/20 hover:to-secondary/10
-                         text-secondary font-medium transition-all duration-200"
-                >
-                  Start New Project
-                  <lucide-angular
-                    [img]="ChevronRightIcon"
-                    class="w-3.5 h-3.5"
-                    aria-hidden="true"
-                  />
-                </button>
+                @if (hasActiveNewProject()) {
+                  <button
+                    class="btn btn-sm w-full mt-auto gap-1
+                           bg-gradient-to-r from-secondary/20 to-secondary/10
+                           border border-secondary/30
+                           hover:border-secondary/50 hover:from-secondary/30 hover:to-secondary/20
+                           text-secondary font-medium transition-all duration-200"
+                    type="button"
+                    data-testid="new-project-resume"
+                    (click)="resumeNewProject(); $event.stopPropagation()"
+                  >
+                    <lucide-angular
+                      [img]="PlayCircleIcon"
+                      class="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    />
+                    Resume New Project
+                  </button>
+                } @else {
+                  <button
+                    class="btn btn-sm w-full mt-auto gap-1
+                           bg-gradient-to-r from-secondary/10 to-secondary/5
+                           border border-secondary/20
+                           hover:border-secondary/40 hover:from-secondary/20 hover:to-secondary/10
+                           text-secondary font-medium transition-all duration-200"
+                    type="button"
+                    data-testid="new-project-start"
+                    (click)="openIntake(); $event.stopPropagation()"
+                  >
+                    Start New Project
+                    <lucide-angular
+                      [img]="ChevronRightIcon"
+                      class="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    />
+                  </button>
+                }
               </div>
             </div>
 
@@ -835,12 +909,242 @@ import type {
         </div>
       }
     </main>
+
+    @if (showIntake()) {
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-base-300/70 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-project-intake-title"
+        data-testid="new-project-intake"
+      >
+        <div
+          class="bg-base-100 border border-base-300 rounded-2xl shadow-2xl w-full max-w-xl max-h-full overflow-y-auto"
+        >
+          <div
+            class="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-base-300/60"
+          >
+            <div>
+              <h2
+                id="new-project-intake-title"
+                class="text-lg font-bold text-base-content"
+              >
+                Tell me about your project
+              </h2>
+              <p class="text-sm text-base-content-muted mt-1">
+                A few answers up front so discovery starts from what you already
+                know — not from scratch.
+              </p>
+            </div>
+            <button
+              class="btn btn-ghost btn-sm btn-circle shrink-0"
+              type="button"
+              (click)="closeIntake()"
+              aria-label="Cancel new project"
+            >
+              <lucide-angular
+                [img]="XIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+
+          <div class="px-6 py-5 flex flex-col gap-5">
+            <div>
+              <label
+                class="block text-sm font-medium text-base-content mb-1.5"
+                for="intake-what"
+              >
+                What are you building?
+                <span class="text-error" aria-hidden="true">*</span>
+              </label>
+              <textarea
+                id="intake-what"
+                class="textarea textarea-bordered w-full text-sm leading-relaxed min-h-[92px]"
+                placeholder="A scheduling tool for physiotherapy clinics — patients book online, clinicians manage availability, admins see billing."
+                data-testid="intake-what"
+                required
+                [(ngModel)]="intakeWhat"
+                (ngModelChange)="onIntakeWhatChange($event)"
+              ></textarea>
+            </div>
+
+            <fieldset>
+              <legend class="block text-sm font-medium text-base-content mb-2">
+                Who is it for?
+              </legend>
+              <div class="flex flex-wrap gap-2">
+                @for (option of audienceOptions; track option.value) {
+                  <button
+                    class="btn btn-sm rounded-full"
+                    type="button"
+                    [class.btn-primary]="audience() === option.value"
+                    [class.btn-outline]="audience() !== option.value"
+                    [attr.aria-pressed]="audience() === option.value"
+                    [attr.data-testid]="'intake-audience-' + option.value"
+                    (click)="selectAudience(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                }
+              </div>
+            </fieldset>
+
+            <div>
+              <label
+                class="block text-sm font-medium text-base-content mb-1.5"
+                for="intake-constraints"
+              >
+                Must-haves / constraints
+                <span class="text-base-content-muted font-normal"
+                  >(optional)</span
+                >
+              </label>
+              <textarea
+                id="intake-constraints"
+                class="textarea textarea-bordered w-full text-sm leading-relaxed min-h-[72px]"
+                placeholder="Must run on-premise, needs audit logs, launch in 6 weeks…"
+                data-testid="intake-constraints"
+                [(ngModel)]="intakeConstraints"
+              ></textarea>
+            </div>
+
+            <fieldset>
+              <legend class="block text-sm font-medium text-base-content mb-2">
+                What platform is it built on?
+              </legend>
+              <div class="flex flex-wrap gap-2">
+                @for (option of platformOptions; track option.value) {
+                  <button
+                    class="btn btn-sm rounded-full"
+                    type="button"
+                    [class.btn-primary]="platform() === option.value"
+                    [class.btn-outline]="platform() !== option.value"
+                    [attr.aria-pressed]="platform() === option.value"
+                    [attr.data-testid]="'intake-platform-' + option.value"
+                    (click)="selectPlatform(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                }
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend class="block text-sm font-medium text-base-content mb-2">
+                Tech stack preference
+              </legend>
+              <div class="flex flex-wrap gap-2">
+                @for (option of stackOptions(); track option.value) {
+                  <button
+                    class="btn btn-sm rounded-full"
+                    type="button"
+                    [class.btn-primary]="stack() === option.value"
+                    [class.btn-outline]="stack() !== option.value"
+                    [attr.aria-pressed]="stack() === option.value"
+                    [attr.data-testid]="'intake-stack-' + option.value"
+                    (click)="selectStack(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                }
+              </div>
+              @if (stack() === 'other') {
+                <input
+                  class="input input-bordered input-sm w-full mt-3 text-sm"
+                  type="text"
+                  placeholder="Which stack?"
+                  aria-label="Describe your preferred stack"
+                  data-testid="intake-stack-other"
+                  [(ngModel)]="intakeStackOther"
+                  (ngModelChange)="onStackOtherChange($event)"
+                />
+              }
+            </fieldset>
+
+            @if (intakeError()) {
+              <div class="alert alert-error text-sm" role="alert">
+                <span>{{ intakeError() }}</span>
+              </div>
+            }
+          </div>
+
+          <div
+            class="flex items-center justify-end gap-2 px-6 py-4 border-t border-base-300/60 bg-base-200/40"
+          >
+            <button
+              class="btn btn-ghost btn-sm"
+              type="button"
+              (click)="closeIntake()"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary btn-sm gap-1"
+              type="button"
+              data-testid="intake-start"
+              [disabled]="!canStartPlanning()"
+              (click)="submitIntake()"
+            >
+              @if (isStarting()) {
+                <span class="loading loading-spinner loading-xs"></span>
+              }
+              Start planning
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (showDiscardConfirm()) {
+      <div
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-base-300/70 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-project-discard-title"
+        data-testid="new-project-discard-confirm"
+      >
+        <div
+          class="bg-base-100 border border-base-300 rounded-lg shadow-xl p-5 max-w-sm w-full"
+        >
+          <h2
+            id="new-project-discard-title"
+            class="text-base font-semibold text-base-content mb-2"
+          >
+            Discard the running AI Team Builder workflow?
+          </h2>
+          <p class="text-sm text-base-content-muted mb-4">
+            An AI Team Builder workflow is still running. Starting a new project
+            stops it and clears its transcript and configuration.
+          </p>
+          <div class="flex justify-end gap-2">
+            <button
+              class="btn btn-ghost btn-sm"
+              type="button"
+              (click)="cancelDiscard()"
+            >
+              Keep it running
+            </button>
+            <button
+              class="btn btn-error btn-sm"
+              type="button"
+              data-testid="new-project-discard-confirm-button"
+              (click)="confirmDiscardAndStart()"
+            >
+              Discard and start
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly harnessRpc = inject(HarnessRpcService);
   private readonly navigation = inject(WebviewNavigationService);
-  private readonly appState = inject(AppStateManager);
+  private readonly workflow = inject(HarnessWorkflowService);
   protected readonly SearchIcon = Search;
   protected readonly WrenchIcon = Wrench;
   protected readonly FileTextIcon = FileText;
@@ -853,6 +1157,8 @@ export class SetupHubComponent implements OnInit {
   protected readonly ArrowLeftIcon = ArrowLeft;
   protected readonly RocketIcon = Rocket;
   protected readonly ScaleIcon = Scale;
+  protected readonly XIcon = X;
+  protected readonly PlayCircleIcon = PlayCircle;
   private readonly _isLoading = signal(false);
   private readonly _hasLoadedOnce = signal(false);
   private readonly _loadError = signal<string | null>(null);
@@ -868,6 +1174,78 @@ export class SetupHubComponent implements OnInit {
   readonly hasClaudeMd = computed(
     () => this._setupStatus()?.hasClaudeConfig ?? false,
   );
+
+  // ==========================================================================
+  // NEW PROJECT — intake + resume
+  // ==========================================================================
+
+  protected readonly audienceOptions = NEW_PROJECT_AUDIENCE_OPTIONS;
+  protected readonly platformOptions = NEW_PROJECT_PLATFORM_OPTIONS;
+
+  private readonly _showIntake = signal(false);
+  private readonly _showDiscardConfirm = signal(false);
+  private readonly _audience = signal<NewProjectAudience>('unsure');
+  private readonly _platform = signal<NewProjectPlatform>(DEFAULT_PLATFORM);
+  private readonly _stack = signal<NewProjectStack>('recommend');
+  private readonly _isStarting = signal(false);
+  private readonly _intakeError = signal<string | null>(null);
+  /** Mirrors `intakeWhat` so the submit button's enablement is reactive. */
+  private readonly _whatFilled = signal(false);
+  private readonly _stackOtherFilled = signal(false);
+
+  protected intakeWhat = '';
+  protected intakeConstraints = '';
+  protected intakeStackOther = '';
+
+  readonly showIntake = this._showIntake.asReadonly();
+  readonly showDiscardConfirm = this._showDiscardConfirm.asReadonly();
+  readonly audience = this._audience.asReadonly();
+  readonly platform = this._platform.asReadonly();
+  readonly stack = this._stack.asReadonly();
+
+  /**
+   * The stack chips for the selected platform — the whole platform-to-stack
+   * derivation, delegated to the registry.
+   *
+   * There is no local list to keep in step: picking `.NET` re-renders these
+   * from `STACK_PROFILES`, and a platform with no profile (`Other`) falls back
+   * to the two platform-independent chips.
+   */
+  readonly stackOptions = computed(() =>
+    stackOptionsForPlatform(this.platform()),
+  );
+  readonly isStarting = this._isStarting.asReadonly();
+  readonly intakeError = this._intakeError.asReadonly();
+
+  /**
+   * A New Project run is already claimed. Starting another would open a second
+   * agent session against the same workspace, so the card offers Resume.
+   */
+  readonly hasActiveNewProject = computed(
+    () =>
+      this.workflow.isActive() && this.workflow.viewMode() === 'new-project',
+  );
+
+  readonly newProjectStatusLabel = computed(() =>
+    this.workflow.isProcessing() ? 'Running' : 'In progress',
+  );
+
+  /**
+   * A workflow in the OTHER mode holds the surface. Starting a New Project
+   * would tear it down, so the user is asked first rather than having a
+   * Configure Harness run vanish under them.
+   */
+  readonly hasConflictingWorkflow = computed(
+    () =>
+      this.workflow.isActive() && this.workflow.viewMode() !== 'new-project',
+  );
+
+  readonly canStartPlanning = computed(() => {
+    if (this._isStarting()) return false;
+    if (!this._whatFilled()) return false;
+    if (this._stack() === 'other' && !this._stackOtherFilled()) return false;
+    return true;
+  });
 
   /** SVG progress ring offset: 0 = full circle, 75.4 = empty circle */
   readonly progressOffset = computed(() => {
@@ -894,7 +1272,14 @@ export class SetupHubComponent implements OnInit {
         this._setupStatus.set(statusResult.data);
       }
 
-      if (presetsResult.isSuccess() && presetsResult.data) {
+      // Guard the shape: a reply without `presets` (malformed adapter, mocked
+      // transport) must not leave the signal `undefined` — every
+      // `presets().length` binding in the template would throw on each CD
+      // pass and freeze the rest of this component's bindings.
+      if (
+        presetsResult.isSuccess() &&
+        Array.isArray(presetsResult.data?.presets)
+      ) {
         this._presets.set(presetsResult.data.presets);
       }
 
@@ -922,18 +1307,157 @@ export class SetupHubComponent implements OnInit {
     this.navigation.navigateToView('tribunal');
   }
 
-  async startNewProject(): Promise<void> {
+  /** Card body click: resume when one is running, otherwise collect intake. */
+  onNewProjectCardActivate(): void {
+    if (this.hasActiveNewProject()) {
+      this.resumeNewProject();
+      return;
+    }
+    this.openIntake();
+  }
+
+  resumeNewProject(): void {
+    this.navigation.navigateToView('harness-builder');
+  }
+
+  openIntake(): void {
+    this._intakeError.set(null);
+    this._showIntake.set(true);
+  }
+
+  closeIntake(): void {
+    this._showIntake.set(false);
+  }
+
+  protected onIntakeWhatChange(value: string): void {
+    this._whatFilled.set(value.trim().length > 0);
+  }
+
+  protected onStackOtherChange(value: string): void {
+    this._stackOtherFilled.set(value.trim().length > 0);
+  }
+
+  selectAudience(value: NewProjectAudience): void {
+    this._audience.set(value);
+  }
+
+  /**
+   * Pick a platform, and reset the stack answer with it.
+   *
+   * The reset is not optional: `aspnetcore-blazor` is meaningless once the user
+   * switches back to Node, and leaving it selected would submit a stack that
+   * has no chip on screen. `recommend` is in every profile's options, so it is
+   * always a legal landing place.
+   */
+  selectPlatform(value: NewProjectPlatform): void {
+    if (this._platform() === value) return;
+    this._platform.set(value);
+    this._stack.set('recommend');
+    this.intakeStackOther = '';
+    this._stackOtherFilled.set(false);
+  }
+
+  /**
+   * Take a chip's value as the stack answer.
+   *
+   * Accepts `string` because that is what `StackOption.value` is — the registry
+   * is plain data. `isNewProjectStack` is the one narrowing point, so a chip
+   * whose value is not on the wire union is ignored rather than cast through.
+   */
+  selectStack(value: string): void {
+    if (!isNewProjectStack(value)) return;
+    this._stack.set(value);
+    if (value !== 'other') {
+      this.intakeStackOther = '';
+      this._stackOtherFilled.set(false);
+    }
+  }
+
+  /** Build the intake payload from the form. Null when it isn't complete. */
+  private buildIntake(): NewProjectIntake | null {
+    const what = this.intakeWhat.trim();
+    if (!what) return null;
+    const stack = this._stack();
+    const stackOther = this.intakeStackOther.trim();
+    if (stack === 'other' && !stackOther) return null;
+    const constraints = this.intakeConstraints.trim();
+    const platform = this._platform();
+
+    return {
+      what,
+      audience: this._audience(),
+      // Omitted at the default. Absence already means Node/TypeScript on the
+      // wire, so a user who never touched the platform question sends the
+      // payload they sent before the question existed — which is what keeps
+      // the existing New Project e2e suite a valid regression bar.
+      ...(platform === DEFAULT_PLATFORM ? {} : { platform }),
+      stack,
+      ...(constraints ? { constraints } : {}),
+      ...(stack === 'other' ? { stackOther } : {}),
+    };
+  }
+
+  async submitIntake(): Promise<void> {
+    const intake = this.buildIntake();
+    if (!intake || this._isStarting()) return;
+
+    // A run in the other mode is about to be destroyed — get consent first.
+    if (this.hasConflictingWorkflow()) {
+      this._showDiscardConfirm.set(true);
+      return;
+    }
+    await this.startNewProject(intake);
+  }
+
+  protected cancelDiscard(): void {
+    this._showDiscardConfirm.set(false);
+  }
+
+  /**
+   * The user accepted losing the Configure Harness run. Stop its agent and
+   * release the surface BEFORE asking the backend to open the new workflow —
+   * otherwise the open request races the still-claimed surface.
+   */
+  protected async confirmDiscardAndStart(): Promise<void> {
+    this._showDiscardConfirm.set(false);
+    const intake = this.buildIntake();
+    if (!intake || this._isStarting()) return;
+
+    this._isStarting.set(true);
+    this._intakeError.set(null);
     try {
-      const result = await this.rpc.call('harness:start-new-project', {});
-      if (!result.isSuccess() || result.data?.success === false) {
-        this._loadError.set(
-          result.data?.error ?? result.error ?? 'Failed to start new project',
-        );
+      await this.workflow.abortAndDispose();
+    } catch (err: unknown) {
+      this._intakeError.set(
+        err instanceof Error
+          ? `Could not stop the running workflow: ${err.message}`
+          : 'Could not stop the running workflow',
+      );
+      this._isStarting.set(false);
+      return;
+    }
+    this._isStarting.set(false);
+    await this.startNewProject(intake);
+  }
+
+  private async startNewProject(intake: NewProjectIntake): Promise<void> {
+    this._isStarting.set(true);
+    this._intakeError.set(null);
+    try {
+      const result = await this.harnessRpc.startNewProject(intake);
+      if (!result.success) {
+        this._intakeError.set(result.error ?? 'Failed to start new project');
+        return;
       }
-    } catch (err) {
-      this._loadError.set(
+      // The backend broadcast navigates to the builder; drop the modal so the
+      // hub isn't left with a dialog over it when the user comes back.
+      this._showIntake.set(false);
+    } catch (err: unknown) {
+      this._intakeError.set(
         err instanceof Error ? err.message : 'Failed to start new project',
       );
+    } finally {
+      this._isStarting.set(false);
     }
   }
 

@@ -1050,6 +1050,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       undefined,
       VALID_TAB_UUID,
       undefined,
+      VALID_TAB_UUID,
     );
   });
 
@@ -1066,12 +1067,14 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     // fix it must resolve cleanly.
     await expect(runBuild(builder, sessionConfig)).resolves.not.toThrow();
 
-    // Both routing args degrade to undefined when the id is malformed.
+    // Both routing args degrade to undefined when the id is malformed; the raw
+    // id still travels as the routing hint for out-of-band prompt observers.
     expect(permissionHandler.createCallback).toHaveBeenCalledWith(
       undefined,
       undefined,
       undefined,
       undefined,
+      LEGACY_TAB_ID,
     );
 
     // The malformed id is logged at warn-level for observability.

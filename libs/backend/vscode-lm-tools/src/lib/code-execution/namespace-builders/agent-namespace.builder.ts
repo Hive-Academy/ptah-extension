@@ -2,8 +2,10 @@
  * Agent Namespace Builder
  *
  * Async agent orchestration via CLI agents. Provides spawn, status, read,
- * steer, stop, list, waitFor methods for managing headless CLI agents
- * (Codex, Copilot) as background workers.
+ * steer, stop, list, waitFor methods for managing headless CLI agents as
+ * background workers. Which agents exist is a runtime fact answered by `list`
+ * (`SYSTEM_CLI_TYPES` for the shipped adapters, user config for Ptah CLI
+ * providers) — this layer never names a vendor.
  *
  * Pattern: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts
  */

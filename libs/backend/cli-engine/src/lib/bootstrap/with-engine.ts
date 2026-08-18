@@ -334,6 +334,13 @@ export async function withEngine<T>(
           bootstrap_mode: opts.mode,
         });
       }
+      // An adapter that FAILED to initialize still constructed. It has already
+      // resolved its provider tree, and depending on how far `initialize()` got
+      // before returning false it may be holding a spawned CLI subprocess or an
+      // open socket. This path throws BEFORE the `try/finally` below, so
+      // without an explicit call here the sole dispose site never runs and the
+      // handle outlives the command that created it.
+      await disposeSdkAdapter(ctx);
       await runDispose(opts, ctx);
       throw new SdkInitFailedError(message);
     }
@@ -401,21 +408,31 @@ export async function withEngine<T>(
     // Covers adapters initialized eagerly (requireSdk !== false) AND ones
     // initialized late by the host via `ctx.initializeSdk()` — both paths
     // record the instance on the context, so there is a single dispose site.
-    const sdkAdapter = ctx.sdkAdapter;
-    if (sdkAdapter && typeof sdkAdapter.dispose === 'function') {
-      try {
-        await sdkAdapter.dispose();
-      } catch (disposeErr) {
-        process.stderr.write(
-          `[ptah] sdk adapter dispose failed: ${
-            disposeErr instanceof Error
-              ? disposeErr.message
-              : String(disposeErr)
-          }\n`,
-        );
-      }
-    }
+    await disposeSdkAdapter(ctx);
     await runDispose(opts, ctx);
+  }
+}
+
+/**
+ * Dispose the SDK adapter recorded on the context, if any. Never throws.
+ *
+ * Idempotent by construction: it clears `ctx.sdkAdapter` on the way out, so the
+ * bootstrap-failure path and the `finally` can both call it and the adapter is
+ * disposed exactly once.
+ */
+async function disposeSdkAdapter(ctx: EngineContext): Promise<void> {
+  const sdkAdapter = ctx.sdkAdapter;
+  if (!sdkAdapter) return;
+  ctx.sdkAdapter = undefined;
+  if (typeof sdkAdapter.dispose !== 'function') return;
+  try {
+    await sdkAdapter.dispose();
+  } catch (disposeErr) {
+    process.stderr.write(
+      `[ptah] sdk adapter dispose failed: ${
+        disposeErr instanceof Error ? disposeErr.message : String(disposeErr)
+      }\n`,
+    );
   }
 }
 

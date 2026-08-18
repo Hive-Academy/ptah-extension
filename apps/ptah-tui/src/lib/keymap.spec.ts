@@ -1,7 +1,9 @@
 import {
   KEYMAP,
   MAX_FOOTER_HINTS,
+  findControlCodeAliases,
   findDuplicateIds,
+  findReservedChordConflicts,
   findKeymapConflicts,
   getFooterHints,
   getHelpGroups,
@@ -17,6 +19,64 @@ describe('keymap registry', () => {
 
   it('has no duplicate binding ids', () => {
     expect(findDuplicateIds()).toEqual([]);
+  });
+
+  it('claims no chord the terminal reports as a different key', () => {
+    // `agent.model` was Ctrl+M for as long as it existed. Ctrl+M is carriage
+    // return, so Ink delivered `{name:'return'}` and the model selector could
+    // never open — pressing the advertised chord sent the message instead.
+    expect(findControlCodeAliases()).toEqual([]);
+  });
+
+  it('claims no chord readline or the tty already owns', () => {
+    // Four bindings used to sit on line-editing defaults: Ctrl+E was
+    // end-of-line, Ctrl+K kill-to-end, Ctrl+P/Ctrl+N history. In a composer
+    // that is a text input, that is not a clash in the abstract — it is the
+    // user losing the standard way to edit what they are typing.
+    expect(findReservedChordConflicts()).toEqual([]);
+  });
+
+  it('detects a reserved chord when one is introduced', () => {
+    const reserved: KeyBinding[] = [
+      {
+        id: 'a',
+        keys: 'Ctrl+E',
+        hint: '^E',
+        description: 'a',
+        scope: 'global',
+        group: 'app',
+      },
+    ];
+    expect(findReservedChordConflicts(reserved)).toEqual([
+      { keys: 'Ctrl+E', id: 'a', ownedBy: 'readline: end-of-line' },
+    ]);
+    // Neither of the other two checks can see it: the chord is unique in the
+    // table and perfectly deliverable. It is simply already spoken for.
+    expect(findKeymapConflicts(reserved)).toEqual([]);
+    expect(findControlCodeAliases(reserved)).toEqual([]);
+  });
+
+  it('exempts Ctrl+C, which the app claims for quit on purpose', () => {
+    expect(findReservedChordConflicts()).toEqual([]);
+    expect(KEYMAP.find((b) => b.id === 'app.quit')?.keys).toBe('Ctrl+C twice');
+  });
+
+  it('detects an aliased chord when one is introduced', () => {
+    const aliased: KeyBinding[] = [
+      {
+        id: 'a',
+        keys: 'Ctrl+M',
+        hint: '^M',
+        description: 'a',
+        scope: 'global',
+        group: 'app',
+      },
+    ];
+    expect(findControlCodeAliases(aliased)).toEqual([
+      { keys: 'Ctrl+M', id: 'a', aliasOf: 'Enter (carriage return)' },
+    ]);
+    // The chord-string check cannot see it — that is why this one exists.
+    expect(findKeymapConflicts(aliased)).toEqual([]);
   });
 
   it('detects a conflict when one is introduced', () => {

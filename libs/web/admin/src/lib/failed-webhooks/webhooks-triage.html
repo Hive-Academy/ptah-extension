@@ -172,7 +172,9 @@
           aria-label="Rows per page"
         >
           @for (opt of pageSizeOptions; track opt) {
-            <option [value]="opt">{{ opt }}</option>
+            <option [value]="opt" [selected]="opt === pageSize()">
+              {{ opt }}
+            </option>
           }
         </select>
       </div>

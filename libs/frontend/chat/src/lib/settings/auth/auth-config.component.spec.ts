@@ -1,6 +1,10 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ClaudeRpcService, AuthStateService } from '@ptah-extension/core';
+import type {
+  AnthropicProviderInfo,
+  CustomProviderEntry,
+} from '@ptah-extension/shared';
 import {
   createMockRpcService,
   rpcSuccess,
@@ -8,10 +12,39 @@ import {
 } from '@ptah-extension/core/testing';
 import { AuthConfigComponent } from './auth-config.component';
 
-function makeAuthStateStub(
-  overrides: Partial<ReturnType<typeof buildAuthStateStub>> = {},
-): ReturnType<typeof buildAuthStateStub> {
-  return { ...buildAuthStateStub(), ...overrides };
+function makeProviderInfo(
+  overrides: Partial<AnthropicProviderInfo> = {},
+): AnthropicProviderInfo {
+  return {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    description: '',
+    helpUrl: '',
+    keyPrefix: '',
+    keyPlaceholder: '',
+    maskedKeyDisplay: '',
+    authType: 'apiKey',
+    ...overrides,
+  };
+}
+
+function makeCustomEntry(
+  overrides: Partial<CustomProviderEntry> = {},
+): CustomProviderEntry {
+  return {
+    id: 'my-gateway',
+    name: 'My Gateway',
+    baseUrl: 'https://gateway.example.com',
+    lane: 'openai',
+    authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+    keyPrefix: '',
+    helpUrl: '',
+    modelsEndpoint: null,
+    defaultTiers: null,
+    pricing: null,
+    createdAt: '2026-08-12T00:00:00.000Z',
+    ...overrides,
+  };
 }
 
 function buildAuthStateStub() {
@@ -23,7 +56,38 @@ function buildAuthStateStub() {
   const hasAppOverride = signal(false);
   const activeScope = signal<'global' | 'app' | 'workspace'>('global');
 
+  const availableProviders = signal<AnthropicProviderInfo[]>([]);
+  const customEntries = signal<readonly CustomProviderEntry[]>([]);
+  const customEntryError = signal('');
+  const customTestState = signal<{
+    id: string;
+    ok: boolean;
+    message: string;
+    latencyMs?: number;
+  } | null>(null);
+  const customTestingId = signal<string | null>(null);
+
   return {
+    customEntries: customEntries.asReadonly(),
+    customEntryError: customEntryError.asReadonly(),
+    customTestState: customTestState.asReadonly(),
+    customTestingId: customTestingId.asReadonly(),
+    customEntriesBusy: signal(false).asReadonly(),
+    loadCustomEntries: jest.fn(async () => undefined),
+    addCustomEntry: jest.fn(async () => ({ ok: true })),
+    updateCustomEntry: jest.fn(async () => ({ ok: true })),
+    removeCustomEntry: jest.fn(async () => true),
+    testCustomEntry: jest.fn(async () => ({ ok: true, message: 'ok' })),
+    clearCustomEntryError: jest.fn(),
+    clearCustomTestState: jest.fn(),
+    isCustomProvider: jest.fn((id: string) =>
+      customEntries().some((entry) => entry.id === id),
+    ),
+    customEntry: jest.fn(
+      (id: string) => customEntries().find((entry) => entry.id === id) ?? null,
+    ),
+    _customEntries: customEntries,
+    _availableProviders: availableProviders,
     activeScopePath: activeScopePath.asReadonly(),
     authScope: authScope.asReadonly(),
     providerScope: providerScope.asReadonly(),
@@ -35,7 +99,7 @@ function buildAuthStateStub() {
       'apiKey',
     ).asReadonly(),
     selectedProviderId: signal('openrouter').asReadonly(),
-    availableProviders: signal([]).asReadonly(),
+    availableProviders: availableProviders.asReadonly(),
     isLoading: signal(false).asReadonly(),
     isSaving: signal(false).asReadonly(),
     connectionStatus: signal<
@@ -240,6 +304,130 @@ describe('AuthConfigComponent', () => {
 
       expect(authState.clearWorkspaceOverride).toHaveBeenCalledTimes(1);
       expect(component.applyTo()).toBe('app');
+    });
+  });
+
+  describe('custom provider tiles (TASK_2026_236)', () => {
+    beforeEach(() => {
+      authState._availableProviders.set([
+        makeProviderInfo({ id: 'openrouter', name: 'OpenRouter' }),
+        makeProviderInfo({ id: 'moonshot', name: 'Moonshot' }),
+        makeProviderInfo({ id: 'my-gateway', name: 'My Gateway' }),
+      ]);
+      authState._customEntries.set([makeCustomEntry({ id: 'my-gateway' })]);
+    });
+
+    it('renders an edit affordance on the custom tile only', () => {
+      const { fixture } = mount(rpc, authState);
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="edit-custom-provider-my-gateway"]',
+        ),
+      ).toBeTruthy();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="edit-custom-provider-openrouter"]',
+        ),
+      ).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="edit-custom-provider-moonshot"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('renders exactly one edit affordance for one custom entry', () => {
+      const { fixture } = mount(rpc, authState);
+      const editButtons = fixture.nativeElement.querySelectorAll(
+        '[data-testid^="edit-custom-provider-"]',
+      );
+      expect(editButtons.length).toBe(1);
+    });
+
+    it('gives built-in tiles no edit affordance even when no custom entries exist', () => {
+      authState._customEntries.set([]);
+      const { fixture } = mount(rpc, authState);
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '[data-testid^="edit-custom-provider-"]',
+        ).length,
+      ).toBe(0);
+    });
+
+    it('offers an "Add custom provider" tile inside the provider grid', () => {
+      const { fixture } = mount(rpc, authState);
+      const addTile = fixture.nativeElement.querySelector(
+        '[data-testid="add-custom-provider"]',
+      );
+      expect(addTile).toBeTruthy();
+      expect(addTile.getAttribute('aria-label')).toBe('Add a custom provider');
+    });
+
+    it('opens the form in create mode from the add tile', () => {
+      const { component, fixture } = mount(rpc, authState);
+      fixture.nativeElement
+        .querySelector('[data-testid="add-custom-provider"]')
+        .click();
+      fixture.detectChanges();
+
+      expect(component.isCustomFormOpen()).toBe(true);
+      expect(component.customFormEntry()).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="custom-provider-form"]',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('opens the form in edit mode and selects the tile it edits', () => {
+      const { component, fixture } = mount(rpc, authState);
+      fixture.nativeElement
+        .querySelector('[data-testid="edit-custom-provider-my-gateway"]')
+        .click();
+      fixture.detectChanges();
+
+      expect(component.isCustomFormOpen()).toBe(true);
+      expect(component.customFormEntry()?.id).toBe('my-gateway');
+      expect(authState.setSelectedProviderId).toHaveBeenCalledWith(
+        'my-gateway',
+      );
+    });
+
+    it('ignores an edit request for an id that is not a stored custom entry', () => {
+      const { component } = mount(rpc, authState);
+      component.openEditCustomProvider('openrouter');
+      expect(component.isCustomFormOpen()).toBe(false);
+    });
+
+    it('selects the newly saved provider so the config below matches it', () => {
+      const { component } = mount(rpc, authState);
+      component.onCustomProviderSaved(makeCustomEntry({ id: 'fresh-gateway' }));
+
+      expect(authState.setAuthMethod).toHaveBeenCalledWith('thirdParty');
+      expect(authState.setSelectedProviderId).toHaveBeenCalledWith(
+        'fresh-gateway',
+      );
+      expect(authState.checkProviderKeyStatus).toHaveBeenCalledWith(
+        'fresh-gateway',
+      );
+    });
+
+    it('closes the form after a delete', () => {
+      const { component } = mount(rpc, authState);
+      component.openEditCustomProvider('my-gateway');
+      expect(component.isCustomFormOpen()).toBe(true);
+
+      component.onCustomProviderDeleted();
+
+      expect(component.isCustomFormOpen()).toBe(false);
+      expect(component.customFormEntry()).toBeNull();
+    });
+
+    it('loads the custom entry list on init', async () => {
+      const { component } = mount(rpc, authState);
+      await component.ngOnInit();
+      expect(authState.loadCustomEntries).toHaveBeenCalled();
     });
   });
 });

@@ -50,8 +50,14 @@
       "@ptah-extension/memory-contracts": [
         "../../libs/backend/memory-contracts/src/index.ts"
       ],
+      "@ptah-extension/plugin-marketplace": [
+        "../../libs/backend/plugin-marketplace/src/index.ts"
+      ],
       "@ptah-extension/skill-synthesis": [
         "../../libs/backend/skill-synthesis/src/index.ts"
+      ],
+      "@ptah-extension/harness-sync": [
+        "../../libs/backend/harness-sync/src/index.ts"
       ],
       "@ptah-extension/task-specs": [
         "../../libs/backend/task-specs/src/index.ts"

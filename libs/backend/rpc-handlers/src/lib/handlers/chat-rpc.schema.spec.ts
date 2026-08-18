@@ -18,6 +18,7 @@ import {
   ChatContinueParamsSchema,
   ChatResumeParamsSchema,
   ChatAbortParamsSchema,
+  ChatPendingQuestionsParamsSchema,
 } from './chat-rpc.schema';
 
 // UUID v4 fixtures — these PASS the shared `UUID_REGEX` (see
@@ -168,6 +169,33 @@ describe('chat-rpc.schema', () => {
 
     it('rejects when sessionId is missing', () => {
       expect(() => ChatAbortParamsSchema.parse({})).toThrow(ZodError);
+    });
+  });
+
+  describe('ChatPendingQuestionsParamsSchema', () => {
+    it('accepts a payload with a valid sessionId UUID', () => {
+      const parsed = ChatPendingQuestionsParamsSchema.parse({
+        sessionId: VALID_SESSION_UUID,
+      });
+      expect(parsed.sessionId).toBe(VALID_SESSION_UUID);
+    });
+
+    it('rejects a non-UUID sessionId', () => {
+      expect(() =>
+        ChatPendingQuestionsParamsSchema.parse({ sessionId: LEGACY_TAB_ID }),
+      ).toThrow(ZodError);
+    });
+
+    it('rejects when sessionId is missing', () => {
+      expect(() => ChatPendingQuestionsParamsSchema.parse({})).toThrow(
+        ZodError,
+      );
+    });
+
+    it('rejects when sessionId is the wrong type', () => {
+      expect(() =>
+        ChatPendingQuestionsParamsSchema.parse({ sessionId: 42 }),
+      ).toThrow(ZodError);
     });
   });
 });

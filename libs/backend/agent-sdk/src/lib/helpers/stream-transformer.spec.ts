@@ -26,6 +26,7 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv, ModelPricing, SessionId } from '@ptah-extension/shared';
+import { findModelPricing } from '@ptah-extension/shared';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
@@ -66,10 +67,19 @@ function makeMessageTransformer(): jest.Mocked<
 }
 
 function makeModelResolver(): jest.Mocked<
-  Pick<IModelResolver, 'resolveForPricing'>
+  Pick<
+    IModelResolver,
+    'resolveForPricing' | 'resolveForCost' | 'isSubscriptionCovered'
+  >
 > {
   return {
     resolveForPricing: jest.fn((m: string) => m || 'unknown'),
+    isSubscriptionCovered: jest.fn(() => false),
+    resolveForCost: jest.fn((m: string) => ({
+      modelId: m || 'unknown',
+      pricing: findModelPricing(m || 'unknown'),
+      subscriptionCovered: false,
+    })),
   };
 }
 

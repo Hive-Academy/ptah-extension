@@ -17,12 +17,11 @@ import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation
 import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { createApplicationMenu } from '../menu/application-menu';
-import { syncCliAgentsOnActivation } from './cli-agent-sync';
-import { syncCliSkillsOnActivation } from './cli-skill-sync';
 import {
-  activateSkillJunctions,
   initPluginLoader,
   mirrorUserLayer,
+  propagateHarness,
+  reconcileHarness,
   reconcileUserLayer,
   syncSkillRegistryCatalog,
 } from './plugin-activation';
@@ -60,7 +59,6 @@ export interface WireRuntimeResult {
    * for their null semantics. The extra fields below are host-owned.
    */
   refs: ThothRuntimeRefs & {
-    skillJunctionRef: { deactivateSync: () => void } | null;
     gitWatcher: {
       stop: () => void;
       switchWorkspace: (p: string) => void;
@@ -88,7 +86,6 @@ export async function wireRuntime(
   const { container, getMainWindow, startupWorkspaceRoot } = options;
 
   const refs: WireRuntimeResult['refs'] = {
-    skillJunctionRef: null,
     gitWatcher: null,
     sqliteConnection: null,
     memoryCurator: null,
@@ -161,9 +158,15 @@ export async function wireRuntime(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
     initPluginLoader(container, contentDownload.getPluginsPath());
-    const userLayerRoots = await mirrorUserLayer(container, workspaceRoot);
+    await mirrorUserLayer(container, workspaceRoot);
     const sqliteOpen =
       refs.sqliteConnection !== null && refs.sqliteConnection.isOpen;
+    // Pre-network, so a warm start detects divergence and reaps deleted
+    // upstreams with no download at all. The post-download callback below runs
+    // the same pass again against the refreshed sources; this one is what makes
+    // an offline or fully-cached start still notice a clone the user edited
+    // (defect 8). Both passes are a directory walk plus a content hash.
+    await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
     if (sqliteOpen) {
       void syncSkillRegistryCatalog(container);
     }
@@ -177,9 +180,25 @@ export async function wireRuntime(
           );
         }
         await mirrorUserLayer(container, workspaceRoot);
-        if (!result.fromCache) {
-          await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
-        }
+        // Unconditional: the `!result.fromCache` gate that used to sit here is
+        // defect 8. A cached download still needs the sweep, because what
+        // changed may be the CLONE (a user edit) or the upstream's absence,
+        // neither of which the download result knows anything about.
+        await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+        // Re-reconcile against the post-download user layer. The pass below
+        // this block runs before the network is done — so on a cold first run
+        // it sees an empty user layer and copies nothing, and on a content
+        // update it copies the previous revision. Both leave the workspace
+        // without skills until the NEXT app start (TASK_2026_278). Running it
+        // here for cached downloads too is deliberate: the branch that "already
+        // has everything" is exactly the one where this is a cheap hash-compare
+        // no-op, and skipping it would leave the fromCache path depending on
+        // the initial call having raced correctly.
+        await reconcileHarness(
+          container,
+          workspaceRoot,
+          'content-download-complete',
+        );
       })
       .catch((err: unknown) => {
         console.warn(
@@ -187,13 +206,12 @@ export async function wireRuntime(
           err instanceof Error ? err.message : String(err),
         );
       });
-    refs.skillJunctionRef = activateSkillJunctions(
-      container,
-      contentDownload.getPluginsPath(),
-      userLayerRoots
-        ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
-        : undefined,
-    );
+    // First pass, not awaiting the network, so a warm start has skills before
+    // the window even opens. `downloadPending` only changes how an empty user
+    // layer is REPORTED; the callback above corrects the content.
+    await reconcileHarness(container, workspaceRoot, 'activation', {
+      downloadPending: true,
+    });
     try {
       const providerModels = container.resolve(
         AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS,
@@ -338,6 +356,16 @@ export async function wireRuntime(
           err,
         );
       });
+      // The NEW workspace gets a FULL pass — user-layer refresh, then reconcile
+      // — because one of the user layer's sources is `{ws}/.claude/agents`, and
+      // that directory belongs to the workspace we just switched to. A bare
+      // reconcile here mirrored nothing and therefore propagated the PREVIOUS
+      // workspace's agents into the new one while reporting a clean pass.
+      // `bootHeavyServices` is one-shot, so this call is what covers the second
+      // and subsequent switches. The outgoing workspace is deliberately left
+      // untouched (E12): `SkillJunctionService` reaped it on every folder
+      // switch, which broke every other host still working in that directory.
+      void propagateHarness(container, active, 'workspace-folders-changed');
     }
   });
 
@@ -346,21 +374,12 @@ export async function wireRuntime(
   }
   try {
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
-    const currentWorkspaceRoot = startupWorkspaceRoot;
 
     await bringUpSubsystems({
       container,
       logger,
       onMcpPortChange: (port) => {
         setPtahMcpPort(port ?? 0);
-      },
-      syncCliSkills: () => {
-        syncCliSkillsOnActivation(container, currentWorkspaceRoot);
-      },
-      syncCliAgents: () => {
-        if (currentWorkspaceRoot) {
-          syncCliAgentsOnActivation(container, currentWorkspaceRoot);
-        }
       },
     });
     console.log('[Ptah Electron] Subsystems brought up');

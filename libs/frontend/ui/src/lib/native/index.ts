@@ -19,6 +19,8 @@
  *   NativeCardComponent,
  *   NativeTabGroupComponent,
  *   NativeDrawerComponent,
+ *   ProviderModelPickerComponent,
+ *   PROVIDER_MODELS_LOADER,
  * } from '@ptah-extension/ui';
  * ```
  */
@@ -31,3 +33,4 @@ export * from './form';
 export * from './card';
 export * from './tab-group';
 export * from './drawer';
+export * from './provider-model-picker';

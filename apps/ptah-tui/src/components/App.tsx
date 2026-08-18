@@ -18,6 +18,10 @@ import {
   useSessionContext,
 } from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';
+import {
+  EscapeClaimProvider,
+  useEscapeClaimed,
+} from '../context/EscapeClaimContext.js';
 import { FocusProvider } from '../hooks/use-focus-manager.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
 import { Layout } from './layout/Layout.js';
@@ -32,6 +36,7 @@ import { HelpOverlay } from './overlays/HelpOverlay.js';
 import { ModelSelector } from './overlays/ModelSelector.js';
 import { QUIT_CONFIRM_WINDOW_MS } from '../lib/keymap.js';
 import { applyEscape } from '../lib/escape-target.js';
+import { isMetaChord, noteEscape } from '../lib/meta-chord.js';
 import { ThothPanel } from './thoth/ThothPanel.js';
 import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
 import { useAgentConfig } from '../hooks/use-agent-config.js';
@@ -71,6 +76,7 @@ function AppShell({
   const { exit } = useApp();
   const { setActiveSession } = useSessionContext();
   const agentConfig = useAgentConfig();
+  const escapeClaimed = useEscapeClaimed();
 
   const [activeView, setActiveView] = useState<ActiveView>(() =>
     resolveInitialView(authReady),
@@ -190,38 +196,65 @@ function AppShell({
 
   useInput(
     (input, key) => {
-      // Ctrl+Q is gone: it is XON in every terminal's default flow control, so
-      // on the terminals that swallow it the advertised quit key simply did
-      // nothing. Quitting is Ctrl+C twice or `/quit`, both in the keymap.
-      if (key.ctrl && input === 'b') {
+      // Alt, not Ctrl. `Ctrl+<letter>` belongs to readline, and four of these
+      // used to sit on line-editing defaults: Ctrl+E (end-of-line), Ctrl+K
+      // (kill-to-end), Ctrl+N/Ctrl+P (history). In a composer that IS a text
+      // input, the documented way to jump to the end of what you were typing
+      // opened the sessions panel instead. `RESERVED_CHORDS` in `keymap.ts`
+      // now fails the spec on that class; the layout follows Gemini CLI's.
+      //
+      // Ink reports Alt+<key> as `{ meta: true, input: '<key>' }` and plain
+      // Escape as `{ escape: true }` with no meta, so the two never collide.
+      // Verified on a real pty, not assumed.
+      //
+      // Ctrl+Q is also gone: XON in every terminal's default flow control, so
+      // on the terminals that swallow it the advertised quit key did nothing.
+      // Quitting is Ctrl+C twice or `/quit`, both in the keymap.
+      //
+      // `meta`, not `key.meta`: Ink only joins the two bytes of an Alt chord
+      // into one keypress when they arrive within 20ms of each other, and when
+      // they do not, every binding below silently became a typed letter. This
+      // shell is the one place that sees both halves, so it is where the chord
+      // is put back together — see `lib/meta-chord.ts`. Recorded before the
+      // Escape handling further down, and outside its gates, because an Escape
+      // that some other surface has claimed is just as likely to be half of an
+      // Alt chord as one that reaches `applyEscape`.
+      if (key.escape && key.meta !== true) {
+        noteEscape();
+      }
+      const meta = isMetaChord(key, input);
+
+      if (meta && input === 'a') {
         setAgentPanelVisible((prev) => !prev);
       }
 
-      if (key.ctrl && input === 'e') {
+      if (meta && input === 'l') {
         setSidebarVisible((prev) => !prev);
       }
 
-      if (key.ctrl && input === 'n') {
+      if (meta && input === 'n') {
         setActiveSession(null);
       }
 
-      if (key.ctrl && input === 's') {
+      if (meta && input === 's') {
         setActiveView((prev) => (prev === 'settings' ? 'chat' : 'settings'));
       }
 
-      if (key.ctrl && input === 't') {
+      if (meta && input === 't') {
         setActiveView((prev) => (prev === 'thoth' ? 'chat' : 'thoth'));
       }
 
-      if (key.ctrl && input === 'r') {
+      if (meta && input === 'e') {
         void agentConfig.cycleEffort();
       }
 
-      if (key.ctrl && input === 'p') {
+      // Shift+Tab, matching Gemini's `app.cycleApprovalMode`. Ink reports it
+      // as `{ shift: true, tab: true }` with empty input.
+      if (key.shift && key.tab) {
         void agentConfig.cyclePermission();
       }
 
-      if (key.ctrl && input === 'k') {
+      if (meta && input === 'k') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
@@ -239,7 +272,9 @@ function AppShell({
         ]);
       }
 
-      if (key.ctrl && input === 'm') {
+      // Alt+M. Ctrl+M is carriage return (undeliverable) and Ctrl+O is
+      // VDISCARD, so neither could carry this. See `keymap.ts`.
+      if (meta && input === 'm') {
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
@@ -277,7 +312,11 @@ function AppShell({
         }
       }
 
-      if (key.escape && !isStreaming) {
+      // `escapeClaimed` covers the surfaces that bind Escape without being a
+      // modal or an overlay — the sidebar's delete confirm and the settings
+      // auth configurator. Both used to cancel *and* have this handler close
+      // the panel underneath them, two surfaces for one press.
+      if (key.escape && !isStreaming && !escapeClaimed) {
         // Exactly ONE surface per press, topmost first, so repeated presses
         // walk deterministically back to the chat. See `lib/escape-target.ts`.
         //
@@ -403,14 +442,20 @@ export function App({
             workspacePath={workspacePath}
           >
             <ModeProvider>
-              <AppShell
-                pushAdapter={pushAdapter}
-                fireAndForget={fireAndForget}
-                authReady={authReady}
-                authError={authError}
-                thothLifecycle={thothLifecycle}
-                onQuit={onQuit}
-              />
+              {/*
+                Above AppShell because AppShell is the *consumer*: it reads the
+                claim to decide whether an Escape press is its own.
+              */}
+              <EscapeClaimProvider>
+                <AppShell
+                  pushAdapter={pushAdapter}
+                  fireAndForget={fireAndForget}
+                  authReady={authReady}
+                  authError={authError}
+                  thothLifecycle={thothLifecycle}
+                  onQuit={onQuit}
+                />
+              </EscapeClaimProvider>
             </ModeProvider>
           </SessionProvider>
         </FocusProvider>

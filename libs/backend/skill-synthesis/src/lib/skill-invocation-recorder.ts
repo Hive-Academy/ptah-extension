@@ -45,6 +45,12 @@ export class SkillInvocationRecorder {
       this.store.recordSkillEvent({
         skillSlug: input.slug,
         sessionId: input.sessionId,
+        // Forwarded, not derived. `workspaceRoot` was declared on the input
+        // and then dropped here on every call from the day the type shipped —
+        // silent data loss that no test noticed because the store never asked
+        // for it (correction C10, migration 0037). Every phase-4 read that
+        // scopes by workspace depends on this one line.
+        workspaceRoot: input.workspaceRoot,
         contextId: input.contextId,
         source: input.source,
         succeeded: input.succeeded,

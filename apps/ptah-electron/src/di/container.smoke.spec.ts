@@ -22,8 +22,9 @@ import 'reflect-metadata';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -172,6 +173,38 @@ describe('Electron DI — shared RPC handler resolution', () => {
 });
 
 /**
+ * Both aliasing describes below call `registerPhase4Handlers` on its own, so
+ * they have to satisfy phase 4's phase-2 precondition themselves.
+ *
+ * `registerPhase4Handlers` calls `registerChatServices`, which THROWS at
+ * registration time — not at resolve time — unless
+ * `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION` is already bound
+ * (`rpc-handlers/src/lib/chat/di.ts`). `ChatSessionService` injects it and
+ * `output-styles` owns it, so the precondition is cross-lib and cross-phase.
+ *
+ * The shipped Electron boot satisfies it three phases earlier —
+ * `phase-2-libraries.ts:188` via `container.ts:43`, before
+ * `phase-4-handlers.ts:85` via `container.ts:45` — so the ordering fault was
+ * only ever in this harness. Calls the REAL `registerOutputStyleServices`
+ * rather than stubbing the token, so the harness keeps tracking phase 2 if that
+ * contract moves.
+ */
+function buildPhase4Container(): { c: DependencyContainer; logger: Logger } {
+  const c = rootContainer.createChildContainer();
+  const logger = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+  } as unknown as Logger;
+
+  registerOutputStyleServices(c, logger);
+
+  return { c, logger };
+}
+
+/**
  * Risk R2 — duplicate `PtyManagerService` instance.
  *
  * `PLATFORM_TOKENS.PTY_HOST` must be an ALIAS of
@@ -188,14 +221,7 @@ describe('Electron DI — shared RPC handler resolution', () => {
  */
 describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
   it('resolves PTY_HOST to the very same instance as PTY_MANAGER_SERVICE', () => {
-    const c = rootContainer.createChildContainer();
-    const logger = {
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-      trace: jest.fn(),
-    } as unknown as Parameters<typeof registerPhase4Handlers>[1];
+    const { c, logger } = buildPhase4Container();
 
     registerPhase4Handlers(c, logger);
 
@@ -225,14 +251,7 @@ describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
  */
 describe('Electron DI — app updater token aliasing (Risk R1)', () => {
   it('resolves APP_UPDATER to the very same instance as UPDATE_MANAGER_TOKEN', () => {
-    const c = rootContainer.createChildContainer();
-    const logger = {
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-      trace: jest.fn(),
-    };
+    const { c, logger } = buildPhase4Container();
     // UpdateManager is @injectable and injects these two; they are its
     // constructor dependencies, not part of the wiring under test.
     c.register(TOKENS.LOGGER, { useValue: logger });
@@ -240,10 +259,7 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
       useValue: { broadcastMessage: jest.fn(async () => undefined) },
     });
 
-    registerPhase4Handlers(
-      c,
-      logger as unknown as Parameters<typeof registerPhase4Handlers>[1],
-    );
+    registerPhase4Handlers(c, logger);
 
     const viaPort = c.resolve(PLATFORM_TOKENS.APP_UPDATER);
     const viaConcreteToken = c.resolve(UPDATE_MANAGER_TOKEN);

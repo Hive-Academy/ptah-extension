@@ -686,15 +686,18 @@ commas; everything else passes through as a string.
 
 Enumerate available models per CLI agent. With `--cli`, scopes the
 response to one allowlisted CLI; without, returns the full
-`AgentListCliModelsResult` shape (`codex`, `copilot` arrays).
+`AgentListCliModelsResult` shape — one array keyed by each system CLI
+adapter this build ships. Read the keys off the response or off
+`SYSTEM_CLI_TYPES`; adapters are added between releases, so a list written
+down here goes stale (it said `codex`, `copilot` while the shape carried six).
 
 | Flag    | Required | Default | Notes                           |
 | ------- | -------- | ------- | ------------------------------- |
 | `--cli` | no       | (all)   | Only `glm`; rejection → exit 3. |
 
 - **RPC**: `agent:listCliModels` (`agent-cli.ts:233-275`).
-- **Notification**: `agent_cli.models { codex, copilot }` (no
-  scope) or `agent_cli.models { cli, models }` (scoped to a CLI); the
+- **Notification**: `agent_cli.models { <one key per system CLI adapter> }`
+  (no scope) or `agent_cli.models { cli, models }` (scoped to a CLI); the
   scoped `glm` path returns an empty array today.
 - **Exit codes**: `0`; `3` (`AuthRequired`) on `--cli` value outside the
   allowlist; `5` on RPC failure.

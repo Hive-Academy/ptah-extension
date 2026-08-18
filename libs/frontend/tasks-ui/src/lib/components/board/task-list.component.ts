@@ -37,6 +37,7 @@ import {
   TASK_ESTIMATE_LABELS,
   TASK_STATUS_BADGE,
   TASK_STATUS_LABELS,
+  isStartableStatus,
   labelChipClass,
   taskEstimateBadge,
   taskTypeBadge,
@@ -65,8 +66,11 @@ interface TaskListGroup {
   readonly windowed: number;
   readonly countTitle: string;
   readonly collapsed: boolean;
-  /** Terminal statuses cannot be started — the row hides its launch controls. */
-  readonly terminal: boolean;
+  /**
+   * This group's status is startable (backlog / blocked) — the row shows its
+   * launch controls. Every other status hides them; see `isStartableStatus`.
+   */
+  readonly startable: boolean;
 }
 
 /**
@@ -575,7 +579,7 @@ const MAX_VISIBLE_LABELS = 1;
                            the cell is as tall as the row already is. -->
                       <td class="px-2 py-1.5 align-middle">
                         <div class="flex items-center justify-end gap-0.5">
-                          @if (!group.terminal) {
+                          @if (group.startable) {
                             <!-- btn-ghost with an explicit hover PAIR, not
                                  hover:btn-primary. A daisyui component class
                                  behind a variant brings its own background
@@ -620,7 +624,7 @@ const MAX_VISIBLE_LABELS = 1;
                               [attr.tabindex]="rovingTabIndex(task.id)"
                               class="dropdown-content menu menu-xs z-40 w-52 rounded-box border border-base-content/10 bg-base-200 p-1 shadow"
                             >
-                              @if (!group.terminal) {
+                              @if (group.startable) {
                                 <li>
                                   <button
                                     type="button"
@@ -803,7 +807,7 @@ export class TaskListComponent {
             ? `${matched} ${label} task(s)`
             : `${matched} of ${total} ${label} task(s) — ${hidden} hidden by the active filter`,
         collapsed: collapsed.has(column.status),
-        terminal: column.status === 'done' || column.status === 'cancelled',
+        startable: isStartableStatus(column.status),
       };
     });
   });

@@ -454,14 +454,37 @@ describe('TaskListComponent', () => {
     expect(started).toEqual([{ taskId: 'TASK_2026_200', isolate: true }]);
   });
 
-  it('offers no launch control on a terminal row', () => {
-    const view = render([column('done', [makeTask('TASK_2026_200', 'done')])]);
+  /**
+   * Both launch controls are gated on startability, matching the card
+   * (TASK_2026_252). `in_progress` and `in_review` are the statuses this
+   * widened from: they are not terminal, and the row used to offer Start on
+   * them anyway.
+   */
+  it.each(['in_progress', 'in_review', 'done', 'cancelled'] as const)(
+    'offers no launch control on a %s row',
+    (status) => {
+      const view = render([
+        column(status, [makeTask('TASK_2026_200', status)]),
+      ]);
+      expect(
+        view.host.querySelector('[data-testid="task-row-start"]'),
+      ).toBeNull();
+      expect(
+        view.host.querySelector('[data-testid="task-row-start-isolated"]'),
+      ).toBeNull();
+    },
+  );
+
+  it('offers both launch controls on a blocked row', () => {
+    const view = render([
+      column('blocked', [makeTask('TASK_2026_200', 'blocked')]),
+    ]);
     expect(
       view.host.querySelector('[data-testid="task-row-start"]'),
-    ).toBeNull();
+    ).not.toBeNull();
     expect(
       view.host.querySelector('[data-testid="task-row-start-isolated"]'),
-    ).toBeNull();
+    ).not.toBeNull();
   });
 
   // ---------------------------------------------------------------------------

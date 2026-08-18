@@ -634,6 +634,99 @@ describe('withEngine', () => {
       );
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
     });
+
+    // The bootstrap-FAILURE teardown, which is a different code path from the
+    // success one: it throws before reaching the `try/finally` that owns the
+    // single dispose site, so for a while it disposed the container and left
+    // the adapter alone. An adapter that returned `false` from `initialize()`
+    // has still constructed and may be holding a spawned CLI subprocess or an
+    // open socket, and a one-shot `ptah run` on an unconfigured machine has
+    // nobody left to close it.
+    it('calls SDK adapter dispose() when initialize() returns false', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = jest.fn(async () => false);
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toBeInstanceOf(SdkInitFailedError);
+
+      stderrSpy.mockRestore();
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls SDK adapter dispose() when initialize() throws', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = jest.fn(async () => {
+          throw new Error('boom');
+        });
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toBeInstanceOf(SdkInitFailedError);
+
+      stderrSpy.mockRestore();
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    // Belt and braces on the idempotence that makes the two dispose sites safe
+    // to coexist: `disposeSdkAdapter` clears `ctx.sdkAdapter`, so a host that
+    // reaches BOTH (late init, then a throw inside `fn`) still disposes once.
+    it('disposes the adapter exactly once when fn throws after late init', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', requireSdk: false, bootstrap: wrapped },
+          async (ctx) => {
+            await ctx.initializeSdk();
+            throw new Error('fn-broke');
+          },
+        ),
+      ).rejects.toThrow('fn-broke');
+
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
   });
 
   // -------------------------------------------------------------------------

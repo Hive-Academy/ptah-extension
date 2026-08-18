@@ -10,7 +10,29 @@
       "outputs": ["{workspaceRoot}/dist/apps/ptah-docs"],
       "options": {
         "cwd": "apps/ptah-docs",
-        "command": "astro build --outDir ../../dist/apps/ptah-docs"
+        "parallel": false,
+        "commands": [
+          "node scripts/check-screenshot-refs.mjs",
+          "astro build --outDir ../../dist/apps/ptah-docs"
+        ]
+      }
+    },
+    "check-screenshots": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-docs",
+        "command": "node scripts/check-screenshot-refs.mjs"
+      }
+    },
+    "screenshots": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build-dev", "projects": ["ptah-electron"] },
+        { "target": "copy-renderer-dev", "projects": ["ptah-electron"] }
+      ],
+      "options": {
+        "cwd": "apps/ptah-electron-e2e",
+        "command": "npx playwright test --config=docs-screenshots.config.ts"
       }
     },
     "dev": {
@@ -36,13 +58,6 @@
       "options": {
         "cwd": "apps/ptah-docs",
         "command": "astro preview --outDir ../../dist/apps/ptah-docs"
-      }
-    },
-    "check": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "apps/ptah-docs",
-        "command": "astro check"
       }
     }
   }

@@ -64,6 +64,7 @@
         "task-specs",
         "output-styles",
         "skill-synthesis",
+        "harness-sync",
         "thoth-runtime",
         "core",
         "ui",

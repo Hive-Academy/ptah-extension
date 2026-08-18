@@ -26,6 +26,7 @@ import {
   probeCliVersion,
   resolveCliPath,
   createBufferedEmitter,
+  withAsarUnpackedTwin,
 } from './cli-adapter.utils';
 
 /** Valid reasoning effort values for the Codex SDK. */
@@ -166,6 +167,14 @@ const CODEX_PLATFORM_PACKAGES: Record<string, string> = {
 };
 
 /**
+ * Vendor sub-directories that have carried the Codex native binary, newest
+ * layout first. `@openai/codex-<platform>` >= 0.147 ships it under
+ * `vendor/<triple>/bin/`; earlier releases used `vendor/<triple>/codex/`.
+ * The SDK's own resolver probes the same two, in the same order.
+ */
+const CODEX_VENDOR_DIRS = ['bin', 'codex'] as const;
+
+/**
  * Resolve the target triple for the current platform.
  * Returns the Rust-style target triple used by the Codex SDK binary packages.
  */
@@ -194,7 +203,9 @@ function getTargetTriple(): string | undefined {
  * On Windows, npm installs a `.cmd` wrapper that invokes a `.js` launcher —
  * passing either to the SDK as `codexPathOverride` produces `spawn EFTYPE`.
  * On every OS we must point to the actual native binary inside the
- * `@openai/codex-<platform>` package's `vendor/<triple>/codex/` directory.
+ * `@openai/codex-<platform>` package's vendor directory. Every candidate root
+ * below is probed for both vendor layouts — current `vendor/<triple>/bin/`
+ * first, legacy `vendor/<triple>/codex/` second (see CODEX_VENDOR_DIRS).
  *
  * Resolution order (first existing path wins):
  *   1. Electron packaged: `<resourcesPath>/app.asar.unpacked/node_modules/...`
@@ -226,34 +237,32 @@ function resolveCodexNativeBinary(
 
   const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
   const pkgDir = platformPkg.split('/')[1];
-  const relFromOpenAi = path.join(
-    pkgDir,
-    'vendor',
-    targetTriple,
-    'codex',
-    binaryName,
+  /** `vendor/<triple>/<layout>/<binary>`, relative to the platform package root. */
+  const relsFromPkg = CODEX_VENDOR_DIRS.map((vendorDir) =>
+    path.join('vendor', targetTriple, vendorDir, binaryName),
   );
-  const relFromNodeModules = path.join('@openai', relFromOpenAi);
-  const relFromBin = path.join('node_modules', relFromNodeModules);
+  const relsFromNodeModules = relsFromPkg.map((rel) =>
+    path.join('@openai', pkgDir, rel),
+  );
+  const relsFromBin = relsFromNodeModules.map((rel) =>
+    path.join('node_modules', rel),
+  );
 
   const candidates: string[] = [];
+  /** Probe `root` for every vendor layout, current layout first. */
+  const pushLayouts = (root: string, rels: readonly string[]): void => {
+    for (const rel of rels) candidates.push(path.join(root, rel));
+  };
+
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (resourcesPath) {
-    candidates.push(path.join(resourcesPath, 'app.asar.unpacked', relFromBin));
+    pushLayouts(path.join(resourcesPath, 'app.asar.unpacked'), relsFromBin);
   }
 
   try {
     const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
-    candidates.push(
-      path.join(
-        path.dirname(platformPkgJson),
-        'vendor',
-        targetTriple,
-        'codex',
-        binaryName,
-      ),
-    );
+    pushLayouts(path.dirname(platformPkgJson), relsFromPkg);
   } catch {
     // noop
   }
@@ -261,54 +270,38 @@ function resolveCodexNativeBinary(
   try {
     const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
     const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
-    const candidate = path.join(nodeModulesRoot, relFromNodeModules);
-    candidates.push(candidate);
-    candidates.push(
-      candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
-    );
+    for (const rel of relsFromNodeModules) {
+      candidates.push(...withAsarUnpackedTwin(path.join(nodeModulesRoot, rel)));
+    }
   } catch {
     // noop
   }
   if (process.platform === 'win32') {
     const appData = process.env['APPDATA'];
     if (appData) {
-      candidates.push(path.join(appData, 'npm', relFromBin));
+      pushLayouts(path.join(appData, 'npm'), relsFromBin);
     }
   } else {
-    candidates.push(path.join('/usr/local/lib', relFromBin));
-    candidates.push(path.join('/usr/lib', relFromBin));
+    pushLayouts('/usr/local/lib', relsFromBin);
+    pushLayouts('/usr/lib', relsFromBin);
     const home = process.env['HOME'];
     if (home) {
-      candidates.push(path.join(home, '.npm-global', 'lib', relFromBin));
-      candidates.push(
-        path.join(
-          home,
-          '.nvm',
-          'versions',
-          'node',
-          process.version,
-          'lib',
-          relFromBin,
-        ),
+      pushLayouts(path.join(home, '.npm-global', 'lib'), relsFromBin);
+      pushLayouts(
+        path.join(home, '.nvm', 'versions', 'node', process.version, 'lib'),
+        relsFromBin,
       );
     }
   }
   if (detectedCliPath) {
     const cliDir = path.dirname(detectedCliPath);
-    candidates.push(path.join(cliDir, relFromBin));
-    candidates.push(
-      path.join(
-        cliDir,
-        'node_modules',
-        '@openai',
-        'codex',
-        'node_modules',
-        relFromNodeModules,
-      ),
+    pushLayouts(cliDir, relsFromBin);
+    pushLayouts(
+      path.join(cliDir, 'node_modules', '@openai', 'codex', 'node_modules'),
+      relsFromNodeModules,
     );
     if (process.platform !== 'win32' && path.basename(cliDir) === 'bin') {
-      const prefix = path.dirname(cliDir);
-      candidates.push(path.join(prefix, 'lib', relFromBin));
+      pushLayouts(path.join(path.dirname(cliDir), 'lib'), relsFromBin);
     }
   }
 

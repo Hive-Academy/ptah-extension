@@ -17,6 +17,7 @@ import { VSCodeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
+  SkillLanesDto,
   SkillSynthesisCandidateSummary,
   SkillSynthesisSettingsDto,
   SkillSynthesisRunCuratorResult,
@@ -34,12 +35,16 @@ import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
 import { SkillSuggestionsViewComponent } from './suggestions/skill-suggestions-view.component';
 import { SkillStatsStripComponent } from './skill-stats-strip.component';
 import { SkillPipelineStatusComponent } from './skill-pipeline-status.component';
+import { SkillDigestPanelComponent } from './skill-digest-panel.component';
 import {
   SkillCandidatesTableComponent,
   type SkillCandidateAction,
 } from './skill-candidates-table.component';
 import { SkillInvocationsPanelComponent } from './skill-invocations-panel.component';
-import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
+import {
+  SkillSettingsPanelComponent,
+  type SkillLaneSelectionChange,
+} from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
@@ -69,6 +74,7 @@ interface ActionDialogState {
     SkillSuggestionsViewComponent,
     SkillStatsStripComponent,
     SkillPipelineStatusComponent,
+    SkillDigestPanelComponent,
     SkillCandidatesTableComponent,
     SkillInvocationsPanelComponent,
     SkillSettingsPanelComponent,
@@ -439,6 +445,13 @@ interface ActionDialogState {
                 [lastAnalyzeRunAt]="lastAnalyzeRunAt()"
                 [histogram]="eligibilityHistogram()"
                 [recentEvents]="recentEvents()"
+                [drainRuns]="drainRuns()"
+                [queueItems]="queueItems()"
+                [stageSpend]="stageSpend()"
+              />
+              <ptah-skill-digest-panel
+                [items]="digestItems()"
+                [loading]="digestLoading()"
               />
               <ptah-skill-diagnostics-accordion />
 
@@ -540,7 +553,10 @@ interface ActionDialogState {
                 [form]="settingsForm"
                 [loaded]="settingsLoaded()"
                 [saving]="loading()"
+                [lanes]="lanes()"
+                [isElectron]="isElectron()"
                 (save)="onSaveSettings()"
+                (laneChange)="onLaneChange($event)"
               />
               @if (toast(); as t) {
                 <div
@@ -698,6 +714,13 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly specsLoading = this.state.specsLoading;
   public readonly staleSpecCount = this.state.staleSpecCount;
 
+  public readonly drainRuns = this.state.drainRuns;
+  public readonly queueItems = this.state.queueItems;
+  public readonly stageSpend = this.state.stageSpend;
+
+  public readonly digestItems = this.state.digestItems;
+  public readonly digestLoading = this.state.digestLoading;
+
   public readonly candidateDetail = this.state.candidateDetail;
   public readonly candidateDetailLoading = this.state.candidateDetailLoading;
 
@@ -735,9 +758,39 @@ export class SkillSynthesisTabComponent implements OnInit {
     curatorIntervalHours: [24],
     suggestionMinClusterSize: [2],
     suggestionMaxCandidates: [200],
+    // Phase-0 drain / budget knobs.
+    //
+    // NESTED, not dotted. The wire keys really are dotted — `'drain.cronExpr'`
+    // IS the settings path `skillSynthesis.drain.cronExpr`, and renaming it
+    // would read and write a key no host stores — but Angular forbids `.` in a
+    // FormGroup key outright (`validateFormGroupControls`). Nesting keeps the
+    // correspondence mechanical: form path `drain.cronExpr` (which
+    // `form.get('drain.cronExpr')` resolves) maps to wire key
+    // `'drain.cronExpr'`. {@link SKILL_SETTINGS_MAPPERS} is the only place the
+    // two representations meet.
+    drain: this.fb.group({
+      cronExpr: ['*/15 * * * *'],
+      nightlyCronExpr: [''],
+      weeklyCronExpr: [''],
+      maxItemsPerRun: [4],
+      nightlyMaxItemsPerRun: [40],
+      weeklyMaxItemsPerRun: [400],
+      perWorkspaceBatch: [1],
+      foregroundBackoffMs: [300_000],
+      pauseOnBattery: [true],
+      maxAttempts: [3],
+      staleClaimTtlMs: [900_000],
+    }),
+    budget: this.fb.group({
+      maxTokensPerDay: [2_000_000],
+    }),
+    trayKeepalive: [false],
   });
 
   public readonly settingsLoaded = signal<boolean>(false);
+
+  /** All four lanes, `null` until `skillSynthesis:getLanes` resolves. */
+  public readonly lanes = signal<SkillLanesDto | null>(null);
 
   public readonly toast = signal<{
     message: string;
@@ -786,14 +839,26 @@ export class SkillSynthesisTabComponent implements OnInit {
   /** Free-text pattern for the reject-by-pattern maintenance control. */
   public patternInput = '';
 
+  /**
+   * First paint. Every call here is a READ.
+   *
+   * `refreshDigest` takes `allowRewrite: false` explicitly: the digest sweep can
+   * author its description rewrite on an LLM lane, that call sits under no
+   * budget (the `digest` queue stage has no handler and no producer, so the
+   * drain's daily token gate never sees one), and OPENING A TAB is not a request
+   * to spend. Only a control the user pressed may pass `true`.
+   */
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
     void this.state.refreshSuggestions();
     void this.state.loadStats();
     void this.diagnostics.refresh();
+    void this.state.refreshQueue();
+    void this.state.refreshDigest({ allowRewrite: false });
     void this.state.refreshSpecs();
     void this.loadSettings();
+    void this.loadLanes();
   }
 
   protected setSubView(view: SkillSubView): void {
@@ -824,9 +889,44 @@ export class SkillSynthesisTabComponent implements OnInit {
       await this.state.loadSettings();
       const s = this.state.settings();
       if (s) {
-        this.settingsForm.patchValue(s);
+        this.settingsForm.patchValue(skillSettingsDtoToForm(s));
       }
       this.settingsLoaded.set(true);
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  /**
+   * Read the lane configuration.
+   *
+   * A failure leaves `lanes()` null, which renders as "loading" rather than as
+   * four pickers showing invented defaults — an empty picker would look like a
+   * lane with no provider configured, which is a real and different state.
+   */
+  private async loadLanes(): Promise<void> {
+    try {
+      this.lanes.set(await this.rpc.getLanes());
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  /**
+   * Persist ONE lane's provider/model pair as a sparse patch.
+   *
+   * Only the edited lane and only its two edited fields are sent; the backend
+   * leaves every omitted field alone. Sending the whole `SkillLanesDto` back
+   * would rewrite all 32 keys on every keystroke.
+   */
+  protected async onLaneChange(
+    change: SkillLaneSelectionChange,
+  ): Promise<void> {
+    try {
+      const lanes = await this.rpc.setLanes({
+        [change.laneId]: { provider: change.provider, model: change.model },
+      });
+      this.lanes.set(lanes);
     } catch (err: unknown) {
       this.showToast(err instanceof Error ? err.message : String(err), 'error');
     }
@@ -835,7 +935,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   protected async onSaveSettings(): Promise<void> {
     if (!this.settingsForm.valid) return;
     try {
-      const sf = this.settingsForm.value as SkillSynthesisSettingsDto;
+      const sf = skillSettingsFormToDto(this.settingsForm.getRawValue());
       await this.rpc.updateSettings(sf);
       this.showToast('Settings saved.', 'success');
     } catch (err: unknown) {
@@ -960,6 +1060,11 @@ export class SkillSynthesisTabComponent implements OnInit {
         return 'too similar to an existing active skill';
       case 'below-judge-score':
         return 'quality judge score too low';
+      case 'judge-unscored':
+        // NOT a verdict. Falling through to the default here would render
+        // "not eligible", which reads as a judgement when the truth is that
+        // no judgement exists — the same fail-open the unscored badge removes.
+        return 'the quality judge could not score this candidate — try again once it can';
       case 'cap-rejected':
         return 'active-skill cap reached';
       case 'already-promoted':
@@ -1071,4 +1176,87 @@ export class SkillSynthesisTabComponent implements OnInit {
     this.patternInput = '';
     await this.state.loadStats();
   }
+}
+
+// ── Settings DTO ↔ form value ───────────────────────────────────────────────
+//
+// SKILL_SETTINGS_MAPPERS. The ONLY place the dotted wire keys and the nested
+// form paths meet.
+//
+// Every Phase-0 knob has two names for one setting: `'drain.cronExpr'` on the
+// wire (literally the settings path `skillSynthesis.drain.cronExpr`, built by
+// `skillSynthesis:getSettings` as `skillSynthesis.${schemaKey}`) and
+// `drain.cronExpr` as a nested form path, because Angular forbids `.` inside a
+// FormGroup key. Both directions are spelled out field by field rather than
+// derived, so a key that gains a third name shows up as a compile error here
+// instead of as a write silently handed to a store that does not own it.
+
+/** The nested shape the settings form holds for the Phase-0 knobs. */
+interface SkillSettingsFormValue {
+  readonly drain: {
+    readonly cronExpr: string;
+    readonly nightlyCronExpr: string;
+    readonly weeklyCronExpr: string;
+    readonly maxItemsPerRun: number;
+    readonly nightlyMaxItemsPerRun: number;
+    readonly weeklyMaxItemsPerRun: number;
+    readonly perWorkspaceBatch: number;
+    readonly foregroundBackoffMs: number;
+    readonly pauseOnBattery: boolean;
+    readonly maxAttempts: number;
+    readonly staleClaimTtlMs: number;
+  };
+  readonly budget: { readonly maxTokensPerDay: number };
+  readonly [flatKey: string]: unknown;
+}
+
+/** Wire DTO → the value `settingsForm.patchValue` expects. */
+export function skillSettingsDtoToForm(
+  dto: SkillSynthesisSettingsDto,
+): SkillSettingsFormValue {
+  return {
+    ...dto,
+    drain: {
+      cronExpr: dto['drain.cronExpr'],
+      nightlyCronExpr: dto['drain.nightlyCronExpr'],
+      weeklyCronExpr: dto['drain.weeklyCronExpr'],
+      maxItemsPerRun: dto['drain.maxItemsPerRun'],
+      nightlyMaxItemsPerRun: dto['drain.nightlyMaxItemsPerRun'],
+      weeklyMaxItemsPerRun: dto['drain.weeklyMaxItemsPerRun'],
+      perWorkspaceBatch: dto['drain.perWorkspaceBatch'],
+      foregroundBackoffMs: dto['drain.foregroundBackoffMs'],
+      pauseOnBattery: dto['drain.pauseOnBattery'],
+      maxAttempts: dto['drain.maxAttempts'],
+      staleClaimTtlMs: dto['drain.staleClaimTtlMs'],
+    },
+    budget: { maxTokensPerDay: dto['budget.maxTokensPerDay'] },
+  };
+}
+
+/**
+ * Form value → wire DTO.
+ *
+ * The nested `drain` / `budget` groups are DROPPED from the outgoing payload
+ * and replaced by their dotted equivalents — sending both would offer the
+ * backend two keys for one setting.
+ */
+export function skillSettingsFormToDto(
+  value: SkillSettingsFormValue,
+): SkillSynthesisSettingsDto {
+  const { drain, budget, ...flat } = value;
+  return {
+    ...(flat as unknown as SkillSynthesisSettingsDto),
+    'drain.cronExpr': drain.cronExpr,
+    'drain.nightlyCronExpr': drain.nightlyCronExpr,
+    'drain.weeklyCronExpr': drain.weeklyCronExpr,
+    'drain.maxItemsPerRun': drain.maxItemsPerRun,
+    'drain.nightlyMaxItemsPerRun': drain.nightlyMaxItemsPerRun,
+    'drain.weeklyMaxItemsPerRun': drain.weeklyMaxItemsPerRun,
+    'drain.perWorkspaceBatch': drain.perWorkspaceBatch,
+    'drain.foregroundBackoffMs': drain.foregroundBackoffMs,
+    'drain.pauseOnBattery': drain.pauseOnBattery,
+    'drain.maxAttempts': drain.maxAttempts,
+    'drain.staleClaimTtlMs': drain.staleClaimTtlMs,
+    'budget.maxTokensPerDay': budget.maxTokensPerDay,
+  };
 }

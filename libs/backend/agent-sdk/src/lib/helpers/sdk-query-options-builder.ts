@@ -64,8 +64,9 @@ import {
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   getModelContextWindow,
+  includesUserSettingSource,
 } from '@ptah-extension/shared';
 import {
   SdkModelService,
@@ -165,12 +166,18 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
     return 'openrouter';
   }
-  for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
-    const provider = getAnthropicProvider(id);
-    if (provider && provider.baseUrl) {
+  // Merged list — a session running through a user-defined entry must still
+  // resolve back to its provider id, or the model-identity system prompt is
+  // never injected for that session.
+  for (const provider of getAllAnthropicProviders()) {
+    if (!provider.baseUrl) continue;
+    try {
       if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-        return id;
+        return provider.id;
       }
+    } catch {
+      // A malformed base URL on one entry must not abort the whole scan.
+      continue;
     }
   }
 
@@ -374,12 +381,6 @@ export interface QueryOptionsInput {
    */
   enhancedPromptsContent?: string;
   /**
-   * Plugin paths to load for this session.
-   * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Only populated when plugins are configured.
-   */
-  pluginPaths?: string[];
-  /**
    * Initial SDK permission mode based on current autopilot config.
    * Mapped from the per-session level: 'auto-edit' → 'acceptEdits',
    * 'plan' → 'plan', and both 'ask' and 'yolo' → 'default'. YOLO uses
@@ -575,7 +576,6 @@ export class SdkQueryOptionsBuilder {
       onWorktreeRemoved,
       mcpServerRunning = true,
       enhancedPromptsContent,
-      pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
       forkSession,
@@ -666,6 +666,7 @@ export class SdkQueryOptionsBuilder {
         undefined,
         routingTabId ?? undefined,
         permissionLevelResolver,
+        sessionConfig?.tabId,
       );
     const hooks = this.createHooks(
       cwd,
@@ -688,7 +689,6 @@ export class SdkQueryOptionsBuilder {
       compactionThreshold: compactionConfig.contextTokenThreshold,
       mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
-      pluginCount: pluginPaths?.length ?? 0,
       mcpOverrideKeys: mcpServersOverride
         ? Object.keys(mcpServersOverride)
         : [],
@@ -733,11 +733,15 @@ export class SdkQueryOptionsBuilder {
         // subagent handling), but plumbed so a caller can disable it — see the
         // QueryOptionsInput.forwardSubagentText killswitch note.
         forwardSubagentText: forwardSubagentText ?? true,
-        settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
-          effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+        // `includesUserSettingSource` (shared) is the ONE definition of this
+        // predicate. `output-styles` calls the same function to decide whether
+        // a user-tier style file will be visible to the binary — the two must
+        // agree, and now they cannot disagree.
+        settingSources: includesUserSettingSource(
+          effectiveAuthEnv.ANTHROPIC_BASE_URL,
         )
-          ? ['project', 'local']
-          : ['user', 'project', 'local'],
+          ? ['user', 'project', 'local']
+          : ['project', 'local'],
         env: {
           ...process.env,
           ...buildTierEnvDefaults(effectiveAuthEnv),

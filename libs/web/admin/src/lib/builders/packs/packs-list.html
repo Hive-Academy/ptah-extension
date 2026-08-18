@@ -47,9 +47,11 @@
         [value]="cohortFilter()"
         (change)="onCohortFilterChange($event)"
       >
-        <option value="">All cohorts</option>
+        <option value="" [selected]="cohortFilter() === ''">All cohorts</option>
         @for (c of cohortOptions(); track c.key) {
-          <option [value]="c.key">{{ c.name }}</option>
+          <option [value]="c.key" [selected]="c.key === cohortFilter()">
+            {{ c.name }}
+          </option>
         }
       </select>
     </label>

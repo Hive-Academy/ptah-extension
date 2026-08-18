@@ -438,7 +438,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       images?: { data: string; mediaType: string }[];
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
-      pluginPaths?: string[];
       permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
@@ -453,7 +452,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       tabId,
       mcpServerRunning = true,
       enhancedPromptsContent,
-      pluginPaths,
       permissionLevel,
       includePartialMessages,
       mcpServersOverride,
@@ -490,7 +488,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         permissionLevel,
         pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
@@ -537,7 +534,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     config?: AISessionConfig & {
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
-      pluginPaths?: string[];
       tabId?: string;
       permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
@@ -568,7 +564,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
-    const pluginPaths = config?.pluginPaths;
     const permissionLevel = config?.permissionLevel;
     const includePartialMessages = config?.includePartialMessages;
     const providerProfile = config?.providerProfile;
@@ -594,7 +589,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         permissionLevel,
         pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
@@ -708,7 +702,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionConfig: config.sessionConfig,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
-        pluginPaths: config.pluginPaths,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),

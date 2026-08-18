@@ -23,7 +23,7 @@ ptah-extension/
 │   └── *-e2e/                         # ptah-electron | ptah-extension-vscode |
 │                                      # ptah-landing-page | ptah-license-server
 │
-├── libs/backend/                      # 27 runtime-agnostic libs (DI: tsyringe)
+├── libs/backend/                      # 29 runtime-agnostic libs (DI: tsyringe)
 │   ├── platform-core/                 # ★ Port interfaces + 22 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
@@ -32,11 +32,13 @@ ptah-extension/
 │   ├── cli-agent-runtime/             # Rival-CLI orchestration + cross-CLI MCP install
 │   ├── cli-engine/                    # In-process backend host for ptah-cli / ptah-tui
 │   ├── agent-generation/              # Setup-wizard generation pipeline
+│   ├── harness-sync/                  # ★ One reconciler: user layer → every AI tool's harness dirs
 │   ├── workspace-intelligence/        # AST + symbol indexer + analysis
 │   ├── rpc-handlers/                  # 30+ handlers (dual-registration rule)
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
 │   ├── vscode-lm-tools/               # Code-exec MCP + browser/web capabilities
 │   ├── settings-core/                 # ~/.ptah/settings.json store + secret envelopes
+│   ├── plugin-marketplace/            # External marketplaces + two-call consent install
 │   ├── output-styles/                 # Output-style discovery + activation decision
 │   ├── persistence-sqlite/            # ~/.ptah/ptah.db + migrations + IEmbedder
 │   ├── memory-contracts/              # Zero-dep memory port interfaces
@@ -137,6 +139,7 @@ nx graph                             # Visualize dep graph
 - **Angular**: signals + `inject()`, `ChangeDetectionStrategy.OnPush` mandatory, no `[innerHTML]` on AI markdown (route through `libs/frontend/markdown`).
 - **NestJS**: read env via `ConfigService`, never `process.env[...]` directly. Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`. Never expose raw `error.message` to clients.
 - **RPC dual-registration**: new RPC namespace requires BOTH `libs/shared/.../rpc.types.ts` (compile-time) AND `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46` `ALLOWED_METHOD_PREFIXES` (runtime guard).
+- **File size**: soft ceiling 700 lines (`eslint.config.mjs` `max-lines`, warn-level — TASK_2026_268); past 1000 means a deliberate look, not an alarm. Line count alone is not the signal — a contract barrel or exhaustive type union can be long and correct. When a split is warranted, use the **facade rule**: the public class keeps its name, DI token and method signatures; the extracted concern becomes a collaborator injected into it (worked example: `SkillSynthesisService` / `StageHandlersService`, TASK_2026_256). Guardrails against fragment sprawl: the extracted piece must pass a nameability test (no `helpers`/`utils`/`common`/`misc`); no file under ~150 lines created just to satisfy the cap; a split pushing a constructor past ~8 injected deps cut in the wrong place; prefer 2–3 collaborators over 6 fragments.
 - **Windows paths**: always use complete absolute Windows paths for Read/Write — there's a Claude Code bug with relative paths in this workspace.
 
 ## Task Specs (`.ptah/specs/`)
@@ -188,11 +191,13 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [cli-agent-runtime](./libs/backend/cli-agent-runtime/CLAUDE.md) — Rival-CLI orchestration + MCP install
 - [cli-engine](./libs/backend/cli-engine/CLAUDE.md) — In-process backend host for ptah-cli / ptah-tui
 - [agent-generation](./libs/backend/agent-generation/CLAUDE.md) — Generation pipeline
+- [harness-sync](./libs/backend/harness-sync/CLAUDE.md) — ★ The one harness reconciler: `~/.ptah/user` + MCP intents → Claude, Codex, Copilot, Cursor, Antigravity and VS Code, as manifest-owned copies. No junctions, no teardown on deactivate
 - [workspace-intelligence](./libs/backend/workspace-intelligence/CLAUDE.md) — AST + symbols
 - [rpc-handlers](./libs/backend/rpc-handlers/CLAUDE.md) — RPC handler classes
 - [vscode-core](./libs/backend/vscode-core/CLAUDE.md) — Logger, License, RPC infra
 - [vscode-lm-tools](./libs/backend/vscode-lm-tools/CLAUDE.md) — Code-exec MCP + browser
 - settings-core — `~/.ptah/settings.json` store + secret envelopes (no CLAUDE.md yet)
+- plugin-marketplace — External `.claude-plugin/marketplace.json` repos + the two-call consent install. Nothing reaches disk without a token bound to the resolved version + file hashes; `PluginLoaderService` resolves an external id only if the consent store has a record (never `fs.existsSync`) (no CLAUDE.md yet)
 - [output-styles](./libs/backend/output-styles/CLAUDE.md) — Output-style discovery + activation
 - [persistence-sqlite](./libs/backend/persistence-sqlite/CLAUDE.md) — SQLite + migrations
 - [memory-contracts](./libs/backend/memory-contracts/CLAUDE.md) — Memory port interfaces

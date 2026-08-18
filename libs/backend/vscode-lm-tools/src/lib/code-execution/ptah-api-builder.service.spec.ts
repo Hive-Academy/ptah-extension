@@ -333,6 +333,7 @@ function buildTestBuilder(
     sessionManager as never, // sdkSessionLifecycleManager
     undefined, // enhancedPromptsService
     undefined, // pluginLoader — see file header re: `harness` exclusion
+    undefined, // harnessReconciler
     undefined, // ptahCliRegistry
     undefined, // memorySearch
     undefined, // memoryStore

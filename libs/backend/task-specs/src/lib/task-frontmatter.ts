@@ -24,6 +24,7 @@ import {
   type TaskType,
   type TaskValidationIssue,
 } from '@ptah-extension/shared';
+import { toTaskStatus, toTaskType } from './task-enum-narrowing';
 
 /**
  * Canonical `task.md` frontmatter shape (documentation + writer input type).
@@ -112,7 +113,6 @@ function stripLeadingBom(value: string): string {
   return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
 }
 
-const STATUS_SCHEMA = z.enum(TASK_STATUSES);
 const TITLE_SCHEMA = z.string().min(1);
 
 /** Coerce a frontmatter date value into an ISO string, or null if unusable. */
@@ -266,15 +266,16 @@ export function parseTaskFile(
     };
   }
 
-  // ESSENTIAL: status.
-  const statusResult = STATUS_SCHEMA.safeParse(data['status']);
-  if (!statusResult.success) {
+  // ESSENTIAL: status. Narrowed case-insensitively (see
+  // `task-enum-narrowing.ts`) — a declared `Backlog` is a backlog task, not a
+  // folder that vanishes from the board.
+  const status: TaskStatus | undefined = toTaskStatus(data['status']);
+  if (status === undefined) {
     return {
       kind: 'excluded',
       excluded: { folderName, reason: 'invalid_status' },
     };
   }
-  const status: TaskStatus = statusResult.data;
 
   // ESSENTIAL: title.
   const titleResult = TITLE_SCHEMA.safeParse(data['title']);
@@ -314,12 +315,14 @@ export function parseTaskFile(
   }
 
   // type: null when absent or invalid; warn only when a bad value is present.
+  // Narrowed case-insensitively (see `task-enum-narrowing.ts`) — the same
+  // narrowing the doctor uses, so the two cannot disagree about one file again.
   let type: TaskType | null = null;
   const rawType = data['type'];
   if (rawType !== undefined && rawType !== null) {
-    const typeResult = z.enum(TASK_TYPES).safeParse(rawType);
-    if (typeResult.success) {
-      type = typeResult.data;
+    const narrowedType = toTaskType(rawType);
+    if (narrowedType !== undefined) {
+      type = narrowedType;
     } else {
       issues.push({
         field: 'type',

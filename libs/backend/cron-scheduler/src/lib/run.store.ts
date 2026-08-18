@@ -13,6 +13,7 @@
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import {
+  isUniqueConstraintError,
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
@@ -39,17 +40,6 @@ export class SlotAlreadyClaimedError extends Error {
     );
     this.name = 'SlotAlreadyClaimedError';
   }
-}
-
-/**
- * better-sqlite3 surfaces UNIQUE constraint violations with
- * `err.code === 'SQLITE_CONSTRAINT_UNIQUE'`. We deliberately catch *only*
- * that code — every other error must propagate.
- */
-export function isUniqueConstraintError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as { code?: unknown }).code;
-  return code === 'SQLITE_CONSTRAINT_UNIQUE';
 }
 
 export interface IRunStore {

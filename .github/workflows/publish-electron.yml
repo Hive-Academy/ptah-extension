@@ -223,6 +223,12 @@ jobs:
       - name: Run persistence-sqlite native tests (real better-sqlite3 + sqlite-vec)
         run: npx nx test persistence-sqlite
 
+      # TASK_2026_240. The Electron app resolves ContentDownloadService the same
+      # way the extension does, so it prunes ~/.ptah/plugins/ against this
+      # manifest — a stale one deletes plugin files the user already has.
+      - name: Content manifest is current
+        run: npm run manifest:check
+
       - name: Build Electron app
         run: npx nx build ptah-electron
 

@@ -89,6 +89,29 @@ export const TasksGetArtifactParamsSchema = z.object({
 });
 
 /**
+ * `round` is a BOUNDED INTEGER, and there is no filename in this shape at all.
+ *
+ * `round-N-judge.md` cannot be a `DocFile` — `N` is a parameter, so the set is
+ * open — which removes the enum boundary `tasks:getArtifact` relies on. It is
+ * replaced by a stronger one rather than a weaker one: the caller sends a
+ * number, the server derives the name via `roundJudgeFile()`, and a number
+ * cannot express a separator or a `..`. Traversal is structurally impossible
+ * here, not screened out.
+ *
+ * The ceiling is 4, deliberately NOT the panel's cap of 2. The Conductor may
+ * run a third round when the user explicitly authorises one
+ * (`crucible.md:153`), and a fourth is a skill violation that must surface in
+ * the UI as a visible anomaly rather than as an RPC error the user never sees.
+ * `int()` refuses `1.5`; `min(1)` refuses `0` and negatives — both would
+ * otherwise compose into a filename for a round that cannot exist.
+ */
+export const TasksGetRoundJudgeParamsSchema = z.object({
+  workspaceRoot,
+  taskId: taskIdRef,
+  round: z.number().int().min(1).max(4),
+});
+
+/**
  * Sweep bounds, enforced here rather than trusted from the caller.
  *
  * `min(1)` refuses zero outright: "delete everything finished, including what
@@ -311,6 +334,9 @@ export type TasksListParamsParsed = z.infer<typeof TasksListParamsSchema>;
 export type TasksGetParamsParsed = z.infer<typeof TasksGetParamsSchema>;
 export type TasksGetArtifactParamsParsed = z.infer<
   typeof TasksGetArtifactParamsSchema
+>;
+export type TasksGetRoundJudgeParamsParsed = z.infer<
+  typeof TasksGetRoundJudgeParamsSchema
 >;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;
 export type TasksSweepParamsParsed = z.infer<typeof TasksSweepParamsSchema>;

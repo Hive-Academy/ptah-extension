@@ -134,16 +134,51 @@
           <p class="text-xs text-base-content-muted mb-2">
             Configure your authentication method to connect with AI providers.
           </p>
-          <div
-            class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-3"
-          >
-            <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
-            <p class="text-[10px] text-base-content-muted leading-relaxed">
-              <strong class="text-base-content-muted">Runs 100% locally.</strong>
-              Your credentials go directly from this machine to the AI provider
-              — no proxies, no Ptah servers involved.
-            </p>
-          </div>
+          <!--
+            Two mutually exclusive security claims.
+
+            The built-in line is unchanged and stays exactly true for the shipped
+            providers: every one of those base URLs is in Ptah's own source, so
+            "no proxies, no Ptah servers" is an auditable statement.
+
+            A user-defined endpoint cannot borrow that claim. Ptah neither
+            operates nor vets the host, and an OpenAI-lane entry is additionally
+            served through a translation proxy running on this machine — so the
+            custom line names the host instead of making a promise about it.
+          -->
+          @if (authState.isCustomProviderSelected()) {
+            <div
+              class="flex items-start gap-1.5 p-2 rounded bg-warning/10 border border-warning/20 mb-3"
+              data-testid="custom-provider-security-copy"
+            >
+              <span class="text-warning text-[10px] shrink-0 mt-0.5">●</span>
+              <p class="text-[10px] text-base-content-muted leading-relaxed">
+                <strong class="text-base-content-muted"
+                  >Your own endpoint.</strong
+                >
+                Credentials and prompts go from this machine to
+                <code class="text-[10px] font-semibold">{{
+                  authState.selectedCustomHost()
+                }}</code>
+                — a host you added. Ptah does not operate, vet, or monitor it,
+                and no Ptah server is involved either way.
+              </p>
+            </div>
+          } @else {
+            <div
+              class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-3"
+              data-testid="builtin-provider-security-copy"
+            >
+              <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
+              <p class="text-[10px] text-base-content-muted leading-relaxed">
+                <strong class="text-base-content-muted"
+                  >Runs 100% locally.</strong
+                >
+                Your credentials go directly from this machine to the AI
+                provider — no proxies, no Ptah servers involved.
+              </p>
+            </div>
+          }
           <ptah-auth-config />
 
           <!-- Provider Model Mapping - shown when provider auth + key configured -->

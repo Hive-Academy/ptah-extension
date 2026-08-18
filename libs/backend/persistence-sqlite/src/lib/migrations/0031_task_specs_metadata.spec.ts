@@ -63,7 +63,10 @@ describe('migration 0031_task_specs_metadata — registry entry', () => {
   it('is registered exactly once and follows 30 with no gap', () => {
     expect(MIGRATIONS.filter((m) => m.version === 31)).toHaveLength(1);
     expect(MIGRATIONS.map((m) => m.version)).toContain(30);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(31);
+    // 0031 is no longer the tail — TASK_2026_180 appended 0032. The invariant
+    // that survives is "31 exists exactly once and 30 precedes it"; the highest
+    // version is asserted by whichever migration is currently last.
+    expect(MIGRATIONS.map((m) => m.version)).toContain(32);
   });
 
   it('carries STATIC SQL and does not repurpose the reserved `claim` column', () => {

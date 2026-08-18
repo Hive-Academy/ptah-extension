@@ -13,6 +13,10 @@
  * Every stream-json fixture below is copied from output captured by running the
  * real binary (agy 1.1.11) — see `.ptah/specs/TASK_2026_199/stream-json-capture.md`.
  */
+// The adapter reaches the MCP facet through the `harness-sync` barrel, which
+// pulls in `vscode-core`'s tsyringe decorators. Same reason the other DI-touching
+// specs in this lib import it first.
+import 'reflect-metadata';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 

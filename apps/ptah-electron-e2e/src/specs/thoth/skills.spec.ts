@@ -54,6 +54,64 @@ const SETTINGS_FIXTURE = {
   curatorIntervalHours: 24,
 };
 
+/**
+ * All four lanes, matching `SkillLanesDto` (`libs/shared/.../rpc-curator-diagnostics.types.ts`).
+ * `synthesis` is pinned to a real registry provider + model — the exact shape
+ * that regressed under commit 9e42f9c81 (a lone `[value]` on the `<select>`
+ * without `[selected]` on the `@for` options silently renders a pinned lane
+ * as "Active provider (default)"). The other three stay on the `''`/`''`
+ * inherit sentinel, which is the documented default for every lane
+ * (tasks.md B1.8.1: "Every lane default is `provider: ''`, `model: ''`").
+ */
+const LANES_FIXTURE = {
+  archaeologist: {
+    id: 'archaeologist',
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'required',
+    timeoutMs: 60_000,
+    maxInputChars: 20_000,
+    maxPasses: 3,
+  },
+  synthesis: {
+    id: 'synthesis',
+    provider: 'moonshot',
+    model: 'kimi-k2',
+    defaultTier: 'sonnet',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 60_000,
+    maxInputChars: 20_000,
+    maxPasses: 1,
+  },
+  judge: {
+    id: 'judge',
+    provider: '',
+    model: '',
+    defaultTier: 'sonnet',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 30_000,
+    maxInputChars: 10_000,
+    maxPasses: 1,
+  },
+  replay: {
+    id: 'replay',
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 30_000,
+    maxInputChars: 10_000,
+    maxPasses: 1,
+  },
+};
+
+const LANE_IDS = ['archaeologist', 'synthesis', 'judge', 'replay'] as const;
+
 test.describe('Thoth — Skills tab', () => {
   test('candidate table + stats render', async ({ ui }) => {
     await ui.mockRpc({
@@ -189,5 +247,86 @@ test.describe('Thoth — Skills tab', () => {
     await expect(
       page.locator('[data-testid="skills-candidate-status"]'),
     ).toHaveText('promoted');
+  });
+
+  /**
+   * P1-9 part (c) — Electron half. Proves the shared
+   * `ProviderModelPickerComponent` (extracted from the deleted
+   * `curator-model-picker.component.ts` fork into `libs/frontend/ui`,
+   * batches B1.9/B1.10) mounts four times inside
+   * `SkillSettingsPanelComponent`'s Lanes section, enumerates the provider
+   * registry, and — the exact defect commit 9e42f9c81 fixed — renders a
+   * pinned lane's provider AND model as pinned rather than falling back to
+   * "Active provider (default)".
+   */
+  test('Settings lane pickers render, enumerate providers, and a pinned lane renders pinned', async ({
+    ui,
+  }) => {
+    await ui.mockRpc({
+      'skillSynthesis:listCandidates': { candidates: [] },
+      'skillSynthesis:stats': {
+        totalCandidates: 0,
+        totalPromoted: 0,
+        totalRejected: 0,
+        totalInvocations: 0,
+        activeSkills: 0,
+      },
+      'skillSynthesis:getSettings': { settings: SETTINGS_FIXTURE },
+      'skillSynthesis:getLanes': { lanes: LANES_FIXTURE },
+      'provider:listModels': `(params) => {
+        if (params && params.providerId === 'moonshot') {
+          return {
+            models: [{
+              id: 'kimi-k2', name: 'Kimi K2', description: 'Moonshot Kimi K2',
+              contextLength: 200000, supportsToolUse: true
+            }],
+            totalCount: 1, isStatic: true
+          };
+        }
+        return { models: [], totalCount: 0, isStatic: true };
+      }`,
+    });
+
+    await ui.openTab('skills');
+    const page = ui.page;
+
+    await page.locator('[data-testid="skills-subview-settings"]').click();
+
+    const pickers = page.locator('[data-testid="skills-lane-picker"]');
+    await expect(pickers).toHaveCount(4);
+
+    for (const laneId of LANE_IDS) {
+      const picker = page.locator(
+        `[data-testid="skills-lane-picker"][data-lane="${laneId}"]`,
+      );
+      await expect(picker).toHaveCount(1);
+      // Enumeration: the registry's provider list is offered on every lane,
+      // not just the pinned one.
+      await expect(
+        picker
+          .locator('[data-testid="provider-model-picker-provider"]')
+          .locator('option[value="moonshot"]'),
+      ).toHaveText('Moonshot (Kimi)');
+    }
+
+    // The regressed case: a pinned lane must show ITS provider/model, not the
+    // inherit sentinel.
+    const synthesisPicker = page.locator(
+      '[data-testid="skills-lane-picker"][data-lane="synthesis"]',
+    );
+    await expect(
+      synthesisPicker.locator('[data-testid="provider-model-picker-provider"]'),
+    ).toHaveValue('moonshot');
+    await expect(
+      synthesisPicker.locator('[data-testid="provider-model-picker-model"]'),
+    ).toHaveValue('kimi-k2');
+
+    // An untouched lane still shows the documented default: inherit.
+    const judgePicker = page.locator(
+      '[data-testid="skills-lane-picker"][data-lane="judge"]',
+    );
+    await expect(
+      judgePicker.locator('[data-testid="provider-model-picker-provider"]'),
+    ).toHaveValue('');
   });
 });

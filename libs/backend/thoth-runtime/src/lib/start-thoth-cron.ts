@@ -11,13 +11,135 @@ import {
   type CronScheduler,
   type IHandlerRegistry,
   type IJobStore,
+  type IPowerMonitor,
 } from '@ptah-extension/cron-scheduler';
+import {
+  SKILL_SYNTHESIS_TOKENS,
+  type DrainTier,
+  type SkillDrainService,
+} from '@ptah-extension/skill-synthesis';
 
 import {
   DEFAULT_THOTH_LOG_PREFIX,
   type StartThothCronOptions,
   type ThothRuntimeRefs,
 } from './types';
+
+/**
+ * The three skill-synthesis drain tiers, as cron jobs.
+ *
+ * This block is the SEAM. `libs/backend/skill-synthesis` must never import
+ * `cron-scheduler` (global invariant 8) — exactly as it already is for the
+ * daily backup, `thoth-runtime` is the only place the two meet. That is why
+ * `SkillDrainService.drain()` takes `onBattery` as a parameter instead of
+ * injecting `IPowerMonitor`: this file reads the monitor and hands the boolean
+ * across.
+ *
+ * Each tier is a superset of the cheaper one (`DRAIN_TIER_STAGES`), so an item
+ * the frequent tick may not run is picked up nightly, and anything nightly may
+ * not run is picked up weekly. Nothing is stranded by tier alone.
+ *
+ * The cron expressions are user-overridable settings, not constants; the
+ * fallbacks below mirror `FILE_BASED_SETTINGS_DEFAULTS` in `platform-core`
+ * because `getConfiguration` needs a value at the call site anyway.
+ */
+const SKILL_DRAIN_JOBS: ReadonlyArray<{
+  readonly tier: DrainTier;
+  readonly jobId: string;
+  readonly name: string;
+  readonly handlerName: string;
+  readonly cronExprKey: string;
+  readonly defaultCronExpr: string;
+}> = [
+  {
+    tier: 'frequent',
+    jobId: '@ptah/skills-drain-frequent',
+    name: 'Skill Synthesis Drain (frequent)',
+    handlerName: 'skills:drain:frequent',
+    cronExprKey: 'skillSynthesis.drain.cronExpr',
+    defaultCronExpr: '*/15 * * * *',
+  },
+  {
+    tier: 'nightly',
+    jobId: '@ptah/skills-drain-nightly',
+    name: 'Skill Synthesis Drain (nightly)',
+    handlerName: 'skills:drain:nightly',
+    cronExprKey: 'skillSynthesis.drain.nightlyCronExpr',
+    defaultCronExpr: '0 3 * * *',
+  },
+  {
+    tier: 'weekly',
+    jobId: '@ptah/skills-drain-weekly',
+    name: 'Skill Synthesis Drain (weekly)',
+    handlerName: 'skills:drain:weekly',
+    cronExprKey: 'skillSynthesis.drain.weeklyCronExpr',
+    defaultCronExpr: '0 4 * * 0',
+  },
+];
+
+/**
+ * Register the three drain handlers and upsert their jobs.
+ *
+ * `has()` guards the handler registration because `HandlerRegistry.register`
+ * THROWS on a duplicate name, and a host may call `startThothCron` more than
+ * once (re-activation, a second workspace). `jobStore.upsert` is idempotent by
+ * definition, so it is not guarded — that is how the backup block already
+ * behaves and the double-invocation spec pins both halves.
+ *
+ * Non-fatal by construction: a host with no skill-synthesis registration
+ * simply gets no drain jobs.
+ */
+function registerSkillDrainJobs(
+  container: DependencyContainer,
+  jobStore: IJobStore,
+  handlerRegistry: IHandlerRegistry,
+  workspaceProvider: IWorkspaceProvider,
+  logPrefix: string,
+): void {
+  if (!container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE)) {
+    return;
+  }
+  for (const job of SKILL_DRAIN_JOBS) {
+    if (!handlerRegistry.has(job.handlerName)) {
+      handlerRegistry.register(job.handlerName, async (ctx) => {
+        const drain = container.resolve<SkillDrainService>(
+          SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
+        );
+        // Resolved per run, not captured: the monitor is a live OS view and a
+        // laptop can move on and off mains between two ticks.
+        const monitor = container.resolve<IPowerMonitor>(
+          CRON_TOKENS.CRON_POWER_MONITOR,
+        );
+        const summary = await drain.drain({
+          tier: job.tier,
+          signal: ctx.signal,
+          onBattery: monitor.isOnBattery(),
+        });
+        return {
+          summary: summary.skipped
+            ? `skipped: ${summary.reason ?? 'unknown'}`
+            : `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
+        };
+      });
+    }
+    jobStore.upsert({
+      id: job.jobId,
+      name: job.name,
+      cronExpr:
+        workspaceProvider.getConfiguration<string>(
+          'ptah',
+          job.cronExprKey,
+          job.defaultCronExpr,
+        ) || job.defaultCronExpr,
+      timezone: 'UTC',
+      prompt: `handler:${job.handlerName}`,
+      enabled: true,
+    });
+  }
+  console.log(
+    `${logPrefix} Skill synthesis drain cron jobs registered (frequent/nightly/weekly)`,
+  );
+}
 
 /**
  * Start the Thoth cron scheduler and register the built-in daily SQLite
@@ -138,6 +260,22 @@ export async function startThothCron(
             registerErr instanceof Error
               ? registerErr.message
               : String(registerErr),
+          );
+        }
+        try {
+          registerSkillDrainJobs(
+            container,
+            container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+            container.resolve<IHandlerRegistry>(
+              CRON_TOKENS.CRON_HANDLER_REGISTRY,
+            ),
+            workspaceProvider,
+            logPrefix,
+          );
+        } catch (drainErr: unknown) {
+          console.warn(
+            `${logPrefix} Skill drain cron registration failed (non-fatal):`,
+            drainErr instanceof Error ? drainErr.message : String(drainErr),
           );
         }
       }

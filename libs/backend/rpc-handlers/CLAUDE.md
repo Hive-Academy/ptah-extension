@@ -41,7 +41,7 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - `src/lib/harness/` — `HarnessRpcHandlers` sub-services + `HARNESS_TOKENS`
 - `src/lib/chat/` — `ChatRpcHandlers` sub-services + `CHAT_TOKENS`
 - `src/lib/utils/workspace-authorization.ts` — shared `isAuthorizedWorkspace` (PR-267)
-- `src/lib/utils/output-style-selection.ts` — the one read/write/normalisation of `outputStyle.selectedName`, shared by `OutputStyleRpcHandlers` (what is active) and `ChatOutputStyleActivationService` (what to activate). Two implementations means the picker can show one style while another reaches the SDK — do not re-inline either half.
+- Output-style selection and activation are NOT here. Both moved to `output-styles` when `cli-agent-runtime` started needing the same composition for spawned CLI agents and could not import this lib (`rpc-handlers → cli-agent-runtime`). `OutputStyleRpcHandlers` and `ChatSessionService` import `readOutputStyleSelection` / `OutputStyleSessionActivationService` from `@ptah-extension/output-styles` — do not re-inline either.
 - `src/lib/host-profile/` — `Capability` vocabulary, `RPC_HANDLER_MANIFEST`, `HostProfile`, `registerRpcSurface`
 - `src/lib/verify-and-report.ts` — runtime verification of registration completeness
 
@@ -55,7 +55,7 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/agent-sdk`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-generation`
+**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/agent-sdk`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-generation`, `@ptah-extension/plugin-marketplace`
 **External**: `tsyringe`, `zod`
 
 ## Guidelines
@@ -66,6 +66,7 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - **One handler class per namespace** — name like `<Namespace>RpcHandlers`, file `<namespace>-rpc.handlers.ts`, schema file `<namespace>-rpc.schema.ts`. Add a `RPC_HANDLER_MANIFEST` entry for it in the same change; hosts that cannot serve it simply leave its capability off.
 - **Never hand-maintain a method exclusion list** — exclusions are `manifest x profile`. A host that should not serve a namespace turns its capability off in `apps/<host>/src/rpc-host-profile.ts` (or `cli-engine/.../cli-host-profile.ts`).
 - **Zod schemas mandatory** — every handler method validates params via its schema file before doing work.
+- **Zod validates INBOUND params. `skillSynthesis:digest` is the one deliberate exception, and it does not generalize.** `SkillDigestItemSchema` validates the items this handler returns on the way OUT, which nothing else here does. It is kept because the digest's evidence invariant is otherwise unenforceable: `sessionIds.min(1)` means "every ranked item can show you why it ranked", and without the parse a contract violation reaches the UI as a silently empty evidence list rather than an error. User-decided 2026-08-16 (TASK_2026_180). **Do not copy this into new handlers, and do not delete it here.** Adopting outbound validation as house style is a real decision with a 30-handler sweep behind it; reverting this one is a decision to let that invariant go unenforced. Neither is a drive-by edit.
 - **Platform-agnostic only** — never `import * from 'vscode'`. Use `platform-core` ports (`IUserInteraction`, `IFileSystemProvider`, `IPlatformCommands`, …) via DI.
 - **Catch unknown**: `catch (error: unknown)` and narrow before logging/returning.
 - **Workspace guard** — privileged operations call `isAuthorizedWorkspace` before acting.

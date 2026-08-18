@@ -34,7 +34,16 @@ import {
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
-import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  SessionMetadataStore,
+  SdkPermissionHandler,
+} from '@ptah-extension/agent-sdk';
+import { z } from 'zod';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  CodexAuthService,
+} from '@ptah-extension/auth-providers';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -47,6 +56,8 @@ import type {
   SpawnAgentResult,
   ISdkPermissionHandler,
   PermissionResponse,
+  SessionId,
+  TabId,
 } from '@ptah-extension/shared';
 
 @injectable()
@@ -61,6 +72,7 @@ export class AgentRpcHandlers {
     'agent:detectClis',
     'agent:listCliModels',
     'agent:permissionResponse',
+    'agent:e2eSeedPermission',
     'agent:stop',
     'agent:continue',
     'agent:resumeCliSession',
@@ -83,6 +95,8 @@ export class AgentRpcHandlers {
     private readonly stateStorage: IStateStorage,
     @inject(TOKENS.MODEL_DISCOVERY)
     private readonly modelDiscovery: IModelDiscovery,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
+    private readonly codexAuthService: CodexAuthService,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly runtimeContainer: DependencyContainer,
   ) {}
@@ -95,6 +109,7 @@ export class AgentRpcHandlers {
     this.registerDetectClis();
     this.registerListCliModels();
     this.registerPermissionResponse();
+    this.registerE2eSeedPermission();
     this.registerAgentStop();
     this.registerAgentContinue();
     this.registerResumeCliSession();
@@ -117,6 +132,7 @@ export class AgentRpcHandlers {
         'agent:detectClis',
         'agent:listCliModels',
         'agent:permissionResponse',
+        'agent:e2eSeedPermission',
         'agent:stop',
         'agent:continue',
         'agent:resumeCliSession',
@@ -364,7 +380,13 @@ export class AgentRpcHandlers {
 
           const modelMap = await this.cliDetection.listModelsForAll();
 
-          const codex = (modelMap['codex'] ?? []) as CliModelOption[];
+          // The Codex adapter only knows a curated list baked into the build.
+          // `~/.codex/auth.json` is the same account the CLI uses, so the
+          // account's live model menu is authoritative when it resolves.
+          let codex = await this.getCodexModelsFromAuth();
+          if (codex.length === 0) {
+            codex = (modelMap['codex'] ?? []) as CliModelOption[];
+          }
           // Hosts with a Language Model API (VS Code) report the models the
           // user actually has; everywhere else this is empty and the curated
           // per-CLI list stands in.
@@ -422,6 +444,23 @@ export class AgentRpcHandlers {
       return models.map((model) => ({
         id: model.id,
         name: this.formatModelDisplayName(model.id),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Codex models for the account in `~/.codex/auth.json`, as reported by the
+   * provider `/models` endpoint. Empty when unauthenticated or offline, in
+   * which case the adapter's curated list stands in.
+   */
+  private async getCodexModelsFromAuth(): Promise<CliModelOption[]> {
+    try {
+      const models = await this.codexAuthService.listModels();
+      return models.map((model) => ({
+        id: model.id,
+        name: model.name || this.formatModelDisplayName(model.id),
       }));
     } catch {
       return [];
@@ -523,6 +562,103 @@ export class AgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:permissionResponse failed',
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+        return { success: false, error: errorMessage };
+      }
+    });
+  }
+
+  /**
+   * agent:e2eSeedPermission — TEST-ONLY seam (TASK_2026_264).
+   *
+   * TASK_2026_247 fixed the scope and mapping of a permission-cleanup path
+   * that only runs when a permission is genuinely IN FLIGHT at the moment a
+   * config change or teardown disposes sessions. Nothing outside a live SDK
+   * tool call ever reaches `SdkPermissionHandler.createCallback()`, and the
+   * unit specs that pin the fix (`sdk-permission-handler.spec.ts`,
+   * `session-lifecycle-manager-dispose.spec.ts`) get there by importing the
+   * class directly in-process. An Electron e2e cannot import backend classes
+   * — it only has the RPC transport — so without this method there is no way
+   * to put a REAL, ROUTABLE entry in the REAL `pendingRequests` map from
+   * outside the process, and the fix's wiring-level gap (does a real
+   * `auth:saveSettings` write actually reach `disposeAllSessions()`?) would
+   * stay unverifiable by anything but a live model + real credentials, which
+   * `.ptah/specs/TASK_2026_264/context.md` rules out as too
+   * environment-dependent for CI.
+   *
+   * This method does nothing a unit test could not already do in-process: it
+   * calls the same public `createCallback()` the SDK itself calls for every
+   * tool permission check, with the same arguments shape the specs already
+   * use. It is not a new capability, only a new place to reach an existing
+   * one from. Gated on `PTAH_E2E==='1'` — the flag
+   * `apps/ptah-electron-e2e/src/support/electron-launcher.ts` always sets and
+   * a real user's build never has — as belt-and-braces on top of the RPC
+   * channel already being unreachable outside the app's own IPC.
+   *
+   * Awaits the full permission round trip rather than firing-and-forgetting:
+   * the caller needs the actual resolved `behavior`/`message`/`interrupt`
+   * (not just "did it arrive"), and that value only exists once something
+   * resolves the pending request — a webview answer, a session teardown, or
+   * (for an unroutable request) the 60s deny timeout. A caller that seeds an
+   * unroutable request should pass a `sendRpc` timeout comfortably past 60s.
+   */
+  private registerE2eSeedPermission(): void {
+    const paramsSchema = z.object({
+      toolName: z.string().min(1),
+      input: z.record(z.string(), z.unknown()),
+      toolUseId: z.string().min(1),
+      sessionId: z.string().optional(),
+      tabId: z.string().optional(),
+    });
+
+    this.rpcHandler.registerMethod<
+      unknown,
+      {
+        success: boolean;
+        error?: string;
+        behavior?: 'allow' | 'deny';
+        message?: string;
+        interrupt?: boolean;
+      }
+    >('agent:e2eSeedPermission', async (rawParams) => {
+      if (process.env['PTAH_E2E'] !== '1') {
+        return { success: false, error: 'e2e-only' };
+      }
+      try {
+        const params = paramsSchema.parse(rawParams);
+        if (
+          !this.runtimeContainer.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+        ) {
+          return {
+            success: false,
+            error: 'SdkPermissionHandler not registered',
+          };
+        }
+        const permissionHandler =
+          this.runtimeContainer.resolve<SdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          );
+        const callback = permissionHandler.createCallback(
+          params.sessionId as SessionId | undefined,
+          undefined,
+          params.tabId as TabId | undefined,
+        );
+        const result = await callback(params.toolName, params.input, {
+          signal: new AbortController().signal,
+          toolUseID: params.toolUseId,
+        });
+        return {
+          success: true,
+          behavior: result.behavior,
+          message: 'message' in result ? result.message : undefined,
+          interrupt: 'interrupt' in result ? result.interrupt : undefined,
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: agent:e2eSeedPermission failed',
           error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };

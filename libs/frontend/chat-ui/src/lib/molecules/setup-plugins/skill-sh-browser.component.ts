@@ -432,7 +432,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   /**
    * Increment this input to trigger a reload of the installed skills list.
    * Used by the parent settings component when plugin configuration changes
-   * (skills are added/removed via SkillJunctionService) so the Installed tab
+   * (skills are added/removed via the harness reconciler) so the Installed tab
    * reflects the current state without requiring a full page reload.
    */
   readonly refreshTrigger = input(0);

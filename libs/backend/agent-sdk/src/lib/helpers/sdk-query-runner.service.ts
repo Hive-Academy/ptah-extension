@@ -64,6 +64,44 @@ import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
 
+/**
+ * Env keys that together name ONE provider. They are mutually exclusive: a
+ * bearer token and an API key belong to different backends, and inheriting one
+ * while the other is overridden points the run at neither cleanly.
+ */
+const PROVIDER_IDENTITY_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+] as const;
+
+/**
+ * Blank out ambient provider credentials a one-shot override does not itself
+ * set.
+ *
+ * `options.env` starts from `process.env`, and the interactive chat session
+ * writes its own credentials there — `OAuthProxyStrategy` assigns
+ * `process.env.ANTHROPIC_AUTH_TOKEN` when Codex or Copilot is active. Without
+ * this, a one-shot that overrides to an API-key provider still receives the
+ * chat session's proxy token and can be routed to the wrong backend entirely.
+ *
+ * Only keys the ambient env actually carries are emitted, so the resulting key
+ * SET is unchanged — the override path stays byte-comparable with the
+ * no-override path, which `sdk-query-runner.service.spec.ts` pins.
+ */
+function clearLeakedProviderIdentity(
+  ambient: NodeJS.ProcessEnv,
+  override: AuthEnv,
+): Record<string, undefined> {
+  const cleared: Record<string, undefined> = {};
+  for (const key of PROVIDER_IDENTITY_ENV_KEYS) {
+    if (override[key] === undefined && ambient[key] !== undefined) {
+      cleared[key] = undefined;
+    }
+  }
+  return cleared;
+}
+
 export interface OneShotAuthOverride {
   readonly env: AuthEnv;
   readonly baseUrl?: string;
@@ -80,7 +118,6 @@ export interface OneShotRunInput {
   maxTurns?: number;
   outputFormat?: OutputFormat;
   abortController?: AbortController;
-  pluginPaths?: string[];
   auth?: OneShotAuthOverride;
 }
 
@@ -152,8 +189,6 @@ export class SdkQueryRunner {
       mcpPort: input.mcpPort,
       maxTurns: input.maxTurns ?? DEFAULT_ONE_SHOT_MAX_TURNS,
       hasSystemPromptAppend: !!input.systemPromptAppend,
-      hasPlugins: (input.pluginPaths?.length ?? 0) > 0,
-      pluginCount: input.pluginPaths?.length ?? 0,
       cliJsPath: cliJsPath ?? 'NOT_RESOLVED',
     });
 
@@ -294,6 +329,9 @@ export class SdkQueryRunner {
       env: {
         ...process.env,
         ...buildTierEnvDefaults(authEnv),
+        ...(input.auth
+          ? clearLeakedProviderIdentity(process.env, input.auth.env)
+          : {}),
         ...authEnv,
         NO_PROXY: '127.0.0.1,localhost',
         ...(() => {

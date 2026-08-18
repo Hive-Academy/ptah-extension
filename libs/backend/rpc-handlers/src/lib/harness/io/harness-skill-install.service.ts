@@ -16,7 +16,7 @@
  *
  * Scope note: `--agent claude-code` lands the skill in `<workspace>/.claude/skills`
  * (or `~/.claude/skills` for global scope), which Claude Code discovers
- * natively. Ptah's own `SkillJunctionService` does not source from there, and
+ * natively. Ptah's own harness reconciler does not source from there, and
  * re-homing these skills is deliberately out of scope: the win is deterministic,
  * tracked installation, not a change of destination.
  */

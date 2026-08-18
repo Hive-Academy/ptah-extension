@@ -13,11 +13,12 @@
  * - `resolvePluginPaths(ids)` resolves explicitly-named plugins. It seeds the
  *   user-layer mirror (`mirrorUserLayer`) and the SDK session `plugins` option.
  *   It accepts a harness id only when the directory actually exists.
- * - `resolveCurrentPluginPaths()` is the junction-feeding path: enabled bundled
- *   plugins ∪ discovered harness dirs, minus anything explicitly disabled.
- *   Without the harness half, SkillJunctionService.removeStaleJunctions deletes
- *   every harness-authored skill junction whenever the user toggles a plugin in
- *   the marketplace. Without the disable half, the toggle does nothing.
+ * - `resolveCurrentPluginPaths()` is the path the harness reconciler overlays:
+ *   enabled bundled plugins ∪ discovered harness dirs, minus anything
+ *   explicitly disabled. Without the harness half, every harness-authored skill
+ *   drops out of the desired state and the reconciler reaps its workspace copy
+ *   the moment the user toggles a plugin in the marketplace. Without the
+ *   disable half, the toggle does nothing.
  *
  * Uses a real temp directory rather than a mocked `fs` — the service reads the
  * filesystem synchronously and the directory layout is the thing under test.
@@ -37,7 +38,30 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import { ExternalPluginStateStore } from '@ptah-extension/plugin-marketplace';
+
 import { PluginLoaderService } from './plugin-loader.service';
+
+/**
+ * A consent record for an external plugin, shaped as the store persists it.
+ *
+ * Written straight into the store so the specs can express the distinction
+ * that matters: files on disk versus an approval on record.
+ */
+function externalRecord(pluginId: string, plugin: string) {
+  return {
+    pluginId,
+    source: 'dotnet/skills',
+    plugin,
+    displayName: plugin,
+    version: '1.0.0',
+    installedAt: '2026-08-17T00:00:00.000Z',
+    consentToken: 'a'.repeat(64),
+    files: [],
+    skippedBinaryFiles: [],
+    mcpServers: [],
+  };
+}
 
 function createStateStorage(initial?: PluginConfigState): IStateStorage {
   const store = new Map<string, unknown>();
@@ -57,6 +81,7 @@ interface Harness {
   service: PluginLoaderService;
   logger: MockLogger;
   pluginsBasePath: string;
+  externalStore: ExternalPluginStateStore;
 }
 
 function makeHarness(options: {
@@ -134,10 +159,15 @@ function makeHarness(options: {
   }
 
   const logger = createMockLogger();
-  const service = new PluginLoaderService(logger as unknown as Logger);
+  const externalStore = new ExternalPluginStateStore();
+  externalStore.initialize(pluginsBasePath);
+  const service = new PluginLoaderService(
+    logger as unknown as Logger,
+    externalStore,
+  );
   service.initialize(pluginsBasePath, createStateStorage(persisted));
 
-  return { service, logger, pluginsBasePath };
+  return { service, logger, pluginsBasePath, externalStore };
 }
 
 const created: string[] = [];
@@ -194,7 +224,10 @@ describe('PluginLoaderService.discoverHarnessPluginPaths', () => {
 
   it('returns an empty array when the service is not initialized', () => {
     const logger = createMockLogger();
-    const service = new PluginLoaderService(logger as unknown as Logger);
+    const service = new PluginLoaderService(
+      logger as unknown as Logger,
+      new ExternalPluginStateStore(),
+    );
 
     expect(service.discoverHarnessPluginPaths()).toEqual([]);
   });
@@ -298,6 +331,33 @@ describe('PluginLoaderService.getAvailablePlugins (marketplace visibility)', () 
     expect(plugins.length).toBeGreaterThan(0);
     expect(plugins.every((p) => p.source === 'bundled')).toBe(true);
     expect(plugins.map((p) => p.id)).toContain('ptah-core');
+  });
+
+  it('counts a bundled plugin skills from disk rather than the catalogue constant', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        skills: {
+          'ptah-core': [{ dir: 'orchestration' }, { dir: 'humanize-library' }],
+        },
+      }),
+    );
+
+    const core = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-core');
+
+    expect(core?.skillCount).toBe(2);
+  });
+
+  it('falls back to the catalogue count when the plugin has not been downloaded yet', () => {
+    const h = track(makeHarness({ bundledDirs: [] }));
+
+    const core = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-core');
+
+    expect(core?.skillCount).toBeGreaterThan(0);
   });
 
   it('appends a discovered harness plugin with a slug-derived name and real skill count', () => {
@@ -416,8 +476,8 @@ describe('PluginLoaderService.resolveCurrentPluginPaths (junction source of trut
     );
 
     // This is the regression: a marketplace toggle that empties enabledPluginIds
-    // must still hand the harness dirs to SkillJunctionService, or every
-    // harness-authored junction is pruned as stale.
+    // must still surface the harness dirs, or every harness-authored skill
+    // leaves the desired state and its workspace copy is reaped.
     expect(h.service.resolveCurrentPluginPaths()).toEqual([
       path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
     ]);
@@ -478,9 +538,9 @@ describe('PluginLoaderService.resolveCurrentPluginPaths (junction source of trut
   });
 
   it('EXCLUDES a harness plugin the user explicitly disabled', () => {
-    // The toggle only bites here: SkillJunctionService prunes junctions whose
-    // skill is absent from these paths, so an excluded plugin is what actually
-    // un-junctions its skills from .claude/skills/.
+    // The toggle only bites here: the harness reconciler removes managed copies
+    // whose skill is absent from these paths, so an excluded plugin is what
+    // actually removes its skills from .claude/skills/.
     const h = track(
       makeHarness({
         bundledDirs: ['ptah-core'],
@@ -608,5 +668,163 @@ describe('PluginLoaderService.saveWorkspacePluginConfig (disable persistence)', 
     expect(h.service.resolveCurrentPluginPaths()).toEqual([
       path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
     ]);
+  });
+});
+
+/**
+ * THE ALLOWLIST BOUNDARY (TASK_2026_270).
+ *
+ * External plugins are the only kind whose bytes came from a third party, so
+ * they are the only kind for which "is this on disk" is the wrong question.
+ * The right question is "did the user approve this", and the only thing that
+ * can answer it is the consent record.
+ *
+ * Every test below exists to make one specific regression loud: someone
+ * widening the check to `id.startsWith('external:')`, or to a directory scan,
+ * because either would make the marketplace feature look like it still works.
+ */
+describe('PluginLoaderService — external plugin allowlist', () => {
+  const PLUGIN_ID = 'external:dotnet/skills/dotnet-test';
+
+  /** Put a real plugin tree on disk WITHOUT recording any consent for it. */
+  function seedExternalTree(pluginsBasePath: string, plugin: string): string {
+    const dir = path.join(
+      pluginsBasePath,
+      'external',
+      'dotnet',
+      'skills',
+      plugin,
+    );
+    const skillDir = path.join(dir, 'skills', 'run-tests');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: "run-tests"\ndescription: "runs tests"\n---\n\nbody\n',
+      'utf-8',
+    );
+    return dir;
+  }
+
+  it('REJECTS an id whose directory exists but which was never installed', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toEqual([]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[PluginLoaderService] Unknown plugin ID filtered out',
+      { pluginId: PLUGIN_ID },
+    );
+  });
+
+  it('resolves the same id once a consent record exists', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    const dir = seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+    await h.externalStore.recordInstall(
+      externalRecord(PLUGIN_ID, 'dotnet-test'),
+    );
+
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toEqual([dir]);
+  });
+
+  it('stops resolving it again the moment the record is removed', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+    await h.externalStore.recordInstall(
+      externalRecord(PLUGIN_ID, 'dotnet-test'),
+    );
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toHaveLength(1);
+
+    await h.externalStore.removeInstall(PLUGIN_ID);
+
+    // The directory is untouched — only the approval went away.
+    expect(h.service.resolvePluginPaths([PLUGIN_ID])).toEqual([]);
+  });
+
+  it('rejects a recorded id whose segments are traversal', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    const hostile = 'external:dotnet/skills/..';
+    await h.externalStore.recordInstall(externalRecord(hostile, '..'));
+
+    expect(h.service.resolvePluginPaths([hostile])).toEqual([]);
+  });
+
+  it.each([
+    ['bare prefix', 'external:'],
+    ['too few segments', 'external:dotnet/skills'],
+    ['too many segments', 'external:dotnet/skills/a/b'],
+    ['parent traversal in owner', 'external:../../etc/x'],
+    ['backslash separators', 'external:dotnet\\skills\\x'],
+  ])('rejects a malformed external id (%s)', (_label, id) => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+
+    expect(h.service.resolvePluginPaths([id])).toEqual([]);
+  });
+
+  it('still rejects unknown bundled ids exactly as before', () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+
+    expect(
+      h.service.resolvePluginPaths(['not-a-plugin', '../../etc/passwd']),
+    ).toEqual([]);
+  });
+
+  it('does not disturb bundled resolution when an external id is present', async () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        enabledPluginIds: ['ptah-core'],
+      }),
+    );
+
+    expect(h.service.resolvePluginPaths(['ptah-core', PLUGIN_ID])).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+    ]);
+  });
+
+  describe('getAvailablePlugins', () => {
+    it('does NOT advertise an external directory with no consent record', () => {
+      const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+      seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+
+      expect(
+        h.service.getAvailablePlugins().some((p) => p.source === 'external'),
+      ).toBe(false);
+    });
+
+    it('advertises a recorded external plugin with its real skill count', async () => {
+      const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+      seedExternalTree(h.pluginsBasePath, 'dotnet-test');
+      await h.externalStore.recordInstall(
+        externalRecord(PLUGIN_ID, 'dotnet-test'),
+      );
+
+      const entry = h.service
+        .getAvailablePlugins()
+        .find((p) => p.id === PLUGIN_ID);
+
+      expect(entry).toMatchObject({
+        source: 'external',
+        category: 'external-tools',
+        skillCount: 1,
+        // Third-party plugins never carry Ptah's "Recommended" badge.
+        isDefault: false,
+      });
+    });
+
+    it('still lists a recorded plugin whose directory has vanished', async () => {
+      // Otherwise a half-deleted install becomes unreachable: invisible in the
+      // UI, still recorded, and impossible for the user to clean up.
+      const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+      await h.externalStore.recordInstall(
+        externalRecord(PLUGIN_ID, 'dotnet-test'),
+      );
+
+      const entry = h.service
+        .getAvailablePlugins()
+        .find((p) => p.id === PLUGIN_ID);
+
+      expect(entry).toBeDefined();
+      expect(entry?.skillCount).toBe(0);
+    });
   });
 });

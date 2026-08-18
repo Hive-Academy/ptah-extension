@@ -721,7 +721,6 @@ export class EnhancedPromptsService {
           type: 'json_schema',
           schema: outputSchema,
         },
-        pluginPaths: sdkConfig?.pluginPaths,
       });
 
       try {

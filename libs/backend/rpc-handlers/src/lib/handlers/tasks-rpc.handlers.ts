@@ -73,6 +73,8 @@ import {
   type TasksGetResult,
   type TasksGetArtifactParams,
   type TasksGetArtifactResult,
+  type TasksGetRoundJudgeParams,
+  type TasksGetRoundJudgeResult,
   type TasksCreateParams,
   type TasksCreateResult,
   type TasksSweepParams,
@@ -107,6 +109,7 @@ import {
   TasksListParamsSchema,
   TasksGetParamsSchema,
   TasksGetArtifactParamsSchema,
+  TasksGetRoundJudgeParamsSchema,
   TasksCreateParamsSchema,
   TasksSweepParamsSchema,
   TasksUpdateStatusParamsSchema,
@@ -262,6 +265,7 @@ export class TasksRpcHandlers {
     'tasks:list',
     'tasks:get',
     'tasks:getArtifact',
+    'tasks:getRoundJudge',
     'tasks:create',
     'tasks:sweepFinished',
     'tasks:updateStatus',
@@ -307,6 +311,7 @@ export class TasksRpcHandlers {
     this.registerList();
     this.registerGet();
     this.registerGetArtifact();
+    this.registerGetRoundJudge();
     this.registerCreate();
     this.registerSweepFinished();
     this.registerUpdateStatus();
@@ -685,6 +690,52 @@ export class TasksRpcHandlers {
           error,
           'tasks:getArtifact',
           'Failed to read task document.',
+        );
+      }
+    });
+  }
+
+  /**
+   * Read ONE Crucible judge report out of a task folder
+   * (`tasks:getRoundJudge`).
+   *
+   * Exists as its own method rather than as a widened `tasks:getArtifact`
+   * because `round-N-judge.md` cannot be a `DocFile` — `N` is a parameter, so
+   * the set is open where `DocFile` is closed. Widening `file` to a free
+   * string to fit it in would have traded the enum boundary for a sanitiser
+   * across every document read in the namespace. Here the boundary is the
+   * PARAMETER SHAPE: a bounded integer goes in, `roundJudgeFile()` composes
+   * the name on the far side, and no caller input ever reaches the path join
+   * as a fragment.
+   *
+   * A missing report is `content: null` and a SUCCESS. An unjudged round is
+   * the ordinary state of a Crucible in progress — round 2 has no report while
+   * round 1 is still being revised — so reporting it as an error would make
+   * every live run look broken.
+   *
+   * The round is echoed in the result so a slow response cannot be rendered
+   * under whichever round the panel has since advanced to.
+   */
+  private registerGetRoundJudge(): void {
+    this.rpcHandler.registerMethod<
+      TasksGetRoundJudgeParams,
+      TasksGetRoundJudgeResult
+    >('tasks:getRoundJudge', async (params) => {
+      const parsed = this.parse(TasksGetRoundJudgeParamsSchema, params);
+      const root = this.resolveRoot(parsed.workspaceRoot);
+      try {
+        await this.index.ensureStarted(root);
+        const content = await this.index.readRoundJudge(
+          root,
+          parsed.taskId,
+          parsed.round,
+        );
+        return { round: parsed.round, content };
+      } catch (error: unknown) {
+        throw this.sanitize(
+          error,
+          'tasks:getRoundJudge',
+          'Failed to read judge report.',
         );
       }
     });

@@ -54,6 +54,10 @@ import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
+import {
+  HARNESS_PREFLIGHT_TOKEN,
+  type IHarnessPreflight,
+} from '../harness/harness-preflight.port';
 export type { SDKUserMessage, ContentBlock };
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
@@ -150,12 +154,6 @@ export interface ExecuteQueryConfig {
    */
   permissionLevel?: PermissionLevel;
   /**
-   * Plugin paths to load for this session.
-   * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Passed through to SdkQueryOptionsBuilder.
-   */
-  pluginPaths?: string[];
-  /**
    * Explicit path to Claude Code CLI executable (cli.js).
    * Passed through to SdkQueryOptionsBuilder to override the default
    * import.meta.url-based resolution baked at bundle time.
@@ -210,7 +208,6 @@ export interface SlashCommandConfig {
   sessionConfig?: AISessionConfig;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
-  pluginPaths?: string[];
   onCompactionStart?: CompactionStartCallback;
   onWorktreeCreated?: WorktreeCreatedCallback;
   onWorktreeRemoved?: WorktreeRemovedCallback;
@@ -290,6 +287,13 @@ export class SessionLifecycleManager {
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
     @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
     private readonly queryRunner: SdkQueryRunner,
+    /**
+     * Bound by each host to `HARNESS_SYNC_TOKENS.PREFLIGHT`. Optional so a
+     * container without `harness-sync` — every unit test, and any embedder that
+     * only wants the SDK adapter — still constructs.
+     */
+    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -307,6 +311,7 @@ export class SessionLifecycleManager {
       this.messageFactory,
       this.authEnv,
       this.queryRunner,
+      this.harnessPreflight,
     );
     this._control = new SessionControl(
       this.logger,
@@ -476,7 +481,7 @@ export class SessionLifecycleManager {
 
   /**
    * Execute a slash command as a new query within an existing session.
-   * Used when follow-up messages contain slash commands (e.g., /compact, /ptah-core:orchestrate).
+   * Used when follow-up messages contain slash commands (e.g., /compact, /orchestrate).
    * The SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects,
    * so we must start a new query with resume to maintain conversation context.
    */
@@ -502,7 +507,6 @@ export class SessionLifecycleManager {
       onWorktreeRemoved: config.onWorktreeRemoved,
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
-      pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
       forkSession: config.forkSession,
       enableFileCheckpointing: config.enableFileCheckpointing,

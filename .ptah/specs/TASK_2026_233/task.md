@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_233
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Hardcoded vendor lists survive in the MCP tool descriptions and four other
@@ -16,16 +16,16 @@ description: >-
   description advertises "Ptah CLI agents (OpenRouter, Moonshot, Z.AI)" -- a
   fixed list that omits the two providers actually configured here, and which
   every agent reads before choosing a lane. buildAgentStatusTool enumerates its
-  return fields without mentioning the CLI Session ID it does emit, which is
-  the sole signal every resume path in both skills now branches on; a reviewer
+  return fields without mentioning the CLI Session ID it does emit, which is the
+  sole signal every resume path in both skills now branches on; a reviewer
   reading only that description concluded the resume paths were dead code.
   Neither is user-visibly broken today, so this is filed rather than fixed.
-assignee:
+assignee: null
 depends_on: []
-executor:
-claim:
+executor: null
+claim: null
 created: 2026-08-11T00:00:00.000Z
-updated: 2026-08-11T00:00:00.000Z
+updated: '2026-08-16T08:03:07.523Z'
 ---
 
 ## Description

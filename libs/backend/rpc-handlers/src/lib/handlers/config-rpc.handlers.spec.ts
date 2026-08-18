@@ -133,7 +133,7 @@ function createMockPermissionHandler(): MockPermissionHandler {
 }
 
 type MockModelResolver = jest.Mocked<
-  Pick<ModelResolver, 'resolve' | 'detectTier'>
+  Pick<ModelResolver, 'resolve' | 'detectTier' | 'isSubscriptionCovered'>
 >;
 
 function createMockModelResolver(): MockModelResolver {
@@ -141,6 +141,8 @@ function createMockModelResolver(): MockModelResolver {
     // Default: identity resolve (handler tests override as needed)
     resolve: jest.fn((model: string) => model),
     detectTier: jest.fn((_model: string) => undefined),
+    // Default: a usage-billed provider, so price lines read as dollar rates
+    isSubscriptionCovered: jest.fn(() => false),
   };
 }
 

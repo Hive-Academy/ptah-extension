@@ -306,16 +306,50 @@ interface InlineRule {
   readonly open: string;
   readonly close: string;
   readonly build: (inner: string) => InlineSpan;
+  /**
+   * Whether the delimiter may open or close with a word character on the
+   * outside. CommonMark says yes for `*` and no for `_`, and the asymmetry is
+   * the whole reason `_` exists as a separate delimiter: identifiers.
+   */
+  readonly intraword?: boolean;
 }
 
 // Order matters: `**` must be tried before `*`, or bold parses as two italics.
 const INLINE_RULES: readonly InlineRule[] = [
-  { open: '`', close: '`', build: (t) => ({ kind: 'code', text: t }) },
-  { open: '**', close: '**', build: (t) => ({ kind: 'bold', text: t }) },
+  {
+    open: '`',
+    close: '`',
+    build: (t) => ({ kind: 'code', text: t }),
+    intraword: true,
+  },
+  {
+    open: '**',
+    close: '**',
+    build: (t) => ({ kind: 'bold', text: t }),
+    intraword: true,
+  },
   { open: '__', close: '__', build: (t) => ({ kind: 'bold', text: t }) },
-  { open: '*', close: '*', build: (t) => ({ kind: 'italic', text: t }) },
+  {
+    open: '*',
+    close: '*',
+    build: (t) => ({ kind: 'italic', text: t }),
+    intraword: true,
+  },
   { open: '_', close: '_', build: (t) => ({ kind: 'italic', text: t }) },
 ];
+
+/**
+ * CommonMark's flanking test, narrowed to what this parser can see.
+ *
+ * Unicode-aware on purpose: `café_au_lait` and `имя_файла` are identifiers too,
+ * and an ASCII-only class would strip their underscores exactly as the ASCII
+ * case did.
+ */
+const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
+
+function isWordChar(char: string): boolean {
+  return char.length > 0 && WORD_CHAR_RE.test(char);
+}
 
 const LINK_RE = /^\[([^\]]*)\]\(([^)\s]+)\)/;
 
@@ -365,6 +399,15 @@ export function parseInline(rawText: string): InlineSpan[] {
       // `** **` is not emphasis, and `____` is not bold — an empty body means
       // the delimiters are literal.
       if (inner.length === 0) continue;
+      // `my_file_name.py` is a filename, not two words around an italic. With
+      // no flanking test the underscores were consumed and the text rendered
+      // as `my` + italic `file` + `name.py` — characters silently deleted from
+      // any reply that mentions a snake_case identifier.
+      if (rule.intraword !== true) {
+        const before = i > 0 ? text.charAt(i - 1) : '';
+        const after = rest.charAt(closeAt + rule.close.length);
+        if (isWordChar(before) || isWordChar(after)) continue;
+      }
       flush();
       spans.push(rule.build(inner));
       i += closeAt + rule.close.length;

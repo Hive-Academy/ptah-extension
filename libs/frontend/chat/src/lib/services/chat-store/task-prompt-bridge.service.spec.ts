@@ -63,7 +63,7 @@ describe('TaskPromptBridgeService', () => {
   it('creates a tab, navigates to chat, sends the prompt, resolves success and clears', async () => {
     const resolve = jest.fn();
     request.set({
-      prompt: '/ptah-core:orchestrate TASK_2026_200',
+      prompt: '/orchestrate TASK_2026_200',
       sessionName: 'TASK_2026_200',
       resolve,
     });
@@ -72,7 +72,7 @@ describe('TaskPromptBridgeService', () => {
 
     expect(createTab).toHaveBeenCalledWith('TASK_2026_200');
     expect(setCurrentView).toHaveBeenCalledWith('chat');
-    expect(send).toHaveBeenCalledWith('/ptah-core:orchestrate TASK_2026_200', {
+    expect(send).toHaveBeenCalledWith('/orchestrate TASK_2026_200', {
       tabId: 'tab-1',
     });
     expect(resolve).toHaveBeenCalledWith({ success: true });
@@ -84,7 +84,7 @@ describe('TaskPromptBridgeService', () => {
   it('requests canvas tile adoption for the created tab in grid layout (F-D3)', async () => {
     layoutMode.set('grid');
     request.set({
-      prompt: '/ptah-core:orchestrate TASK_2026_300',
+      prompt: '/orchestrate TASK_2026_300',
       sessionName: 'TASK_2026_300',
     });
 
@@ -96,7 +96,7 @@ describe('TaskPromptBridgeService', () => {
 
   it('does NOT request canvas tile adoption in single layout', async () => {
     layoutMode.set('single');
-    request.set({ prompt: '/ptah-core:orchestrate TASK_2026_301' });
+    request.set({ prompt: '/orchestrate TASK_2026_301' });
 
     await flush();
 
@@ -119,7 +119,7 @@ describe('TaskPromptBridgeService', () => {
     // `in_progress` on a session that never started.
     send.mockResolvedValueOnce({ success: false, error: 'AUTH_REQUIRED' });
     const resolve = jest.fn();
-    request.set({ prompt: '/ptah-core:orchestrate TASK_2026_202', resolve });
+    request.set({ prompt: '/orchestrate TASK_2026_202', resolve });
 
     await flush();
 
@@ -133,7 +133,7 @@ describe('TaskPromptBridgeService', () => {
   it('resolves failure when the send path throws (worktree left in place upstream)', async () => {
     send.mockRejectedValueOnce(new Error('backend down'));
     const resolve = jest.fn();
-    request.set({ prompt: '/ptah-core:orchestrate TASK_2026_201', resolve });
+    request.set({ prompt: '/orchestrate TASK_2026_201', resolve });
 
     await flush();
 

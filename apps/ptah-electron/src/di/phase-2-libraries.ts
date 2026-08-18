@@ -17,18 +17,35 @@ import {
   type Logger,
   type WorkspaceAwareStateStorage,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  type ContentDownloadService,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import {
   registerSdkServices,
   wireAgentAdapterAliases,
+  SDK_TOKENS,
+  HARNESS_PREFLIGHT_TOKEN,
 } from '@ptah-extension/agent-sdk';
+import {
+  registerHarnessSyncServices,
+  ALL_HARNESS_TARGET_FACTORIES,
+  createPluginConfigSourceResolver,
+  HARNESS_SYNC_TOKENS,
+  type HarnessPluginConfigReader,
+} from '@ptah-extension/harness-sync';
 import {
   registerAuthProvidersServices,
   registerCuratorAuthServices,
 } from '@ptah-extension/auth-providers';
-import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
+import {
+  registerCliAgentRuntimeServices,
+  createHarnessCliDetector,
+  type HarnessCliDetectionReader,
+} from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -59,6 +76,7 @@ import {
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
+import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -77,6 +95,59 @@ import { ElectronEmbedderWorkerFactory } from '../services/platform/electron-emb
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
+import {
+  createUserLayerRefresher,
+  readDormantSkillSlugs,
+} from '../activation/plugin-activation';
+
+/**
+ * `harness.preflightTimeoutMs` — how long a session start may wait for the
+ * harness check. `undefined` (unset, unreadable, or non-positive) means "use
+ * the lib default", which is deliberately NOT restated as a literal here: two
+ * hosts disagreeing about the default is exactly the drift a single default in
+ * `harness-sync` exists to prevent.
+ *
+ * Section `'ptah'` with a DOTTED key: `FILE_BASED_SETTINGS_KEYS` routes only
+ * that section to `~/.ptah/settings.json` (TASK_2026_278 Batch 4).
+ */
+function readPreflightTimeoutMs(
+  container: DependencyContainer,
+): number | undefined {
+  try {
+    const workspace = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const value = workspace.getConfiguration<number>(
+      'ptah',
+      'harness.preflightTimeoutMs',
+    );
+    return typeof value === 'number' && value > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `harness.manageGitignore`, or `undefined` to take the lib default (on).
+ * The default lives in `harness-sync`; answering `true` here would be a second
+ * copy of it.
+ */
+function readManageGitignore(
+  container: DependencyContainer,
+): boolean | undefined {
+  try {
+    const workspace = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const value = workspace.getConfiguration<boolean>(
+      'ptah',
+      'harness.manageGitignore',
+    );
+    return typeof value === 'boolean' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Phase 2: Register library services in the order required by inter-library deps.
@@ -91,7 +162,70 @@ export function registerPhase2Libraries(
 ): void {
   registerWorkspaceIntelligenceServices(container, logger);
   registerAuthProvidersServices(container, logger);
+  // MUST precede registerSdkServices: PluginLoaderService injects the external
+  // consent store as its allowlist source. Its late `initialize()` runs from
+  // plugin activation, next to `pluginLoader.initialize()`.
+  registerPluginMarketplaceServices(container, logger);
   registerSdkServices(container, logger);
+  // harness-sync AFTER registerSdkServices so the plugin loader token exists.
+  // The resolver lambda is lazy anyway — the loader is only usable after
+  // `initialize()` runs in plugin activation, long after this phase.
+  //
+  // Every target, in every host: a workspace is populated for the tools the
+  // USER has, not for the one running Ptah. Undetected CLIs are skipped at
+  // reconcile time, so the detector lambda below is the only host-specific
+  // part — and it is lazy too, because `registerCliAgentRuntimeServices` (which
+  // owns `CLI_DETECTION_SERVICE`) runs a few lines further down.
+  registerHarnessSyncServices(container, logger, {
+    targets: ALL_HARNESS_TARGET_FACTORIES,
+    cliDetector: createHarnessCliDetector(() =>
+      container.isRegistered(TOKENS.CLI_DETECTION_SERVICE)
+        ? container.resolve<HarnessCliDetectionReader>(
+            TOKENS.CLI_DETECTION_SERVICE,
+          )
+        : null,
+    ),
+    sourceResolver: createPluginConfigSourceResolver(() => {
+      if (!container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)) return null;
+      const loader = container.resolve<HarnessPluginConfigReader>(
+        SDK_TOKENS.SDK_PLUGIN_LOADER,
+      );
+      return {
+        resolveCurrentPluginPaths: () => loader.resolveCurrentPluginPaths(),
+        // Dormant promoted skills are folded into the disabled channel here,
+        // once, rather than at every reconcile call site. The residency
+        // budget's decision is "this skill must not occupy prompt budget",
+        // which is precisely what `disabledSkillIds` means to the builder.
+        // Electron-only: the candidate store is a Thoth (SQLite) service.
+        getDisabledSkillIds: () => [
+          ...loader.getDisabledSkillIds(),
+          ...readDormantSkillSlugs(container),
+        ],
+        getWorkspacePluginConfig: () => loader.getWorkspacePluginConfig(),
+      };
+    }),
+    // Batch 3. `HarnessPropagationService` runs this before each reconcile, so
+    // a trigger that changed an upstream source is visible in `~/.ptah/user`
+    // before the reconciler reads it. Lazy by construction — the mirror service
+    // is registered by `registerAgentGenerationServices`, which runs below.
+    userLayerRefresher: createUserLayerRefresher(container),
+    gitignore: { readManageGitignore: () => readManageGitignore(container) },
+    preflight: {
+      readTimeoutMs: () => readPreflightTimeoutMs(container),
+      contentGate: {
+        awaitContentReady: (timeoutMs) =>
+          container
+            .resolve<ContentDownloadService>(PLATFORM_TOKENS.CONTENT_DOWNLOAD)
+            .awaitContentReady(timeoutMs),
+      },
+    },
+  });
+  // The one line that lets a session path reach the reconciler without
+  // `agent-sdk` importing `harness-sync`. See
+  // `agent-sdk/src/lib/harness/harness-preflight.port.ts`.
+  container.register(HARNESS_PREFLIGHT_TOKEN, {
+    useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
+  });
   registerCuratorAuthServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 

@@ -47,6 +47,12 @@ export enum Framework {
   Flask = 'flask',
   FastAPI = 'fastapi',
   Spring = 'spring',
+  /** ASP.NET Core web app or API — `Sdk="Microsoft.NET.Sdk.Web"`. */
+  AspNetCore = 'aspnetcore',
+  /** Blazor, detected ahead of ASP.NET Core because it is the narrower claim. */
+  Blazor = 'blazor',
+  /** .NET Generic Host background service — `Sdk="Microsoft.NET.Sdk.Worker"`. */
+  DotNetWorker = 'dotnet-worker',
 }
 
 /**
@@ -59,6 +65,12 @@ export enum MonorepoType {
   Turborepo = 'turborepo',
   PnpmWorkspaces = 'pnpm-workspaces',
   YarnWorkspaces = 'yarn-workspaces',
+  /** A `.sln`/`.slnx` grouping several .NET projects. */
+  DotNetSolution = 'dotnet-solution',
+  /** `[tool.uv.workspace]` in pyproject.toml. */
+  UvWorkspace = 'uv-workspace',
+  /** Poetry root whose pyproject declares path dependencies on sibling packages. */
+  PoetryWorkspace = 'poetry-workspace',
 }
 
 /**

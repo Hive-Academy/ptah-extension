@@ -302,12 +302,14 @@ export class AssistantMessageTransformer {
           }
         : undefined;
 
-    const cost = tokenUsage
-      ? (calculateMessageCost(
-          helpers.modelResolver.resolveForPricing(message.model || ''),
-          tokenUsage,
-        ) ?? undefined)
+    const priced = tokenUsage
+      ? helpers.modelResolver.resolveForCost(message.model || '')
       : undefined;
+    const cost =
+      tokenUsage && priced
+        ? (calculateMessageCost(priced.modelId, tokenUsage, priced.pricing) ??
+          undefined)
+        : undefined;
 
     const messageCompleteEvent: MessageCompleteEvent = {
       id: generateEventId(),

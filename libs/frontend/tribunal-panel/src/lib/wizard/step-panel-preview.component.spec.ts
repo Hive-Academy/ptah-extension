@@ -85,15 +85,33 @@ const MODELS_BY_PROVIDER: Record<string, readonly ProviderModelInfo[]> = {
 describe('StepPanelPreviewComponent — per-lane model options', () => {
   let fixture: ComponentFixture<StepPanelPreviewComponent>;
   let emitted: readonly VendorLane[];
+  let discoveryDouble: {
+    ensureDiscovered: jest.Mock;
+    rediscover: jest.Mock;
+    discover: jest.Mock;
+  };
 
   beforeEach(async () => {
+    // The step reads the SHARED discovery cache now, so the double exposes the
+    // same surface: a `vendors` signal plus the two memoized entry points.
+    const vendors = signal<readonly DiscoveredVendor[]>([]);
+    const resolve = async () => {
+      vendors.set([CLAUDE_VENDOR, OLLAMA_VENDOR]);
+      return vendors();
+    };
     const discovery = {
       maxVendors: 8,
+      vendors: vendors.asReadonly(),
+      discovered: signal(false).asReadonly(),
+      ensureDiscovered: jest.fn(resolve),
+      rediscover: jest.fn(resolve),
       discover: jest.fn().mockResolvedValue([CLAUDE_VENDOR, OLLAMA_VENDOR]),
       listModelsFor: jest.fn((vendor: DiscoveredVendor) =>
         Promise.resolve(MODELS_BY_PROVIDER[vendor.modelProviderId ?? ''] ?? []),
       ),
     };
+
+    discoveryDouble = discovery;
 
     TestBed.configureTestingModule({
       imports: [StepPanelPreviewComponent],
@@ -213,5 +231,57 @@ describe('StepPanelPreviewComponent — per-lane model options', () => {
     for (const [index, ids] of optionIdsPerLane().entries()) {
       expect(ids).toContain(emitted[index].model);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // The shared discovery cache and the estimator that replaced TURNS_PER_VENDOR
+  // -------------------------------------------------------------------------
+
+  it('reads the SHARED discovery cache instead of running its own discovery', () => {
+    // Three wizard steps want the same vendor list. `discover()` is the raw
+    // uncached call; going through it directly is the regression.
+    expect(discoveryDouble.ensureDiscovered).toHaveBeenCalledTimes(1);
+    expect(discoveryDouble.discover).not.toHaveBeenCalled();
+  });
+
+  it('bypasses the cache only for the explicit Refresh affordance', async () => {
+    await fixture.componentInstance.refresh();
+
+    expect(discoveryDouble.rediscover).toHaveBeenCalledTimes(1);
+    expect(discoveryDouble.discover).not.toHaveBeenCalled();
+  });
+
+  /** The `~N` figure in the stats strip. */
+  function estimatedTurns(): number {
+    const strip = fixture.debugElement
+      .queryAll(By.css('span'))
+      .map(
+        (element) => (element.nativeElement as HTMLElement).textContent ?? '',
+      )
+      .find((text) => text.trim().startsWith('~'));
+    return Number.parseInt((strip ?? '').trim().slice(1), 10);
+  }
+
+  it('estimates council turns exactly as the deleted per-vendor map did', async () => {
+    // council: laneCount * 2 + 1. Two lanes → 5. AC-1.4 extends to the
+    // displayed estimate, so this number must not move.
+    await addLane('Ollama Cloud');
+    await addLane('Claude (Subscription)');
+
+    expect(estimatedTurns()).toBe(5);
+  });
+
+  it('estimates forge and race turns unchanged at three per lane', () => {
+    fixture.componentRef.setInput('move', 'forge');
+    fixture.componentRef.setInput('selectedLanes', [
+      CLAUDE_VENDOR.lane,
+      OLLAMA_VENDOR.lane,
+    ]);
+    fixture.detectChanges();
+    expect(estimatedTurns()).toBe(7);
+
+    fixture.componentRef.setInput('move', 'race');
+    fixture.detectChanges();
+    expect(estimatedTurns()).toBe(7);
   });
 });

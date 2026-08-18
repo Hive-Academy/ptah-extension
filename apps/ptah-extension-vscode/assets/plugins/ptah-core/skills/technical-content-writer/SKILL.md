@@ -234,8 +234,11 @@ When creating landing page content, follow this design-integrated workflow:
 ### Step 1: Load Design Context
 
 ```bash
-# Load design system tokens
-Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
+# Load design system tokens — DESIGN-SYSTEM.md ships next to this SKILL.md.
+# Resolve it relative to THIS skill's own directory (the path the Skill tool
+# reported when it loaded this skill), never against a workspace-relative path:
+# where the skill lands on disk differs per host and install method.
+Read(DESIGN-SYSTEM.md)
 
 # Check for project-specific design specs
 Glob(.ptah/specs/TASK_*/visual-design-specification.md)

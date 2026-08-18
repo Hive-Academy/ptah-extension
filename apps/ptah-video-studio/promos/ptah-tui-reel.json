@@ -1,0 +1,75 @@
+{
+  "title": "Ptah in your terminal — connect, ask, watch it work",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "elevenlabs",
+  "voice": "rhCLC0x0OIX0cXmIBUFG",
+  "stability": 0.6,
+  "similarity": 0.75,
+  "style": 0,
+  "speed": 0.88,
+  "music": "mixkit-digital-clouds.mp3",
+  "musicVolume": 0.2,
+  "bare": true,
+  "subtitles": true,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "answer-ident",
+      "transition": "cut",
+      "holdMs": 3000,
+      "captions": []
+    },
+    {
+      "kind": "terminal",
+      "terminal": "tui-orchestration",
+      "transition": "cut",
+      "startFromMs": 0,
+      "holdMs": 11000,
+      "vo": "Ptah runs in your terminal. It opens on the provider list, and the Claude tile picks up the login you already have. No API key to paste.",
+      "captions": ["No API key. Your existing login."]
+    },
+    {
+      "kind": "terminal",
+      "terminal": "tui-orchestration",
+      "transition": "cut",
+      "startFromMs": 11000,
+      "holdMs": 10000,
+      "vo": "Switch models without leaving the session, then just ask for the work in plain language.",
+      "captions": ["Switch models. Ask in plain language."]
+    },
+    {
+      "kind": "terminal",
+      "terminal": "tui-orchestration",
+      "transition": "cut",
+      "startFromMs": 21000,
+      "holdMs": 11000,
+      "vo": "It reads your real code, finds the webhook handler and the failure table already there, and comes back with two ways forward and the honest trade-off on each.",
+      "captions": ["Real code. Real trade-offs."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-statement",
+      "transition": "cut",
+      "holdMs": 6500,
+      "vo": "One orchestra, in the terminal you already live in.",
+      "captions": ["One orchestra, in the terminal you already live in."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-wipe",
+      "transition": "cut",
+      "holdMs": 1900,
+      "captions": []
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-endcard",
+      "transition": "cut",
+      "holdMs": 6500,
+      "vo": "Ptah. Free to start.",
+      "captions": ["ptah.live"]
+    }
+  ]
+}

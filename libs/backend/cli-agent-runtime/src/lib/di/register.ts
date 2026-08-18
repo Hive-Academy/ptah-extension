@@ -3,7 +3,6 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
-import { CliPluginSyncService } from '../cli-agents/cli-skill-sync/cli-plugin-sync.service';
 import {
   PtahCliRegistry,
   PtahCliConfigPersistence,
@@ -42,11 +41,6 @@ export function registerCliAgentRuntimeServices(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,
   );
-  container.registerSingleton(
-    TOKENS.CLI_PLUGIN_SYNC_SERVICE,
-    CliPluginSyncService,
-  );
-
   logger.info('[CliAgentRuntime] CLI agent runtime services registered', {
     services: Object.keys(CLI_AGENT_RUNTIME_TOKENS),
   });

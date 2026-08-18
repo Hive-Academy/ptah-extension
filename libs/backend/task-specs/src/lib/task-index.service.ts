@@ -34,6 +34,7 @@ import {
   CARRIER_FILE,
   SPECS_README_FILE,
   renderSpecsReadme,
+  roundJudgeFile,
   type DocFile,
   type ExcludedTaskFolder,
   type TaskSpecDetail,
@@ -356,6 +357,44 @@ export class TaskIndexService implements ITaskIndexNotifier {
       this.logger.warn('[task-specs] readArtifact failed', {
         folderName,
         file,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Read ONE Crucible judge report out of a task folder
+   * (`tasks:getRoundJudge`).
+   *
+   * `round` is a NUMBER and the filename is composed HERE, from the shared
+   * contract's {@link roundJudgeFile}. That is the security boundary: a number
+   * cannot carry a separator or a `..`, so no caller input reaches the join as
+   * a path fragment. `readArtifact` gets the same guarantee from the `DocFile`
+   * enum; `round-N-judge.md` cannot be a `DocFile` (`N` is a parameter), so it
+   * gets it from the shape of the parameter instead. Neither method screens a
+   * string, because neither method accepts one.
+   *
+   * A missing report returns `null`, not an error. An unjudged round is the
+   * ORDINARY state of a Crucible in progress — round 2 has no report while
+   * round 1 is still being revised — and reporting that as a fault would make
+   * every live run look broken.
+   */
+  async readRoundJudge(
+    workspaceRoot: string,
+    folderName: string,
+    round: number,
+  ): Promise<string | null> {
+    const root = normalizeWorkspaceRoot(workspaceRoot);
+    const file = roundJudgeFile(round);
+    const target = path.join(root, '.ptah', 'specs', folderName, file);
+    try {
+      if (!(await this.fs.exists(target))) return null;
+      return await this.fs.readFile(target);
+    } catch (error: unknown) {
+      this.logger.warn('[task-specs] readRoundJudge failed', {
+        folderName,
+        round,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

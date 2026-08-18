@@ -15,12 +15,20 @@
  *   1. Install SIGINT/SIGTERM handler stubs that exit with the conventional
  *      Unix codes (130 / 143).
  *   2. Build the commander router and dispatch via `parseAsync(process.argv)`.
- *   3. Catch any uncaught error, print it to stderr, and exit 1.
+ *   3. Flush stdout and exit with the code the command resolved.
+ *   4. Catch any uncaught error, print it to stderr, and exit 1.
+ *
+ * Step 3 is not decoration. Every `withEngine({ mode: 'full' })` command leaves
+ * a live chokidar watcher behind (see `cli/io/finalize-exit.ts` for the
+ * measurement), so waiting for the event loop to drain means waiting forever.
+ * A one-shot CLI must exit on its own; `finalizeExit` is the single place that
+ * makes it do so.
  */
 import 'reflect-metadata';
 
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { buildRouter } from './cli/router.js';
+import { finalizeExit, resolveExitCode } from './cli/io/finalize-exit.js';
 import { JSONRPC_SCHEMA_VERSION } from './cli/jsonrpc/types.js';
 import { CliDIContainer } from '@ptah-extension/cli-engine';
 fixPath();
@@ -115,6 +123,10 @@ async function main(): Promise<void> {
   try {
     const router = buildRouter();
     await router.parseAsync(process.argv);
+    // Commands that own their own shutdown (`interact`, `mcp-serve`,
+    // `session start --once`) have already exited by here; for everything else
+    // this is the only thing that ends the process.
+    await finalizeExit(resolveExitCode(process.exitCode));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`[ptah] fatal: ${message}\n`);

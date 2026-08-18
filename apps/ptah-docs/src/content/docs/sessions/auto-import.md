@@ -7,8 +7,6 @@ description: Discover and restore sessions from the Claude CLI automatically.
 
 Ptah can discover and import sessions from the Claude CLI's default storage folder, so everything you've been working on outside the app becomes browsable, searchable, and resumable inside it.
 
-![Auto-import banner](/screenshots/sessions-autoimport.png)
-
 ## Where Ptah scans
 
 ```
@@ -51,8 +49,6 @@ Ptah uses the CLI project's absolute path (stored in the transcript header) to m
 - **Exact match** — imported into that workspace silently.
 - **No match** — Ptah offers to create a new workspace from the CLI path.
 - **Ambiguous** (e.g., the folder was moved) — Ptah shows a disambiguation prompt.
-
-![Disambiguation prompt](/screenshots/sessions-autoimport-disambig.png)
 
 ## Filtering imports
 

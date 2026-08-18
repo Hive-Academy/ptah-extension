@@ -65,8 +65,10 @@ export interface MemoryPurgeRequest {
             [disabled]="purging()"
             aria-label="Pattern match mode"
           >
-            <option value="substring">substring</option>
-            <option value="like">like</option>
+            <option value="substring" [selected]="mode() === 'substring'">
+              substring
+            </option>
+            <option value="like" [selected]="mode() === 'like'">like</option>
           </select>
         </div>
         <button

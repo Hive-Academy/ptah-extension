@@ -64,6 +64,9 @@ describe('resolveProviderFormKind', () => {
     moonshot: 'api-key',
     'z-ai': 'api-key',
     sakana: 'api-key',
+    // Lane-1 Anthropic passthrough (`requiresProxy: false`), but still a
+    // required API key — so it takes the same form as every other keyed entry.
+    requesty: 'api-key',
   };
 
   it('covers every registry provider (a new provider must pick a form)', () => {
