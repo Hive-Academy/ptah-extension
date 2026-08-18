@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_276
-status: backlog
+status: in_progress
 type: feature
 title: >-
   Ship the Python half of the StackProfile registry — a ptah-python plugin and
