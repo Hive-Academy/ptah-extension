@@ -110,6 +110,14 @@ export interface MonitoredAgent {
   readonly model?: string;
   readonly supportsContinuation?: boolean;
   /**
+   * The backend dropped this agent's process record after its completed-agent
+   * TTL, so `agent:continue` can only answer `not_found` from here on. The
+   * conversation itself is NOT gone — `cliSessionId` still resumes it — so this
+   * marks WHICH path a follow-up has to take, never that follow-ups are over.
+   * Cleared when a spawn event re-opens the same id.
+   */
+  continuationExpired?: boolean;
+  /**
    * Stable id grouping all agents spawned by one `Workflow` tool run. Present
    * only for agents that belong to a workflow orchestration; undefined for
    * ordinary standalone agents. The monitor panel partitions agents into
@@ -550,6 +558,9 @@ export class AgentMonitorStore implements OnDestroy {
           cliSessionId: info.cliSessionId || existing.cliSessionId,
           supportsContinuation:
             info.supportsContinuation ?? existing.supportsContinuation,
+          // The backend is tracking this id again, so whatever TTL sweep
+          // expired it is undone.
+          continuationExpired: false,
           workflowRunId: wf.workflowRunId ?? existing.workflowRunId,
           workflowName: wf.workflowName ?? existing.workflowName,
         };
@@ -739,6 +750,26 @@ export class AgentMonitorStore implements OnDestroy {
     });
 
     this.syncTick();
+  }
+
+  /**
+   * The backend dropped this agent's process record (completed-agent TTL).
+   *
+   * The card stays — its output is still worth reading and its session is still
+   * resumable. Only the in-process continuation is gone, which is exactly what
+   * the flag says. An unknown id is a no-op: the card may already have been
+   * evicted, and inventing one here would resurrect an agent nobody can see.
+   */
+  onAgentExpired(agentId: string): void {
+    this._agents.update((list) => {
+      const index = list.findIndex((a) => a.agentId === agentId);
+      if (index === -1) return list;
+      if (list[index].continuationExpired === true) return list;
+
+      const next = [...list];
+      next[index] = { ...next[index], continuationExpired: true };
+      return next;
+    });
   }
 
   /**
@@ -1180,13 +1211,13 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Send a follow-up message to a running subagent. Requires the parent
-   * SDK session ID — callers usually source this from `tabManager.activeTab`.
-   */
-  /**
-   * Send a follow-up message to a running subagent. Returns `true` when the
-   * RPC call succeeded, `false` when an error was recorded. Callers use the
-   * return value to conditionally show success / keep-draft UX.
+   * Send a follow-up message to an agent the backend still holds in memory.
+   *
+   * `ok` means the CONTINUATION was accepted, not that the round trip landed.
+   * The handler answers a refusal (`not_found` / `busy` / `unsupported`) as a
+   * transport SUCCESS carrying `{ success: false, code }`, so reading
+   * `isSuccess()` alone reports every refusal as a sent message — the caller
+   * clears the user's draft and shows nothing while the follow-up went nowhere.
    */
   async continueAgent(
     agentId: string,
@@ -1196,7 +1227,44 @@ export class AgentMonitorStore implements OnDestroy {
       agentId,
       message,
     });
-    return { ok: result.isSuccess(), code: result.data?.code };
+    return {
+      ok: result.isSuccess() && result.data.success === true,
+      code: result.data?.code,
+    };
+  }
+
+  /**
+   * Deliver a follow-up by RESUMING the agent's CLI-native session instead of
+   * continuing its process — the recovery path for an agent the backend no
+   * longer tracks (TTL sweep, host restart).
+   *
+   * The message is passed as the resumed run's `task`, which is what the
+   * conversation continues WITH; history comes from `cliSessionId`. A caller
+   * without one has nothing to resume and must not reach here.
+   */
+  async resumeAgentWithMessage(
+    agent: MonitoredAgent,
+    message: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!agent.cliSessionId) {
+      return { ok: false, error: 'This agent has no session to resume.' };
+    }
+
+    const result = await this.rpc.call('agent:resumeCliSession', {
+      cliSessionId: agent.cliSessionId,
+      cli: agent.cli,
+      task: message,
+      parentSessionId: agent.parentSessionId,
+      ptahCliId: agent.ptahCliId,
+      previousAgentId: agent.agentId,
+    });
+
+    if (!result.isSuccess()) {
+      return { ok: false, error: result.error };
+    }
+    return result.data.success
+      ? { ok: true }
+      : { ok: false, error: result.data.error };
   }
 
   /**

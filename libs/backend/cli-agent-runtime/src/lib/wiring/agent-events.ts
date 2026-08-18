@@ -191,6 +191,24 @@ function wireAgentMonitorListeners(
       persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
     }
   });
+
+  // The TTL sweep that drops a completed agent from the manager's map. Not a
+  // lifecycle transition — the agent already exited — but the webview's card is
+  // still on screen offering a follow-up, and this is the only notice it gets
+  // that `agent:continue` will now fail.
+  agentProcessManager.events.on(
+    'agent:expired',
+    (payload: { agentId: string }) => {
+      webviewManager
+        .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_EXPIRED, payload)
+        .catch((error) => {
+          logger.error(
+            `${tag} Failed to send agent-monitor:expired to webview`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    },
+  );
 }
 
 function wireCopilotPermissionForwarding(

@@ -1008,6 +1008,37 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(() => manager.getStatus(agentId)).toThrow(/not found/i);
     });
 
+    it('announces the TTL removal so the UI can stop offering a continuation', async () => {
+      const agentId = await spawnContinuable();
+      const expired: string[] = [];
+      manager.events.on('agent:expired', (payload: { agentId: string }) =>
+        expired.push(payload.agentId),
+      );
+      await completeTurn1();
+
+      expect(expired).toEqual([]);
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+
+      // Without this the card keeps a live-looking follow-up box wired to an id
+      // the manager can only answer `not_found` for.
+      expect(expired).toEqual([agentId]);
+    });
+
+    it('does not announce an expiry for an agent kept alive by continue', async () => {
+      const agentId = await spawnContinuable();
+      const expired: string[] = [];
+      manager.events.on('agent:expired', (payload: { agentId: string }) =>
+        expired.push(payload.agentId),
+      );
+      await completeTurn1();
+      await manager.continueConversation(agentId, 'keep me alive');
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+
+      expect(expired).toEqual([]);
+    });
+
     it('clears the cleanup timer on continue so TTL no longer removes the agent', async () => {
       const agentId = await spawnContinuable();
       await completeTurn1();

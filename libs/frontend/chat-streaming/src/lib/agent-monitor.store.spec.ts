@@ -695,14 +695,18 @@ describe('AgentMonitorStore', () => {
       expect(result).toEqual({ ok: true, code: undefined });
     });
 
-    it('maps a typed error code from the RPC result', async () => {
+    it('reports a refusal as ok=false, carrying its typed code', async () => {
+      // The handler answers a refusal as a transport SUCCESS whose payload says
+      // `success: false`. Reading only the envelope reports every refusal as a
+      // sent message, and the caller clears the user's draft over a follow-up
+      // that never reached the agent.
       rpcMock.call.mockResolvedValueOnce(
         rpcSuccess({ success: false, code: 'busy' }),
       );
 
       const result = await store.continueAgent('agent-1', 'do more');
 
-      expect(result.ok).toBe(true);
+      expect(result.ok).toBe(false);
       expect(result.code).toBe('busy');
     });
 
@@ -769,6 +773,85 @@ describe('AgentMonitorStore', () => {
 
       const card = store.agents().find((a) => a.agentId === 'agent-x');
       expect(card?.supportsContinuation).toBe(true);
+    });
+
+    it('marks the card expired when the backend drops the record, and un-marks it on re-open', () => {
+      spawnWith({ supportsContinuation: true });
+
+      store.onAgentExpired('agent-x');
+      expect(
+        store.agents().find((a) => a.agentId === 'agent-x')
+          ?.continuationExpired,
+      ).toBe(true);
+
+      // The backend is tracking the id again — the sweep is undone, not sticky.
+      spawnWith({ status: 'running', supportsContinuation: true });
+      expect(
+        store.agents().find((a) => a.agentId === 'agent-x')
+          ?.continuationExpired,
+      ).toBe(false);
+    });
+
+    it('ignores an expiry for an id it has no card for', () => {
+      spawnWith({ supportsContinuation: true });
+      const before = store.agents();
+
+      store.onAgentExpired('never-seen');
+
+      expect(store.agents()).toBe(before);
+    });
+  });
+
+  describe('resumeAgentWithMessage', () => {
+    const expired = {
+      agentId: 'agent-x',
+      cli: 'codex' as const,
+      task: 'the original task',
+      cliSessionId: 'session-9',
+      parentSessionId: 'parent-1',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    it('resumes the session with the follow-up as the run task', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ success: true, agentId: 'agent-y' }),
+      );
+
+      const result = await store.resumeAgentWithMessage(expired, 'do more');
+
+      expect(rpcMock.call).toHaveBeenCalledWith('agent:resumeCliSession', {
+        cliSessionId: 'session-9',
+        cli: 'codex',
+        // The follow-up IS the resumed run's task — history comes from the
+        // session id, not from re-sending the original prompt.
+        task: 'do more',
+        parentSessionId: 'parent-1',
+        ptahCliId: undefined,
+        previousAgentId: 'agent-x',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('refuses without a session id rather than spawning a contextless agent', async () => {
+      const result = await store.resumeAgentWithMessage(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { ...expired, cliSessionId: undefined } as any,
+        'do more',
+      );
+
+      expect(rpcMock.call).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('no session to resume');
+    });
+
+    it('surfaces a handler-level failure verbatim', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ success: false, error: 'no such session file' }),
+      );
+
+      const result = await store.resumeAgentWithMessage(expired, 'do more');
+
+      expect(result).toEqual({ ok: false, error: 'no such session file' });
     });
   });
 });

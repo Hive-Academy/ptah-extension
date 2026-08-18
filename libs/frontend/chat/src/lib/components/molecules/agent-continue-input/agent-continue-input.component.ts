@@ -74,11 +74,23 @@ export class AgentContinueInputComponent {
     () => this.submitting() || this.agent().status === 'running',
   );
 
-  protected readonly subtitle = computed(() =>
-    this.agent().status === 'running'
-      ? 'Agent is working…'
-      : 'Send a follow-up',
+  /**
+   * The backend dropped the process record, so a follow-up has to go through a
+   * session resume. Only true when there is a session to resume with — without
+   * `cliSessionId` there is no path at all, and saying "resumes the session"
+   * would promise one.
+   */
+  protected readonly resumesInstead = computed(
+    () =>
+      this.agent().continuationExpired === true && !!this.agent().cliSessionId,
   );
+
+  protected readonly subtitle = computed(() => {
+    if (this.agent().status === 'running') return 'Agent is working…';
+    return this.resumesInstead()
+      ? 'Send a follow-up — resumes the session'
+      : 'Send a follow-up';
+  });
 
   protected readonly sendDisabled = computed(
     () => this.disabled() || this.draft().trim().length === 0,
@@ -102,6 +114,13 @@ export class AgentContinueInputComponent {
     this.submitting.set(true);
     this.error.set(null);
     try {
+      // A card whose record we already know is gone skips the round trip that
+      // can only answer `not_found` and resumes straight away.
+      if (this.resumesInstead()) {
+        await this.sendByResuming(message);
+        return;
+      }
+
       const result = await this.store.continueAgent(
         this.agent().agentId,
         message,
@@ -111,7 +130,10 @@ export class AgentContinueInputComponent {
       } else if (result.code === 'busy') {
         this.error.set('Agent is busy, try again when it finishes.');
       } else if (result.code === 'not_found') {
-        this.error.set('Agent expired — start a new one.');
+        // The record aged out (or the host restarted) without us hearing about
+        // it. The CONVERSATION is still on disk, so resume it rather than
+        // telling the user to start over and lose the context.
+        await this.sendByResuming(message);
       } else {
         this.error.set('Could not send the follow-up. Try again.');
       }
@@ -124,5 +146,31 @@ export class AgentContinueInputComponent {
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  /**
+   * Deliver the follow-up by resuming the CLI-native session. The resumed run
+   * arrives as a fresh agent card (a new `agentId`), which replaces this one —
+   * so the draft is cleared here and this component is on its way out.
+   */
+  private async sendByResuming(message: string): Promise<void> {
+    if (!this.agent().cliSessionId) {
+      this.error.set('Agent expired and has no session to resume.');
+      return;
+    }
+
+    const resumed = await this.store.resumeAgentWithMessage(
+      this.agent(),
+      message,
+    );
+    if (resumed.ok) {
+      this.draft.set('');
+      return;
+    }
+    this.error.set(
+      resumed.error
+        ? `Could not resume the session: ${resumed.error}`
+        : 'Could not resume the session. Try again.',
+    );
   }
 }

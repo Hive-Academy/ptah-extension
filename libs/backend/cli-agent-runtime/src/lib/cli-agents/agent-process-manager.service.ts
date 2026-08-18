@@ -1164,6 +1164,12 @@ export class AgentProcessManager {
       this.logger.info('[AgentProcessManager] Cleaned up completed agent', {
         agentId,
       });
+      // The UI's agent card outlives this record. Announce the drop so a
+      // follow-up box can stop offering `continueConversation` on an id that
+      // can now only answer `not_found`, and reach for the session-resume path
+      // instead. Emitted AFTER the delete so a listener that immediately calls
+      // back in observes the same map this method just left behind.
+      this.events.emit('agent:expired', { agentId });
     }, COMPLETED_AGENT_TTL);
   }
 

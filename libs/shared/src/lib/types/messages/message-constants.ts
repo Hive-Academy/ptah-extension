@@ -144,6 +144,13 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
+  /**
+   * Backend → Frontend: a completed agent's record was dropped from the
+   * process manager's map after `COMPLETED_AGENT_TTL`. The card outlives the
+   * record, so without this the UI keeps offering `agent:continue` on an id the
+   * backend can only answer `not_found` for.
+   */
+  AGENT_MONITOR_EXPIRED: 'agent-monitor:expired',
   AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
   AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
