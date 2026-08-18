@@ -41,7 +41,18 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - `src/lib/harness/` — `HarnessRpcHandlers` sub-services + `HARNESS_TOKENS`
 - `src/lib/chat/` — `ChatRpcHandlers` sub-services + `CHAT_TOKENS`
 - `src/lib/utils/workspace-authorization.ts` — shared `isAuthorizedWorkspace` (PR-267)
+- `src/lib/handlers/external-plugin-mcp.service.ts` — installs the MCP servers an
+  external marketplace plugin DECLARES. It lives here, not in
+  `plugin-marketplace`, because `McpInstallService` is in `cli-agent-runtime` and
+  `plugin-marketplace` depends on neither it nor `harness-sync` (its whole
+  dependency set is `shared` + `vscode-core`). `PluginRpcHandlers` was already
+  downstream of both and already reconciled after an install, so the seam
+  existed. See "Declared MCP servers" below.
 - Output-style selection and activation are NOT here. Both moved to `output-styles` when `cli-agent-runtime` started needing the same composition for spawned CLI agents and could not import this lib (`rpc-handlers → cli-agent-runtime`). `OutputStyleRpcHandlers` and `ChatSessionService` import `readOutputStyleSelection` / `OutputStyleSessionActivationService` from `@ptah-extension/output-styles` — do not re-inline either.
+- `src/lib/skills-sh/` — the skills.sh SOURCE ROOT: where an installed skill
+  lives (`skills-sh-source-root.ts`), the one service that writes it
+  (`*.service.ts`), and the legacy `.claude/skills` sweep
+  (`*-legacy-adoption.ts`). See "skills.sh source roots" below.
 - `src/lib/host-profile/` — `Capability` vocabulary, `RPC_HANDLER_MANIFEST`, `HostProfile`, `registerRpcSurface`
 - `src/lib/verify-and-report.ts` — runtime verification of registration completeness
 
@@ -53,9 +64,112 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - Each `*-rpc.handlers.ts` declares `static readonly METHODS` tuple, referenced by its manifest entry
 - `src/lib/utils/workspace-authorization.ts` — workspace auth gate used by privileged handlers
 
+## Declared MCP servers (TASK_2026_287)
+
+`MarketplaceManifestSchema` has always accepted `mcpServers`, the installer has
+always rendered them in the consent dialog and persisted them in the consent
+record — and until this change nothing installed them. The user was told "this
+plugin will install these MCP servers", approved, and not one byte reached
+`.mcp.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`,
+`.cursor/mcp.json` or `~/.gemini/config/mcp_config.json`, because no intent was
+recorded and the reconciler never saw them.
+
+Four rules, all pinned by `external-plugin-mcp.service.spec.ts` and the
+`external install / uninstall` block of `plugin-rpc.handlers.spec.ts`:
+
+- **The write path is the existing one.** RECORD INTENT, then RECONCILE, through
+  `McpInstallService` — the same surface `mcp:install` uses. Nothing here writes
+  a config file. Intent first is required: the reconciler's desired MCP state IS
+  `~/.ptah/mcp-installed.json`, so recording after the pass leaves it unapplied.
+- **The server list comes from the CONSENT RECORD**, never from a fresh manifest
+  read. That record is the exact set the dialog showed, so installing from it
+  cannot widen the consent surface even if upstream moved between plan and
+  confirm.
+- **Targets are `claude` + `vscode` + the rival CLIs the detector actually
+  finds** — the same `IHarnessCliDetector` the reconciler gates on. Deliberately
+  NOT `HARNESS_DEFAULT_MCP_TARGETS` (`['claude','vscode']`): that default is for
+  the harness BUILDER, where an AI-designed preset names servers with no
+  knowledge of the machine. Here the install is a real user action on a real
+  machine, and a user whose day job is Codex should not get the plugin's servers
+  only in the two files Ptah can always write. `claude` and `vscode` are
+  unconditional because the reconciler never gates them either
+  (`ClaudeTarget.detect()` is always true; the VS Code target hardcodes it).
+  It is also not "all six" — an undetected target is skipped by the reconciler,
+  so asking for one makes `McpInstallService` report a cheerful success for a
+  file it never touched.
+- **A key an unowned server occupies is REPORTED here and REFUSED there.** The
+  service probes the config files BEFORE recording (recording flips
+  `managedByPtah` and would hide the collision) and turns each occupied key into
+  an `mcpWarnings` entry on the install result. The refusal itself stays the
+  reconciler's `foreign`/`blocked` rule; re-deciding ownership here would be a
+  second copy of a rule that must have exactly one owner.
+
+Uninstall reads the record BEFORE `ExternalPluginInstallerService.uninstall`
+deletes it — afterwards nothing says which keys were the plugin's, and its
+servers would outlive it in every config file.
+
+## skills.sh source roots (TASK_2026_288)
+
+`skillsSh:install` used to shell `npx skills add --agent claude-code`, which
+writes into `{ws}/.claude/skills` (or `~/.claude/skills` with `-g`). Three
+consequences, all defects: the skill reached Claude ALONE (not `.agents/skills`,
+`.github/skills`, `.cursor/skills`); `.claude/skills` is a MANAGED directory, so
+a path there that no manifest owns is `foreign` by rule and every skills.sh
+skill was a permanent unclearable `ptah harness doctor` finding; and `-g` wrote
+where the workspace-scoped reconciler cannot look at all.
+
+The fix is not a fourth writer:
+
+- **Content lands in a Ptah-owned source root**,
+  `~/.ptah/plugins/ptah-skillssh-<owner>-<repo>/skills/<slug>/`, deliberately the
+  `ptah-harness-*` shape. That shape is ALREADY a first-class overlay source —
+  `PluginLoaderService.resolveCurrentPluginPaths` yields it,
+  `PluginConfigSourceResolver` hands it to `HarnessManifestBuilder.buildSkills` —
+  so from there it is ordinary desired state: copied into all six targets,
+  hash-gated, manifest-owned, reaped when the root goes away. No new writer, no
+  new manifest, no new concept.
+- **Overlay-only. It is NOT mirrored into `~/.ptah/user/skills`, and that is
+  load-bearing.** The user layer is the desired state's BASE and wins collisions,
+  and `UserLayerMirrorService` clones create-if-absent — so a clone would survive
+  uninstall and the skill would propagate forever. Overlay-only is what makes
+  `skillsSh:uninstall` actually reap. Do not "fix" this by adding a mirror.
+- **The CLI is run in a STAGING DIRECTORY.** `skills` has no output-directory
+  flag; its only redirection is `-g`. What it does do is resolve every
+  project-scope path relative to `process.cwd()`, so cwd IS the output flag.
+  `stageSkillsInstall` points it at a scratch tree, the service verifies at least
+  one readable slug, moves them into the source root and deletes the scratch —
+  so a failed fetch never leaves half a skill somewhere the reconciler would
+  propagate. Measured flags (`skills@latest`, 2026-08-18, pinned by
+  `skills-sh-cli.spec.ts`): `--agent claude-code --copy -y` writes real files to
+  `{cwd}/.claude/skills/<slug>/` plus `{cwd}/skills-lock.json` and touches
+  nothing under `$HOME`; omitting `--skill` installs the whole repo;
+  `--agent '*'` would symlink instead, which would not survive the move.
+- **`scope` and `agents` are gone from `skillsSh:install`.** `scope` chose
+  between two directories the reconciler reconciles neither of; per-workspace
+  control moved to `disabledPluginIds` / `disabledSkillIds`, which is reversible.
+  `agents` was declared, validated and dropped on the floor — target selection
+  has one owner, the reconciler fanning out to every detected CLI.
+- **Legacy adoption reads a RECORD, never a heuristic.** Skills carry no writer
+  signature and never will, so a stale managed copy is indistinguishable from a
+  hand-written `SKILL.md`. `skills-sh-legacy-adoption.ts` adopts exactly what
+  `{ws}/skills-lock.json` — the third-party CLI's own file — names, and touches
+  nothing else. `~/.claude/skills` (the old `scope: 'global'` destination) is
+  deliberately NOT adopted: no home-level lockfile exists, so nothing there can
+  be told apart from a skill the user installed outside Ptah.
+- **Triggers call `HarnessPropagationService.propagate`, never `reconcile`**, and
+  a propagation failure never fails the install — the bytes are on disk and every
+  host reconciles again at activation.
+
+`source` and `skillId` reach both a `path.join` and a spawned argv. Three layers
+check them and all three must agree: the RPC boundary (Zod schema +
+`rejectUnsafeInstallRequest`), `skillsShRootId` in the service, and
+`stageSkillsInstall` right before the spawn. `SAFE_SOURCE_PATTERN` alone accepts
+`../..` and `SAFE_SKILL_ID_PATTERN` alone accepts `..`; `isSafePathToken` (shared)
+is the half that rejects them. Never loosen either regex to "simplify" this.
+
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/agent-sdk`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-generation`, `@ptah-extension/plugin-marketplace`
+**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/agent-sdk`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-generation`, `@ptah-extension/plugin-marketplace`, `@ptah-extension/harness-sync`, `@ptah-extension/cli-agent-runtime`, `@ptah-extension/output-styles`
 **External**: `tsyringe`, `zod`
 
 ## Guidelines

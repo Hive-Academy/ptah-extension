@@ -651,6 +651,29 @@ describe('PluginLoaderService.saveWorkspacePluginConfig (disable persistence)', 
     ]);
   });
 
+  it('reads a config persisted without disabledAgentIds as nothing disabled, and preserves the list when a caller omits it', async () => {
+    // Same back-compat idiom as disabledPluginIds, for the same reason: every
+    // config on disk predates per-agent toggling, and a caller that says
+    // nothing about agents must not silently re-enable one the user turned off.
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+
+    expect(h.service.getWorkspacePluginConfig().disabledAgentIds).toEqual([]);
+
+    await h.service.saveWorkspacePluginConfig({
+      enabledPluginIds: ['ptah-core'],
+      disabledSkillIds: [],
+      disabledAgentIds: ['senior-tester'],
+    });
+    await h.service.saveWorkspacePluginConfig({
+      enabledPluginIds: ['ptah-core'],
+      disabledSkillIds: [],
+    });
+
+    expect(h.service.getWorkspacePluginConfig().disabledAgentIds).toEqual([
+      'senior-tester',
+    ]);
+  });
+
   it('clears the denylist when an explicit empty array is passed', async () => {
     const h = track(
       makeHarness({

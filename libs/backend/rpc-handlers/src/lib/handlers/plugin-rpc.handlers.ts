@@ -28,22 +28,33 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
+  NO_CLI_DETECTOR,
   type HarnessPropagationService,
+  type HarnessReconcilerService,
+  type IHarnessCliDetector,
 } from '@ptah-extension/harness-sync';
+import { McpInstallService } from '@ptah-extension/cli-agent-runtime';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { CommandDiscoveryService } from '@ptah-extension/workspace-intelligence';
 import {
   ExternalPluginInstallerService,
+  ExternalPluginStateStore,
   MarketplaceRegistryService,
   PLUGIN_MARKETPLACE_TOKENS,
   PluginMarketplaceError,
 } from '@ptah-extension/plugin-marketplace';
+import {
+  EXTERNAL_PLUGIN_MCP_TOKEN,
+  ExternalPluginMcpService,
+  type ExternalMcpOutcome,
+} from './external-plugin-mcp.service';
 import type {
   HarnessHealth,
   PluginInfo,
@@ -54,6 +65,7 @@ import type {
   ExternalInstallResult,
   ExternalMarketplace,
   ExternalMarketplaceBrowseResult,
+  ExternalPluginMcpServer,
   ExternalSkillCollision,
   ExternalUninstallResult,
   ListMarketplacesResult,
@@ -65,6 +77,42 @@ import {
   MarketplaceBrowseParamsSchema,
   MarketplaceSourceParamsSchema,
 } from './plugin-rpc.schema';
+
+/**
+ * Resolve the MCP installer for external plugins, or build the shipping one.
+ *
+ * Mirrors how `McpDirectoryRpcHandlers` and `HarnessMcpInstallService` obtain
+ * their `McpInstallService`: a host without `harness-sync` gets a service that
+ * records intent and reports a clear per-target error, never a second write
+ * path into the config files.
+ */
+function resolveExternalPluginMcpService(
+  container: DependencyContainer,
+  logger: Logger,
+): ExternalPluginMcpService {
+  if (container.isRegistered(EXTERNAL_PLUGIN_MCP_TOKEN)) {
+    return container.resolve<ExternalPluginMcpService>(
+      EXTERNAL_PLUGIN_MCP_TOKEN,
+    );
+  }
+
+  const reconciler = container.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER)
+    ? container.resolve<HarnessReconcilerService>(
+        HARNESS_SYNC_TOKENS.RECONCILER,
+      )
+    : null;
+  // The SAME detector the reconciler gates its rival targets on, so "installed"
+  // means one thing in this workspace rather than two.
+  const detector = container.isRegistered(HARNESS_SYNC_TOKENS.CLI_DETECTOR)
+    ? container.resolve<IHarnessCliDetector>(HARNESS_SYNC_TOKENS.CLI_DETECTOR)
+    : NO_CLI_DETECTOR;
+
+  return new ExternalPluginMcpService(
+    logger,
+    new McpInstallService(reconciler),
+    detector,
+  );
+}
 
 /**
  * RPC handlers for plugin configuration operations.
@@ -92,6 +140,17 @@ export class PluginRpcHandlers {
     'plugins:uninstall-external',
   ] as const satisfies readonly RpcMethodName[];
 
+  /**
+   * Installs the MCP servers an external plugin DECLARES.
+   *
+   * Built from the container rather than injected by token so no host needs a
+   * new registration line — the same reason `McpDirectoryRpcHandlers` builds
+   * its own `McpInstallService`. A registered {@link EXTERNAL_PLUGIN_MCP_TOKEN}
+   * wins, which is how a spec substitutes an installer that does not write to
+   * the developer's real `~/.ptah/mcp-installed.json`.
+   */
+  private readonly externalMcp: ExternalPluginMcpService;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -109,7 +168,18 @@ export class PluginRpcHandlers {
     private readonly marketplaceRegistry: MarketplaceRegistryService,
     @inject(PLUGIN_MARKETPLACE_TOKENS.INSTALLER)
     private readonly externalInstaller: ExternalPluginInstallerService,
-  ) {}
+    /**
+     * The consent record, read for the ONE field nothing else in this repo
+     * consumed: `mcpServers`. It is the authoritative list of what the user
+     * approved, which is exactly the list this handler is allowed to install.
+     */
+    @inject(PLUGIN_MARKETPLACE_TOKENS.STATE_STORE)
+    private readonly externalState: ExternalPluginStateStore,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    container: DependencyContainer,
+  ) {
+    this.externalMcp = resolveExternalPluginMcpService(container, this.logger);
+  }
 
   /**
    * Register all plugin RPC methods
@@ -515,6 +585,11 @@ export class PluginRpcHandlers {
           throw error;
         }
 
+        // BEFORE `activateExternalPlugin`, which reconciles: the reconciler's
+        // desired MCP state IS `~/.ptah/mcp-installed.json`, so an intent
+        // recorded after the pass would not be applied until some later
+        // trigger fired.
+        const mcp = await this.installDeclaredMcpServers(result.pluginId);
         const collisions = await this.activateExternalPlugin(result.pluginId);
 
         this.logger.debug('RPC: plugins:install-external installed', {
@@ -523,14 +598,58 @@ export class PluginRpcHandlers {
           filesWritten: result.filesWritten,
           skipped: result.skippedBinaryFiles.length,
           collisions: collisions.length,
+          mcpServers: mcp.serverKeys.length,
+          mcpWarnings: mcp.warnings.length,
         });
 
         return {
           status: 'installed' as const,
-          result: { ...result, collisions },
+          result: {
+            ...result,
+            collisions,
+            mcpServersInstalled: mcp.serverKeys,
+            mcpWarnings: mcp.warnings,
+          },
         };
       });
     });
+  }
+
+  /**
+   * Record an install intent for every MCP server the plugin declared.
+   *
+   * The list comes from the CONSENT RECORD, not from a fresh manifest read:
+   * that record is the exact set the dialog showed and the user approved, so
+   * installing from it cannot widen the consent surface even if upstream
+   * changed between the plan and the confirm.
+   *
+   * Non-fatal throughout. A plugin whose files landed is installed; an MCP
+   * server that could not be recorded is a warning on the result, not a failed
+   * install the user has to retry.
+   */
+  private async installDeclaredMcpServers(
+    pluginId: string,
+  ): Promise<ExternalMcpOutcome> {
+    try {
+      const record = this.externalState.findInstalled(pluginId);
+      const servers = record?.mcpServers ?? [];
+      if (servers.length === 0) return { serverKeys: [], warnings: [] };
+      return await this.externalMcp.install(
+        pluginId,
+        servers,
+        this.workspaceProvider.getWorkspaceRoot() ?? undefined,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn('External plugin MCP install failed (non-fatal)', {
+        pluginId,
+        error: message,
+      });
+      return {
+        serverKeys: [],
+        warnings: [`Declared MCP servers were not installed: ${message}`],
+      };
+    }
   }
 
   /** plugins:uninstall-external - Remove the tree, the record and the toggle. */
@@ -542,13 +661,62 @@ export class PluginRpcHandlers {
       const parsed = ExternalUninstallParamsSchema.parse(params);
 
       return this.guard('registerUninstallExternal', async () => {
+        // Captured BEFORE the uninstall: `uninstall()` deletes the consent
+        // record, and that record is the only thing that says which MCP keys
+        // belonged to this plugin. Read it afterwards and its servers would sit
+        // in every config file forever, outliving the plugin that declared
+        // them.
+        const declared =
+          this.externalState.findInstalled(parsed.pluginId)?.mcpServers ?? [];
+
         const removed = await this.externalInstaller.uninstall(parsed.pluginId);
-        if (removed) {
-          await this.deactivateExternalPlugin(parsed.pluginId);
-        }
-        return { pluginId: parsed.pluginId, removed };
+        if (!removed) return { pluginId: parsed.pluginId, removed };
+
+        const mcp = await this.uninstallDeclaredMcpServers(
+          parsed.pluginId,
+          declared,
+        );
+        await this.deactivateExternalPlugin(parsed.pluginId);
+
+        return {
+          pluginId: parsed.pluginId,
+          removed,
+          mcpServersRemoved: mcp.serverKeys,
+          mcpWarnings: mcp.warnings,
+        };
       });
     });
+  }
+
+  /**
+   * Drop the install intent for every MCP server this plugin declared.
+   *
+   * Runs only after the tree and the record are actually gone (`removed`), and
+   * before `deactivateExternalPlugin` reconciles — so the same pass that reaps
+   * the plugin's skills also reaps its MCP entries.
+   */
+  private async uninstallDeclaredMcpServers(
+    pluginId: string,
+    servers: readonly ExternalPluginMcpServer[],
+  ): Promise<ExternalMcpOutcome> {
+    if (servers.length === 0) return { serverKeys: [], warnings: [] };
+    try {
+      return await this.externalMcp.uninstall(
+        pluginId,
+        servers,
+        this.workspaceProvider.getWorkspaceRoot() ?? undefined,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn('External plugin MCP uninstall failed (non-fatal)', {
+        pluginId,
+        error: message,
+      });
+      return {
+        serverKeys: [],
+        warnings: [`Declared MCP servers were not removed: ${message}`],
+      };
+    }
   }
 
   /**

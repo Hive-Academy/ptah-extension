@@ -21,7 +21,19 @@ import type {
   IHarnessCliDetector,
 } from '../sources/harness-source.port';
 import { NO_CLI_DETECTOR } from '../sources/harness-source.port';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { createRivalTargets } from './rival-targets';
+
+/**
+ * Agents are gated per workspace since TASK_2026_286. This spec is about
+ * DETECTION, so it records consent up front rather than re-testing the gate.
+ */
+function grantAgentSync(workspaceRoot: string): void {
+  new HarnessStateStore().save(workspaceRoot, {
+    version: 1,
+    agentSyncEnabled: true,
+  });
+}
 
 interface FakeLogger {
   debug: jest.Mock;
@@ -72,6 +84,7 @@ describe('rival targets — detection gating (E17)', () => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-detect-ws-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-detect-src-'));
     tempHome = mkdtempSync(join(tmpdir(), 'harness-sync-detect-home-'));
+    grantAgentSync(ws);
   });
 
   afterEach(() => {

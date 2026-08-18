@@ -1572,31 +1572,22 @@ export function buildRouter(): Command {
       'install a skill via skillsSh:install (idempotent — second run reports changed:false)',
     )
     .option('--skill-id <id>', 'optional skill id inside the source repo')
-    .option('--scope <scope>', 'installation scope (project|global)', 'project')
-    .action(
-      async (source: string, opts: { skillId?: string; scope?: string }) => {
-        const exit = await skillCmd.execute(
-          {
-            subcommand: 'install',
-            source,
-            skillId: opts.skillId,
-            scope: opts.scope,
-          },
-          resolveGlobals(program),
-        );
-        process.exitCode = exit;
-      },
-    );
+    .action(async (source: string, opts: { skillId?: string }) => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'install', source, skillId: opts.skillId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
 
   skill
     .command('remove <name>')
     .description(
       'uninstall a skill via skillsSh:uninstall (idempotent — emits changed:false when absent)',
     )
-    .option('--scope <scope>', 'installation scope (project|global)', 'project')
-    .action(async (name: string, opts: { scope?: string }) => {
+    .action(async (name: string) => {
       const exit = await skillCmd.execute(
-        { subcommand: 'remove', name, scope: opts.scope },
+        { subcommand: 'remove', name },
         resolveGlobals(program),
       );
       process.exitCode = exit;

@@ -159,6 +159,24 @@ export interface ExternalInstallResult {
   skippedBinaryFiles: string[];
   /** Skills that landed shadowed by an already-active skill of the same name. */
   collisions: ExternalSkillCollision[];
+  /**
+   * Keys of the declared MCP servers whose install intent was recorded.
+   *
+   * The consent dialog listed these servers before a byte was written, so
+   * installing them at confirm is inside what the user approved — but until
+   * TASK_2026_287 nothing installed them at all, and the dialog's promise was
+   * simply untrue. Optional so existing consumers compile unchanged.
+   */
+  mcpServersInstalled?: string[];
+  /**
+   * Why a declared MCP server did not fully land: a key an unowned server
+   * already occupies (never overwritten — see `ExternalPluginMcpService`), a
+   * per-target write failure, or a declaration the schema rejected.
+   *
+   * These are advisory. The plugin itself installed; only some of its servers
+   * did not.
+   */
+  mcpWarnings?: string[];
 }
 
 /**
@@ -217,6 +235,16 @@ export interface ExternalUninstallResult {
    * with, and nothing was touched.
    */
   removed: boolean;
+  /**
+   * Keys of the plugin's declared MCP servers whose install intent was dropped.
+   *
+   * Read from the consent record BEFORE it is deleted — afterwards nothing
+   * records which keys were this plugin's, and its servers would sit in every
+   * MCP config file forever. Optional so existing consumers compile unchanged.
+   */
+  mcpServersRemoved?: string[];
+  /** Why a server could not be fully removed. Advisory, like the install side. */
+  mcpWarnings?: string[];
 }
 
 /** Params for `plugins:add-marketplace` / `plugins:remove-marketplace`. */

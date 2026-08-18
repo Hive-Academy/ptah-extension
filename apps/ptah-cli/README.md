@@ -276,15 +276,21 @@ Step ids are `license`, `provider.default`, `provider.credential`, and `verify`.
 
 ### `skill *` — skills.sh marketplace
 
-| Sub-subcommand           | Args / flags                                    | Description                                                 |
-| ------------------------ | ----------------------------------------------- | ----------------------------------------------------------- |
-| `skill search <query>`   | —                                               | Search the skills.sh registry.                              |
-| `skill installed`        | —                                               | List locally-installed skills.                              |
-| `skill install <source>` | `[--skill-id <id>] [--scope <project\|global>]` | Install a skill. Idempotent.                                |
-| `skill remove <name>`    | `[--scope <project\|global>]`                   | Uninstall a skill. Idempotent.                              |
-| `skill popular`          | —                                               | Emit the curated popular skills list.                       |
-| `skill recommended`      | —                                               | Detect workspace tech and emit recommended skills.          |
-| `skill create`           | `--from-spec <path>` (required)                 | Create a skill from a JSON spec via `harness:create-skill`. |
+| Sub-subcommand           | Args / flags                    | Description                                                 |
+| ------------------------ | ------------------------------- | ----------------------------------------------------------- |
+| `skill search <query>`   | —                               | Search the skills.sh registry.                              |
+| `skill installed`        | —                               | List locally-installed skills.                              |
+| `skill install <source>` | `[--skill-id <id>]`             | Install a skill. Idempotent.                                |
+| `skill remove <name>`    | —                               | Uninstall a skill. Idempotent.                              |
+| `skill popular`          | —                               | Emit the curated popular skills list.                       |
+| `skill recommended`      | —                               | Detect workspace tech and emit recommended skills.          |
+| `skill create`           | `--from-spec <path>` (required) | Create a skill from a JSON spec via `harness:create-skill`. |
+
+An installed skill lands in a user-global source root under `~/.ptah/plugins`
+and is propagated from there into every AI CLI Ptah detects — so there is no
+`--scope` flag any more. To silence one in a single workspace, disable it from
+the Plugins panel (`disabledPluginIds` / `disabledSkillIds`); unlike an
+install-time flag, that is reversible.
 
 ### `mcp *` — MCP server registry
 

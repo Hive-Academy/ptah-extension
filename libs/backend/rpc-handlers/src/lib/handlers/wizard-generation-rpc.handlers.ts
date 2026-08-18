@@ -21,6 +21,7 @@ import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import {
   HARNESS_SYNC_TOKENS,
+  type AgentSyncGate,
   type HarnessPropagationService,
 } from '@ptah-extension/harness-sync';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
@@ -182,6 +183,10 @@ export class WizardGenerationRpcHandlers {
    */
   private async propagateGeneratedAgents(workspaceRoot: string): Promise<void> {
     try {
+      // BEFORE the propagate, because the reconciler resolves the gate at the
+      // top of the pass: granting after it would leave the agents this run just
+      // generated sitting in the user layer until some later trigger fired.
+      this.grantAgentSyncConsent(workspaceRoot);
       if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) return;
       const propagation = this.resolveService<HarnessPropagationService>(
         HARNESS_SYNC_TOKENS.PROPAGATION,
@@ -199,6 +204,39 @@ export class WizardGenerationRpcHandlers {
       });
     } catch (error: unknown) {
       this.logger.warn('Harness propagation after generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Completing the setup wizard IS the user asking Ptah to manage subagents in
+   * this workspace, so it is what grants the `agents` consent gate.
+   *
+   * Without this the wizard would generate agents into `{ws}/.claude/agents`,
+   * the mirror would publish them to `~/.ptah/user/agents`, and the reconciler
+   * would decline to fan a single one of them out to Codex, Copilot or Cursor —
+   * a gate is only honest if the obvious action clears it.
+   *
+   * Non-fatal, like everything else on this path: a state file that would not
+   * write costs the user one un-propagated pass, not a failed wizard run.
+   */
+  private grantAgentSyncConsent(workspaceRoot: string): void {
+    try {
+      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)) {
+        return;
+      }
+      const gate = this.resolveService<AgentSyncGate>(
+        HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE,
+        'AgentSyncGate',
+      );
+      if (gate.enable(workspaceRoot)) return;
+      this.logger.warn(
+        'Could not record agent-sync consent; generated agents may not reach rival CLIs',
+        { workspaceRoot },
+      );
+    } catch (error: unknown) {
+      this.logger.warn('Recording agent-sync consent failed', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

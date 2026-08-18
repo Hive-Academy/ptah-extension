@@ -8,15 +8,18 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Puzzle, XCircle } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { PluginInfo } from '@ptah-extension/shared';
+import { isOptOutPluginSource, type PluginInfo } from '@ptah-extension/shared';
 
 /**
  * Count the plugins that are actually active.
  *
- * Bundled plugins are opt-in (`enabledPluginIds`), harness-authored ones are
- * opt-out (`disabledPluginIds`), so the enabled count is NOT simply
- * `enabledPluginIds.length` — a user-authored skill is live without ever being
- * listed there.
+ * Bundled and external plugins are opt-in (`enabledPluginIds`); harness-authored
+ * and skills.sh ones are opt-out (`disabledPluginIds`), so the enabled count is
+ * NOT simply `enabledPluginIds.length` — a user-authored skill is live without
+ * ever being listed there. `isOptOutPluginSource` is the shared rule rather
+ * than a literal comparison, because this count silently disagreeing with what
+ * the reconciler actually propagates is invisible until someone toggles a
+ * plugin and the number does not move.
  */
 function countEnabledPlugins(
   plugins: PluginInfo[],
@@ -27,7 +30,7 @@ function countEnabledPlugins(
   const disabled = new Set(disabledPluginIds);
 
   return plugins.filter((plugin) =>
-    plugin.source === 'harness'
+    isOptOutPluginSource(plugin.source)
       ? !disabled.has(plugin.id)
       : enabled.has(plugin.id) && !disabled.has(plugin.id),
   ).length;

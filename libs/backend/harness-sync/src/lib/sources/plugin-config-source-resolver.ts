@@ -28,7 +28,10 @@ import { McpIntentStore, type HarnessMcpIntent } from './mcp-intent-store';
 export interface HarnessPluginConfigReader {
   resolveCurrentPluginPaths(): string[];
   getDisabledSkillIds(): string[];
-  getWorkspacePluginConfig(): { disabledPluginIds?: string[] };
+  getWorkspacePluginConfig(): {
+    disabledPluginIds?: string[];
+    disabledAgentIds?: string[];
+  };
 }
 
 /**
@@ -83,6 +86,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       overlayPluginPaths: [],
       disabledSkillIds: [],
       disabledPluginIds: [],
+      disabledAgentIds: [],
     };
 
     let reader: HarnessPluginConfigReader | null;
@@ -94,13 +98,17 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     if (reader === null) return empty;
 
     try {
+      // One read, two fields. Two calls would let a loader that recomputes
+      // between them hand the builder a plugin denylist and an agent denylist
+      // from different snapshots of the same config.
+      const config = reader.getWorkspacePluginConfig();
       return {
         layout: this.layout,
         mcpIntents,
         overlayPluginPaths: reader.resolveCurrentPluginPaths(),
         disabledSkillIds: reader.getDisabledSkillIds(),
-        disabledPluginIds:
-          reader.getWorkspacePluginConfig().disabledPluginIds ?? [],
+        disabledPluginIds: config.disabledPluginIds ?? [],
+        disabledAgentIds: config.disabledAgentIds ?? [],
       };
     } catch {
       return empty;

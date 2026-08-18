@@ -220,6 +220,13 @@ export {
   type HarnessWorkspaceState,
 } from './lib/gitignore/harness-state-store';
 
+// The per-workspace consent gate for the `agents` facet, and its migration.
+// Exported because the setup wizard GRANTS the consent from `rpc-handlers`.
+export {
+  AgentSyncGate,
+  type AgentSyncDecision,
+} from './lib/state/agent-sync-gate';
+
 // Durable writes — every file this lib owns lands through these, atomically and
 // with the Windows sharing-violation retry (E21).
 export { atomicWriteWithRetry } from './lib/fs/atomic-write';

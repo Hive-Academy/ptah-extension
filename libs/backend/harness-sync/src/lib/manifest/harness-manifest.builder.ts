@@ -67,6 +67,18 @@ export interface HarnessManifestBuildOptions {
    * `sources-missing`. Purely a reporting distinction — behaviour is identical.
    */
   downloadPending?: boolean;
+  /**
+   * The workspace-level consent gate for the `agents` facet, resolved by
+   * `AgentSyncGate` (`state/agent-sync-gate.ts`). `false` makes the desired
+   * agent list EMPTY, which — agents being manifest-owned — reaps whatever Ptah
+   * previously wrote.
+   *
+   * Absent means enabled. The builder is not where the migration lives: the
+   * gate resolves an unrecorded flag from manifest evidence and hands down a
+   * boolean, so a caller that has no opinion (a spec, a preflight built by
+   * hand) gets the pre-gate behaviour rather than an accidental reap.
+   */
+  agentSyncEnabled?: boolean;
 }
 
 export class HarnessManifestBuilder {
@@ -77,7 +89,11 @@ export class HarnessManifestBuilder {
     const collisions: HarnessCollision[] = [];
     const skills = this.buildSkills(sources, collisions);
     const commands = this.buildCommands(sources, collisions);
-    const agents = this.buildAgents(sources, collisions);
+    const agents = this.buildAgents(
+      sources,
+      collisions,
+      options.agentSyncEnabled !== false,
+    );
 
     return {
       skills,
@@ -329,13 +345,37 @@ export class HarnessManifestBuilder {
 
   // ---------------------------------------------------------------- agents
 
+  /**
+   * Agents, gated twice over — and both gates were missing until TASK_2026_286.
+   *
+   * 1. `agentSyncEnabled === false` makes the whole facet empty. That is the
+   *    WORKSPACE-level consent: until the setup wizard has run (or the
+   *    migration found evidence of a previous propagation), Ptah does not
+   *    scatter subagents into `.codex/agents`, `.github/agents` and
+   *    `.cursor/agents` for a project the user never asked it to.
+   * 2. `disabledAgentIds` drops individual slugs, exactly as
+   *    `disabledSkillIds` does in {@link buildSkills} — same key shape (the
+   *    filename minus `.md`), same raw membership test, so one saved config can
+   *    key both without a second canonicalisation rule to keep in step.
+   *
+   * Returning `[]` is a REAP, not a skip: agents are manifest-owned, so the
+   * removal sweep deletes whatever this pass stopped asking for. That is the
+   * behaviour we want when the user turns an agent off, and it is precisely why
+   * the absent-flag case must never resolve to a bare `false` — see
+   * `state/agent-sync-gate.ts`.
+   */
   private buildAgents(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
+    syncEnabled: boolean,
   ): HarnessDesiredAgent[] {
+    if (!syncEnabled) return [];
+
+    const disabled = new Set(sources.disabledAgentIds ?? []);
     const claimed = new Map<string, HarnessDesiredAgent>();
     for (const file of this.listMarkdownFiles(sources.layout.agentsRoot)) {
       const slug = file.replace(/\.md$/i, '');
+      if (disabled.has(slug)) continue;
       const collision = this.rejectSlug(
         claimed,
         slug,

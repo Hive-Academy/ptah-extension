@@ -309,96 +309,49 @@ interface DisplaySkillEntry extends SkillShEntry {
             </button>
           </div>
         } @else {
-          @if (projectSkills().length > 0) {
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
-            >
-              Project Skills
-            </div>
-            <div class="space-y-1.5">
-              @for (skill of projectSkills(); track skill.path) {
-                <div
-                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
-                >
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-medium">{{ skill.name }}</div>
-                    @if (skill.agents.length) {
-                      <div class="flex flex-wrap gap-1 mt-0.5">
-                        @for (agent of skill.agents; track agent) {
-                          <span
-                            class="badge badge-xs badge-outline text-[9px]"
-                            >{{ agent }}</span
-                          >
-                        }
-                      </div>
-                    }
-                    <span
-                      class="text-[10px] text-base-content-muted font-mono"
-                      >{{ skill.source }}</span
-                    >
-                  </div>
-                  <button
-                    class="btn btn-ghost btn-xs text-error shrink-0"
-                    [disabled]="uninstallingSkillIds().has(skill.name)"
-                    (click)="removeInstalledSkill(skill)"
-                    type="button"
-                    [attr.aria-label]="'Remove ' + skill.name"
-                  >
-                    @if (uninstallingSkillIds().has(skill.name)) {
-                      <span class="loading loading-spinner loading-xs"></span>
-                    } @else {
-                      Remove
-                    }
-                  </button>
+          <!--
+            ONE list, no scope headings. Every skills.sh skill now lives in a
+            user-global source root under ~/.ptah/plugins and is propagated into
+            each detected CLI from there, so the old "Project Skills" / "Global
+            Skills" split described a destination that no longer exists — and
+            the project half would have rendered empty forever.
+          -->
+          <div
+            class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
+          >
+            Installed Skills
+          </div>
+          <div class="space-y-1.5">
+            @for (skill of installedSkills(); track skill.path) {
+              <div
+                class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
+              >
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium">{{ skill.name }}</div>
+                  <span class="text-[10px] text-base-content-muted font-mono">{{
+                    skill.source
+                  }}</span>
                 </div>
-              }
-            </div>
-          }
-          @if (globalSkills().length > 0) {
-            <div
-              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium mt-3"
-            >
-              Global Skills
-            </div>
-            <div class="space-y-1.5">
-              @for (skill of globalSkills(); track skill.path) {
-                <div
-                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
+                <button
+                  class="btn btn-ghost btn-xs text-error shrink-0"
+                  [disabled]="uninstallingSkillIds().has(skill.name)"
+                  (click)="removeInstalledSkill(skill)"
+                  type="button"
+                  [attr.aria-label]="'Remove ' + skill.name"
                 >
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-medium">{{ skill.name }}</div>
-                    @if (skill.agents.length) {
-                      <div class="flex flex-wrap gap-1 mt-0.5">
-                        @for (agent of skill.agents; track agent) {
-                          <span
-                            class="badge badge-xs badge-outline text-[9px]"
-                            >{{ agent }}</span
-                          >
-                        }
-                      </div>
-                    }
-                    <span
-                      class="text-[10px] text-base-content-muted font-mono"
-                      >{{ skill.source }}</span
-                    >
-                  </div>
-                  <button
-                    class="btn btn-ghost btn-xs text-error shrink-0"
-                    [disabled]="uninstallingSkillIds().has(skill.name)"
-                    (click)="removeInstalledSkill(skill)"
-                    type="button"
-                    [attr.aria-label]="'Remove ' + skill.name"
-                  >
-                    @if (uninstallingSkillIds().has(skill.name)) {
-                      <span class="loading loading-spinner loading-xs"></span>
-                    } @else {
-                      Remove
-                    }
-                  </button>
-                </div>
-              }
-            </div>
-          }
+                  @if (uninstallingSkillIds().has(skill.name)) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  } @else {
+                    Remove
+                  }
+                </button>
+              </div>
+            }
+          </div>
+          <p class="text-[10px] text-base-content-muted mt-2">
+            Installed skills reach every AI CLI Ptah detects. Turn one off for
+            this workspace from the Plugins panel.
+          </p>
         }
       }
 
@@ -476,14 +429,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     }));
   });
 
-  readonly projectSkills = computed(() =>
-    this.installedSkills().filter((s) => s.scope === 'project'),
-  );
-
-  readonly globalSkills = computed(() =>
-    this.installedSkills().filter((s) => s.scope === 'global'),
-  );
-
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /** Re-load installed skills when refreshTrigger changes (skips initial value of 0) */
@@ -537,7 +482,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       const result = await this.rpcService.call('skillsSh:install', {
         source: skill.source,
         skillId: skill.skillId,
-        scope: 'project',
       });
 
       if (this.destroyed) return;
@@ -567,7 +511,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     try {
       const result = await this.rpcService.call('skillsSh:uninstall', {
         name: skill.skillId,
-        scope: 'project',
       });
 
       if (this.destroyed) return;
@@ -597,7 +540,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     try {
       const result = await this.rpcService.call('skillsSh:uninstall', {
         name: skill.name,
-        scope: skill.scope,
       });
 
       if (this.destroyed) return;

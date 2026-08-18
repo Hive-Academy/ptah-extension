@@ -21,7 +21,11 @@ import {
   Wand2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { PluginInfo, PluginSkillEntry } from '@ptah-extension/shared';
+import {
+  isOptOutPluginSource,
+  type PluginInfo,
+  type PluginSkillEntry,
+} from '@ptah-extension/shared';
 import { NgClass } from '@angular/common';
 
 /**
@@ -61,14 +65,19 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
 ];
 
 /**
- * True when the plugin was authored by the user through the harness wizard.
+ * True when the plugin is OPT-OUT — enabled the moment it exists on disk,
+ * disabled only by an explicit entry in `disabledPluginIds`.
  *
- * Harness plugins are OPT-OUT: enabled the moment they exist on disk, disabled
- * only by an explicit entry in `disabledPluginIds`. Bundled plugins (and any
- * legacy payload with no `source`) are OPT-IN via `enabledPluginIds`.
+ * That is the harness wizard's own skills and, since TASK_2026_288, skills.sh
+ * installs: in both cases the user named this exact artifact on purpose.
+ * Bundled and external plugins (and any legacy payload with no `source`) are
+ * OPT-IN via `enabledPluginIds`.
+ *
+ * Delegates to the shared rule so this modal, the status widget's count and
+ * `PluginLoaderService.resolveCurrentPluginPaths` cannot drift.
  */
-function isHarnessPlugin(plugin: PluginInfo): boolean {
-  return plugin.source === 'harness';
+function isOptOutPlugin(plugin: PluginInfo): boolean {
+  return isOptOutPluginSource(plugin.source);
 }
 
 /**
@@ -646,7 +655,7 @@ export class PluginBrowserModalComponent {
       const selected = this.selectedIds();
       const harnessIds = new Set(
         this.availablePlugins()
-          .filter(isHarnessPlugin)
+          .filter(isOptOutPlugin)
           .map((p) => p.id),
       );
       const enabledPluginIds = Array.from(selected).filter(
@@ -702,7 +711,7 @@ export class PluginBrowserModalComponent {
     );
 
     for (const plugin of plugins) {
-      if (!isHarnessPlugin(plugin)) continue;
+      if (!isOptOutPlugin(plugin)) continue;
       if (disabled.has(plugin.id)) {
         selection.delete(plugin.id);
       } else if (!enabled.has(plugin.id)) {

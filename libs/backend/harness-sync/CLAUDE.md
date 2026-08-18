@@ -33,6 +33,22 @@ Every cell is reported per target in `HarnessTargetHealth.facets`, so an
 artifact a tool genuinely cannot accept reads as `unsupported` rather than as a
 permanently missing count nobody can act on (defect 12).
 
+**The whole `agents` COLUMN is gated on user consent (TASK_2026_286).** Skills
+and commands are content the user installed or authored on purpose — a plugin
+toggle, a `SKILL.md` they wrote, a harness-builder run. Agents were the one
+artifact kind with no gate at all: every `.md` under `~/.ptah/user/agents` was
+fanned out to `.codex/agents`, `.github/agents` and `.cursor/agents` on the
+first pass, in every workspace. Two gates now, and either one dropping an agent
+REAPS it, because agents are manifest-owned:
+
+| Gate                                 | Scope     | Lives in                        | Set by                                          |
+| ------------------------------------ | --------- | ------------------------------- | ----------------------------------------------- |
+| `state.json` → `agentSyncEnabled`    | workspace | `{ws}/.ptah/harness/state.json` | the setup wizard, via `AgentSyncGate.enable`    |
+| `PluginConfigState.disabledAgentIds` | per agent | workspace state (plugin config) | the user, keyed by slug like `disabledSkillIds` |
+
+See "The agents consent gate and its migration" below for the absent-flag rule,
+which is the load-bearing half.
+
 **Why the unsupported cells are unsupported** — each is an upstream limit, not
 a gap to fill later:
 
@@ -123,12 +139,70 @@ find the directory full of files it could not prove it wrote and freeze on them
 as foreign; without the second, its ownership would be borrowed and would
 evaporate the moment the sibling left a partial reconcile.
 
+## The agents consent gate and its migration (TASK_2026_286)
+
+`buildAgents()` returns `[]` when the workspace has not consented, and agents
+are manifest-owned, so an empty desired state is a REAP rather than a skip. That
+is correct when a user turns an agent off — and it is exactly why the DEFAULT
+cannot be `false`. A flag that defaulted off would make the first routine
+reconcile after an upgrade delete every `.codex/agents/*.toml`,
+`.github/agents/*.agent.md` and `.cursor/agents/*.md` Ptah had ever written, in
+every existing workspace, silently, reported as an ordinary clean pass.
+
+So an ABSENT flag is resolved from evidence, once, by `state/agent-sync-gate.ts`:
+
+| `agentSyncEnabled` | Any per-target manifest owns an `agent` entry? | Result  |
+| ------------------ | ---------------------------------------------- | ------- |
+| `true`             | —                                              | `true`  |
+| `false`            | —                                              | `false` |
+| absent             | yes                                            | `true`  |
+| absent             | no                                             | `false` |
+
+**Prior propagation IS prior consent.** Those files exist because a previous
+version of Ptah put them there and the user has been living with them; a
+workspace with no agent entries in any manifest has nothing to lose and starts
+gated. The resolved value is then PERSISTED, so the evidence walk runs once and
+the answer cannot flip later just because a reap emptied the manifests.
+
+Four properties worth not re-deriving:
+
+- **Manifests are read for every id in `HARNESS_TARGET_IDS`**, not just the
+  targets the current host registered. The evidence is on disk; a CLI host
+  registering fewer targets than the extension did must not read the same
+  workspace as un-propagated and gate it.
+- **`verify()` resolves the gate but never persists it.** A derived decision is
+  a write, and asking what state the harness is in must not change it — a badge
+  that polls must not be able to record a consent decision for the user.
+- **`persist()` never overwrites a recorded flag.** It is the migration step,
+  not a way to revoke consent.
+- **The gate is DEFAULTED into `HarnessReconcilerService`, not nullable**,
+  unlike `HarnessGitignoreWriter`. An absent `.gitignore` writer means one less
+  file is maintained; an absent gate would mean the facet propagates ungated in
+  any host that forgot to wire it, which is the defect the gate exists to close.
+
+The wizard is what opens it. `wizard:submit-selection` →
+`propagateGeneratedAgents` calls `AgentSyncGate.enable(workspaceRoot)` BEFORE
+`propagate()`, because the reconciler resolves the gate at the top of the pass:
+granting afterwards would leave the agents that run just generated sitting in
+the user layer until some later trigger fired. `enable` also records
+`wizardCompletedAt`, which is the difference between "the user asked for this"
+and "the migration inferred it".
+
+`disabledAgentIds` is the per-agent half, and it is deliberately shaped exactly
+like `disabledSkillIds`: same key (the source filename minus `.md`), same raw
+membership test, so one saved config keys both without a second canonicalisation
+rule to keep in step. It reaches the builder through `IHarnessSourceResolver`
+like every other source fact — `HarnessPluginConfigReader` gained one optional
+field and `PluginLoaderService` still satisfies it STRUCTURALLY, with no import
+either way.
+
 ## Boundaries
 
 **Belongs here**:
 
 - Desired-state construction from the user layer + plugin overlay + disabled ids
   - recorded MCP intents
+- The per-workspace consent gate for `agents`, and its evidence-based migration
 - The single managed-manifest format, its atomic store, and the workspace lock
 - `IHarnessTarget` and its six implementations
 - The copy engine (recursive copy, Windows retry, `unlink`-not-`rm` removal)
@@ -160,7 +234,7 @@ evaporate the moment the sibling left a partial reconcile.
 `HarnessReconcilerService` (`reconcile`, `verify`, `remove`), `HarnessPropagationService`
 (`propagate`), `HarnessPreflightService` (`ensure`), `HarnessManifestBuilder`,
 `ManagedManifestStore`, `ClaudeTarget`, `WorkspaceHarnessTarget`,
-`McpIntentStore`, `HarnessGitignoreWriter`, `HarnessStateStore`.
+`McpIntentStore`, `HarnessGitignoreWriter`, `HarnessStateStore`, `AgentSyncGate`.
 Ports: `IHarnessTarget`, `IHarnessSourceResolver`, `IHarnessCliDetector`,
 `IHarnessMcpFacet`, `IHarnessAgentTransformer`, `IUserLayerRefresher`,
 `IHarnessContentGate`.
@@ -241,6 +315,8 @@ permanently amber badge nobody can clear.
 - `gitignore/harness-state-store.ts` — `{ws}/.ptah/harness/state.json`, the
   per-workspace memory of decisions the USER made (as opposed to the manifests
   next to it, which record what PTAH wrote)
+- `state/agent-sync-gate.ts` — the `agents` consent gate over that same file,
+  plus the absent-flag migration that reads the manifests for evidence
 - `reconciler/harness-reconciler.service.ts` — the facade
 - `propagation/harness-propagation.service.ts` — refresh + reconcile; the ONE
   call an emit site makes
@@ -294,7 +370,8 @@ host is shutting down.
 | Skill promotion / demotion   | `SkillPromotionService` → repropagation port                                                                                            | `full`      |
 | Enhancement apply / revert   | `SkillEnhancerService`                                                                                                                  | `full`      |
 | Harness-builder create/apply | `harness:create-skill`, `harness:apply`                                                                                                 | `full`      |
-| Wizard submit                | `wizard:submit-selection`                                                                                                               | `full`      |
+| Wizard submit                | `wizard:submit-selection` — GRANTS `agentSyncEnabled` first, then propagates                                                            | `full`      |
+| Per-agent disable            | `plugins:save-config` (`disabledAgentIds`) — same path and same mode as a skill or plugin toggle                                        | `full`      |
 | Manual repair                | `harness:reconcile` RPC, `ptah harness doctor --fix`                                                                                    | `full`      |
 | Manual inspection            | `harness:health` RPC, `ptah harness doctor`                                                                                             | `preflight` |
 | Uninstall                    | `harness:remove` RPC, `ptah harness remove --yes` → `reconciler.remove`                                                                 | —           |
@@ -374,7 +451,16 @@ once, so two hosts cannot drift.
 | `harness.preflightTimeoutMs` | `DEFAULT_PREFLIGHT_TIMEOUT_MS` (1500) | `readPreflightTimeoutMs` in each host | `HarnessPreflightDeps.readTimeoutMs`       |
 | `harness.manageGitignore`    | `DEFAULT_MANAGE_GITIGNORE` (true)     | `readManageGitignore` in each host    | `HarnessGitignoreDeps.readManageGitignore` |
 
-Both are declared in `platform-core`'s `FILE_BASED_SETTINGS_KEYS` and read with
+**Neither gate for the `agents` facet is a setting, deliberately.**
+`agentSyncEnabled` is a per-WORKSPACE decision the user made, so it lives in
+`{ws}/.ptah/harness/state.json` beside the `.gitignore` decisions rather than in
+`~/.ptah/settings.json` — a user-global "sync agents" toggle would either
+propagate into every project on the machine or silently mean nothing in most of
+them. `disabledAgentIds` lives in the workspace plugin config with
+`disabledSkillIds` and `disabledPluginIds`, for the same reason those do.
+Consequently neither is read by a host and neither is handed down as a lambda.
+
+Both settings above are declared in `platform-core`'s `FILE_BASED_SETTINGS_KEYS` and read with
 **section `'ptah'` and a DOTTED key**, not section `'harness'`. Only the `'ptah'`
 section routes to `~/.ptah/settings.json`; the original readers used section
 `'harness'`, which fell through to `vscode.workspace.getConfiguration('harness')`
@@ -657,6 +743,7 @@ Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 | E6, E7, E8 | User-layer divergence/reaping           | Closed (Batch 1b) — source-layer, in `agent-generation`'s `user-layer-*.spec.ts`                                                           |
 | E23        | `.gitignore` managed block              | Closed (Batch 4) — `gitignore/gitignore-writer.spec.ts` + `reconciler/harness-reconciler.gitignore.spec.ts`                                |
 | E25        | Shipped content path literals           | Closed in Batch 0                                                                                                                          |
+| E26        | Agents propagated with no user consent  | Closed (TASK_2026_286) — `agentSyncEnabled` + `disabledAgentIds`; an ABSENT flag resolves from manifest evidence, never to a bare `false`  |
 
 ### Where each edge case is pinned
 
@@ -677,6 +764,7 @@ Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 | E22          | `reconciler/harness-reconciler.remove.spec.ts`                                                                                                                         |
 | E23          | `gitignore/gitignore-writer.spec.ts`, `reconciler/harness-reconciler.gitignore.spec.ts`                                                                                |
 | E24          | `preflight/harness-preflight.service.spec.ts`                                                                                                                          |
+| E26          | `reconciler/harness-reconciler.agent-consent.spec.ts` (the gate, the wizard grant, and THE MIGRATION), `manifest/harness-manifest.builder.spec.ts` (the two filters)   |
 | —            | Codex/Antigravity shared dir: `targets/rival-targets.shared-dir.spec.ts`                                                                                               |
 | —            | **Antigravity MCP schema + the `ptah`/manifest/user key partition: `targets/mcp/antigravity-mcp-facet.spec.ts`**                                                       |
 | —            | **Install → spawn → cleanup → uninstall, and a concurrent reconcile + spawn: `reconciler/harness-reconciler.antigravity-mcp.spec.ts`**                                 |
@@ -752,6 +840,12 @@ a patch at the site where it was found.
   target open — that combination is what made a lost manifest freeze a whole
   target. The rule covers the manifests, `state.json`, the MCP intent store,
   both MCP facets and `.gitignore`.
+- **Never let a new gate default to OFF for an artifact kind that is already on
+  disk.** Everything this lib writes is manifest-owned, so "not in the desired
+  state" means DELETED. An absent flag must resolve from evidence of what Ptah
+  already wrote, and the resolved answer must then be persisted so the evidence
+  check runs once. `state/agent-sync-gate.ts` is the worked example; copy its
+  shape rather than inventing a second migration idiom.
 - **Never delete something because its NAME looks like Ptah's.** Ownership comes
   from the manifest, from a content hash, from a resolved link target, or from
   the `source: ptah` writer signature. Every deletion outside the workspace, and

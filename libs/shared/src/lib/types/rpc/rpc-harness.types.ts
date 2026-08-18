@@ -112,6 +112,13 @@ export interface HarnessSkillConfig {
  * `installSource` is the `owner/repo` slug the skills.sh CLI needs
  * (`npx skills add <owner/repo> --skill <skillId>`). It is the field that the
  * search result carries and the bare `selectedSkills` ID throws away.
+ *
+ * `scope` (and its `HARNESS_DEFAULT_SKILL_SCOPE` default) used to live here and
+ * is gone with TASK_2026_288. It chose between `{ws}/.claude/skills` and
+ * `~/.claude/skills`; a skills.sh skill now lands in a user-global source root
+ * under `~/.ptah/plugins` and is propagated from there, so the field named a
+ * destination that no longer exists. Leaving it on the type would have kept a
+ * knob the designing agent could set and nothing could honour.
  */
 export interface HarnessSkillRef {
   /** Matches the corresponding entry in `HarnessSkillConfig.selectedSkills`. */
@@ -120,12 +127,7 @@ export interface HarnessSkillRef {
   source: 'local' | 'skills.sh';
   /** `owner/repo` backing a skills.sh skill. Required to install it. */
   installSource?: string;
-  /** Install scope. Defaults to {@link HARNESS_DEFAULT_SKILL_SCOPE}. */
-  scope?: 'project' | 'global';
 }
-
-/** Install scope used for a harness skill ref that does not specify one. */
-export const HARNESS_DEFAULT_SKILL_SCOPE: 'project' | 'global' = 'project';
 
 /** Definition for a skill created during the wizard flow */
 export interface NewSkillDefinition {

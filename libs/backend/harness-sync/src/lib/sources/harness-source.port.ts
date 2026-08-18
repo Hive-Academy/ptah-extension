@@ -62,6 +62,17 @@ export interface HarnessSourceState {
   disabledSkillIds: string[];
   /** Plugin ids whose overlay directories must be ignored entirely. */
   disabledPluginIds: string[];
+  /**
+   * Agent slugs the user switched off — `backend-developer` for
+   * `~/.ptah/user/agents/backend-developer.md`. The per-agent half of the
+   * consent story; `state.json`'s `agentSyncEnabled` is the workspace-level
+   * half, and either one dropping an agent reaps it from every target.
+   *
+   * Optional, and absent means "none disabled", for the same reason
+   * {@link mcpIntents} is optional: a resolver built by hand and every spec that
+   * predates this field stays a valid source state rather than a compile error.
+   */
+  disabledAgentIds?: string[];
 }
 
 /** Resolves the current source state. Must never throw — degrade to empty. */

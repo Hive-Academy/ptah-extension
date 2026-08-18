@@ -13,12 +13,15 @@ import type { HarnessSkillRef } from './rpc-harness.types';
 /**
  * Boundary shape for a skill ref as the designing agent writes it: `source` may
  * be omitted, in which case it is inferred from the presence of `installSource`.
+ *
+ * `scope` is not accepted. The object is non-strict, so an agent that still
+ * emits one has the key stripped rather than the whole config rejected — which
+ * is the right failure mode for a knob that no longer selects anything.
  */
 export const HarnessSkillRefInputSchema = z.object({
   skillId: z.string().min(1),
   source: z.enum(['local', 'skills.sh']).optional(),
   installSource: z.string().optional(),
-  scope: z.enum(['project', 'global']).optional(),
 });
 
 /** Loose ref accepted at the agent boundary; normalized to `HarnessSkillRef`. */
@@ -46,7 +49,6 @@ export function normalizeHarnessSkillSelection(
     skillId: input.skillId,
     source: input.source ?? (input.installSource ? 'skills.sh' : 'local'),
     ...(input.installSource ? { installSource: input.installSource } : {}),
-    ...(input.scope ? { scope: input.scope } : {}),
   });
 
   const addId = (skillId: string): void => {

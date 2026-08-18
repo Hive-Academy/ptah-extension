@@ -16,13 +16,17 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as fs from 'fs/promises';
-import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  HARNESS_SYNC_TOKENS,
+  type HarnessPropagationService,
+} from '@ptah-extension/harness-sync';
+import { isSafePathToken } from '@ptah-extension/shared';
 import type {
   SkillShEntry,
   InstalledSkill,
@@ -30,10 +34,15 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
-  SAFE_SKILL_NAME_PATTERN,
+  SkillsShInstallParamsSchema,
+  SkillsShUninstallParamsSchema,
   sanitizeSearchQuery,
 } from './skills-sh-rpc.schema';
-import { installSkillViaCli, runSkillsCli } from '../utils/skills-sh-cli';
+import {
+  rejectUnsafeInstallRequest,
+  runSkillsCli,
+} from '../utils/skills-sh-cli';
+import { SkillsShSourceRootService } from '../skills-sh/skills-sh-source-root.service';
 import { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
@@ -145,6 +154,17 @@ export class SkillsShRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(SkillsShApiClient)
     private readonly apiClient: SkillsShApiClient,
+    /**
+     * The ONE new collaborator for the whole source-root feature. Install,
+     * uninstall, list and the legacy sweep are four faces of the same question
+     * — what is in `~/.ptah/plugins/ptah-skillssh-*` — so they arrive as one
+     * service rather than four, which is the `PluginRpcHandlers` bloat this
+     * handler is meant not to repeat.
+     */
+    @inject(SkillsShSourceRootService)
+    private readonly sourceRoots: SkillsShSourceRootService,
+    @inject(HARNESS_SYNC_TOKENS.PROPAGATION)
+    private readonly harnessPropagation: HarnessPropagationService,
   ) {}
 
   register(): void {
@@ -224,87 +244,28 @@ export class SkillsShRpcHandlers {
     });
   }
 
+  /**
+   * List from the SOURCE ROOTS, not from `.claude/skills`.
+   *
+   * The old implementation asked `npx skills list --json` and fell back to
+   * scanning `{ws}/.claude/skills` and `~/.claude/skills`. Both of those are
+   * now OUTPUTS — a managed copy lands there and is reaped from there — so
+   * either answer conflated "what did the last reconcile write" with "what is
+   * installed", and reported any skill from any other source as a skills.sh
+   * install.
+   */
   private registerListInstalled(): void {
     this.rpcHandler.registerMethod<
       Record<string, never>,
       { skills: InstalledSkill[] }
     >('skillsSh:listInstalled', async () => {
       try {
-        this.logger.debug('RPC: skillsSh:listInstalled called');
-
-        const workspaceRoot = this.getWorkspaceRoot();
-        const skills: InstalledSkill[] = [];
-        try {
-          const projectResult = await runSkillsCli(
-            ['list', '--json'],
-            workspaceRoot,
-            10000,
-          );
-          if (projectResult.exitCode === 0 && projectResult.stdout.trim()) {
-            const parsed = JSON.parse(projectResult.stdout) as Array<{
-              name: string;
-              path: string;
-              scope: string;
-              agents?: string[];
-            }>;
-            for (const entry of parsed) {
-              skills.push({
-                name: entry.name,
-                description: '',
-                source: entry.name,
-                path: entry.path,
-                scope: (entry.scope as 'project' | 'global') || 'project',
-                agents: entry.agents || [],
-              });
-            }
-          }
-        } catch {
-          if (workspaceRoot) {
-            const projectSkills = await this.scanSkillsDirectory(
-              path.join(workspaceRoot, '.claude', 'skills'),
-              'project',
-            );
-            skills.push(...projectSkills);
-          }
-        }
-        try {
-          const globalResult = await runSkillsCli(
-            ['list', '--json', '-g'],
-            workspaceRoot,
-            10000,
-          );
-          if (globalResult.exitCode === 0 && globalResult.stdout.trim()) {
-            const parsed = JSON.parse(globalResult.stdout) as Array<{
-              name: string;
-              path: string;
-              scope: string;
-              agents?: string[];
-            }>;
-            for (const entry of parsed) {
-              skills.push({
-                name: entry.name,
-                description: '',
-                source: entry.name,
-                path: entry.path,
-                scope: 'global',
-                agents: entry.agents || [],
-              });
-            }
-          }
-        } catch {
-          const globalSkills = await this.scanSkillsDirectory(
-            path.join(os.homedir(), '.claude', 'skills'),
-            'global',
-          );
-          skills.push(...globalSkills);
-        }
-
+        const skills = await this.sourceRoots.listInstalled();
         this.logger.debug('RPC: skillsSh:listInstalled success', {
           totalCount: skills.length,
         });
-
         return { skills };
-      } catch (error) {
+      } catch (error: unknown) {
         this.logger.error(
           'RPC: skillsSh:listInstalled failed',
           error instanceof Error ? error : new Error(String(error)),
@@ -314,45 +275,75 @@ export class SkillsShRpcHandlers {
     });
   }
 
+  /**
+   * Land the skill in its source root, then propagate.
+   *
+   * `propagate` is the ONE entry point every trigger uses, and it is called
+   * rather than `reconcile` for the reason harness-sync's CLAUDE.md gives: the
+   * desired state is the source layer, so a trigger that just changed a source
+   * and then bare-reconciled would publish the PREVIOUS state and report a
+   * clean pass.
+   *
+   * Propagation failure does not fail the install. The bytes are on disk and
+   * every host reconciles again at its next activation, so reporting failure
+   * here would tell the user nothing was installed when something was.
+   */
   private registerInstall(): void {
     this.rpcHandler.registerMethod<
-      {
-        source: string;
-        skillId?: string;
-        scope: 'project' | 'global';
-        agents?: string[];
-      },
+      { source: string; skillId?: string },
       { success: boolean; error?: string }
     >('skillsSh:install', async (params) => {
       try {
         this.logger.debug('RPC: skillsSh:install called', {
           source: params.source,
           skillId: params.skillId,
-          scope: params.scope,
         });
 
-        const result = await installSkillViaCli(
-          {
-            source: params.source,
-            skillId: params.skillId,
-            scope: params.scope,
-          },
-          this.getWorkspaceRoot() || undefined,
-        );
-
-        if (!result.success) {
-          return result;
+        // TWO checks, and neither is the other's duplicate. The schema settles
+        // SHAPE and the historical allowlists on values that arrive off the
+        // wire as `unknown`; `rejectUnsafeInstallRequest` settles the PATH
+        // rule, because `SAFE_SOURCE_PATTERN` accepts the literal `../..` and
+        // `SAFE_SKILL_ID_PATTERN` accepts `..` — harmless while these were only
+        // CLI arguments, not harmless now that they are also directory names.
+        //
+        // Calling the shared rule rather than restating it is the point: the
+        // service re-checks via `skillsShRootId` and `stageSkillsInstall`
+        // re-checks right before the spawn, and all three must agree because
+        // each guards a call site another caller can reach directly.
+        const parsed = SkillsShInstallParamsSchema.safeParse(params);
+        if (!parsed.success) {
+          return {
+            success: false,
+            error: `Invalid install request for source "${String(params.source)}".`,
+          };
         }
 
-        this.popularCache = null;
-        this.apiClient.invalidateInstallCaches();
-        this.logger.info('RPC: skillsSh:install success', {
-          source: params.source,
-          scope: params.scope,
+        const rejection = rejectUnsafeInstallRequest(parsed.data);
+        if (rejection !== null) {
+          return { success: false, error: rejection };
+        }
+
+        await this.adoptLegacyInstalls();
+
+        const result = await this.sourceRoots.install({
+          source: parsed.data.source,
+          skillId: parsed.data.skillId,
         });
 
+        if (!result.success) {
+          return { success: false, error: result.error };
+        }
+
+        this.invalidateCaches();
+        await this.propagate('skillsSh:install');
+
+        this.logger.info('RPC: skillsSh:install success', {
+          source: params.source,
+          rootId: result.rootId,
+          slugs: result.slugs,
+        });
         return { success: true };
-      } catch (error) {
+      } catch (error: unknown) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -364,60 +355,53 @@ export class SkillsShRpcHandlers {
     });
   }
 
+  /**
+   * Remove the skill from its source root, then propagate so the reap sweep
+   * clears every target.
+   *
+   * Deleting the source is what makes the copies stale; only the reconciler can
+   * remove them, and only because they are manifest-owned. The old
+   * implementation shelled `npx skills remove`, which deleted from
+   * `.claude/skills` and left the other five targets untouched.
+   */
   private registerUninstall(): void {
     this.rpcHandler.registerMethod<
-      { name: string; scope: 'project' | 'global' },
+      { name: string },
       { success: boolean; error?: string }
     >('skillsSh:uninstall', async (params) => {
       try {
         this.logger.debug('RPC: skillsSh:uninstall called', {
           name: params.name,
-          scope: params.scope,
         });
 
-        if (!SAFE_SKILL_NAME_PATTERN.test(params.name)) {
+        // `SAFE_SKILL_NAME_PATTERN` alone accepts the literal `..`, which was
+        // harmless while this value only became a CLI argument and is not
+        // harmless now that it is joined into a path. `isSafePathToken` is the
+        // shared rule that adds that rejection; the schema keeps the original
+        // allowlist unchanged underneath it.
+        const parsed = SkillsShUninstallParamsSchema.safeParse(params);
+        if (!parsed.success || !isSafePathToken(parsed.data.name)) {
           return {
             success: false,
-            error: `Invalid skill name format: "${params.name}".`,
+            error: `Invalid skill name format: "${String(params.name)}".`,
           };
         }
 
-        const workspaceRoot = this.getWorkspaceRoot();
-        if (!workspaceRoot && params.scope === 'project') {
-          return {
-            success: false,
-            error: 'No workspace folder open for project-scope uninstall.',
-          };
+        const result = await this.sourceRoots.uninstall(parsed.data.name);
+        if (!result.success) {
+          return { success: false, error: result.error };
         }
 
-        const args = ['remove', params.name, '--agent', 'claude-code', '-y'];
-        if (params.scope === 'global') {
-          args.push('-g');
-        }
+        this.invalidateCaches();
+        await this.propagate('skillsSh:uninstall');
 
-        const result = await runSkillsCli(
-          args,
-          workspaceRoot || os.homedir(),
-          15000,
-        );
-
-        if (result.exitCode !== 0) {
-          const errorDetail =
-            result.stderr.trim() ||
-            result.stdout.trim().split('\n').pop() ||
-            `CLI exited with code ${result.exitCode}`;
-          return { success: false, error: errorDetail };
-        }
-
-        this.popularCache = null;
-        this.apiClient.invalidateInstallCaches();
         this.logger.info('RPC: skillsSh:uninstall success', {
           name: params.name,
-          scope: params.scope,
+          rootId: result.rootId,
+          removedRoot: result.removedRoot,
         });
-
         return { success: true };
-      } catch (error) {
+      } catch (error: unknown) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -427,6 +411,52 @@ export class SkillsShRpcHandlers {
         return { success: false, error: errorMessage };
       }
     });
+  }
+
+  /** Drop the two caches whose contents encode install state. */
+  private invalidateCaches(): void {
+    this.popularCache = null;
+    this.apiClient.invalidateInstallCaches();
+  }
+
+  /**
+   * Non-fatal by construction — see `registerInstall`. Mirrors the private
+   * helper `PluginRpcHandlers` uses for the same purpose.
+   */
+  private async propagate(reason: string): Promise<void> {
+    const workspaceRoot = this.getWorkspaceRoot();
+    if (workspaceRoot === '') return;
+    try {
+      await this.harnessPropagation.propagate(workspaceRoot, reason);
+    } catch (error: unknown) {
+      this.logger.warn('Harness propagation failed (non-fatal)', {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Sweep `{ws}/.claude/skills` for skills a previous Ptah installed the old
+   * way, once per triggering action.
+   *
+   * Placed on the install path rather than on activation deliberately: it only
+   * runs when the user is already acting on skills.sh, it is idempotent, and it
+   * never blocks the action it precedes.
+   */
+  private async adoptLegacyInstalls(): Promise<void> {
+    try {
+      const adopted = await this.sourceRoots.adoptLegacyInstalls(
+        this.getWorkspaceRoot() || undefined,
+      );
+      if (adopted > 0) {
+        this.logger.info('RPC: skillsSh adopted legacy installs', { adopted });
+      }
+    } catch (error: unknown) {
+      this.logger.warn('RPC: skillsSh legacy adoption failed (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private registerGetPopular(): void {
@@ -596,66 +626,6 @@ export class SkillsShRpcHandlers {
       .join(' ');
   }
 
-  private async scanSkillsDirectory(
-    dirPath: string,
-    scope: 'project' | 'global',
-  ): Promise<InstalledSkill[]> {
-    const skills: InstalledSkill[] = [];
-
-    let entries: Dirent[];
-    try {
-      entries = await fs.readdir(dirPath, { withFileTypes: true });
-    } catch {
-      return skills; // Dir missing — treat as empty.
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
-      try {
-        const content = await fs.readFile(skillMdPath, 'utf8');
-        const metadata = this.parseSkillFrontmatter(content);
-        skills.push({
-          name: metadata.name || entry.name,
-          description: metadata.description || '',
-          source: metadata.source || entry.name,
-          path: path.join(dirPath, entry.name),
-          scope,
-          agents: [],
-        });
-      } catch {
-        skills.push({
-          name: entry.name,
-          description: '',
-          source: entry.name,
-          path: path.join(dirPath, entry.name),
-          scope,
-          agents: [],
-        });
-      }
-    }
-    return skills;
-  }
-
-  private parseSkillFrontmatter(content: string): {
-    name: string;
-    description: string;
-    source: string;
-  } {
-    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!frontmatterMatch) {
-      return { name: '', description: '', source: '' };
-    }
-    const frontmatter = frontmatterMatch[1];
-    const nameMatch = frontmatter.match(/^name:\s*["']?(.+?)["']?\s*$/m);
-    const descMatch = frontmatter.match(/^description:\s*["']?(.+?)["']?\s*$/m);
-    const sourceMatch = frontmatter.match(/^source:\s*["']?(.+?)["']?\s*$/m);
-    return {
-      name: nameMatch?.[1]?.trim() ?? '',
-      description: descMatch?.[1]?.trim() ?? '',
-      source: sourceMatch?.[1]?.trim() ?? '',
-    };
-  }
-
   private async detectTechnologies(workspaceRoot: string): Promise<{
     frameworks: string[];
     languages: string[];
@@ -771,26 +741,23 @@ export class SkillsShRpcHandlers {
     return skills;
   }
 
+  /**
+   * Slugs that are INSTALLED, for the marketplace's per-row Installed badge.
+   *
+   * Reads the source roots for the same reason `listInstalled` does: a scan of
+   * `.claude/skills` counted every skill from every source as a skills.sh
+   * install, so a user with a hand-written `.claude/skills/frontend-design`
+   * saw the skills.sh entry of that name badged as already installed.
+   */
   private async getInstalledSkillNames(): Promise<Set<string>> {
-    const names = new Set<string>();
-    const scanDir = async (dirPath: string) => {
-      let entries: Dirent[];
-      try {
-        entries = await fs.readdir(dirPath, { withFileTypes: true });
-      } catch {
-        return; // Dir missing on first-run users — treat as empty set.
-      }
-      for (const entry of entries) {
-        if (entry.isDirectory()) names.add(entry.name.toLowerCase());
-      }
-    };
-
-    const workspaceRoot = this.getWorkspaceRoot();
-    if (workspaceRoot) {
-      await scanDir(path.join(workspaceRoot, '.claude', 'skills'));
+    try {
+      return await this.sourceRoots.installedSlugs();
+    } catch (error: unknown) {
+      this.logger.warn('RPC: skillsSh could not read installed slugs', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return new Set<string>();
     }
-    await scanDir(path.join(os.homedir(), '.claude', 'skills'));
-    return names;
   }
 
   private getWorkspaceRoot(): string {

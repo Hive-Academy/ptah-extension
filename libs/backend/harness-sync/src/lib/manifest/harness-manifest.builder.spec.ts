@@ -28,11 +28,31 @@ function writeSkill(
   );
 }
 
+function writeAgent(root: string, slug: string): void {
+  const agentsRoot = join(root, 'agents');
+  mkdirSync(agentsRoot, { recursive: true });
+  writeFileSync(
+    join(agentsRoot, `${slug}.md`),
+    `---\nname: ${slug}\ndescription: the ${slug} agent\n---\ninstructions\n`,
+    'utf-8',
+  );
+}
+
 function emptyLayout(root: string): HarnessSourceState['layout'] {
   return {
     skillsRoot: join(root, 'skills'),
     commandsRoot: join(root, 'commands'),
     agentsRoot: join(root, 'agents'),
+  };
+}
+
+/** The no-overlay, nothing-disabled source state most cases start from. */
+function emptyState(root: string): HarnessSourceState {
+  return {
+    layout: emptyLayout(root),
+    overlayPluginPaths: [],
+    disabledSkillIds: [],
+    disabledPluginIds: [],
   };
 }
 
@@ -155,6 +175,43 @@ describe('HarnessManifestBuilder', () => {
     expect(desired.skills[0]?.contentHash).toBe(
       hashDirSync(join(root, 'skills', 'shared-skill')),
     );
+  });
+
+  it('[286] an agent in disabledAgentIds never enters the desired state, and its siblings still do', () => {
+    writeAgent(root, 'backend-developer');
+    writeAgent(root, 'senior-tester');
+
+    const state: HarnessSourceState = {
+      ...emptyState(root),
+      disabledAgentIds: ['senior-tester'],
+    };
+
+    const desired = builder.build(state);
+
+    expect(desired.agents.map((a) => a.slug)).toEqual(['backend-developer']);
+  });
+
+  it('[286] agentSyncEnabled: false empties the agent facet entirely, and leaves skills and commands alone', () => {
+    writeAgent(root, 'backend-developer');
+    writeSkill(join(root, 'skills'), 'run-tests');
+
+    const desired = builder.build(emptyState(root), {
+      agentSyncEnabled: false,
+    });
+
+    // Empty is a REAP, not a skip — agents are manifest-owned, so the removal
+    // sweep deletes whatever a previous pass wrote. That is the point of the
+    // gate, and the reason an ABSENT flag must never resolve to a bare false.
+    expect(desired.agents).toHaveLength(0);
+    expect(desired.skills.map((s) => s.slug)).toEqual(['run-tests']);
+  });
+
+  it('[286] an absent agentSyncEnabled option means enabled, so a caller with no opinion never triggers a reap', () => {
+    writeAgent(root, 'backend-developer');
+
+    const desired = builder.build(emptyState(root));
+
+    expect(desired.agents.map((a) => a.slug)).toEqual(['backend-developer']);
   });
 
   it('[E2] resolves to sources-missing with zero artifacts when the source roots do not exist', () => {

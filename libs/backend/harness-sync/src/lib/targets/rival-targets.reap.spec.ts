@@ -24,6 +24,7 @@ import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import { createStaticSourceResolver } from '../sources/plugin-config-source-resolver';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
 import type {
   HarnessSourceState,
   IHarnessCliDetector,
@@ -186,6 +187,9 @@ describe('Copilot home-directory reap (E19)', () => {
     tempHome = mkdtempSync(join(tmpdir(), 'harness-sync-e19-home-'));
     homeAgentsDir = join(tempHome, '.copilot', 'agents');
     mkdirSync(homeAgentsDir, { recursive: true });
+    // Agents are gated per workspace since TASK_2026_286. This suite is about
+    // the home REAP, so consent is recorded up front rather than re-tested.
+    new HarnessStateStore().save(ws, { version: 1, agentSyncEnabled: true });
   });
 
   afterEach(() => {

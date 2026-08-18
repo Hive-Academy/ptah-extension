@@ -298,11 +298,33 @@ export interface QualityExportResult {
  *   servers, so a successful install enables it in the current workspace
  *   rather than making the user hunt for a second switch. Turning it off
  *   afterwards is the ordinary bundled-plugin toggle.
+ * - `skillssh`: installed from the skills.sh directory into
+ *   `~/.ptah/plugins/ptah-skillssh-{owner}-{repo}/`. OPT-OUT like `harness` —
+ *   the user picked this exact skill by name, which is the same deliberate act
+ *   as authoring one. Before TASK_2026_288 these did not appear here at all:
+ *   the install wrote straight into `.claude/skills`, so the skill reached
+ *   Claude alone, no toggle could reach it, and `ptah harness doctor` reported
+ *   it `foreign` forever.
  *
  * Optional on {@link PluginInfo} for back-compat: payloads produced before this
  * field existed carry only bundled plugins, so `undefined` means `'bundled'`.
  */
-export type PluginSource = 'bundled' | 'harness' | 'external';
+export type PluginSource = 'bundled' | 'harness' | 'external' | 'skillssh';
+
+/**
+ * Whether a plugin source is OPT-OUT (active on discovery) rather than OPT-IN
+ * (active only while listed in `enabledPluginIds`).
+ *
+ * One rule, three consumers — `PluginLoaderService.resolveCurrentPluginPaths`,
+ * the plugin browser modal's toggle, and the status widget's enabled count. It
+ * lives here because those three disagreeing is invisible until a user toggles
+ * a plugin and the count does not move.
+ */
+export function isOptOutPluginSource(
+  source: PluginSource | undefined,
+): boolean {
+  return source === 'harness' || source === 'skillssh';
+}
 
 /** Plugin metadata for UI display */
 export interface PluginInfo {
@@ -352,6 +374,16 @@ export interface PluginConfigState {
    * load unchanged and are read as an empty denylist (no migration).
    */
   disabledPluginIds?: string[];
+  /**
+   * Agent slugs the user explicitly turned OFF — `backend-developer` for
+   * `~/.ptah/user/agents/backend-developer.md`.
+   *
+   * The per-agent half of agent consent; the workspace-level half lives in
+   * `{ws}/.ptah/harness/state.json`. Optional for the same reason
+   * {@link disabledPluginIds} is: configs persisted before this field existed
+   * load unchanged and read as an empty denylist (no migration).
+   */
+  disabledAgentIds?: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
 }

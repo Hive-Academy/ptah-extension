@@ -46,6 +46,13 @@ export const HARNESS_SYNC_TOKENS = {
    * without a full pass.
    */
   GITIGNORE: Symbol.for('HarnessSyncGitignore'),
+  /**
+   * `AgentSyncGate` — the per-workspace consent gate for the `agents` facet.
+   * Registered as well as handed to the reconciler because the setup wizard
+   * GRANTS consent (`wizard:submit-selection`) from `rpc-handlers`, which has
+   * no reconciler to reach through.
+   */
+  AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
 } as const;
 
 export type HarnessSyncDIToken = keyof typeof HARNESS_SYNC_TOKENS;

@@ -57,6 +57,7 @@ import {
   undetectedTargetHealth,
 } from '../health/harness-health';
 import type { HarnessGitignoreWriter } from '../gitignore/gitignore-writer';
+import { AgentSyncGate } from '../state/agent-sync-gate';
 
 export interface HarnessReconcileOptions {
   mode: 'full' | 'preflight';
@@ -93,6 +94,16 @@ export class HarnessReconcilerService {
      * correct for having it, only noisier in `git status`.
      */
     private readonly gitignore: HarnessGitignoreWriter | null = null,
+    /**
+     * DEFAULTED, not nullable, unlike `gitignore` above. An absent
+     * `.gitignore` writer means one less file is maintained; an absent agent
+     * gate would mean the `agents` facet silently propagates ungated in any
+     * host that forgot to wire it, which is the defect this gate exists to
+     * close. Every construction gets one.
+     */
+    private readonly agentSync: AgentSyncGate = new AgentSyncGate(
+      manifestStore,
+    ),
   ) {}
 
   /** Most recent health report, or `null` before the first pass. */
@@ -138,8 +149,12 @@ export class HarnessReconcilerService {
    */
   async verify(cwd: string, reason = 'harness:health'): Promise<HarnessHealth> {
     const workspaceRoot = resolveHarnessWorkspaceRoot(cwd);
+    // Resolved but NOT persisted. A derived decision is a write, and `verify()`
+    // writes nothing — a badge that polls must not be able to record a consent
+    // decision on the user's behalf.
     const desired = this.builder.build(this.sourceResolver.resolve(), {
       downloadPending: false,
+      agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
     });
 
     const targetHealth: HarnessTargetHealth[] = [];
@@ -302,8 +317,10 @@ export class HarnessReconcilerService {
     workspaceRoot: string,
     options: HarnessReconcileOptions,
   ): Promise<HarnessHealth> {
+    const agentSync = this.agentSync.resolve(workspaceRoot);
     const desired = this.builder.build(this.sourceResolver.resolve(), {
       downloadPending: options.downloadPending === true,
+      agentSyncEnabled: agentSync.enabled,
     });
 
     const selected = this.selectTargets(options.targets);
@@ -317,6 +334,13 @@ export class HarnessReconcilerService {
 
     const targetHealth: HarnessTargetHealth[] = [];
     try {
+      // Inside the lock, like every other workspace file this lib writes, and
+      // BEFORE the targets run so a pass that dies mid-copy still leaves the
+      // migration decided. Only a DERIVED decision is written; a recorded flag
+      // is never overwritten by a reconcile.
+      if (agentSync.derived) {
+        this.persistAgentSyncDecision(workspaceRoot, agentSync.enabled);
+      }
       for (const target of selected) {
         targetHealth.push(
           await this.reconcileTarget(target, workspaceRoot, desired, options),
@@ -341,6 +365,34 @@ export class HarnessReconcilerService {
     this.emitter.emit('health', health);
     this.log(health);
     return health;
+  }
+
+  /**
+   * Record the migration's answer so the manifest evidence walk runs once.
+   *
+   * Non-fatal: a state file that could not be written means the next pass
+   * re-derives the same answer from the same manifests, which is a repeated
+   * read and never a different decision.
+   */
+  private persistAgentSyncDecision(
+    workspaceRoot: string,
+    enabled: boolean,
+  ): void {
+    try {
+      if (this.agentSync.persist(workspaceRoot, enabled)) return;
+      this.logger.warn(
+        '[harness-sync] Could not record the agent-sync decision; it will be re-derived next pass',
+        { workspaceRoot, agentSyncEnabled: enabled },
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[harness-sync] Recording the agent-sync decision threw',
+        {
+          workspaceRoot,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
   }
 
   /**

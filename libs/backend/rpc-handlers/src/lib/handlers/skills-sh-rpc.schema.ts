@@ -46,18 +46,24 @@ export const SkillsShSearchParamsSchema = z.object({
   query: z.string(),
 });
 
-/** Boundary schema for `skillsSh:install`. */
+/**
+ * Boundary schema for `skillsSh:install`.
+ *
+ * `agents` and `scope` are gone — see the `skillsSh:install` contract in
+ * `@ptah-extension/shared`'s `rpc.types.ts` for why each named a choice the
+ * implementation could not make. The regexes below stay exactly as they were;
+ * the extra `.`/`..` rejection these values need now that they become directory
+ * names is layered ON TOP in `rejectUnsafeInstallRequest`
+ * (`../utils/skills-sh-cli.ts`), never by loosening anything here.
+ */
 export const SkillsShInstallParamsSchema = z.object({
   source: z.string().regex(SAFE_SOURCE_PATTERN),
   skillId: z.string().regex(SAFE_SKILL_ID_PATTERN).optional(),
-  scope: z.enum(['project', 'global']),
-  agents: z.array(z.string()).optional(),
 });
 
 /** Boundary schema for `skillsSh:uninstall`. */
 export const SkillsShUninstallParamsSchema = z.object({
   name: z.string().regex(SAFE_SKILL_NAME_PATTERN),
-  scope: z.enum(['project', 'global']),
 });
 
 export type SkillsShSearchParams = z.infer<typeof SkillsShSearchParamsSchema>;

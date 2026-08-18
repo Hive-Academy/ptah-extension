@@ -3,12 +3,16 @@
  * decisions the USER made, as opposed to the per-target manifests next to it,
  * which record what PTAH wrote.
  *
- * Today it holds exactly one decision, and the file exists because that
- * decision is unrecoverable from disk alone: "I deleted your `.gitignore`
- * block". An absent block means either "never written" or "written and
- * deleted", and those must produce opposite behaviour — write it, versus never
- * write it again. Nothing in `.gitignore` itself can tell them apart, so the
- * fact is recorded here.
+ * The file exists because these decisions are unrecoverable from disk alone.
+ * The first was "I deleted your `.gitignore` block": an absent block means
+ * either "never written" or "written and deleted", and those must produce
+ * opposite behaviour — write it, versus never write it again. Nothing in
+ * `.gitignore` itself can tell them apart, so the fact is recorded here.
+ *
+ * The second is `agentSyncEnabled`: whether the user consented to Ptah managing
+ * subagents in this workspace. Nothing on disk distinguishes "never asked" from
+ * "asked and declined" either, and getting it wrong reaps files. See
+ * `state/agent-sync-gate.ts`.
  *
  * Read defensively for the same reason the managed manifests are: a corrupt or
  * hand-mangled file reads as the DEFAULT state, never as an error. The cost of
@@ -44,6 +48,23 @@ export const HarnessWorkspaceStateSchema = z.object({
    * this file.
    */
   gitignoreSetting: z.boolean().optional(),
+  /**
+   * The user consented to Ptah managing subagents in this workspace.
+   *
+   * ABSENT is not `false`. Agents are manifest-owned, so a bare `false` on an
+   * upgrading install would reap every `.codex/agents/*.toml`,
+   * `.github/agents/*.agent.md` and `.cursor/agents/*.md` Ptah had already
+   * written. `AgentSyncGate` resolves an absent flag from manifest evidence —
+   * prior propagation is prior consent — and persists the answer so the
+   * evidence walk runs once. See `state/agent-sync-gate.ts`.
+   */
+  agentSyncEnabled: z.boolean().optional(),
+  /**
+   * ISO timestamp of the setup wizard completing, which is what grants
+   * {@link agentSyncEnabled}. Diagnostic: it is the difference between "the
+   * user asked for this" and "the migration inferred it".
+   */
+  wizardCompletedAt: z.string().optional(),
 });
 
 export type HarnessWorkspaceState = z.infer<typeof HarnessWorkspaceStateSchema>;

@@ -40,6 +40,8 @@ import {
   HarnessGitignoreWriter,
   type HarnessGitignoreDeps,
 } from '../gitignore/gitignore-writer';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+import { AgentSyncGate } from '../state/agent-sync-gate';
 import { ClaudeTarget } from '../targets/claude-target';
 import type { IHarnessTarget } from '../targets/harness-target.port';
 import {
@@ -142,11 +144,23 @@ export function registerHarnessSyncServices(
   const reconcilerLogger = container.isRegistered(TOKENS.LOGGER)
     ? container.resolve<Logger>(TOKENS.LOGGER)
     : logger;
-  const gitignore = new HarnessGitignoreWriter(
-    reconcilerLogger,
-    options.gitignore ?? {},
+  // One state store behind both readers of `{ws}/.ptah/harness/state.json`.
+  // Two instances would not corrupt anything — every write is atomic — but they
+  // would warn about a malformed file twice and give a host two places to point
+  // at a different path.
+  const stateStore = new HarnessStateStore((message, detail) =>
+    reconcilerLogger.warn(message, toDetail(detail)),
   );
+  const gitignore = new HarnessGitignoreWriter(reconcilerLogger, {
+    stateStore,
+    ...(options.gitignore ?? {}),
+  });
   container.register(HARNESS_SYNC_TOKENS.GITIGNORE, { useValue: gitignore });
+
+  const agentSyncGate = new AgentSyncGate(manifestStore, stateStore);
+  container.register(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, {
+    useValue: agentSyncGate,
+  });
 
   const reconciler = new HarnessReconcilerService(
     reconcilerLogger,
@@ -155,6 +169,7 @@ export function registerHarnessSyncServices(
     options.sourceResolver,
     targets,
     gitignore,
+    agentSyncGate,
   );
   container.register(HARNESS_SYNC_TOKENS.RECONCILER, { useValue: reconciler });
 

@@ -6,7 +6,7 @@
  *     RPC `error` field bubbles via task.error
  *   - installed: dispatches skillsSh:listInstalled
  *   - install:
- *       * UsageError when source missing or scope invalid
+ *       * UsageError when source missing
  *       * first run → `skillsSh:install` + emits `skill.installed { changed: true }`
  *       * second run → skips install RPC + emits `changed: false`
  *   - remove: idempotent — emits `changed: false` when skill absent
@@ -205,7 +205,7 @@ describe('ptah skill installed', () => {
             description: '',
             source: 'a/b',
             path: '/p',
-            scope: 'project',
+            scope: 'global',
             agents: [],
           },
         ],
@@ -227,21 +227,6 @@ describe('ptah skill install', () => {
     const { hooks, engine } = buildHooks();
     const exit = await execute(
       { subcommand: 'install' } satisfies SkillOptions,
-      baseGlobals,
-      hooks,
-    );
-    expect(exit).toBe(ExitCode.UsageError);
-    expect(engine.rpcCalls).toHaveLength(0);
-  });
-
-  it('exits 2 (UsageError) for invalid --scope', async () => {
-    const { hooks, engine } = buildHooks();
-    const exit = await execute(
-      {
-        subcommand: 'install',
-        source: 'a/b',
-        scope: 'bogus',
-      } satisfies SkillOptions,
       baseGlobals,
       hooks,
     );
@@ -273,10 +258,9 @@ describe('ptah skill install', () => {
       (c) => c.method === 'skillsSh:install',
     );
     expect(installCall).toBeDefined();
-    expect(installCall?.params).toMatchObject({
+    expect(installCall?.params).toEqual({
       source: 'vercel-labs/agent-skills',
       skillId: 'react-best-practices',
-      scope: 'project',
     });
     const last =
       formatterTrace.notifications[formatterTrace.notifications.length - 1];
@@ -295,7 +279,7 @@ describe('ptah skill install', () => {
             description: '',
             source: 'vercel-labs/agent-skills',
             path: '/p',
-            scope: 'project',
+            scope: 'global',
             agents: [],
           },
         ],
@@ -389,7 +373,7 @@ describe('ptah skill remove', () => {
             description: '',
             source: 'foo',
             path: '/p',
-            scope: 'project',
+            scope: 'global',
             agents: [],
           },
         ],
@@ -409,10 +393,7 @@ describe('ptah skill remove', () => {
       (c) => c.method === 'skillsSh:uninstall',
     );
     expect(uninstall).toBeDefined();
-    expect(uninstall?.params).toMatchObject({
-      name: 'foo',
-      scope: 'project',
-    });
+    expect(uninstall?.params).toEqual({ name: 'foo' });
     const last =
       formatterTrace.notifications[formatterTrace.notifications.length - 1];
     expect(last?.method).toBe('skill.removed');

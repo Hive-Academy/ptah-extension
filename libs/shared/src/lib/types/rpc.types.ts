@@ -216,7 +216,6 @@ import type {
   AgentContinueErrorCode,
   AgentPermissionDecision,
   SkillShEntry,
-  SkillAgentTarget,
   InstalledSkill,
   SkillDetectionResult,
   PtahCliListParams,
@@ -1131,17 +1130,34 @@ export interface RpcMethodRegistry {
     params: Record<string, never>;
     result: { skills: InstalledSkill[] };
   };
+  /**
+   * Install a skills.sh skill into its Ptah-owned source root, then propagate.
+   *
+   * Neither `scope` nor `agents` survives from the pre-TASK_2026_288 shape, and
+   * both were removed for the same reason: each named a choice the
+   * implementation could not make.
+   *
+   * - `agents?: SkillAgentTarget[]` was declared, validated and then dropped on
+   *   the floor — every install hardcoded `--agent claude-code`. It is gone
+   *   rather than wired because target selection now has ONE owner: the
+   *   reconciler fans a skill out to every CLI `IHarnessCliDetector` finds.
+   *   Honouring a per-install list would be a second, divergent copy of that
+   *   decision, and a skill installed "for Codex only" would be silently
+   *   overwritten by the next pass anyway.
+   * - `scope: 'project' | 'global'` chose between `{ws}/.claude/skills` and
+   *   `~/.claude/skills`. The reconciler reconciles neither, so both values
+   *   became the same user-global source root. Per-workspace control moved to
+   *   `disabledPluginIds` / `disabledSkillIds`, which is reversible.
+   */
   'skillsSh:install': {
     params: {
       source: string;
       skillId?: string;
-      scope: 'project' | 'global';
-      agents?: SkillAgentTarget[];
     };
     result: { success: boolean; error?: string };
   };
   'skillsSh:uninstall': {
-    params: { name: string; scope: 'project' | 'global' };
+    params: { name: string };
     result: { success: boolean; error?: string };
   };
   'skillsSh:getPopular': {

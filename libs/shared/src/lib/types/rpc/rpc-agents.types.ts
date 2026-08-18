@@ -33,25 +33,41 @@ export interface SkillShEntry {
   installUrl?: string;
 }
 
-/** Supported agent targets for skills.sh installation */
-export type SkillAgentTarget =
-  | 'Claude Code'
-  | 'GitHub Copilot'
-  | 'OpenAI Codex';
-
-/** An installed skill detected on disk */
+/**
+ * An installed skills.sh skill, as reported from its Ptah-owned source root.
+ *
+ * `SkillAgentTarget` used to live here as the element type of a
+ * `skillsSh:install` parameter that nothing ever read. It is deleted rather
+ * than wired: see the `skillsSh:install` contract in `rpc.types.ts`.
+ */
 export interface InstalledSkill {
-  /** Display name from SKILL.md frontmatter */
+  /** Directory slug under the source root's `skills/`. */
   name: string;
   /** Skill description from SKILL.md frontmatter */
   description: string;
   /** Repository source (owner/repo) or "local" */
   source: string;
-  /** Absolute path to the skill directory */
+  /** Absolute path to the skill directory INSIDE the source root. */
   path: string;
-  /** Installation scope */
-  scope: 'project' | 'global';
-  /** Agent names this skill is installed for */
+  /**
+   * Always `'global'`, and typed as the literal rather than the old
+   * `'project' | 'global'` union.
+   *
+   * A source root lives in `~/.ptah/plugins`, which is user-global; there is no
+   * project-scoped source root in the reconciler's model. The field is kept on
+   * the wire because it describes where the skill LIVES, which is a real fact,
+   * unlike the install parameter it replaced — but a union whose second member
+   * can never be produced is a lie that every consumer has to branch on. The
+   * literal is what makes a leftover `scope === 'project'` filter a compile
+   * error instead of a section that silently never renders.
+   */
+  scope: 'global';
+  /**
+   * Always empty. Which CLIs currently hold a copy is a question about
+   * PROPAGATION, and `harness:health` / `ptah harness doctor` is the one
+   * surface that answers it — re-deriving the target × facet matrix here would
+   * be a second copy of a rule `harness-sync` owns.
+   */
   agents: string[];
 }
 

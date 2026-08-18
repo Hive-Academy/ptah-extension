@@ -49,6 +49,7 @@ import type {
   HarnessSourceState,
   IHarnessCliDetector,
 } from '../sources/harness-source.port';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { ClaudeTarget } from '../targets/claude-target';
 import {
   createCodexTarget,
@@ -222,6 +223,11 @@ describe('HarnessReconcilerService — reconcile and verify agree', () => {
 
     const sourceState = writeSources();
     writeWorkspaceState();
+    // Agents are gated per workspace since TASK_2026_286. This suite is about
+    // plan/verify AGREEMENT over a fully-populated workspace, so consent is
+    // recorded up front — the gate itself is pinned in
+    // `harness-reconciler.agent-consent.spec.ts`.
+    new HarnessStateStore().save(ws, { version: 1, agentSyncEnabled: true });
 
     const store = new ManagedManifestStore();
     const deps = {

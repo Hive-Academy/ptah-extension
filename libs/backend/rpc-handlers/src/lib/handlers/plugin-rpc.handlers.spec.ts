@@ -54,6 +54,43 @@
 
 import 'reflect-metadata';
 
+// The SUT now imports `McpInstallService` from `@ptah-extension/cli-agent-runtime`,
+// whose barrel transitively pulls `@ptah-extension/workspace-intelligence`.
+// That lib's TreeSitter module evaluates `import.meta.url` at top level, which
+// ts-jest's CJS transform cannot parse. Stub it — the same stub, for the same
+// reason, as `mcp-directory-rpc.handlers.spec.ts` and
+// `ptah-cli-rpc.handlers.spec.ts`. Nothing under test here touches
+// workspace-intelligence: this handler holds `CommandDiscoveryService` only to
+// call `invalidateCache()`, and the spec passes its own mock for that.
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {},
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  AstAnalysisService: class AstAnalysisServiceStub {},
+  DependencyGraphService: class DependencyGraphServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ContextService: class ContextServiceStub {},
+  ContextOrchestrationService: class ContextOrchestrationServiceStub {},
+  WorkspaceService: class WorkspaceServiceStub {},
+  TokenCounterService: class TokenCounterServiceStub {},
+  FileSystemService: class FileSystemServiceStub {},
+  FileSystemError: class FileSystemErrorStub extends Error {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  DependencyAnalyzerService: class DependencyAnalyzerServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+  PatternMatcherService: class PatternMatcherServiceStub {},
+  IgnorePatternResolverService: class IgnorePatternResolverServiceStub {},
+  WorkspaceIndexerService: class WorkspaceIndexerServiceStub {},
+  FileTypeClassifierService: class FileTypeClassifierServiceStub {},
+  FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
+  ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
+  ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+  CommandDiscoveryService: class CommandDiscoveryServiceStub {},
+}));
+
 import type { Logger, SentryService } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
@@ -78,7 +115,10 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import type { DependencyContainer } from 'tsyringe';
+
 import { PluginRpcHandlers } from './plugin-rpc.handlers';
+import { EXTERNAL_PLUGIN_MCP_TOKEN } from './external-plugin-mcp.service';
 
 /** The workspace every reconcile in this suite is expected to target. */
 const WORKSPACE_ROOT = 'C:\\ws';
@@ -218,6 +258,51 @@ function createMockExternalInstaller(): MockExternalInstaller {
   };
 }
 
+/** The consent record store — read for `mcpServers`, the approved server list. */
+interface MockExternalState {
+  findInstalled: jest.Mock;
+}
+
+function createMockExternalState(): MockExternalState {
+  return { findInstalled: jest.fn().mockReturnValue(null) };
+}
+
+/**
+ * The MCP installer for declared servers.
+ *
+ * Substituted through `EXTERNAL_PLUGIN_MCP_TOKEN` rather than passed
+ * positionally, because the shipping handler builds its own from the container
+ * — and the real one's `McpIntentStore` writes to the developer's actual
+ * `~/.ptah/mcp-installed.json`, which no spec may touch.
+ */
+interface MockExternalMcp {
+  install: jest.Mock;
+  uninstall: jest.Mock;
+}
+
+function createMockExternalMcp(): MockExternalMcp {
+  return {
+    install: jest.fn().mockResolvedValue({ serverKeys: [], warnings: [] }),
+    uninstall: jest.fn().mockResolvedValue({ serverKeys: [], warnings: [] }),
+  };
+}
+
+/**
+ * A container that answers for exactly one token and denies everything else.
+ *
+ * `isRegistered` returning false for the reconciler is what would make the
+ * handler build a REAL `McpInstallService`; registering the override means it
+ * never gets that far.
+ */
+function createStubContainer(
+  entries: ReadonlyMap<symbol, unknown>,
+): DependencyContainer {
+  return {
+    isRegistered: (token: symbol) => entries.has(token),
+    resolve: (token: symbol) => entries.get(token),
+  } as unknown as DependencyContainer;
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -274,6 +359,8 @@ interface Harness {
   sentry: MockSentryService;
   marketplaceRegistry: MockMarketplaceRegistry;
   externalInstaller: MockExternalInstaller;
+  externalState: MockExternalState;
+  externalMcp: MockExternalMcp;
 }
 
 function makeHarness(
@@ -297,6 +384,11 @@ function makeHarness(
   const sentry = createMockSentryService();
   const marketplaceRegistry = createMockMarketplaceRegistry();
   const externalInstaller = createMockExternalInstaller();
+  const externalState = createMockExternalState();
+  const externalMcp = createMockExternalMcp();
+  const container = createStubContainer(
+    new Map<symbol, unknown>([[EXTERNAL_PLUGIN_MCP_TOKEN, externalMcp]]),
+  );
 
   const handlers = new PluginRpcHandlers(
     logger as unknown as Logger,
@@ -312,6 +404,10 @@ function makeHarness(
     externalInstaller as unknown as ConstructorParameters<
       typeof PluginRpcHandlers
     >[8],
+    externalState as unknown as ConstructorParameters<
+      typeof PluginRpcHandlers
+    >[9],
+    container,
   );
 
   return {
@@ -325,6 +421,8 @@ function makeHarness(
     sentry,
     marketplaceRegistry,
     externalInstaller,
+    externalState,
+    externalMcp,
   };
 }
 
@@ -1036,6 +1134,179 @@ describe('PluginRpcHandlers', () => {
       await call(h, 'plugins:uninstall-external', { pluginId: PLUGIN_ID });
 
       expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // Declared MCP servers (TASK_2026_287)
+    //
+    // The consent dialog has always promised these would be installed. Nothing
+    // installed them: `plugin-marketplace` has no edge to `harness-sync` or to
+    // `McpInstallService`, so no intent was ever recorded and the reconciler
+    // never saw a single declared server.
+    // -----------------------------------------------------------------------
+
+    const DECLARED_SERVER = {
+      name: 'binlog',
+      command: 'dotnet',
+      args: ['dnx', 'Microsoft.AITools.BinlogMcp'],
+      commandLine: 'dotnet dnx Microsoft.AITools.BinlogMcp',
+    };
+
+    it('installs the MCP servers the consent record lists, BEFORE the reconcile that applies them', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.externalMcp.install.mockResolvedValue({
+        serverKeys: ['binlog'],
+        warnings: [],
+      });
+      h.handlers.register();
+
+      const response = await call<{
+        result: { mcpServersInstalled?: string[] };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(h.externalMcp.install).toHaveBeenCalledWith(
+        PLUGIN_ID,
+        [DECLARED_SERVER],
+        WORKSPACE_ROOT,
+      );
+      expect(response.result.mcpServersInstalled).toEqual(['binlog']);
+
+      // Ordering is load-bearing: the reconciler's desired MCP state IS
+      // `~/.ptah/mcp-installed.json`, so an intent recorded after the pass
+      // would sit unapplied until some later trigger.
+      const intentOrder = h.externalMcp.install.mock.invocationCallOrder[0];
+      const reconcileOrder =
+        h.harnessPropagation.propagate.mock.invocationCallOrder[0];
+      expect(intentOrder).toBeLessThan(reconcileOrder);
+    });
+
+    it('installs from the CONSENT RECORD, so nothing outside what the user approved can reach a config file', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.externalState.findInstalled.mockReturnValue(null);
+      h.handlers.register();
+
+      await call(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(h.externalMcp.install).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a colliding key as a warning on the install result while the plugin still installs', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.externalMcp.install.mockResolvedValue({
+        serverKeys: ['binlog'],
+        warnings: ['MCP server "binlog" is already defined by you in x.json.'],
+      });
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { mcpWarnings?: string[] };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      // A key Ptah refuses to overwrite is advisory, not a failed install: the
+      // plugin's files landed and its skills work.
+      expect(response.status).toBe('installed');
+      expect(response.result.mcpWarnings).toEqual([
+        'MCP server "binlog" is already defined by you in x.json.',
+      ]);
+    });
+
+    it('keeps the install successful when the MCP step throws', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.externalMcp.install.mockRejectedValue(new Error('intent store locked'));
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { mcpWarnings?: string[] };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(response.status).toBe('installed');
+      expect(response.result.mcpWarnings).toEqual([
+        expect.stringContaining('intent store locked'),
+      ]);
+    });
+
+    it('forgets the declared MCP servers on uninstall, reading the record BEFORE it is deleted', async () => {
+      const h = makeHarness();
+      h.externalInstaller.uninstall.mockResolvedValue(true);
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.externalMcp.uninstall.mockResolvedValue({
+        serverKeys: ['binlog'],
+        warnings: [],
+      });
+      h.handlers.register();
+
+      const result = await call<{ mcpServersRemoved?: string[] }>(
+        h,
+        'plugins:uninstall-external',
+        { pluginId: PLUGIN_ID },
+      );
+
+      expect(h.externalMcp.uninstall).toHaveBeenCalledWith(
+        PLUGIN_ID,
+        [DECLARED_SERVER],
+        WORKSPACE_ROOT,
+      );
+      expect(result.mcpServersRemoved).toEqual(['binlog']);
+
+      // The record is the only thing that says which keys were this plugin's.
+      // Reading it after `uninstall()` deleted it would leave the servers in
+      // every config file forever.
+      const readOrder =
+        h.externalState.findInstalled.mock.invocationCallOrder[0];
+      const removeOrder =
+        h.externalInstaller.uninstall.mock.invocationCallOrder[0];
+      expect(readOrder).toBeLessThan(removeOrder);
+    });
+
+    it('does not touch MCP intents when there was nothing to uninstall', async () => {
+      const h = makeHarness();
+      h.externalInstaller.uninstall.mockResolvedValue(false);
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:uninstall-external', { pluginId: PLUGIN_ID });
+
+      expect(h.externalMcp.uninstall).not.toHaveBeenCalled();
     });
   });
 });

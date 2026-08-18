@@ -196,11 +196,32 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
 const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
 
 /**
+ * Directory-name prefix used by skills.sh source roots.
+ *
+ * `skillsSh:install` writes `{pluginsBasePath}/ptah-skillssh-{owner}-{repo}/skills/{slug}/`
+ * — deliberately the same shape as a harness plugin, because that shape is
+ * already a first-class overlay source and needs no new concept to reach every
+ * CLI. Before TASK_2026_288 the install went straight into `.claude/skills`,
+ * which reached Claude alone and read as `foreign` to `ptah harness doctor`
+ * forever.
+ *
+ * OPT-OUT, like harness plugins and unlike bundled or external ones: the user
+ * asked for this specific skill by clicking Install, which is the same
+ * "authored on purpose" signal, so it is active on discovery and stays active
+ * until its id lands in `disabledPluginIds`.
+ */
+const SKILLS_SH_PLUGIN_PREFIX = 'ptah-skillssh-';
+
+/**
  * Fallback description for a harness plugin whose skills carry no frontmatter
  * description (or whose SKILL.md files are unreadable).
  */
 const HARNESS_FALLBACK_DESCRIPTION =
   'Custom skill you authored with the Ptah harness wizard.';
+
+/** Fallback description for a skills.sh root with no readable frontmatter. */
+const SKILLS_SH_FALLBACK_DESCRIPTION =
+  'Skill installed from the skills.sh directory.';
 
 /**
  * Turn a harness directory slug into a display name.
@@ -301,8 +322,47 @@ export class PluginLoaderService {
     return [
       ...bundled,
       ...this.describeHarnessPlugins(),
+      ...this.describeSkillsShPlugins(),
       ...this.describeExternalPlugins(),
     ];
+  }
+
+  /**
+   * Build a `PluginInfo` for every skills.sh source root on disk.
+   *
+   * Directory-driven like {@link describeHarnessPlugins} rather than
+   * record-driven like {@link describeExternalPlugins}, and the difference is
+   * about who chose the bytes. An external plugin's content is a third party's
+   * and is admitted only by a consent record; a skills.sh root holds one skill
+   * the user picked by name from the marketplace, so the directory Ptah wrote
+   * IS the record.
+   *
+   * Listing them here is what makes them toggleable at all: the Plugins panel
+   * is where `disabledPluginIds` is set, and that is now the per-workspace
+   * control that replaced the old `scope` parameter.
+   */
+  private describeSkillsShPlugins(): PluginInfo[] {
+    return this.discoverSkillsShPluginPaths().map((pluginPath) => {
+      const id = path.basename(pluginPath);
+      const slug = id.slice(SKILLS_SH_PLUGIN_PREFIX.length);
+      const skills = this.discoverSkillsForPlugins([pluginPath]);
+
+      return {
+        id,
+        name: humanizeSlug(slug),
+        description: skills[0]?.description ?? SKILLS_SH_FALLBACK_DESCRIPTION,
+        category: 'external-tools' as const,
+        skillCount: skills.length,
+        commandCount: this.countPluginCommands(pluginPath),
+        // "Recommended" is a Ptah endorsement. Third-party skills never get it.
+        isDefault: false,
+        keywords: [
+          ...slug.split('-').filter((word) => word.length > 0),
+          'skills.sh',
+        ],
+        source: 'skillssh' as const,
+      };
+    });
   }
 
   /**
@@ -445,6 +505,7 @@ export class PluginLoaderService {
         enabledPluginIds: [],
         disabledSkillIds: [],
         disabledPluginIds: [],
+        disabledAgentIds: [],
         lastUpdated: undefined,
       };
     }
@@ -457,6 +518,7 @@ export class PluginLoaderService {
         enabledPluginIds: [],
         disabledSkillIds: [],
         disabledPluginIds: [],
+        disabledAgentIds: [],
         lastUpdated: undefined,
       };
     }
@@ -472,6 +534,13 @@ export class PluginLoaderService {
       disabledPluginIds: Array.isArray(stored.disabledPluginIds)
         ? stored.disabledPluginIds
         : [],
+      // Same idiom, same reason: absent on every config persisted before agents
+      // became individually toggleable, and read as "nothing explicitly
+      // disabled" — which is exactly the ungated behaviour those configs
+      // already had. No migration.
+      disabledAgentIds: Array.isArray(stored.disabledAgentIds)
+        ? stored.disabledAgentIds
+        : [],
       lastUpdated: stored.lastUpdated,
     };
   }
@@ -482,10 +551,11 @@ export class PluginLoaderService {
    * Persists the configuration to VS Code workspaceState with a lastUpdated timestamp.
    * The configuration survives VS Code restarts but is scoped to the current workspace.
    *
-   * `disabledPluginIds` is preserve-on-omit: callers that predate harness
-   * plugin toggling (`harness:start-new-project`, the CLI) pass only
-   * `enabledPluginIds`/`disabledSkillIds`, and must not silently re-enable a
-   * plugin the user turned off. Pass an explicit `[]` to clear the denylist.
+   * `disabledPluginIds` and `disabledAgentIds` are preserve-on-omit: callers
+   * that predate harness plugin toggling (`harness:start-new-project`, the CLI)
+   * pass only `enabledPluginIds`/`disabledSkillIds`, and must not silently
+   * re-enable a plugin or an agent the user turned off. Pass an explicit `[]`
+   * to clear either denylist.
    *
    * @param config - Plugin configuration to save (enabledPluginIds will be persisted)
    * @throws Error if workspaceState is not initialized
@@ -493,7 +563,10 @@ export class PluginLoaderService {
   async saveWorkspacePluginConfig(
     config: Pick<
       PluginConfigState,
-      'enabledPluginIds' | 'disabledSkillIds' | 'disabledPluginIds'
+      | 'enabledPluginIds'
+      | 'disabledSkillIds'
+      | 'disabledPluginIds'
+      | 'disabledAgentIds'
     >,
   ): Promise<void> {
     if (!this.workspaceState) {
@@ -502,15 +575,19 @@ export class PluginLoaderService {
       );
     }
 
+    // One read for both preserved denylists — two calls would re-read the
+    // stored config between them for no gain.
+    const persisted = this.getWorkspacePluginConfig();
     const disabledPluginIds =
-      config.disabledPluginIds ??
-      this.getWorkspacePluginConfig().disabledPluginIds ??
-      [];
+      config.disabledPluginIds ?? persisted.disabledPluginIds ?? [];
+    const disabledAgentIds =
+      config.disabledAgentIds ?? persisted.disabledAgentIds ?? [];
 
     const configToSave: PluginConfigState = {
       enabledPluginIds: config.enabledPluginIds,
       disabledSkillIds: config.disabledSkillIds,
       disabledPluginIds,
+      disabledAgentIds,
       lastUpdated: new Date().toISOString(),
     };
 
@@ -521,6 +598,7 @@ export class PluginLoaderService {
       enabledPluginIds: configToSave.enabledPluginIds,
       disabledSkillCount: configToSave.disabledSkillIds.length,
       disabledPluginIds,
+      disabledAgentIds,
       lastUpdated: configToSave.lastUpdated,
     });
   }
@@ -663,6 +741,31 @@ export class PluginLoaderService {
    *          uninitialized or when the plugins directory does not exist)
    */
   discoverHarnessPluginPaths(): string[] {
+    return this.discoverPrefixedPluginPaths(HARNESS_PLUGIN_PREFIX);
+  }
+
+  /**
+   * Discover skills.sh source roots (`ptah-skillssh-*`) under the plugins base
+   * path.
+   *
+   * Separate from {@link discoverHarnessPluginPaths} even though the scan is
+   * identical, because the two feed different places on purpose. BOTH reach
+   * `resolveCurrentPluginPaths` (the harness desired state); only the harness
+   * one reaches `buildMirrorSources` in each host.
+   *
+   * That asymmetry is the load-bearing part of uninstall. The user-layer mirror
+   * CLONES a plugin's skills into `~/.ptah/user/skills` create-if-absent, and
+   * the user layer is the desired state's base — so a cloned skills.sh skill
+   * would survive the deletion of its source root and keep propagating into
+   * every target forever. Overlay-only means `skillsSh:uninstall` deletes the
+   * one copy that exists and the reconciler's removal sweep clears the rest.
+   */
+  discoverSkillsShPluginPaths(): string[] {
+    return this.discoverPrefixedPluginPaths(SKILLS_SH_PLUGIN_PREFIX);
+  }
+
+  /** Direct child directories of the plugins base path matching `prefix`. */
+  private discoverPrefixedPluginPaths(prefix: string): string[] {
     if (!this.pluginsBasePath) return [];
 
     const pluginsBasePath = this.pluginsBasePath;
@@ -684,7 +787,7 @@ export class PluginLoaderService {
 
     const paths: string[] = [];
     for (const entry of entries) {
-      if (!entry.startsWith(HARNESS_PLUGIN_PREFIX)) continue;
+      if (!entry.startsWith(prefix)) continue;
       const pluginPath = path.join(pluginsBasePath, entry);
       try {
         if (fs.statSync(pluginPath).isDirectory()) {
@@ -705,15 +808,15 @@ export class PluginLoaderService {
   }
 
   /**
-   * Resolve the plugin paths that currently back workspace skill/command
-   * junctions: the enabled bundled plugins PLUS every harness-authored
-   * `ptah-harness-*` directory the user has NOT explicitly disabled.
+   * Resolve the plugin paths that currently back the harness desired state: the
+   * enabled bundled plugins PLUS every `ptah-harness-*` and `ptah-skillssh-*`
+   * directory the user has NOT explicitly disabled.
    *
-   * This is the single source of truth for junction creation, and it encodes
-   * both activation models:
-   * - bundled → opt-in, so only `enabledPluginIds` are included;
-   * - harness → opt-out, so every discovered directory is included unless its
-   *   id appears in `disabledPluginIds`.
+   * This is the single source of truth for the reconciler's overlay, and it
+   * encodes both activation models:
+   * - bundled/external → opt-in, so only `enabledPluginIds` are included;
+   * - harness/skills.sh → opt-out, so every discovered directory is included
+   *   unless its id appears in `disabledPluginIds`.
    *
    * Both halves are filtered by `disabledPluginIds` so an explicit disable
    * always wins. That exclusion is the whole point of the toggle:
@@ -733,11 +836,12 @@ export class PluginLoaderService {
     const enabledPaths = this.resolvePluginPaths(
       config.enabledPluginIds.filter((id) => !disabledIds.has(id)),
     );
-    const harnessPaths = this.discoverHarnessPluginPaths().filter(
-      (pluginPath) => !disabledIds.has(path.basename(pluginPath)),
-    );
+    const optOutPaths = [
+      ...this.discoverHarnessPluginPaths(),
+      ...this.discoverSkillsShPluginPaths(),
+    ].filter((pluginPath) => !disabledIds.has(path.basename(pluginPath)));
 
-    return Array.from(new Set([...enabledPaths, ...harnessPaths]));
+    return Array.from(new Set([...enabledPaths, ...optOutPaths]));
   }
 
   /**
