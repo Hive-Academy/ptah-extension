@@ -19,6 +19,10 @@ import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import {
+  HARNESS_SYNC_TOKENS,
+  type HarnessPropagationService,
+} from '@ptah-extension/harness-sync';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
@@ -31,7 +35,6 @@ import type {
   GenerationProgressPayload,
   GenerationCompletePayload,
   GenerationStreamPayload,
-  CliTarget,
 } from '@ptah-extension/shared';
 import type {
   GenerationSummary,
@@ -156,6 +159,48 @@ export class WizardGenerationRpcHandlers {
         error: error instanceof Error ? error.message : String(error),
       });
       return undefined;
+    }
+  }
+
+  /**
+   * Fan freshly generated subagents out to every harness target.
+   *
+   * Replaces the orchestrator's Phase 5, which called
+   * `MultiCliAgentWriterService.writeForClis` with a hand-rolled list of
+   * detected CLIs (deleted in TASK_2026_278 Batch 2).
+   *
+   * Batch 2 spelled the mirror-then-reconcile sequence out here, inline. Batch 3
+   * folded it into `HarnessPropagationService`, which is the same two steps in
+   * the same order for every trigger — so this method is now a `reason` and a
+   * log line. The ordering rationale moved with the code and is worth
+   * repeating once: the reconciler's desired state IS the user layer, and
+   * `{ws}/.claude/agents` is a SOURCE, so an agent the wizard just wrote is
+   * invisible to a reconcile until the mirror has run.
+   *
+   * Non-fatal throughout — a wizard run must not fail because a rival CLI's
+   * directory was read-only.
+   */
+  private async propagateGeneratedAgents(workspaceRoot: string): Promise<void> {
+    try {
+      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) return;
+      const propagation = this.resolveService<HarnessPropagationService>(
+        HARNESS_SYNC_TOKENS.PROPAGATION,
+        'HarnessPropagationService',
+      );
+      const health = await propagation.propagate(
+        workspaceRoot,
+        'wizard:generation-complete',
+      );
+      if (health === null) return;
+      this.logger.info('Generated agents propagated to harness targets', {
+        targets: health.targets
+          .filter((target) => target.detected)
+          .map((target) => target.target),
+      });
+    } catch (error: unknown) {
+      this.logger.warn('Harness propagation after generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -341,34 +386,6 @@ export class WizardGenerationRpcHandlers {
             error: error instanceof Error ? error.message : String(error),
           });
         }
-        let targetClis: CliTarget[] | undefined;
-        try {
-          const cliDetection = this.resolveService<CliDetectionService>(
-            TOKENS.CLI_DETECTION_SERVICE,
-            'CliDetectionService',
-          );
-          const installedClis = await cliDetection.detectAll();
-          const cliTargets = installedClis
-            .filter(
-              (c) =>
-                (c.cli === 'copilot' ||
-                  c.cli === 'codex' ||
-                  c.cli === 'cursor') &&
-                c.installed,
-            )
-            .map((c) => c.cli as CliTarget);
-          if (cliTargets.length > 0) {
-            targetClis = cliTargets;
-            this.logger.info('CLI targets detected for multi-CLI generation', {
-              targetClis,
-            });
-          }
-        } catch (cliError) {
-          this.logger.debug('CLI detection failed for generation (non-fatal)', {
-            error:
-              cliError instanceof Error ? cliError.message : String(cliError),
-          });
-        }
         const onStreamEvent = (event: GenerationStreamPayload): void => {
           if (!webviewManager) return;
           webviewManager
@@ -397,7 +414,6 @@ export class WizardGenerationRpcHandlers {
           model: currentModel,
           analysisDir,
           pluginPaths,
-          targetClis,
         };
         this.lastGenerationOptions = options;
         const progressCallback = (progress: GenerationProgress): void => {
@@ -505,6 +521,8 @@ export class WizardGenerationRpcHandlers {
             failed: summary.failed,
             durationMs,
           });
+
+          void this.propagateGeneratedAgents(options.workspacePath);
 
           if (webviewManager) {
             const completePayload: GenerationCompletePayload = {
@@ -763,6 +781,13 @@ export class WizardGenerationRpcHandlers {
             itemId: params.itemId,
             successful: summary.successful,
           });
+          // A retried agent is a generated agent. Batch 2 wired propagation to
+          // `wizard:submit-selection` only, so retrying the one item that had
+          // failed wrote `{ws}/.claude/agents/<id>.md` and stopped there — the
+          // item the user cared about most was the one item no rival CLI
+          // received. Awaited, unlike the submit path, because a retry has no
+          // long tail of remaining work to overlap with.
+          await this.propagateGeneratedAgents(workspaceRoot);
           if (webviewManager) {
             const completePayload: GenerationCompletePayload = {
               success: true,

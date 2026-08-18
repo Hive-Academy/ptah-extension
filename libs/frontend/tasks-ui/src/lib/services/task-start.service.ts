@@ -9,8 +9,8 @@ const RESOLVE_GUARD_TIMEOUT_MS = 30_000;
  * The slash command Start submits — UN-NAMESPACED, and it has to stay that way.
  *
  * This was `/ptah-core:orchestrate` and every Start click answered "Unknown
- * command" for zero tokens (TASK_2026_252). `SkillJunctionService` junctions
- * skills into `.claude/skills/` and copies commands into `.claude/commands/`
+ * command" for zero tokens (TASK_2026_252). The harness reconciler copies
+ * skills into `.claude/skills/` and commands into `.claude/commands/`
  * precisely so the SDK sees them un-namespaced — plugins are not passed via the
  * SDK query option, so a `plugin:command` form resolves to nothing. See
  * `CommandDiscoveryService`'s header in `@ptah-extension/workspace-intelligence`.

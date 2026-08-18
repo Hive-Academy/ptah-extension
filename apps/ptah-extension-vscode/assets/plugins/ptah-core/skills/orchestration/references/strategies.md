@@ -402,8 +402,8 @@ Creative workflows follow a **design-first principle** with specific agent seque
 |                                                               |
 |  1. DESIGN SYSTEM (Foundation)                                |
 |     +-- ui-ux-designer creates if missing                     |
-|         +-- Output: .claude/skills/technical-content-writer/  |
-|                     DESIGN-SYSTEM.md                          |
+|         +-- Output: DESIGN-SYSTEM.md, in the                  |
+|                     technical-content-writer skill's own dir  |
 |                                                               |
 |  2. CONTENT GENERATION (Depends on #1)                        |
 |     +-- technical-content-writer uses design system           |
@@ -418,8 +418,12 @@ Creative workflows follow a **design-first principle** with specific agent seque
 
 Before invoking technical-content-writer for landing pages:
 
+`DESIGN-SYSTEM.md` is a sibling of the `technical-content-writer` SKILL.md.
+Resolve it against that skill's own directory (from the Skill tool / plugin
+root); a workspace-relative `.claude/` path is not portable across hosts.
+
 ```
-design_system_path = ".claude/skills/technical-content-writer/DESIGN-SYSTEM.md"
+design_system_path = <technical-content-writer skill dir>/DESIGN-SYSTEM.md
 
 if NOT exists(design_system_path):
     -> Invoke ui-ux-designer FIRST
@@ -452,7 +456,7 @@ User: "Create a landing page for our extension"
 
 Orchestrator:
   1. Check design system exists
-     Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
+     Read(<technical-content-writer skill dir>/DESIGN-SYSTEM.md)
 
   2. IF MISSING -> Invoke ui-ux-designer:
      Task("Create design system", subagent_type="ui-ux-designer")
@@ -528,12 +532,12 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 
 ### Creative Output Locations
 
-| Agent                    | Output File                                                | Purpose                           |
-| ------------------------ | ---------------------------------------------------------- | --------------------------------- |
-| ui-ux-designer           | `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md` | Design tokens, colors, typography |
-| ui-ux-designer           | `.ptah/specs/TASK_[ID]/visual-design-specification.md`     | Page-specific visual specs        |
-| technical-content-writer | `.ptah/specs/TASK_[ID]/content-specification.md`           | Content with design integration   |
-| technical-content-writer | `docs/content/*.md`                                        | Final content files               |
+| Agent                    | Output File                                                  | Purpose                           |
+| ------------------------ | ------------------------------------------------------------ | --------------------------------- |
+| ui-ux-designer           | `DESIGN-SYSTEM.md` in the technical-content-writer skill dir | Design tokens, colors, typography |
+| ui-ux-designer           | `.ptah/specs/TASK_[ID]/visual-design-specification.md`       | Page-specific visual specs        |
+| technical-content-writer | `.ptah/specs/TASK_[ID]/content-specification.md`             | Content with design integration   |
+| technical-content-writer | `docs/content/*.md`                                          | Final content files               |
 
 ### Creative Handoff Protocols
 
@@ -542,7 +546,7 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 ```markdown
 ## Design Handoff for Content
 
-**Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 **Aesthetic**: [Name - e.g., "Sacred Tech"]
 **Key Colors**: [Primary accent, backgrounds]
 **Typography**: [Display + body fonts]
@@ -561,7 +565,7 @@ Content writer should:
 ## Content Handoff for Implementation
 
 **Content Spec**: .ptah/specs/TASK\_[ID]/content-specification.md
-**Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 **Assets Needed**: [List from asset briefs]
 
 Developer should:

@@ -23,10 +23,11 @@ import type {
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
 import {
-  activateSkillJunctions,
   initPluginLoader,
   mirrorUserLayer,
+  reconcileHarness,
   reconcileUserLayer,
+  subscribeHarnessToWorkspaceChanges,
 } from './plugin-activation';
 
 /**
@@ -45,7 +46,12 @@ export async function wireRuntimeVscode(
   initPluginLoader(contentDownload.getPluginsPath(), logger);
   const userLayerWorkspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const userLayerRoots = await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  // Pre-network, so a warm start detects divergence and reaps deleted upstreams
+  // with no download at all. The post-download callback runs the same pass
+  // again against the refreshed sources; this one is what makes an offline or
+  // fully-cached start still notice a clone the user edited (defect 8).
+  await reconcileUserLayer(userLayerWorkspaceRoot, logger);
   contentDownload
     .ensureContent()
     .then(async (result) => {
@@ -56,22 +62,31 @@ export async function wireRuntimeVscode(
         );
       }
       await mirrorUserLayer(userLayerWorkspaceRoot, logger);
-      if (result && !result.fromCache) {
-        await reconcileUserLayer(userLayerWorkspaceRoot, logger);
-      }
+      // Unconditional: the `!result.fromCache` gate that used to sit here is
+      // defect 8. A cached download still needs the sweep, because what changed
+      // may be the CLONE (a user edit) or the upstream's absence, neither of
+      // which the download result knows anything about.
+      await reconcileUserLayer(userLayerWorkspaceRoot, logger);
+      // Re-reconcile against the post-download user layer. The pass below this
+      // block runs before the network is done — so on a cold first run it sees
+      // an empty user layer and copies nothing, and on a content update it
+      // copies the previous revision. Both leave the workspace without skills
+      // until the NEXT activation (TASK_2026_278). Running this for cached
+      // downloads too is deliberate: that branch is exactly where the re-run is
+      // a cheap hash-compare no-op.
+      await reconcileHarness(logger, 'content-download-complete');
     })
     .catch((err: unknown) => {
       logger.warn('Post-download reconcile failed (non-fatal)', {
         error: err instanceof Error ? err.message : String(err),
       });
     });
-  activateSkillJunctions(
-    contentDownload.getPluginsPath(),
-    logger,
-    userLayerRoots
-      ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
-      : undefined,
-  );
+  // First pass, not awaiting the network, so a warm start has skills
+  // immediately. `downloadPending` only changes how an empty user layer is
+  // REPORTED (`pending-download` vs `sources-missing`); the callback above
+  // corrects the content once it lands.
+  await reconcileHarness(logger, 'activation', { downloadPending: true });
+  context.subscriptions.push(subscribeHarnessToWorkspaceChanges(logger));
   void licenseStatus;
   try {
     const providerModels = DIContainer.getContainer().resolve(

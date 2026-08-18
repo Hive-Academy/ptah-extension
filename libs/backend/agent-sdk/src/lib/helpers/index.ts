@@ -181,12 +181,6 @@ export {
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
 export {
-  SkillJunctionService,
-  type SkillJunctionActivateOptions,
-  type SkillJunctionResult,
-  type SkillShadowing,
-} from './skill-junction.service';
-export {
   SessionForkService,
   type ForkSessionParams,
   type RewindFilesParams,

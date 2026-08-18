@@ -36,6 +36,13 @@
  *   generate-document --kind <prd|spec>         RPC `harness:generate-document`
  *                                               emits `harness.document.start`,
  *                                                     `harness.document.complete`
+ *   doctor [--fix] [--json]                     RPC `harness:health` (or
+ *                                               `harness:reconcile` with --fix)
+ *                                               emits `harness.doctor`
+ *                                               EXITS 1 on drift — see
+ *                                               `harness-doctor.ts`
+ *   remove --yes                                RPC `harness:remove`
+ *                                               emits `harness.removed`
  *
  * `init` and `chat` deliberately bypass `withEngine` — `init` because pure
  * `mkdir` doesn't need DI (and must work on an unbootstrapped workspace),
@@ -49,8 +56,9 @@ import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import { executeSessionStart } from './session.js';
+import { runHarnessDoctor, runHarnessRemove } from './harness-doctor.js';
+import { callRpc } from './thoth-command-shared.js';
 import type {
   HarnessAnalyzeIntentResponse,
   HarnessApplyResponse,
@@ -74,7 +82,9 @@ export type HarnessSubcommand =
   | 'chat'
   | 'analyze-intent'
   | 'design-agents'
-  | 'generate-document';
+  | 'generate-document'
+  | 'doctor'
+  | 'remove';
 
 export interface HarnessOptions {
   subcommand: HarnessSubcommand;
@@ -102,6 +112,26 @@ export interface HarnessOptions {
   session?: string;
   /** For `chat --auto-approve` — informational, plumbed but not consumed yet. */
   autoApprove?: boolean;
+  /** For `doctor --fix` — reconcile before reporting instead of only measuring. */
+  fix?: boolean;
+  /**
+   * For `remove --yes` — required confirmation.
+   *
+   * `remove` deletes every Ptah-managed copy in the workspace, and the CLI's
+   * default mode is machine output on a pipe where there is nobody to prompt.
+   */
+  yes?: boolean;
+  /**
+   * Subcommand-level `--json`.
+   *
+   * The root program already defaults to JSON, but its flag is declared on the
+   * PROGRAM, so `ptah harness doctor --json` would otherwise die with "unknown
+   * option" — commander hands trailing argv to the subcommand, which has never
+   * heard of a root flag. Declaring it here makes the documented invocation
+   * parse, and makes it authoritative: it forces machine output even when an
+   * earlier `--human` asked for the pretty printer. Same shape as `ptah spec`.
+   */
+  json?: boolean;
 }
 
 /** Locked contract — mirrors the architect's `runChatAlias` body verbatim. */
@@ -140,9 +170,14 @@ const VALID_DOC_KINDS = new Set(['prd', 'spec']);
 
 export async function execute(
   opts: HarnessOptions,
-  globals: GlobalOptions,
+  rawGlobals: GlobalOptions,
   hooks: HarnessExecuteHooks = {},
 ): Promise<number> {
+  // A subcommand-level `--json` overrides an earlier `--human`.
+  const globals: GlobalOptions =
+    opts.json === true
+      ? { ...rawGlobals, json: true, human: false }
+      : rawGlobals;
   const formatter = hooks.formatter ?? buildFormatter(globals);
   const stderr: HarnessStderrLike = hooks.stderr ?? process.stderr;
   const engine = hooks.withEngine ?? withEngine;
@@ -182,6 +217,10 @@ export async function execute(
           stderr,
           engine,
         );
+      case 'doctor':
+        return await runHarnessDoctor(opts, globals, formatter, engine);
+      case 'remove':
+        return await runHarnessRemove(opts, globals, formatter, stderr, engine);
       default:
         stderr.write(
           `ptah harness: unknown sub-command '${String(opts.subcommand)}'\n`,
@@ -635,20 +674,4 @@ function findPreset(
     if (p.id.toLowerCase() === sanitized) return p;
   }
   return null;
-}
-
-async function callRpc<T = unknown>(
-  transport: CliMessageTransport,
-  method: string,
-  params: unknown,
-): Promise<T> {
-  const response = await transport.call<unknown, T>(method, params);
-  if (!response.success) {
-    const err = new Error(response.error ?? `${method} failed`);
-    if (response.errorCode) {
-      (err as unknown as { code: string }).code = response.errorCode;
-    }
-    throw err;
-  }
-  return (response.data as T) ?? (null as unknown as T);
 }

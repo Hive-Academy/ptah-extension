@@ -13,6 +13,8 @@ import {
   PluginBrowserModalComponent,
 } from '@ptah-extension/chat-ui';
 import { ExternalMarketplacesComponent } from './external-marketplaces.component';
+import { HarnessHealthBadgeComponent } from './harness/harness-health-badge.component';
+import { HarnessHealthStore } from './harness/harness-health.store';
 
 /**
  * PluginsSurfaceComponent — the `plugins` provider surface of the Marketplace
@@ -26,6 +28,12 @@ import { ExternalMarketplacesComponent } from './external-marketplaces.component
  *    which registers GitHub-hosted marketplaces and installs their plugins
  *    behind the two-call consent protocol.
  *
+ * The header carries {@link HarnessHealthBadgeComponent}, which closes the loop
+ * on both: enabling a plugin writes it to the Ptah user layer, and the badge is
+ * the only surface that says whether it then REACHED the CLI tools that have to
+ * read it (TASK_2026_278). It lives here rather than in the hub header so the
+ * hub stays driven purely by its provider registry.
+ *
  * Complexity Level: 1 — composition and one modal-open flag.
  */
 @Component({
@@ -36,6 +44,7 @@ import { ExternalMarketplacesComponent } from './external-marketplaces.component
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
     ExternalMarketplacesComponent,
+    HarnessHealthBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -50,12 +59,15 @@ import { ExternalMarketplacesComponent } from './external-marketplaces.component
             aria-hidden="true"
           />
         </div>
-        <div>
+        <div class="min-w-0">
           <h2 class="text-sm font-semibold text-base-content">Ptah Skills</h2>
           <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
             Enhance your sessions with specialized skills for orchestration,
             frontend patterns, backend architecture, and more.
           </p>
+        </div>
+        <div class="ml-auto shrink-0">
+          <ptah-harness-health-badge />
         </div>
       </div>
 
@@ -75,6 +87,7 @@ import { ExternalMarketplacesComponent } from './external-marketplaces.component
 })
 export class PluginsSurfaceComponent {
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
+  private readonly harnessHealth = inject(HarnessHealthStore);
 
   public readonly refreshTrigger = input(0);
 
@@ -91,9 +104,17 @@ export class PluginsSurfaceComponent {
     this.browserOpen.set(false);
   }
 
+  /**
+   * Saving the plugin configuration changes the DESIRED harness, so the badge's
+   * report is stale the moment this returns. `plugins:save-config` triggers a
+   * reconcile backend-side; the re-read asks for a fresh pass rather than the
+   * cached report so the badge cannot win a race against it and redisplay the
+   * pre-save answer.
+   */
   protected onSaved(): void {
     this.browserOpen.set(false);
     this.commandDiscovery.clearCache();
     this.statusWidget()?.fetchPluginStatus();
+    void this.harnessHealth.refresh({ refresh: true });
   }
 }

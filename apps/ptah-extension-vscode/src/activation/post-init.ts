@@ -9,14 +9,15 @@ import {
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import { DIContainer } from '../di/container';
 import { PtahExtension } from '../core/ptah-extension';
-import { syncCliSkillsOnActivation } from './cli-skill-sync';
-import { syncCliAgentsOnActivation } from './cli-agent-sync';
 
 /**
  * Final activation stage: constructs the PtahExtension controller, brings up
- * local subsystems (MCP server + CLI skill/agent sync) unconditionally,
- * schedules background membership revalidation, and shows the first-time
- * welcome message.
+ * the local MCP subsystem unconditionally, schedules background membership
+ * revalidation, and shows the first-time welcome message.
+ *
+ * Harness propagation used to happen here too, through two CLI sync callbacks.
+ * It moved to `reconcileHarness` in `wire-runtime.ts`, which runs earlier and
+ * covers Claude and every rival CLI in one pass (TASK_2026_278 Batch 2).
  *
  * @returns The constructed PtahExtension so the caller can assign it to the
  *   module-level `ptahExtension` variable used by `deactivate()`.
@@ -33,21 +34,12 @@ export async function registerPostInit(
   await ptahExtension.registerAll();
   try {
     const container = DIContainer.getContainer();
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     await bringUpSubsystems({
       container,
       logger,
       onMcpPortChange: (port) => {
         setPtahMcpPort(port ?? 0);
-      },
-      syncCliSkills: () => {
-        syncCliSkillsOnActivation(workspaceRoot, logger);
-      },
-      syncCliAgents: () => {
-        if (workspaceRoot) {
-          syncCliAgentsOnActivation(workspaceRoot, logger);
-        }
       },
     });
 

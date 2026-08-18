@@ -103,6 +103,7 @@ export default [
           checkDynamicDependenciesExceptions: [
             '@ptah-extension/tasks-ui/services',
             '@ptah-extension/harness-builder/services',
+            '@ptah-extension/marketplace/services',
           ],
           depConstraints: [
             {

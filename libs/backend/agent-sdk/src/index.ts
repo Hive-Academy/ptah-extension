@@ -197,12 +197,6 @@ export {
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './lib/helpers';
-export {
-  SkillJunctionService,
-  type SkillJunctionActivateOptions,
-  type SkillJunctionResult,
-  type SkillShadowing,
-} from './lib/helpers';
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
 export { SettingsExportService } from './lib/settings-export.service';
@@ -231,6 +225,11 @@ export type {
   StreamProcessorResult,
 } from './lib/stream-processing';
 export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
+export {
+  HARNESS_PREFLIGHT_TOKEN,
+  type HarnessPreflightRequest,
+  type IHarnessPreflight,
+} from './lib/harness/harness-preflight.port';
 export {
   wireSessionMetadataEvents,
   type WireSessionMetadataEventsContext,

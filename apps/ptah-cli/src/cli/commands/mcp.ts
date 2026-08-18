@@ -85,6 +85,7 @@ const VALID_TARGETS: readonly McpInstallTarget[] = [
   'claude',
   'cursor',
   'copilot',
+  'codex',
 ];
 
 export async function execute(

@@ -179,6 +179,15 @@ export const MESSAGE_TYPES = {
   /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
   SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
   /**
+   * Backend → Frontend: the harness reconciler finished a pass whose SUMMARY
+   * differs from the last one pushed (TASK_2026_278 Batch 4).
+   *
+   * Deliberately edge-triggered, not per-pass. A preflight runs on every
+   * session start and a full pass on every activation, so pushing each would
+   * be a message per session for a badge that did not change.
+   */
+  HARNESS_HEALTH_CHANGED: 'harness:healthChanged',
+  /**
    * Backend → Frontend: an interactive provider login produced a device code
    * the user must enter in a browser (Copilot device-code flow, `codex login
    * --device-auth`).

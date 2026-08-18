@@ -89,3 +89,40 @@ export const HarnessWorkflowPromptParamsSchema = z.object({
   mode: z.literal('configure-harness'),
   intent: z.string().min(1),
 });
+
+/**
+ * The reconciler surface (TASK_2026_278 Batch 4).
+ *
+ * These three take params from the webview, from `ptah harness doctor` and
+ * eventually from anything that can reach the RPC socket, so unlike the wizard
+ * methods above they are fully parsed rather than trusted. The target ids are
+ * enumerated from the shared `HarnessTargetId` union — a typo'd id must fail at
+ * the boundary, not silently reconcile nothing.
+ */
+export const HarnessTargetIdSchema = z.enum([
+  'claude',
+  'codex',
+  'copilot',
+  'cursor',
+  'antigravity',
+  'vscode',
+]);
+
+export const HarnessHealthParamsSchema = z.object({
+  refresh: z.boolean().optional(),
+});
+
+export const HarnessReconcileParamsSchema = z.object({
+  mode: z.enum(['full', 'preflight']).optional(),
+  targets: z.array(HarnessTargetIdSchema).max(6).optional(),
+});
+
+/**
+ * `confirm` is `z.literal(true)`, not `z.boolean()`. This method deletes every
+ * managed copy in the workspace; a caller that omits the flag, or sends
+ * `false`, must be rejected at the schema rather than reaching a handler that
+ * then has to remember to check.
+ */
+export const HarnessRemoveParamsSchema = z.object({
+  confirm: z.literal(true),
+});

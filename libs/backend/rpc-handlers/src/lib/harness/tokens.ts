@@ -22,4 +22,11 @@ export const HARNESS_TOKENS = {
   MCP_INSTALL: Symbol.for('HarnessMcpInstall'),
   SKILL_INSTALL: Symbol.for('HarnessSkillInstall'),
   LLM_RUNNER: Symbol.for('HarnessLlmRunner'),
+  /**
+   * `HarnessHealthRpcService` — the reconciler surface (`harness:health`,
+   * `harness:reconcile`, `harness:remove`) and the `harness:healthChanged`
+   * push. Separate from the wizard services above: those AUTHOR a harness,
+   * this one reports whether it reached disk.
+   */
+  HEALTH: Symbol.for('HarnessHealthRpcService'),
 } as const;

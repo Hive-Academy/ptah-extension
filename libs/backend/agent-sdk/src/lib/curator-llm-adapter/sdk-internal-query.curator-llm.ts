@@ -8,6 +8,8 @@ import {
 } from '@ptah-extension/memory-contracts';
 import {
   PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
@@ -70,6 +72,8 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     private readonly workspace: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER, { isOptional: true })
     private readonly resolver: IProviderAuthResolver | null = null,
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   private resolveCuratorProviderId(): string {
@@ -180,7 +184,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         model: this.resolveCuratorModel(),
         prompt,
         systemPromptAppend,
-        mcpServerRunning: false,
+        // Was hard-coded false (defect 13). The curator reads and writes memory
+        // through Ptah tools when they are reachable.
+        ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 1,
         abortController,
         auth,

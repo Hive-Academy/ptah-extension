@@ -623,12 +623,6 @@ export interface GenerationSummary {
    * prepended to the LLM system prompt for section customization.
    */
   enhancedPromptsUsed?: boolean;
-
-  /**
-   * Per-CLI agent distribution results (Phase 5).
-   * Present when targetClis was specified in OrchestratorGenerationOptions.
-   */
-  cliResults?: import('@ptah-extension/shared').CliGenerationResult[];
 }
 
 /**

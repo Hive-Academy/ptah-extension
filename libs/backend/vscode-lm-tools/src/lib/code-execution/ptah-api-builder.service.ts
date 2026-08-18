@@ -144,6 +144,16 @@ const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
 const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
 
 /**
+ * `HARNESS_SYNC_TOKENS.RECONCILER` from `@ptah-extension/harness-sync`, declared
+ * locally for the same reason as the tokens around it: this lib must not take a
+ * dependency on the reconciler to hand it to `McpInstallService`.
+ *
+ * @warning Keep the `Symbol.for()` string in sync with
+ * `libs/backend/harness-sync/src/lib/di/tokens.ts`.
+ */
+const HARNESS_SYNC_RECONCILER = Symbol.for('HarnessSyncReconciler');
+
+/**
  * Duplicated from MEMORY_TOKENS.MEMORY_SEARCH to avoid circular dependency
  * between vscode-lm-tools -> memory-curator. Must match the string in:
  * libs/backend/memory-curator/src/lib/di/tokens.ts
@@ -346,6 +356,16 @@ export class PtahAPIBuilder {
 
     @inject(SDK_PLUGIN_LOADER, { isOptional: true })
     private readonly pluginLoader: PluginLoaderLike | undefined,
+
+    /**
+     * Optional: hosts that never registered `harness-sync` still build the API
+     * surface, and `McpInstallService` reports a clear per-target error instead
+     * of writing config files through a second path.
+     */
+    @inject(HARNESS_SYNC_RECONCILER, { isOptional: true })
+    private readonly harnessReconciler:
+      | ConstructorParameters<typeof McpInstallService>[0]
+      | undefined,
 
     @inject(SDK_PTAH_CLI_REGISTRY, { isOptional: true })
     private readonly ptahCliRegistry: PtahCliRegistryLike | undefined,
@@ -689,9 +709,10 @@ export class PtahAPIBuilder {
           // builder also discovers trusted vendor/community servers.
           pulseMcpRegistry: new PulseMcpRegistrySource({ logger: this.logger }),
           // Same installer that backs the marketplace MCP directory and
-          // harness:apply, so an agent-initiated install lands in exactly the
-          // same config files and the same ~/.ptah/mcp-installed.json manifest.
-          mcpInstaller: new McpInstallService(),
+          // harness:apply, so an agent-initiated install records the same
+          // intent in ~/.ptah/mcp-installed.json and reaches the config files
+          // through the same reconcile pass.
+          mcpInstaller: new McpInstallService(this.harnessReconciler ?? null),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           broadcast: (type, payload) => {
             if (!webviewManager) {

@@ -13,11 +13,12 @@
  * - `resolvePluginPaths(ids)` resolves explicitly-named plugins. It seeds the
  *   user-layer mirror (`mirrorUserLayer`) and the SDK session `plugins` option.
  *   It accepts a harness id only when the directory actually exists.
- * - `resolveCurrentPluginPaths()` is the junction-feeding path: enabled bundled
- *   plugins ∪ discovered harness dirs, minus anything explicitly disabled.
- *   Without the harness half, SkillJunctionService.removeStaleJunctions deletes
- *   every harness-authored skill junction whenever the user toggles a plugin in
- *   the marketplace. Without the disable half, the toggle does nothing.
+ * - `resolveCurrentPluginPaths()` is the path the harness reconciler overlays:
+ *   enabled bundled plugins ∪ discovered harness dirs, minus anything
+ *   explicitly disabled. Without the harness half, every harness-authored skill
+ *   drops out of the desired state and the reconciler reaps its workspace copy
+ *   the moment the user toggles a plugin in the marketplace. Without the
+ *   disable half, the toggle does nothing.
  *
  * Uses a real temp directory rather than a mocked `fs` — the service reads the
  * filesystem synchronously and the directory layout is the thing under test.
@@ -475,8 +476,8 @@ describe('PluginLoaderService.resolveCurrentPluginPaths (junction source of trut
     );
 
     // This is the regression: a marketplace toggle that empties enabledPluginIds
-    // must still hand the harness dirs to SkillJunctionService, or every
-    // harness-authored junction is pruned as stale.
+    // must still surface the harness dirs, or every harness-authored skill
+    // leaves the desired state and its workspace copy is reaped.
     expect(h.service.resolveCurrentPluginPaths()).toEqual([
       path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
     ]);
@@ -537,9 +538,9 @@ describe('PluginLoaderService.resolveCurrentPluginPaths (junction source of trut
   });
 
   it('EXCLUDES a harness plugin the user explicitly disabled', () => {
-    // The toggle only bites here: SkillJunctionService prunes junctions whose
-    // skill is absent from these paths, so an excluded plugin is what actually
-    // un-junctions its skills from .claude/skills/.
+    // The toggle only bites here: the harness reconciler removes managed copies
+    // whose skill is absent from these paths, so an excluded plugin is what
+    // actually removes its skills from .claude/skills/.
     const h = track(
       makeHarness({
         bundledDirs: ['ptah-core'],

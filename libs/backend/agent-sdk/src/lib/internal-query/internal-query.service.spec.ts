@@ -88,7 +88,6 @@ describe('InternalQueryService', () => {
         maxTurns: 12,
         outputFormat,
         abortController,
-        pluginPaths: ['/p1', '/p2'],
       };
 
       await h.service.execute(config);
@@ -105,7 +104,6 @@ describe('InternalQueryService', () => {
         maxTurns: 12,
         outputFormat,
         abortController,
-        pluginPaths: ['/p1', '/p2'],
       });
     });
 
@@ -121,7 +119,6 @@ describe('InternalQueryService', () => {
       expect(input.maxTurns).toBeUndefined();
       expect(input.outputFormat).toBeUndefined();
       expect(input.abortController).toBeUndefined();
-      expect(input.pluginPaths).toBeUndefined();
     });
 
     it('propagates rejections thrown by the runner', async () => {

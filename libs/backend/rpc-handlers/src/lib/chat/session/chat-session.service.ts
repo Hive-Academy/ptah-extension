@@ -406,12 +406,10 @@ export class ChatSessionService {
 
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-      const pluginPaths = this.sdkContext.resolvePluginPaths();
 
       this.logger.info('[ptah.main] chat:start - prompt config', {
         hasEnhancedPrompts: !!enhancedPromptsContent,
         enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-        pluginCount: pluginPaths?.length ?? 0,
       });
 
       const currentModel =
@@ -456,7 +454,6 @@ export class ChatSessionService {
         images, // inline pasted/dropped images
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         thinking: options?.thinking,
         effort: options?.effort,
         workflowsDisabled: this.resolveWorkflowsDisabled(),
@@ -997,12 +994,10 @@ export class ChatSessionService {
 
     const enhancedPromptsContent =
       await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-    const pluginPaths = this.sdkContext.resolvePluginPaths();
 
     this.logger.info('[ptah.main] chat:continue resume - prompt config', {
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      pluginCount: pluginPaths?.length ?? 0,
     });
 
     const currentModel =
@@ -1030,7 +1025,6 @@ export class ChatSessionService {
         model: currentModel,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         tabId,
         thinking: params.thinking,
         effort: params.effort,

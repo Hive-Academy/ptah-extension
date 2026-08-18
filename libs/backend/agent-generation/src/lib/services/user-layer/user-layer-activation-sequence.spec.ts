@@ -5,13 +5,36 @@ import { join } from 'path';
 
 let fakeHome: string;
 
-jest.mock('os', () => {
-  const actual = jest.requireActual('os');
-  return {
-    ...actual,
-    homedir: () => fakeHome,
-  };
-});
+/**
+ * `homedir()` is redirected into the per-test temp root so nothing in this file
+ * can resolve a path against the developer's real `~/.ptah/user`. The service
+ * writes to `~/.ptah/user/**` unconditionally, so an unmocked homedir would not
+ * fail the run — it would quietly edit the developer's own clones. That accident
+ * has happened once in this repo already; see harness-sync's CLAUDE.md, "Never
+ * let a spec touch the real home directory".
+ *
+ * Mocking the bare `'os'` specifier is sufficient: Jest resolves `'node:os'` to
+ * the same core module, so a `node:`-prefixed import in the code under test is
+ * covered by this one mock (verified, not assumed).
+ */
+jest.mock('os', () => ({
+  ...jest.requireActual<typeof import('os')>('os'),
+  homedir: () => fakeHome,
+}));
+
+/**
+ * Windows can transiently fail a recursive delete with EBUSY/EPERM while an
+ * indexer or a sibling worker still holds a handle, and `force` only suppresses
+ * ENOENT. Retry those, then give up quietly: a leaked temp dir is the OS's
+ * problem, whereas a throwing `afterEach` fails a test that already passed.
+ */
+async function removeTempRoot(dir: string): Promise<void> {
+  try {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 });
+  } catch {
+    // Best effort — cleanup must never decide the outcome of a test.
+  }
+}
 
 import { UserLayerMirrorService } from './user-layer-mirror.service';
 import { ORIGIN_SIDECAR_FILENAME } from './origin-sidecar.types';
@@ -79,7 +102,7 @@ describe('user-layer activation sequence (TASK_2026_261)', () => {
   });
 
   afterEach(async () => {
-    await rm(workRoot, { recursive: true, force: true });
+    await removeTempRoot(workRoot);
   });
 
   /** Seed one skill dir, one command file and one workspace agent file. */

@@ -381,12 +381,6 @@ export interface QueryOptionsInput {
    */
   enhancedPromptsContent?: string;
   /**
-   * Plugin paths to load for this session.
-   * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Only populated when plugins are configured.
-   */
-  pluginPaths?: string[];
-  /**
    * Initial SDK permission mode based on current autopilot config.
    * Mapped from the per-session level: 'auto-edit' → 'acceptEdits',
    * 'plan' → 'plan', and both 'ask' and 'yolo' → 'default'. YOLO uses
@@ -582,7 +576,6 @@ export class SdkQueryOptionsBuilder {
       onWorktreeRemoved,
       mcpServerRunning = true,
       enhancedPromptsContent,
-      pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
       forkSession,
@@ -696,7 +689,6 @@ export class SdkQueryOptionsBuilder {
       compactionThreshold: compactionConfig.contextTokenThreshold,
       mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
-      pluginCount: pluginPaths?.length ?? 0,
       mcpOverrideKeys: mcpServersOverride
         ? Object.keys(mcpServersOverride)
         : [],

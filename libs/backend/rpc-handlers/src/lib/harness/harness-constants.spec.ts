@@ -1,9 +1,28 @@
 import type {
   NewProjectIntake,
+  StackProfileId,
   ToolchainProbeResult,
 } from '@ptah-extension/shared';
 import { getStackProfile } from '@ptah-extension/shared';
 import { buildNewProjectSeedPrompt } from './harness-constants';
+import type { NewProjectPromptContext } from './harness-constants';
+
+/**
+ * The skill ids `discoverAvailableSkills()` reports once a profile's plugin is
+ * installed. Read back out of the registry so a renamed skill fails these tests
+ * rather than leaving them asserting a name nothing produces any more.
+ */
+function skillsOf(...profileIds: StackProfileId[]): string[] {
+  return profileIds.flatMap((id) => {
+    const { skills } = getStackProfile(id);
+    return [skills.initializer, skills.architect, skills.domain];
+  });
+}
+
+/** Every shipped profile's skills present — the healthy machine. */
+const ALL_INSTALLED: NewProjectPromptContext = {
+  availableSkillIds: skillsOf('node-ts', 'dotnet', 'python'),
+};
 
 const BASE_INTAKE: NewProjectIntake = {
   what: 'A booking tool for physiotherapy clinics',
@@ -126,7 +145,7 @@ describe('buildNewProjectSeedPrompt', () => {
   });
 
   it('sequences the Stage A skills: initializer, then ddd, then nx', () => {
-    const prompt = buildNewProjectSeedPrompt(BASE_INTAKE);
+    const prompt = buildNewProjectSeedPrompt(BASE_INTAKE, ALL_INSTALLED);
     const initializer = prompt.indexOf('saas-workspace-initializer');
     const ddd = prompt.indexOf('ddd-architecture');
     const nx = prompt.indexOf('nx-workspace-architect');
@@ -180,7 +199,7 @@ describe('buildNewProjectSeedPrompt', () => {
  */
 describe('buildNewProjectSeedPrompt — profile-driven skills', () => {
   it('names the .NET Stage A skills, and none of the TypeScript ones', () => {
-    const prompt = buildNewProjectSeedPrompt(DOTNET_INTAKE);
+    const prompt = buildNewProjectSeedPrompt(DOTNET_INTAKE, ALL_INSTALLED);
 
     expect(prompt).toContain('`dotnet-solution-initializer`');
     expect(prompt).toContain('`dotnet-solution-architect`');
@@ -195,11 +214,10 @@ describe('buildNewProjectSeedPrompt — profile-driven skills', () => {
   });
 
   it('names the Python skills for the Python platform', () => {
-    const prompt = buildNewProjectSeedPrompt({
-      ...BASE_INTAKE,
-      platform: 'python',
-      stack: 'fastapi',
-    });
+    const prompt = buildNewProjectSeedPrompt(
+      { ...BASE_INTAKE, platform: 'python', stack: 'fastapi' },
+      ALL_INSTALLED,
+    );
 
     expect(prompt).toContain('`python-workspace-initializer`');
     expect(prompt).toContain('**Tech stack preference:** FastAPI');
@@ -231,6 +249,139 @@ describe('buildNewProjectSeedPrompt — profile-driven skills', () => {
       'ask me which language, runtime and package manager',
     );
     expect(prompt).toContain('`ddd-architecture`');
+  });
+});
+
+/**
+ * A profile may name a Stage A skill whose plugin has not shipped yet — Python
+ * is exactly that case today. An agent told to run a skill that is not there
+ * improvises instead of stopping, so the name is printed only once discovery
+ * has seen it, and the gate is the live skill set: shipping the plugin makes
+ * these fallbacks stop firing on their own.
+ */
+describe('buildNewProjectSeedPrompt — skills that are not installed', () => {
+  const PYTHON_INTAKE: NewProjectIntake = {
+    ...BASE_INTAKE,
+    platform: 'python',
+    stack: 'fastapi',
+  };
+  const PYTHON = getStackProfile('python').skills;
+
+  const GENERIC_INITIALIZER = 'No preset Stage A skill is installed';
+  const GENERIC_ARCHITECT =
+    'then derive the library layout from them using the conventions of the platform we settled on';
+
+  it('names both skills when both are installed, exactly as it did before', () => {
+    const prompt = buildNewProjectSeedPrompt(PYTHON_INTAKE, {
+      availableSkillIds: [PYTHON.initializer, PYTHON.architect],
+    });
+
+    expect(prompt).toContain(`\`${PYTHON.initializer}\``);
+    expect(prompt).toContain(`\`${PYTHON.architect}\``);
+    expect(prompt).not.toContain(GENERIC_INITIALIZER);
+    expect(prompt).not.toContain(GENERIC_ARCHITECT);
+  });
+
+  it('leaves the shipped Node/TypeScript and .NET prompts byte-for-byte alone', () => {
+    // The regression bar: with the profile's skills present, the fallback must
+    // be invisible in the two prompts that already ship.
+    for (const intake of [BASE_INTAKE, DOTNET_INTAKE]) {
+      const prompt = buildNewProjectSeedPrompt(intake, ALL_INSTALLED);
+      expect(prompt).toContain('` skill and run its Stage A.');
+      expect(prompt).toContain(
+        '` skill to derive the library layout from them',
+      );
+      expect(prompt).not.toContain(GENERIC_INITIALIZER);
+    }
+  });
+
+  it('drops the initializer name but keeps the architect one', () => {
+    const prompt = buildNewProjectSeedPrompt(PYTHON_INTAKE, {
+      availableSkillIds: [PYTHON.architect],
+    });
+
+    expect(prompt).not.toContain(PYTHON.initializer);
+    expect(prompt).toContain(GENERIC_INITIALIZER);
+    expect(prompt).toContain(`\`${PYTHON.architect}\``);
+  });
+
+  it('drops the architect name but keeps the initializer one', () => {
+    const prompt = buildNewProjectSeedPrompt(PYTHON_INTAKE, {
+      availableSkillIds: [PYTHON.initializer],
+    });
+
+    expect(prompt).toContain(`\`${PYTHON.initializer}\``);
+    expect(prompt).not.toContain(PYTHON.architect);
+    expect(prompt).toContain(GENERIC_ARCHITECT);
+  });
+
+  it('goes fully generic when neither is installed, and still reads end to end', () => {
+    const prompt = buildNewProjectSeedPrompt(PYTHON_INTAKE, {
+      availableSkillIds: ['some-unrelated-skill'],
+    });
+
+    expect(prompt).not.toContain(PYTHON.initializer);
+    expect(prompt).not.toContain(PYTHON.architect);
+    expect(prompt).toContain(GENERIC_INITIALIZER);
+    expect(prompt).toContain(GENERIC_ARCHITECT);
+
+    // Still a coherent brief: the platform is stated, the contract is spelled
+    // out, and the step count is the one this platform always had.
+    expect(prompt).toContain('**Platform:** Python');
+    expect(prompt).toContain(
+      'discovery, then domain model, then roadmap, then a foundation-only scaffold',
+    );
+    expect(prompt).toMatch(/^6\. /m);
+    expect(prompt).not.toMatch(/^7\. /m);
+    // The `other`-platform prose asks what language this is. Here we know.
+    expect(prompt).not.toContain(
+      'ask me which language, runtime and package manager',
+    );
+  });
+
+  it('treats unknown availability as absent rather than assuming the best', () => {
+    // Discovery threw, or the host has no skill surface at all. Naming a skill
+    // we cannot verify is the failure this whole gate exists to prevent.
+    for (const context of [{}, { availableSkillIds: [] }]) {
+      const prompt = buildNewProjectSeedPrompt(PYTHON_INTAKE, context);
+      expect(prompt).toContain(GENERIC_INITIALIZER);
+      expect(prompt).toContain(GENERIC_ARCHITECT);
+    }
+  });
+
+  it('stops falling back the moment the named skills become discoverable', () => {
+    // Forward compatibility, asserted rather than assumed: nothing in this file
+    // or the prompt builder changes when `ptah-python` ships — only what
+    // discovery returns.
+    const before = buildNewProjectSeedPrompt(PYTHON_INTAKE, {
+      availableSkillIds: [],
+    });
+    const after = buildNewProjectSeedPrompt(PYTHON_INTAKE, {
+      availableSkillIds: skillsOf('python'),
+    });
+
+    expect(before).toContain(GENERIC_INITIALIZER);
+    expect(after).not.toContain(GENERIC_INITIALIZER);
+    expect(after).toContain(`\`${PYTHON.initializer}\``);
+    expect(after).toContain(`\`${PYTHON.architect}\``);
+  });
+
+  it('keeps the ddd step and the `other` platform branch out of this', () => {
+    // `domain` is not gated — it is not a per-platform preset — and the `other`
+    // branch has its own prose, which an empty skill set must not replace.
+    const other = buildNewProjectSeedPrompt(
+      { ...BASE_INTAKE, platform: 'other', stack: 'other' },
+      { availableSkillIds: [] },
+    );
+
+    expect(other).toContain(
+      'ask me which language, runtime and package manager',
+    );
+    expect(other).not.toContain(GENERIC_INITIALIZER);
+    expect(other).toContain('`ddd-architecture`');
+    expect(
+      buildNewProjectSeedPrompt(PYTHON_INTAKE, { availableSkillIds: [] }),
+    ).toContain('`ddd-architecture`');
   });
 });
 

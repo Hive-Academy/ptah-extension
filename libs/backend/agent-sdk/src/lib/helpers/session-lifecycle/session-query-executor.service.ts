@@ -45,6 +45,7 @@ import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
 } from '../no-activity-watchdog';
+import type { IHarnessPreflight } from '../../harness/harness-preflight.port';
 
 export class SessionQueryExecutor {
   constructor(
@@ -57,6 +58,13 @@ export class SessionQueryExecutor {
     private readonly messageFactory: SdkMessageFactory,
     private readonly authEnv: AuthEnv,
     private readonly queryRunner: SdkQueryRunner,
+    /**
+     * Optional by design: a host with no reconciler (a test container, an
+     * embedded consumer) starts sessions exactly as before. See
+     * `harness/harness-preflight.port.ts` for why this is a structural port and
+     * not an import of `harness-sync`.
+     */
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
   ) {}
 
   /**
@@ -87,7 +95,6 @@ export class SessionQueryExecutor {
       onWorktreeRemoved,
       mcpServerRunning = true,
       enhancedPromptsContent,
-      pluginPaths,
       permissionLevel,
       pathToClaudeCodeExecutable,
       forkSession,
@@ -196,6 +203,13 @@ export class SessionQueryExecutor {
       },
     );
     try {
+      // Before the SDK is even loaded: this is the one funnel every
+      // interactive, gateway and resumed session passes through, and it is the
+      // last moment at which a missing `.claude/skills` can still be repaired
+      // without the model having already been told it has none. Bounded and
+      // non-throwing by the port's contract, so nothing here can delay or fail
+      // a session for long (TASK_2026_278 Batch 3).
+      await this.runHarnessPreflight(sessionConfig?.projectPath);
       const queryFn = await this.moduleLoader.getQueryFunction();
       const userMessageStream = this.streamPump.createUserMessageStream(
         sessionId,
@@ -234,7 +248,6 @@ export class SessionQueryExecutor {
         onWorktreeRemoved,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         permissionMode: initialPermissionMode,
         permissionLevelResolver,
         pathToClaudeCodeExecutable,
@@ -316,6 +329,34 @@ export class SessionQueryExecutor {
         err instanceof Error ? err : new Error(String(err)),
       );
       throw err;
+    }
+  }
+
+  /**
+   * Verify the harness for this session's workspace, bounded, before the query
+   * starts.
+   *
+   * The catch is belt-and-braces. `IHarnessPreflight` promises never to throw,
+   * but this call sits INSIDE `executeQuery`'s try block, whose catch tears the
+   * session registration down and rethrows — so a port implementation that
+   * broke its contract would turn a harness hiccup into a failed chat message.
+   * Swallowing here is what makes "the harness is best-effort" true at the one
+   * place it has to be.
+   */
+  private async runHarnessPreflight(
+    projectPath: string | undefined,
+  ): Promise<void> {
+    if (this.harnessPreflight === null) return;
+    if (typeof projectPath !== 'string' || projectPath.trim() === '') return;
+    try {
+      await this.harnessPreflight.ensure(projectPath);
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[SessionLifecycle] Harness preflight threw (ignored; session continues)',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   }
 }

@@ -563,6 +563,38 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `doctor` EXITS 1 on drift, unlike `ptah spec doctor` — it is meant to be
+  // usable as a CI gate. The rule lives in `commands/harness-doctor.ts`.
+  harness
+    .command('doctor')
+    .description(
+      'report harness drift via harness:health and emit harness.doctor (exit 1 when a detected target is missing entries or sources are unavailable)',
+    )
+    .option('--fix', 'run a full reconcile before reporting', false)
+    .option('--json', 'force machine output (overrides an earlier --human)')
+    .action(async (opts: { fix?: boolean; json?: boolean }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'doctor', fix: opts.fix === true, json: opts.json },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  harness
+    .command('remove')
+    .description(
+      'delete every Ptah-managed harness file via harness:remove (requires --yes)',
+    )
+    .option('--yes', 'confirm removal — required, there is no prompt', false)
+    .option('--json', 'force machine output (overrides an earlier --human)')
+    .action(async (opts: { yes?: boolean; json?: boolean }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'remove', yes: opts.yes === true, json: opts.json },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
   // -- ptah agent ------------------------------------------------------------
   // Replaces the deprecated `profile` surface (deletion shim removed).
   const agent = program

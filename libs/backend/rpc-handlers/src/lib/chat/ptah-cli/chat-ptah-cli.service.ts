@@ -86,7 +86,6 @@ export class ChatPtahCliService {
 
     const enhancedPromptsContent =
       await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-    const pluginPaths = this.sdkContext.resolvePluginPaths();
 
     const stream = await this.agentAdapter.startChatSession({
       tabId,
@@ -98,7 +97,6 @@ export class ChatPtahCliService {
       files: options?.files,
       mcpServerRunning,
       enhancedPromptsContent,
-      pluginPaths,
       providerProfile: profile,
     });
 

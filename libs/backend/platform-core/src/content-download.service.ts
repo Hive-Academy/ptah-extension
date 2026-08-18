@@ -155,6 +155,53 @@ export class ContentDownloadService {
   }
 
   /**
+   * Wait, bounded, for content to become available.
+   *
+   * Every host starts `ensureContent()` fire-and-forget so a cold first run is
+   * not gated on the network. That leaves a window in which a session can start
+   * against an empty `~/.ptah/plugins`, which the harness reconciler reports as
+   * `pending-download` and the model experiences as "this project has no
+   * skills" (TASK_2026_278, E2). This is how the session-start preflight closes
+   * that window without re-introducing a blocking boot.
+   *
+   * It deliberately does NOT start a download. Kicking one off from a session
+   * path would turn a preflight into a network call on every cold start,
+   * including offline ones, where it would burn the whole budget failing. It
+   * waits on the download the HOST already started, and answers immediately
+   * when there is none.
+   *
+   * Never throws and never rejects — `ensureContent()`'s own promise already
+   * resolves on failure, and the return value is a fact about the disk rather
+   * than a verdict about the download.
+   *
+   * @returns whether content is on disk now.
+   */
+  async awaitContentReady(timeoutMs: number): Promise<boolean> {
+    if (this.isContentAvailable()) return true;
+
+    const pending = this.inFlightPromise;
+    if (pending === null || timeoutMs <= 0) return this.isContentAvailable();
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+      // Must not keep a short-lived `ptah` process alive past its work.
+      timer.unref?.();
+    });
+
+    try {
+      await Promise.race([pending, expiry]);
+    } catch {
+      // `ensureContent` swallows its own errors, so this is unreachable in
+      // practice; a caller waiting on content must never inherit a rejection.
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+
+    return this.isContentAvailable();
+  }
+
+  /**
    * Get the absolute path to the plugins cache directory.
    * Returns: ~/.ptah/plugins/
    */

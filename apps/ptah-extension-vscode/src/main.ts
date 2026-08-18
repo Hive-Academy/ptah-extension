@@ -24,7 +24,6 @@ import {
   TOKENS,
   SentryService,
 } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, SkillJunctionService } from '@ptah-extension/agent-sdk';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
@@ -114,11 +113,11 @@ export async function deactivate(): Promise<void> {
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Deactivating Ptah extension');
 
-  const skillJunction = DIContainer.resolve<SkillJunctionService>(
-    SDK_TOKENS.SDK_SKILL_JUNCTION,
-  );
-  skillJunction.deactivateSync();
-
+  // No harness teardown here, deliberately. `{ws}/.claude/{skills,commands}`
+  // are workspace artifacts, not host-process resources: `ptah tui`, the
+  // headless CLI, the gateway and a plain `claude` invocation all read them
+  // without ever running this extension. Removing them on deactivate is the
+  // defect TASK_2026_278 exists to close.
   const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
     CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
   );

@@ -4,7 +4,9 @@
 
 ## Purpose
 
-Hosts rival CLI orchestration (`cli-agents/`), user-configured Anthropic-compatible CLI adapters (`ptah-cli/`), and cross-CLI MCP installation (`mcp-directory/`). Consumes `SdkMessageTransformer` and `SdkPermissionHandler` from `@ptah-extension/agent-sdk` via its public API only.
+Hosts rival CLI orchestration (`cli-agents/`), user-configured Anthropic-compatible CLI adapters (`ptah-cli/`), and the MCP discovery + install SURFACE (`mcp-directory/`). Consumes `SdkMessageTransformer` and `SdkPermissionHandler` from `@ptah-extension/agent-sdk` via its public API only.
+
+**Skill/command/agent propagation to rival CLIs is NOT here.** `CliPluginSyncService`, the four workspace skill installers and `CliSkillManifestTracker` were deleted in TASK_2026_278 Batch 2; that fan-out is now `@ptah-extension/harness-sync`. What remains is `createHarnessCliDetector`, the adapter that tells the reconciler which rival CLIs are installed.
 
 ## Boundaries
 
@@ -12,12 +14,17 @@ Hosts rival CLI orchestration (`cli-agents/`), user-configured Anthropic-compati
 
 - CLI agent process supervision (Codex, Copilot, Cursor)
 - `PtahCliAdapter` + `PtahCliRegistry` (user-configured Anthropic-compatible CLIs)
-- Cross-CLI MCP installation surface (`mcp-directory/`)
+- MCP registry discovery (Smithery, PulseMCP, official) + OAuth
+- `McpInstallService` — the install RPC surface, a thin wrapper that records
+  intent in `~/.ptah/mcp-installed.json` and calls `HarnessReconciler`
+- `createHarnessCliDetector` — `CliDetectionService` adapted to the
+  reconciler's `IHarnessCliDetector` port
 - DI registration for the above (`registerCliAgentRuntimeServices`)
 
 **Does NOT belong**:
 
 - Claude/Codex SDK adapter (`agent-sdk`)
+- Writing any harness artifact, MCP config files included (`harness-sync`)
 - Platform-specific code (must go through `platform-core` ports)
 - RPC surface (`rpc-handlers`)
 - Persistence beyond what SDK writes to `~/.claude/projects/`
@@ -35,7 +42,7 @@ DI: `CLI_AGENT_RUNTIME_TOKENS`, `registerCliAgentRuntimeServices`.
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/agent-sdk` (public API only), `@ptah-extension/vscode-core` (Logger), `@ptah-extension/platform-core` (ports), `@ptah-extension/output-styles` (`OutputStyleSessionActivationService`)
+**Internal**: `@ptah-extension/agent-sdk` (public API only), `@ptah-extension/harness-sync` (reconciler + MCP facets, one-way — harness-sync must never import this lib), `@ptah-extension/vscode-core` (Logger), `@ptah-extension/platform-core` (ports), `@ptah-extension/output-styles` (`OutputStyleSessionActivationService`)
 **External**: `tsyringe`, `eventemitter3`, `rxjs`
 
 ## Guidelines

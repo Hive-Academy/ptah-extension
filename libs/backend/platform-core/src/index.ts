@@ -42,7 +42,11 @@ export type {
   OAuthCallbackHandle,
 } from './interfaces/oauth-callback-listener.interface';
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
-export type { IMcpServerStatus } from './interfaces/mcp-server-status.interface';
+export type {
+  IMcpServerStatus,
+  McpSessionWiring,
+} from './interfaces/mcp-server-status.interface';
+export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
 export type { ITracer } from './interfaces/tracer.interface';
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type {

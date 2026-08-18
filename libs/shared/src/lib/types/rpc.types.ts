@@ -453,6 +453,18 @@ import type {
   HarnessWorkflowPromptResponse,
 } from './rpc/rpc-harness.types';
 
+// The reconciler's own surface (TASK_2026_278 Batch 4). It shares the
+// `harness:` namespace with the setup builder above but not its types: these
+// describe propagation health, not a wizard step.
+import type {
+  HarnessHealthParams,
+  HarnessHealthResult,
+  HarnessReconcileParams,
+  HarnessReconcileResult,
+  HarnessRemoveParams,
+  HarnessRemoveResult,
+} from './harness-sync.types';
+
 import type {
   ContextGetAllFilesParams,
   ContextGetAllFilesResult,
@@ -1510,6 +1522,18 @@ export interface RpcMethodRegistry {
   'harness:workflow-prompt': {
     params: HarnessWorkflowPromptParams;
     result: HarnessWorkflowPromptResponse;
+  };
+  'harness:health': {
+    params: HarnessHealthParams;
+    result: HarnessHealthResult;
+  };
+  'harness:reconcile': {
+    params: HarnessReconcileParams;
+    result: HarnessReconcileResult;
+  };
+  'harness:remove': {
+    params: HarnessRemoveParams;
+    result: HarnessRemoveResult;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -3441,6 +3465,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:analyze-intent': true,
   'harness:start-new-project': true,
   'harness:workflow-prompt': true,
+  'harness:health': true,
+  'harness:reconcile': true,
+  'harness:remove': true,
 
   'memory:list': true,
   'memory:search': true,

@@ -336,10 +336,6 @@ interface Harness {
     ensureRegisteredForSubagents: jest.Mock;
   };
   enhancedPromptsService: { getEnhancedPromptContent: jest.Mock };
-  pluginLoader: {
-    getWorkspacePluginConfig: jest.Mock;
-    resolvePluginPaths: jest.Mock;
-  };
   permissionHandler: FakePermissionHandler;
 }
 
@@ -349,8 +345,6 @@ function setup(options?: {
   selectedModel?: string;
   mcpPort?: number | null;
   enhancedPromptsContent?: string | null;
-  enabledPluginIds?: string[];
-  resolvedPluginPaths?: string[];
   /**
    * Raw `ptah.gateway.permissionLevel` setting value the workspace mock returns.
    * `undefined` means "unset" — `getConfiguration` returns the caller's default,
@@ -413,14 +407,6 @@ function setup(options?: {
       .fn()
       .mockResolvedValue(options?.enhancedPromptsContent ?? null),
   };
-  const pluginLoader = {
-    getWorkspacePluginConfig: jest
-      .fn()
-      .mockReturnValue({ enabledPluginIds: options?.enabledPluginIds ?? [] }),
-    resolvePluginPaths: jest
-      .fn()
-      .mockReturnValue(options?.resolvedPluginPaths ?? []),
-  };
   const permissionHandler = new FakePermissionHandler();
 
   const ctorArgs = [
@@ -432,7 +418,6 @@ function setup(options?: {
     modelSettings,
     codeExecutionMcp,
     enhancedPromptsService,
-    pluginLoader,
     turnTracker,
     permissionHandler,
   ] as unknown as ConstructorParameters<typeof GatewayChatBridge>;
@@ -447,7 +432,6 @@ function setup(options?: {
     selectedModelGet,
     codeExecutionMcp,
     enhancedPromptsService,
-    pluginLoader,
     permissionHandler,
   };
 }
@@ -1680,16 +1664,25 @@ describe('GatewayChatBridge — turn watchdog (Task 2.3/3.3)', () => {
 //
 // Ptah is now fully open source: there is no premium/free tier and no
 // `isPremium` on the SDK config. The formerly premium-gated capabilities
-// (code-exec MCP, enhanced prompts, plugins) are unconditional — the ONLY
-// governor is the live MCP port + the resolved prompt/plugin wiring. These
-// specs prove that wiring drives the SDK config correctly.
-describe('GatewayChatBridge — SDK context wiring (MCP + prompts/plugins) (Task 2.4/3.3)', () => {
-  it('live MCP port + resolved prompts/plugins: startChatSession receives mcpServerRunning true, the enhanced prompt, and plugin paths, and registers the MCP for subagents', async () => {
+// (code-exec MCP, enhanced prompts) are unconditional — the ONLY governor is
+// the live MCP port + the resolved prompt wiring. These specs prove that
+// wiring drives the SDK config correctly.
+//
+// `pluginPaths` is deliberately absent since TASK_2026_278 Batch 3. The
+// gateway used to resolve and forward it, but the parameter died in a log
+// statement four services downstream and was never turned into an SDK option.
+// A spike confirmed the SDK's real `plugins:` channel cannot be used
+// additively — passing it alongside the copies the harness reconciler writes
+// registers every skill twice, once bare and once plugin-qualified — so the
+// whole thread was deleted rather than completed. Gateway sessions reach their
+// skills the same way every other session does: through
+// `{ws}/.claude/skills`, which the session-start preflight guarantees is
+// present.
+describe('GatewayChatBridge — SDK context wiring (MCP + prompts) (Task 2.4/3.3)', () => {
+  it('live MCP port + resolved prompts: startChatSession receives mcpServerRunning true, the enhanced prompt, and registers the MCP for subagents', async () => {
     const h = setup({
       mcpPort: 4319,
       enhancedPromptsContent: 'ENHANCED SYSTEM PROMPT',
-      enabledPluginIds: ['plugin-a'],
-      resolvedPluginPaths: ['/plugins/plugin-a'],
     });
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     h.adapter.startChatSession.mockResolvedValue(
@@ -1708,11 +1701,11 @@ describe('GatewayChatBridge — SDK context wiring (MCP + prompts/plugins) (Task
     const config = h.adapter.startChatSession.mock.calls[0][0];
     expect(config.mcpServerRunning).toBe(true);
     expect(config.enhancedPromptsContent).toBe('ENHANCED SYSTEM PROMPT');
-    expect(config.pluginPaths).toEqual(['/plugins/plugin-a']);
+    expect(config.pluginPaths).toBeUndefined();
     expect(h.codeExecutionMcp.ensureRegisteredForSubagents).toHaveBeenCalled();
   });
 
-  it('no MCP port and no prompts/plugins: startChatSession receives mcpServerRunning false, undefined prompts/plugins, does not register the MCP, and the turn still completes', async () => {
+  it('no MCP port and no prompts: startChatSession receives mcpServerRunning false, undefined prompts, does not register the MCP, and the turn still completes', async () => {
     const h = setup({
       mcpPort: null,
     });

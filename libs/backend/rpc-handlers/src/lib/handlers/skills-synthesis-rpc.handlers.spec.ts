@@ -24,6 +24,8 @@ import {
   SKILL_LANE_FIELDS,
   SKILL_LANE_KEYS,
   SKILL_LANE_DEFAULTS,
+  SKILLS_ROOT_KEY,
+  resolveSkillsRoot,
 } from '@ptah-extension/skill-synthesis';
 import {
   PLATFORM_TOKENS,
@@ -155,6 +157,12 @@ function makeMirror() {
     listHistory: jest.fn().mockResolvedValue([]),
     rebaseClone: jest.fn(),
     keepClone: jest.fn(),
+    // TASK_2026_278: the clone surface joins the registry row with the
+    // user-layer sidecar's `orphaned` flag, which the registry has no column
+    // for. Both reads degrade to "not orphaned" on failure, so these doubles
+    // answer the happy path and the failure path is asserted explicitly.
+    listClones: jest.fn().mockResolvedValue([]),
+    readCloneOrigin: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -1101,6 +1109,301 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       false,
     );
     expect(result).toMatchObject({ sourceHash: 'sha256:ccc' });
+  });
+
+  /**
+   * TASK_2026_278 — E7's "rebase/keep works for plugin, synth AND agent
+   * clones".
+   *
+   * `resolveUpstreamSourceDir` used to bail on `!row.originPluginId`, so the
+   * Library offered a Rebase button on every diverged synth skill and agent
+   * that could only ever answer PERSISTENCE_UNAVAILABLE. The plugin branch had
+   * its own defect: it returned the commands/agents DIRECTORY where
+   * `rebaseFileClone` probes a FILE, so those two rebases reported
+   * `source-missing` no matter what was on disk.
+   */
+  describe('rebaseClone upstream resolution', () => {
+    function okRebase(kind: string, slug: string) {
+      return {
+        kind,
+        slug,
+        sourceHash: 'sha256:new',
+        snapshotPath: null,
+        failed: false,
+      };
+    }
+
+    it('resolves a SYNTH skill (no plugin origin) to <skillsRoot>/<slug>', async () => {
+      const { rpcHandler, registry, mirror, workspaceProvider } =
+        buildHandlers();
+      workspaceProvider.__state.config.set(
+        `ptah.${SKILLS_ROOT_KEY}`,
+        '/data/ptah-skills',
+      );
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        slug: 'synthesized-thing',
+        originPluginId: null,
+        cloneStatus: 'synth' as const,
+      });
+      mirror.rebaseClone.mockResolvedValue(
+        okRebase('skill', 'synthesized-thing'),
+      );
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'skill',
+        slug: 'synthesized-thing',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'synthesized-thing',
+        sourceDir: join('/data/ptah-skills', 'synthesized-thing'),
+      });
+    });
+
+    it('falls back to the default skills root when the setting is unset', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        slug: 'synthesized-thing',
+        originPluginId: null,
+      });
+      mirror.rebaseClone.mockResolvedValue(
+        okRebase('skill', 'synthesized-thing'),
+      );
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'skill',
+        slug: 'synthesized-thing',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'synthesized-thing',
+        sourceDir: join(resolveSkillsRoot(null), 'synthesized-thing'),
+      });
+    });
+
+    it('resolves an AGENT clone to {ws}/.claude/agents/<slug>.md', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'agent' as const,
+        slug: 'backend-developer',
+        originPluginId: null,
+      });
+      mirror.rebaseClone.mockResolvedValue(
+        okRebase('agent', 'backend-developer'),
+      );
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'agent',
+        slug: 'backend-developer',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'agent',
+        slug: 'backend-developer',
+        sourceDir: join(
+          '/workspace/project',
+          '.claude',
+          'agents',
+          'backend-developer.md',
+        ),
+      });
+    });
+
+    it('refuses an agent rebase with no workspace open (nothing to resolve against)', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers([]);
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'agent' as const,
+        slug: 'backend-developer',
+        originPluginId: null,
+      });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:rebaseClone', {
+          kind: 'agent',
+          slug: 'backend-developer',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      expect(mirror.rebaseClone).not.toHaveBeenCalled();
+    });
+
+    it('resolves a plugin COMMAND to the .md FILE, not the commands directory', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'command' as const,
+        slug: 'orchestrate',
+        originPluginId: 'ptah-core',
+      });
+      mirror.rebaseClone.mockResolvedValue(okRebase('command', 'orchestrate'));
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'command',
+        slug: 'orchestrate',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'command',
+        slug: 'orchestrate',
+        sourceDir: join(
+          '/home/.ptah/plugins',
+          'ptah-core',
+          'commands',
+          'orchestrate.md',
+        ),
+      });
+    });
+
+    it('resolves a plugin AGENT to the .md FILE too', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'agent' as const,
+        slug: 'senior-tester',
+        originPluginId: 'ptah-core',
+      });
+      mirror.rebaseClone.mockResolvedValue(okRebase('agent', 'senior-tester'));
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'agent',
+        slug: 'senior-tester',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'agent',
+        slug: 'senior-tester',
+        sourceDir: join(
+          '/home/.ptah/plugins',
+          'ptah-core',
+          'agents',
+          'senior-tester.md',
+        ),
+      });
+    });
+
+    it('a plugin-less COMMAND still has no upstream to name', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'command' as const,
+        slug: 'my-command',
+        originPluginId: null,
+      });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:rebaseClone', {
+          kind: 'command',
+          slug: 'my-command',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      expect(mirror.rebaseClone).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('orphaned flag on the clone surface', () => {
+    it('listClones joins the user-layer sidecar flag onto the registry row', async () => {
+      const { rpcHandler, registry, store, mirror } = buildHandlers();
+      registry.listAll.mockReturnValue([
+        sampleRow,
+        { ...sampleRow, slug: 'still-there' },
+      ]);
+      store.getInvocationStats.mockReturnValue({
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        distinctContexts: 0,
+      });
+      mirror.listClones.mockResolvedValue([
+        {
+          slug: 'deep-research',
+          kind: 'skill',
+          pluginId: 'research-pack',
+          sourceHash: 'sha256:aaa',
+          diverged: true,
+          lastEnhancedAt: null,
+          pendingSourceHash: null,
+          orphaned: true,
+        },
+        {
+          slug: 'still-there',
+          kind: 'skill',
+          pluginId: 'research-pack',
+          sourceHash: 'sha256:bbb',
+          diverged: false,
+          lastEnhancedAt: null,
+          pendingSourceHash: null,
+          orphaned: false,
+        },
+      ]);
+
+      const result = (await rpcHandler.call(
+        'skillSynthesis:listClones',
+        {},
+      )) as { clones: Array<Record<string, unknown>> };
+
+      expect(result.clones.map((c) => [c['slug'], c['orphaned']])).toEqual([
+        ['deep-research', true],
+        ['still-there', false],
+      ]);
+    });
+
+    it('degrades to "not orphaned" rather than failing the whole listing', async () => {
+      const { rpcHandler, registry, store, mirror } = buildHandlers();
+      registry.listAll.mockReturnValue([sampleRow]);
+      store.getInvocationStats.mockReturnValue({
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        distinctContexts: 0,
+      });
+      mirror.listClones.mockRejectedValue(new Error('sidecar read failed'));
+
+      const result = (await rpcHandler.call(
+        'skillSynthesis:listClones',
+        {},
+      )) as { clones: Array<Record<string, unknown>> };
+
+      expect(result.clones).toHaveLength(1);
+      expect(result.clones[0]['orphaned']).toBe(false);
+    });
+
+    it('getClone reads the ONE sidecar rather than walking every root', async () => {
+      const { rpcHandler, registry, store, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      store.getInvocationStats.mockReturnValue({
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        distinctContexts: 0,
+      });
+      mirror.readCloneOrigin.mockResolvedValue({
+        slug: 'deep-research',
+        kind: 'skill',
+        pluginId: 'research-pack',
+        sourceHash: 'sha256:aaa',
+        diverged: false,
+        lastEnhancedAt: null,
+        pendingSourceHash: null,
+        orphaned: true,
+      });
+
+      const result = (await rpcHandler.call('skillSynthesis:getClone', {
+        kind: 'skill',
+        slug: 'deep-research',
+      })) as { clone: Record<string, unknown> | null };
+
+      expect(mirror.readCloneOrigin).toHaveBeenCalledWith(
+        'skill',
+        'deep-research',
+      );
+      expect(mirror.listClones).not.toHaveBeenCalled();
+      expect(result.clone?.['orphaned']).toBe(true);
+    });
   });
 
   it('invocationStats returns slug-keyed counts from the candidate store', async () => {

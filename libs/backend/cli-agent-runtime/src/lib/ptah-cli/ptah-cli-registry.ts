@@ -594,7 +594,6 @@ export class PtahCliRegistry {
         modelTier: tier,
         sdkModel: model,
         resumeSessionId: options?.resumeSessionId ?? null,
-        pluginCount: assembly.plugins?.length ?? 0,
         mcpEnabled: Object.keys(assembly.mcpServers).length > 0,
         hasSystemPrompt: !!assembly.systemPromptContent,
       },
@@ -660,7 +659,6 @@ export class PtahCliRegistry {
           );
         },
         hooks: assembly.hooks,
-        plugins: assembly.plugins,
         compactionControl: assembly.compactionControl,
         pathToClaudeCodeExecutable:
           (await this.moduleLoader.getCliJsPath()) ?? undefined,

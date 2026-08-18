@@ -10,6 +10,13 @@
  */
 export { SkillCandidateStore } from './lib/skill-candidate.store';
 export { SkillMdGenerator } from './lib/skill-md-generator';
+export {
+  resolveSkillsRoot,
+  resolveCandidatesRoot,
+  CANDIDATES_DIR_NAME,
+  SKILLS_ROOT_KEY,
+  SKILLS_ROOT_SECTION,
+} from './lib/skill-md-generator';
 export type { SkillMdInput, MaterializedSkill } from './lib/skill-md-generator';
 export {
   SkillPromotionService,

@@ -112,7 +112,6 @@ export class ChatSlashCommandRouterService {
       const mcpServerRunning = this.sdkContext.isMcpServerRunning();
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-      const pluginPaths = this.sdkContext.resolvePluginPaths();
       const command = interceptResult.rawCommand ?? prompt;
       try {
         const stream = await this.sdkAdapter.executeSlashCommand(
@@ -128,7 +127,6 @@ export class ChatSlashCommandRouterService {
             } as AISessionConfig,
             mcpServerRunning,
             enhancedPromptsContent,
-            pluginPaths,
             tabId,
           },
         );

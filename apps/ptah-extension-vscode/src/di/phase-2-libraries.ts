@@ -12,13 +12,20 @@
 import { Lifecycle } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import {
   registerTaskSpecsServices,
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
+import {
+  registerHarnessSyncServices,
+  ALL_HARNESS_TARGET_FACTORIES,
+  createPluginConfigSourceResolver,
+  HARNESS_SYNC_TOKENS,
+  type HarnessPluginConfigReader,
+} from '@ptah-extension/harness-sync';
 import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
 import {
   registerVsCodeLmToolsServices,
@@ -30,13 +37,19 @@ import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
   registerSdkServices,
   wireAgentAdapterAliases,
+  SDK_TOKENS,
+  HARNESS_PREFLIGHT_TOKEN,
 } from '@ptah-extension/agent-sdk';
 import {
   registerAuthProvidersServices,
   AUTH_PROVIDERS_TOKENS,
   VscodeCopilotAuthService,
 } from '@ptah-extension/auth-providers';
-import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
+import {
+  registerCliAgentRuntimeServices,
+  createHarnessCliDetector,
+  type HarnessCliDetectionReader,
+} from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -44,7 +57,15 @@ import {
 } from '@ptah-extension/agent-generation';
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  ContentDownloadService,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import {
+  createUserLayerRefresher,
+  readManageGitignore,
+  readPreflightTimeoutMs,
+} from '../activation/plugin-activation';
 export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
@@ -95,6 +116,52 @@ export function registerPhase2Libraries(
   }
   registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
+  // harness-sync AFTER registerSdkServices so the plugin loader token exists.
+  // The resolver lambda is lazy anyway — the loader is only usable after
+  // `initialize()` runs in plugin activation, long after this phase.
+  //
+  // Every target, in every host: a workspace is populated for the tools the
+  // USER has, not for the one running Ptah. Undetected CLIs are skipped at
+  // reconcile time, so the detector lambda below is the only host-specific
+  // part — and it is lazy too, because `registerCliAgentRuntimeServices` (which
+  // owns `CLI_DETECTION_SERVICE`) runs a few lines further down.
+  registerHarnessSyncServices(container, logger, {
+    targets: ALL_HARNESS_TARGET_FACTORIES,
+    cliDetector: createHarnessCliDetector(() =>
+      container.isRegistered(TOKENS.CLI_DETECTION_SERVICE)
+        ? container.resolve<HarnessCliDetectionReader>(
+            TOKENS.CLI_DETECTION_SERVICE,
+          )
+        : null,
+    ),
+    sourceResolver: createPluginConfigSourceResolver(() =>
+      container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
+        ? container.resolve<HarnessPluginConfigReader>(
+            SDK_TOKENS.SDK_PLUGIN_LOADER,
+          )
+        : null,
+    ),
+    // Batch 3. `HarnessPropagationService` runs this before each reconcile it
+    // performs, so an RPC that changed an upstream source (harness-builder
+    // skill, wizard agent, uninstalled plugin) is visible in `~/.ptah/user`
+    // before the reconciler reads it.
+    userLayerRefresher: createUserLayerRefresher(logger),
+    gitignore: { readManageGitignore: () => readManageGitignore() },
+    preflight: {
+      readTimeoutMs: () => readPreflightTimeoutMs(),
+      contentGate: {
+        awaitContentReady: (timeoutMs) =>
+          container
+            .resolve<ContentDownloadService>(PLATFORM_TOKENS.CONTENT_DOWNLOAD)
+            .awaitContentReady(timeoutMs),
+      },
+    },
+  });
+  // Lets `SessionQueryExecutor` and the rival-CLI spawn path reach the
+  // reconciler without `agent-sdk` importing `harness-sync`.
+  container.register(HARNESS_PREFLIGHT_TOKEN, {
+    useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
+  });
   registerCliAgentRuntimeServices(container, logger);
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,

@@ -2,8 +2,17 @@
  * Ptah CLI Spawn Options Service
  *
  * Injectable singleton that assembles spawn options for spawnAgent().
- * Handles MCP server detection, enhanced prompts, plugin resolution,
- * hooks, and compaction configuration.
+ * Handles MCP server detection, enhanced prompts, hooks and compaction
+ * configuration.
+ *
+ * It deliberately assembles NO `plugins` entry. TASK_2026_278 Batch 3 measured
+ * the SDK's `plugins: [{type:'local'}]` channel against the copies the harness
+ * reconciler writes: passing both registers every skill twice, once bare and
+ * once plugin-qualified (`orchestration` AND `ptah-core:orchestration`), which
+ * doubles the skill budget and breaks the unqualified `/orchestrate` the
+ * shipped content tells the model to use. The copies are the baseline because
+ * they are the only mechanism a raw `claude` binary, a rival CLI or the TUI can
+ * read. See `harness-sync/CLAUDE.md`.
  *
  */
 
@@ -19,14 +28,12 @@ import {
   SubagentHookHandler,
   CompactionHookHandler,
   CompactionConfigProvider,
-  PluginLoaderService,
   assembleSystemPrompt,
   getActiveProviderId,
   PTAH_MCP_PORT,
   type HookEvent,
   type HookCallbackMatcher,
   type McpHttpServerConfig,
-  type SdkPluginConfig,
 } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type { EnhancedPromptsService } from '@ptah-extension/agent-generation';
@@ -43,7 +50,6 @@ export interface PtahSpawnAssembly {
   readonly systemPromptMode: 'preset-append' | 'standalone';
   readonly systemPromptContent: string | undefined;
   readonly mcpServers: Record<string, McpHttpServerConfig>;
-  readonly plugins: SdkPluginConfig[] | undefined;
   readonly hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
   readonly compactionControl:
     | { enabled: boolean; contextTokenThreshold: number }
@@ -72,8 +78,6 @@ export class PtahCliSpawnOptions {
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
-    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
-    private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | undefined,
     /**
@@ -172,7 +176,6 @@ export class PtahCliSpawnOptions {
       systemPromptMode: promptResult.mode,
       systemPromptContent: fullSystemPromptContent,
       mcpServers,
-      plugins: undefined,
       hooks,
       compactionControl,
       outputStyleName: outputStyle.outputStyleName,
@@ -236,29 +239,6 @@ export class PtahCliSpawnOptions {
     } catch (error) {
       this.logger.warn(
         `[PtahCliSpawnOptions] Failed to resolve project guidance: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return undefined;
-    }
-  }
-
-  /**
-   * Resolve plugin paths.
-   */
-  private resolvePluginPaths(): string[] | undefined {
-    try {
-      const config = this.pluginLoader.getWorkspacePluginConfig();
-      if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
-        return undefined;
-      }
-      const paths = this.pluginLoader.resolvePluginPaths(
-        config.enabledPluginIds,
-      );
-      return paths.length > 0 ? paths : undefined;
-    } catch (error) {
-      this.logger.warn(
-        `[PtahCliSpawnOptions] Failed to resolve plugin paths: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

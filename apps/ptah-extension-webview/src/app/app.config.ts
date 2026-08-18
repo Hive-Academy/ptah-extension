@@ -67,6 +67,10 @@ import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/se
 // dropped per TASK_2026_187 R6.
 import { ThothStatusService } from '@ptah-extension/dashboard';
 import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/services';
+// NARROW barrel on purpose. `MARKETPLACE_COMPONENT` below is deferred, so
+// importing `HarnessHealthStore` from the wide barrel would pull the whole
+// marketplace hub back into the eager graph just to register one push handler.
+import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import { TasksStore } from '@ptah-extension/tasks-ui/services';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
@@ -232,6 +236,15 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: SetupWizardStateService,
+      multi: true,
+    },
+    // Registered even though the Marketplace surface is lazy: the reconciler
+    // pushes `harness:healthChanged` from activation and session-start passes,
+    // which happen long before anyone opens the hub. Handled here, the badge is
+    // right on first paint instead of one refresh behind.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: HarnessHealthStore,
       multi: true,
     },
     provideMonacoEditor({

@@ -2,8 +2,9 @@
  * PluginRpcHandlers — unit specs.
  *
  * Surface under test: four RPC methods (`plugins:list-available`,
- * `plugins:get-config`, `plugins:save-config`, `plugins:list-skills`). These
- * specs lock in the sanitisation + junction-refresh behaviour the Plugin
+ * `plugins:get-config`, `plugins:save-config`, `plugins:list-skills`) plus the
+ * two external-marketplace mutations that change the active plugin set. These
+ * specs lock in the sanitisation + harness-reconcile behaviour the Plugin
  * Browser modal relies on.
  *
  * Behavioural contracts locked in here:
@@ -33,8 +34,8 @@
  *         when an array is provided, it replaces the saved value entirely.
  *       - Validates disabled skill IDs against the set actually discovered
  *         for the enabled plugins — skill IDs not in that set are dropped.
- *       - Invalidates the command-discovery cache AND recreates skill
- *         junctions after saving, so the change takes effect without a
+ *       - Invalidates the command-discovery cache AND reconciles the workspace
+ *         harness after saving, so the change takes effect without a
  *         VS Code reload.
  *       - Returns structured `{ success: false, error }` on exceptions
  *         (not a throw) — saveWorkspacePluginConfig failures MUST NOT be
@@ -60,12 +61,14 @@ import {
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type {
-  PluginLoaderService,
-  SkillJunctionService,
-} from '@ptah-extension/agent-sdk';
+import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
+import type { HarnessPropagationService } from '@ptah-extension/harness-sync';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { CommandDiscoveryService } from '@ptah-extension/workspace-intelligence';
 import type {
+  HarnessCollision,
+  HarnessHealth,
   PluginInfo,
   PluginConfigState,
   PluginSkillEntry,
@@ -76,6 +79,9 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { PluginRpcHandlers } from './plugin-rpc.handlers';
+
+/** The workspace every reconcile in this suite is expected to target. */
+const WORKSPACE_ROOT = 'C:\\ws';
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler touches
@@ -100,11 +106,12 @@ function createMockPluginLoader(
     workspaceConfig?: PluginConfigState;
     resolvedPaths?: string[];
     /**
-     * What the junction-feeding resolver returns. Defaults to `resolvedPaths`
-     * so bundled-only setups behave exactly as before; set it explicitly to
-     * model harness-authored ptah-harness-* dirs being appended.
+     * What `resolveCurrentPluginPaths()` returns — the harness-inclusive view
+     * the handler uses to work out who currently OWNS a skill name. Defaults to
+     * `resolvedPaths`; set it explicitly to model harness-authored
+     * `ptah-harness-*` dirs being appended.
      */
-    junctionPaths?: string[];
+    currentPluginPaths?: string[];
     /** Harness dirs on disk, as `discoverHarnessPluginPaths()` reports them. */
     harnessPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
@@ -129,7 +136,7 @@ function createMockPluginLoader(
     resolveCurrentPluginPaths: jest
       .fn()
       .mockReturnValue(
-        overrides.junctionPaths ?? overrides.resolvedPaths ?? [],
+        overrides.currentPluginPaths ?? overrides.resolvedPaths ?? [],
       ),
     discoverHarnessPluginPaths: jest
       .fn()
@@ -140,14 +147,32 @@ function createMockPluginLoader(
   };
 }
 
-type MockSkillJunction = jest.Mocked<
-  Pick<SkillJunctionService, 'createJunctions'>
+type MockHarnessPropagation = jest.Mocked<
+  Pick<HarnessPropagationService, 'propagate'>
 >;
 
-function createMockSkillJunction(): MockSkillJunction {
+/**
+ * A `HarnessHealth` with everything clean, which is what a reconcile of an
+ * untouched fixture workspace reports. Pass `collisions` to model a shadowed
+ * skill; the other fields are never read by this handler.
+ */
+function makeHealth(overrides: Partial<HarnessHealth> = {}): HarnessHealth {
   return {
-    createJunctions: jest.fn(),
-  } as unknown as MockSkillJunction;
+    workspaceRoot: WORKSPACE_ROOT,
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    mode: 'full',
+    reason: 'test',
+    sources: 'ok',
+    targets: [],
+    collisions: [],
+    ...overrides,
+  };
+}
+
+function createMockHarnessPropagation(): MockHarnessPropagation {
+  return {
+    propagate: jest.fn().mockResolvedValue(makeHealth()),
+  } as unknown as MockHarnessPropagation;
 }
 
 type MockCommandDiscovery = jest.Mocked<
@@ -243,7 +268,8 @@ interface Harness {
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   pluginLoader: MockPluginLoader;
-  skillJunction: MockSkillJunction;
+  harnessPropagation: MockHarnessPropagation;
+  workspaceProvider: IWorkspaceProvider;
   commandDiscovery: MockCommandDiscovery;
   sentry: MockSentryService;
   marketplaceRegistry: MockMarketplaceRegistry;
@@ -255,7 +281,7 @@ function makeHarness(
     availablePlugins?: PluginInfo[];
     workspaceConfig?: PluginConfigState;
     resolvedPaths?: string[];
-    junctionPaths?: string[];
+    currentPluginPaths?: string[];
     harnessPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
   } = {},
@@ -263,7 +289,10 @@ function makeHarness(
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const pluginLoader = createMockPluginLoader(opts);
-  const skillJunction = createMockSkillJunction();
+  const harnessPropagation = createMockHarnessPropagation();
+  const workspaceProvider = createMockWorkspaceProvider({
+    folders: [WORKSPACE_ROOT],
+  }) as unknown as IWorkspaceProvider;
   const commandDiscovery = createMockCommandDiscovery();
   const sentry = createMockSentryService();
   const marketplaceRegistry = createMockMarketplaceRegistry();
@@ -273,15 +302,16 @@ function makeHarness(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
     pluginLoader as unknown as PluginLoaderService,
-    skillJunction as unknown as SkillJunctionService,
+    harnessPropagation as unknown as HarnessPropagationService,
+    workspaceProvider,
     commandDiscovery as unknown as CommandDiscoveryService,
     sentry as unknown as SentryService,
     marketplaceRegistry as unknown as ConstructorParameters<
       typeof PluginRpcHandlers
-    >[6],
+    >[7],
     externalInstaller as unknown as ConstructorParameters<
       typeof PluginRpcHandlers
-    >[7],
+    >[8],
   );
 
   return {
@@ -289,7 +319,8 @@ function makeHarness(
     logger,
     rpcHandler,
     pluginLoader,
-    skillJunction,
+    harnessPropagation,
+    workspaceProvider,
     commandDiscovery,
     sentry,
     marketplaceRegistry,
@@ -517,7 +548,7 @@ describe('PluginRpcHandlers', () => {
       expect(savedConfig.disabledSkillIds).toEqual(['real-skill']);
     });
 
-    it('invalidates command discovery cache AND recreates junctions after save', async () => {
+    it('invalidates command discovery cache AND reconciles the harness after save', async () => {
       const h = makeHarness({
         availablePlugins: [makePluginInfo('alpha')],
         resolvedPaths: ['/plugins/alpha'],
@@ -531,20 +562,27 @@ describe('PluginRpcHandlers', () => {
       });
 
       expect(h.commandDiscovery.invalidateCache).toHaveBeenCalledTimes(1);
-      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
-        ['/plugins/alpha'],
-        [],
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        WORKSPACE_ROOT,
+        'plugins:save-config',
+        // Enable/disable changes which sources are FILTERED IN, never what a
+        // source contains, so the user-layer refresh is deliberately skipped.
+        { skipUserLayerRefresh: true },
       );
     });
 
-    it('feeds junctions from the harness-inclusive resolver, not the bundled-only one', async () => {
-      // Regression: junctions used to be created from the bundled-only
-      // resolvePluginPaths() result, so SkillJunctionService.removeStaleJunctions
-      // deleted every harness-authored junction on any marketplace toggle.
+    it('hands the reconciler no plugin paths, so it cannot narrow the harness set', async () => {
+      // Regression, restated for the copy-based harness (TASK_2026_278): the
+      // handler used to compute the plugin path list itself and pass it down,
+      // and any list that missed the harness-authored `ptah-harness-*` dirs got
+      // them pruned as stale on the next toggle. The reconciler now resolves
+      // sources through its own PluginConfigSourceResolver, which always
+      // appends those dirs — so the invariant to guard is that the handler
+      // stays out of it: one reconcile, workspace root + options, no paths.
       const h = makeHarness({
         availablePlugins: [makePluginInfo('alpha')],
         resolvedPaths: ['/plugins/alpha'],
-        junctionPaths: [
+        currentPluginPaths: [
           '/plugins/alpha',
           '/home/user/.ptah/plugins/ptah-harness-demo-skill',
         ],
@@ -557,18 +595,25 @@ describe('PluginRpcHandlers', () => {
         disabledSkillIds: [],
       });
 
-      expect(h.pluginLoader.resolveCurrentPluginPaths).toHaveBeenCalled();
-      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
-        ['/plugins/alpha', '/home/user/.ptah/plugins/ptah-harness-demo-skill'],
-        [],
-      );
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledTimes(1);
+      const [root, reason, options, ...extra] =
+        h.harnessPropagation.propagate.mock.calls[0];
+      expect(root).toBe(WORKSPACE_ROOT);
+      expect(reason).toBe('plugins:save-config');
+      expect(options).toEqual({ skipUserLayerRefresh: true });
+      expect(extra).toEqual([]);
     });
 
-    it('keeps harness junctions alive when the user disables every plugin', async () => {
+    it('reconciles even when the user disables every plugin', async () => {
+      // An empty selection is a legitimate desired state, not a reason to skip
+      // the pass — the harness-authored plugins are opt-OUT and survive it,
+      // and the copies for the plugins just turned off have to be reaped.
       const h = makeHarness({
         availablePlugins: [makePluginInfo('alpha')],
         resolvedPaths: [],
-        junctionPaths: ['/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        currentPluginPaths: [
+          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+        ],
         discoveredSkills: [],
       });
       h.handlers.register();
@@ -579,17 +624,37 @@ describe('PluginRpcHandlers', () => {
       });
 
       expect(result).toEqual({ success: true });
-      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
-        ['/home/user/.ptah/plugins/ptah-harness-demo-skill'],
-        [],
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        WORKSPACE_ROOT,
+        'plugins:save-config',
+        // Enable/disable changes which sources are FILTERED IN, never what a
+        // source contains, so the user-layer refresh is deliberately skipped.
+        { skipUserLayerRefresh: true },
       );
+    });
+
+    it('still reports success when the reconcile throws (the selection IS saved)', async () => {
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+      });
+      h.harnessPropagation.propagate.mockRejectedValue(new Error('EPERM'));
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'plugins:save-config',
+        { enabledPluginIds: ['alpha'], disabledSkillIds: [] },
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.logger.warn).toHaveBeenCalled();
     });
 
     it('validates disabled skill IDs against the enabled bundled paths when no harness dirs exist', async () => {
       const h = makeHarness({
         availablePlugins: [makePluginInfo('alpha')],
         resolvedPaths: ['/plugins/alpha'],
-        junctionPaths: ['/plugins/alpha'],
+        currentPluginPaths: ['/plugins/alpha'],
         discoveredSkills: [makeSkillEntry('real-skill', 'alpha')],
       });
       h.handlers.register();
@@ -617,7 +682,7 @@ describe('PluginRpcHandlers', () => {
         ],
         resolvedPaths: ['/plugins/alpha'],
         harnessPaths: [harnessDir],
-        junctionPaths: ['/plugins/alpha', harnessDir],
+        currentPluginPaths: ['/plugins/alpha', harnessDir],
         discoveredSkills: [
           makeSkillEntry('real-skill', 'alpha'),
           makeSkillEntry('demo-skill', 'ptah-harness-demo-skill'),
@@ -853,6 +918,124 @@ describe('PluginRpcHandlers', () => {
 
       expect(result.skills).toEqual([]);
       expect(h.pluginLoader.resolvePluginPaths).toHaveBeenCalledWith([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // External marketplace — the two mutations that change the active plugin set
+  //
+  // Only the reconcile contract is covered here; consent, token validation and
+  // download live in the marketplace lib and have their own suites.
+  // -------------------------------------------------------------------------
+
+  describe('external install / uninstall', () => {
+    const PLUGIN_ID = 'external:dotnet/skills/dotnet';
+    const CONSENT_TOKEN = 'a'.repeat(64);
+
+    function installResult(): {
+      pluginId: string;
+      displayName: string;
+      installedVersion: string;
+      filesWritten: number;
+      skippedBinaryFiles: string[];
+    } {
+      return {
+        pluginId: PLUGIN_ID,
+        displayName: 'dotnet',
+        installedVersion: '1.2.0',
+        filesWritten: 4,
+        skippedBinaryFiles: [],
+      };
+    }
+
+    it('reconciles with the install reason once the plugin is on disk', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.handlers.register();
+
+      await call(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        WORKSPACE_ROOT,
+        'plugins:install-external',
+        {},
+      );
+    });
+
+    it('reports the collisions the reconcile actually recorded for this plugin', async () => {
+      // The pre-install prediction compares names; this is the outcome. Only
+      // the losers this plugin brought are reported — a collision between two
+      // OTHER sources is not this install's news.
+      const collisions: HarnessCollision[] = [
+        {
+          slug: 'run-tests',
+          shadowedSource: '/plugins/external-dotnet/skills/run-tests',
+          shadowedPluginId: PLUGIN_ID,
+          reason: 'duplicate-slug',
+        },
+        {
+          slug: 'unrelated',
+          shadowedSource: '/plugins/other/skills/unrelated',
+          shadowedPluginId: 'external:someone/else/other',
+          reason: 'duplicate-slug',
+        },
+      ];
+      const h = makeHarness({
+        currentPluginPaths: ['/plugins/alpha'],
+        discoveredSkills: [makeSkillEntry('run-tests', 'alpha')],
+      });
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.harnessPropagation.propagate.mockResolvedValue(
+        makeHealth({ collisions }),
+      );
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: {
+          collisions: Array<{ skillName: string; shadowedBy: string }>;
+        };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(response.status).toBe('installed');
+      expect(response.result.collisions).toEqual([
+        { skillName: 'run-tests', shadowedBy: 'alpha' },
+      ]);
+    });
+
+    it('reconciles with the uninstall reason after removing the tree', async () => {
+      const h = makeHarness();
+      h.externalInstaller.uninstall.mockResolvedValue(true);
+      h.handlers.register();
+
+      await call(h, 'plugins:uninstall-external', { pluginId: PLUGIN_ID });
+
+      // No `skipUserLayerRefresh`: uninstall MUST refresh, because the reap
+      // half of `reconcileAll` is the only thing that removes the removed
+      // plugin's clones from `~/.ptah/user` (defect 7).
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        WORKSPACE_ROOT,
+        'plugins:uninstall-external',
+        {},
+      );
+    });
+
+    it('does not reconcile when there was nothing to uninstall', async () => {
+      const h = makeHarness();
+      h.externalInstaller.uninstall.mockResolvedValue(false);
+      h.handlers.register();
+
+      await call(h, 'plugins:uninstall-external', { pluginId: PLUGIN_ID });
+
+      expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
     });
   });
 });

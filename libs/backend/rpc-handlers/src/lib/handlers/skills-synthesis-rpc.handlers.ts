@@ -30,6 +30,7 @@ import {
   readSkillTriggers,
   flattenSkillLanes,
   readSkillLanes,
+  resolveSkillsRoot,
   type JudgeCriterionScores,
   type SkillCandidateStore,
   type SkillSynthesisDiagnosticsService,
@@ -928,8 +929,15 @@ export class SkillsSynthesisRpcHandlers {
         const registry = this.requireDesktop(this.registry);
         const mirror = this.requireDesktop(this.mirror);
         const rows = registry.listAll();
+        const orphanFlags = await this.readOrphanFlags(mirror);
         const clones = await Promise.all(
-          rows.map((row) => this.toCloneSummary(row, mirror)),
+          rows.map((row) =>
+            this.toCloneSummary(
+              row,
+              mirror,
+              orphanFlags.get(`${row.kind}/${row.slug}`) === true,
+            ),
+          ),
         );
         return { clones };
       } catch (error: unknown) {
@@ -964,7 +972,11 @@ export class SkillsSynthesisRpcHandlers {
           ts: h.ts,
           hasBody: h.hasSkillMd,
         }));
-        const clone = await this.toCloneSummary(row, mirror);
+        const clone = await this.toCloneSummary(
+          row,
+          mirror,
+          await this.readOrphanFlag(mirror, kind, parsed.slug),
+        );
         return { clone, body, history };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
@@ -1824,6 +1836,7 @@ export class SkillsSynthesisRpcHandlers {
   private async toCloneSummary(
     row: SkillRegistryRow,
     mirror: UserLayerMirrorService,
+    orphaned: boolean,
   ): Promise<CloneSummary> {
     const stats = this.store.getInvocationStats(row.slug);
     const successRate = stats.total > 0 ? stats.succeeded / stats.total : 0;
@@ -1849,7 +1862,46 @@ export class SkillsSynthesisRpcHandlers {
         row.lastEnhancedAt !== null
           ? row.lastEnhancedAt + ENHANCE_COOLDOWN_MS
           : null,
+      orphaned,
     };
+  }
+
+  /**
+   * `kind/slug` → orphaned, read once from the user-layer sidecars.
+   *
+   * The registry has no `orphaned` column (that would be a migration for a flag
+   * the sidecar already owns), so the list path joins the two. A failure here
+   * degrades to "nothing is orphaned" rather than failing the whole listing —
+   * an un-flagged clone renders exactly as it did before this field existed.
+   */
+  private async readOrphanFlags(
+    mirror: UserLayerMirrorService,
+  ): Promise<ReadonlyMap<string, boolean>> {
+    try {
+      const entries = await mirror.listClones();
+      return new Map(
+        entries.map((entry) => [`${entry.kind}/${entry.slug}`, entry.orphaned]),
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[skill-synthesis] could not read clone origin sidecars for orphan flags',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return new Map<string, boolean>();
+    }
+  }
+
+  private async readOrphanFlag(
+    mirror: UserLayerMirrorService,
+    kind: SkillRegistryKind,
+    slug: string,
+  ): Promise<boolean> {
+    try {
+      const entry = await mirror.readCloneOrigin(kind, slug);
+      return entry?.orphaned === true;
+    } catch {
+      return false;
+    }
   }
 
   private readCloneBody(
@@ -1883,27 +1935,54 @@ export class SkillsSynthesisRpcHandlers {
     return resolved === root || resolved.startsWith(root + sep);
   }
 
+  /**
+   * Where `rebaseClone` should copy FROM, for every clone kind and both origins.
+   *
+   * Two things were wrong here before TASK_2026_278:
+   *
+   *  - A clone with no `originPluginId` returned `null`, so a SYNTH skill and a
+   *    workspace-authored AGENT could be flagged diverged and then never
+   *    rebased — the UI offered a button that always failed (defect 8). Their
+   *    upstreams are `<skillsRoot>/<slug>/` and `{ws}/.claude/agents/<slug>.md`.
+   *  - The plugin branch returned the commands/agents DIRECTORY, while
+   *    `rebaseFileClone` probes it with `fileExists`. That is always false, so
+   *    every plugin command/agent rebase answered `source-missing` regardless of
+   *    what was on disk. Both now resolve to the `<slug>.md` FILE.
+   *
+   * A command with no plugin origin still returns `null`: nothing in the tree
+   * writes a plugin-less command clone, so there is no upstream to name and
+   * inventing one would rebase from a path that never existed.
+   */
   private resolveUpstreamSourceDir(
     kind: SkillRegistryKind,
     slug: string,
     row: SkillRegistryRow,
   ): string | null {
-    if (!this.contentDownload || !row.originPluginId) return null;
-    if (
-      row.originPluginId.includes('/') ||
-      row.originPluginId.includes('\\') ||
-      row.originPluginId.includes('..')
-    ) {
-      return null;
+    if (isUnsafePathSegment(slug)) return null;
+
+    if (row.originPluginId) {
+      if (!this.contentDownload) return null;
+      if (isUnsafePathSegment(row.originPluginId)) return null;
+      const pluginsPath = this.contentDownload.getPluginsPath();
+      if (kind === 'skill') {
+        return join(pluginsPath, row.originPluginId, 'skills', slug);
+      }
+      if (kind === 'command') {
+        return join(pluginsPath, row.originPluginId, 'commands', `${slug}.md`);
+      }
+      return join(pluginsPath, row.originPluginId, 'agents', `${slug}.md`);
     }
-    const pluginsPath = this.contentDownload.getPluginsPath();
+
     if (kind === 'skill') {
-      return join(pluginsPath, row.originPluginId, 'skills', slug);
+      return join(resolveSkillsRoot(this.workspaceProvider), slug);
     }
-    if (kind === 'command') {
-      return join(pluginsPath, row.originPluginId, 'commands');
+    if (kind === 'agent') {
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      return workspaceRoot
+        ? join(workspaceRoot, '.claude', 'agents', `${slug}.md`)
+        : null;
     }
-    return join(pluginsPath, row.originPluginId, 'agents');
+    return null;
   }
 
   private collectByStatus(
@@ -1925,6 +2004,20 @@ export class SkillsSynthesisRpcHandlers {
 
     this.sentryService.captureException(err, { errorSource });
   }
+}
+
+/**
+ * Reject anything that would let a stored id or slug escape the root it is
+ * joined onto. Applied to BOTH halves of the join — the slug reaches here from
+ * RPC params and the plugin id from a SQLite row, and either is enough.
+ */
+function isUnsafePathSegment(segment: string): boolean {
+  return (
+    segment.length === 0 ||
+    segment.includes('/') ||
+    segment.includes('\\') ||
+    segment.includes('..')
+  );
 }
 
 function clampLimit(raw: number | undefined, fallback: number): number {

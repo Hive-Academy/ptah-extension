@@ -35,10 +35,10 @@ import {
   createMockSentryService,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
-import type {
-  PluginLoaderService,
-  SkillJunctionService,
-} from '@ptah-extension/agent-sdk';
+import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
+import type { HarnessPropagationService } from '@ptah-extension/harness-sync';
+import type { HarnessHealth, SkillSummary } from '@ptah-extension/shared';
+import { summarizeHarnessHealth } from '@ptah-extension/shared';
 import type {
   IWorkspaceProvider,
   IPlatformCommands,
@@ -52,6 +52,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { DependencyContainer } from 'tsyringe';
 
 import { HarnessRpcHandlers } from './harness-rpc.handlers';
+import type { HarnessHealthRpcService } from '../harness/health/harness-health-rpc.service';
 import type { HarnessWorkspaceContextService } from '../harness/workspace/harness-workspace-context.service';
 import type { HarnessSuggestionService } from '../harness/ai/harness-suggestion.service';
 import type { HarnessSubagentDesignService } from '../harness/ai/harness-subagent-design.service';
@@ -66,6 +67,24 @@ import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install
 import type { HarnessSkillInstallService } from '../harness/io/harness-skill-install.service';
 
 type Mocked<T> = jest.Mocked<T>;
+
+/** `discoverAvailableSkills()` output for skills that are present and enabled. */
+function installedSkills(...ids: string[]): SkillSummary[] {
+  return ids.map((id) => ({
+    id,
+    name: id,
+    description: id,
+    source: 'plugin' as const,
+    isActive: true,
+  }));
+}
+
+/** What discovery reports once `ptah-nx-saas` is enabled — the Node/TS default. */
+const NODE_TS_SKILLS = [
+  'saas-workspace-initializer',
+  'nx-workspace-architect',
+  'ddd-architecture',
+];
 
 interface MockContainer extends jest.Mocked<
   Pick<DependencyContainer, 'resolve'>
@@ -102,12 +121,9 @@ interface Suite {
       | 'getWorkspacePluginConfig'
       | 'resolvePluginPaths'
       | 'saveWorkspacePluginConfig'
-      | 'resolveCurrentPluginPaths'
-      | 'discoverSkillsForPlugins'
-      | 'getDisabledSkillIds'
     >
   >;
-  skillJunction: Mocked<SkillJunctionService>;
+  harnessPropagation: jest.Mocked<Pick<HarnessPropagationService, 'propagate'>>;
   platformCommands: MockPlatformCommands;
   container: MockContainer;
   workspaceContext: Mocked<HarnessWorkspaceContextService>;
@@ -124,15 +140,29 @@ interface Suite {
   skillInstall: Mocked<HarnessSkillInstallService>;
 }
 
+/**
+ * What a reconcile of an untouched fixture workspace reports. The facade only
+ * reads `targets` (to log counts) and treats any resolved value as success, so
+ * an empty-but-well-formed health payload is the honest default here.
+ */
+function cleanHealth(): HarnessHealth {
+  return {
+    workspaceRoot: '/ws',
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    mode: 'full',
+    reason: 'test',
+    sources: 'ok',
+    targets: [],
+    collisions: [],
+  };
+}
+
 function buildSuite(): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
   const sentry = createMockSentryService();
 
   const pluginLoader = {
-    resolveCurrentPluginPaths: jest.fn().mockReturnValue([]),
-    discoverSkillsForPlugins: jest.fn().mockReturnValue([]),
-    getDisabledSkillIds: jest.fn().mockReturnValue([]),
     getWorkspacePluginConfig: jest.fn().mockReturnValue({
       enabledPluginIds: [],
       disabledSkillIds: [],
@@ -140,11 +170,9 @@ function buildSuite(): Suite {
     resolvePluginPaths: jest.fn().mockReturnValue([]),
     saveWorkspacePluginConfig: jest.fn().mockResolvedValue(undefined),
   } as unknown as Suite['pluginLoader'];
-  const skillJunction = {
-    createJunctions: jest
-      .fn()
-      .mockReturnValue({ created: 0, skipped: 0, removed: 0, errors: [] }),
-  } as unknown as Mocked<SkillJunctionService>;
+  const harnessPropagation = {
+    propagate: jest.fn().mockResolvedValue(cleanHealth()),
+  } as unknown as Suite['harnessPropagation'];
   const workspaceProvider = createMockWorkspaceProvider({
     folders: ['/ws'],
   }) as unknown as IWorkspaceProvider;
@@ -259,12 +287,31 @@ function buildSuite(): Suite {
     }),
   } as unknown as Mocked<HarnessFsService>;
 
+  // The reconciler surface is a collaborator with its own spec; here it only
+  // has to exist so the facade's three delegates are registered and callable.
+  const healthService = {
+    health: jest.fn().mockResolvedValue({
+      health: null,
+      summary: summarizeHarnessHealth(null),
+      cached: false,
+    }),
+    reconcile: jest.fn().mockResolvedValue({
+      health: null,
+      summary: summarizeHarnessHealth(null),
+    }),
+    remove: jest.fn().mockResolvedValue({
+      health: null,
+      summary: summarizeHarnessHealth(null),
+      removed: 0,
+    }),
+  } as unknown as HarnessHealthRpcService;
+
   const handlers = new HarnessRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
     sentry as unknown as SentryService,
     pluginLoader as unknown as PluginLoaderService,
-    skillJunction,
+    harnessPropagation as unknown as HarnessPropagationService,
     workspaceProvider,
     platformCommands as unknown as IPlatformCommands,
     container as unknown as DependencyContainer,
@@ -280,6 +327,7 @@ function buildSuite(): Suite {
     fsService,
     mcpInstall,
     skillInstall,
+    healthService,
   );
 
   return {
@@ -288,7 +336,7 @@ function buildSuite(): Suite {
     sentry,
     logger,
     pluginLoader,
-    skillJunction,
+    harnessPropagation,
     platformCommands,
     container,
     workspaceContext,
@@ -475,6 +523,54 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       },
     );
 
+    // TASK_2026_278 Batch 3. `createSkillPlugin` writes the skill into
+    // `~/.ptah/plugins/ptah-harness-*` and mirrors that ONE directory into the
+    // user layer, then stopped. Nothing carried it the last step into
+    // `{ws}/.claude/skills`, so a skill the user (or the model, through
+    // `ptah_harness_create_skill`) had just authored did not exist for any tool
+    // until the next host activation — which for `ptah tui` or the gateway
+    // could be never.
+    it('harness:create-skill propagates the new skill to every target', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:create-skill',
+      )({
+        name: 'Demo Skill',
+        description: 'demo',
+        content: 'body',
+      });
+
+      expect(suite.harnessPropagation.propagate).toHaveBeenCalledWith(
+        '/ws',
+        'harness:create-skill',
+      );
+    });
+
+    it('harness:create-skill writes the skill BEFORE it propagates', async () => {
+      // The reconciler copies OUT of the user layer, so a SKILL.md that landed
+      // after the pass would be invisible to it.
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:create-skill',
+      )({
+        name: 'Demo Skill',
+        description: 'demo',
+        content: 'body',
+      });
+
+      expect(
+        suite.fsService.createSkillPlugin.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        suite.harnessPropagation.propagate.mock.invocationCallOrder[0],
+      );
+    });
+
     it('harness:initialize fans out to workspaceContext + configStore', async () => {
       const suite = buildSuite();
       suite.handlers.register();
@@ -532,16 +628,17 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       'WizardWebviewLifecycleService',
     );
 
-    it('enables the SaaS plugin, refreshes junctions, focuses chat, broadcasts, and disposes the wizard panel', async () => {
+    it('enables the SaaS plugin, reconciles the harness, focuses chat, broadcasts, and disposes the wizard panel', async () => {
       const suite = buildSuite();
-      suite.pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
-        '/plugins/ptah-nx-saas',
-        '/home/user/.ptah/plugins/ptah-harness-demo-skill',
-      ]);
       const broadcastMessage = jest.fn().mockResolvedValue(undefined);
       const disposeWebview = jest.fn();
       suite.container.__register(WEBVIEW_MANAGER, { broadcastMessage });
       suite.container.__register(WIZARD_WEBVIEW_LIFECYCLE, { disposeWebview });
+      // Enabling `ptah-nx-saas` above is what makes these discoverable, and the
+      // prompt names a Stage A skill only once discovery has seen it.
+      suite.workspaceContext.discoverAvailableSkills.mockReturnValue(
+        installedSkills(...NODE_TS_SKILLS),
+      );
       suite.handlers.register();
 
       const result = await getHandler(
@@ -556,14 +653,13 @@ describe('HarnessRpcHandlers (thin facade)', () => {
           disabledSkillIds: [],
         },
       );
-      // The junction refresh must keep harness-authored plugin dirs in scope,
-      // otherwise enabling the SaaS plugin prunes them as stale.
-      expect(suite.skillJunction.createJunctions).toHaveBeenCalledWith(
-        [
-          '/plugins/ptah-nx-saas',
-          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
-        ],
-        [],
+      // Enabling a plugin changes the desired state, so the copies in
+      // {ws}/.claude have to be rebuilt before the agent's first turn. The
+      // reconciler resolves the sources itself — including the harness-authored
+      // `ptah-harness-*` dirs — so this handler passes it nothing but the root.
+      expect(suite.harnessPropagation.propagate).toHaveBeenCalledWith(
+        '/ws',
+        'harness:start-new-project',
       );
       expect(suite.platformCommands.focusChat).toHaveBeenCalled();
       expect(broadcastMessage).toHaveBeenCalledWith(
@@ -576,7 +672,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(disposeWebview).toHaveBeenCalledWith('ptah.setupWizard');
     });
 
-    it('skips plugin enablement + junction refresh when ptah-nx-saas is already enabled', async () => {
+    it('skips plugin enablement + harness reconcile when ptah-nx-saas is already enabled', async () => {
       const suite = buildSuite();
       suite.pluginLoader.getWorkspacePluginConfig.mockReturnValue({
         enabledPluginIds: ['ptah-nx-saas'],
@@ -599,7 +695,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(
         suite.pluginLoader.saveWorkspacePluginConfig,
       ).not.toHaveBeenCalled();
-      expect(suite.skillJunction.createJunctions).not.toHaveBeenCalled();
+      expect(suite.harnessPropagation.propagate).not.toHaveBeenCalled();
     });
 
     it('returns success even when broadcast / dispose services are missing (best-effort)', async () => {
@@ -835,6 +931,97 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(probeStackToolchain).not.toHaveBeenCalled();
       const [, payload] = broadcastMessage.mock.calls[0];
       expect(payload.seedPrompt).toContain('Elixir + Phoenix');
+    });
+
+    // ---- Stage A skills the machine does not have (TASK_2026_283) ----------
+
+    it('reads the skill set AFTER the profile plugin is enabled and reconciled', async () => {
+      // Order matters: a plugin turned on by this very call has to count as
+      // present, or the first project on a fresh machine always falls back.
+      const suite = buildSuite();
+      withBroadcast(suite);
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: VALID_INTAKE });
+
+      const discoveredAt =
+        suite.workspaceContext.discoverAvailableSkills.mock
+          .invocationCallOrder[0];
+      const savedAt =
+        suite.pluginLoader.saveWorkspacePluginConfig.mock
+          .invocationCallOrder[0];
+      const propagatedAt =
+        suite.harnessPropagation.propagate.mock.invocationCallOrder[0];
+      expect(discoveredAt).toBeGreaterThan(savedAt);
+      expect(discoveredAt).toBeGreaterThan(propagatedAt);
+    });
+
+    it('falls back to the generic contract when the profile skill is absent', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      suite.workspaceContext.discoverAvailableSkills.mockReturnValue(
+        installedSkills('some-unrelated-skill'),
+      );
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: VALID_INTAKE });
+
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).not.toContain('saas-workspace-initializer');
+      expect(payload.seedPrompt).toContain(
+        'No preset Stage A skill is installed',
+      );
+    });
+
+    it('counts a disabled skill as absent — it never reaches the harness dirs', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      suite.workspaceContext.discoverAvailableSkills.mockReturnValue(
+        installedSkills(...NODE_TS_SKILLS).map((skill) =>
+          skill.id === 'saas-workspace-initializer'
+            ? { ...skill, isActive: false }
+            : skill,
+        ),
+      );
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: VALID_INTAKE });
+
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).not.toContain('saas-workspace-initializer');
+      // The architect is still enabled, so it is still named — the two skills
+      // are gated independently.
+      expect(payload.seedPrompt).toContain('`nx-workspace-architect`');
+    });
+
+    it('still produces a prompt when skill discovery throws', async () => {
+      const suite = buildSuite();
+      const broadcastMessage = withBroadcast(suite);
+      suite.workspaceContext.discoverAvailableSkills.mockImplementation(() => {
+        throw new Error('plugin dir unreadable');
+      });
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:start-new-project',
+      )({ intake: VALID_INTAKE });
+
+      expect(result).toEqual({ success: true });
+      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(payload.seedPrompt).toContain(
+        'No preset Stage A skill is installed',
+      );
+      expect(payload.seedPrompt).not.toContain('saas-workspace-initializer');
     });
 
     it('rejects an intake with no brief without touching plugin config', async () => {
@@ -1102,15 +1289,8 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       );
     });
 
-    it('junctions harness plugin skills when created skills exist', async () => {
+    it('reconciles the harness when created skills exist', async () => {
       const suite = buildSuite();
-      // resolveCurrentPluginPaths() is now the single source of truth: it
-      // already appends the ptah-harness-* dirs, so the handler performs no
-      // merge of its own.
-      suite.pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
-        '/plugins/ptah-core',
-        '/home/user/.ptah/plugins/ptah-harness-demo-skill',
-      ]);
       const config = normalizedConfig({
         skills: {
           selectedSkills: [],
@@ -1122,15 +1302,49 @@ describe('HarnessRpcHandlers (thin facade)', () => {
 
       await applyWith(suite, config);
 
-      expect(suite.skillJunction.createJunctions).toHaveBeenCalledWith(
-        [
-          '/plugins/ptah-core',
-          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
-        ],
-        [],
+      expect(suite.harnessPropagation.propagate).toHaveBeenCalledWith(
+        '/ws',
+        'harness:apply',
       );
-      // The bundled-only resolver must not feed junctions.
+      // The reconciler owns source resolution — its PluginConfigSourceResolver
+      // already appends the `ptah-harness-*` dirs the skills above were written
+      // into. A path list computed here could only ever be narrower, which is
+      // how harness-authored artifacts used to get pruned as stale.
       expect(suite.pluginLoader.resolvePluginPaths).not.toHaveBeenCalled();
+    });
+
+    // Was "does NOT reconcile when nothing was selected or created".
+    // TASK_2026_278 Batch 3 made the pass unconditional: the old gate meant an
+    // apply that wrote only subagents (or only CLAUDE.md, or only MCP entries)
+    // left `{ws}/.claude/agents` mirrored into the user layer with nothing
+    // fanning it out to Codex, Copilot or Cursor. Reconcile is idempotent, so
+    // the gate bought a directory walk and cost a whole artifact family.
+    it('propagates even when no skills were selected or created', async () => {
+      const suite = buildSuite();
+
+      await applyWith(suite, normalizedConfig());
+
+      expect(suite.harnessPropagation.propagate).toHaveBeenCalledWith(
+        '/ws',
+        'harness:apply',
+      );
+    });
+
+    it('surfaces a failed reconcile as a warning instead of failing the apply', async () => {
+      const suite = buildSuite();
+      suite.harnessPropagation.propagate.mockRejectedValueOnce(
+        new Error('EBUSY'),
+      );
+      const config = normalizedConfig({
+        skills: {
+          selectedSkills: [],
+          createdSkills: [{ name: 'alpha', description: 'a', content: 'c' }],
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as { warnings: string[] };
+
+      expect(result.warnings).toContain('Failed to sync harness skills: EBUSY');
     });
 
     it('installs recorded MCP servers and reports the written config paths', async () => {
@@ -1286,7 +1500,9 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(result.warnings).toEqual([]);
     });
 
-    it('writes created skills before junctions are refreshed', async () => {
+    it('writes created skills before the harness is reconciled', async () => {
+      // The reconciler copies OUT of the user layer, so a SKILL.md written
+      // after the pass would not reach {ws}/.claude until the next activation.
       const suite = buildSuite();
       const config = normalizedConfig({
         skills: {
@@ -1299,9 +1515,9 @@ describe('HarnessRpcHandlers (thin facade)', () => {
 
       const wroteAt =
         suite.fsService.createSkillPlugin.mock.invocationCallOrder[0];
-      const junctionedAt =
-        suite.skillJunction.createJunctions.mock.invocationCallOrder[0];
-      expect(wroteAt).toBeLessThan(junctionedAt);
+      const reconciledAt =
+        suite.harnessPropagation.propagate.mock.invocationCallOrder[0];
+      expect(wroteAt).toBeLessThan(reconciledAt);
     });
 
     it('surfaces a failed skill write as a warning without aborting apply', async () => {
@@ -1323,7 +1539,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(result.warnings).toContain(
         'Failed to create skill "alpha": disk full',
       );
-      expect(suite.skillJunction.createJunctions).toHaveBeenCalled();
+      expect(suite.harnessPropagation.propagate).toHaveBeenCalled();
     });
   });
 

@@ -30,11 +30,13 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
-  SDK_TOKENS,
-  PluginLoaderService,
-  SkillJunctionService,
-} from '@ptah-extension/agent-sdk';
+  HARNESS_SYNC_TOKENS,
+  type HarnessPropagationService,
+} from '@ptah-extension/harness-sync';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { CommandDiscoveryService } from '@ptah-extension/workspace-intelligence';
 import {
   ExternalPluginInstallerService,
@@ -43,6 +45,7 @@ import {
   PluginMarketplaceError,
 } from '@ptah-extension/plugin-marketplace';
 import type {
+  HarnessHealth,
   PluginInfo,
   PluginConfigState,
   PluginSkillEntry,
@@ -94,8 +97,10 @@ export class PluginRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
-    @inject(SDK_TOKENS.SDK_SKILL_JUNCTION)
-    private readonly skillJunction: SkillJunctionService,
+    @inject(HARNESS_SYNC_TOKENS.PROPAGATION)
+    private readonly harnessPropagation: HarnessPropagationService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.COMMAND_DISCOVERY_SERVICE)
     private readonly commandDiscovery: CommandDiscoveryService,
     @inject(TOKENS.SENTRY_SERVICE)
@@ -304,24 +309,24 @@ export class PluginRpcHandlers {
           disabledPluginIds,
         });
         this.commandDiscovery.invalidateCache();
-        // Junctions must be fed from resolveCurrentPluginPaths(), NOT the
-        // bundled-only pluginPaths above: it reads the config we just saved and
-        // adds the harness-authored ptah-harness-* directories. Passing bundled
-        // paths alone makes SkillJunctionService treat every harness skill
-        // junction as stale and delete it.
-        const junctionPluginPaths =
-          this.pluginLoader.resolveCurrentPluginPaths();
-        this.skillJunction.createJunctions(
-          junctionPluginPaths,
-          validatedDisabledSkillIds,
-        );
+        // The reconciler re-reads the config we just saved through its source
+        // resolver, so the newly disabled skills are reaped and the newly
+        // enabled ones copied in the same pass.
+        //
+        // `skipUserLayerRefresh` because this is the one trigger that provably
+        // cannot need it: enabling or disabling a plugin changes which sources
+        // the desired state FILTERS IN, never what any source contains. Paying
+        // for a full mirror + reconcileAll on every checkbox toggle would make
+        // the Plugins panel feel broken for no gain.
+        await this.reconcileHarness('plugins:save-config', {
+          skipUserLayerRefresh: true,
+        });
 
         this.logger.debug('RPC: plugins:save-config success', {
           enabledCount: enabledPluginIds.length,
           disabledSkillCount: validatedDisabledSkillIds.length,
           disabledPluginCount: disabledPluginIds?.length,
           pluginPaths: pluginPaths.length,
-          junctionPluginPaths: junctionPluginPaths.length,
         });
 
         return { success: true };
@@ -593,23 +598,32 @@ export class PluginRpcHandlers {
     });
 
     this.commandDiscovery.invalidateCache();
-    this.skillJunction.createJunctions(
-      this.pluginLoader.resolveCurrentPluginPaths(),
-      config.disabledSkillIds,
-    );
+    const health = await this.reconcileHarness('plugins:install-external');
 
-    // Now that junctions have been rebuilt, report what actually lost, rather
-    // than what we predicted would lose.
-    return this.skillJunction
-      .getShadowedSkills()
-      .filter((shadow) => shadow.shadowedPluginId === pluginId)
-      .map((shadow) => ({
-        skillName: shadow.skillName,
-        shadowedBy: this.findSkillOwner(shadow.skillName) ?? 'another plugin',
+    // Now that the copies have been rebuilt, report what actually lost, rather
+    // than what we predicted would lose. The reconciler records a collision for
+    // every source that could not claim its slug; we only care about the ones
+    // this plugin brought.
+    return (health?.collisions ?? [])
+      .filter((collision) => collision.shadowedPluginId === pluginId)
+      .map((collision) => ({
+        skillName: collision.slug,
+        shadowedBy: this.findSkillOwner(collision.slug) ?? 'another plugin',
       }));
   }
 
-  /** Drop an uninstalled plugin from the workspace config and re-junction. */
+  /**
+   * Drop an uninstalled plugin from the workspace config and re-propagate.
+   *
+   * Unlike `save-config`, this one MUST refresh the user layer, which is why it
+   * passes no `skipUserLayerRefresh`. `uninstall()` deleted the plugin tree
+   * under `~/.ptah/plugins/external/`, but the user-layer CLONES of its skills
+   * are still sitting in `~/.ptah/user/skills` — and the user layer is the
+   * desired state. A bare reconcile therefore saw the uninstalled plugin's
+   * skills as still wanted and kept copying them into every target forever
+   * (TASK_2026_278 defect 7). `reconcileAll`'s reap pass, which the refresher
+   * runs, is the only thing that removes them.
+   */
   private async deactivateExternalPlugin(pluginId: string): Promise<void> {
     const config = this.pluginLoader.getWorkspacePluginConfig();
 
@@ -622,20 +636,46 @@ export class PluginRpcHandlers {
     });
 
     this.commandDiscovery.invalidateCache();
-    this.skillJunction.createJunctions(
-      this.pluginLoader.resolveCurrentPluginPaths(),
-      config.disabledSkillIds,
-    );
+    await this.reconcileHarness('plugins:uninstall-external');
+  }
+
+  /**
+   * Reconcile `{ws}/.claude/{skills,commands}` after a config change.
+   *
+   * Non-fatal: an RPC that saved the user's plugin selection must report
+   * success even if the workspace copy failed, because the selection IS saved
+   * and the next activation heals the copy. Returns the health report so
+   * callers can read the collision list, or `null` when there is no workspace.
+   */
+  private async reconcileHarness(
+    reason: string,
+    options: { skipUserLayerRefresh?: boolean } = {},
+  ): Promise<HarnessHealth | null> {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (workspaceRoot === undefined || workspaceRoot === null) return null;
+    try {
+      return await this.harnessPropagation.propagate(
+        workspaceRoot,
+        reason,
+        options,
+      );
+    } catch (error: unknown) {
+      this.logger.warn('Harness reconcile failed (non-fatal)', {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /**
    * Which skills in `candidateSkills` an already-active skill would shadow.
    *
-   * Computed here, not in the marketplace lib, because "currently junctioned"
-   * is workspace state that lib has no business knowing. Prediction is
+   * Computed here, not in the marketplace lib, because "currently installed in
+   * the workspace" is state that lib has no business knowing. Prediction is
    * necessarily approximate — it compares names against the skills discoverable
    * right now — which is why the post-install result reports the real outcome
-   * from `SkillJunctionService` instead of repeating this.
+   * from `HarnessHealth.collisions` instead of repeating this.
    */
   private predictCollisions(
     pluginId: string,

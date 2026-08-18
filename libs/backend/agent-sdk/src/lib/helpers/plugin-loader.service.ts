@@ -639,7 +639,7 @@ export class PluginLoaderService {
 
   /**
    * Get the current disabled skill IDs from workspace config.
-   * Convenience method for SkillJunctionService callbacks.
+   * Convenience method for the harness reconciler's source resolver.
    */
   getDisabledSkillIds(): string[] {
     return this.getWorkspacePluginConfig().disabledSkillIds;
@@ -717,7 +717,7 @@ export class PluginLoaderService {
    *
    * Both halves are filtered by `disabledPluginIds` so an explicit disable
    * always wins. That exclusion is the whole point of the toggle:
-   * SkillJunctionService prunes any junction whose skill is missing from the
+   * The harness reconciler removes any managed copy whose skill is missing from the
    * supplied paths, so dropping a disabled plugin here is what actually removes
    * its skills from `.claude/skills/`. Conversely, keeping the untouched
    * harness directories here is what stops a marketplace toggle from wiping
@@ -745,7 +745,7 @@ export class PluginLoaderService {
    *
    * For each plugin path, reads the skills/ directory and looks for subdirectories
    * containing a SKILL.md file. Parses YAML frontmatter for display name and description.
-   * The skillId is the directory name (matching SkillJunctionService.buildSkillsMap keys).
+   * The skillId is the directory name (matching HarnessManifestBuilder skill slugs).
    *
    * @param pluginPaths - Absolute paths to plugin directories
    * @returns Flat list of PluginSkillEntry with directory-name-based skillId

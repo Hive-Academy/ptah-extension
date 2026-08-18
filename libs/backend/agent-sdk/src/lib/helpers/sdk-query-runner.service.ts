@@ -118,7 +118,6 @@ export interface OneShotRunInput {
   maxTurns?: number;
   outputFormat?: OutputFormat;
   abortController?: AbortController;
-  pluginPaths?: string[];
   auth?: OneShotAuthOverride;
 }
 
@@ -190,8 +189,6 @@ export class SdkQueryRunner {
       mcpPort: input.mcpPort,
       maxTurns: input.maxTurns ?? DEFAULT_ONE_SHOT_MAX_TURNS,
       hasSystemPromptAppend: !!input.systemPromptAppend,
-      hasPlugins: (input.pluginPaths?.length ?? 0) > 0,
-      pluginCount: input.pluginPaths?.length ?? 0,
       cliJsPath: cliJsPath ?? 'NOT_RESOLVED',
     });
 

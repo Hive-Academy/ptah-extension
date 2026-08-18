@@ -76,7 +76,6 @@ import {
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
-import { SkillJunctionService } from '../helpers/skill-junction.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SDK_TOKENS } from './tokens';
@@ -437,12 +436,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_SKILL_JUNCTION,
-    { useClass: SkillJunctionService },
     { lifecycle: Lifecycle.Singleton },
   );
 

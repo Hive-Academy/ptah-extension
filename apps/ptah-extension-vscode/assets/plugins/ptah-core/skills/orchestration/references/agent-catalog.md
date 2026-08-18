@@ -635,7 +635,8 @@ See modernization-detector.md for detailed instructions.`,
 
 **Outputs**:
 
-- `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
+- `DESIGN-SYSTEM.md`, written into the `technical-content-writer` skill's own
+  directory (locate it via the Skill tool / plugin root, not a workspace path)
 - `.ptah/specs/TASK_[ID]/visual-design-specification.md`
 
 **Dependencies**: project-manager (optional context)
@@ -674,7 +675,8 @@ See ui-ux-designer.md for detailed instructions.`,
 
 **Inputs**:
 
-- `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
+- `DESIGN-SYSTEM.md`, a sibling of the `technical-content-writer` SKILL.md
+  (resolve against that skill's own directory, not a workspace path)
 - Content brief/requirements
 - Codebase features for technical accuracy
 
@@ -696,7 +698,7 @@ Task({
   prompt: `You are technical-content-writer for TASK_2026_042.
 
 **Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
-**Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Design System**: Read DESIGN-SYSTEM.md from your own skill directory
 **Goal**: Create landing page content for the VS Code extension
 
 Create design-integrated content specification.

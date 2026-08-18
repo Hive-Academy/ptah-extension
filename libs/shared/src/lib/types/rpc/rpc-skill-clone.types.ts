@@ -26,6 +26,26 @@ export interface CloneSummary {
    * enhancement, or `null` when never enhanced (no cooldown active).
    */
   enhanceCooldownUntil: number | null;
+  /**
+   * The upstream this clone came from no longer exists, and the clone was kept
+   * rather than reaped because it carries local work.
+   *
+   * NOT the same as `diverged`. `diverged` means "upstream moved and you edited
+   * it — pick one"; `orphaned` means "there is no longer an upstream to pick",
+   * so the Rebase action is meaningless and the clone is now effectively
+   * user-owned. A clone can be both; `orphaned` is the one that decides whether
+   * rebase is offered at all.
+   *
+   * Read from the user-layer sidecar, not from the registry row, so it stays
+   * true even in a host whose SQLite catalog has not been re-synced.
+   *
+   * OPTIONAL for the same structural reason as {@link AgentScorecard.winRate}:
+   * the rest of this summary comes from one registry row, while this flag is a
+   * second pass over the sidecars that the handler joins in. `undefined` means
+   * "this producer did not read the sidecars" and must be treated as `false` by
+   * consumers — use `=== true`, never a bare truthiness flip.
+   */
+  orphaned?: boolean;
 }
 
 export interface SkillCloneHistoryEntry {

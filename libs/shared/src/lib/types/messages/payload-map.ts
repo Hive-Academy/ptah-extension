@@ -122,6 +122,7 @@ import type {
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
+import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
 
@@ -320,6 +321,7 @@ export interface MessagePayloadMap {
   'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
+  'harness:healthChanged': HarnessHealthChangedPayload;
   'git:status-update': GitStatusUpdatePayload;
   'file:tree-changed': FileTreeChangedPayload;
   'file:content-changed': FileContentChangedPayload;

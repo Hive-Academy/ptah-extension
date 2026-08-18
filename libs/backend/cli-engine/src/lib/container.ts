@@ -71,9 +71,28 @@ import {
   registerSdkServices,
   SDK_TOKENS,
   wireAgentAdapterAliases,
+  HARNESS_PREFLIGHT_TOKEN,
 } from '@ptah-extension/agent-sdk';
+import {
+  registerHarnessSyncServices,
+  ALL_HARNESS_TARGET_FACTORIES,
+  createPluginConfigSourceResolver,
+  HARNESS_SYNC_TOKENS,
+  type HarnessPluginConfigReader,
+} from '@ptah-extension/harness-sync';
+
+import {
+  bootHarness,
+  createCliUserLayerRefresher,
+  readCliManageGitignore,
+  readCliPreflightTimeoutMs,
+} from './bootstrap/harness-boot';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
-import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
+import {
+  registerCliAgentRuntimeServices,
+  createHarnessCliDetector,
+  type HarnessCliDetectionReader,
+} from '@ptah-extension/cli-agent-runtime';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
@@ -505,6 +524,53 @@ export class CliDIContainer {
     // external consent store as its allowlist source.
     registerPluginMarketplaceServices(container, logger);
     registerSdkServices(container, logger);
+    // The CLI/TUI reconciler, its boot pass (`bootHarness`, fired from the
+    // content-download callback below) and its session-start preflight.
+    //
+    // Every target, in every host: a workspace is populated for the tools the
+    // USER has, not for the one running Ptah. Undetected CLIs are skipped at
+    // reconcile time, which is why the detector is the only host-specific part.
+    registerHarnessSyncServices(container, logger, {
+      targets: ALL_HARNESS_TARGET_FACTORIES,
+      cliDetector: createHarnessCliDetector(() =>
+        container.isRegistered(TOKENS.CLI_DETECTION_SERVICE)
+          ? container.resolve<HarnessCliDetectionReader>(
+              TOKENS.CLI_DETECTION_SERVICE,
+            )
+          : null,
+      ),
+      sourceResolver: createPluginConfigSourceResolver(() =>
+        container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
+          ? container.resolve<HarnessPluginConfigReader>(
+              SDK_TOKENS.SDK_PLUGIN_LOADER,
+            )
+          : null,
+      ),
+      // Batch 3. Without this the CLI reconciled an EMPTY user layer forever:
+      // `UserLayerMirrorService` was registered here and had no caller, so a
+      // machine that only ever ran `ptah tui` had no desired state to copy.
+      userLayerRefresher: createCliUserLayerRefresher(container),
+      gitignore: {
+        readManageGitignore: () => readCliManageGitignore(container),
+      },
+      preflight: {
+        readTimeoutMs: () => readCliPreflightTimeoutMs(container),
+        // The CLI starts its content download fire-and-forget, so this gate is
+        // what stops a session that began seconds after boot from reporting an
+        // empty harness (E2).
+        contentGate: {
+          awaitContentReady: (timeoutMs) =>
+            container
+              .resolve<ContentDownloadService>(PLATFORM_TOKENS.CONTENT_DOWNLOAD)
+              .awaitContentReady(timeoutMs),
+        },
+      },
+    });
+    // Lets `SessionQueryExecutor` reach the reconciler without `agent-sdk`
+    // importing `harness-sync`.
+    container.register(HARNESS_PREFLIGHT_TOKEN, {
+      useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
+    });
     registerCliAgentRuntimeServices(container, logger);
 
     wireAgentAdapterAliases(container);
@@ -687,6 +753,12 @@ export class CliDIContainer {
                 contentDownload.getPluginsPath(),
               );
               logger.info('[CLI DI] PluginLoaderService initialized');
+              // AFTER the loader is initialized and the plugin tree is on
+              // disk: the refresher reads both. Not awaited by the bootstrap —
+              // a `ptah` invocation answers its first RPC without waiting on
+              // this, and the session-start preflight closes the window from
+              // the other side.
+              void bootHarness(container, logger);
             } catch (pluginError) {
               logger.warn(
                 '[CLI DI] Failed to initialize PluginLoaderService (non-fatal)',

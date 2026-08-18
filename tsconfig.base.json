@@ -138,6 +138,9 @@
       "@ptah-extension/plugin-marketplace": [
         "./libs/backend/plugin-marketplace/src/index.ts"
       ],
+      "@ptah-extension/harness-sync": [
+        "./libs/backend/harness-sync/src/index.ts"
+      ],
       "@ptah-extension/task-specs": ["./libs/backend/task-specs/src/index.ts"],
       "@ptah-extension/thoth-runtime": [
         "./libs/backend/thoth-runtime/src/index.ts"
@@ -156,6 +159,9 @@
       ],
       "@ptah-extension/marketplace": [
         "./libs/frontend/marketplace/src/index.ts"
+      ],
+      "@ptah-extension/marketplace/services": [
+        "./libs/frontend/marketplace/src/services.ts"
       ],
       "@ptah-extension/markdown": ["./libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [

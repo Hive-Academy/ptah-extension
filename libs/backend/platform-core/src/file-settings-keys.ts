@@ -221,6 +221,14 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.successesToPromote',
   'skillSynthesis.dedupCosineThreshold',
   'skillSynthesis.maxActiveSkills',
+  // The ONE root the synthesized-skill layout is derived from. Empty string ⇒
+  // `~/.ptah/skills`. `skillSynthesis.candidatesDir` below stays an independent
+  // override of the candidate half only; when it is empty the candidate root is
+  // `<skillsRoot>/_candidates`, so the two can no longer disagree by default.
+  // Before this key existed, `SkillMdGenerator.activeRoot()` hard-coded
+  // `~/.ptah/skills` while `candidatesRoot()` honoured `candidatesDir`, and the
+  // user-layer mirror was told a third root by its caller.
+  'skillSynthesis.skillsRoot',
   'skillSynthesis.candidatesDir',
   'skillSynthesis.eligibilityMinTurns',
   'skillSynthesis.evictionDecayRate',
@@ -355,6 +363,20 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // write is discarded with no error and no warning.
   'tasks.savedViews',
   'tasks.activeViewId',
+  // Harness reconciler (TASK_2026_278). Both are read with section 'ptah' —
+  // the earlier readers used section 'harness', which reached
+  // vscode.workspace.getConfiguration('harness'), a section no
+  // `contributes.configuration` declares. Reads returned undefined and writes
+  // were dropped silently, so the keys were unsettable on VS Code.
+  //
+  // Neither has an entry in FILE_BASED_SETTINGS_DEFAULTS, and that is
+  // deliberate rather than an omission: their defaults belong to
+  // `harness-sync` (DEFAULT_PREFLIGHT_TIMEOUT_MS, DEFAULT_MANAGE_GITIGNORE),
+  // and restating them here would be the second copy that drifts. An unset key
+  // reads as undefined, which every reader already spells "use the lib
+  // default".
+  'harness.preflightTimeoutMs',
+  'harness.manageGitignore',
   // User-defined provider entries (TASK_2026_236) — one JSON array of
   // NON-SECRET metadata. API keys never live here; they stay in SecretStorage
   // via AuthSecretsService.setProviderKey().
@@ -448,6 +470,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.successesToPromote': 3,
   'skillSynthesis.dedupCosineThreshold': 0.85,
   'skillSynthesis.maxActiveSkills': 200,
+  'skillSynthesis.skillsRoot': '',
   'skillSynthesis.candidatesDir': '',
   'skillSynthesis.eligibilityMinTurns': 5,
   'skillSynthesis.evictionDecayRate': 0.95,

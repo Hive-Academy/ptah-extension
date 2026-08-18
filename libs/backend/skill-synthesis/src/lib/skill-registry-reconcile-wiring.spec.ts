@@ -89,6 +89,7 @@ function skillClone(overrides: Partial<CloneEntry> = {}): CloneEntry {
     diverged: false,
     lastEnhancedAt: null,
     pendingSourceHash: null,
+    orphaned: false,
     ...overrides,
   };
 }

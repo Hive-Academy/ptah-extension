@@ -9,6 +9,10 @@
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
 import { injectable, inject } from 'tsyringe';
+import {
+  HARNESS_PREFLIGHT_TOKEN,
+  type IHarnessPreflight,
+} from '@ptah-extension/agent-sdk';
 import { ChildProcess } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import { EventEmitter } from 'eventemitter3';
@@ -254,6 +258,14 @@ export class AgentProcessManager {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
     private readonly reasoningSettings: ReasoningSettings,
+    /**
+     * A rival CLI reads the harness off DISK and has no other channel — no
+     * system-prompt injection, no MCP fallback. If `{ws}/.agents/skills` is not
+     * there when the process starts, the skills do not exist for that run.
+     * Optional so a host without `harness-sync` spawns exactly as before.
+     */
+    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -337,6 +349,10 @@ export class AgentProcessManager {
     const workingDirectory =
       request.workingDirectory ?? this.getWorkspaceRoot();
     await this.validateWorkingDirectory(workingDirectory);
+    // AFTER validation, BEFORE the process exists. `workingDirectory` may be a
+    // sub-package of a monorepo (E14) — the preflight resolves it to the
+    // workspace root, which is where every CLI-discoverable directory lives.
+    await this.runHarnessPreflight(workingDirectory);
     const mcpPort =
       adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
     return this.doSpawnSdk(
@@ -1408,6 +1424,25 @@ export class AgentProcessManager {
       );
       this.logger.info('[AgentProcessManager] MCP port resolution failed');
       return undefined;
+    }
+  }
+  /**
+   * Bounded harness check for a rival CLI spawn.
+   *
+   * Swallows everything. `spawn` is wrapped in a lock and its caller surfaces
+   * failures to the user as "the agent could not start"; a harness directory
+   * that could not be written is not that, and must not be reported as that.
+   */
+  private async runHarnessPreflight(cwd: string): Promise<void> {
+    if (this.harnessPreflight === null) return;
+    try {
+      await this.harnessPreflight.ensure(cwd);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[AgentProcessManager] Harness preflight failed (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 }

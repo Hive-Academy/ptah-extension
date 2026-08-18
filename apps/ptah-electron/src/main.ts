@@ -37,7 +37,6 @@ if (!gotLock) {
 } else {
   let mainWindow: BrowserWindow | null = null;
   let resolvedStateStorage: IStateStorage | undefined;
-  let skillJunctionRef: { deactivateSync: () => void } | null = null;
   let revalidationInterval: ReturnType<typeof setInterval> | null = null;
   let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
   let gitWatcher: {
@@ -131,7 +130,6 @@ if (!gotLock) {
       startupWorkspaceRoot: boot.startupWorkspaceRoot,
     });
     resolvedStateStorage = wired.resolvedStateStorage;
-    skillJunctionRef = wired.refs.skillJunctionRef;
     gitWatcher = wired.refs.gitWatcher;
     sqliteConnection = wired.refs.sqliteConnection;
     memoryCurator = wired.refs.memoryCurator;
@@ -259,14 +257,11 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-    try {
-      skillJunctionRef?.deactivateSync();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Skill junction cleanup failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    // No harness teardown. `{ws}/.claude/{skills,commands}` are workspace
+    // artifacts, not host-process resources: `ptah tui`, the headless CLI, the
+    // gateway and a plain `claude` invocation all read them without ever
+    // running this app. Removing them on quit is the defect TASK_2026_278
+    // exists to close.
     try {
       skillTrigger?.stop();
     } catch (error) {

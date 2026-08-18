@@ -61,8 +61,6 @@ export const SDK_TOKENS = {
 
   SDK_SLASH_COMMAND_INTERCEPTOR: Symbol.for('SdkSlashCommandInterceptor'),
 
-  SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
-
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
 

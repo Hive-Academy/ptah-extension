@@ -31,7 +31,7 @@ Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `Val
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
-Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditional MCP server + CLI skill/agent sync at activation (no license gate).
+Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditional MCP server start at activation (no license gate). The CLI skill/agent sync callbacks it used to drive were removed in TASK_2026_278 Batch 2; harness propagation is `HarnessReconciler.reconcile`, called from each host's activation path.
 
 ## Internal Structure
 
@@ -42,7 +42,7 @@ Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditi
 - `src/validation/` — `MessageValidatorService` + error types
 - `src/messaging/` — `rpc-handler.ts` (transport), `rpc-verification.ts`
 - `src/services/` — license, auth secrets, subagent registry, webview message handler
-- `src/services/subsystem-bringup.ts` — `bringUpSubsystems` (unconditional MCP + CLI sync)
+- `src/services/subsystem-bringup.ts` — `bringUpSubsystems` (unconditional MCP start)
 - `src/di/tokens.ts` — `TOKENS` namespace; `di/index.ts` — registration; `di/register-platform-agnostic.ts` — non-VS-Code hosts
 
 ## Key Files

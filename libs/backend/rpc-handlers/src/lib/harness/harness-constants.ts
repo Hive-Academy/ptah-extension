@@ -40,6 +40,16 @@ export interface NewProjectPromptContext {
    * it, and so it does not invoke skills that are not there.
    */
   readonly missingExternalPlugins?: readonly ExternalPluginRef[];
+  /**
+   * Skill ids the agent can actually invoke on this machine, as the host
+   * discovered them (bare directory-name slugs, the same vocabulary
+   * `StackProfile.skills` uses).
+   *
+   * Absent means "we could not find out", and that is deliberately treated the
+   * same as empty: the prompt falls back to the generic Stage A contract rather
+   * than naming a skill nobody has verified is there.
+   */
+  readonly availableSkillIds?: readonly string[];
 }
 
 /** `owner/repo → plugin` rendered for a human. */
@@ -153,13 +163,44 @@ function renderEnvironmentBlock(
  * Returned unnumbered; {@link buildNewProjectSeedPrompt} numbers them, so
  * inserting the Nx-decision step for `.NET` does not leave the following steps
  * mislabelled.
+ *
+ * `availableSkillIds` gates the two skill names the profile carries. A profile
+ * may name a skill whose plugin has not shipped yet, and an agent told to run a
+ * skill that is not there improvises rather than stopping — so a name is
+ * printed only once discovery has actually seen it. Gating on the live set is
+ * what makes this self-healing: the day the plugin ships, the name becomes
+ * discoverable and the fallback stops firing with no edit here.
+ *
+ * The initializer and the architect are checked independently. A platform can
+ * ship one and not the other, and collapsing them into one flag would silence a
+ * skill that is genuinely installed.
  */
-function buildProcedureSteps(profile: StackProfile | null): string[] {
+function buildProcedureSteps(
+  profile: StackProfile | null,
+  availableSkillIds: ReadonlySet<string>,
+): string[] {
   const steps: string[] = [];
 
-  if (profile) {
+  const initializer =
+    profile && availableSkillIds.has(profile.skills.initializer)
+      ? profile.skills.initializer
+      : null;
+  const architect =
+    profile && availableSkillIds.has(profile.skills.architect)
+      ? profile.skills.architect
+      : null;
+
+  if (initializer) {
+    steps.push(`Use the \`${initializer}\` skill and run its Stage A.`);
+  } else if (profile) {
+    // The platform IS settled — the intake block above states it — but its
+    // preset skill is not on this machine. Naming it anyway is the whole defect
+    // this branch exists to prevent, so hand over the contract, not the name.
     steps.push(
-      `Use the \`${profile.skills.initializer}\` skill and run its Stage A.`,
+      'No preset Stage A skill is installed for this platform, so follow the ' +
+        'generic Stage A contract directly (discovery, then domain model, then ' +
+        'roadmap, then a foundation-only scaffold), using the conventions of ' +
+        'the platform we settled on. Do not go looking for a preset skill by name.',
     );
   } else {
     // The `other` platform: the user told us none of the presets fit, so the
@@ -198,8 +239,8 @@ function buildProcedureSteps(profile: StackProfile | null): string[] {
     );
   }
 
-  const architectClause = profile
-    ? `then the \`${profile.skills.architect}\` skill to derive the library layout from them`
+  const architectClause = architect
+    ? `then the \`${architect}\` skill to derive the library layout from them`
     : 'then derive the library layout from them using the conventions of the platform we settled on';
   steps.push(
     `Once discovery is settled, invoke the \`${profile?.skills.domain ?? 'ddd-architecture'}\` ` +
@@ -231,9 +272,10 @@ function buildProcedureSteps(profile: StackProfile | null): string[] {
  *   2. Anything wrong with the machine — a missing toolchain, a required
  *      plugin the user has not consented to installing — so the agent raises
  *      it before scaffolding rather than failing into it.
- *   3. The Stage A instruction sequence, whose skill names come from the
- *      stack profile the platform answer selected, followed by the AI-team
- *      design pass over the ptah.harness tools.
+ *   3. The Stage A instruction sequence, whose skill names come from the stack
+ *      profile the platform answer selected — and only for the skills
+ *      `context.availableSkillIds` says are installed — followed by the
+ *      AI-team design pass over the ptah.harness tools.
  *
  * Deliberately model-agnostic: no vendor or product names, so the same prompt
  * is valid on every adapter the runtime can dispatch to.
@@ -243,9 +285,10 @@ export function buildNewProjectSeedPrompt(
   context: NewProjectPromptContext = {},
 ): string {
   const profile = resolveStackProfileForPlatform(intake.platform);
-  const steps = buildProcedureSteps(profile).map(
-    (step, index) => `${index + 1}. ${step}`,
-  );
+  const steps = buildProcedureSteps(
+    profile,
+    new Set(context.availableSkillIds ?? []),
+  ).map((step, index) => `${index + 1}. ${step}`);
 
   return [
     "I'm starting a new project. Here is what I already know about it.",

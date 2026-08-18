@@ -186,6 +186,8 @@ export type PtahNotification =
   | 'harness.document.start'
   | 'harness.document.stream'
   | 'harness.document.complete'
+  | 'harness.doctor'
+  | 'harness.removed'
   | 'profile.applied'
   | 'profile.list'
   | 'workspace.info'

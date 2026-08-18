@@ -62,7 +62,6 @@ function buildService(
     {
       getProjectGuidanceContent: jest.fn().mockResolvedValue(undefined),
     } as never,
-    { getWorkspacePluginConfig: jest.fn() } as never,
     undefined,
     activation,
   );

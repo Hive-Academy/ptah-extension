@@ -633,7 +633,7 @@ export class PluginBrowserModalComponent {
    *
    * The inverse also holds: a CHECKED harness plugin is deliberately kept OUT
    * of `enabledPluginIds`. That list drives the user-layer mirror, and
-   * SkillJunctionService's flat skill map lets a mirrored copy win over the
+   * The harness reconciler's flat skill map lets a mirrored copy win over the
    * live plugin directory — mirroring a harness plugin would freeze its skills
    * at mirror time and hide later wizard edits. Absence from the denylist is
    * the whole "enabled" signal for harness plugins.

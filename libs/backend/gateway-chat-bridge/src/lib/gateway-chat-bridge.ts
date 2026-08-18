@@ -58,7 +58,6 @@ import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SDK_TOKENS,
   type PermissionPromptLifecycleEvent,
-  type PluginLoaderService,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -168,7 +167,6 @@ const DEFAULT_GATEWAY_PERMISSION_LEVEL: PermissionLevel = 'ask';
 interface SdkSessionContext {
   mcpServerRunning: boolean;
   enhancedPromptsContent?: string;
-  pluginPaths?: string[];
 }
 
 /**
@@ -208,8 +206,6 @@ export class GatewayChatBridge {
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
-    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
-    private readonly pluginLoader: PluginLoaderService,
     @inject(GATEWAY_TOKENS.GATEWAY_TURN_TRACKER)
     private readonly turnTracker: ConversationTurnTracker,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
@@ -626,16 +622,7 @@ export class GatewayChatBridge {
       );
     }
 
-    let pluginPaths: string[] | undefined;
-    try {
-      pluginPaths = this.resolvePluginPaths();
-    } catch (error: unknown) {
-      this.logger.debug('[gateway-chat-bridge] plugin path resolution failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    return { mcpServerRunning, enhancedPromptsContent, pluginPaths };
+    return { mcpServerRunning, enhancedPromptsContent };
   }
 
   /**
@@ -652,15 +639,6 @@ export class GatewayChatBridge {
     } catch {
       return false;
     }
-  }
-
-  private resolvePluginPaths(): string[] | undefined {
-    const config = this.pluginLoader.getWorkspacePluginConfig();
-    if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
-      return undefined;
-    }
-    const paths = this.pluginLoader.resolvePluginPaths(config.enabledPluginIds);
-    return paths.length > 0 ? paths : undefined;
   }
 
   /**
@@ -707,7 +685,6 @@ export class GatewayChatBridge {
         permissionLevel,
         mcpServerRunning: sdkContext.mcpServerRunning,
         enhancedPromptsContent: sdkContext.enhancedPromptsContent,
-        pluginPaths: sdkContext.pluginPaths,
       });
     }
     if (persistedId) {
@@ -722,7 +699,6 @@ export class GatewayChatBridge {
             permissionLevel,
             mcpServerRunning: sdkContext.mcpServerRunning,
             enhancedPromptsContent: sdkContext.enhancedPromptsContent,
-            pluginPaths: sdkContext.pluginPaths,
           },
         );
       } catch (error: unknown) {
@@ -754,7 +730,6 @@ export class GatewayChatBridge {
       permissionLevel: this.resolvePermissionLevel(),
       mcpServerRunning: sdkContext.mcpServerRunning,
       enhancedPromptsContent: sdkContext.enhancedPromptsContent,
-      pluginPaths: sdkContext.pluginPaths,
     });
   }
 

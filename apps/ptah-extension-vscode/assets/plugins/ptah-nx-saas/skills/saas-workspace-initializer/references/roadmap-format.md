@@ -2,7 +2,7 @@
 
 The roadmap is the single source of truth that connects Stage A (foundation) to Stage B (per-module implementation). Each unchecked item becomes its own chat session. Stage B sessions read this file to pick up context and dependencies, so the schema must be parseable and stable.
 
-This schema is shared across every Stage A initializer, not just `saas-workspace-initializer` -- [`dotnet-solution-initializer`](../../dotnet-solution-initializer/SKILL.md) (ptah-dotnet plugin -- resolves via the flat `.claude/skills/` namespace at runtime, two levels up from this file to the skills root) and any future per-stack initializer write `.ptah/roadmap.md` following the exact same rules below. Keep the schema stack-agnostic when editing it; a rule that only makes sense for NestJS/Angular belongs in the initializer skill that writes the roadmap, not in this shared reference.
+This schema is shared across every Stage A initializer, not just `saas-workspace-initializer` -- [`dotnet-solution-initializer`](../../dotnet-solution-initializer/SKILL.md) (ptah-dotnet plugin -- resolves via the flat skills namespace at runtime, two levels up from this file to the skills root; resolve it relative to this file, never against a workspace-relative path) and any future per-stack initializer write `.ptah/roadmap.md` following the exact same rules below. Keep the schema stack-agnostic when editing it; a rule that only makes sense for NestJS/Angular belongs in the initializer skill that writes the roadmap, not in this shared reference.
 
 ## File location
 

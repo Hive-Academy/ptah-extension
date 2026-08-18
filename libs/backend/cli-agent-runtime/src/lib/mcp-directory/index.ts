@@ -95,10 +95,11 @@ export type {
   AuthServerMetadata,
   RegisteredClient,
 } from './oauth/mcp-oauth-metadata';
+/**
+ * The install surface. The per-target installers, their manifest tracker and
+ * the JSON config helpers were deleted in TASK_2026_278 Batch 2 — writing MCP
+ * config files is now the reconciler's MCP facet
+ * (`@ptah-extension/harness-sync`), and `McpInstallService` records intent and
+ * asks it to reconcile.
+ */
 export { McpInstallService } from './mcp-install.service';
-export { McpInstallManifestTracker } from './mcp-install-manifest';
-export type { IMcpServerInstaller } from './mcp-installer.interface';
-export { VscodeMcpInstaller } from './installers/vscode-mcp.installer';
-export { ClaudeMcpInstaller } from './installers/claude-mcp.installer';
-export { CursorMcpInstaller } from './installers/cursor-mcp.installer';
-export { CopilotMcpInstaller } from './installers/copilot-mcp.installer';

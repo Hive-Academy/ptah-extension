@@ -14,7 +14,13 @@
  */
 
 import { inject, injectable } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import { McpInstallService } from '@ptah-extension/cli-agent-runtime';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  HARNESS_SYNC_TOKENS,
+  type HarnessReconcilerService,
+} from '@ptah-extension/harness-sync';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   HARNESS_DEFAULT_MCP_TARGETS,
@@ -32,9 +38,23 @@ type InstallableEntry = McpServerEntry & { config: McpServerConfig };
 
 @injectable()
 export class HarnessMcpInstallService {
-  private readonly installService = new McpInstallService();
+  private readonly installService: McpInstallService;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER) container: DependencyContainer,
+  ) {
+    // Same service the marketplace uses: it records the install intent and
+    // asks the harness reconciler to write it into each target's config file
+    // (TASK_2026_278 Batch 2).
+    this.installService = new McpInstallService(
+      container.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER)
+        ? container.resolve<HarnessReconcilerService>(
+            HARNESS_SYNC_TOKENS.RECONCILER,
+          )
+        : null,
+    );
+  }
 
   async installServers(
     servers: McpServerEntry[],

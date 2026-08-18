@@ -23,7 +23,7 @@ ptah-extension/
 │   └── *-e2e/                         # ptah-electron | ptah-extension-vscode |
 │                                      # ptah-landing-page | ptah-license-server
 │
-├── libs/backend/                      # 27 runtime-agnostic libs (DI: tsyringe)
+├── libs/backend/                      # 29 runtime-agnostic libs (DI: tsyringe)
 │   ├── platform-core/                 # ★ Port interfaces + 22 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
@@ -32,6 +32,7 @@ ptah-extension/
 │   ├── cli-agent-runtime/             # Rival-CLI orchestration + cross-CLI MCP install
 │   ├── cli-engine/                    # In-process backend host for ptah-cli / ptah-tui
 │   ├── agent-generation/              # Setup-wizard generation pipeline
+│   ├── harness-sync/                  # ★ One reconciler: user layer → every AI tool's harness dirs
 │   ├── workspace-intelligence/        # AST + symbol indexer + analysis
 │   ├── rpc-handlers/                  # 30+ handlers (dual-registration rule)
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
@@ -190,6 +191,7 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [cli-agent-runtime](./libs/backend/cli-agent-runtime/CLAUDE.md) — Rival-CLI orchestration + MCP install
 - [cli-engine](./libs/backend/cli-engine/CLAUDE.md) — In-process backend host for ptah-cli / ptah-tui
 - [agent-generation](./libs/backend/agent-generation/CLAUDE.md) — Generation pipeline
+- [harness-sync](./libs/backend/harness-sync/CLAUDE.md) — ★ The one harness reconciler: `~/.ptah/user` + MCP intents → Claude, Codex, Copilot, Cursor, Antigravity and VS Code, as manifest-owned copies. No junctions, no teardown on deactivate
 - [workspace-intelligence](./libs/backend/workspace-intelligence/CLAUDE.md) — AST + symbols
 - [rpc-handlers](./libs/backend/rpc-handlers/CLAUDE.md) — RPC handler classes
 - [vscode-core](./libs/backend/vscode-core/CLAUDE.md) — Logger, License, RPC infra

@@ -32,13 +32,17 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'claude',
   'cursor',
   'copilot',
+  'codex',
 ];
 
 const TARGET_LABELS: Record<McpInstallTarget, string> = {
   vscode: 'VS Code',
-  claude: 'Claude / Codex',
+  // Codex has its own target now — it reads ~/.codex/config.toml, never
+  // .mcp.json, so it was never actually covered by the Claude entry.
+  claude: 'Claude Code',
   cursor: 'Cursor',
   copilot: 'Copilot CLI',
+  codex: 'Codex CLI',
 };
 
 /**

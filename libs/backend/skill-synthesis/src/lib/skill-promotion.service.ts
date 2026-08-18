@@ -25,6 +25,10 @@ import { SkillMdGenerator } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
 import { SkillRegistryStore } from './skill-registry.store';
+import {
+  SKILL_REPROPAGATION_TOKEN,
+  type SkillRepropagationPort,
+} from './skill-repropagation.port';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { JUDGE_CRITERION_KEYS } from './skill-judge.service';
 import type {
@@ -152,6 +156,19 @@ export class SkillPromotionService {
      */
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
     private readonly workspace: IWorkspaceProvider | null = null,
+    /**
+     * Fire-and-report propagation of a residency change into the harness.
+     *
+     * Promotion writes `<skillsRoot>/<slug>/SKILL.md` and demotion flips a row
+     * to `dormant`; before TASK_2026_278 neither emitted anything, so a skill
+     * promoted mid-session reached `.claude/skills` and the rival CLIs only at
+     * the NEXT activation (defect 4), and a demoted one kept occupying the
+     * prompt budget until then. Optional and last for the same reason as
+     * `workspace` above — the CLI/e2e hosts bind no port, and the registered
+     * default is a no-op.
+     */
+    @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
+    private readonly repropagation: SkillRepropagationPort | null = null,
   ) {}
 
   /**
@@ -218,6 +235,7 @@ export class SkillPromotionService {
     if (replay) return { ...replay, ranking };
 
     let evictedSkillId: CandidateId | undefined;
+    let demotedSlug: string | null = null;
     const activeResident = this.store.listActiveOrderedByDecayScore(
       nowFn(),
       settings.evictionDecayRate,
@@ -235,6 +253,7 @@ export class SkillPromotionService {
       if (weakest) {
         this.store.setResidency(weakest.id, 'dormant');
         evictedSkillId = weakest.id;
+        demotedSlug = weakest.name;
         this.logger.info(
           '[skill-synthesis] residency-cap demotion to dormant',
           {
@@ -285,6 +304,12 @@ export class SkillPromotionService {
     });
     this.clusterDedup?.invalidate();
 
+    // Both residency changes, emitted together AFTER the last write. Emitting
+    // the demotion at the point it happened would ask the harness to reconcile
+    // a half-applied state — the weakest skill already gone, the new one not yet
+    // materialized — and the reconciler would then run twice for one decision.
+    await this.emitRepropagation([demotedSlug, candidate.name]);
+
     return {
       promoted: true,
       reason: 'promoted',
@@ -294,6 +319,47 @@ export class SkillPromotionService {
       filePath: bodyPath,
       ranking,
     };
+  }
+
+  /**
+   * Tell the harness that these slugs' residency changed.
+   *
+   * NEVER throws: a promotion that succeeded and then failed to propagate is
+   * still a promotion, and the next activation's reconcile heals it. Swallowing
+   * the error here rather than at the port keeps every implementation of
+   * {@link SkillRepropagationPort} free of that concern.
+   *
+   * `null` entries (no demotion happened) and duplicates are dropped, so
+   * promoting a skill that also evicted itself cannot double-fire.
+   */
+  private async emitRepropagation(
+    slugs: readonly (string | null)[],
+  ): Promise<void> {
+    if (!this.repropagation) return;
+    const workspaceRoot = this.workspaceRoot();
+    for (const slug of new Set(slugs.filter((s): s is string => s !== null))) {
+      try {
+        await this.repropagation.repropagate('skill', slug, workspaceRoot);
+      } catch (err) {
+        this.logger.warn(
+          '[skill-synthesis] skill repropagation failed (residency change is still committed)',
+          { slug, error: err instanceof Error ? err.message : String(err) },
+        );
+      }
+    }
+  }
+
+  /**
+   * `''` when no workspace is open — the same value the enhancer passes, and
+   * what a headless host (cron, gateway) legitimately has. The port's
+   * implementations treat it as "reconcile whatever workspace you know about".
+   */
+  private workspaceRoot(): string {
+    try {
+      return this.workspace?.getWorkspaceRoot() ?? '';
+    } catch {
+      return '';
+    }
   }
 
   /**
