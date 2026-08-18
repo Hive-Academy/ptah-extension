@@ -106,8 +106,12 @@ export class ExternalPluginInstallerService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    private readonly github: GitHubContentClient,
+    // See MarketplaceRegistryService: esbuild emits no `design:paramtypes`, so
+    // a parameter without `@inject` arrives as `undefined`.
+    @inject(GitHubContentClient) private readonly github: GitHubContentClient,
+    @inject(MarketplaceRegistryService)
     private readonly registry: MarketplaceRegistryService,
+    @inject(ExternalPluginStateStore)
     private readonly store: ExternalPluginStateStore,
   ) {}
 

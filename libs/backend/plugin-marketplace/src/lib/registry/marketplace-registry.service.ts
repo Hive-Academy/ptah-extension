@@ -62,7 +62,13 @@ export class MarketplaceRegistryService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    private readonly github: GitHubContentClient,
+    // Every parameter needs an explicit `@inject`, including the class-typed
+    // ones. The hosts bundle with esbuild, which does not implement
+    // `emitDecoratorMetadata`, so `design:paramtypes` never reaches tsyringe and
+    // an undecorated parameter silently resolves to `undefined` at runtime
+    // rather than failing to construct.
+    @inject(GitHubContentClient) private readonly github: GitHubContentClient,
+    @inject(ExternalPluginStateStore)
     private readonly store: ExternalPluginStateStore,
   ) {}
 
