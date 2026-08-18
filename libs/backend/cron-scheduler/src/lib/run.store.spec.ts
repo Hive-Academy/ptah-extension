@@ -31,6 +31,8 @@ function sqliteError(code: string): Error {
 class FakeJobRunsDatabase {
   /** Keyed `${job_id}:${scheduled_for}` — the UNIQUE(job_id, scheduled_for). */
   private readonly slots = new Set<string>();
+  /** Inserted rows, so the SELECT paths can be exercised. */
+  private readonly rows: Record<string, unknown>[] = [];
   /** When set, the next INSERT throws this instead of succeeding. */
   private nextInsertError: Error | null = null;
 
@@ -44,6 +46,7 @@ class FakeJobRunsDatabase {
 
   prepare = (sql: string) => {
     const slots = this.slots;
+    const rows = this.rows;
     const takeError = (): Error | null => {
       const error = this.nextInsertError;
       this.nextInsertError = null;
@@ -55,16 +58,37 @@ class FakeJobRunsDatabase {
         run: (...params: unknown[]) => {
           const error = takeError();
           if (error) throw error;
-          const [, jobId, scheduledFor] = params as [string, string, number];
+          const [id, jobId, scheduledFor] = params as [string, string, number];
           const key = `${jobId}:${scheduledFor}`;
           if (slots.has(key)) {
             throw sqliteError('SQLITE_CONSTRAINT_UNIQUE');
           }
           slots.add(key);
+          rows.push({
+            id,
+            job_id: jobId,
+            scheduled_for: scheduledFor,
+            started_at: null,
+            ended_at: null,
+            status: 'pending',
+            result_summary: null,
+            error_message: null,
+          });
           return { changes: 1, lastInsertRowid: 0 };
         },
         get: () => undefined,
         all: () => [],
+        iterate: () => [][Symbol.iterator](),
+      };
+    }
+
+    if (/SELECT \* FROM job_runs/i.test(sql)) {
+      const forJob = (jobId: unknown) =>
+        rows.filter((row) => row.job_id === jobId);
+      return {
+        run: () => ({ changes: 0, lastInsertRowid: 0 }),
+        get: (...params: unknown[]) => forJob(params[0])[0],
+        all: (...params: unknown[]) => forJob(params[0]),
         iterate: () => [][Symbol.iterator](),
       };
     }
@@ -166,5 +190,36 @@ describe('RunStore.tryClaim', () => {
       expect((thrown as Error).message).toBe(`sqlite failure: ${code}`);
       expect((thrown as { code?: unknown }).code).toBe(code);
     }
+  });
+});
+
+/**
+ * System jobs are upserted with deterministic handles rather than ULIDs
+ * (`IJobStore.upsert`), so `job_runs.job_id` is NOT a ULID for any of them.
+ * Row mapping used to push it through `JobId.from`, which made every read of a
+ * skills-drain run history throw `Invalid JobId format` and surfaced in the UI
+ * as "skillSynthesis:queue failed".
+ */
+describe('RunStore reads runs of system jobs', () => {
+  const SYSTEM_JOB_ID = '@ptah/skills-drain-frequent' as unknown as JobId;
+
+  it('lists runs whose job_id is a non-ULID system handle', () => {
+    const { store } = buildStore();
+    store.tryClaim(SYSTEM_JOB_ID, 1_770_000_000_000);
+
+    const runs = store.list(SYSTEM_JOB_ID);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].jobId).toBe('@ptah/skills-drain-frequent');
+    expect(runs[0].status).toBe('pending');
+  });
+
+  it('returns the latest run for a non-ULID system handle', () => {
+    const { store } = buildStore();
+    store.tryClaim(SYSTEM_JOB_ID, 1_770_000_000_000);
+
+    expect(store.latestForJob(SYSTEM_JOB_ID)?.jobId).toBe(
+      '@ptah/skills-drain-frequent',
+    );
   });
 });

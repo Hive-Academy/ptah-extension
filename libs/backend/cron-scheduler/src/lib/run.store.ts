@@ -18,7 +18,7 @@ import {
   SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { JobId, RunId } from '@ptah-extension/shared';
+import { RunId, type JobId } from '@ptah-extension/shared';
 import type { JobRun, JobRunStatus } from './types';
 
 interface JobRunRow {
@@ -180,8 +180,14 @@ export class RunStore implements IRunStore {
 
 function mapRunRow(row: JobRunRow): JobRun {
   return {
+    // `id` is always minted by `tryClaim` via `ulid()`, so it is validated.
+    // `job_id` is NOT: system jobs are upserted with deterministic handles
+    // (`@ptah/skills-drain-frequent`, `@ptah/daily-backup`) that are not
+    // ULIDs, exactly as `IJobStore.upsert` documents and `JobStore.mapRow`
+    // reads them back. Validating here made every read of a system job's run
+    // history throw instead of returning rows.
     id: RunId.from(row.id),
-    jobId: JobId.from(row.job_id),
+    jobId: row.job_id as unknown as JobId,
     scheduledFor: row.scheduled_for,
     startedAt: row.started_at,
     endedAt: row.ended_at,
