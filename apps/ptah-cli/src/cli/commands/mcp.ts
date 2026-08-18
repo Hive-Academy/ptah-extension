@@ -23,10 +23,10 @@
  *     (or when `mcpDirectory:listInstalled` shows the server is already there
  *     before we hit the install RPC).
  *
- * `--target` is constrained to the canonical 4-target enum
- * (`vscode|claude|cursor|copilot`) at the CLI layer; an invalid value
- * exits with `ExitCode.UsageError` BEFORE bootstrapping DI — matches the
- * "rejected fast" pattern used by `git discard --confirm`.
+ * `--target` is constrained to the canonical target enum
+ * (`vscode|claude|cursor|copilot|codex|antigravity`) at the CLI layer; an
+ * invalid value exits with `ExitCode.UsageError` BEFORE bootstrapping DI —
+ * matches the "rejected fast" pattern used by `git discard --confirm`.
  */
 
 import { withEngine } from '@ptah-extension/cli-engine';
@@ -86,6 +86,7 @@ const VALID_TARGETS: readonly McpInstallTarget[] = [
   'cursor',
   'copilot',
   'codex',
+  'antigravity',
 ];
 
 export async function execute(

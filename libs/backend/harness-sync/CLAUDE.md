@@ -20,14 +20,14 @@ Replaces four separate fan-outs that each had their own idea of ownership:
 
 ## Target × facet matrix
 
-| Target          | skills                     | commands                     | agents                         | mcp                          |
-| --------------- | -------------------------- | ---------------------------- | ------------------------------ | ---------------------------- |
-| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | — **unsupported**              | `{ws}/.mcp.json`             |
-| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`      | `~/.codex/config.toml`       |
-| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md` | `~/.copilot/mcp-config.json` |
-| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`       | `{ws}/.cursor/mcp.json`      |
-| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**              | — **unsupported**            |
-| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**              | `{ws}/.vscode/mcp.json`      |
+| Target          | skills                     | commands                     | agents                         | mcp                                |
+| --------------- | -------------------------- | ---------------------------- | ------------------------------ | ---------------------------------- |
+| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | — **unsupported**              | `{ws}/.mcp.json`                   |
+| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`      | `~/.codex/config.toml`             |
+| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md` | `~/.copilot/mcp-config.json`       |
+| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`       | `{ws}/.cursor/mcp.json`            |
+| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**              | `~/.gemini/config/mcp_config.json` |
+| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**              | `{ws}/.vscode/mcp.json`            |
 
 Every cell is reported per target in `HarnessTargetHealth.facets`, so an
 artifact a tool genuinely cannot accept reads as `unsupported` rather than as a
@@ -47,13 +47,73 @@ a gap to fill later:
   Plugins, Hooks and MCP. There is no slash-command concept to target.
 - **Antigravity agents.** `agy` documents no subagent format. A transformer
   would have to invent a layout the CLI does not read.
-- **Antigravity MCP.** `agy` reads `~/.gemini/config/mcp_config.json`, and
-  `AntigravityCliAdapter` already writes Ptah's own server there at spawn.
-  User-installed servers are not offered for `agy` by the install surface, so
-  there is no intent to reconcile.
 - **VS Code skills/commands/agents.** VS Code is an editor, not a CLI agent
   harness. It is a target here solely because `.vscode/mcp.json` is a real MCP
   surface the install RPC has always offered.
+
+## Antigravity MCP: one file, two writers (TASK_2026_285)
+
+`~/.gemini/config/mcp_config.json` is the only harness file written from OUTSIDE
+this lib as well as inside it. The reconciler installs the USER's servers into
+it; `AntigravityCliAdapter` (`cli-agent-runtime`) writes Ptah's OWN server into
+it before every spawn and removes that entry after `done`.
+
+This cell used to read `— unsupported`, justified as "user-installed servers are
+not offered for `agy` by the install surface, so there is no intent to
+reconcile". That was circular: they were not offered because `McpInstallTarget`
+could not express them. `agy` reads a real MCP config file that Ptah was already
+writing, so the only thing genuinely missing was the ability to say so.
+
+**Both writers go through the same facet.** `createMcpFacet('antigravity')` owns
+the path, the schema, the atomic write and the lock; the adapter calls
+`facet.write` / `facet.remove` instead of its own read-modify-write. The
+dependency direction is the allowed one — `cli-agent-runtime` → `harness-sync`,
+never back — which is why the facet is exported from the barrel.
+
+**The keys are partitioned, and neither writer may reap the other's.**
+
+| Key                           | Owner           | Lifetime             | Who may remove it              |
+| ----------------------------- | --------------- | -------------------- | ------------------------------ |
+| `ptah` (`PTAH_SPAWN_MCP_KEY`) | the CLI adapter | one spawn            | the adapter, after `done`      |
+| a key in the manifest         | the reconciler  | until intent dropped | the reconciler's removal sweep |
+| anything else                 | the user        | forever              | nobody here                    |
+
+Each half falls out of a rule that already existed, which is why this is a
+partition rather than a special case. The reconciler only ever touches keys the
+desired state NAMES or the manifest OWNS, and `ptah` is in neither — so it is
+not written, not reaped, and not even reported (a `ptah` row in `harness doctor`
+would be a finding nobody could clear, for a file Ptah wrote on purpose). The
+adapter only ever addresses the single key `PTAH_SPAWN_MCP_KEY`. It no longer
+deletes the `mcpServers` map when that map looks empty, which was safe only
+while Ptah was its sole writer.
+
+The one overlap is a user installing a server whose key is literally `ptah`.
+That is the ordinary collision rule — a desired key an unowned entry occupies is
+`foreign` and `blocked`, never overwritten.
+
+**Atomicity was not enough, so there is a lock.** `atomicWriteWithRetry`
+guarantees no reader sees half a file; it guarantees nothing about two writers
+that each READ, each edit their own key, and each rename their own copy over the
+top. The second rename wins whole and the first key is gone — silently, with no
+torn file and nothing in any health report. The workspace lock cannot cover this
+one: the file is in `$HOME`, and two open workspaces hold two different
+workspace locks over one shared config anyway. So `targets/mcp/mcp-config-lock.ts`
+keys a lock by the CONFIG FILE, and every facet mutation — JSON and Codex TOML
+alike — reads and writes inside it. The mechanism is `lock/file-lock.ts`,
+extracted from `workspace-lock.ts`, which is now just the per-workspace policy
+over it.
+
+**The schema is `agy`'s, not the JSON dialect's.** Root key `mcpServers`, no
+`type` discriminant, `{command,args,env}` for stdio — and a remote server keyed
+**`serverUrl`**, not `url`. That is documented by the CLI itself, in
+`~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md`,
+and an entry written with `url` parses without an endpoint and silently never
+connects. `JsonMcpFacet` takes a `urlKey` for exactly this; `jsonToConfig`
+accepts both spellings unconditionally so a hand-written `agy` server still
+reads back as a remote server. Transport inference is deliberately identical for
+both spellings (the URL decides) — classifying every `serverUrl` as `sse` would
+make an `http` install hash differently on read-back and be rewritten on every
+pass.
 
 **Codex and Antigravity share `{ws}/.agents/skills`.** Each keeps its own
 manifest and declares the other a co-owner, so each accepts the other's
@@ -85,9 +145,13 @@ evaporate the moment the sibling left a partial reconcile.
   from `cli-agent-runtime`'s `CliDetectionService` in host wiring. That
   direction is mandatory: `cli-agent-runtime` depends on THIS lib for its MCP
   install surface, so this lib must never depend back on it.
-- Passing Ptah's OWN MCP server to a spawned CLI — the adapters in
-  `cli-agent-runtime/cli-adapters/` do that at spawn time. This lib reconciles
-  USER-installed MCP entries only.
+- Deciding to pass Ptah's OWN MCP server to a spawned CLI — the adapters in
+  `cli-agent-runtime/cli-adapters/` do that at spawn time, and this lib
+  reconciles USER-installed MCP entries only. One exception, and it is about
+  MECHANISM not policy: `AntigravityCliAdapter` writes its ephemeral entry into
+  a file this lib also owns, so it borrows this lib's facet to do it rather than
+  becoming a second writer with its own format. See the two-writer section
+  below.
 - RPC surface (`rpc-handlers`), platform specifics (`platform-*`)
 - Anything that removes artifacts because a host is shutting down
 
@@ -116,9 +180,11 @@ Targets: `createCodexTarget`, `createCopilotTarget`, `createCursorTarget`,
 `createAntigravityTarget`, `createVscodeMcpTarget`, `createRivalTargets`.
 Transforms: `transformSkillMarkdown`, `CodexAgentTransformer`,
 `CopilotAgentTransformer`, `CursorAgentTransformer`, `transformAgentContent`.
-MCP: `createMcpFacet`, `createAllMcpFacets`, `hashMcpConfig`, `mcpEntryKey`.
+MCP: `createMcpFacet`, `createAllMcpFacets`, `hashMcpConfig`, `mcpEntryKey`,
+`PTAH_SPAWN_MCP_KEY`, `withMcpConfigLock`.
 Workspace: `resolveHarnessWorkspaceRoot`.
-Lock: `acquireWorkspaceLock`, `serializePerWorkspace`. Hashing: `hashDirSync`,
+Lock: `acquireWorkspaceLock`, `serializePerWorkspace`, `acquireFileLock`,
+`withFileLock`, `serializeByKey`. Hashing: `hashDirSync`,
 `hashFileSync`, `hashContent`. Rules: `isReservedSlug`, `canonicalSlug`.
 Wiring: `createPluginConfigSourceResolver`, `createStaticSourceResolver`,
 `ALL_HARNESS_TARGET_FACTORIES`, `registerHarnessSyncServices`,
@@ -153,7 +219,10 @@ permanently amber badge nobody can clear.
   file this lib OWNS lands through it
 - `targets/link-ownership.ts` — is a symlink at a desired path Ptah's leftover
   junction, or the user's own link?
-- `lock/workspace-lock.ts` — `{ws}/.ptah/harness/.lock` + in-process queue
+- `lock/file-lock.ts` — the lock MECHANISM: `O_EXCL` create, stale reclaim,
+  in-process queue, and "proceed unlocked past the deadline"
+- `lock/workspace-lock.ts` — the per-workspace POLICY over it:
+  `{ws}/.ptah/harness/.lock`
 - `targets/harness-target.port.ts` — `detect → preflightKeys → plan → apply → verify`
 - `targets/claude-target.ts` — `.claude/skills/**`, `.claude/commands/*.md`, `.mcp.json`
 - `targets/workspace-target.ts` — the one engine behind all five rival targets
@@ -162,7 +231,8 @@ permanently amber badge nobody can clear.
 - `targets/skill-transform.ts` — the three markdown rewrites a rival CLI needs
 - `targets/transformers/` — per-CLI agent format + the shared `transform-rules`
 - `targets/mcp/` — `IHarnessMcpFacet`, the JSON and Codex-TOML adapters, the
-  facet registry (one definition per config file) and the facet planner
+  facet registry (one definition per config file), the facet planner, and
+  `mcp-config-lock.ts` (the per-config-file lock every mutation holds)
 - `workspace/workspace-root.ts` — `resolveHarnessWorkspaceRoot` (E14)
 - `health/harness-health.ts` — the ONE plan → `HarnessTargetHealth` reduction,
   in two flavours: `plannedTargetHealth` (no apply happened) and
@@ -608,6 +678,9 @@ Codes are from `.ptah/specs/TASK_2026_278/context.md`.
 | E23          | `gitignore/gitignore-writer.spec.ts`, `reconciler/harness-reconciler.gitignore.spec.ts`                                                                                |
 | E24          | `preflight/harness-preflight.service.spec.ts`                                                                                                                          |
 | —            | Codex/Antigravity shared dir: `targets/rival-targets.shared-dir.spec.ts`                                                                                               |
+| —            | **Antigravity MCP schema + the `ptah`/manifest/user key partition: `targets/mcp/antigravity-mcp-facet.spec.ts`**                                                       |
+| —            | **Install → spawn → cleanup → uninstall, and a concurrent reconcile + spawn: `reconciler/harness-reconciler.antigravity-mcp.spec.ts`**                                 |
+| —            | **The adapter side of the same rule: `cli-agent-runtime/.../antigravity-cli.adapter.mcp.spec.ts`**                                                                     |
 | —            | Legacy manifest adoption: `reconciler/harness-reconciler.migration.spec.ts`                                                                                            |
 | —            | **`reconcile` and `verify` agree; adoption; blocked = foreign + missing; user MCP servers are not findings: `reconciler/harness-reconciler.verify-agreement.spec.ts`** |
 | —            | Manifest-save failure + adoption recovery: `reconciler/harness-reconciler.manifest-recovery.spec.ts`                                                                   |
@@ -693,6 +766,13 @@ a patch at the site where it was found.
 - A new MCP config file is one entry in `mcp/mcp-facet.registry.ts`. The
   registry is the single definition each file has; targets and the install
   surface both read it, which is what stops a writer and a lister disagreeing.
+- **Never add a SECOND writer to an MCP config file. Route it through the
+  facet.** A module that hand-rolls its own read-modify-write on a file this lib
+  also writes will lose an entry — not corrupt it, lose it, silently — because
+  atomic writes serialize nothing. If a spawn path needs its own ephemeral
+  entry, it takes the facet and a reserved key, as `AntigravityCliAdapter` does
+  with `PTAH_SPAWN_MCP_KEY`. And never remove a key you did not write, including
+  by deleting a server map that "looks empty".
 - A target that gains a skill/command/agent directory must return it from
   `managedDirs()`. `WorkspaceHarnessTarget` derives it from the same three
   option fields the plan is built from, so a new rival CLI gets it free; a

@@ -1,18 +1,23 @@
 /**
  * The MCP facet for every target whose config file is JSON.
  *
- * Four of the five files differ only in three values — where they live, what
- * their root key is called, and whether entries carry a `type` field — so one
- * parameterised facet covers Claude (`{ws}/.mcp.json`), Cursor
- * (`{ws}/.cursor/mcp.json`), VS Code (`{ws}/.vscode/mcp.json`) and Copilot
- * (`~/.copilot/mcp-config.json`). Codex is the exception and gets its own
- * TOML facet.
+ * Five of the six files differ only in four values — where they live, what
+ * their root key is called, whether entries carry a `type` field, and how they
+ * spell a remote endpoint — so one parameterised facet covers Claude
+ * (`{ws}/.mcp.json`), Cursor (`{ws}/.cursor/mcp.json`), VS Code
+ * (`{ws}/.vscode/mcp.json`), Copilot (`~/.copilot/mcp-config.json`) and
+ * Antigravity (`~/.gemini/config/mcp_config.json`). Codex is the exception and
+ * gets its own TOML facet.
  *
  * Read-modify-write, never wholesale replace: the file belongs to the user and
  * usually contains servers Ptah knows nothing about. Only the one key being
  * installed or removed is touched, and the write is atomic (temp + rename) with
  * a `.bak` of the previous contents, because a torn MCP config is a tool that
  * refuses to start.
+ *
+ * Atomic is not the same as exclusive, and both are required — see
+ * `mcp-config-lock.ts` for the read-modify-write two writers would otherwise
+ * interleave.
  */
 
 import { copyFileSync, existsSync, readFileSync } from 'fs';
@@ -25,8 +30,9 @@ import type {
 } from '@ptah-extension/shared';
 import { atomicWriteWithRetry } from '../../fs/atomic-write';
 import { withWindowsRetrySync } from '../../fs/windows-retry';
+import { withMcpConfigLock } from './mcp-config-lock';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
-import { configToJson, jsonToConfig } from './mcp-json-format';
+import { configToJson, DEFAULT_URL_KEY, jsonToConfig } from './mcp-json-format';
 
 export interface JsonMcpFacetOptions {
   target: HarnessTargetId;
@@ -43,6 +49,11 @@ export interface JsonMcpFacetOptions {
   rootKey: string;
   /** Whether each entry carries an explicit `type` discriminant. */
   includeType: boolean;
+  /**
+   * Key a remote server's endpoint is written under. `url` everywhere but
+   * Antigravity, which reads `serverUrl` and ignores `url` entirely.
+   */
+  urlKey?: string;
   /** Overridable so specs can point `home` at a temp directory. */
   homeDir?: string;
 }
@@ -88,7 +99,11 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
     config: McpServerConfig,
   ): Promise<void> {
     return this.mutate(workspaceRoot, (servers) => {
-      servers[serverKey] = configToJson(config, this.options.includeType);
+      servers[serverKey] = configToJson(
+        config,
+        this.options.includeType,
+        this.options.urlKey ?? DEFAULT_URL_KEY,
+      );
       return true;
     });
   }
@@ -107,30 +122,38 @@ export class JsonMcpFacet implements IHarnessMcpFacet {
    *
    * Skipping the write on a no-op is what keeps `.mcp.json` out of the user's
    * git status after an idempotent reconcile.
+   *
+   * The read AND the write happen inside {@link withMcpConfigLock}. Reading
+   * outside it would defeat the whole point: the lost update is a stale READ
+   * being written back, not a torn write.
    */
-  private async mutate(
+  private mutate(
     workspaceRoot: string,
     change: (servers: Record<string, unknown>) => boolean,
   ): Promise<void> {
     const path = this.configPath(workspaceRoot);
     if (path === null) {
-      throw new Error(
-        `MCP config path for "${this.target}" needs an open workspace`,
+      return Promise.reject(
+        new Error(
+          `MCP config path for "${this.target}" needs an open workspace`,
+        ),
       );
     }
 
-    const fileConfig = this.readJson(path);
-    const existing = fileConfig[this.options.rootKey];
-    const servers: Record<string, unknown> =
-      typeof existing === 'object' && existing !== null
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
+    return withMcpConfigLock(path, () => {
+      const fileConfig = this.readJson(path);
+      const existing = fileConfig[this.options.rootKey];
+      const servers: Record<string, unknown> =
+        typeof existing === 'object' && existing !== null
+          ? { ...(existing as Record<string, unknown>) }
+          : {};
 
-    if (!change(servers)) return;
+      if (!change(servers)) return Promise.resolve();
 
-    fileConfig[this.options.rootKey] = servers;
-    await Promise.resolve();
-    this.writeJson(path, fileConfig);
+      fileConfig[this.options.rootKey] = servers;
+      this.writeJson(path, fileConfig);
+      return Promise.resolve();
+    });
   }
 
   private readServersObject(path: string): Record<string, unknown> {

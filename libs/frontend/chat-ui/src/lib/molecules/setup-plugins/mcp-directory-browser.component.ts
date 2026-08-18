@@ -33,6 +33,7 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'cursor',
   'copilot',
   'codex',
+  'antigravity',
 ];
 
 const TARGET_LABELS: Record<McpInstallTarget, string> = {
@@ -43,6 +44,9 @@ const TARGET_LABELS: Record<McpInstallTarget, string> = {
   cursor: 'Cursor',
   copilot: 'Copilot CLI',
   codex: 'Codex CLI',
+  // Same story as Codex: `agy` reads ~/.gemini/config/mcp_config.json and
+  // nothing else, so until TASK_2026_285 it could not be offered at all.
+  antigravity: 'Antigravity CLI',
 };
 
 /**

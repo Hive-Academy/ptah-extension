@@ -11,22 +11,31 @@
  * Targets where MCP server configs can be installed.
  *
  * Config file locations:
- *  - vscode:  .vscode/mcp.json           (workspace, root key: "servers")
- *  - claude:  .mcp.json                   (workspace, root key: "mcpServers") — shared with ptah-cli
- *  - cursor:  .cursor/mcp.json            (workspace, root key: "mcpServers")
- *  - copilot: ~/.copilot/mcp-config.json  (user-global, root key: "mcpServers")
- *  - codex:   ~/.codex/config.toml        (user-global, TOML `[mcp_servers.<name>]`)
+ *  - vscode:      .vscode/mcp.json              (workspace, root key: "servers")
+ *  - claude:      .mcp.json                      (workspace, root key: "mcpServers") — shared with ptah-cli
+ *  - cursor:      .cursor/mcp.json               (workspace, root key: "mcpServers")
+ *  - copilot:     ~/.copilot/mcp-config.json     (user-global, root key: "mcpServers")
+ *  - codex:       ~/.codex/config.toml           (user-global, TOML `[mcp_servers.<name>]`)
+ *  - antigravity: ~/.gemini/config/mcp_config.json (user-global, root key: "mcpServers",
+ *                 remote servers keyed `serverUrl` rather than `url`)
  *
  * Codex joined in TASK_2026_278 Batch 2. It was the one CLI Ptah could spawn
  * but never configure: `.mcp.json` is not a file Codex reads, so every server
  * "installed for codex" landed in a config Codex ignores.
+ *
+ * Antigravity joined in TASK_2026_285. Its absence was circular: the install
+ * surface offered no `agy` option because this union could not express one, and
+ * the missing option was then cited as the reason no facet was needed. `agy`
+ * reads a real MCP config file that Ptah already writes at spawn time, so the
+ * only thing missing was the ability to say so.
  */
 export type McpInstallTarget =
   | 'vscode'
   | 'claude'
   | 'cursor'
   | 'copilot'
-  | 'codex';
+  | 'codex'
+  | 'antigravity';
 
 /** Base fields shared by all transport types */
 interface McpServerConfigBase {

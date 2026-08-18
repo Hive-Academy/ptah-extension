@@ -1360,7 +1360,14 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
           type: 'array',
           items: {
             type: 'string',
-            enum: ['vscode', 'claude', 'cursor', 'copilot'],
+            enum: [
+              'vscode',
+              'claude',
+              'cursor',
+              'copilot',
+              'codex',
+              'antigravity',
+            ],
           },
           description:
             'Optional install targets. Defaults to ["claude","vscode"].',

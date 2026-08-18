@@ -47,6 +47,29 @@ export function mcpEntryKey(configRelPath: string, serverKey: string): string {
   return `${configRelPath}#${serverKey}`;
 }
 
+/**
+ * The server key Ptah's OWN in-process MCP server is written under, by the
+ * spawn adapters in `cli-agent-runtime` and by nothing in this lib.
+ *
+ * It is defined HERE because the two-writer rule on
+ * `~/.gemini/config/mcp_config.json` is a rule about one name, and a rule about
+ * one name is only enforceable if both sides read that name from one place
+ * (TASK_2026_285). The split of ownership:
+ *
+ * - This key is EPHEMERAL and adapter-owned. It appears before a spawn, carries
+ *   a localhost port valid only for that run, and is removed after `done`. No
+ *   manifest ever records it and no reconcile ever writes or reaps it — the
+ *   facet planner only touches keys the desired state names or the manifest
+ *   owns, and this key is in neither.
+ * - Every OTHER key is either manifest-owned (a user install, reconciled) or
+ *   the user's own (never touched).
+ *
+ * The one overlap is a user installing a server whose key is literally `ptah`.
+ * The desired state then wants a key an unowned entry occupies, which is the
+ * ordinary collision rule: reported `foreign` and `blocked`, never overwritten.
+ */
+export const PTAH_SPAWN_MCP_KEY = 'ptah';
+
 export interface IHarnessMcpFacet {
   /** The harness target this facet belongs to. */
   readonly target: HarnessTargetId;

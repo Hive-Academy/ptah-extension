@@ -1683,7 +1683,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|copilot)',
+      'install target (vscode|claude|cursor|copilot|codex|antigravity)',
     )
     .action(async (name: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(
@@ -1700,7 +1700,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|copilot)',
+      'install target (vscode|claude|cursor|copilot|codex|antigravity)',
     )
     .action(async (key: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(

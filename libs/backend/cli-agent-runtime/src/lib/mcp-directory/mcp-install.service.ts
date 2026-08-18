@@ -51,6 +51,7 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'cursor',
   'copilot',
   'codex',
+  'antigravity',
 ];
 
 export class McpInstallService {

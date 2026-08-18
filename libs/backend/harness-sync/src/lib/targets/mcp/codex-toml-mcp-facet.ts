@@ -38,6 +38,7 @@ import type {
 } from '@ptah-extension/shared';
 import { atomicWriteWithRetry } from '../../fs/atomic-write';
 import { withWindowsRetrySync } from '../../fs/windows-retry';
+import { withMcpConfigLock } from './mcp-config-lock';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
 
 const TABLE_PREFIX = 'mcp_servers.';
@@ -86,32 +87,47 @@ export class CodexTomlMcpFacet implements IHarnessMcpFacet {
     return foreign;
   }
 
-  async write(
+  /**
+   * Read-modify-write under the config-file lock, like every other facet.
+   *
+   * `~/.codex/config.toml` has only one writer today, so the lock buys nothing
+   * against a rival module — it buys the case two OPEN WORKSPACES already had:
+   * this file is user-global while the workspace lock that guards a reconcile
+   * is not, so two hosts could splice two different blocks over one snapshot.
+   * One rule for all six MCP config files is also cheaper to keep true than an
+   * exemption nobody can see from here (see `mcp-config-lock.ts`).
+   */
+  write(
     _workspaceRoot: string,
     serverKey: string,
     config: McpServerConfig,
   ): Promise<void> {
-    const content = this.readFile();
-    if (this.foreignServerKeys().has(serverKey)) {
-      // Two tables with the same name is a TOML parse error, which would take
-      // Codex down entirely. Refusing is the only safe answer; the target has
-      // already classified this key as foreign and will report it.
-      throw new Error(
-        `~/.codex/config.toml already declares [mcp_servers.${serverKey}] outside Ptah's block`,
+    return withMcpConfigLock(this.configPath(), () => {
+      const content = this.readFile();
+      if (this.foreignServerKeys().has(serverKey)) {
+        // Two tables with the same name is a TOML parse error, which would take
+        // Codex down entirely. Refusing is the only safe answer; the target has
+        // already classified this key as foreign and will report it.
+        return Promise.reject(
+          new Error(
+            `~/.codex/config.toml already declares [mcp_servers.${serverKey}] outside Ptah's block`,
+          ),
+        );
+      }
+      this.writeFile(
+        spliceOwnedBlock(content, serverKey, renderBlock(serverKey, config)),
       );
-    }
-    await Promise.resolve();
-    this.writeFile(
-      spliceOwnedBlock(content, serverKey, renderBlock(serverKey, config)),
-    );
+      return Promise.resolve();
+    });
   }
 
-  async remove(_workspaceRoot: string, serverKey: string): Promise<void> {
-    const content = this.readFile();
-    const next = spliceOwnedBlock(content, serverKey, null);
-    if (next === content) return;
-    await Promise.resolve();
-    this.writeFile(next);
+  remove(_workspaceRoot: string, serverKey: string): Promise<void> {
+    return withMcpConfigLock(this.configPath(), () => {
+      const content = this.readFile();
+      const next = spliceOwnedBlock(content, serverKey, null);
+      if (next !== content) this.writeFile(next);
+      return Promise.resolve();
+    });
   }
 
   private readFile(): string {

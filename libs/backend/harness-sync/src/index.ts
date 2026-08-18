@@ -71,7 +71,7 @@ export {
   type ManagedManifest,
 } from './lib/manifest-store/managed-manifest';
 
-// Cross-process lock.
+// Cross-process lock — the workspace policy, and the mechanism under it.
 export {
   acquireWorkspaceLock,
   serializePerWorkspace,
@@ -79,6 +79,13 @@ export {
   STALE_AFTER_MS,
   type HarnessLockHandle,
 } from './lib/lock/workspace-lock';
+export {
+  acquireFileLock,
+  serializeByKey,
+  withFileLock,
+  DEFAULT_MAX_WAIT_MS,
+  type FileLockOptions,
+} from './lib/lock/file-lock';
 
 // Targets.
 export type {
@@ -134,8 +141,15 @@ export {
 export {
   isMcpFragmentKey,
   mcpEntryKey,
+  PTAH_SPAWN_MCP_KEY,
   type IHarnessMcpFacet,
 } from './lib/targets/mcp/mcp-facet.port';
+export {
+  mcpConfigLockPath,
+  withMcpConfigLock,
+  MCP_CONFIG_LOCK_MAX_WAIT_MS,
+  MCP_CONFIG_LOCK_SUFFIX,
+} from './lib/targets/mcp/mcp-config-lock';
 export {
   JsonMcpFacet,
   type JsonMcpFacetOptions,
@@ -155,6 +169,8 @@ export {
   configToJson,
   hashMcpConfig,
   jsonToConfig,
+  ANTIGRAVITY_URL_KEY,
+  DEFAULT_URL_KEY,
 } from './lib/targets/mcp/mcp-json-format';
 
 // Sources.

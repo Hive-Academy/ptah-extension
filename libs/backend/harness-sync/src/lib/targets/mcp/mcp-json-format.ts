@@ -12,16 +12,32 @@
 import { createHash } from 'crypto';
 import type { McpServerConfig } from '@ptah-extension/shared';
 
+/** The key a config file uses for a remote server's endpoint. */
+export const DEFAULT_URL_KEY = 'url';
+
+/**
+ * Antigravity's key for the same value. Documented by the CLI itself, in
+ * `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md`:
+ * stdio entries are `{command, args, env}` like everywhere else, but a remote
+ * entry is `{ "serverUrl": "https://..." }` and `url` is not read at all.
+ */
+export const ANTIGRAVITY_URL_KEY = 'serverUrl';
+
 /**
  * Serialize a transport config into the shape a config file expects.
  *
  * `includeType` is per-target and not cosmetic: VS Code uses `type` to pick a
  * transport, while Claude, Cursor and Copilot infer it from the presence of
  * `command` versus `url` and treat an unexpected key as a schema error.
+ *
+ * `urlKey` is the second per-target divergence: Antigravity spells the remote
+ * endpoint `serverUrl`. Writing `url` there produces an entry `agy` parses
+ * without an endpoint and silently never connects.
  */
 export function configToJson(
   config: McpServerConfig,
   includeType: boolean,
+  urlKey: string = DEFAULT_URL_KEY,
 ): Record<string, unknown> {
   const json: Record<string, unknown> = {};
   if (includeType) json['type'] = config.type;
@@ -35,7 +51,7 @@ export function configToJson(
       break;
     case 'http':
     case 'sse':
-      json['url'] = config.url;
+      json[urlKey] = config.url;
       if (
         config.headers !== undefined &&
         Object.keys(config.headers).length > 0
@@ -51,7 +67,14 @@ export function configToJson(
   return json;
 }
 
-/** Parse a raw config-file entry back into a transport config. */
+/**
+ * Parse a raw config-file entry back into a transport config.
+ *
+ * Both endpoint spellings are accepted unconditionally rather than per-target.
+ * No config file uses both keys, the reader is the same for every dialect, and
+ * a facet that could read only its OWN spelling would report a hand-written
+ * Antigravity server as an endpoint-less entry.
+ */
 export function jsonToConfig(raw: Record<string, unknown>): McpServerConfig {
   const declaredType = raw['type'];
   const type =
@@ -73,16 +96,33 @@ export function jsonToConfig(raw: Record<string, unknown>): McpServerConfig {
   const headers = asStringRecord(raw['headers']);
   return {
     type: type === 'sse' ? 'sse' : 'http',
-    url: typeof raw['url'] === 'string' ? raw['url'] : '',
+    url: readUrl(raw) ?? '',
     ...(headers === undefined ? {} : { headers }),
     ...(env === undefined ? {} : { env }),
   };
 }
 
+/** The endpoint under whichever key this dialect spells it. */
+function readUrl(raw: Record<string, unknown>): string | undefined {
+  const direct = raw[DEFAULT_URL_KEY];
+  if (typeof direct === 'string') return direct;
+  const antigravity = raw[ANTIGRAVITY_URL_KEY];
+  return typeof antigravity === 'string' ? antigravity : undefined;
+}
+
+/**
+ * The transport rule is deliberately the SAME for both endpoint spellings.
+ *
+ * Antigravity documents `serverUrl` as its SSE transport, but classifying every
+ * `serverUrl` as `sse` would make a server installed as `http` read back as a
+ * different config, hash differently, and be rewritten on every single pass —
+ * the exact drift `hashMcpConfig` exists to prevent. The URL decides, as it
+ * already does for Claude, Cursor and Copilot.
+ */
 function inferTransportType(raw: Record<string, unknown>): string {
   if (typeof raw['command'] === 'string') return 'stdio';
-  if (typeof raw['url'] === 'string' && raw['url'].includes('/sse'))
-    return 'sse';
+  const url = readUrl(raw);
+  if (url !== undefined && url.includes('/sse')) return 'sse';
   return 'http';
 }
 

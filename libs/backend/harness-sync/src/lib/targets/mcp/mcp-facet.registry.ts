@@ -14,6 +14,7 @@ import type { McpInstallTarget } from '@ptah-extension/shared';
 import { CodexTomlMcpFacet } from './codex-toml-mcp-facet';
 import { JsonMcpFacet } from './json-mcp-facet';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
+import { ANTIGRAVITY_URL_KEY } from './mcp-json-format';
 
 export interface McpFacetOptions {
   /** Overridable so specs can redirect the user-global config files. */
@@ -22,6 +23,7 @@ export interface McpFacetOptions {
 
 /** Every target that owns an MCP config file, in a stable order. */
 export const MCP_FACET_TARGETS: readonly McpInstallTarget[] = [
+  'antigravity',
   'claude',
   'codex',
   'copilot',
@@ -40,6 +42,24 @@ export function createMcpFacet(
   switch (target) {
     case 'codex':
       return new CodexTomlMcpFacet(home);
+    case 'antigravity':
+      return new JsonMcpFacet({
+        target: 'antigravity',
+        mcpTarget: 'antigravity',
+        scope: 'home',
+        segments: ['.gemini', 'config', 'mcp_config.json'],
+        rootKey: 'mcpServers',
+        // Antigravity infers the transport from `command` versus `serverUrl`,
+        // exactly as Claude does from `command` versus `url`.
+        includeType: false,
+        // The one target that does NOT call a remote endpoint `url`. Its own
+        // docs (shipped inside the CLI, at
+        // `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md`)
+        // define exactly two transports: `{command,args,env}` and
+        // `{serverUrl}`. An entry written with `url` parses and never connects.
+        urlKey: ANTIGRAVITY_URL_KEY,
+        ...home,
+      });
     case 'copilot':
       return new JsonMcpFacet({
         target: 'copilot',

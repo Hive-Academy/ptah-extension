@@ -13,7 +13,7 @@
  * | codex       | `{ws}/.agents/skills`   | **unsupported**         | `{ws}/.codex/agents/*.toml`   | `~/.codex/config.toml`       |
  * | copilot     | `{ws}/.github/skills`   | **unsupported**         | `{ws}/.github/agents/*.agent.md` | `~/.copilot/mcp-config.json` |
  * | cursor      | `{ws}/.cursor/skills`   | `{ws}/.cursor/commands` | `{ws}/.cursor/agents/*.md`    | `{ws}/.cursor/mcp.json`      |
- * | antigravity | `{ws}/.agents/skills`   | **unsupported**         | **unsupported**               | **unsupported**              |
+ * | antigravity | `{ws}/.agents/skills`   | **unsupported**         | **unsupported**               | `~/.gemini/config/mcp_config.json` |
  * | vscode      | **unsupported**         | **unsupported**         | **unsupported**               | `{ws}/.vscode/mcp.json`      |
  *
  * ### Why the `unsupported` cells are unsupported
@@ -28,15 +28,23 @@
  * - **Antigravity agents.** `agy` documents no subagent format. A transformer
  *   would have to invent a file layout the CLI does not read, so the facet
  *   reports `unsupported` and the health surface says so out loud rather than
- *   showing agents permanently missing.
- * - **Antigravity MCP.** `agy` reads `~/.gemini/config/mcp_config.json`, and
- *   `AntigravityCliAdapter` already writes Ptah's own server there at spawn.
- *   User-installed servers for `agy` are not offered by the install surface, so
- *   there is no intent to reconcile; adding the facet would mean adding the
- *   target to `McpInstallTarget` with no UI behind it.
+ *   showing agents permanently missing. (MCP is NOT in this list any more — see
+ *   the two-writer section below.)
  * - **VS Code skills/commands/agents.** VS Code is an editor, not a CLI agent
  *   harness. It appears here solely because `.vscode/mcp.json` is a real MCP
  *   surface the install RPC has always offered.
+ *
+ * ## Antigravity MCP has two writers, and one of them is not here
+ *
+ * `agy` reads `~/.gemini/config/mcp_config.json`, and `AntigravityCliAdapter`
+ * (`cli-agent-runtime`) writes Ptah's OWN server into that same file before
+ * every spawn. Both sides now go through this target's facet, so the file has
+ * one module that knows its format, its lock and its atomic write. The keys are
+ * partitioned and neither side may reap the other's: `ptah`
+ * ({@link PTAH_SPAWN_MCP_KEY}) is ephemeral and adapter-owned, manifest-owned
+ * keys are the user's installs, and everything else is the user's own. The key
+ * name itself is `PTAH_SPAWN_MCP_KEY` in `mcp/mcp-facet.port.ts`, so the two
+ * writers cannot disagree about it. TASK_2026_285.
  *
  * ## Codex and Antigravity share `{ws}/.agents/skills`
  *
@@ -146,10 +154,11 @@ export function createCursorTarget(deps: RivalTargetDeps): IHarnessTarget {
 export function createAntigravityTarget(deps: RivalTargetDeps): IHarnessTarget {
   return new WorkspaceHarnessTarget({
     id: 'antigravity',
-    facets: facets({ skills: 'supported' }),
+    facets: facets({ skills: 'supported', mcp: 'supported' }),
     manifestStore: deps.manifestStore,
     detector: deps.detector,
     skillsDirRel: '.agents/skills',
+    mcpFacet: createMcpFacet('antigravity', facetOptions(deps)),
     coOwners: ['codex'],
   });
 }
