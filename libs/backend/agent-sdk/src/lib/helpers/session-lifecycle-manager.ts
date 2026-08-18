@@ -412,6 +412,16 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Release the turn claimed by the streaming pump, and wake it so a message
+   * held while the turn was generating is sent now (TASK_2026_294).
+   *
+   * Called by `SdkAgentAdapter` on every `result` message.
+   */
+  markTurnEnded(sessionId: SessionId): boolean {
+    return this._registry.markTurnEnded(sessionId as string);
+  }
+
+  /**
    * End session and cleanup.
    * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
    * and marks all running subagents as interrupted before session removal.

@@ -64,12 +64,13 @@ describe('AgentContinueInputComponent', () => {
     expect(fixture.nativeElement.querySelector('textarea')).not.toBeNull();
   });
 
-  it('disables the input while the agent is running', () => {
+  it('leaves the input usable while the agent is running so a follow-up can be queued', () => {
     setup(makeAgent({ status: 'running', supportsContinuation: true }));
     const textarea = fixture.nativeElement.querySelector(
       'textarea',
     ) as HTMLTextAreaElement;
-    expect(textarea.disabled).toBe(true);
+    expect(textarea.disabled).toBe(false);
+    expect(component['subtitle']()).toContain('queues');
   });
 
   it('clears the draft on successful submit', async () => {
@@ -82,15 +83,17 @@ describe('AgentContinueInputComponent', () => {
     expect(component['draft']()).toBe('');
   });
 
-  it('retains the draft and shows a busy message on code=busy', async () => {
+  it('re-queues rather than erroring when the backend still answers busy', async () => {
+    // The card's status lagged the backend. Erroring here is how the typed
+    // message used to be thrown away.
     setup(makeAgent());
     continueAgent.mockResolvedValueOnce({ ok: false, code: 'busy' });
     component['draft'].set('follow up');
 
     await component['submit']();
 
-    expect(component['draft']()).toBe('follow up');
-    expect(component['error']()).toContain('busy');
+    expect(component['queued']()).toBe('follow up');
+    expect(component['error']()).toBeNull();
   });
 
   it('does not call the store when the draft is blank', async () => {
@@ -100,6 +103,94 @@ describe('AgentContinueInputComponent', () => {
     await component['submit']();
 
     expect(continueAgent).not.toHaveBeenCalled();
+  });
+
+  describe('queue while running, flush at turn end (TASK_2026_294)', () => {
+    it('queues instead of calling the store while the agent is running', async () => {
+      setup(makeAgent({ status: 'running' }));
+      component['draft'].set('give the agent more time');
+
+      await component['submit']();
+
+      expect(continueAgent).not.toHaveBeenCalled();
+      expect(component['queued']()).toBe('give the agent more time');
+      expect(component['draft']()).toBe('');
+    });
+
+    it('coalesces repeat follow-ups into one message', async () => {
+      setup(makeAgent({ status: 'running' }));
+
+      component['draft'].set('first');
+      await component['submit']();
+      component['draft'].set('second');
+      await component['submit']();
+
+      expect(component['queued']()).toBe('first\nsecond');
+    });
+
+    it('sends the queued message once the agent leaves running', async () => {
+      setup(makeAgent({ status: 'running' }));
+      component['draft'].set('follow up');
+      await component['submit']();
+      expect(continueAgent).not.toHaveBeenCalled();
+
+      fixture.componentRef.setInput(
+        'agent',
+        makeAgent({ status: 'completed' }),
+      );
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      expect(continueAgent).toHaveBeenCalledWith('agent-1', 'follow up');
+      expect(component['queued']()).toBeNull();
+    });
+
+    it('does not resend on later status changes', async () => {
+      setup(makeAgent({ status: 'running' }));
+      component['draft'].set('follow up');
+      await component['submit']();
+
+      fixture.componentRef.setInput(
+        'agent',
+        makeAgent({ status: 'completed' }),
+      );
+      fixture.detectChanges();
+      await Promise.resolve();
+      fixture.componentRef.setInput('agent', makeAgent({ status: 'failed' }));
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      expect(continueAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('puts a queued message back in the box on unqueue', async () => {
+      setup(makeAgent({ status: 'running' }));
+      component['draft'].set('follow up');
+      await component['submit']();
+
+      component['unqueue']();
+
+      expect(component['queued']()).toBeNull();
+      expect(component['draft']()).toBe('follow up');
+    });
+
+    it('restores the message when the flush fails, instead of dropping it', async () => {
+      setup(makeAgent({ status: 'running' }));
+      component['draft'].set('follow up');
+      await component['submit']();
+      continueAgent.mockResolvedValueOnce({ ok: false, code: 'unknown' });
+
+      fixture.componentRef.setInput(
+        'agent',
+        makeAgent({ status: 'completed' }),
+      );
+      fixture.detectChanges();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(component['draft']()).toBe('follow up');
+      expect(component['error']()).toContain('Could not send');
+    });
   });
 
   describe('expired records fall back to a session resume', () => {

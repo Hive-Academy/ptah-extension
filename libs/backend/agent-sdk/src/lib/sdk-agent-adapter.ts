@@ -515,6 +515,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         trackingId,
         this.callbacks.getResultStats(),
       ),
+      onTurnEnd: this.releaseTurnOnResult(trackingId),
       tabId: config?.tabId,
       activityWatchdog,
     });
@@ -558,6 +559,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           this.callbacks.getResultStats(),
         ),
+        onTurnEnd: this.releaseTurnOnResult(sessionId),
         tabId: config?.tabId,
       });
     }
@@ -617,6 +619,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onTurnEnd: this.releaseTurnOnResult(sessionId),
       tabId: config?.tabId,
       activityWatchdog,
     });
@@ -720,6 +723,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onTurnEnd: this.releaseTurnOnResult(sessionId),
       tabId: config.tabId,
       activityWatchdog,
     });
@@ -847,6 +851,17 @@ export class SdkAgentAdapter implements IAgentAdapter {
       if (inner) {
         inner(stats);
       }
+    };
+  }
+
+  /**
+   * Release the streaming pump's turn claim on the SDK `result` message, so a
+   * follow-up that arrived mid-turn — and was therefore HELD rather than handed
+   * to the SDK, where it would have been dropped — is sent now (TASK_2026_294).
+   */
+  private releaseTurnOnResult(sessionId: SessionId): () => void {
+    return () => {
+      this.sessionLifecycle.markTurnEnded(sessionId);
     };
   }
 }

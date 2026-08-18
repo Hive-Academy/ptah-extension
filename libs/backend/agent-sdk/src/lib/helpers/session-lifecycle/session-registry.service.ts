@@ -50,6 +50,17 @@ export interface SessionRecord {
   messageQueue: SDKUserMessage[];
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;
+  /**
+   * True from the moment the pump yields a user message until that turn's
+   * `result` message arrives. While true the pump HOLDS further queued
+   * messages instead of yielding them (TASK_2026_294).
+   *
+   * A prompt handed to the SDK mid-turn is classified as a queued command:
+   * the SDK enqueues it, removes it, writes it as a `queued_command`
+   * transcript attachment, and never materialises it as a user turn — the
+   * model never sees it. Measured: 180 removed queue items, 0 delivered.
+   */
+  turnInFlight: boolean;
   /** Current model ID (may differ from config.model after setModel calls). */
   currentModel: string;
   /**
@@ -117,6 +128,7 @@ export class SessionRegistry {
       abortController,
       messageQueue: [],
       resolveNext: null,
+      turnInFlight: false,
       currentModel: config.model || '',
       permissionLevel: 'ask',
       lastActivityAt: this._now(),
@@ -286,6 +298,39 @@ export class SessionRegistry {
     if (rec) {
       rec.lastActivityAt = this._now();
     }
+  }
+
+  /**
+   * Mark a turn as started. Called by the streaming pump immediately before it
+   * yields a user message, so the pump's own drain loop stops after exactly one
+   * message and holds the rest (TASK_2026_294).
+   */
+  markTurnStarted(rec: SessionRecord): void {
+    rec.turnInFlight = true;
+    rec.lastActivityAt = this._now();
+  }
+
+  /**
+   * Mark the current turn as finished and wake the parked pump so a message
+   * held during the turn is yielded now.
+   *
+   * Called on the turn's `result` message (normal path) and after an explicit
+   * turn interrupt. Session teardown removes the record outright, so it needs
+   * no separate clear. A turn that emits neither is bounded by
+   * `NoActivityWatchdog`, which aborts the controller and ends the pump loop.
+   *
+   * @returns true when a live record was found and cleared.
+   */
+  markTurnEnded(idOrTabId: string): boolean {
+    const rec = this.find(idOrTabId);
+    if (!rec) return false;
+    rec.turnInFlight = false;
+    if (rec.resolveNext) {
+      const wake = rec.resolveNext;
+      rec.resolveNext = null;
+      wake();
+    }
+    return true;
   }
 
   /**

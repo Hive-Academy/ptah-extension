@@ -675,3 +675,71 @@ describe('StreamTransformer — task_* forwarding (workflow watch gate)', () => 
     );
   });
 });
+
+describe('StreamTransformer — onTurnEnd (TASK_2026_294)', () => {
+  it('fires on the result message', async () => {
+    const { transformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          messageStart(MODEL, { input_tokens: 10 }),
+          resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+        onTurnEnd,
+      }),
+    );
+
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when validateStats rejects the payload and onResultStats is skipped', async () => {
+    const { transformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+    const onResultStats = jest.fn();
+
+    // cost > 100 → validateStats returns null → onResultStats never runs.
+    // The pump's turn claim must still be released, or the next follow-up is
+    // held until the 180s no-activity watchdog instead of the turn.
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          resultMessageMulti({
+            totalCostUsd: 500,
+            modelUsage: {
+              [MODEL]: { inputTokens: 10, outputTokens: 20, costUSD: 500 },
+            },
+          }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats,
+        onTurnEnd,
+      }),
+    );
+
+    expect(onResultStats).not.toHaveBeenCalled();
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire when no result message arrives', async () => {
+    const { transformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([messageStart(MODEL, { input_tokens: 10 })]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onResultStats: jest.fn(),
+        onTurnEnd,
+      }),
+    );
+
+    expect(onTurnEnd).not.toHaveBeenCalled();
+  });
+});

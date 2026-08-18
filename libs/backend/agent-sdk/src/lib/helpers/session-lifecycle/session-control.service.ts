@@ -81,6 +81,10 @@ export class SessionControl {
           }, 3000),
         ),
       ]);
+      // An interrupted turn may never emit the `result` that normally releases
+      // the pump's turn claim. Release it here or the session's next follow-up
+      // is held forever (TASK_2026_294).
+      this.registry.markTurnEnded(sessionId as string);
       if (timedOut) {
         this.logger.warn(
           `[SessionLifecycle] Turn interrupt timed out (3s) for session: ${sessionId}`,
@@ -92,6 +96,7 @@ export class SessionControl {
       }
       return !timedOut;
     } catch (err) {
+      this.registry.markTurnEnded(sessionId as string);
       this.logger.warn(
         `[SessionLifecycle] Turn interrupt failed for session ${sessionId}`,
         err instanceof Error ? err : new Error(String(err)),

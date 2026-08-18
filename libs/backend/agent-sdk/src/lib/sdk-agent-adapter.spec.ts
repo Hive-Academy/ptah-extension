@@ -182,6 +182,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'bindRealSessionId'
     | 'sendMessage'
     | 'interruptCurrentTurn'
+    | 'markTurnEnded'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
   >
@@ -196,6 +197,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     bindRealSessionId: jest.fn(),
     sendMessage: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
+    markTurnEnded: jest.fn().mockReturnValue(true),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
   };
@@ -681,6 +683,7 @@ describe('SdkAgentAdapter', () => {
         abortController: new AbortController(),
         messageQueue: [],
         resolveNext: null,
+        turnInFlight: false,
         currentModel: 'claude-sonnet-4-20250514',
         permissionLevel: 'ask',
         lastActivityAt: 0,

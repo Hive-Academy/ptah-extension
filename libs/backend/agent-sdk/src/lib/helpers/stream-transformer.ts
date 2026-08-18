@@ -101,6 +101,15 @@ export interface StreamTransformConfig {
   onSessionIdResolved?: SessionIdResolvedCallback;
   onResultStats?: ResultStatsCallback;
   /**
+   * Fired on the SDK `result` message — the turn boundary — BEFORE any stats
+   * work. Deliberately separate from `onResultStats`, which is skipped when
+   * `validateStats` rejects a malformed payload and which awaits a pricing
+   * lookup first. The streaming pump's turn claim must be released on every
+   * result, promptly and unconditionally, or a message held mid-turn waits for
+   * the 180s no-activity watchdog instead of the turn (TASK_2026_294).
+   */
+  onTurnEnd?: () => void;
+  /**
    * Passed to callback so frontend can find tab directly without temp ID lookup.
    */
   tabId?: string;
@@ -230,6 +239,7 @@ export class StreamTransformer {
       initialModel,
       onSessionIdResolved,
       onResultStats,
+      onTurnEnd,
       tabId,
       activityWatchdog,
     } = config;
@@ -297,6 +307,9 @@ export class StreamTransformer {
               }
             }
             if (isResultMessage(sdkMessage)) {
+              // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
+              // may gate it.
+              onTurnEnd?.();
               if (!onResultStats) {
                 logger.error(
                   '[StreamTransformer] Result stats callback not set - stats will be lost!',
