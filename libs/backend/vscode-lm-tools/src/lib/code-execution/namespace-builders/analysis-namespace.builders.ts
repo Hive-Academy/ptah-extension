@@ -5,6 +5,7 @@
  * These namespaces leverage workspace-intelligence for intelligent file selection.
  */
 
+import * as path from 'node:path';
 import {
   ContextSizeOptimizerService,
   MonorepoDetectorService,
@@ -274,6 +275,11 @@ export function buildRelevanceNamespace(
   };
 }
 
+/** Join a workspace-relative path to its root; pass absolute paths through. */
+function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
+  return path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+}
+
 /**
  * Build dependency graph namespace
  * Import-based file dependency tracking and symbol indexing
@@ -287,7 +293,14 @@ export function buildDependencyNamespace(
     buildGraph: async (filePaths: string[], workspaceRoot: string) => {
       try {
         const graph = await dependencyGraph.buildGraph(
-          filePaths,
+          // The graph reads real files and keys its nodes by ABSOLUTE path, but
+          // every other path in this sandbox is workspace-relative — `ptah.files`
+          // rejects absolute paths outright, so `ptah.search.findFiles()` (the
+          // natural source for this argument) yields relative ones. Handing
+          // those straight through resolved them against process.cwd, every read
+          // failed, and the call returned a cheerful `0 nodes, 0 edges` instead
+          // of an error. Resolve against the root the caller already passed.
+          filePaths.map((file) => toAbsoluteWorkspacePath(workspaceRoot, file)),
           workspaceRoot,
         );
         let edgeCount = 0;

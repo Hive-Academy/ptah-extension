@@ -342,6 +342,31 @@ describe('buildDependencyNamespace', () => {
     });
   });
 
+  it('buildGraph resolves workspace-relative paths against the root', async () => {
+    // `ptah.search.findFiles()` yields workspace-relative paths and the sandbox
+    // rejects absolute ones, so relative is what this method actually receives.
+    // The graph needs absolute paths to read files and key its nodes; handing
+    // relative ones through produced a silent `0 nodes, 0 edges` graph.
+    const deps = makeMocks();
+    deps._dependencyGraph.buildGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: new Map(),
+      unresolvedCount: 0,
+      builtAt: 1,
+    });
+
+    await buildDependencyNamespace(deps).buildGraph(
+      ['src/app/app.ts', 'D:/ws/src/main.ts'],
+      'D:/ws',
+    );
+
+    const [passedFiles] = deps._dependencyGraph.buildGraph.mock.calls[0];
+    expect(passedFiles.map((f: string) => f.replace(/\\/g, '/'))).toEqual([
+      'D:/ws/src/app/app.ts',
+      'D:/ws/src/main.ts',
+    ]);
+  });
+
   it('buildGraph returns a zeroed envelope with error on failure', async () => {
     const deps = makeMocks();
     deps._dependencyGraph.buildGraph.mockRejectedValue(new Error('bad graph'));

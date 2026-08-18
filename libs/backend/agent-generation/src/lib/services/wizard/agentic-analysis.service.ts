@@ -78,16 +78,16 @@ function buildAnalysisSystemPrompt(): string {
 
 ## Analysis Steps
 
-1. **Discovery**: Call \`ptah.workspace.analyze()\` to get project type, frameworks, and file count. Use \`ptah.search.findFiles({pattern})\` to locate key files (entry points, configs, tests).
+1. **Discovery**: Call \`ptah.workspace.analyze()\` to get project type, frameworks, and file count. Use \`ptah.search.findFiles(pattern)\` to locate key files (entry points, configs, tests).
 
 2. **Architecture**: Examine folder structures for patterns (DDD, Layered, MVC, Microservices, Hexagonal, Component-Based). Check for monorepo tools (Nx, Lerna, Turborepo, pnpm/yarn workspaces).
 
-3. **Health**: Call \`ptah.diagnostics.getProblems()\` for error/warning counts. Check linter/formatter configs (.eslintrc, .prettierrc, biome.json).
+3. **Health**: Call \`ptah.diagnostics.getAll()\` for error/warning counts. Check linter/formatter configs (.eslintrc, .prettierrc, biome.json).
 
 4. **Testing**: Find test files and estimate coverage. Identify test frameworks (jest, mocha, vitest, pytest, etc.).
 
 5. **Quality Assessment** (CRITICAL — be thorough):
-   Read several representative source files using \`ptah.files.readFile()\` to assess code quality. Sample at least 3-5 key files (services, controllers, components).
+   Read several representative source files using \`ptah.files.read()\` (workspace-relative paths only) to assess code quality. Sample at least 3-5 key files (services, controllers, components).
 
    Evaluate the following quality dimensions:
    - **Type Safety**: Use of \`any\`, \`@ts-ignore\`, non-null assertions, proper interface/type usage

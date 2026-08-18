@@ -24,6 +24,7 @@ export interface PhasePrompts {
  * Suppresses conversational text to save tokens — all output goes to the file.
  */
 const RESPONSE_RULES = `## Response Rules
+- Every \`ptah.*\` path argument is WORKSPACE-RELATIVE. Absolute paths are rejected.
 - Do NOT emit conversational text, summaries, or commentary between tool calls.
 - Every turn should be a tool call. Think silently, act via tools.
 - After writing the file, respond with ONLY: "Done."
@@ -88,10 +89,10 @@ You have access to the Ptah MCP Server via the \`execute_code\` tool. Use it to 
 - \`ptah.workspace.analyze()\` — Get full workspace structure analysis
 - \`ptah.workspace.getProjectType()\` — Detect project type
 - \`ptah.workspace.getFrameworks()\` — Detect frameworks
-- \`ptah.search.findFiles({ pattern: '**/package.json' })\` — Find config files
-- \`ptah.files.read('/path/to/file')\` — Read package.json, tsconfig, etc. for exact versions
-- \`ptah.files.list('/path')\` — List directory contents for file tree
-- \`ptah.project.getMonorepoInfo()\` — Detect monorepo type and packages
+- \`ptah.search.findFiles('**/package.json')\` — Find config files
+- \`ptah.files.read('package.json')\` — Read package.json, tsconfig, etc. for exact versions
+- \`ptah.files.list('src')\` — List directory contents for file tree
+- \`ptah.project.detectMonorepo()\` — Detect monorepo type and packages
 - \`ptah.help()\` — Get full API reference if you need other methods
 - \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 
@@ -179,11 +180,11 @@ Read 01-project-profile.md first. Then use the \`execute_code\` tool with \`ptah
 
 **Key API calls for this phase:**
 - \`ptah.files.read('${slugDir}/01-project-profile.md')\` — Read the previous phase output
-- \`ptah.search.findFiles({ query: 'service' })\` — Find files by query relevance
+- \`ptah.search.getRelevantFiles('service')\` — Find files by query relevance
 - \`ptah.ast.analyze('/path/to/file.ts')\` — Extract classes, functions, imports from files
 - \`ptah.ide.lsp.getReferences('/path/to/file.ts', line, col)\` — Find all usages of a symbol
 - \`ptah.diagnostics.getErrors()\` — Check for existing compilation errors
-- \`ptah.files.read('/path/to/file.ts')\` — Read source files to examine imports and patterns
+- \`ptah.files.read('src/app/app.ts')\` — Read source files to examine imports and patterns
 - \`ptah.help('ast')\` or \`ptah.help('ide.lsp')\` — Get detailed API docs
 - \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 
@@ -295,12 +296,12 @@ Read both previous phase files first. Then use the \`execute_code\` tool with \`
 **Key API calls for this phase:**
 - \`ptah.files.read('${slugDir}/01-project-profile.md')\` — Read project profile
 - \`ptah.files.read('${slugDir}/02-architecture-assessment.md')\` — Read architecture assessment
-- \`ptah.diagnostics.getErrors()\` — Get all compilation errors and warnings
-- \`ptah.diagnostics.getProblems({ severity: 'error' })\` — Get only errors
-- \`ptah.ast.analyze('/path/to/file.ts')\` — Extract code symbols for analysis
-- \`ptah.search.findFiles({ query: 'test' })\` — Find test files
-- \`ptah.search.findFiles({ pattern: '**/*.spec.ts' })\` — Find test files by pattern
-- \`ptah.files.read('/path/to/file.ts')\` — Read source files for quality analysis
+- \`ptah.diagnostics.getAll()\` — Get all compilation errors and warnings
+- \`ptah.diagnostics.getErrors()\` — Get only errors
+- \`ptah.ast.analyze('src/main.ts')\` — Extract code symbols for analysis
+- \`ptah.search.getRelevantFiles('test')\` — Find test files
+- \`ptah.search.findFiles('**/*.spec.ts')\` — Find test files by pattern
+- \`ptah.files.read('src/app/app.ts')\` — Read source files for quality analysis
 - \`ptah.ide.lsp.getReferences(file, line, col)\` — Check how widely a symbol is used
 - \`ptah.help('diagnostics')\` or \`ptah.help('ast')\` — Get detailed API docs
 - \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
@@ -384,8 +385,8 @@ Read all three previous analysis files. Then use the \`execute_code\` tool with 
 - \`ptah.files.read('${slugDir}/01-project-profile.md')\` — Read project profile
 - \`ptah.files.read('${slugDir}/02-architecture-assessment.md')\` — Read architecture assessment
 - \`ptah.files.read('${slugDir}/03-quality-audit.md')\` — Read quality audit
-- \`ptah.files.read('/path/to/file.ts')\` — Read source files for before/after examples
-- \`ptah.search.findFiles({ query: 'keyword' })\` — Find files related to recommendations
+- \`ptah.files.read('src/app/app.ts')\` — Read source files for before/after examples
+- \`ptah.search.getRelevantFiles('keyword')\` — Find files related to recommendations
 - \`ptah.help()\` — Get full API reference
 - \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 

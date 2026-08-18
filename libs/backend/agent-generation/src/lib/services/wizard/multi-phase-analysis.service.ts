@@ -16,7 +16,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { access } from 'fs/promises';
-import { join } from 'path';
+import { join, relative } from 'path';
 import {
   Logger,
   TOKENS,
@@ -392,8 +392,14 @@ export class MultiPhaseAnalysisService {
       }
     }
 
+    // The prompts hand this path to the agent, and the agent reads earlier
+    // phases through `ptah.files.read`, which REJECTS absolute paths outright
+    // (`resolveWorkspacePath` — the sandbox is workspace-relative by design).
+    // An absolute slugDir made every phase after the first fail to read its
+    // predecessor's output. The agent's cwd is the workspace root, so the
+    // relative form is also correct for the Write tool.
     const { systemPrompt, userPrompt } = promptBuilder(
-      slugDir,
+      relative(cwd, slugDir).replace(/\\/g, '/'),
       pluginSkillsContext,
     );
 
