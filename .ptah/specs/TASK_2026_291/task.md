@@ -16,9 +16,11 @@ description: >-
   `ptah.pre-migration-20260817T171403Z.sqlite` (965 MB) with no matching
   `migrations applied` line in either Electron profile log, because the
   migrator's logs went to the throwaway profile the harness deletes on exit.
-  The packaged app had reported `finalVersion: 30` five hours earlier; the
-  installed VS Code extension (0.2.43) then hit the forward-only guard and
-  disabled persistence — memory search returned `bm25Only` with zero hits.
+  The packaged Electron app had reported `finalVersion: 30` five hours
+  earlier; on its next boot it hit the forward-only guard and disabled
+  persistence — Memory, Skills, Schedules and Messaging all read "Unavailable"
+  behind that one failed connection, while the dev-serve window on
+  `ptah-dev.sqlite` stayed healthy.
   Fixed by making `test` a real profile with its own file, adding a
   `PTAH_DB_PATH` override that wins over everything, and having `launchPtah`
   point every launch at a temp database instead of relying on `NODE_ENV`.

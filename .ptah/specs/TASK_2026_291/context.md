@@ -2,8 +2,7 @@
 
 ## How it surfaced
 
-Memory search from the VS Code extension returned nothing. `ptah.memory.list()`
-answered:
+Memory search returned nothing. `ptah.memory.list()` answered:
 
 ```
 Persistence is offline: The database schema is newer than this build of Ptah.
@@ -13,6 +12,16 @@ Update Ptah, or remove ~/.ptah/state to start fresh.
 The first reading — "your dev work broke it" — was wrong, and the developer
 said so: dev runs use a separate database. They were right. The dev database
 was never the problem.
+
+The second wrong reading was about the host. The degraded process was assumed
+to be the VS Code extension; the prod-profile log names it outright —
+`workerEntry: %LOCALAPPDATA%\Programs\Ptah\resources\app.asar\embedder-worker.mjs`,
+`dbPath: ~\.ptah\state\ptah.sqlite`, then `[ERROR] migration failed —
+persistence disabled` at 2026-08-18T08:12:10Z. It is the **packaged Electron
+app**, and `main.ts:30` corroborates it: the window is titled `Ptah`, not
+`Ptah Dev`, so `NODE_ENV` was not `development` there. The dev-serve window
+booted the same day at 13:13Z on `ptah-dev.sqlite`, `finalVersion: 38`,
+`applied: []` — healthy throughout.
 
 ## What the logs actually established
 
