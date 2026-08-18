@@ -128,7 +128,14 @@ export function buildAgentNamespace(
 
   return {
     spawn: async (request) => {
-      const rawSessionId = request.parentSessionId ?? getActiveSessionId?.();
+      // An empty parentSessionId is absent, not supplied. `??` alone kept it,
+      // which BOTH suppressed the active-session fallback AND was then
+      // discarded by the truthiness check below — so the spawn was attributed
+      // to no parent at all.
+      const requestedSessionId = request.parentSessionId
+        ? request.parentSessionId
+        : undefined;
+      const rawSessionId = requestedSessionId ?? getActiveSessionId?.();
       const activeSessionId = rawSessionId
         ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
         : undefined;
@@ -196,8 +203,14 @@ export function buildAgentNamespace(
       ]);
       const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
+      // Drop the raw parentSessionId before spreading: `...request` would
+      // otherwise carry an unusable '' straight through, since the conditional
+      // spread below only overwrites when a resolved id exists.
+      const { parentSessionId: _rawParentSessionId, ...requestFields } =
+        request;
+
       const enrichedRequest = {
-        ...request,
+        ...requestFields,
         ...(workingDirectory && { workingDirectory }),
         ...(activeSessionId && { parentSessionId: activeSessionId }),
         ...(projectGuidance && { projectGuidance }),

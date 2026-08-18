@@ -5,7 +5,10 @@
  *  - prefix references the real resume contract (no Task "resume" parameter)
  *  - injection is non-destructive (records stay in the registry)
  *  - records are dropped after MAX_INJECTION_ATTEMPTS unconsumed injections
- *  - records without an on-disk transcript are removed and marked injected
+ *  - records whose transcript is confirmed ABSENT are removed and marked
+ *    injected
+ *  - records whose transcript state is INDETERMINATE survive untouched
+ *    (TASK_2026_295)
  */
 
 import 'reflect-metadata';
@@ -34,12 +37,14 @@ const WORKSPACE = 'D:/ws';
 
 describe('ChatSubagentContextInjectorService', () => {
   let registry: SubagentRegistryService;
-  let ptahCli: { hasSubagentTranscript: jest.Mock };
+  let ptahCli: { probeSubagentTranscript: jest.Mock };
   let injector: ChatSubagentContextInjectorService;
 
   beforeEach(() => {
     registry = new SubagentRegistryService(makeLogger());
-    ptahCli = { hasSubagentTranscript: jest.fn().mockResolvedValue(true) };
+    ptahCli = {
+      probeSubagentTranscript: jest.fn().mockResolvedValue('present'),
+    };
     injector = new ChatSubagentContextInjectorService(
       makeLogger(),
       registry,
@@ -136,9 +141,9 @@ describe('ChatSubagentContextInjectorService', () => {
     expect(registry.get('tc-1')).toBeNull();
   });
 
-  it('removes agents without a transcript on disk and marks them injected', async () => {
+  it('removes agents whose transcript is confirmed absent and marks them injected', async () => {
     registerInterrupted('tc-1', 'abc1234');
-    ptahCli.hasSubagentTranscript.mockResolvedValue(false);
+    ptahCli.probeSubagentTranscript.mockResolvedValue('absent');
 
     const result = await injector.injectInterruptedAgentsContext(
       'msg',
@@ -149,6 +154,83 @@ describe('ChatSubagentContextInjectorService', () => {
     expect(result.injected).toBe(false);
     expect(registry.get('tc-1')).toBeNull();
     expect(registry.wasInjected('tc-1')).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_295 — "could not determine" must never destroy resume state.
+  //
+  // The probe used to return a plain boolean, so an unusable parentSessionId
+  // (notably '') produced a confident `false`. That reached the same branch as
+  // a genuinely missing transcript: remove() plus markAsInjected(), which also
+  // poisons clearedToolCallIds so registerFromHistoryEvents() refuses to
+  // re-register the record on the next chat:resume. One bad id on one
+  // chat:continue made the interrupted subagent unrecoverable for the life of
+  // the workspace.
+  // -------------------------------------------------------------------------
+
+  it('KEEPS the record when the transcript state is indeterminate', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    ptahCli.probeSubagentTranscript.mockResolvedValue('indeterminate');
+
+    const result = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+
+    expect(result.injected).toBe(false);
+    expect(registry.get('tc-1')).not.toBeNull();
+    // The poison flag is what makes destruction permanent — it must stay off.
+    expect(registry.wasInjected('tc-1')).toBe(false);
+  });
+
+  it('does not burn an injection attempt on an indeterminate probe', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    ptahCli.probeSubagentTranscript.mockResolvedValue('indeterminate');
+
+    for (let i = 0; i < MAX_INJECTION_ATTEMPTS + 2; i++) {
+      await injector.injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+    }
+
+    expect(registry.getInjectionAttempts('tc-1')).toBe(0);
+    expect(registry.get('tc-1')).not.toBeNull();
+  });
+
+  it('recovers: an indeterminate probe followed by a successful one still injects', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    ptahCli.probeSubagentTranscript.mockResolvedValueOnce('indeterminate');
+
+    const first = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+    expect(first.injected).toBe(false);
+
+    ptahCli.probeSubagentTranscript.mockResolvedValue('present');
+    const second = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+
+    expect(second.injected).toBe(true);
+    expect(second.prompt).toContain('Resume agent abc1234');
+  });
+
+  it('KEEPS the record when there is no workspace path to probe against', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+
+    const result = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      undefined,
+    );
+
+    expect(result.injected).toBe(false);
+    expect(ptahCli.probeSubagentTranscript).not.toHaveBeenCalled();
+    expect(registry.get('tc-1')).not.toBeNull();
+    expect(registry.wasInjected('tc-1')).toBe(false);
   });
 
   it('lists all resumable agents in the prefix', async () => {

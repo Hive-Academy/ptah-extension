@@ -77,6 +77,7 @@ interface RunnerHarness {
   moduleLoader: ReturnType<typeof createModuleLoader>;
   queryFn: jest.Mock;
   subagentHooks: { createHooks: jest.Mock };
+  compactionHooks: CompactionHookHandler;
 }
 
 function makeRunner(
@@ -155,6 +156,7 @@ function makeRunner(
     moduleLoader,
     queryFn,
     subagentHooks,
+    compactionHooks,
   };
 }
 
@@ -286,7 +288,18 @@ describe('SdkQueryRunner', () => {
         mcpServerRunning: false,
       });
 
-      expect(h.subagentHooks.createHooks).toHaveBeenCalledWith('/work');
+      // TASK_2026_295: the subagent handler gates registration on a parent
+      // session id. Passing only cwd left every subagent of a one-shot query
+      // unregistered — no steering, no stop, no resumption. It gets the same
+      // synthetic id the compaction handler already had.
+      expect(h.subagentHooks.createHooks).toHaveBeenCalledWith(
+        '/work',
+        expect.stringMatching(/^internal-query-\d+$/),
+      );
+      const subagentParentId = h.subagentHooks.createHooks.mock.calls[0][1];
+      const compactionSessionId = (h.compactionHooks.createHooks as jest.Mock)
+        .mock.calls[0][0];
+      expect(subagentParentId).toBe(compactionSessionId);
     });
 
     it('omits PostToolUse and UserPromptSubmit hooks so internal queries never feed the curators', async () => {

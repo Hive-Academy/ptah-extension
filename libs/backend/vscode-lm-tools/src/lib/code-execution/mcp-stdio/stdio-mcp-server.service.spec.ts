@@ -260,6 +260,47 @@ describe('StdioMcpServerService', () => {
       expect(result.structuredContent.cli).toBe('codex');
     });
 
+    // TASK_2026_295 — PTAH_MCP_HOST_SESSION_ID reads as '' (not undefined)
+    // when it is set but empty, and that '' was threaded straight through to
+    // agent.spawn as parentSessionId. An id that identifies no session must be
+    // treated as absent.
+    describe('PTAH_MCP_HOST_SESSION_ID', () => {
+      const ORIGINAL = process.env['PTAH_MCP_HOST_SESSION_ID'];
+
+      afterEach(() => {
+        if (ORIGINAL === undefined) {
+          delete process.env['PTAH_MCP_HOST_SESSION_ID'];
+        } else {
+          process.env['PTAH_MCP_HOST_SESSION_ID'] = ORIGINAL;
+        }
+      });
+
+      async function spawnAndReadParent(): Promise<unknown> {
+        const { svc, api } = makeService();
+        await svc.handleToolsCall(
+          makeRequest({
+            params: { name: 'agent_spawn', arguments: { task: 'echo hi' } },
+          }),
+        );
+        return (api.spawn as jest.Mock).mock.calls[0][0].parentSessionId;
+      }
+
+      it('passes parentSessionId undefined when the env var is set but empty', async () => {
+        process.env['PTAH_MCP_HOST_SESSION_ID'] = '';
+        await expect(spawnAndReadParent()).resolves.toBeUndefined();
+      });
+
+      it('passes parentSessionId undefined when the env var is unset', async () => {
+        delete process.env['PTAH_MCP_HOST_SESSION_ID'];
+        await expect(spawnAndReadParent()).resolves.toBeUndefined();
+      });
+
+      it('still threads a real host session id through to spawn', async () => {
+        process.env['PTAH_MCP_HOST_SESSION_ID'] = 'host-session-uuid';
+        await expect(spawnAndReadParent()).resolves.toBe('host-session-uuid');
+      });
+    });
+
     it('routes agent_status to PtahAPI.agent.status', async () => {
       const statusResult = [
         {

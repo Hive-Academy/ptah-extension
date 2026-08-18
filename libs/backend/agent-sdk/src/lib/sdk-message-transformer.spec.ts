@@ -520,3 +520,71 @@ describe('SdkMessageTransformer — workflow run correlation', () => {
     expect(childStart['workflowName']).toBe('spec');
   });
 });
+
+/**
+ * TASK_2026_295 — roughly 25 emit sites across the sub-transformers end in
+ * `sessionId || ''`. That branch is reachable: PtahCliStreamLoop passes
+ * `this.effectiveSessionId || undefined` until the SDK reports the real id, so
+ * every event of a CLI agent's first turn was stamped `sessionId: ''` even
+ * though the SDK message it came from carried the real one. Resolving once at
+ * the dispatch point fixes every site without touching them.
+ */
+describe('SdkMessageTransformer — session id falls back to the SDK payload (TASK_2026_295)', () => {
+  function build(activeIds: string[] = []): SdkMessageTransformer {
+    return new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      makeSubagentRegistry() as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      makeSessionLifecycle(activeIds) as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+    );
+  }
+
+  function assistantMessage(sessionId: string | undefined): unknown {
+    return {
+      type: 'assistant',
+      uuid: 'assistant-uuid-1',
+      ...(sessionId === undefined ? {} : { session_id: sessionId }),
+      message: {
+        id: 'msg_1',
+        content: [{ type: 'text', text: 'hello' }],
+      },
+    };
+  }
+
+  it('stamps events with the SDK message session_id when the caller has no id', () => {
+    const events = build().transform(
+      assistantMessage('sdk-real-id') as never,
+      undefined,
+    );
+
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect((event as { sessionId: string }).sessionId).toBe('sdk-real-id');
+    }
+  });
+
+  it('keeps the caller id when there is one — it is the frontend routing key', () => {
+    const events = build().transform(
+      assistantMessage('sdk-real-id') as never,
+      'harness-stream-1' as never,
+    );
+
+    for (const event of events) {
+      expect((event as { sessionId: string }).sessionId).toBe(
+        'harness-stream-1',
+      );
+    }
+  });
+
+  it('still degrades to the empty-string default when neither source has an id', () => {
+    const events = build().transform(assistantMessage('') as never, undefined);
+
+    // Pinned deliberately: FlatStreamEvent.sessionId is still a required
+    // string, so the leaf default stays until that type is widened (Wave 2).
+    for (const event of events) {
+      expect((event as { sessionId: string }).sessionId).toBe('');
+    }
+  });
+});

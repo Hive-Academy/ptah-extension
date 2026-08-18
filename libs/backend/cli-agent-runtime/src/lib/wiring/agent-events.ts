@@ -161,7 +161,10 @@ function wireAgentMonitorListeners(
         );
       });
 
-    if (persistCliSession && info.parentSessionId && info.cliSessionId) {
+    // The parent-session decision lives in `persistCliSessionReference` alone
+    // (it warns when there is none) rather than being re-spelled at each call
+    // site, where a missing parent read as "nothing happened".
+    if (persistCliSession && info.cliSessionId) {
       persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
     }
   });
@@ -187,7 +190,7 @@ function wireAgentMonitorListeners(
         );
       });
 
-    if (persistCliSession && info.parentSessionId) {
+    if (persistCliSession) {
       persistCliSessionReference(container, logger, tag, info, getSdkSessionId);
     }
   });
@@ -271,7 +274,23 @@ export function persistCliSessionReference(
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
 ): void {
   const { parentSessionId } = info;
-  if (!parentSessionId) return;
+  if (!parentSessionId) {
+    // The reference has nowhere to go — `addCliSession` is keyed by the parent
+    // session. This used to be a silent `return`, so an agent spawned without
+    // a parent simply never appeared under any session and nothing said why.
+    // The retry pass in `sdk-callbacks.ts` cannot recover it either: it filters
+    // on `parentSessionId === realSessionId`, which a blank id never matches.
+    logger.warn(
+      `${tag} CLI session reference dropped — agent ${info.agentId} has no parent session id`,
+      {
+        cli: info.cli,
+        status: info.status,
+        ptahCliId: info.ptahCliId ?? null,
+        cliSessionId: info.cliSessionId ?? null,
+      },
+    );
+    return;
+  }
   const effectiveCliSessionId = info.cliSessionId || info.agentId;
 
   try {

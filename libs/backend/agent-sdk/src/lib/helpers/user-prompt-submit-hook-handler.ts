@@ -9,6 +9,7 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 import { isUserPromptSubmitHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookSessionId } from './hook-session-resolver';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
 
 @injectable()
@@ -39,11 +40,17 @@ export class UserPromptSubmitHookHandler {
                 if (this.callbackRegistry.size === 0) {
                   return { continue: true };
                 }
-                const resolvedSessionId =
-                  typeof input.session_id === 'string' &&
-                  input.session_id.length > 0
-                    ? input.session_id
-                    : sessionId;
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                if (!resolvedSessionId) {
+                  this.logger.warn(
+                    '[UserPromptSubmitHookHandler] UserPromptSubmit missing sessionId, skipping fan-out',
+                    { promptLength: input.prompt?.length ?? 0 },
+                  );
+                  return { continue: true };
+                }
                 this.callbackRegistry.notifyAll({
                   prompt: input.prompt,
                   sessionId: resolvedSessionId,

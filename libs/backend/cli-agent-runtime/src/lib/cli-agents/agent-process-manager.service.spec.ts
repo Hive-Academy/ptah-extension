@@ -1109,4 +1109,72 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       blockerControls.resolve(0);
     });
   });
+
+  /**
+   * TASK_2026_295 — `''` is not a tab id.
+   *
+   * The loop matched `record.parentSessionId === tabId` with no guard, so one
+   * call with an empty tabId re-parented EVERY agent whose parent was also
+   * empty — agents from unrelated sessions, or from none — onto whichever
+   * session happened to resolve first.
+   */
+  describe('resolveParentSessionId()', () => {
+    const spawnWithParent = async (
+      parentSessionId: string | undefined,
+    ): Promise<string> => {
+      const controls = createMockSdkHandle();
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId,
+      });
+      return result.agentId;
+    };
+
+    const parentOf = (agentId: string): string | undefined =>
+      (manager.getStatus(agentId) as { parentSessionId?: string })
+        .parentSessionId;
+
+    it('does not re-parent unrelated agents when the tab id is empty', async () => {
+      const orphan = await spawnWithParent('');
+      const real = await spawnWithParent(
+        '11111111-2222-4333-8444-555555555555',
+      );
+
+      manager.resolveParentSessionId(
+        '',
+        'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      );
+
+      expect(parentOf(orphan)).toBe('');
+      expect(parentOf(real)).toBe('11111111-2222-4333-8444-555555555555');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('blank id'),
+        expect.anything(),
+      );
+    });
+
+    it('does not rewrite a parent to an empty real session id', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-111111111111';
+      const agentId = await spawnWithParent(tabId);
+
+      manager.resolveParentSessionId(tabId, '');
+
+      expect(parentOf(agentId)).toBe(tabId);
+    });
+
+    it('still remaps matching agents for a real tab id', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-222222222222';
+      const realSessionId = '11111111-2222-4333-8444-555555555555';
+      const matching = await spawnWithParent(tabId);
+      const other = await spawnWithParent('');
+
+      manager.resolveParentSessionId(tabId, realSessionId);
+
+      expect(parentOf(matching)).toBe(realSessionId);
+      expect(parentOf(other)).toBe('');
+    });
+  });
 });

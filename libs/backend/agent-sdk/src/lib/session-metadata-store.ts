@@ -398,6 +398,17 @@ export class SessionMetadataStore {
     name: string,
     kind: SessionMetadataChangeKind = 'created',
   ): Promise<SessionMetadata> {
+    // Same invariant SessionRegistry.bindRealSessionId enforces on the same
+    // value three lines away in SdkAgentAdapter. A record keyed by '' is not a
+    // session anyone can address: the sidebar, the resume path and the
+    // authorization layer all look sessions up by id, and there is no sensible
+    // metadata to return for a session that has no identity (TASK_2026_295).
+    if (!sessionId || sessionId.trim().length === 0) {
+      throw new SdkError(
+        'Cannot create session metadata with an empty sessionId — the SDK session UUID from the system init message is the only valid key.',
+      );
+    }
+
     const existing = await this.get(sessionId);
     if (existing) {
       this.logger.info(

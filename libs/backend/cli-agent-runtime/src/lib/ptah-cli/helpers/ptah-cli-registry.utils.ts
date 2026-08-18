@@ -29,6 +29,24 @@ export function generateAgentId(): string {
 }
 
 /**
+ * Collapse a blank session id to `undefined`.
+ *
+ * `''` is a third state nothing in the session model intends:
+ * `AgentProcessInfo.parentSessionId` is optional (absent = `undefined`) and the
+ * branded `SessionId` requires a UUID. An empty string survives `??` chains, so
+ * a caller that passes `parentSessionId: ''` silently defeats every
+ * `a ?? b ?? fallback` default downstream. Normalise at the boundary instead of
+ * teaching each consumer a second spelling of "absent".
+ */
+export function blankToUndefined(
+  value: string | undefined,
+): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
  * Summarize tool input for display in structured segments.
  *
  * Extracts the most useful field from the tool input object

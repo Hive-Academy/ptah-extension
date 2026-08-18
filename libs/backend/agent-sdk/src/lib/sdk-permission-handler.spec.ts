@@ -557,6 +557,41 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
     expect(interactiveResult).toMatchObject({ behavior: 'deny' });
     expect(cliResult).toMatchObject({ behavior: 'deny' });
   });
+
+  // TASK_2026_295: `if (sessionId)` sent '' down the no-arg branch, so a caller
+  // that lost its id nuked every pending permission in the process — an
+  // unrelated live session received a systemAbort deny, which the model reads
+  // as the user refusing the tool.
+  it('cleanupPendingPermissions - an empty sessionId must NOT take the global branch', async () => {
+    const { handler } = makeHandler();
+
+    const OTHER_SESSION = 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa';
+    const callback = handler.createCallback(asSessionId(OTHER_SESSION));
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-empty-cleanup',
+      },
+    );
+
+    await flushMicrotasks();
+
+    handler.cleanupPendingPermissions('');
+    await flushMicrotasks();
+
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    // The unrelated request is still live and still resolvable on its own terms.
+    handler.cleanupPendingPermissions(OTHER_SESSION);
+    await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
+  });
 });
 
 describe('SdkPermissionHandler - per-session level resolver', () => {
@@ -791,6 +826,76 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
       expect(internal.pendingRequests.has(requestId)).toBe(false);
       expect(internal.pendingRequestContext.has(requestId)).toBe(false);
       expect(jest.getTimerCount()).toBe(0);
+
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // TASK_2026_295: a CLI-agent request has no UUID session or tab, but
+  // sendPermissionRequest routes it to the agent monitor panel by agentId, the
+  // panel renders it, and the answer returns via agent:permissionResponse →
+  // handleResponse(requestId) — a round trip that involves no session or tab.
+  // Classifying it unroutable gave the user a real, visible prompt that
+  // auto-denied itself after 60s.
+  it('a CLI-agent request is routable: it goes to the agent monitor panel, arms NO deny timer, and stays answerable', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, sent } = makeHandler();
+      const callback = handler.createCallback(
+        // No UUID session id and no tabId — the parentless ptah-cli spawn.
+        undefined,
+        () => 'agent-cli-7',
+        undefined,
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-cli-agent' },
+      );
+
+      await flushMicrotasks();
+
+      const monitorMessage = sent.find(
+        (m) => m.type === MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+      );
+      if (!monitorMessage) {
+        throw new Error(
+          'expected an AGENT_MONITOR_PERMISSION_REQUEST to be sent',
+        );
+      }
+      const agentPayload = monitorMessage.payload as unknown as {
+        requestId: string;
+        agentId: string;
+        timeoutAt: number;
+      };
+      expect(agentPayload.agentId).toBe('agent-cli-7');
+      // timeoutAt 0 == wait indefinitely, same as any routable webview prompt.
+      expect(agentPayload.timeoutAt).toBe(0);
+
+      // No 60s auto-deny timer armed at all.
+      expect(jest.getTimerCount()).toBe(0);
+
+      await jest.advanceTimersByTimeAsync(120_000);
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await flushMicrotasks();
+      expect(settled).toBe(false);
+
+      // And the user's eventual answer still resolves it, keyed on requestId
+      // alone — the path agent:permissionResponse takes.
+      handler.handleResponse(agentPayload.requestId, {
+        id: agentPayload.requestId,
+        decision: 'allow',
+      });
+
+      const result = (await pending) as unknown as { behavior: string };
+      expect(result.behavior).toBe('allow');
 
       ac.abort();
     } finally {

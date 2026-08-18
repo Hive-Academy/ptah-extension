@@ -548,6 +548,40 @@ describe('MemoryTriggerService', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * TASK_2026_295 — `sessions` holds ONE idle timer per session id, so two
+   * sessions both reporting `''` used to share a single slot: the second
+   * `onActivity` cleared the first's timer and only one of the two was ever
+   * curated. An empty id is not a session, so no timer is armed for it at all.
+   */
+  it('arms no idle timer for activity with an empty sessionId', async () => {
+    const { service, activity, stop, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 100,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    activity.registry.notifyAll({
+      sessionId: '',
+      workspaceRoot: '/ws/A',
+      role: 'user',
+      timestamp: 1,
+    });
+    activity.registry.notifyAll({
+      sessionId: '',
+      workspaceRoot: '/ws/B',
+      role: 'user',
+      timestamp: 2,
+    });
+    jest.advanceTimersByTime(150);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    // Before the fix exactly ONE curate fired here — for /ws/B, the session
+    // that happened to arrive second. /ws/A was lost with no error.
+    expect(curator.curate).not.toHaveBeenCalled();
+  });
+
   it('turn-complete fires at exactly N Stop hooks', async () => {
     const { service, stop, curator } = buildService({
       workspace: makeWorkspace({

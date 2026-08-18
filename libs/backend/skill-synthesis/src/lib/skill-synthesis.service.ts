@@ -415,6 +415,19 @@ export class SkillSynthesisService {
       );
       return null;
     }
+    // An empty id is not a session, and the queue treats it as one: the table
+    // is `UNIQUE(session_id, stage)`, so EVERY session arriving with `''`
+    // collides on a single row per stage, and the re-open is gated on
+    // `turn_count < ?` — so the first such session's turn count wedges every
+    // later one out, permanently and silently. The rejection belongs here
+    // because this is the one entry point every trigger and the boot scan share.
+    if (sessionId.trim().length === 0) {
+      this.logger.warn(
+        '[skill-synthesis] enqueueAnalyze called with an empty sessionId — rejecting',
+        { source: opts.source, workspaceRoot },
+      );
+      return null;
+    }
     if (!this.queue) {
       this.logger.warn(
         '[skill-synthesis] no queue store registered; enqueue skipped',

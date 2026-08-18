@@ -42,7 +42,10 @@ import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  agentVisibleInSession,
+} from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
   TabManagerService,
@@ -466,6 +469,11 @@ export class ChatViewComponent implements OnDestroy {
    * in canvas/tile mode every tile would otherwise render the same list. Tile
    * mode (SESSION_CONTEXT present) filters by the tile's own resolved session
    * via `parentSessionId`; the main panel keeps the global list unchanged.
+   *
+   * Scoping goes through `agentVisibleInSession`, not a strict `===`: an
+   * interrupted subagent whose owning session was never resolved would
+   * otherwise match no tile at all, so the "N interrupted agents — Resume"
+   * banner never appeared for the agents most likely to need it.
    */
   protected readonly resolvedResumableSubagents = computed<SubagentRecord[]>(
     () => {
@@ -473,7 +481,7 @@ export class ChatViewComponent implements OnDestroy {
       if (!this._sessionContext) return all;
       const sid = this.resolvedSessionId();
       if (!sid) return [];
-      return all.filter((s) => s.parentSessionId === sid);
+      return all.filter((s) => agentVisibleInSession(s.parentSessionId, sid));
     },
   );
 

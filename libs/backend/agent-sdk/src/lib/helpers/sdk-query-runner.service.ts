@@ -423,8 +423,15 @@ export class SdkQueryRunner {
   private buildOneShotHooks(
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+    // One synthetic id for BOTH handlers. A one-shot query has no Ptah session
+    // id at all, and passing none to the subagent handler left every subagent
+    // it spawns unregistered — the SubagentStart gate needs a parent id, and
+    // the payload one only arrives once the SDK has started (TASK_2026_295).
     const oneShotSessionId = `internal-query-${Date.now()}`;
+    const subagentHooks = this.subagentHookHandler.createHooks(
+      cwd,
+      oneShotSessionId,
+    );
     const compactionHooks = this.compactionHookHandler.createHooks(
       oneShotSessionId,
       cwd,

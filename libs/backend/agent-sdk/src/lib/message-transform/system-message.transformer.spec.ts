@@ -91,6 +91,54 @@ describe('SystemMessageTransformer', () => {
       ).toHaveBeenCalledWith('active-sess');
     });
 
+    // TASK_2026_295: `sessionId || activeIds[0] || sdkMessage.session_id` put
+    // the most-recently-active session AHEAD of the id the SDK stamped on this
+    // very message. With two live sessions, pruneSession and
+    // clearSessionTokenSnapshot ran against the wrong one and the
+    // compaction_complete event was addressed to it too.
+    it('prefers the SDK message session_id over the most-recently-active session', () => {
+      const helpers = makeHelpers(['some-other-active-sess']);
+      const msg = {
+        compact_metadata: { trigger: 'auto' as const, pre_tokens: 100 },
+        session_id: 'authoritative-sess',
+      } as never;
+
+      const events = transformer.transformCompactBoundary(msg, state, helpers);
+
+      expect(events).toHaveLength(1);
+      expect((events[0] as { sessionId: string }).sessionId).toBe(
+        'authoritative-sess',
+      );
+      expect(helpers.subagentRegistry.pruneSession).toHaveBeenCalledWith(
+        'authoritative-sess',
+      );
+      expect(
+        helpers.usageTracker.clearSessionTokenSnapshot,
+      ).toHaveBeenCalledWith('authoritative-sess');
+      expect(helpers.subagentRegistry.pruneSession).not.toHaveBeenCalledWith(
+        'some-other-active-sess',
+      );
+    });
+
+    it('still lets the caller id win — it is the routing key for harness and wizard streams', () => {
+      const helpers = makeHelpers(['some-other-active-sess']);
+      const msg = {
+        compact_metadata: { trigger: 'auto' as const, pre_tokens: 100 },
+        session_id: 'authoritative-sess',
+      } as never;
+
+      const events = transformer.transformCompactBoundary(
+        msg,
+        state,
+        helpers,
+        'harness-stream-1' as never,
+      );
+
+      expect((events[0] as { sessionId: string }).sessionId).toBe(
+        'harness-stream-1',
+      );
+    });
+
     it('skips emission and warns when no sessionId can be resolved', () => {
       const helpers = makeHelpers([]);
       const msg = {

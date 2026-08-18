@@ -116,7 +116,24 @@ export class ObservationQueueStore {
     private readonly connection: SqliteConnectionService,
   ) {}
 
+  /**
+   * Capture one observation.
+   *
+   * A row whose `sessionId` is empty is refused rather than written, because
+   * such a row is UN-DRAINABLE and UN-REAPABLE by construction: every read path
+   * here filters `WHERE session_id = ?` and nothing ever queries `''`, so it is
+   * never drained, never marked processed, and `purgeOlderThan` only deletes
+   * rows that WERE processed. It would sit in the table forever, counted by
+   * `countUnprocessed` for a session that cannot be curated.
+   */
   insert(row: ObservationQueueInsert): void {
+    if (row.sessionId.trim().length === 0) {
+      this.logger.warn(
+        '[memory-curator] observation-queue insert skipped — empty sessionId',
+        { kind: row.kind, workspaceRoot: row.workspaceRoot },
+      );
+      return;
+    }
     const db = this.connection.db;
     const stmt = db.prepare(
       `INSERT INTO observation_queue

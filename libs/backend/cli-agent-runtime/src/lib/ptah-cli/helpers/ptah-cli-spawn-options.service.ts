@@ -41,6 +41,7 @@ import {
   OUTPUT_STYLE_TOKENS,
   type OutputStyleSessionActivationService,
 } from '@ptah-extension/output-styles';
+import { blankToUndefined } from './ptah-cli-registry.utils';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -64,6 +65,35 @@ export interface PtahSpawnAssembly {
    * already folded into `systemPromptContent` and never reaches here.
    */
   readonly outputStyleName: string | undefined;
+}
+
+/**
+ * The two session ids a spawn's hooks need. They are DIFFERENT ids and are
+ * deliberately not interchangeable — see `assembleSpawnOptions`.
+ */
+export interface PtahSpawnSessionContext {
+  /**
+   * The session that ASKED for this agent — a chat session, or the tab id it
+   * still carries until the SDK resolves the real UUID.
+   *
+   * `SubagentHookHandler` registers a nested subagent only when it has this id
+   * (`handleSubagentStart` gates on `toolUseId && parentSessionId`), and
+   * `SubagentRegistryService` is queried by it. Omitting it is why
+   * `subagent:send-message`, `subagent:stop`, background listing and resume
+   * were all dead for subagents started INSIDE a Ptah CLI agent.
+   */
+  readonly parentSessionId?: string;
+  /**
+   * This agent's OWN SDK session id, known only when resuming — a fresh
+   * spawn's id does not exist until the system `init` message arrives.
+   *
+   * This is NEVER the parent's id. `MemoryCuratorService` feeds a compaction's
+   * session id straight to `transcriptReader.read(sessionId, cwd)`, so the
+   * parent's id here would curate the PARENT's conversation as if the child
+   * had compacted — and a parent id is frequently a tab id, which is not a
+   * transcript at all.
+   */
+  readonly ownSessionId?: string;
 }
 
 @injectable()
@@ -101,6 +131,9 @@ export class PtahCliSpawnOptions {
    *   resolved from `modelTier` by `PtahCliRegistry.spawnAgent`. Feeds the
    *   model-identity clarification; passing the wrong value here is what made
    *   a `modelTier: 'sonnet'` agent announce the opus model.
+   * @param sessionContext - The parent session id (for subagent registration)
+   *   and this agent's own session id (for compaction). See
+   *   {@link PtahSpawnSessionContext} — they are not interchangeable.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -108,6 +141,7 @@ export class PtahCliSpawnOptions {
     cwd: string,
     projectGuidance?: string,
     resolvedModel?: string,
+    sessionContext?: PtahSpawnSessionContext,
   ): Promise<PtahSpawnAssembly> {
     const mcpServerRunning = this.isMcpServerRunning();
     const enhancedPromptsContent =
@@ -141,15 +175,36 @@ export class PtahCliSpawnOptions {
           },
         }
       : {};
+    const parentSessionId = blankToUndefined(sessionContext?.parentSessionId);
+    const ownSessionId = blankToUndefined(sessionContext?.ownSessionId);
     let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
     if (this.subagentHookHandler || this.compactionHookHandler) {
       hooks = {};
       if (this.subagentHookHandler) {
-        const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+        if (!parentSessionId) {
+          this.logger.warn(
+            '[PtahCliSpawnOptions] No parent session id for this spawn — subagents started INSIDE this agent will not be registered, so steering, stopping and resuming them will not work',
+            { cwd },
+          );
+        }
+        const subagentHooks = this.subagentHookHandler.createHooks(
+          cwd,
+          parentSessionId,
+        );
         Object.assign(hooks, subagentHooks);
       }
       if (this.compactionHookHandler) {
-        const compactionHooks = this.compactionHookHandler.createHooks('', cwd);
+        // The COMPACTING session, which is this agent's own — never the
+        // parent's (that would curate the parent's transcript as if the child
+        // had compacted). A fresh spawn has no id yet: it arrives in the
+        // system `init` message, and the handler reads `input.session_id`
+        // first for exactly that reason. `''` is the absent marker the handler
+        // expects, identical to what `SdkQueryOptionsBuilder.createHooks`
+        // captures for a new chat session (TASK_2026_293).
+        const compactionHooks = this.compactionHookHandler.createHooks(
+          ownSessionId ?? '',
+          cwd,
+        );
         Object.assign(hooks, compactionHooks);
       }
     }
@@ -170,6 +225,8 @@ export class PtahCliSpawnOptions {
       compactionEnabled: compactionConfig?.enabled ?? false,
       hasIdentityPrompt: !!activeProviderId,
       outputStyleName: outputStyle.outputStyleName ?? null,
+      parentSessionId: parentSessionId ?? null,
+      ownSessionId: ownSessionId ?? null,
     });
 
     return {

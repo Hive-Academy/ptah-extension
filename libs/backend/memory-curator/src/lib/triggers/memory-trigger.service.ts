@@ -214,8 +214,15 @@ export class MemoryTriggerService {
    * Session activity drives the idle timer only. The authoritative
    * "turn complete" signal is the SDK `Stop` hook ({@link onStop}); the
    * legacy activity-based turn counter has been retired in favour of it.
+   *
+   * The empty-id check is the same one every other handler here makes, and it
+   * matters MORE on this path than on the ones that only read: `sessions` is
+   * keyed by session id and holds one idle timer per key, so two sessions both
+   * reporting `''` share a single slot — the second `onActivity` clears the
+   * first's timer, and only one of them is ever curated.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 

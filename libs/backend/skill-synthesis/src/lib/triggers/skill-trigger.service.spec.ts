@@ -449,6 +449,38 @@ describe('SkillTriggerService', () => {
     );
   });
 
+  /**
+   * TASK_2026_295 — `sessions` holds ONE idle timer per session id, so two
+   * sessions both reporting `''` used to share a single slot: the second
+   * `onActivity` cleared the first's timer and only one of the two was ever
+   * analysed. An empty id is not a session, so no timer is armed for it.
+   */
+  it('arms no idle timer for activity with an empty sessionId', async () => {
+    const { service, activity, synthesis } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.idleMs': 100,
+      }),
+    });
+    service.start();
+    activity.registry.notifyAll({
+      sessionId: '',
+      workspaceRoot: '/ws/A',
+      role: 'user',
+      timestamp: 1,
+    });
+    activity.registry.notifyAll({
+      sessionId: '',
+      workspaceRoot: '/ws/B',
+      role: 'user',
+      timestamp: 2,
+    });
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    // Before the fix exactly ONE enqueue fired — for /ws/B, whichever session
+    // reported activity last. /ws/A was silently dropped.
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+  });
+
   it('idle timer resets on new activity', async () => {
     const { service, activity, synthesis } = buildService({
       workspace: makeWorkspace({

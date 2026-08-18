@@ -12,6 +12,7 @@ import {
   narrowTerminalReason,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 
 /**
@@ -48,15 +49,11 @@ export class StopFailureHookHandler {
                 if (!sdkAdapterEvents) {
                   return { continue: true };
                 }
-                const resolvedSessionId =
-                  typeof input.session_id === 'string' &&
-                  input.session_id.length > 0
-                    ? input.session_id
-                    : sessionId;
-                const resolvedCwd =
-                  typeof input.cwd === 'string' && input.cwd.length > 0
-                    ? input.cwd
-                    : cwd;
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                const resolvedCwd = resolveHookCwd(input.cwd, cwd);
                 const terminalReason = narrowTerminalReason(input);
 
                 if (!resolvedSessionId || !resolvedCwd) {

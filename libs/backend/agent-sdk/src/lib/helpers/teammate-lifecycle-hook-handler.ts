@@ -13,6 +13,7 @@ import {
   isTeammateIdleHook,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookSessionId } from './hook-session-resolver';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 
 /**
@@ -133,10 +134,10 @@ export class TeammateLifecycleHookHandler {
             },
           );
 
-          const resolvedSessionId =
-            typeof input.session_id === 'string' && input.session_id.length > 0
-              ? input.session_id
-              : sessionId;
+          const resolvedSessionId = resolveHookSessionId(
+            input.session_id,
+            sessionId,
+          );
 
           if (sdkAdapterEvents && resolvedSessionId && cwd) {
             sdkAdapterEvents.emitTeammateIdle({

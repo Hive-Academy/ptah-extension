@@ -852,12 +852,23 @@ export class AgentRpcHandlers {
       workspaceRoot,
     );
 
+    // The parent session must reach BOTH halves of the resume. spawnAgent used
+    // to be called without it while spawnFromSdkHandle below received it, so
+    // the SDK-side agent ran with no parent: its nested subagents registered
+    // against nothing and its CLI session reference was dropped on persist.
+    // An empty id is not a parent — normalize it to absent rather than
+    // threading a value that identifies no session.
+    const parentSessionId = params.parentSessionId
+      ? params.parentSessionId
+      : undefined;
+
     const spawnResult = await this.ptahCliRegistry.spawnAgent(
       params.ptahCliId,
       params.task,
       {
         workingDirectory: workspaceRoot,
         resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+        parentSessionId,
       },
     );
 
@@ -890,7 +901,7 @@ export class AgentRpcHandlers {
         task: params.task,
         cli: 'ptah-cli',
         workingDirectory: workspaceRoot,
-        parentSessionId: params.parentSessionId,
+        parentSessionId,
         ptahCliName: spawnResult.agentName,
         ptahCliId: params.ptahCliId,
         resumedFromAgentId: params.previousAgentId,

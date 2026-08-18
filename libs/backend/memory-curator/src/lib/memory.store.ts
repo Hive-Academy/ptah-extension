@@ -129,6 +129,19 @@ function rowToChunk(row: ChunkRow): MemoryChunk {
   };
 }
 
+/**
+ * `''` is not a session id — the branded `SessionId` is a UUID — so an empty
+ * string arriving here is an upstream defect, not a scope. Stored verbatim it
+ * becomes a third state: a row attributed to "the empty session", which reads
+ * back as legitimately scoped and collides with every other row that shared the
+ * same defect. `NULL` is the value the column already has for "this memory has
+ * no session", and it is the honest one.
+ */
+function sessionIdOrNull(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return value.trim().length > 0 ? value : null;
+}
+
 @injectable()
 export class MemoryStore implements IMemoryLister {
   /** Per-workspace write generation counter. Key '' = global (no workspace). */
@@ -172,7 +185,7 @@ export class MemoryStore implements IMemoryLister {
     const filesArr = insert.files ?? [];
     const memoryParams = {
       id,
-      session_id: insert.sessionId ?? null,
+      session_id: sessionIdOrNull(insert.sessionId),
       workspace_root: insert.workspaceRoot ?? null,
       tier: insert.tier,
       kind: insert.kind,

@@ -203,8 +203,8 @@ export class MemoryCuratorService {
     salienceBoost?: number;
     signal?: AbortSignal;
   }): Promise<CuratorRunStats> {
-    const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
-    const existing = this.inFlight.get(key);
+    const key = this.coalesceKey(input);
+    const existing = key === null ? undefined : this.inFlight.get(key);
     if (existing) return existing;
     const work = this.tracer
       .startSpan(
@@ -213,10 +213,34 @@ export class MemoryCuratorService {
         () => this.doCurate(input),
       )
       .finally(() => {
-        this.inFlight.delete(key);
+        if (key !== null) this.inFlight.delete(key);
       });
-    this.inFlight.set(key, work);
+    if (key !== null) this.inFlight.set(key, work);
     return work;
+  }
+
+  /**
+   * The in-flight coalescing key, or `null` when this run must NOT coalesce.
+   *
+   * Coalescing is keyed on identity, and an empty session id is not one. Two
+   * unrelated sessions in the same workspace both arriving with `''` produced
+   * the identical key `"/ws::"`, so the second caller was handed the FIRST
+   * session's promise: session B's transcript was never curated, while its
+   * caller received A's `CuratorRunStats` and reported success. Silent
+   * cross-session curation loss, indistinguishable from a clean run.
+   *
+   * Returning `null` lets both runs proceed independently. It is deliberately
+   * not a rejection — the transcript is still real work, and the memories it
+   * produces are stored with a NULL session (see {@link MemoryStore}), which is
+   * the honest record of "we do not know which session this came from".
+   */
+  private coalesceKey(input: {
+    sessionId: string;
+    workspaceRoot?: string | null;
+  }): string | null {
+    const sessionId = input.sessionId.trim();
+    if (sessionId.length === 0) return null;
+    return `${input.workspaceRoot ?? ''}::${sessionId}`;
   }
 
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */

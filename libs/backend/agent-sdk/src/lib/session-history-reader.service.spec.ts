@@ -442,6 +442,24 @@ describe('SessionHistoryReaderService', () => {
         service.readHistoryAsMessages('valid', '/workspace'),
       ).resolves.toEqual([]);
     });
+
+    // TASK_2026_293 — a malformed id is a soft miss (every caller reads `[]`
+    // as "no history"), so it must not be logged as a failed read of a real
+    // session. An ERROR nobody treats as an error hides the next real one.
+    it('warns rather than errors on a malformed sessionId, naming the value', async () => {
+      const stubs = makeStubs();
+      const service = makeService(stubs);
+
+      await expect(
+        service.readHistoryForCuration('', '/workspace'),
+      ).resolves.toEqual([]);
+
+      expect(stubs.logger.error).not.toHaveBeenCalled();
+      expect(stubs.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid sessionId'),
+        expect.objectContaining({ sessionId: '' }),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

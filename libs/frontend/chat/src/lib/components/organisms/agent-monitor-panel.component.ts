@@ -470,7 +470,12 @@ export class AgentMonitorPanelComponent {
   /** Panel open state. When provided, panel uses this instead of global store. */
   readonly embeddedOpen = input<boolean | undefined>(undefined);
 
-  /** Session ID for scoped clear operations. Required in embedded mode. */
+  /**
+   * Owning session of this panel. `null` means the GLOBAL panel (no scope, act
+   * across every session). A string means a scoped surface — and `''` means a
+   * scoped surface whose session has not resolved yet, which must act on
+   * NOTHING rather than silently widening to global.
+   */
   readonly sessionId = input<string | null>(null);
 
   /** Emits when close button clicked in embedded mode. */
@@ -516,9 +521,11 @@ export class AgentMonitorPanelComponent {
    */
   readonly effectiveWorkflowSubagents = computed<SubagentRecord[]>(() => {
     const sid = this.sessionId();
-    return sid
-      ? this.store.workflowSubagentsForSession(sid)
-      : this.store.activeWorkflowSubagents();
+    if (sid === null) return this.store.activeWorkflowSubagents();
+    // A scoped tile whose session is still empty must render nothing. The old
+    // falsy test sent it down the active-tab branch, so the tile showed ANOTHER
+    // session's workflow run groups.
+    return sid ? this.store.workflowSubagentsForSession(sid) : [];
   });
 
   /**
@@ -755,11 +762,14 @@ export class AgentMonitorPanelComponent {
 
   onClearCompleted(): void {
     const sid = this.sessionId();
-    if (sid) {
-      this.store.clearCompletedInSession(sid);
-    } else {
+    if (sid === null) {
       this.store.clearCompleted();
+      return;
     }
+    // Scoped surface. With an unresolved session this used to fall through to
+    // the global clear and wipe every OTHER session's completed agents, so an
+    // empty scope now clears nothing.
+    if (sid) this.store.clearCompletedInSession(sid);
   }
 
   allowPermission(agentId: string, perm: AgentPermissionRequest): void {

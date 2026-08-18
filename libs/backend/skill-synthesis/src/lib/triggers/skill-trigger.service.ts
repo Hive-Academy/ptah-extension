@@ -177,7 +177,17 @@ export class SkillTriggerService {
     this.logger.info('[skill-synthesis] trigger service stopped');
   }
 
+  /**
+   * Arm the idle timer for a session.
+   *
+   * The empty-id check matches `onStop` and `onPostToolUse`, and this path is
+   * where it bites hardest: `sessions` is keyed by session id and holds ONE
+   * idle timer per key, so two sessions both reporting `''` share a single
+   * slot — the second call clears the first's timer, and only one of the two is
+   * ever analysed.
+   */
   private onActivity(payload: SessionActivityPayload): void {
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 

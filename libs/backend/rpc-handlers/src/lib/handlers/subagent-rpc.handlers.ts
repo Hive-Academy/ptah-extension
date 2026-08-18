@@ -135,7 +135,17 @@ export class SubagentRpcHandlers {
             const record = this.registry.get(toolCallId);
             return { subagents: record ? [record] : [] };
           }
-          if (sessionId) {
+          // A sessionId that is present but empty is a scoped query whose
+          // scope cannot be resolved — answer with nothing. Falling through to
+          // the unscoped branch offered this session the chance to resume
+          // another session's interrupted subagents.
+          if (sessionId !== undefined) {
+            if (sessionId === '') {
+              this.logger.warn(
+                'RPC: subagent:query received an empty sessionId — returning no subagents',
+              );
+              return { subagents: [] };
+            }
             const subagents = this.registry.getResumableBySession(sessionId);
             this.logger.debug('RPC: subagent:query by session result', {
               sessionId,

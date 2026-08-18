@@ -814,6 +814,10 @@ export class InlineAgentBubbleComponent {
         node.id,
         node.toolCallId ?? undefined,
         description,
+        // Owning session, so the description lookup cannot match an agent that
+        // a DIFFERENT session resumed. Falls back to the focused tab inside the
+        // store when the record has no resolved owner.
+        this.subagentRecord()?.parentSessionId,
       );
     }
     return false;

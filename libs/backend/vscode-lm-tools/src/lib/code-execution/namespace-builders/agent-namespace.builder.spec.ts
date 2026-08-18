@@ -185,6 +185,45 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
     );
   });
 
+  // TASK_2026_295 — an empty request.parentSessionId is absent, not supplied.
+  // `request.parentSessionId ?? getActiveSessionId?.()` does NOT fall through
+  // on '', so the empty id both suppressed the fallback AND was then discarded
+  // by the truthiness check — the spawn proceeded with no parent at all.
+  it('treats an empty request.parentSessionId as absent and falls back to getActiveSessionId()', async () => {
+    const { deps, mocks } = makeDeps({
+      getActiveSessionId: () => 'tab-1',
+      resolveSessionId: (s) => (s === 'tab-1' ? 'session-uuid-1' : s),
+    });
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      parentSessionId: '',
+    } as SpawnAgentRequest);
+
+    expect(mocks.processManager.spawn.mock.calls[0][0].parentSessionId).toBe(
+      'session-uuid-1',
+    );
+  });
+
+  it('leaves parentSessionId undefined when it is empty and there is no active session', async () => {
+    const { deps, mocks } = makeDeps({ resolveSessionId: (s) => s });
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      parentSessionId: '',
+    } as SpawnAgentRequest);
+
+    expect(
+      mocks.processManager.spawn.mock.calls[0][0].parentSessionId,
+    ).toBeUndefined();
+  });
+
   it('throws when request.cli is listed in getDisabledClis', async () => {
     const { deps } = makeDeps({ getDisabledClis: () => ['codex'] });
     await expect(

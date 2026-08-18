@@ -5,6 +5,7 @@ import {
   SessionState as SessionStateInterface,
   SessionStatus,
 } from '@ptah-extension/chat-types';
+import { knownSessionId } from './session-scope';
 
 /**
  * Session state machine values
@@ -170,6 +171,13 @@ export class SessionManager {
    *   session (scoped clear). When omitted, clears ALL sessions (full reset —
    *   used by `clearSession`). The scoped form prevents a new conversation in
    *   one workspace from wiping a session streaming in a background workspace.
+   *
+   * The scoped clear also drops UNOWNED entries — nodes registered before
+   * their session resolved (`registerAgent` refuses to record `''` as an
+   * owner). An unowned node belongs to no session, so no scoped clear could
+   * ever name it: it survived every `/clear` and leaked into the next
+   * conversation's execution tree. Nothing else can claim it, so the next
+   * conversation boundary is where it goes.
    */
   clearNodeMaps(sessionId?: string): void {
     if (sessionId === undefined) {
@@ -179,8 +187,14 @@ export class SessionManager {
       this._nodeSessionOwner.clear();
       return;
     }
-    for (const [key, owner] of this._nodeSessionOwner) {
-      if (owner !== sessionId) continue;
+    const keys = new Set<string>([
+      ...this._agentNodeMap.keys(),
+      ...this._toolNodeMap.keys(),
+      ...this._pendingAgentChunks.keys(),
+    ]);
+    for (const key of keys) {
+      const owner = this._nodeSessionOwner.get(key);
+      if (owner !== undefined && owner !== sessionId) continue;
       this._agentNodeMap.delete(key);
       this._toolNodeMap.delete(key);
       this._pendingAgentChunks.delete(key);
@@ -198,13 +212,14 @@ export class SessionManager {
     this._toolNodeMap.clear();
     this._nodeSessionOwner.clear();
 
+    const owner = knownSessionId(sessionId);
     for (const [key, value] of nodeMaps.agents) {
       this._agentNodeMap.set(key, value);
-      if (sessionId !== undefined) this._nodeSessionOwner.set(key, sessionId);
+      if (owner) this._nodeSessionOwner.set(key, owner);
     }
     for (const [key, value] of nodeMaps.tools) {
       this._toolNodeMap.set(key, value);
-      if (sessionId !== undefined) this._nodeSessionOwner.set(key, sessionId);
+      if (owner) this._nodeSessionOwner.set(key, owner);
     }
   }
 
@@ -224,8 +239,9 @@ export class SessionManager {
     sessionId?: string,
   ): string[] {
     this._agentNodeMap.set(toolCallId, node);
-    if (sessionId !== undefined) {
-      this._nodeSessionOwner.set(toolCallId, sessionId);
+    const owner = knownSessionId(sessionId);
+    if (owner) {
+      this._nodeSessionOwner.set(toolCallId, owner);
     }
     const pendingChunks = this._pendingAgentChunks.get(toolCallId);
     if (pendingChunks && pendingChunks.length > 0) {
@@ -312,8 +328,9 @@ export class SessionManager {
     sessionId?: string,
   ): void {
     this._toolNodeMap.set(toolCallId, node);
-    if (sessionId !== undefined) {
-      this._nodeSessionOwner.set(toolCallId, sessionId);
+    const owner = knownSessionId(sessionId);
+    if (owner) {
+      this._nodeSessionOwner.set(toolCallId, owner);
     }
   }
 

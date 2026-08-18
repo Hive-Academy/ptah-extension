@@ -331,4 +331,125 @@ describe('ObservationQueueStore (native-gated)', () => {
       }
     },
   );
+
+  /**
+   * TASK_2026_295 — a row with an empty session id is refused, not written.
+   *
+   * Such a row is un-drainable and un-reapable by construction: every read
+   * filters `WHERE session_id = ?` and nothing queries `''`, so it is never
+   * drained, never marked processed, and `purgeOlderThan` only deletes rows
+   * that WERE processed. It would sit in the table forever while
+   * `countUnprocessed('')` kept counting it.
+   */
+  maybe(
+    'refuses a row with an empty sessionId — nothing reaches the table',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const captured: string[] = [];
+        store.onCapture((evt) => captured.push(evt.kind));
+
+        store.insert({
+          sessionId: '',
+          workspaceRoot: '/ws/A',
+          kind: 'tool-use',
+          toolName: 'Read',
+        });
+        store.insert({
+          sessionId: '   ',
+          workspaceRoot: '/ws/A',
+          kind: 'assistant-turn',
+        });
+
+        const total = service.db
+          .prepare(`SELECT COUNT(*) AS n FROM observation_queue`)
+          .get() as { n: number };
+        expect(total.n).toBe(0);
+        expect(store.countUnprocessed('')).toBe(0);
+        expect(store.drainForSession('')).toEqual([]);
+        expect(store.peekForSession('')).toEqual([]);
+        // No capture event either — a refused row is not an observation.
+        expect(captured).toEqual([]);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe('still writes a row for a real sessionId (control)', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      store.insert({
+        sessionId: 'session-ι',
+        workspaceRoot: '/ws/A',
+        kind: 'tool-use',
+        toolName: 'Read',
+      });
+      expect(store.countUnprocessed('session-ι')).toBe(1);
+    } finally {
+      service.close();
+    }
+  });
+});
+
+/**
+ * TASK_2026_295 — the same refusal, pinned WITHOUT the native binary.
+ *
+ * The round-trip block above is gated on `better-sqlite3` loading, which it
+ * does not do under every runner. The guard is the one thing here that must
+ * never regress unobserved, so it is also asserted against a statement stub:
+ * an empty session id means no statement is ever run and no capture event is
+ * published.
+ */
+describe('ObservationQueueStore — empty sessionId is refused (TASK_2026_295)', () => {
+  function makeStubbedStore(): {
+    store: ObservationQueueStore;
+    runMock: jest.Mock;
+    captured: string[];
+  } {
+    const runMock = jest.fn();
+    const connection = {
+      db: {
+        prepare: jest.fn(() => ({ run: runMock, all: jest.fn(() => []) })),
+      },
+    } as unknown as SqliteConnectionService;
+    const store = new ObservationQueueStore(makeLogger(), connection);
+    const captured: string[] = [];
+    store.onCapture((evt) => captured.push(evt.kind));
+    return { store, runMock, captured };
+  }
+
+  it('runs no statement and emits no capture event for an empty sessionId', () => {
+    const { store, runMock, captured } = makeStubbedStore();
+    store.insert({
+      sessionId: '',
+      workspaceRoot: '/ws/A',
+      kind: 'tool-use',
+      toolName: 'Read',
+    });
+    expect(runMock).not.toHaveBeenCalled();
+    expect(captured).toEqual([]);
+  });
+
+  it('runs no statement for a whitespace-only sessionId', () => {
+    const { store, runMock, captured } = makeStubbedStore();
+    store.insert({
+      sessionId: '  ',
+      workspaceRoot: null,
+      kind: 'assistant-turn',
+    });
+    expect(runMock).not.toHaveBeenCalled();
+    expect(captured).toEqual([]);
+  });
+
+  it('writes and publishes for a real sessionId (control)', () => {
+    const { store, runMock, captured } = makeStubbedStore();
+    store.insert({
+      sessionId: '8f1c7d2e-2a5b-4b6e-9d3f-0c1a2b3c4d5e',
+      workspaceRoot: '/ws/A',
+      kind: 'commit',
+    });
+    expect(runMock).toHaveBeenCalledTimes(1);
+    expect(captured).toEqual(['commit']);
+  });
 });

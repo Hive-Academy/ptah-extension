@@ -307,10 +307,14 @@ export class StdioMcpServerService {
         this.sdkInitError = error;
         throw error;
       }
-      const callerSessionId =
+      // A set-but-empty env var reads as '' rather than undefined. Treat it as
+      // absent so the dispatcher spawns with no parent session instead of
+      // threading an id that identifies nothing.
+      const hostSessionId =
         typeof process !== 'undefined'
           ? process.env?.['PTAH_MCP_HOST_SESSION_ID']
           : undefined;
+      const callerSessionId = hostSessionId ? hostSessionId : undefined;
       this.agentDispatcher = new AgentToolDispatcher(
         ptahAPI,
         this.logger,

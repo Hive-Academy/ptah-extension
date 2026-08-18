@@ -55,6 +55,7 @@ import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   PTAH_CLI_KEY_PREFIX,
+  blankToUndefined,
   generateAgentId,
   sanitizeErrorMessage,
 } from './helpers/ptah-cli-registry.utils';
@@ -572,6 +573,12 @@ export class PtahCliRegistry {
       // The tier is already resolved above — hand the identity clarification
       // the same model the spawn runs on rather than letting it guess a tier.
       model || undefined,
+      {
+        parentSessionId: options?.parentSessionId,
+        // The agent's OWN session id, which only exists when resuming. NOT the
+        // parent's — see `PtahSpawnSessionContext.ownSessionId`.
+        ownSessionId: options?.resumeSessionId,
+      },
     );
     const {
       outputCallbacks,
@@ -643,8 +650,8 @@ export class PtahCliRegistry {
           outputStyleName: assembly.outputStyleName,
         }),
         ...this.resolvePermissionOptions(
-          options?.resumeSessionId ??
-            options?.parentSessionId ??
+          blankToUndefined(options?.resumeSessionId) ??
+            blankToUndefined(options?.parentSessionId) ??
             `ptah-cli:${id}`,
           () => agentIdHolder.value,
         ),
@@ -781,9 +788,13 @@ export class PtahCliRegistry {
    *
    * For other modes ('ask', 'auto-edit'), we keep `default` and provide
    * the canUseTool callback so the user sees permission prompts.
+   *
+   * @param routingId - The caller's RAW routing id, which may not be a session
+   *   at all: a spawn with neither a resume nor a parent falls back to
+   *   `ptah-cli:${id}`. It is parsed here exactly once — see the body.
    */
   private resolvePermissionOptions(
-    sessionId?: string,
+    routingId: string,
     cliAgentResolver?: () => string | undefined,
   ): {
     permissionMode: string;
@@ -810,15 +821,32 @@ export class PtahCliRegistry {
       };
     }
 
+    // Two wrong branches used to live here. A non-UUID routing id (`''` from a
+    // caller that minted an empty parent session) collapsed to `undefined`,
+    // which makes the request unroutable and auto-denies every tool prompt on
+    // timeout; anything else non-UUID (the `ptah-cli:${id}` fallback) reached
+    // `SessionId.from`, which THROWS — taking the whole spawn down. Parse once,
+    // keep the raw id as the routing hint so out-of-band observers can still
+    // match the prompt, and say out loud when there is no routable surface.
+    const routableSessionId = SessionId.safeParse(routingId) ?? undefined;
+    if (!routableSessionId) {
+      this.logger.warn(
+        `[PtahCliRegistry] Spawned agent has no routable session id — tool prompts reach the agent monitor panel only, and auto-deny on timeout if that panel is not listening`,
+        { routingHint: routingId, sdkMode, level },
+      );
+    }
     this.logger.info(
       `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
-      { sessionId, hasCanUseTool: true },
+      { sessionId: routableSessionId ?? null, hasCanUseTool: true },
     );
     return {
       permissionMode: sdkMode,
       canUseTool: this.permissionHandler.createCallback(
-        sessionId ? SessionId.from(sessionId) : undefined,
+        routableSessionId,
         cliAgentResolver,
+        undefined,
+        undefined,
+        routingId,
       ),
     };
   }

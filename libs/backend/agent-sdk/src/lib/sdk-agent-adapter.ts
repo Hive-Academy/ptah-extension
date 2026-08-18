@@ -638,6 +638,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
       _tabIdFromCallback: string | undefined,
       realSessionId: string,
     ) => {
+      // StreamTransformer forwards `sdkMessage.session_id` from the system
+      // 'init' message verbatim. A blank one must stop here: it is not a
+      // session id, and letting it through would poison the metadata store,
+      // be rejected by bindRealSessionId anyway, and tell the webview that a
+      // session resolved to '' (TASK_2026_295). This callback is invoked
+      // un-awaited, so a rejection here would surface as an unhandled one.
+      if (!realSessionId || realSessionId.trim().length === 0) {
+        this.logger.warn(
+          `[SdkAgentAdapter] SDK init reported an empty session id — skipping metadata create, bind and resolve notification (tabId: ${tabId})`,
+        );
+        return;
+      }
+
       this.logger.info(
         `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );

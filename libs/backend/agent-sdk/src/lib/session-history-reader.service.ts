@@ -91,9 +91,17 @@ export class SessionHistoryReaderService {
    * @throws Error if sessionId is invalid or contains path traversal characters
    */
   private validateSessionId(sessionId: string): void {
-    if (!sessionId || !this.SESSION_ID_PATTERN.test(sessionId)) {
+    if (!this.isValidSessionId(sessionId)) {
       throw new SdkError(`Invalid sessionId format: ${sessionId}`);
     }
+  }
+
+  /**
+   * Non-throwing form of {@link validateSessionId}, for callers that treat a
+   * bad id as "no history" rather than as an error.
+   */
+  private isValidSessionId(sessionId: string): boolean {
+    return !!sessionId && this.SESSION_ID_PATTERN.test(sessionId);
   }
 
   /**
@@ -251,9 +259,19 @@ export class SessionHistoryReaderService {
       timestamp: number;
     }[]
   > {
-    try {
-      this.validateSessionId(sessionId);
+    // A malformed id is a soft miss here, not an error: every caller of this
+    // method treats `[]` as "no history". Logging it at ERROR with a stack —
+    // as the shared catch below does — made an empty id look like a failed
+    // read of a real session, which is how TASK_2026_293 stayed hidden.
+    if (!this.isValidSessionId(sessionId)) {
+      this.logger.warn(
+        '[SessionHistoryReader] Invalid sessionId, skipping history read',
+        { sessionId },
+      );
+      return [];
+    }
 
+    try {
       const sessionsDir =
         await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {

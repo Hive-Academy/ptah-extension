@@ -78,6 +78,7 @@ import {
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
+  type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
@@ -167,6 +168,8 @@ function makeHarness(
   const showErrorMock = jest.fn();
   const suppressAnimateOnceSig = signal<boolean>(false);
 
+  // Interrupted subagents the "N interrupted agents — Resume" banner reads.
+  const resumableSubagentsSig = signal<SubagentRecord[]>([]);
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
@@ -181,6 +184,7 @@ function makeHarness(
     sessionStatus: signal(null),
     queueRestoreContent: signal(null),
     agentPanelOpen: signal(false),
+    resumableSubagents: resumableSubagentsSig.asReadonly(),
     switchSession: switchSessionMock,
     upsertSessionSummary: upsertSessionSummaryMock,
     removeSessionFromList: removeSessionFromListMock,
@@ -394,6 +398,7 @@ function makeHarness(
     sessionIdSig,
     activeTabIdSig,
     sessionVisibleSig,
+    resumableSubagentsSig,
   };
 }
 
@@ -1056,6 +1061,62 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
 // — otherwise an unscoped tray would flash before the tile is bound to a real
 // session — and scopes the tray to exactly that session once resolved.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// TASK_2026_295 — the "N interrupted agents — Resume" banner in tile mode.
+//
+// The filter was a strict `s.parentSessionId === sid`. An interrupted subagent
+// whose owning session was never resolved matched no tile at all, so the banner
+// never rendered for exactly the agents most likely to need resuming.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — resolvedResumableSubagents() scoping', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  function subagent(
+    parentToolUseId: string,
+    parentSessionId: string | undefined,
+  ): SubagentRecord {
+    return {
+      parentToolUseId,
+      status: 'stopped',
+      parentSessionId,
+    } as SubagentRecord;
+  }
+
+  it('surfaces an interrupted subagent whose owning session was never resolved', () => {
+    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
+    h.resumableSubagentsSig.set([subagent('toolu_ownerless', undefined)]);
+
+    expect(
+      h.component.resolvedResumableSubagents().map((s) => s.parentToolUseId),
+    ).toEqual(['toolu_ownerless']);
+  });
+
+  it('still hides another session`s interrupted subagent', () => {
+    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
+    h.resumableSubagentsSig.set([
+      subagent('toolu_mine', h.sessionId),
+      subagent('toolu_theirs', 'session-other'),
+    ]);
+
+    expect(
+      h.component.resolvedResumableSubagents().map((s) => s.parentToolUseId),
+    ).toEqual(['toolu_mine']);
+  });
+
+  it('leaves the main panel list untouched', () => {
+    const h = makeHarness();
+    h.resumableSubagentsSig.set([
+      subagent('toolu_mine', h.sessionId),
+      subagent('toolu_theirs', 'session-other'),
+    ]);
+
+    expect(h.component.resolvedResumableSubagents()).toHaveLength(2);
+  });
+});
+
 describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => {
   afterEach(() => {
     TestBed.resetTestingModule();

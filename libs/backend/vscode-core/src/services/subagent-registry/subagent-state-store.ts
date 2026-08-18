@@ -141,18 +141,38 @@ export class SubagentStateStore {
     this.injectionAttempts.clear();
   }
 
-  /** Mark a parent session as being torn down. */
+  /**
+   * Mark a parent session as being torn down.
+   *
+   * An empty id is not a session and is ignored. The teardown set is keyed by
+   * parent session id, so admitting `''` would make one session's teardown
+   * window protect every other record that also carries `''` — those records
+   * then stay `interrupted` forever and keep being offered for resume long
+   * after they finished.
+   */
   beginTeardown(parentSessionId: string): void {
+    if (!parentSessionId) {
+      this.logger.warn(
+        '[SubagentRegistryService.beginTeardown] Ignoring teardown marker for an empty parentSessionId',
+      );
+      return;
+    }
     this.teardownSessionIds.add(parentSessionId);
   }
 
   /** Clear the teardown marker for a parent session. */
   endTeardown(parentSessionId: string): void {
+    if (!parentSessionId) {
+      return;
+    }
     this.teardownSessionIds.delete(parentSessionId);
   }
 
   /** Whether a parent session is currently being torn down. */
   isInTeardown(parentSessionId: string): boolean {
+    if (!parentSessionId) {
+      return false;
+    }
     return this.teardownSessionIds.has(parentSessionId);
   }
 

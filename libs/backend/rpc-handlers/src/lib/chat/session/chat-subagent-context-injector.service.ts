@@ -62,9 +62,11 @@ export class ChatSubagentContextInjectorService {
    * for any resumable subagents whose transcript files exist on disk.
    *
    * Side effects:
-   *  1. Agents without a transcript on disk are removed from the registry
-   *     (nothing to resume) and marked injected so history replay does not
-   *     resurrect them.
+   *  1. Agents whose transcript is confirmed ABSENT on disk are removed from
+   *     the registry (nothing to resume) and marked injected so history replay
+   *     does not resurrect them. Agents whose transcript state could not be
+   *     determined are left untouched — removal is permanent here, because
+   *     markAsInjected() also blocks re-registration from history.
    *  2. Each injected agent's attempt counter is incremented; records that
    *     reach MAX_INJECTION_ATTEMPTS without being resumed are removed.
    *  3. Records are otherwise KEPT in the registry — successful resumes are
@@ -112,23 +114,40 @@ export class ChatSubagentContextInjectorService {
         this.subagentRegistry.remove(s.toolCallId);
         continue;
       }
-      const hasTranscript = workspacePath
-        ? await this.ptahCli.hasSubagentTranscript(
+      // No workspace path means we cannot locate any transcript — that is
+      // "could not determine", not "absent", and must not retire the record.
+      const probe = workspacePath
+        ? await this.ptahCli.probeSubagentTranscript(
             workspacePath,
             sessionId,
             s.agentId,
           )
-        : false;
-      if (hasTranscript) {
+        : 'indeterminate';
+
+      if (probe === 'present') {
         resumableSubagents.push(s);
-      } else {
+        continue;
+      }
+
+      if (probe === 'indeterminate') {
+        // Keep the record: a later chat:continue with a resolved session id
+        // can still probe successfully. Skip injection this round rather than
+        // instruct the model to resume an agent we could not verify. No
+        // attempt is counted, so an unverifiable record ages out via TTL
+        // instead of being burned by the attempt cap.
         this.logger.warn(
-          'RPC: chat:continue - skipping agent without transcript on disk',
+          'RPC: chat:continue - could not determine transcript state; keeping interrupted agent',
           { agentId: s.agentId, agentType: s.agentType, sessionId },
         );
-        this.subagentRegistry.markAsInjected(s.toolCallId);
-        this.subagentRegistry.remove(s.toolCallId);
+        continue;
       }
+
+      this.logger.warn(
+        'RPC: chat:continue - skipping agent without transcript on disk',
+        { agentId: s.agentId, agentType: s.agentType, sessionId },
+      );
+      this.subagentRegistry.markAsInjected(s.toolCallId);
+      this.subagentRegistry.remove(s.toolCallId);
     }
 
     if (resumableSubagents.length === 0) {

@@ -14,6 +14,7 @@ import {
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
+  agentVisibleInSession,
   type SubagentRecord,
   type BackgroundAgentEntry,
 } from '@ptah-extension/chat-streaming';
@@ -86,9 +87,11 @@ export class BackgroundAgentTrayComponent {
   private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
 
   /**
-   * Owning-session filter. When set (canvas-tile mode), only agents spawned by
-   * that session are shown so each tile's tray is scoped to its own subagents.
-   * When null (main panel), every agent is shown across all sessions.
+   * Owning-session filter. When set (canvas-tile mode), only agents visible
+   * from that session are shown so each tile's tray is scoped to its own
+   * subagents. When null (main panel), every agent is shown across all
+   * sessions. An empty string is a tile whose session has not resolved yet:
+   * still a scope, so it shows only agents with no owner — never everyone's.
    */
   readonly sessionId = input<string | null>(null);
 
@@ -109,12 +112,14 @@ export class BackgroundAgentTrayComponent {
 
     for (const rec of subagents.values()) {
       if (!this.isActiveSubagent(rec.status)) continue;
-      if (scope && rec.parentSessionId !== scope) continue;
+      if (scope !== null && !agentVisibleInSession(rec.parentSessionId, scope))
+        continue;
       map.set(rec.parentToolUseId, this.fromSubagent(rec));
     }
 
     for (const bg of this.backgroundStore.agents()) {
-      if (scope && bg.sessionId !== scope) continue;
+      if (scope !== null && !agentVisibleInSession(bg.sessionId, scope))
+        continue;
       const taskId = subagents.get(bg.toolCallId)?.taskId;
       map.set(bg.toolCallId, this.fromBackground(bg, taskId));
     }

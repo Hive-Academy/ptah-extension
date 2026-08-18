@@ -212,8 +212,15 @@ export class SubagentRegistryService {
 
   /**
    * When a new registration shares an agentId with an existing interrupted
-   * record, the interrupted agent is being resumed — drop the stale record
-   * so it is no longer reported as resumable.
+   * record IN THE SAME PARENT SESSION, the interrupted agent is being
+   * resumed — drop the stale record so it is no longer reported as resumable.
+   *
+   * The parent-session match is required, not cosmetic. `agentId` is a short
+   * hex string minted by the SDK and is only unique within a session; matching
+   * on it alone let a resume in session A delete session B's interrupted
+   * record. Because removal here is permanent (it also marks the id injected,
+   * which blocks re-registration from history), a missed supersede is the far
+   * cheaper error: the stale record is retired by the injection-attempt cap.
    */
   private removeSupersededInterrupted(
     registration: SubagentRegistration,
@@ -227,6 +234,7 @@ export class SubagentRegistryService {
       if (
         toolCallId !== registration.toolCallId &&
         record.agentId === registration.agentId &&
+        record.parentSessionId === registration.parentSessionId &&
         record.status === 'interrupted'
       ) {
         toRemove.push(toolCallId);
@@ -442,15 +450,32 @@ export class SubagentRegistryService {
    * Background agents have status 'background' and are still running
    * independently of the main agent's turn.
    *
+   * Filter semantics are explicit, not derived from falsiness:
+   * - argument omitted (`undefined`) → no filter, every background agent
+   * - a non-empty id → exact match on that parent session
+   * - an empty string → a filter that cannot identify a session, so it matches
+   *   NOTHING. It used to match everything, which surfaced session B's
+   *   background agents in session A's UI via `agent:backgroundList`.
+   *
    * @param parentSessionId - Optional filter by parent session
    * @returns Array of background SubagentRecords
    */
   getBackgroundAgents(parentSessionId?: string): SubagentRecord[] {
+    if (parentSessionId === '') {
+      this.logger.warn(
+        '[SubagentRegistryService.getBackgroundAgents] Empty parentSessionId is not a filter for all sessions — returning none',
+      );
+      return [];
+    }
+
     const background: SubagentRecord[] = [];
 
     for (const record of this.store.values()) {
       if (record.status === 'background' && !this.store.isExpired(record)) {
-        if (!parentSessionId || record.parentSessionId === parentSessionId) {
+        if (
+          parentSessionId === undefined ||
+          record.parentSessionId === parentSessionId
+        ) {
           background.push(record);
         }
       }
@@ -608,6 +633,16 @@ export class SubagentRegistryService {
    * @param realSessionId - The real SDK session UUID
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
+    // Without this guard an empty tabId matches every record whose parent is
+    // also empty — across all sessions — and rebrands them all as one session.
+    if (!tabId || !realSessionId) {
+      this.logger.warn(
+        '[SubagentRegistryService.resolveParentSessionId] Ignoring resolve with an empty id',
+        { tabId, realSessionId },
+      );
+      return;
+    }
+
     let updatedCount = 0;
 
     for (const record of this.store.values()) {
@@ -773,6 +808,15 @@ export class SubagentRegistryService {
    * @param parentSessionId - The parent session ID to remove subagents for
    */
   removeBySessionId(parentSessionId: string): void {
+    // Mirrors the guard in pruneSession(): an empty id would delete every
+    // record whose parent is also empty, across unrelated sessions.
+    if (!parentSessionId) {
+      this.logger.warn(
+        '[SubagentRegistryService.removeBySessionId] Ignoring removal for an empty parentSessionId',
+      );
+      return;
+    }
+
     const toRemove: string[] = [];
 
     for (const [toolCallId, record] of this.store.entries()) {

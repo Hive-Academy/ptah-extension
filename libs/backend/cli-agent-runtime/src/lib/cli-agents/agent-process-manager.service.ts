@@ -676,8 +676,24 @@ export class AgentProcessManager {
    * Update parentSessionId for all tracked agents that match the given tab ID.
    * Called when the real session UUID is resolved from the SDK, replacing the
    * temporary tab ID so that CLI session persistence uses the correct parent.
+   *
+   * A blank id is not an id. Without this guard, one call with `tabId === ''`
+   * matched every agent whose parent was also `''` — agents belonging to
+   * different sessions, or to none — and re-parented all of them onto whichever
+   * session happened to resolve first. `SubagentRegistryService.pruneSession`
+   * guards the same way.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
+    if (!tabId || !realSessionId) {
+      this.logger.warn(
+        '[AgentProcessManager] resolveParentSessionId ignored — blank id',
+        {
+          hasTabId: Boolean(tabId),
+          hasRealSessionId: Boolean(realSessionId),
+        },
+      );
+      return;
+    }
     for (const tracked of this.agents.values()) {
       if (tracked.info.parentSessionId === tabId) {
         tracked.info.parentSessionId = realSessionId;

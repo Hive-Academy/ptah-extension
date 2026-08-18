@@ -206,9 +206,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   private sendPermissionRequest(
     payload: PermissionRequest,
-    cliAgentResolver?: () => string | undefined,
+    cliAgentId?: string,
   ): void {
-    const cliAgentId = cliAgentResolver?.();
     if (cliAgentId) {
       this.sendCliAgentPermissionRequest(payload, cliAgentId);
       return;
@@ -555,20 +554,34 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   }
 
   /**
-   * A request is routable when it carries a valid UUID session or tab surface
-   * the prompt can be delivered to. `sessionId`/`tabId` are branded types the
-   * options builder only populates from `SessionId.safeParse`/`TabId.safeParse`
-   * (non-UUID routing ids become `undefined`), so in practice "unroutable" is
-   * "both are absent" — the broadcast-fallback case. The explicit UUID check is
-   * defense-in-depth and keeps the classification correct regardless of caller.
+   * A request is routable when it carries a surface the prompt can be delivered
+   * to AND answered from.
+   *
+   * Two such surfaces exist:
+   *
+   * - A valid UUID session or tab. `sessionId`/`tabId` are branded types the
+   *   options builder only populates from `SessionId.safeParse`/`TabId.safeParse`
+   *   (non-UUID routing ids become `undefined`), so in practice this is "either
+   *   is present". The explicit UUID check is defense-in-depth and keeps the
+   *   classification correct regardless of caller.
+   * - A resolved CLI agent id. `sendPermissionRequest` routes those to the agent
+   *   monitor panel by `agentId`, and `AgentMonitorStore.onPermissionRequest`
+   *   either enqueues the prompt on the agent's card or buffers it until that
+   *   agent spawns. The answer comes back via `agent:permissionResponse` →
+   *   `handleResponse(requestId)`, which is keyed on requestId alone — no
+   *   session or tab is involved anywhere in that round trip. Classifying it
+   *   unroutable gave the user a real, visible prompt that auto-denied itself
+   *   after 60s (TASK_2026_295). CLI agent ids are not UUIDs, so no UUID check.
    */
   private isRoutablePermissionRequest(
     sessionId?: SessionId,
     tabId?: TabId,
+    cliAgentId?: string,
   ): boolean {
     return (
       (sessionId !== undefined && isUuid(sessionId as string)) ||
-      (tabId !== undefined && isUuid(tabId as string))
+      (tabId !== undefined && isUuid(tabId as string)) ||
+      (cliAgentId !== undefined && cliAgentId.length > 0)
     );
   }
 
@@ -589,10 +602,19 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     const sanitizedInput = sanitizeToolInput(input);
 
-    // Unroutable requests (no UUID session/tab surface) get a deny timeout so
-    // the SDK stream can complete instead of hanging forever; routable webview
+    // Unroutable requests (no session/tab/CLI-agent surface) get a deny timeout
+    // so the SDK stream can complete instead of hanging forever; routable
     // requests keep `timeoutAt = 0` (infinite wait) exactly as before.
-    const isRoutable = this.isRoutablePermissionRequest(sessionId, tabId);
+    //
+    // Resolved ONCE here, not again inside sendPermissionRequest: the resolver
+    // is read live, and a routability verdict that disagrees with the delivery
+    // route is the whole defect this replaces.
+    const cliAgentId = cliAgentResolver?.();
+    const isRoutable = this.isRoutablePermissionRequest(
+      sessionId,
+      tabId,
+      cliAgentId,
+    );
     const timeoutAt = isRoutable
       ? 0
       : startTime + UNROUTABLE_PERMISSION_TIMEOUT_MS;
@@ -650,7 +672,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       },
     );
 
-    this.sendPermissionRequest(request, cliAgentResolver);
+    this.sendPermissionRequest(request, cliAgentId);
 
     this.logger.info(`[SdkPermissionHandler] Permission request emitted`, {
       requestId,
@@ -965,6 +987,22 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   }
 
   cleanupPendingPermissions(sessionId?: string): void {
+    // `undefined` means "all sessions" and is a deliberate call. `''` is not a
+    // third mode — it is a caller that lost an id. Without this guard it fell
+    // through to the global branch and resolved EVERY pending permission in the
+    // process as deny/systemAbort, which reaches the model as a user refusal in
+    // sessions the caller never meant to touch (TASK_2026_295).
+    if (sessionId !== undefined && sessionId.trim().length === 0) {
+      this.logger.warn(
+        `[SdkPermissionHandler] cleanupPendingPermissions called with an empty sessionId — refusing (an empty id must never mean "all sessions")`,
+        {
+          pendingPermissionCount: this.pendingRequests.size,
+          pendingQuestionCount: this.askUserQuestion.pendingCount,
+        },
+      );
+      return;
+    }
+
     this.logger.info(`[SdkPermissionHandler] Cleaning up pending permissions`, {
       sessionId: sessionId ?? 'all',
       pendingPermissionCount: this.pendingRequests.size,

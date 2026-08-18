@@ -314,8 +314,13 @@ export class ConfigRpcHandlers {
         // most-recently-active session. Permission gating is now per-session
         // (each session reads its own level), so the toggle must reach a
         // concrete session to take effect on a running turn.
+        //
+        // An empty sessionId counts as "not supplied": `??` alone kept it, and
+        // the truthiness check below then discarded it, so the toggle reached
+        // no session at all and the fallback never fired.
+        const requestedSessionId = sessionId ? sessionId : undefined;
         const targetSessionId =
-          sessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+          requestedSessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
         if (targetSessionId) {
           try {
             const sdkMode = enabled

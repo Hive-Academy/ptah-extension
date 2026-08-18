@@ -304,6 +304,61 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
     expect(extractor.extract).not.toHaveBeenCalled();
   });
 
+  /**
+   * TASK_2026_295 — an empty session id never reaches the queue.
+   *
+   * `skill_synthesis_queue` is `UNIQUE(session_id, stage)`, so every session
+   * arriving with `''` collides on ONE row per stage, and the re-open is gated
+   * on `turn_count < ?` — the first such session's turn count wedges every
+   * later one out permanently. It was only ever held shut by the extractor
+   * failing to find a transcript for `''`, and that mitigation does not hold on
+   * the subagent path, where `transcriptPath` is passed and the extractor never
+   * looks at the session id at all.
+   *
+   * The extractor assertion is the load-bearing half: it proves the rejection
+   * happens BEFORE the read, so it cannot depend on the read failing.
+   */
+  it('enqueues nothing for an empty sessionId', async () => {
+    const { svc, enqueued, extractor, fireSessionEnd } = setup();
+    await svc.start();
+    enqueued.length = 0;
+
+    await fireSessionEnd('');
+
+    expect(prefilterRows(enqueued)).toHaveLength(0);
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
+  it('enqueues nothing for a whitespace-only sessionId', async () => {
+    const { svc, enqueued, extractor, fireSessionEnd } = setup();
+    await svc.start();
+    enqueued.length = 0;
+
+    await fireSessionEnd('   ');
+
+    expect(prefilterRows(enqueued)).toHaveLength(0);
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty sessionId even when a transcript IS readable', async () => {
+    // The negative control for the mitigation the fix replaces: with a
+    // transcript in hand the extractor returns a real trajectory, so nothing
+    // but the guard stands between `''` and the colliding queue row.
+    const { svc, enqueued, extractor } = setup();
+    await svc.start();
+    enqueued.length = 0;
+    (extractor.extract as jest.Mock).mockResolvedValue(trajectory(7));
+
+    const outcome = await svc.enqueueAnalyze('', '/repo', {
+      source: 'subagent-stop',
+      transcriptPath: '/tmp/agents/agent-1.jsonl',
+    });
+
+    expect(outcome).toBeNull();
+    expect(prefilterRows(enqueued)).toHaveLength(0);
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
   it('does not fall back to the inline pipeline when no queue store is registered', async () => {
     const { svc, store, internalQuery, fireSessionEnd } = setup({
       withQueue: false,

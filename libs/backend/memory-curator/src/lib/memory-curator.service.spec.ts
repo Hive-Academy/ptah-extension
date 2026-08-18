@@ -688,3 +688,109 @@ describe('MemoryCuratorService — tracing instrumentation', () => {
     expect(tracer.spans).toContain('memory.curate');
   });
 });
+
+/**
+ * TASK_2026_295 — an unusable session id must not coalesce two different
+ * sessions into one run.
+ *
+ * The in-flight map exists to stop the SAME session being curated twice
+ * concurrently. Its key used to be `${workspaceRoot}::${sessionId}`, so two
+ * unrelated sessions in one workspace that both arrived with `''` produced the
+ * identical key `"/ws::"`: the second caller was handed the FIRST session's
+ * promise, its transcript was never seen by the LLM, and it received the first
+ * session's `CuratorRunStats` and reported success. Silent curation loss.
+ *
+ * The LLM double gates on a promise so both runs are genuinely in flight at the
+ * same time — the only condition under which the old key could collide.
+ */
+describe('MemoryCuratorService — in-flight coalescing (TASK_2026_295)', () => {
+  function gatedLlm(): {
+    llm: ICuratorLLM;
+    transcripts: string[];
+    release: () => void;
+  } {
+    const transcripts: string[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const llm = {
+      extract: jest.fn(async (transcript: string) => {
+        transcripts.push(transcript);
+        await gate;
+        return [];
+      }),
+      resolve: jest.fn(async () => []),
+    } as unknown as ICuratorLLM;
+    return { llm, transcripts, release: () => release() };
+  }
+
+  it('does NOT share one run between two sessions that both arrive with an empty id', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const a = svc.curate({
+      sessionId: '',
+      workspaceRoot: '/ws',
+      transcript: 'session A transcript',
+    });
+    const b = svc.curate({
+      sessionId: '',
+      workspaceRoot: '/ws',
+      transcript: 'session B transcript',
+    });
+
+    release();
+    await Promise.all([a, b]);
+    // Before the fix this was ['session A transcript'] — B was handed A's
+    // in-flight promise and its transcript never reached the LLM at all.
+    expect(transcripts).toEqual([
+      'session A transcript',
+      'session B transcript',
+    ]);
+  });
+
+  it('still coalesces two concurrent runs for the SAME real session', async () => {
+    // The control. Without it, "does not coalesce" would also pass for an
+    // implementation that had simply deleted the in-flight map.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const first = svc.curate({
+      sessionId: 's-1',
+      workspaceRoot: '/ws',
+      transcript: 'first transcript',
+    });
+    const second = svc.curate({
+      sessionId: 's-1',
+      workspaceRoot: '/ws',
+      transcript: 'second transcript',
+    });
+
+    release();
+    const [statsFirst, statsSecond] = await Promise.all([first, second]);
+    // One run, and the second caller was served by it.
+    expect(transcripts).toEqual(['first transcript']);
+    expect(statsSecond).toEqual(statsFirst);
+  });
+
+  it('keeps different real sessions in the same workspace independent', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const a = svc.curate({
+      sessionId: 's-a',
+      workspaceRoot: '/ws',
+      transcript: 'transcript A',
+    });
+    const b = svc.curate({
+      sessionId: 's-b',
+      workspaceRoot: '/ws',
+      transcript: 'transcript B',
+    });
+
+    release();
+    await Promise.all([a, b]);
+    expect(transcripts).toEqual(['transcript A', 'transcript B']);
+  });
+});

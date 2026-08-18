@@ -498,6 +498,29 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
+    // TASK_2026_295 — `sessionId ?? getActiveSessionIds()[0]` KEEPS '' (?? only
+    // falls through on null/undefined), and the truthiness check below it then
+    // discarded that ''. Net effect: the toggle reached no session at all and
+    // the active-session fallback never fired.
+    it('treats an empty sessionId as absent and falls back to the active session', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'active-sess',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+        sessionId: '',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
+        'active-sess',
+        'bypassPermissions',
+      );
+    });
+
     it('skips session sync when no sessionId and no active session', async () => {
       const h = makeHarness();
       h.handlers.register();

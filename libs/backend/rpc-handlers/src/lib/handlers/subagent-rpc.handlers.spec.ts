@@ -247,6 +247,31 @@ describe('SubagentRpcHandlers', () => {
       expect(h.registry.get).not.toHaveBeenCalled();
       expect(h.registry.getResumable).not.toHaveBeenCalled();
     });
+
+    // TASK_2026_295 — an empty sessionId used to be falsy, so the scoped
+    // branch was skipped and the handler fell through to the UNSCOPED
+    // all-resumable branch. That offered this session the chance to resume
+    // another session's interrupted subagents.
+    it('returns no subagents for an empty sessionId instead of falling through to all-resumable', async () => {
+      const h = makeHarness();
+      h.registry.getResumable.mockReturnValue([
+        makeSubagentRecord({
+          toolCallId: 'toolu_other',
+          parentSessionId: 's2',
+        }),
+      ]);
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { sessionId: '' },
+      );
+
+      expect(result.subagents).toEqual([]);
+      expect(h.registry.getResumable).not.toHaveBeenCalled();
+      expect(h.registry.getResumableBySession).not.toHaveBeenCalled();
+    });
   });
 
   // -------------------------------------------------------------------------

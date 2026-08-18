@@ -21,7 +21,7 @@ import {
   SdkQueryOptionsBuilder,
   type SdkQueryOptions,
 } from './sdk-query-options-builder';
-import { ModelNotAvailableError } from '../errors';
+import { ModelNotAvailableError, SdkError } from '../errors';
 import type {
   McpHttpServerConfig,
   HookEvent,
@@ -268,6 +268,9 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const sessionConfig: AISessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
+      // Every real interactive session carries a tabId; it is the routing id
+      // the MCP `/session/{id}` segment is built from (TASK_2026_295).
+      tabId: 'tab-fixture',
     } as AISessionConfig;
     // Empty async iterable — `build()` does not iterate it, just attaches.
     const userMessageStream = (async function* () {
@@ -399,7 +402,11 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
     const cfg = await makeBuilder(baseUrl).build({
       userMessageStream,
       abortController: new AbortController(),
-      sessionConfig: { model, projectPath: 'D:/tmp/ws' } as AISessionConfig,
+      sessionConfig: {
+        model,
+        projectPath: 'D:/tmp/ws',
+        tabId: 'tab-fixture',
+      } as AISessionConfig,
     });
     return cfg.options.env as Record<string, string | undefined>;
   }
@@ -524,6 +531,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
     const sessionConfig: AISessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
       ...(extra.corpusName ? { corpusName: extra.corpusName } : {}),
     } as AISessionConfig;
     const userMessageStream = (async function* () {
@@ -726,6 +734,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const sessionConfig = {
       model,
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
     } as AISessionConfig;
     const userMessageStream = (async function* () {
       // Intentionally empty.
@@ -879,6 +888,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const sessionConfig = {
       model: 'claude-3-opus-20240229',
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
     } as AISessionConfig;
     const userMessageStream = (async function* (): AsyncGenerator<
       never,
@@ -1151,6 +1161,7 @@ describe('SdkQueryOptionsBuilder.build — workflows.disabled env injection', ()
     const sessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
       ...(workflowsDisabled === undefined ? {} : { workflowsDisabled }),
     } as AISessionConfig;
     const cfg = await makeBuilder().build({
@@ -1355,5 +1366,80 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
       '',
       'D:/tmp/ws',
     );
+  });
+});
+
+/**
+ * TASK_2026_295 — the `/session/{id}` segment is the ONLY thing that tells an
+ * MCP tool call which session made it. `extractCallerSessionId`
+ * (vscode-lm-tools `http-server.handler.ts:145`) parses it back off the URL
+ * onto `request._callerSessionId`; `protocol-dispatcher.ts:654` forwards that
+ * as `ptah_agent_spawn`'s `parentSessionId`; and when it is absent
+ * `agent-namespace.builder.ts:138` falls back to `getActiveSessionId()` —
+ * `getActiveSessionIds()[0]`, the most-recently-active session.
+ *
+ * So dropping the segment did not disable attribution, it MIS-attributed it:
+ * with two sessions open, session B's spawn was recorded under session A's
+ * parentSessionId, and A's `markAllInterrupted` could later mis-handle B's
+ * agent. The consumer-side fallback is deliberate (stdio/CLI/internal callers
+ * legitimately have no caller id), so the producer is the place to fix.
+ */
+describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TASK_2026_295)', () => {
+  interface BuilderWithMcp {
+    buildMcpServers(
+      mcpServerRunning?: boolean,
+      routingSessionId?: string,
+    ): Record<string, McpHttpServerConfig>;
+  }
+
+  function makeMcpBuilder(): BuilderWithMcp {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(logger) as unknown as BuilderWithMcp;
+  }
+
+  it('encodes the routing id as a /session/{id} segment', () => {
+    const config = makeMcpBuilder().buildMcpServers(true, 'tab-abc');
+    expect(config['ptah'].url).toMatch(/\/session\/tab-abc$/);
+  });
+
+  it('percent-encodes an id that is not URL-safe so the consumer decodes it back intact', () => {
+    const config = makeMcpBuilder().buildMcpServers(true, 'tab one/two');
+    expect(config['ptah'].url).toMatch(/\/session\/tab%20one%2Ftwo$/);
+    // Round-trips through the consumer's decodeURIComponent.
+    const segment = config['ptah'].url.split('/session/')[1];
+    expect(decodeURIComponent(segment)).toBe('tab one/two');
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['empty', ''],
+    ['whitespace-only', '   '],
+  ])(
+    'throws rather than silently emitting a session-less URL for an %s routing id',
+    (_label, id) => {
+      // The old behaviour returned `http://localhost:{port}` with no segment —
+      // a perfectly working endpoint whose calls arrive anonymous. Nothing
+      // downstream can tell that apart from a legitimate stdio caller, which
+      // is why this has to fail here instead.
+      expect(() => makeMcpBuilder().buildMcpServers(true, id)).toThrow(
+        SdkError,
+      );
+      expect(() => makeMcpBuilder().buildMcpServers(true, id)).toThrow(
+        /session routing id/i,
+      );
+    },
+  );
+
+  it('still returns {} without throwing when the MCP server is not running', () => {
+    // No server means no URL to build, so a missing id is not a defect here.
+    expect(makeMcpBuilder().buildMcpServers(false, undefined)).toEqual({});
   });
 });

@@ -9,6 +9,7 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 import { isSessionEndHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookSessionId } from './hook-session-resolver';
 import { SessionEndHookCallbackRegistry } from './session-end-hook-callback-registry';
 
 @injectable()
@@ -39,11 +40,17 @@ export class SessionEndHookHandler {
                 if (this.callbackRegistry.size === 0) {
                   return { continue: true };
                 }
-                const resolvedSessionId =
-                  typeof input.session_id === 'string' &&
-                  input.session_id.length > 0
-                    ? input.session_id
-                    : sessionId;
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                if (!resolvedSessionId) {
+                  this.logger.warn(
+                    '[SessionEndHookHandler] SessionEnd missing sessionId, skipping fan-out',
+                    { reason: input.reason },
+                  );
+                  return { continue: true };
+                }
                 this.callbackRegistry.notifyAll({
                   sessionId: resolvedSessionId,
                   workspaceRoot: cwd,

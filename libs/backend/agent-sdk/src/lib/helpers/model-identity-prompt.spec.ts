@@ -162,6 +162,9 @@ async function buildFor(tier: string): Promise<{
     sessionConfig: {
       model: tier,
       projectPath: 'D:/tmp/ws',
+      // Every real interactive session carries a tabId; it is the routing id
+      // the MCP `/session/{id}` segment is built from (TASK_2026_295).
+      tabId: 'tab-fixture',
     } as AISessionConfig,
   });
   return {

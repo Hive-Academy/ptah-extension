@@ -47,11 +47,19 @@ export class SystemMessageTransformer {
     );
     state.clearStreamingState();
 
+    // Order matters and used to be wrong. `activeIds[0]` is just the
+    // most-recently-active session in the process — it sat AHEAD of the id the
+    // SDK put on this very message, so with two live sessions the prune and the
+    // token-snapshot clear below ran against the other one, and the
+    // compaction_complete event was addressed to it too (TASK_2026_295).
+    // The caller's id still wins: for harness and wizard streams it is a
+    // HarnessStreamId / WizardPhaseId, i.e. the routing key the frontend
+    // subscribed with, which no SDK payload carries.
     const activeIds = helpers.sessionLifecycle.getActiveSessionIds();
     const resolvedSessionId =
       sessionId ||
-      activeIds[0] ||
-      (sdkMessage.session_id as SessionId | undefined);
+      (sdkMessage.session_id as SessionId | undefined) ||
+      activeIds[0];
 
     if (!resolvedSessionId) {
       helpers.logger.warn(

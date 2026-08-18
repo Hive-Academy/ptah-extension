@@ -714,7 +714,9 @@ export class SdkQueryOptionsBuilder {
           preset: 'claude_code' as const,
         },
         mcpServers: this.mergeMcpOverride(
-          this.buildMcpServers(mcpServerRunning, sessionId),
+          // Same `routingId` the permission callback above is keyed on, and the
+          // same precedence `SessionQueryExecutor` uses for its registry key.
+          this.buildMcpServers(mcpServerRunning, routingId),
           mcpServersOverride,
         ),
         permissionMode,
@@ -1120,10 +1122,37 @@ export class SdkQueryOptionsBuilder {
    *
    * Enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
    * Returns an empty object when the server is not running.
+   *
+   * The `/session/{id}` segment is how an MCP tool call learns WHICH session
+   * made it. `extractCallerSessionId` (vscode-lm-tools `http-server.handler`)
+   * parses it back off the URL onto `request._callerSessionId`, and
+   * `ptah_agent_spawn` uses it as the agent's `parentSessionId`.
+   *
+   * The id is the ROUTING id — `sessionConfig.tabId` preferred over the raw
+   * `sessionId` — because that is the key `SessionRegistry.register` uses
+   * (`registerKey`, `SessionQueryExecutor`), and the consumer's
+   * `resolveSessionId` resolves it through `find()` before use. Passing the
+   * raw `sessionId` could name a key the registry was never indexed under.
+   * A tabId here is correct and expected (`http-server.handler.ts:143`
+   * documents the format as `/session/{tabId}`); for a NEW session it is also
+   * the only id that exists yet, since the canonical SDK UUID does not arrive
+   * until the system `init` message.
+   *
+   * @throws SdkError when no routing id is available. Dropping the segment
+   * instead — which this used to do — produced a working MCP endpoint whose
+   * calls arrived anonymous, and the consumer then attributed the spawn to
+   * `getActiveSessionIds()[0]`, the most-recently-active session. With two
+   * sessions open, session B's `ptah_agent_spawn` was recorded under session
+   * A's `parentSessionId`, so A's `markAllInterrupted` could later mis-handle
+   * B's agent. Every legitimate no-caller-id path (stdio, CLI, internal
+   * one-shot queries) builds its MCP config in `SdkQueryRunner`'s separate
+   * `buildOneShotMcpServers`, which has no session segment by construction —
+   * so on this interactive path a missing id is a broken caller, not a mode
+   * (TASK_2026_295).
    */
   private buildMcpServers(
     mcpServerRunning = true,
-    sessionId?: string,
+    routingSessionId?: string,
   ): Record<string, McpHttpServerConfig> {
     if (!mcpServerRunning) {
       this.logger.info(
@@ -1132,12 +1161,19 @@ export class SdkQueryOptionsBuilder {
       );
       return {};
     }
+    if (!routingSessionId || routingSessionId.trim().length === 0) {
+      throw new SdkError(
+        'Cannot build the Ptah MCP server URL without a session routing id. ' +
+          'The /session/{id} segment is what tells an MCP tool call which session made it; ' +
+          'without it every call arrives anonymous and ptah_agent_spawn attributes the agent ' +
+          'to whichever session was most recently active. Callers must supply sessionConfig.tabId ' +
+          'or sessionId before starting an interactive session.',
+      );
+    }
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
-        url: sessionId
-          ? `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(sessionId)}`
-          : `http://localhost:${PTAH_MCP_PORT}`,
+        url: `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(routingSessionId)}`,
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {

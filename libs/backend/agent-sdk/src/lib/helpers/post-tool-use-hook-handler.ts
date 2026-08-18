@@ -9,6 +9,7 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 import { isPostToolUseHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookSessionId } from './hook-session-resolver';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 
 function extractExitCode(toolResponse: unknown): number | null {
@@ -73,11 +74,17 @@ export class PostToolUseHookHandler {
                 }
                 const exitCode = extractExitCode(input.tool_response);
                 const success = deriveSuccess(input.tool_response, exitCode);
-                const resolvedSessionId =
-                  typeof input.session_id === 'string' &&
-                  input.session_id.length > 0
-                    ? input.session_id
-                    : sessionId;
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                if (!resolvedSessionId) {
+                  this.logger.warn(
+                    '[PostToolUseHookHandler] PostToolUse missing sessionId, skipping fan-out',
+                    { toolName: input.tool_name },
+                  );
+                  return { continue: true };
+                }
                 this.callbackRegistry.notifyAll({
                   toolName: input.tool_name,
                   toolInput: input.tool_input,

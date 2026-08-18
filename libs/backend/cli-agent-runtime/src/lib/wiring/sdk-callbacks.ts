@@ -158,40 +158,36 @@ function wireSessionIdResolvedCallback(
         `${tag} Session ID resolved: tabId=${tabId} -> real=${realSessionId}`,
       );
 
-      if (tabId) {
-        if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
-          const agentProcessManager = container.resolve<AgentProcessManager>(
-            TOKENS.AGENT_PROCESS_MANAGER,
-          );
-          agentProcessManager.resolveParentSessionId(tabId, realSessionId);
-
-          if (container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
-            const subagentRegistry = container.resolve<SubagentRegistryLike>(
-              TOKENS.SUBAGENT_REGISTRY_SERVICE,
-            );
-            subagentRegistry.resolveParentSessionId(tabId, realSessionId);
-          }
-          const allAgents =
-            agentProcessManager.getStatus() as AgentProcessInfo[];
-          const exitedWithParent = allAgents.filter(
-            (a) =>
-              a.parentSessionId === realSessionId && a.status !== 'running',
-          );
-          if (exitedWithParent.length > 0) {
-            logger.info(
-              `${tag} Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
-            );
-          }
-          for (const exitedInfo of exitedWithParent) {
-            persistCliSessionReference(
-              container,
-              logger,
-              tag,
-              exitedInfo,
-              getSdkSessionId,
-            );
-          }
-        }
+      if (!tabId || !realSessionId) {
+        logger.warn(
+          `${tag} Session ID resolution carried a blank id — no parent remap performed`,
+          {
+            hasTabId: Boolean(tabId),
+            hasRealSessionId: Boolean(realSessionId),
+          },
+        );
+      } else {
+        // Two INDEPENDENT remaps, each guarded only by its own token. They
+        // were nested: the subagent-registry remap only ran when the unrelated
+        // AGENT_PROCESS_MANAGER happened to be registered, so on a host
+        // without it every SubagentRecord kept `parentSessionId = <tabId>`
+        // forever while `chat:resume` queried by the real UUID — which is why
+        // interrupted subagents were never offered for resume.
+        remapAgentProcessManagerParents(
+          container,
+          logger,
+          tag,
+          tabId,
+          realSessionId,
+          getSdkSessionId,
+        );
+        remapSubagentRegistryParents(
+          container,
+          logger,
+          tag,
+          tabId,
+          realSessionId,
+        );
       }
 
       webviewManager
@@ -207,6 +203,71 @@ function wireSessionIdResolvedCallback(
         });
     },
   );
+}
+
+/**
+ * Point every tracked CLI agent whose parent is still the tab id at the real
+ * SDK session UUID, then re-persist the ones that already exited — their
+ * `agent:exited` persist ran against the pre-resolution parent.
+ */
+function remapAgentProcessManagerParents(
+  container: DependencyContainer,
+  logger: Logger,
+  tag: string,
+  tabId: string,
+  realSessionId: string,
+  getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
+): void {
+  if (!container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    return;
+  }
+  const agentProcessManager = container.resolve<AgentProcessManager>(
+    TOKENS.AGENT_PROCESS_MANAGER,
+  );
+  agentProcessManager.resolveParentSessionId(tabId, realSessionId);
+
+  const allAgents = agentProcessManager.getStatus() as AgentProcessInfo[];
+  const exitedWithParent = allAgents.filter(
+    (a) => a.parentSessionId === realSessionId && a.status !== 'running',
+  );
+  if (exitedWithParent.length > 0) {
+    logger.info(
+      `${tag} Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
+    );
+  }
+  for (const exitedInfo of exitedWithParent) {
+    persistCliSessionReference(
+      container,
+      logger,
+      tag,
+      exitedInfo,
+      getSdkSessionId,
+    );
+  }
+}
+
+/**
+ * Point every SubagentRecord still filed under the tab id at the real SDK
+ * session UUID, so `chat:resume` and the interrupt/steer paths — which query
+ * by the UUID — can find them.
+ */
+function remapSubagentRegistryParents(
+  container: DependencyContainer,
+  logger: Logger,
+  tag: string,
+  tabId: string,
+  realSessionId: string,
+): void {
+  if (!container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)) {
+    logger.debug(
+      `${tag} SubagentRegistryService not registered — subagent parent remap skipped`,
+    );
+    return;
+  }
+  const subagentRegistry = container.resolve<SubagentRegistryLike>(
+    TOKENS.SUBAGENT_REGISTRY_SERVICE,
+  );
+  subagentRegistry.resolveParentSessionId(tabId, realSessionId);
 }
 
 function wireCompactionStartCallback(

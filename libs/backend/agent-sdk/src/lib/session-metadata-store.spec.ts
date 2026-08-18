@@ -91,6 +91,20 @@ describe('SessionMetadataStore', () => {
       expect(md.name).toBe('User renamed');
     });
 
+    // TASK_2026_295: SdkAgentAdapter passes the raw `realSessionId` straight
+    // from the SDK init message. SessionRegistry.bindRealSessionId rejects a
+    // blank one three lines away; this store took it and wrote a record keyed
+    // by '' that nothing can address.
+    it.each([
+      ['empty', ''],
+      ['whitespace-only', '   '],
+    ])('refuses to create metadata for an %s sessionId', async (_label, id) => {
+      await expect(store.create(id, WORKSPACE, 'Poisoned')).rejects.toThrow(
+        SdkError,
+      );
+      await expect(store.get(id)).resolves.toBeNull();
+    });
+
     it('marks child sessions with isChildSession=true', async () => {
       const md = await store.createChild(
         'sess-child',
