@@ -37,6 +37,7 @@ From `src/index.ts`:
 - `src/lib/components/wizard-view.component.ts:62` — container; step routing, progress indicator.
 - `src/lib/services/setup-wizard-state.service.ts:1` — orchestrator; composes the eight collaborators in `setup-wizard/`; exposes a façade to `WizardPhaseAnalysis`/`WizardPhaseGeneration` so they route flat events through `StreamRouter`/`StreamingSurfaceRegistry` (TASK_2026_107 Phase 3 — replaces deleted `WizardStreamAccumulator`). On analysis-complete, phase surfaces unregister but accumulated `StreamingState` remains visible.
 - `src/lib/services/wizard-internal-state.provider.ts` — composition-root binding for `WIZARD_INTERNAL_STATE`.
+- `src/lib/services/wizard-analysis-runner.service.ts` — root-scoped owner of the deep-analysis run. `ScanProgressComponent` only calls `ensureStarted()` and renders the runner's signals.
 
 ## State Management / Architecture
 
@@ -57,4 +58,5 @@ Standalone, OnPush, signals + `inject()`, fade-in keyframe animations, decomposi
 
 - Stream accumulation must go through `StreamRouter` / `StreamingSurfaceRegistry` — do not reintroduce a hand-rolled accumulator (removed in TASK_2026_107 Phase 3).
 - `WIZARD_INTERNAL_STATE` must be bound by the composition root via `provideWizardInternalState()`; never construct it ad-hoc.
+- Long-running wizard work belongs in a root-scoped service, never in a step component. The app shell renders one view at a time via `@switch`, so any nav away destroys the step mid-flight — a component that owned the run would guard its `await`s with an `isDestroyed` flag and silently discard a finished backend analysis. Stale results are rejected by a run token (cancel/reset), not by component lifetime.
 - All wizard types originate from `setup-wizard-state.types.ts` (re-exported via barrel) or `@ptah-extension/shared`'s `wizard/` subfolder.
