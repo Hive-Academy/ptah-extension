@@ -11,14 +11,25 @@ import type { RpcBridge, RpcCallEnvelope } from './rpc-bridge';
  *   const dbFileName = isDev ? 'ptah-dev.sqlite' : 'ptah.sqlite';
  *   path.join(os.homedir(), '.ptah', 'state', dbFileName)
  *
- * The e2e launcher sets `NODE_ENV=test` (NOT 'development'), so the app opens
- * the production `ptah.sqlite` file. This is a SHARED, real DB — it is not
- * scoped to the per-launch `--user-data-dir`. Tests therefore assert on a
- * unique slug to avoid colliding with any pre-existing rows from real usage.
+ * `launchPtah` gives every launch its own database via `PTAH_DB_PATH` and
+ * republishes it as `PTAH_E2E_DB_PATH` for this process, so the file read here
+ * is the one that launch just wrote. Before TASK_2026_291 the app opened the
+ * developer's real `ptah.sqlite` — a shared database this suite both migrated
+ * and asserted against — which is why the specs still key on a unique slug.
  */
 export function resolveSkillTelemetryDbPath(): string {
-  const isDev = process.env['NODE_ENV'] === 'development';
-  const dbFileName = isDev ? 'ptah-dev.sqlite' : 'ptah.sqlite';
+  const published =
+    process.env['PTAH_E2E_DB_PATH'] ?? process.env['PTAH_DB_PATH'];
+  if (published !== undefined && published.trim() !== '') {
+    return path.resolve(published.trim());
+  }
+  const nodeEnv = process.env['NODE_ENV'];
+  const dbFileName =
+    nodeEnv === 'development'
+      ? 'ptah-dev.sqlite'
+      : nodeEnv === 'test'
+        ? 'ptah-test.sqlite'
+        : 'ptah.sqlite';
   return path.join(os.homedir(), '.ptah', 'state', dbFileName);
 }
 

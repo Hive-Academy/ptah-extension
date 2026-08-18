@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   test as base,
@@ -32,6 +33,19 @@ import { createDocsSampleRepo } from './docs-repo';
 /** The project the shots are taken against. A real, dirty git repo. */
 export const DOCS_WORKSPACE =
   process.env['PTAH_DOCS_WORKSPACE'] ?? 'D:\\projects\\property-hub';
+
+/**
+ * Opt in to capturing against the REAL production database.
+ *
+ * A capture run boots the working tree, and a boot migrates whatever database
+ * it opens. That is how this harness — throwaway Electron profile, but the
+ * developer's real home directory — carried working-tree migrations into
+ * `~/.ptah/state/ptah.sqlite` and left the installed build unable to open it
+ * (TASK_2026_291). The default is now the launcher's isolated database, so
+ * DB-backed surfaces (memory, skills, cron history) shoot empty unless someone
+ * sets `PTAH_DOCS_REAL_DB=1` and accepts the migration.
+ */
+const REAL_DB_OPT_IN = process.env['PTAH_DOCS_REAL_DB'] === '1';
 
 export interface DocsFixtures {
   app: ElectronApplication;
@@ -85,6 +99,18 @@ export const test = base.extend<DocsFixtures & DocsOptions>({
       args: [path.resolve(root)],
       userDataDir: profile.dir,
       timeout: 180_000,
+      ...(REAL_DB_OPT_IN
+        ? {
+            env: {
+              PTAH_DB_PATH: path.join(
+                os.homedir(),
+                '.ptah',
+                'state',
+                'ptah.sqlite',
+              ),
+            },
+          }
+        : {}),
     });
     try {
       await use(app);
