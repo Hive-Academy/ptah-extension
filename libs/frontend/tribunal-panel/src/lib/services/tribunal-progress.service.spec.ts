@@ -712,10 +712,80 @@ describe('TribunalProgressService', () => {
       expect(mockState.setProgress).not.toHaveBeenCalled();
     });
 
-    it('publishes only the newest of two overlapping refreshes', async () => {
+    it('serializes two overlapping refreshes instead of racing their reads', async () => {
+      const order: string[] = [];
+      mockRpc.call.mockImplementation(async () => {
+        order.push('start');
+        await Promise.resolve();
+        order.push('end');
+        return rpcOk({ task: { artifacts: [...artifacts] } });
+      });
+
       await Promise.all([service.refresh(), service.refresh()]);
 
-      expect(mockState.setProgress).toHaveBeenCalledTimes(1);
+      // The second call re-reads rather than joining: a manual refresh means
+      // "read now", and the in-flight read was issued before it was asked for.
+      // What it must NOT do is run concurrently — reads never interleave.
+      expect(order).toEqual(['start', 'end', 'start', 'end']);
+      expect(mockState.setProgress).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a roster write that touched no field the derivation reads', async () => {
+      agents.set([makeAgent({ agentId: 'a1', status: 'running' })]);
+      TestBed.flushEffects();
+      await settle();
+      const before = mockRpc.call.mock.calls.length;
+      expect(before).toBeGreaterThan(0);
+
+      // A streaming delta: the store rebuilds the array on every output chunk,
+      // and the agent object is mutated in place. Nothing the phase join reads
+      // has moved, so this must cost ZERO round trips — the roster signal firing
+      // per chunk of every running lane is what flooded `tasks:get`.
+      agents.set([
+        makeAgent({
+          agentId: 'a1',
+          status: 'running',
+          stdout: 'a fresh chunk of output',
+          streamRevision: 7,
+        }),
+      ]);
+      TestBed.flushEffects();
+      await settle();
+
+      expect(mockRpc.call.mock.calls.length).toBe(before);
+    });
+
+    it('collapses a burst of changes during one derivation into a single follow-up', async () => {
+      let release: (() => void) | null = null;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let held = false;
+      mockRpc.call.mockImplementation(async () => {
+        if (!held) {
+          held = true;
+          await gate;
+        }
+        return rpcOk({ task: { artifacts: [...artifacts] } });
+      });
+
+      const inFlight = service.refresh();
+
+      // Three real transitions land while the first read is still open. They
+      // must not open three more reads — one follow-up derivation sees the
+      // final state, which is the only state worth publishing.
+      for (const status of ['running', 'completed', 'failed'] as const) {
+        agents.set([makeAgent({ agentId: 'a1', status })]);
+        TestBed.flushEffects();
+      }
+
+      release?.();
+      await inFlight;
+      await settle();
+
+      expect(
+        mockRpc.call.mock.calls.filter((call) => call[0] === 'tasks:get'),
+      ).toHaveLength(2);
     });
   });
 });

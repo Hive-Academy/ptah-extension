@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, untracked } from '@angular/core';
+import { Injectable, computed, effect, inject, untracked } from '@angular/core';
 import {
   AgentMonitorStore,
   type MonitoredAgent,
@@ -152,19 +152,61 @@ export class TribunalProgressService {
   /** Monotonic request id — only the NEWEST derivation may publish. */
   private requestSeq = 0;
 
+  /** The derivation currently in flight, or null. At most one ever exists. */
+  private cycle: Promise<void> | null = null;
+
+  /** An input changed mid-cycle: re-derive ONCE when the cycle lands. */
+  private restart = false;
+
+  /**
+   * Everything a derivation actually reads off the roster and the run, flattened
+   * to one comparable string.
+   *
+   * This exists because `AgentMonitorStore.agents` allocates a fresh array on
+   * every write, and its writers touch it on EVERY streaming delta — stdout,
+   * segments, `streamRevision`. Tracking that signal directly made one
+   * `tasks:get` per output chunk of every running lane, which is what a live
+   * relay looked like in the RPC log. The derivation reads exactly four fields
+   * per agent (`status` for phase state, `task` for the lane-role token,
+   * `agentId`/`parentSessionId` for identity and scoping), so those four are
+   * what the effect gets to depend on. Output deltas now change nothing here
+   * and cost nothing.
+   *
+   * The fix belongs on this side rather than as an `equal` on the store's
+   * `agents`: `MonitoredAgent` is mutated IN PLACE and the new array identity is
+   * the only change signal, so any equality narrowing there would silently
+   * freeze the monitor panel's live cards.
+   */
+  private readonly derivationInputs = computed(() =>
+    // Serialized rather than concatenated: a task string can contain anything,
+    // and `id + status` glued together makes two different rosters compare
+    // equal often enough to lose a real transition.
+    JSON.stringify({
+      move: this.state.move(),
+      specTaskId: this.state.specTaskId(),
+      roster: this.agentMonitor
+        .agents()
+        .map((agent) => [
+          agent.agentId,
+          agent.status,
+          agent.parentSessionId ?? '',
+          agent.task,
+        ]),
+    }),
+  );
+
   constructor() {
     // Tracks the agent roster (every artifact is written by a lane that then
     // exits), plus the two run identifiers, so a freshly prepared run populates
-    // without waiting for the first agent tick.
+    // without waiting for the first agent tick — all three folded into
+    // {@link derivationInputs} so only a MEANINGFUL change re-derives.
     //
     // It must NEVER read `state.progress()`: publishing writes that signal, and
     // a tracked read of it here would be an unbounded RPC loop. `specTaskId()`
     // and `move()` are safe to track because they are memoized computeds whose
     // VALUES do not change when progress is published.
     effect(() => {
-      this.agentMonitor.agents();
-      this.state.specTaskId();
-      this.state.move();
+      this.derivationInputs();
       untracked(() => void this.refresh());
     });
   }
@@ -172,11 +214,48 @@ export class TribunalProgressService {
   /**
    * Recompute progress and publish it onto the active run slice.
    *
+   * Both the effect's trigger and the manual escape hatch — the latter being
+   * the one caller that re-reads on UNCHANGED inputs, since an artifact the
+   * conductor wrote itself moves no signal.
+   *
+   * A call arriving mid-cycle does NOT open a second round trip, and does not
+   * simply join either: the running cycle issued its reads BEFORE this call, so
+   * answering from it could report a disk state older than the write that
+   * prompted the call. It marks the cycle for one more derivation instead. A
+   * burst therefore collapses to a single follow-up rather than one read each,
+   * and the returned promise resolves only after that follow-up has published.
+   *
    * Never rejects: an unexpected failure resolves to the `unavailable` arm,
    * because a thrown refresh would leave the last (now stale) progress on
    * screen with nothing saying so.
    */
-  async refresh(): Promise<void> {
+  refresh(): Promise<void> {
+    if (this.cycle) {
+      this.restart = true;
+      return this.cycle;
+    }
+    this.cycle = this.runCycle();
+    return this.cycle;
+  }
+
+  /**
+   * Run derivations until the inputs stop moving underneath them. `cycle` is
+   * cleared in the `finally`, which runs synchronously with the loop's exit —
+   * so there is no window in which a trigger could see a settled cycle, set
+   * `restart` on it, and have that request dropped.
+   */
+  private async runCycle(): Promise<void> {
+    try {
+      do {
+        this.restart = false;
+        await this.deriveAndPublish();
+      } while (this.restart);
+    } finally {
+      this.cycle = null;
+    }
+  }
+
+  private async deriveAndPublish(): Promise<void> {
     const seq = ++this.requestSeq;
     const runKey = this.runKey();
     let progress: TribunalProgress;
