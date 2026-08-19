@@ -12,6 +12,8 @@
  * degrade contract.
  */
 
+import * as path from 'path';
+
 import type {
   ContextSizeOptimizerService,
   MonorepoDetectorService,
@@ -342,11 +344,46 @@ describe('buildDependencyNamespace', () => {
     });
   });
 
+  /**
+   * `ptah.search.findFiles()` yields workspace-relative paths and the sandbox
+   * rejects absolute ones, so relative is what this method actually receives.
+   * The graph needs absolute paths to read files and key its nodes; handing
+   * relative ones through produced a silent `0 nodes, 0 edges` graph.
+   *
+   * Split by host path semantics, exactly as `workspace-file-index.service.spec`
+   * and the workspace-intelligence root-scope specs do. `toAbsoluteWorkspacePath`
+   * gates on `path.isAbsolute`, which is host-scoped: a `D:/...` literal is not
+   * an absolute path to a POSIX runner, so on Linux CI the already-absolute
+   * fixture got the root prefixed onto it a second time — a property of the
+   * fixture, not of the builder.
+   */
   it('buildGraph resolves workspace-relative paths against the root', async () => {
-    // `ptah.search.findFiles()` yields workspace-relative paths and the sandbox
-    // rejects absolute ones, so relative is what this method actually receives.
-    // The graph needs absolute paths to read files and key its nodes; handing
-    // relative ones through produced a silent `0 nodes, 0 edges` graph.
+    const deps = makeMocks();
+    deps._dependencyGraph.buildGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: new Map(),
+      unresolvedCount: 0,
+      builtAt: 1,
+    });
+
+    const root = path.join(path.sep, 'ws');
+    const alreadyAbsolute = path.join(root, 'src', 'main.ts');
+
+    await buildDependencyNamespace(deps).buildGraph(
+      [path.join('src', 'app', 'app.ts'), alreadyAbsolute],
+      root,
+    );
+
+    const [passedFiles] = deps._dependencyGraph.buildGraph.mock.calls[0];
+    expect(passedFiles).toEqual([
+      path.join(root, 'src', 'app', 'app.ts'),
+      alreadyAbsolute,
+    ]);
+  });
+
+  it('buildGraph passes drive-letter and UNC absolute paths through on Windows', async () => {
+    // Drive letters and UNC shares are Windows path concepts.
+    if (path.sep !== '\\') return;
     const deps = makeMocks();
     deps._dependencyGraph.buildGraph.mockResolvedValue({
       nodes: new Map(),
@@ -356,7 +393,12 @@ describe('buildDependencyNamespace', () => {
     });
 
     await buildDependencyNamespace(deps).buildGraph(
-      ['src/app/app.ts', 'D:/ws/src/main.ts'],
+      [
+        'src/app/app.ts',
+        'D:/ws/src/main.ts',
+        'D:\\ws\\src\\other.ts',
+        '\\\\share\\ws\\src\\unc.ts',
+      ],
       'D:/ws',
     );
 
@@ -364,6 +406,8 @@ describe('buildDependencyNamespace', () => {
     expect(passedFiles.map((f: string) => f.replace(/\\/g, '/'))).toEqual([
       'D:/ws/src/app/app.ts',
       'D:/ws/src/main.ts',
+      'D:/ws/src/other.ts',
+      '//share/ws/src/unc.ts',
     ]);
   });
 
