@@ -9,9 +9,26 @@
  * same nightly cron tier would then see two different budgets on two machines
  * draining one shared `~/.ptah/state/ptah.sqlite`.
  *
- * `record` accumulates with the same INSERT-then-guarded-UPDATE shape the queue
- * store uses, rather than an UPSERT: the first write of a `(day, stage)` pair
- * inserts, every later write adds onto the existing counters.
+ * `record` accumulates with an UPSERT — `ON CONFLICT(day_key, stage) DO UPDATE`
+ * — so the first write of a `(day, stage)` pair inserts and every later write
+ * adds onto the existing counters.
+ *
+ * IT IS NOT THE QUEUE STORE'S INSERT-THEN-GUARDED-UPDATE SHAPE, AND IT CANNOT
+ * BE. That shape reads a rejected INSERT through `isUniqueConstraintError`,
+ * which matches `code === 'SQLITE_CONSTRAINT_UNIQUE'` only. `0035` enforces
+ * this table's key with a composite PRIMARY KEY, and SQLite reports a PRIMARY
+ * KEY collision with the extended result code `SQLITE_CONSTRAINT_PRIMARYKEY`
+ * (1555) — a DIFFERENT code from the `SQLITE_CONSTRAINT_UNIQUE` (2067) that a
+ * `UNIQUE(...)` index raises, even though both carry the same "UNIQUE
+ * constraint failed" message. So the predicate said "not a uniqueness
+ * violation", the guarded UPDATE never ran, and the second spend of any
+ * `(day, stage)` pair threw out of `LaneRunnerService.recordUsage`. The queue
+ * store is unaffected — its collision is on `UNIQUE(session_id, stage)`, an
+ * index, and it genuinely raises 2067. Widening the shared predicate to accept
+ * both codes would blunt the cron slot-claim and enqueue paths that rely on it
+ * meaning exactly one thing; an UPSERT needs no error sniffing at all, and this
+ * ledger accumulates rather than claiming, so it has nothing to learn from a
+ * collision except "add to the row that is already there".
  *
  * ## `spentToday()` IS STILL THE DAY TOTAL, AND THAT IS A CONTRACT
  *
@@ -49,7 +66,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
-  isUniqueConstraintError,
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
   type SqliteDatabase,
@@ -260,31 +276,18 @@ export class SkillBudgetStore {
     const inputTokens = usage.inputTokens ?? 0;
     const outputTokens = usage.outputTokens ?? 0;
     const costUsd = usage.costUsd ?? 0;
-    let inserted = true;
-    try {
-      this.db
-        .prepare(
-          `INSERT INTO skill_synthesis_budget
-             (day_key, stage, input_tokens, output_tokens, cost_usd, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        )
-        .run(dayKey, stage, inputTokens, outputTokens, costUsd, now);
-    } catch (error: unknown) {
-      if (!isUniqueConstraintError(error)) throw error;
-      inserted = false;
-    }
-    if (!inserted) {
-      this.db
-        .prepare(
-          `UPDATE skill_synthesis_budget
-              SET input_tokens = input_tokens + ?,
-                  output_tokens = output_tokens + ?,
-                  cost_usd = cost_usd + ?,
-                  updated_at = ?
-            WHERE day_key = ? AND stage = ?`,
-        )
-        .run(inputTokens, outputTokens, costUsd, now, dayKey, stage);
-    }
+    this.db
+      .prepare(
+        `INSERT INTO skill_synthesis_budget
+           (day_key, stage, input_tokens, output_tokens, cost_usd, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(day_key, stage) DO UPDATE
+            SET input_tokens  = input_tokens  + excluded.input_tokens,
+                output_tokens = output_tokens + excluded.output_tokens,
+                cost_usd      = cost_usd      + excluded.cost_usd,
+                updated_at    = excluded.updated_at`,
+      )
+      .run(dayKey, stage, inputTokens, outputTokens, costUsd, now);
     this.logger.debug('[skill-synthesis] budget recorded', {
       dayKey,
       stage,
