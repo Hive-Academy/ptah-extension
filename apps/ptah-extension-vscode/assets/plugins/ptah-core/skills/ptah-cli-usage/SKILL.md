@@ -398,9 +398,9 @@ Notes:
 | `ANTHROPIC_AUTH_TOKEN` | Z.AI / Moonshot / any Anthropic-compatible vendor | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint.                               |
 | `ANTHROPIC_BASE_URL`   | Custom Anthropic-compatible endpoint              | Overrides the SDK's default base URL.                                                                               |
 
-Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted. The
-`agent-cli` allowlist (`glm` only) is hard-coded at command
-entry points — see
+Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted, and there
+is nothing for it to override — `agent-cli --cli` accepts every CLI
+agent target Ptah has an adapter for. See
 `apps/ptah-cli/src/cli/commands/agent-cli.ts`.
 
 ---
@@ -615,9 +615,20 @@ Exit code `4`. Read-only commands (`license status`, `config list`,
 - **Don't** issue concurrent `task.submit` on the same session — the
   second returns `-32603 'turn already in flight'`. Serialize, or open a
   second `interact` process.
-- **Don't** rely on `PTAH_AGENT_CLI_OVERRIDE`. The `agent-cli` allowlist
-  (`glm`) is hard-coded; `copilot` and `cursor` are blocked
-  for Windows-spawn reasons.
+- **Don't** rely on `PTAH_AGENT_CLI_OVERRIDE`. It is not consulted, and there is
+  nothing to override: `--cli` accepts `codex`, `copilot`, `cursor`,
+  `antigravity`, `opencode`, `pi` and `ptah-cli`. Nothing is blocked — earlier
+  versions of this skill said `copilot` and `cursor` were unavailable for
+  Windows-spawn reasons, which was never true.
+- **Don't** pass `--cli glm`. It is a deprecated alias for `--cli ptah-cli` and
+  prints a deprecation notice on stderr. GLM is a provider reached through the
+  `ptah-cli` agent type, not a binary — there is nothing to install. If `resume`
+  reports `No Ptah CLI agents configured`, the user needs a provider in Agent
+  Orchestration settings — see §11.
+- **Don't** pass `--ptah-cli-id` with a system CLI. It only applies to
+  `--cli ptah-cli`; anywhere else it exits `2`.
+- **Don't** call `agent-cli resume` without `--task`, or with `--task ""`. It
+  exits `2`. The RPC resumes a session _and_ hands it work.
 - **Don't** re-add `ptah run` calls. It's a deprecated alias for
   `session start --task` and emits a stderr deprecation notice.
 
@@ -625,18 +636,46 @@ Exit code `4`. Read-only commands (`license status`, `config list`,
 
 ## 11. `ptah agent-cli` reference
 
-`ptah agent-cli` manages user-installed CLI agents (model-vendor binaries
-the SDK can spawn into agent sessions). The surface is locked to a
-hard-coded allowlist enforced inside the command handler — see
-`apps/ptah-cli/src/cli/commands/agent-cli.ts:48` (`CLI_AGENT_ALLOWLIST`)
-and the per-subcommand validation in `validateCliAgent` at
-`agent-cli.ts:131-142`.
+`ptah agent-cli` manages the CLI agents the SDK can spawn into agent
+sessions. See `CLI_AGENT_SELECTORS` and `resolveCliAgentSelector` in
+`apps/ptah-cli/src/cli/commands/agent-cli.ts`.
 
-**Allowlist**: only `glm` is accepted for `--cli`.
-`PTAH_AGENT_CLI_OVERRIDE` is **never** consulted (verified at
-`agent-cli.ts:22-23` and reinforced by the router comment at
-`router.ts:597-599`). Any other value emits `task.error` with
-`ptah_code: 'cli_agent_unavailable'` and exits `3` (`AuthRequired`).
+**`--cli` accepts every CLI agent target Ptah has an adapter for:**
+
+| Selector                                                      | Wire `cli` | Notes                                            |
+| ------------------------------------------------------------- | ---------- | ------------------------------------------------ |
+| `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi` | itself     | System CLIs — binaries Ptah spawns.              |
+| `ptah-cli`                                                    | `ptah-cli` | A configured provider, addressed by `ptahCliId`. |
+| `glm`                                                         | `ptah-cli` | **Deprecated alias.** Warns on stderr.           |
+
+The set is derived from `SYSTEM_CLI_TYPES`, so read it from there rather than
+from any list written down here — adapters are added between releases. A value
+naming no target emits `task.error` with `ptah_code: 'cli_agent_unavailable'`
+and exits `3` (`AuthRequired`). `PTAH_AGENT_CLI_OVERRIDE` is **never**
+consulted, and there is nothing left for it to override.
+
+> **Nothing is blocked.** Earlier versions of this skill said only `glm` was
+> accepted and that `copilot` and `cursor` were unavailable for Windows-spawn
+> reasons. Both claims were false: `CliDetectionService` registers all six
+> system CLIs, Copilot with a dedicated permission bridge, and the single-entry
+> list that rejected them was an accident of a Gemini removal. `glm`, the one
+> value that WAS accepted, is the one that could never route.
+
+> **`ptah-cli` is a provider, not a binary — read this before using `resume`.**
+> `--cli ptah-cli` selects an Anthropic-compatible provider (for example Z.AI
+> GLM) addressed by `ptahCliId`. There is no `ptah-cli` executable, and
+> `agent-cli detect` reports these as entries with `cli: "ptah-cli"` rather than
+> as system CLIs. Two consequences for you as a caller:
+>
+> 1. **The user must have a Ptah CLI provider configured.** If none is, `resume`
+>    fails with `No Ptah CLI agents configured. Add one in Agent Orchestration
+settings.` That is the real, actionable error — do not retry, and do not
+>    tell the user to install a binary. Run `ptah agent-cli detect` and read the
+>    entries with `cli: "ptah-cli"` to see what they have.
+> 2. **Do not pass `--ptah-cli-id` unless you have a real id** from that detect
+>    output. Omitting it makes the backend pick the first enabled provider that
+>    has an API key, which is the right default. Passing it with a system CLI
+>    exits `2`.
 
 ### 11.1 `ptah agent-cli detect`
 
@@ -684,25 +723,34 @@ commas; everything else passes through as a string.
 
 ### 11.4 `ptah agent-cli models list`
 
-Enumerate available models per CLI agent. With `--cli`, scopes the
-response to one allowlisted CLI; without, returns the full
-`AgentListCliModelsResult` shape — one array keyed by each system CLI
+Enumerate available models per **system** CLI. Without `--cli`, returns the
+full `AgentListCliModelsResult` shape — one array keyed by each system CLI
 adapter this build ships. Read the keys off the response or off
 `SYSTEM_CLI_TYPES`; adapters are added between releases, so a list written
-down here goes stale (it said `codex`, `copilot` while the shape carried six).
+down here goes stale.
 
-| Flag    | Required | Default | Notes                           |
-| ------- | -------- | ------- | ------------------------------- |
-| `--cli` | no       | (all)   | Only `glm`; rejection → exit 3. |
+| Flag    | Required | Default | Notes                                     |
+| ------- | -------- | ------- | ----------------------------------------- |
+| `--cli` | no       | (all)   | Any known target; unknown value → exit 3. |
 
-- **RPC**: `agent:listCliModels` (`agent-cli.ts:233-275`).
-- **Notification**: `agent_cli.models { <one key per system CLI adapter> }`
-  (no scope) or `agent_cli.models { cli, models }` (scoped to a CLI); the
-  scoped `glm` path returns an empty array today.
-- **Exit codes**: `0`; `3` (`AuthRequired`) on `--cli` value outside the
-  allowlist; `5` on RPC failure.
+- **RPC**: `agent:listCliModels` (unscoped, and scoped to a system CLI).
+- **Notification (unscoped)**: `agent_cli.models { <one key per system CLI adapter> }`.
+- **Notification (`--cli <system-cli>`)**:
+  `agent_cli.models { cli, models, supported: true }`.
+- **Notification (`--cli ptah-cli` or `--cli glm`)**:
+  `agent_cli.models { cli, models: [], supported: false, reason, hint }` —
+  and **no RPC call is made**.
+- **Exit codes**: `0`; `3` (`AuthRequired`) when `--cli` names no target;
+  `5` on RPC failure.
 
-### 11.5 `ptah agent-cli stop <id> --cli <id>`
+> **A `ptah-cli`-scoped query cannot return models, and says so.**
+> `AgentListCliModelsResult` has a field per system CLI and no `ptah-cli`
+> member, so this RPC structurally cannot answer a provider-scoped query. Check
+> `supported === false` — it is the difference between "cannot answer" and "this
+> provider has no models". Do not conclude the user has no models from the empty
+> array. Use `ptah agent-cli detect` to inspect configured providers instead.
+
+### 11.5 `ptah agent-cli stop <id> [--cli <id>]`
 
 Terminate a running CLI-agent process by agent id.
 
@@ -710,33 +758,55 @@ Terminate a running CLI-agent process by agent id.
 | ---------- | -------- | --------------------- |
 | `<id>`     | yes      | The agent id to stop. |
 
-| Flag    | Required | Default | Notes                           |
-| ------- | -------- | ------- | ------------------------------- |
-| `--cli` | yes      | —       | Only `glm`; rejection → exit 3. |
+| Flag    | Required | Default | Notes                                                   |
+| ------- | -------- | ------- | ------------------------------------------------------- |
+| `--cli` | no       | —       | Any known target; unknown → exit 3. Never sent on wire. |
 
-- **RPC**: `agent:stop` (`agent-cli.ts:277-308`).
-- **Notification**: `agent_cli.stopped { agentId, cli }`.
-- **Exit codes**: `0`; `2` when `<id>` is missing; `3` on allowlist
-  rejection; `5` on RPC failure.
+- **RPC**: `agent:stop`, called with `{ agentId }` only.
+- **Notification**: `agent_cli.stopped { agentId, cli? }` — `cli` echoes the
+  selector, and appears only when `--cli` was supplied.
+- **Exit codes**: `0`; `2` when `<id>` is missing; `3` when `--cli` names no
+  target; `5` on RPC failure.
 
-### 11.6 `ptah agent-cli resume <id> --cli <id>`
+> `--cli` is a client-side check only — an agent id already identifies one
+> specific running agent. **Prefer `ptah agent-cli stop <id>` with no `--cli`.**
 
-Resume an existing CLI-agent session by `cliSessionId`. Optionally
-seeds a new prompt with `--task`.
+### 11.6 `ptah agent-cli resume <id> --cli <id> --task <text>`
+
+Resume an existing CLI-agent session by `cliSessionId` **and give it work**.
 
 | Positional | Required | Notes                         |
 | ---------- | -------- | ----------------------------- |
 | `<id>`     | yes      | The `cliSessionId` to resume. |
 
-| Flag     | Required | Default | Notes                                  |
-| -------- | -------- | ------- | -------------------------------------- |
-| `--cli`  | yes      | —       | Only `glm`; rejection → exit 3.        |
-| `--task` | no       | `""`    | Free-form prompt for the resumed turn. |
+| Flag            | Required | Default            | Notes                                                          |
+| --------------- | -------- | ------------------ | -------------------------------------------------------------- |
+| `--cli`         | yes      | —                  | Any known target; unknown → exit 3.                            |
+| `--task`        | **yes**  | —                  | Non-empty. What the resumed session should do next.            |
+| `--ptah-cli-id` | no       | (backend resolves) | `--cli ptah-cli` only. Pin a provider from `agent-cli detect`. |
 
-- **RPC**: `agent:resumeCliSession` (`agent-cli.ts:310-346`).
-- **Notification**: `agent_cli.resumed { cliSessionId, cli, agentId }`.
-- **Exit codes**: `0`; `2` when `<id>` is missing; `3` on allowlist
-  rejection; `5` on RPC failure.
+- **RPC**: `agent:resumeCliSession`, sent as `{ cliSessionId, cli, task }` where
+  `cli` is the wire value for your selector — its own name for a system CLI,
+  `"ptah-cli"` for `ptah-cli` and the `glm` alias — plus `ptahCliId` **only**
+  when `--ptah-cli-id` was passed.
+- **Notification**: `agent_cli.resumed { cliSessionId, cli, ptahCliId?, agentId }`
+  — `cli` echoes the selector you passed, not the wire value.
+- **Exit codes**: `0`; `2` when `<id>` or `--task` is missing/empty, when
+  `--ptah-cli-id` is passed empty, or when `--ptah-cli-id` is passed with a
+  system CLI; `3` when `--cli` names no target; `5` on RPC failure (including
+  "No Ptah CLI agents configured").
+
+Working invocations:
+
+```bash
+ptah agent-cli resume cli-session-uuid --cli codex    --task "finish the migration"
+ptah agent-cli resume cli-session-uuid --cli ptah-cli --task "finish the migration"
+```
+
+> **`--task` is required and must be non-empty.** `agent:resumeCliSession` means
+> "resume this session AND give it this work"; its schema rejects `""`. The CLI
+> used to substitute an empty string when `--task` was omitted — never
+> reconstruct that behaviour by passing `--task ""`, which exits `2`.
 
 ---
 

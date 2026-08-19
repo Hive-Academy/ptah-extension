@@ -715,9 +715,12 @@ export function buildRouter(): Command {
   agentCliModels
     .command('list')
     .description(
-      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm accepted)',
+      'emit agent_cli.models via agent:listCliModels (--cli optional; any known CLI target)',
     )
-    .option('--cli <id>', 'scope to a single allowlisted CLI (glm)')
+    .option(
+      '--cli <id>',
+      'scope to one CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (ptah-cli answers supported:false)',
+    )
     .action(async (opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'models-list', cli: opts.cli },
@@ -726,13 +729,17 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `--cli` is OPTIONAL on stop: `agent:stop` takes `{ agentId }` only, so the
+  // flag never reaches the wire. It stays accepted (and still resolved, so a
+  // typo is reported) as a client-side check for scripts that already pass it.
+  // See runStop().
   agentCli
     .command('stop <id>')
     .description(
-      'stop a running CLI agent via agent:stop (--cli required; only glm accepted)',
+      'stop a running CLI agent via agent:stop (--cli optional, client-side check only)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
-    .action(async (id: string, opts: { cli: string }) => {
+    .option('--cli <id>', 'CLI target id — resolved, never sent on the wire')
+    .action(async (id: string, opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'stop', agentId: id, cli: opts.cli },
         resolveGlobals(program),
@@ -740,25 +747,44 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `--task` is REQUIRED: agent:resumeCliSession resumes a session AND gives it
+  // work, and its boundary schema rejects an empty task. `--ptah-cli-id` is
+  // optional — omitting it lets the backend resolve the default provider.
   agentCli
     .command('resume <id>')
     .description(
-      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm accepted)',
+      'resume a CLI agent session via agent:resumeCliSession (--cli + --task required)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
-    .option('--task <text>', 'free-form task prompt for the resumed session')
-    .action(async (id: string, opts: { cli: string; task?: string }) => {
-      const exit = await agentCliCmd.execute(
-        {
-          subcommand: 'resume',
-          cliSessionId: id,
-          cli: opts.cli,
-          task: opts.task,
-        },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .requiredOption(
+      '--cli <id>',
+      'CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (glm is a deprecated alias for ptah-cli)',
+    )
+    .requiredOption(
+      '--task <text>',
+      'work to hand the resumed session (required, non-empty)',
+    )
+    .option(
+      '--ptah-cli-id <id>',
+      'pin a specific configured Ptah CLI provider (default: first enabled provider with a key)',
+    )
+    .action(
+      async (
+        id: string,
+        opts: { cli: string; task: string; ptahCliId?: string },
+      ) => {
+        const exit = await agentCliCmd.execute(
+          {
+            subcommand: 'resume',
+            cliSessionId: id,
+            cli: opts.cli,
+            task: opts.task,
+            ptahCliId: opts.ptahCliId,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   // -- ptah run --------------------------------------------------------------
   // `ptah run` is a thin deprecation alias for
