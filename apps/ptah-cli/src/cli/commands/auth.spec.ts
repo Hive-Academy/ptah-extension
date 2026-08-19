@@ -38,12 +38,21 @@ jest.mock(
   () => {
     const {
       mockProviderRegistryAccessors,
+      mockAllTierEnvKeys,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
       },
       ...mockProviderRegistryAccessors(),
+      // `auth.ts` statically imports `spawnCli` from
+      // `@ptah-extension/cli-agent-runtime`, whose `ptah-cli-registry.ts`
+      // pulls in the real `auth-providers` barrel -> `di/register.ts` ->
+      // `provider-auth-resolver.ts`, which SPREADS this constant at module
+      // scope. Omitting it throws "ALL_TIER_ENV_KEYS is not iterable" before
+      // any test runs, surfacing as "Test suite failed to run" with a stack
+      // in library code this spec has nothing to do with.
+      ALL_TIER_ENV_KEYS: mockAllTierEnvKeys(),
       // Stub: tests inject `spawnCodexLogin` via hooks, so the real
       // `spawnCli` is never reached. We only need a callable export so
       // the value import in `auth.ts` resolves at module load.
