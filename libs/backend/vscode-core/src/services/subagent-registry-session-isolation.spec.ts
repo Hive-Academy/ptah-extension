@@ -33,7 +33,6 @@ function makeReg(
 ): SubagentRegistration {
   return {
     toolCallId: 'tc-default',
-    sessionId: 'sess-1',
     agentType: 'test-agent',
     agentId: 'a1',
     startedAt: Date.now(),

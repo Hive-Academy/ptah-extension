@@ -578,13 +578,16 @@ describe('SdkMessageTransformer — session id falls back to the SDK payload (TA
     }
   });
 
-  it('still degrades to the empty-string default when neither source has an id', () => {
+  it('emits no sessionId at all when neither source has an id — never an empty string', () => {
     const events = build().transform(assistantMessage('') as never, undefined);
 
-    // Pinned deliberately: FlatStreamEvent.sessionId is still a required
-    // string, so the leaf default stays until that type is widened (Wave 2).
+    expect(events.length).toBeGreaterThan(0);
+    // `FlatStreamEvent.sessionId` is optional since Wave 2, so "not known"
+    // travels as `undefined`. `''` is the third state that made `??` fallbacks
+    // skip it and `!x` guards reject it — the whole point of the widening is
+    // that no emit site can produce it any more.
     for (const event of events) {
-      expect((event as { sessionId: string }).sessionId).toBe('');
+      expect(event.sessionId).toBeUndefined();
     }
   });
 });

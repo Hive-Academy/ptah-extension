@@ -576,6 +576,23 @@ describe('AgentMonitorStore', () => {
           .map((r) => r.parentToolUseId),
       ).toEqual(['toolu_a']);
     });
+
+    it.each([
+      ['empty string', ''],
+      ['null', null],
+      ['undefined', undefined],
+    ])(
+      'workflowSubagentsForSession returns nothing for an unresolved scope (%s)',
+      (_label, sid) => {
+        startWorkflowSubagent('toolu_a', 'run-1', 'sess-A');
+        startWorkflowSubagent('toolu_b', 'run-2', 'sess-B');
+
+        // A scoped surface that has not resolved its session claims no agents —
+        // the same rule `agentVisibleInSession` applies for the tray and the
+        // resume banner. It must NOT degrade into "show everything".
+        expect(store.workflowSubagentsForSession(sid)).toEqual([]);
+      },
+    );
   });
 
   describe('Phase 3 — bidirectional messaging actions', () => {

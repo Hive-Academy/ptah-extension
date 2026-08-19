@@ -61,8 +61,13 @@ export class StreamingHandlerService {
   /**
    * Tracks session IDs that have already been warned about missing target tab
    * to avoid repeated console.warn spam during streaming rebuilds.
+   *
+   * `undefined` is a real key here, not a gap: an event with no session is
+   * exactly the case worth warning about once, and every such event is the same
+   * unattributable case, so one shared bucket is correct. It is never evicted by
+   * `cleanupSessionDeduplication`, which only ever names a real session.
    */
-  private readonly warnedNoTargetSessions = new Set<string>();
+  private readonly warnedNoTargetSessions = new Set<string | undefined>();
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly finalization = inject(MessageFinalizationService);
@@ -116,14 +121,17 @@ export class StreamingHandlerService {
   } | null {
     const isReplay = options?.isReplay ?? false;
     try {
-      // `SessionId.from` THROWS on a non-UUID, and the backend can send `''`
-      // while the SDK session is still resolving. The fan-out lookup below runs
-      // unconditionally — AFTER `processEventForTab` has already mutated state —
-      // so a throw there was swallowed by the catch and turned into `null`,
-      // silently dropping the compaction / queued-content dispatch that
-      // `chat.store.processStreamEvent` reads from the return value. Parse once,
-      // non-throwing, and skip every session lookup when there is no session.
-      const eventSession = SessionId.safeParse(event.sessionId);
+      // `SessionId.from` THROWS on a non-UUID, and an event can arrive with no
+      // session at all while the SDK session is still resolving. The fan-out
+      // lookup below runs unconditionally — AFTER `processEventForTab` has
+      // already mutated state — so a throw there was swallowed by the catch and
+      // turned into `null`, silently dropping the compaction / queued-content
+      // dispatch that `chat.store.processStreamEvent` reads from the return
+      // value. Parse once, non-throwing, and skip every session lookup when
+      // there is no session.
+      const eventSession = event.sessionId
+        ? SessionId.safeParse(event.sessionId)
+        : null;
       let primaryTab: TabState | undefined;
       if (tabId) {
         primaryTab = this.tabManager.tabs().find((t) => t.id === tabId);
@@ -358,6 +366,10 @@ export class StreamingHandlerService {
   }
 
   private routeBackgroundEvent(event: FlatStreamEventUnion): boolean {
+    // A background tab is found BY its session id. With no session on the event
+    // there is nothing to look up — report "not routed" and let the caller warn
+    // and drop, rather than picking some tab that merely happens to be handy.
+    if (!event.sessionId) return false;
     const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
       event.sessionId,
     );

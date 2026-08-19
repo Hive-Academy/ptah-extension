@@ -109,7 +109,10 @@ explicitly, not as a side effect of falsiness. Regression spec per fix.
 | D     | `libs/frontend/**` — the `??` guards, the `??` downgrades, `findReplacementCard`, the contradictory predicates, the `SessionId.from` throw, the leaks       |
 | E     | `libs/backend/memory-curator/**`, `skill-synthesis/**` — coalescing-key collision, un-drainable rows, trigger guards                                        |
 
-**Wave 2 — make `''` unrepresentable.** Widen `FlatStreamEvent.sessionId` and
+**Wave 2 — remove the reason to mint `''`.** (Originally written as "make `''`
+unrepresentable". That was wrong and is corrected in the Wave 2 outcome below:
+`?: string` still admits `''`. What it removes is the forcing function.) Widen
+`FlatStreamEvent.sessionId` and
 `SubagentRecord.parentSessionId` to `?: string`. Deliberately sequenced _after_
 Wave 1: doing it first would put five agents into the same compile-error surface
 at once, and by the time consumers already handle absence the type change is a
@@ -208,6 +211,124 @@ than the fixes:
 transformed and **no component reaching `ngx-markdown` could be rendered in a
 spec at all** — which is why the agent-monitor panel had only pure-function
 coverage. Fixed as part of writing the panel scope specs.
+
+## Wave 2 outcome
+
+Single owner, because the compile fallout crosses lib boundaries by design.
+Verified independently by the coordinator: 16 projects typecheck clean, 16 test
+suites pass — 6,571 backend and 3,263 frontend + shared, **9,834 passing**.
+
+(The Wave 1 figure of 3,008 for frontend + shared recorded above was a
+coordinator error: it omitted `chat-state`'s 241 from a truncated output tail.
+Nothing was lost between the waves.)
+
+### The premise of this wave was wrong, and the correction is load-bearing
+
+**`?: string` does not make `''` unrepresentable.** `''` is a `string` and
+remains assignable. What the widening removes is the _forcing function_ — the
+reason a producer had to invent a value for a field it could not fill.
+
+This matters operationally: `knownSessionId`, the `EventDeduplicationService`
+guards and `beginTeardown`'s empty check are **still load-bearing** and must not
+be deleted as dead code in a future tidy-up. They sit at boundaries the type
+still admits `''` through — bare-`string` parameters and values off the wire.
+Their signatures were widened to `string | undefined` and their docs rewritten
+to say _absent_ rather than _`''`_, so they read as absence-handling rather than
+empty-string folklore.
+
+Genuine unrepresentability needs a branded or template-literal type on those
+fields. Recorded as follow-up, not done here.
+
+### Three declarations changed, not two
+
+The third was `SubagentRecord.sessionId` (`subagent-registry.types.ts:44`), and
+it was **deleted rather than widened**. It carried an `@deprecated … redundant`
+note; a read-site audit found exactly one read repo-wide — a log line that
+prints `parentSessionId` on the following line. It was also actively harmful:
+`resolveParentSessionId` rewrites `parentSessionId` when a tabId is swapped for
+the resolved UUID and deliberately leaves `sessionId` stale, making the field a
+live stale-identity trap of the kind this task exists to remove.
+
+Compile fallout from the two prescribed widenings was **4 production files in 2
+libs** — small precisely because Wave 1 had already taught every consumer to
+handle absence. Total surface across all Wave 2 work: 47 files.
+
+### A live defect found inside the Wave 1 fix
+
+`system-message.transformer.ts` (×4) had
+`sessionId ?? (msg.session_id as SessionId)`. `SdkMessageTransformer.transform`
+already resolves the id off that same object and correctly rejects `''` — and
+this `??` pulled the rejected payload id straight back in. Failure grammar 2,
+surviving inside the fix for failure grammar 2.
+
+Two further reads had genuinely no id available and were made explicit rather
+than given an invented fallback: `routeBackgroundEvent` (looked a background tab
+up _by_ session id with no session id — now returns "not routed" so the caller
+warns and drops) and `isInTeardown` (a record with no known parent cannot be in
+a specific session's teardown window — `false` is the answer, not a gap).
+
+### Two review findings were partly refuted, with a better diagnosis
+
+Both reviewers reported that `agent-monitor-panel` never calls
+`agentVisibleInSession` and that `chat-view.component.ts:483` bypasses it. Both
+are wrong: the panel calls it via `store.workflowSubagentsForSession`, and the
+comment at `chat-view:473-476` concerns the _agent's owner_, which is routed
+through the helper one line later.
+
+The real defect: **`agentVisibleInSession` modelled one of two axes.** It took
+the agent's owner but its viewer parameter was a required `string`, so it could
+not express "this tile's own session is unresolved" — and three callers
+hand-rolled three different answers for that axis. The fix folds the viewer axis
+into the single definition (`sessionId: string | null | undefined`), deleting
+all three hand-rolled pre-checks. `onClearCompleted` deliberately stays on
+strict equality, per the Wave 1 destructive-operations rule.
+
+### The permission-timeout regression
+
+Wave 1 made a CLI-agent-routed permission request _routable_, which was correct
+— but routability also selected the timeout window (`timeoutAt = isRoutable ? 0
+: …`), so those requests went from a bounded 60s auto-deny to an **unbounded**
+wait. The only surviving net caught transport failure, not the application-level
+drop in `AgentMonitorStore._pendingPermissionBuffer`, which has no TTL.
+
+Fixed structurally rather than by bolting on a second rule — a second rule is
+how route and window drifted apart in the first place. `isRoutablePermissionRequest`
+became `classifyPermissionRoute`, returning route **and** window together:
+webview unbounded (unchanged), CLI-agent bounded at 10 minutes, none 60s
+(unchanged). The Wave 1 invariant that 60s must not auto-deny a CLI prompt is
+still pinned, and a new spec pins the bug itself.
+
+### Specs
+
+Zero deleted. Four adapted, two of them _inverted_ because they pinned the exact
+coercion this wave removed — one carried a comment saying it held only "until
+that type is widened (Wave 2)". Three added, including `session-scope.spec.ts`
+pinning both axes at the definition.
+
+## Remaining follow-up
+
+1. **`MemoryExtractedPayload.sessionId: string`** (`shared/.../messages/memory.ts:46`)
+   is a _third_ required declaration of the same shape, and the last thing
+   forcing `?? ''` anywhere in the repo (`cli-engine/.../wire-thoth-push-bridges.ts:46`,
+   `thoth-runtime/.../boot-thoth-runtime.ts:190`). Pairs with the
+   `memory-contracts/compaction-callback.port.ts:4` item below — same change,
+   same lib pair.
+2. **Zod at the two unvalidated entry points** — `agent:resumeCliSession`
+   (`agent-rpc.handlers.ts:743`) and `chat:subagent-query`. Both take input from
+   the frontend with no runtime validation, despite `rpc-handlers/CLAUDE.md`
+   requiring it. This is the durable boundary fix: it makes the class
+   unrepresentable at the door rather than caught by twenty guards downstream.
+3. **A shared blank-id primitive.** The style review found "blank means absent"
+   hand-rolled 8 ways across 10 files. Deliberately deferred past Wave 2 because
+   the widening was expected to shrink that surface; re-audit before sweeping.
+4. **`SessionId.safeParse` / `validate` take a required `string`.** Widening to
+   `string | undefined` returning `null` would delete a ternary at
+   `streaming-handler.service.ts:126`. Small and broadly useful.
+5. **Branded or template-literal types** on the three widened fields, if genuine
+   unrepresentability is wanted.
+6. `agent-monitor.store.ts` is now ~1,610 lines against a 700 soft ceiling and
+   owns three responsibilities that would pass the facade-rule nameability test
+   if split. For whoever next touches that file.
 
 ## Open question deferred to Wave 2
 

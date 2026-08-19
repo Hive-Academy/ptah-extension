@@ -114,7 +114,6 @@ export class SubagentRegistryService {
 
     this.logger.info('[SubagentRegistryService.register] Subagent registered', {
       toolCallId: registration.toolCallId,
-      sessionId: registration.sessionId,
       agentType: registration.agentType,
       agentId: registration.agentId,
       teammateName,

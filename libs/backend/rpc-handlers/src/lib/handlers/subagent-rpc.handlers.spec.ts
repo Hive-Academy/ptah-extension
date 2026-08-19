@@ -98,7 +98,6 @@ function makeSubagentRecord(
 ): SubagentRecord {
   return {
     toolCallId: 'toolu_abc123',
-    sessionId: 'parent-session-uuid',
     agentType: 'software-architect',
     status: 'interrupted',
     startedAt: 1_700_000_000_000,

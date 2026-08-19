@@ -407,7 +407,9 @@ export class AgentMonitorStore implements OnDestroy {
    * {@link activeWorkflowSubagents} this doesn't depend on the global activeTab
    * signal, so each tile's panel resolves its own run groups.
    */
-  workflowSubagentsForSession(sessionId: string): SubagentRecord[] {
+  workflowSubagentsForSession(
+    sessionId: string | null | undefined,
+  ): SubagentRecord[] {
     return [...this._subagents().values()].filter(
       (r) =>
         !!r.workflowRunId &&

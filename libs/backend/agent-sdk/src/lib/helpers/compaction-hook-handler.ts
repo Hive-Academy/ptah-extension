@@ -124,7 +124,7 @@ export class CompactionHookHandler {
    * @returns Hooks configuration for SDK query options
    */
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string | null,
     onCompactionStart?: CompactionStartCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {

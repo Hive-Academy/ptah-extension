@@ -839,7 +839,7 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
   // handleResponse(requestId) — a round trip that involves no session or tab.
   // Classifying it unroutable gave the user a real, visible prompt that
   // auto-denied itself after 60s.
-  it('a CLI-agent request is routable: it goes to the agent monitor panel, arms NO deny timer, and stays answerable', async () => {
+  it('a CLI-agent request is routable: it goes to the agent monitor panel, outlives the 60s unroutable window, and stays answerable', async () => {
     jest.useFakeTimers();
     try {
       const { handler, sent } = makeHandler();
@@ -873,12 +873,14 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
         timeoutAt: number;
       };
       expect(agentPayload.agentId).toBe('agent-cli-7');
-      // timeoutAt 0 == wait indefinitely, same as any routable webview prompt.
-      expect(agentPayload.timeoutAt).toBe(0);
+      // Bounded, not infinite: `timeoutAt` is a real future instant, and the
+      // ceiling is far beyond the 60s unroutable window this route used to be
+      // wrongly charged.
+      expect(agentPayload.timeoutAt).toBeGreaterThan(Date.now() + 60_000);
+      expect(jest.getTimerCount()).toBe(1);
 
-      // No 60s auto-deny timer armed at all.
-      expect(jest.getTimerCount()).toBe(0);
-
+      // The Wave 1 invariant, unchanged: 60s must NOT auto-deny this prompt.
+      // The user is looking at a real card and gets to answer it.
       await jest.advanceTimersByTimeAsync(120_000);
       let settled = false;
       void pending.then(() => {
@@ -896,6 +898,62 @@ describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task
 
       const result = (await pending) as unknown as { behavior: string };
       expect(result.behavior).toBe('allow');
+
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // TASK_2026_295 Wave 2: making the CLI-agent route "routable" also handed it
+  // `timeoutAt = 0` and no timer, i.e. an unbounded wait. The only remaining net
+  // was the `delivered === false` branch, which is a TRANSPORT check —
+  // `postMessage` succeeding reports `delivered: true` even when
+  // `AgentMonitorStore.onPermissionRequest` parks the prompt in
+  // `_pendingPermissionBuffer` because the agent card has not spawned. That
+  // buffer has no TTL and is drained only by the matching `onAgentSpawned`, so a
+  // crash or webview reload between `setAgentId()` and that event left the SDK
+  // stream stalled on a tool call forever. Bounded failure beats unbounded.
+  it('a CLI-agent request whose card never appears is denied at the ceiling instead of waiting forever', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, logger } = makeHandler();
+      const callback = handler.createCallback(
+        undefined,
+        () => 'agent-cli-orphan',
+        undefined,
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-cli-orphan' },
+      );
+
+      await flushMicrotasks();
+
+      // Nobody ever answers — the card was buffered and never drained.
+      await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      const result = (await pending) as unknown as DenyResult;
+      expect(result.behavior).toBe('deny');
+      // A timeout is a system abort, not a refusal — same contract as the
+      // unroutable window, so the model is not told the user objected.
+      expect(result.interrupt).toBe(false);
+      expect(result.message).toMatch(/NOT a user decision/i);
+
+      const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
+        String(call[0]).toLowerCase().includes('timed out'),
+      );
+      expect(warnedTimeout).toBe(true);
+
+      const internal = handler as unknown as {
+        pendingRequests: Map<string, unknown>;
+        pendingRequestContext: Map<string, unknown>;
+      };
+      expect(internal.pendingRequests.size).toBe(0);
+      expect(internal.pendingRequestContext.size).toBe(0);
 
       ac.abort();
     } finally {

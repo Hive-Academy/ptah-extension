@@ -103,6 +103,17 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
     );
   });
 
+  it('delegates an unresolved tile to the scoped selector, never the global one', () => {
+    const fixture = createPanel('');
+
+    expect(fixture.componentInstance.effectiveWorkflowSubagents()).toEqual([]);
+    // The falsy test used to send this down the active-tab branch, so the tile
+    // rendered ANOTHER session's workflow run groups. One rule now decides
+    // both halves, inside `agentVisibleInSession` via the store.
+    expect(storeMock.activeWorkflowSubagents).not.toHaveBeenCalled();
+    expect(storeMock.workflowSubagentsForSession).toHaveBeenCalledWith('');
+  });
+
   it('clears nothing when a tile with an unresolved session clears completed', () => {
     const fixture = createPanel('');
 

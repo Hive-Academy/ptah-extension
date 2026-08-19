@@ -20,7 +20,6 @@ function makeLogger(): jest.Mocked<Logger> {
 function makeRecord(overrides: Partial<SubagentRecord> = {}): SubagentRecord {
   return {
     toolCallId: 'tc-1',
-    sessionId: 'sess-1',
     agentType: 'test-agent',
     status: 'running',
     startedAt: Date.now(),

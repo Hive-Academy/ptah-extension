@@ -47,7 +47,7 @@ export class TeammateLifecycleHookHandler {
   ) {}
 
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     return {
@@ -57,7 +57,7 @@ export class TeammateLifecycleHookHandler {
     };
   }
 
-  private buildTaskCreatedHook(sessionId: string) {
+  private buildTaskCreatedHook(sessionId: string | undefined) {
     return async (
       input: HookInput,
       _toolUseId: string | undefined,
@@ -87,7 +87,7 @@ export class TeammateLifecycleHookHandler {
     };
   }
 
-  private buildTaskCompletedHook(sessionId: string) {
+  private buildTaskCompletedHook(sessionId: string | undefined) {
     return async (
       input: HookInput,
       _toolUseId: string | undefined,
@@ -116,7 +116,7 @@ export class TeammateLifecycleHookHandler {
     };
   }
 
-  private buildTeammateIdleHook(sessionId: string, cwd: string) {
+  private buildTeammateIdleHook(sessionId: string | undefined, cwd: string) {
     const sdkAdapterEvents = this.sdkAdapterEvents;
     return async (
       input: HookInput,

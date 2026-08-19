@@ -222,11 +222,10 @@ export class SubagentHookHandler {
       if (toolUseId && resolvedParentSessionId) {
         this.subagentRegistry.register({
           toolCallId: toolUseId,
-          // Both fields carry the PARENT session id — the SDK hook does not
-          // expose the subagent's own.
-          sessionId: resolvedParentSessionId,
           agentType: input.agent_type,
           startedAt: Date.now(),
+          // The PARENT session id — the SDK hook does not expose the
+          // subagent's own.
           parentSessionId: resolvedParentSessionId,
           agentId: input.agent_id,
         });
@@ -235,7 +234,6 @@ export class SubagentHookHandler {
           '[SubagentHookHandler] Subagent registered in registry',
           {
             toolCallId: toolUseId,
-            sessionId: resolvedParentSessionId,
             agentType: input.agent_type,
             parentSessionId: resolvedParentSessionId,
           },

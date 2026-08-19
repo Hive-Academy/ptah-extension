@@ -21,7 +21,7 @@ export class UserPromptExpansionHookHandler {
   ) {}
 
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     return {

@@ -168,8 +168,16 @@ export class SubagentStateStore {
     this.teardownSessionIds.delete(parentSessionId);
   }
 
-  /** Whether a parent session is currently being torn down. */
-  isInTeardown(parentSessionId: string): boolean {
+  /**
+   * Whether a parent session is currently being torn down.
+   *
+   * A record with no known parent (`SubagentRecord.parentSessionId` is
+   * optional) is in nobody's teardown window: the set is keyed by a specific
+   * parent, and an unattributed record cannot be claimed by one. Answering
+   * `false` keeps the teardown protection scoped to the session that asked for
+   * it.
+   */
+  isInTeardown(parentSessionId: string | undefined): boolean {
     if (!parentSessionId) {
       return false;
     }

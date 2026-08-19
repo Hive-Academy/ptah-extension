@@ -55,7 +55,6 @@ describe('ChatSubagentContextInjectorService', () => {
   function registerInterrupted(toolCallId: string, agentId: string): void {
     registry.register({
       toolCallId,
-      sessionId: SESSION as string,
       agentType: 'Explore',
       agentId,
       startedAt: Date.now(),
@@ -125,7 +124,6 @@ describe('ChatSubagentContextInjectorService', () => {
     await injector.injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
     registry.register({
       toolCallId: 'tc-2',
-      sessionId: SESSION as string,
       agentType: 'Explore',
       agentId: 'abc1234',
       startedAt: Date.now(),

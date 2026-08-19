@@ -110,8 +110,7 @@ export class SubagentHistoryRegistrar {
     let registeredCount = 0;
 
     for (const agentStart of agentStartEvents) {
-      const { toolCallId, agentType, agentId, sessionId, timestamp } =
-        agentStart;
+      const { toolCallId, agentType, agentId, timestamp } = agentStart;
       if (this.store.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent already registered, skipping',
@@ -150,7 +149,6 @@ export class SubagentHistoryRegistrar {
 
       const record: SubagentRecord = {
         toolCallId,
-        sessionId: sessionId, // Parent session ID (from event context, not subagent's own)
         agentType: agentType,
         status: 'interrupted' as SubagentStatus,
         startedAt: timestamp,

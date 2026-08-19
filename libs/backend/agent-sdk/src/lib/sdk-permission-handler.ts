@@ -78,6 +78,31 @@ interface PendingRequest {
 const UNROUTABLE_PERMISSION_TIMEOUT_MS = 60_000;
 
 /**
+ * Ceiling for a permission request routed to the agent monitor panel by CLI
+ * agent id.
+ *
+ * A webview request lands on a surface that provably exists — the tab is open,
+ * the user is looking at it — so it waits indefinitely. A CLI-agent request
+ * lands on an agent CARD, and the card may not exist yet:
+ * `AgentMonitorStore.onPermissionRequest` buffers the prompt in
+ * `_pendingPermissionBuffer` when the agent has not spawned, and that buffer is
+ * drained ONLY by the matching `onAgentSpawned` (no TTL). If the spawn event
+ * never arrives — a crash between `setAgentId()` and the frontend event, an
+ * extension-host restart, a webview reload mid-spawn — the prompt is never
+ * rendered and never answered.
+ *
+ * The `delivered === false` net does not catch that: `postMessage` succeeded, so
+ * delivery is reported as true. It is a TRANSPORT check, and this is an
+ * APPLICATION-level drop.
+ *
+ * So the wait is bounded. Ten minutes is double the house's "a human is looking
+ * at this prompt" window (`ASK_USER_QUESTION_IDLE_TIMEOUT_MS`, 5 min), which
+ * keeps a legitimate slow answer safe while guaranteeing the SDK stream cannot
+ * stall on a tool call forever (TASK_2026_295 Wave 2).
+ */
+const CLI_AGENT_PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
  * Lifecycle of one user-facing permission prompt, observed out-of-band by
  * hosts that own a surface the webview cannot reach — the messaging gateway
  * tells the Discord user "Ptah is waiting for approval in the desktop app"
@@ -554,35 +579,45 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   }
 
   /**
-   * A request is routable when it carries a surface the prompt can be delivered
-   * to AND answered from.
+   * Classify the surface a prompt can be delivered to AND answered from, and
+   * with it the deny window. Route and window are decided together on purpose:
+   * they were two rules before, and they drifted — a request classified
+   * routable inherited an unbounded wait it had not earned.
    *
-   * Two such surfaces exist:
-   *
-   * - A valid UUID session or tab. `sessionId`/`tabId` are branded types the
-   *   options builder only populates from `SessionId.safeParse`/`TabId.safeParse`
-   *   (non-UUID routing ids become `undefined`), so in practice this is "either
-   *   is present". The explicit UUID check is defense-in-depth and keeps the
-   *   classification correct regardless of caller.
-   * - A resolved CLI agent id. `sendPermissionRequest` routes those to the agent
-   *   monitor panel by `agentId`, and `AgentMonitorStore.onPermissionRequest`
-   *   either enqueues the prompt on the agent's card or buffers it until that
-   *   agent spawns. The answer comes back via `agent:permissionResponse` →
-   *   `handleResponse(requestId)`, which is keyed on requestId alone — no
-   *   session or tab is involved anywhere in that round trip. Classifying it
-   *   unroutable gave the user a real, visible prompt that auto-denied itself
-   *   after 60s (TASK_2026_295). CLI agent ids are not UUIDs, so no UUID check.
+   * - `'webview'` — a valid UUID session or tab. `sessionId`/`tabId` are branded
+   *   types the options builder only populates from
+   *   `SessionId.safeParse`/`TabId.safeParse` (non-UUID routing ids become
+   *   `undefined`), so in practice this is "either is present". The explicit
+   *   UUID check is defense-in-depth and keeps the classification correct
+   *   regardless of caller. The surface provably exists, so the wait is
+   *   unbounded and a user can take as long as they like.
+   * - `'cli-agent'` — a resolved CLI agent id. `sendPermissionRequest` routes
+   *   those to the agent monitor panel by `agentId`, and the answer comes back
+   *   via `agent:permissionResponse` → `handleResponse(requestId)`, which is
+   *   keyed on requestId alone — no session or tab is involved in that round
+   *   trip. Classifying it unroutable gave the user a real, visible prompt that
+   *   auto-denied itself after 60s (TASK_2026_295 Wave 1). But the card it
+   *   targets may never materialize, so the wait is bounded rather than
+   *   infinite — see {@link CLI_AGENT_PERMISSION_TIMEOUT_MS}. CLI agent ids are
+   *   not UUIDs, so no UUID check.
+   * - `'none'` — no surface at all (the broadcast-fallback case). Short deny
+   *   window so the SDK stream can complete.
    */
-  private isRoutablePermissionRequest(
+  private classifyPermissionRoute(
     sessionId?: SessionId,
     tabId?: TabId,
     cliAgentId?: string,
-  ): boolean {
-    return (
+  ): { readonly routable: boolean; readonly denyWindowMs?: number } {
+    if (
       (sessionId !== undefined && isUuid(sessionId as string)) ||
-      (tabId !== undefined && isUuid(tabId as string)) ||
-      (cliAgentId !== undefined && cliAgentId.length > 0)
-    );
+      (tabId !== undefined && isUuid(tabId as string))
+    ) {
+      return { routable: true, denyWindowMs: undefined };
+    }
+    if (cliAgentId !== undefined && cliAgentId.length > 0) {
+      return { routable: true, denyWindowMs: CLI_AGENT_PERMISSION_TIMEOUT_MS };
+    }
+    return { routable: false, denyWindowMs: UNROUTABLE_PERMISSION_TIMEOUT_MS };
   }
 
   private async requestUserPermission(
@@ -602,22 +637,21 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     const sanitizedInput = sanitizeToolInput(input);
 
-    // Unroutable requests (no session/tab/CLI-agent surface) get a deny timeout
-    // so the SDK stream can complete instead of hanging forever; routable
-    // requests keep `timeoutAt = 0` (infinite wait) exactly as before.
+    // Route and deny window come from one classification — see
+    // `classifyPermissionRoute`. Only a webview surface earns an unbounded wait
+    // (`timeoutAt = 0`); every other route is bounded so the SDK stream can
+    // complete instead of stalling on a tool call forever.
     //
     // Resolved ONCE here, not again inside sendPermissionRequest: the resolver
     // is read live, and a routability verdict that disagrees with the delivery
     // route is the whole defect this replaces.
     const cliAgentId = cliAgentResolver?.();
-    const isRoutable = this.isRoutablePermissionRequest(
+    const { routable: isRoutable, denyWindowMs } = this.classifyPermissionRoute(
       sessionId,
       tabId,
       cliAgentId,
     );
-    const timeoutAt = isRoutable
-      ? 0
-      : startTime + UNROUTABLE_PERMISSION_TIMEOUT_MS;
+    const timeoutAt = denyWindowMs === undefined ? 0 : startTime + denyWindowMs;
 
     const description = generateDescription(toolName, sanitizedInput);
 
@@ -628,7 +662,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       toolName,
       description,
       routable: isRoutable,
-      timeoutMs: isRoutable ? undefined : UNROUTABLE_PERMISSION_TIMEOUT_MS,
+      timeoutMs: denyWindowMs,
     });
 
     let agentToolCallId: string | undefined;
@@ -686,7 +720,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       signal,
       sessionId,
       tabId,
-      isRoutable ? undefined : UNROUTABLE_PERMISSION_TIMEOUT_MS,
+      denyWindowMs,
     );
 
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
@@ -936,10 +970,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         tabId,
       });
 
-      // Only unroutable requests supply a positive timeout — deny after the
-      // window so an undeliverable prompt cannot wedge the SDK stream forever.
-      // The timer is cleared by the resolve wrapper and onAbort above, so a real
-      // response or an abort arriving first cancels it (no late deny, no leak).
+      // Every route except a live webview surface supplies a positive window —
+      // deny after it so a prompt that was never rendered, or never answered,
+      // cannot wedge the SDK stream forever. The timer is cleared by the resolve
+      // wrapper and onAbort above, so a real response or an abort arriving first
+      // cancels it (no late deny, no leak).
       if (timeoutMs !== undefined && timeoutMs > 0) {
         timeoutHandle = setTimeout(() => {
           const pending = this.pendingRequests.get(requestId);
@@ -950,7 +985,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           this.pendingRequests.delete(requestId);
           this.pendingRequestContext.delete(requestId);
           this.logger.warn(
-            `[SdkPermissionHandler] Unroutable permission request timed out — denying`,
+            `[SdkPermissionHandler] Permission request timed out — denying`,
             { requestId, toolName: context?.toolName, timeoutMs },
           );
           pending.resolve({
@@ -958,7 +993,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             decision: 'deny',
             systemAbort: true,
             timedOut: true,
-            reason: `Permission request timed out after ${timeoutMs}ms with no UI surface to route it to (unroutable request) — denying to prevent a permanent hang.`,
+            reason: `Permission request timed out after ${timeoutMs}ms with no answer from the UI — denying to prevent a permanent hang.`,
           });
         }, timeoutMs);
       }

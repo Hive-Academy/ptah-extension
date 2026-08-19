@@ -64,8 +64,15 @@ export interface FlatStreamEvent {
   readonly eventType: StreamEventType;
   /** Event timestamp (Unix epoch ms) */
   readonly timestamp: number;
-  /** Session ID this event belongs to */
-  readonly sessionId: string;
+  /**
+   * Session ID this event belongs to.
+   *
+   * Absent when the producer genuinely does not know the owning session yet —
+   * e.g. a hook payload that arrives before the SDK has assigned a session id.
+   * `undefined` is the only representation of "not known"; an empty string is
+   * not a session id and must never be emitted in its place.
+   */
+  readonly sessionId?: string;
   /**
    * Event source for deduplication and priority handling.
    * - 'stream': Real-time streaming delta (may be incomplete)

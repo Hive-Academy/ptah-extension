@@ -1354,16 +1354,19 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     expect(merged.UserPromptSubmit).toHaveLength(1);
   });
 
-  it('defaults sessionId to empty string when undefined is passed', () => {
+  it('passes an absent sessionId through untouched — it does not invent an empty string', () => {
     const { builder, postToolUseHookHandler, userPromptSubmitHookHandler } =
       makeBuilderWithSpies();
     builder.createHooks('D:/tmp/ws');
+    // Every handler resolves its id through `resolveHookSessionId`, which
+    // treats `undefined` and `''` identically, so the old `sessionId ?? ''`
+    // coercion protected nothing and only disguised "not known" as a value.
     expect(postToolUseHookHandler.createHooks).toHaveBeenCalledWith(
-      '',
+      undefined,
       'D:/tmp/ws',
     );
     expect(userPromptSubmitHookHandler.createHooks).toHaveBeenCalledWith(
-      '',
+      undefined,
       'D:/tmp/ws',
     );
   });

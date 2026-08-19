@@ -28,7 +28,6 @@ function makeRegistry(
   const resolved: SubagentRecord | null = record
     ? ({
         toolCallId: 'tu-1',
-        sessionId: 'parent-sess-1',
         agentType: 'backend-developer',
         agentId: 'agent-xyz',
         startedAt: 0,
@@ -344,7 +343,6 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     expect(registry.register).toHaveBeenCalledWith(
       expect.objectContaining({
         toolCallId: 'tu-1',
-        sessionId: 'payload-parent-sess',
         parentSessionId: 'payload-parent-sess',
         agentType: 'backend-developer',
         agentId: 'agent-xyz',
@@ -364,7 +362,6 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     expect(registry.register).toHaveBeenCalledWith(
       expect.objectContaining({
         parentSessionId: 'payload-parent-sess',
-        sessionId: 'payload-parent-sess',
       }),
     );
   });
@@ -383,7 +380,6 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     expect(registry.register).toHaveBeenCalledWith(
       expect.objectContaining({
         parentSessionId: 'closure-parent-sess',
-        sessionId: 'closure-parent-sess',
       }),
     );
   });

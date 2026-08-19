@@ -1232,7 +1232,7 @@ export class SdkQueryOptionsBuilder {
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
     const compactionHooks = this.compactionHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
       onCompactionStart,
     );
@@ -1242,42 +1242,42 @@ export class SdkQueryOptionsBuilder {
       onWorktreeRemoved,
     );
     const postToolUseHooks = this.postToolUseHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const userPromptSubmitHooks = this.userPromptSubmitHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const userPromptExpansionHooks =
-      this.userPromptExpansionHookHandler.createHooks(sessionId ?? '', cwd);
-    const stopHooks = this.stopHookHandler.createHooks(sessionId ?? '', cwd);
+      this.userPromptExpansionHookHandler.createHooks(sessionId, cwd);
+    const stopHooks = this.stopHookHandler.createHooks(sessionId, cwd);
     const stopFailureHooks = this.stopFailureHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const sessionEndHooks = this.sessionEndHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const toolFailureHooks = this.toolFailureHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const preToolUseHooks = this.preToolUseHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const sessionStartHooks = this.sessionStartHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const subagentStopHooks = this.subagentStopHookHandler.createHooks(
-      sessionId ?? '',
+      sessionId,
       cwd,
     );
     const teammateLifecycleHooks =
-      this.teammateLifecycleHookHandler.createHooks(sessionId ?? '', cwd);
+      this.teammateLifecycleHookHandler.createHooks(sessionId, cwd);
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,

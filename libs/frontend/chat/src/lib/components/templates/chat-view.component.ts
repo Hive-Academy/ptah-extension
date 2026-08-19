@@ -473,14 +473,15 @@ export class ChatViewComponent implements OnDestroy {
    * Scoping goes through `agentVisibleInSession`, not a strict `===`: an
    * interrupted subagent whose owning session was never resolved would
    * otherwise match no tile at all, so the "N interrupted agents — Resume"
-   * banner never appeared for the agents most likely to need it.
+   * banner never appeared for the agents most likely to need it. That helper
+   * also answers the other half — a tile whose OWN session has not resolved
+   * renders nothing — so there is no pre-check here to disagree with it.
    */
   protected readonly resolvedResumableSubagents = computed<SubagentRecord[]>(
     () => {
       const all = this.chatStore.resumableSubagents();
       if (!this._sessionContext) return all;
       const sid = this.resolvedSessionId();
-      if (!sid) return [];
       return all.filter((s) => agentVisibleInSession(s.parentSessionId, sid));
     },
   );

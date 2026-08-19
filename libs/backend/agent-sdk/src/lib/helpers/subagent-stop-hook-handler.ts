@@ -29,7 +29,7 @@ export class SubagentStopHookHandler {
   ) {}
 
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const sdkAdapterEvents = this.sdkAdapterEvents;

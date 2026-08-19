@@ -522,10 +522,11 @@ export class AgentMonitorPanelComponent {
   readonly effectiveWorkflowSubagents = computed<SubagentRecord[]>(() => {
     const sid = this.sessionId();
     if (sid === null) return this.store.activeWorkflowSubagents();
-    // A scoped tile whose session is still empty must render nothing. The old
-    // falsy test sent it down the active-tab branch, so the tile showed ANOTHER
-    // session's workflow run groups.
-    return sid ? this.store.workflowSubagentsForSession(sid) : [];
+    // Scoped tile. `agentVisibleInSession` (via the store) owns both halves of
+    // the rule: an unresolved tile renders nothing rather than falling through
+    // to the active-tab branch and showing ANOTHER session's run groups, and a
+    // resolved tile also shows agents whose owner was never attributed.
+    return this.store.workflowSubagentsForSession(sid);
   });
 
   /**

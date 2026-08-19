@@ -108,7 +108,6 @@ describe('SubagentHistoryRegistrar', () => {
     });
     store.set('tc-existing', {
       toolCallId: 'tc-existing',
-      sessionId: 'sess-1',
       agentType: 'test-agent',
       status: 'running',
       startedAt: Date.now(),

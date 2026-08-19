@@ -1,13 +1,12 @@
 /**
  * Hook session identity resolution — the one place the payload-first rule lives.
  *
- * Every SDK hook callback is built with a session id captured in a closure, and
- * `SdkQueryOptionsBuilder.createHooks` passes `sessionId ?? ''` there. For a NEW
- * session that id does not exist yet — the canonical one arrives later, in the
- * system `init` message — so the closure holds `''` for the whole query. The
- * hook payload always carries the real id (`BaseHookInput.session_id`), which is
- * why a handler must read the payload first and fall back to the closure only
- * when the payload has none.
+ * Every SDK hook callback is built with a session id captured in a closure. For
+ * a NEW session that id does not exist yet — the canonical one arrives later, in
+ * the system `init` message — so the closure holds nothing for the whole query.
+ * The hook payload always carries the real id (`BaseHookInput.session_id`),
+ * which is why a handler must read the payload first and fall back to the
+ * closure only when the payload has none.
  *
  * `''` from EITHER source means absent, not "the empty session". It is a third
  * state nothing downstream intends: `SessionIdSchema` is `z.string().uuid()`,
@@ -21,13 +20,12 @@
  */
 
 /**
- * Resolve the session id a hook callback should report.
+ * Payload beats closure; a blank value from either is absent, not a value.
  *
- * @param fromPayload - `input.session_id` from the SDK hook payload
- * @param fromClosure - the id captured when the hooks were built
- * @returns the first non-empty id, or `null` when neither source has one
+ * The one implementation behind both exported resolvers — a file whose purpose
+ * is to be the single definition of a rule should not state that rule twice.
  */
-export function resolveHookSessionId(
+function resolveFirstPresent(
   fromPayload: string | undefined,
   fromClosure: string | null | undefined,
 ): string | null {
@@ -40,16 +38,30 @@ export function resolveHookSessionId(
   return null;
 }
 
-/** Same precedence rule as {@link resolveHookSessionId}, for the working dir. */
+/**
+ * Resolve the session id a hook callback should report.
+ *
+ * @param fromPayload - `input.session_id` from the SDK hook payload
+ * @param fromClosure - the id captured when the hooks were built
+ * @returns the first non-empty id, or `null` when neither source has one
+ */
+export function resolveHookSessionId(
+  fromPayload: string | undefined,
+  fromClosure: string | null | undefined,
+): string | null {
+  return resolveFirstPresent(fromPayload, fromClosure);
+}
+
+/**
+ * Same precedence rule as {@link resolveHookSessionId}, for the working dir.
+ *
+ * @param fromPayload - `input.cwd` from the SDK hook payload
+ * @param fromClosure - the cwd captured when the hooks were built
+ * @returns the first non-empty path, or `null` when neither source has one
+ */
 export function resolveHookCwd(
   fromPayload: string | undefined,
   fromClosure: string | null | undefined,
 ): string | null {
-  if (typeof fromPayload === 'string' && fromPayload.length > 0) {
-    return fromPayload;
-  }
-  if (typeof fromClosure === 'string' && fromClosure.length > 0) {
-    return fromClosure;
-  }
-  return null;
+  return resolveFirstPresent(fromPayload, fromClosure);
 }

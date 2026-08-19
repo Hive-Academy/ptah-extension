@@ -34,16 +34,6 @@ export interface SubagentRecord {
   readonly toolCallId: string;
 
   /**
-   * The session ID from the SubagentStart hook (input.session_id).
-   * NOTE: This is actually the PARENT session ID, not the subagent's own session.
-   * The SDK hook does not expose the subagent's own session ID.
-   * For subagent resumption, instruct the model to "Resume agent <agentId>"
-   * within the same (resumed) session — the Agent tool has no resume parameter.
-   * @deprecated Use parentSessionId for parent session lookups. This field is redundant.
-   */
-  readonly sessionId: string;
-
-  /**
    * Agent type (e.g., 'Explore', 'Plan', 'software-architect').
    * Derived from the SubagentStart hook event.
    */
@@ -70,8 +60,14 @@ export interface SubagentRecord {
   /**
    * Parent session ID for routing and filtering.
    * The session that spawned this subagent.
+   *
+   * Absent when the spawn happened before the parent session id was known.
+   * `undefined` is the only representation of "not known"; an empty string is
+   * not a session id and must never be stored in its place. Consumers that
+   * filter by parent must treat an absent parent as unattributed, never as a
+   * wildcard match.
    */
-  readonly parentSessionId: string;
+  readonly parentSessionId?: string;
 
   /**
    * Short agent identifier (e.g., "adcecb2") from SDK.

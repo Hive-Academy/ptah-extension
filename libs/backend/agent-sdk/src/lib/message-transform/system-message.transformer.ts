@@ -103,7 +103,11 @@ export class SystemMessageTransformer {
       { contentLength: sdkMessage.content.length },
     );
     const messageId = `cmd_${generateEventId()}`;
-    const resolvedSessionId = sessionId || sdkMessage.session_id || '';
+    // `||` not `??`: an empty `session_id` on the payload is not an id, and the
+    // trailing `undefined` keeps it from becoming one. Local command output is
+    // still worth emitting unattributed — it is the user's own `/command`
+    // echo, and dropping it would lose visible transcript content.
+    const resolvedSessionId = sessionId || sdkMessage.session_id || undefined;
 
     const events: FlatStreamEventUnion[] = [
       {
@@ -176,7 +180,13 @@ export class SystemMessageTransformer {
     }
     state.markTaskStartedEmitted(toolUseId);
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
     const workflowRun = state.getWorkflowRun(toolUseId);
 
@@ -224,7 +234,13 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
     const workflowRun = state.getWorkflowRun(parentToolUseId);
 
     const event: AgentProgressEvent = {
@@ -265,7 +281,13 @@ export class SystemMessageTransformer {
     }
 
     const patch = msg.patch;
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
     const workflowRun = state.getWorkflowRun(parentToolUseId);
     const events: FlatStreamEventUnion[] = [];
@@ -362,7 +384,13 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
     const workflowRun = state.getWorkflowRun(parentToolUseId);
 
     const event: AgentCompletedEvent = {

@@ -116,14 +116,15 @@ export class SdkMessageTransformer implements TransformerState {
     sdkMessage: SDKMessage,
     callerSessionId?: SessionId | HarnessStreamId | WizardPhaseId,
   ): FlatStreamEventUnion[] {
-    // Roughly 25 emit sites in the sub-transformers end in `sessionId || ''`.
-    // That `''` is only reachable when the caller has no id — which happens on
-    // the Ptah CLI agent path, where PtahCliStreamLoop passes
-    // `this.effectiveSessionId || undefined` until the SDK reports the real one.
-    // Every SDKMessage variant carries `session_id`, so a correct id was
-    // available and discarded. Resolving once here fixes all of them without
-    // touching the emit sites; the `|| ''` literals stay until the shared
-    // FlatStreamEvent type is widened (Wave 2).
+    // The single session-id resolution for every sub-transformer. They now all
+    // spread this value straight onto `FlatStreamEvent.sessionId` (optional
+    // since TASK_2026_295 Wave 2), so "no id" travels as `undefined` and no
+    // emit site has to invent one.
+    //
+    // `||` not `??`: the caller can hand us `''` — the Ptah CLI agent path
+    // passes `this.effectiveSessionId || undefined` until the SDK reports the
+    // real id — and `''` is not an id, so it must fall through to the payload
+    // rather than suppress the fallback.
     //
     // The caller's id still wins where it exists: for harness and wizard
     // streams it is a HarnessStreamId / WizardPhaseId, i.e. the routing key the
