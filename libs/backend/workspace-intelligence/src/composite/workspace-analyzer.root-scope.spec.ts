@@ -12,6 +12,7 @@
  */
 
 import 'reflect-metadata';
+import * as path from 'path';
 import { WorkspaceAnalyzerService } from './workspace-analyzer.service';
 
 const ROOT_A = 'D:\\projects\\alpha';
@@ -146,12 +147,38 @@ describe('WorkspaceAnalyzerService — root-keyed workspace info', () => {
     expect(info?.path).toBe(ROOT_A);
   });
 
-  it('collapses drive-letter case and trailing separators to one cache entry (criterion 13)', async () => {
+  /**
+   * Criterion 13: string variants of one root collapse to ONE cache key.
+   *
+   * Split by host path semantics, exactly as
+   * `file-indexing/workspace-file-index.service.spec.ts` and task-specs'
+   * `normalize-workspace-root.spec.ts` already do for this same criterion. The
+   * canonical key function (`normalizeWorkspaceRoot`, platform-core) is
+   * `path.resolve`-based and therefore host-scoped: a `D:\...` literal is not
+   * an absolute path to a POSIX runner, so it gets prefixed with the runner's
+   * cwd and the drive-case variant forks into a second key on Linux CI —
+   * a property of the fixture, not of the cache.
+   */
+  it('collapses trailing separators to one cache entry (criterion 13)', async () => {
+    const harness = createHarness();
+    const root = path.join('/', 'projects', 'alpha');
+
+    await harness.service.getCurrentWorkspaceInfo(root);
+    await harness.service.getCurrentWorkspaceInfo(`${root}${path.sep}`);
+    await harness.service.getCurrentWorkspaceInfo(root);
+
+    expect(harness.workspaceService.getProjectInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('collapses drive-letter case to one cache entry on Windows (criterion 13)', async () => {
+    // Drive letters are a Windows path concept.
+    if (path.sep !== '\\') return;
     const harness = createHarness();
 
     await harness.service.getCurrentWorkspaceInfo('D:\\projects\\alpha');
     await harness.service.getCurrentWorkspaceInfo('D:\\projects\\alpha\\');
     await harness.service.getCurrentWorkspaceInfo('d:\\projects\\alpha');
+    await harness.service.getCurrentWorkspaceInfo('D:/projects/alpha');
 
     expect(harness.workspaceService.getProjectInfo).toHaveBeenCalledTimes(1);
   });

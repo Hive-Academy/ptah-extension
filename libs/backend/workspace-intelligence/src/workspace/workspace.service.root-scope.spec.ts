@@ -10,6 +10,7 @@
  */
 
 import 'reflect-metadata';
+import * as path from 'path';
 import { FileType } from '@ptah-extension/platform-core';
 import { WorkspaceService } from './workspace.service';
 import { ProjectType } from '../types/workspace.types';
@@ -155,7 +156,34 @@ describe('WorkspaceService — explicit root threading', () => {
     ).resolves.toBeNull();
   });
 
-  it('collapses drive-letter case and trailing separators to one analysis (criterion 13)', async () => {
+  /**
+   * Criterion 13: string variants of one root collapse to ONE analysis.
+   *
+   * Split by host path semantics, exactly as
+   * `file-indexing/workspace-file-index.service.spec.ts` and task-specs'
+   * `normalize-workspace-root.spec.ts` already do for this same criterion. The
+   * canonical key function (`normalizeWorkspaceRoot`, platform-core) is
+   * `path.resolve`-based and therefore host-scoped: a `D:\...` literal is not
+   * an absolute path to a POSIX runner, so it gets prefixed with the runner's
+   * cwd and the drive-case variant forks into a second key on Linux CI —
+   * a property of the fixture, not of the cache.
+   */
+  it('collapses trailing separators to one analysis (criterion 13)', async () => {
+    const harness = createHarness();
+    await flush();
+    harness.projectDetector.detectProjectType.mockClear();
+    const root = path.join('/', 'projects', 'beta');
+
+    await harness.service.getProjectInfo(root);
+    await harness.service.getProjectInfo(`${root}${path.sep}`);
+    await harness.service.getProjectInfo(root);
+
+    expect(harness.projectDetector.detectProjectType).toHaveBeenCalledTimes(1);
+  });
+
+  it('collapses drive-letter case to one analysis on Windows (criterion 13)', async () => {
+    // Drive letters are a Windows path concept.
+    if (path.sep !== '\\') return;
     const harness = createHarness();
     await flush();
     harness.projectDetector.detectProjectType.mockClear();
@@ -163,6 +191,7 @@ describe('WorkspaceService — explicit root threading', () => {
     await harness.service.getProjectInfo('D:\\projects\\beta');
     await harness.service.getProjectInfo('D:\\projects\\beta\\');
     await harness.service.getProjectInfo('d:\\projects\\beta');
+    await harness.service.getProjectInfo('D:/projects/beta');
 
     expect(harness.projectDetector.detectProjectType).toHaveBeenCalledTimes(1);
   });
