@@ -56,7 +56,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 
 import { withTimeout } from './wait-for.js';
-import type { TmpHome } from './tmp-home.js';
+import { e2eDbPath, type TmpHome } from './tmp-home.js';
 const treeKill: (
   pid: number,
   signal: string,
@@ -480,6 +480,11 @@ function buildEnv(
   cleaned['USERPROFILE'] = homePath;
   cleaned['APPDATA'] = path.join(homePath, 'AppData', 'Roaming');
   cleaned['LOCALAPPDATA'] = path.join(homePath, 'AppData', 'Local');
+  // Pin the database explicitly rather than inheriting whatever file the
+  // NODE_ENV profile happens to name today — see `e2eDbPath`. HOME alone is
+  // not enough: it isolates the DIRECTORY, the profile still picks the FILE,
+  // and a direct-seed spec has to open the same one.
+  cleaned['PTAH_DB_PATH'] = e2eDbPath(homePath);
   return { ...cleaned, ...(overrides ?? {}) };
 }
 

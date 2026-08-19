@@ -37,6 +37,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as ptyModule from 'node-pty';
 
+import { e2eDbPath } from './tmp-home.js';
+
 /** Control bytes, named. `ctrl('o')` is the chord Ink reports as ctrl + 'o'. */
 export const KEYS = {
   enter: '\r',
@@ -156,6 +158,10 @@ function ptyEnv(home: string, extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   env['USERPROFILE'] = home;
   env['APPDATA'] = path.join(home, 'AppData', 'Roaming');
   env['LOCALAPPDATA'] = path.join(home, 'AppData', 'Local');
+  // Same database the JSON-RPC harness pins — see `e2eDbPath`. `makePtyHome`
+  // returns a bare string rather than a `TmpHome`, so the path is derived from
+  // the home here instead of read off a field.
+  env['PTAH_DB_PATH'] = e2eDbPath(home);
   // A real TERM, because this IS a real terminal — but NO_COLOR so the frame
   // is readable text rather than a wall of SGR runs.
   env['TERM'] = 'xterm-256color';

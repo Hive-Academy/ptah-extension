@@ -17,9 +17,38 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+/**
+ * The SQLite database a CLI launched against `homePath` will open.
+ *
+ * The harness DECLARES this path (the runners export it as `PTAH_DB_PATH`)
+ * rather than letting each side guess it, because the two sides used to guess
+ * differently. The CLI resolves its database through `resolvePtahDbProfile()`,
+ * which maps `NODE_ENV` to a file name; Jest sets `NODE_ENV=test` by default.
+ * When `test` became a profile of its own (TASK_2026_291 — a working-tree build
+ * had migrated a developer's real `ptah.sqlite` forward and the installed build
+ * then refused to open it) the CLI moved to `ptah-test.sqlite`, while the
+ * direct-seed specs still opened the `ptah.sqlite` string literal they had
+ * hardcoded. better-sqlite3 CREATES a missing file, so the seed silently built
+ * a brand-new empty database beside the real one and every spec died on its
+ * first `prepare` with `no such table`.
+ *
+ * `PTAH_DB_PATH` is the escape hatch `db-path.ts` documents for exactly this,
+ * and the one the Electron e2e launcher already uses. Setting it per launch
+ * makes spec and subprocess agree by construction, and the file name below is
+ * the harness's own — no future profile change can separate them again.
+ */
+export function e2eDbPath(homePath: string): string {
+  return path.join(homePath, '.ptah', 'state', 'ptah-e2e.sqlite');
+}
+
 export interface TmpHome {
   readonly path: string;
   readonly ptahDir: string;
+  /**
+   * The database every CLI launched with this home opens. Direct-seed specs
+   * MUST use this instead of rebuilding the path from a file-name literal.
+   */
+  readonly dbPath: string;
   writeFile(rel: string, contents: string | Buffer): Promise<void>;
   readFile(rel: string): Promise<string | null>;
   cleanup(): Promise<void>;
@@ -29,6 +58,8 @@ export async function createTmpHome(prefix = 'ptah-e2e-'): Promise<TmpHome> {
   const homePath = await fsp.mkdtemp(path.join(os.tmpdir(), prefix));
   const ptahDir = path.join(homePath, '.ptah');
   await fsp.mkdir(ptahDir, { recursive: true });
+  const dbPath = e2eDbPath(homePath);
+  await fsp.mkdir(path.dirname(dbPath), { recursive: true });
 
   const resolveSafe = (rel: string): string => {
     const target = path.resolve(homePath, rel);
@@ -43,6 +74,7 @@ export async function createTmpHome(prefix = 'ptah-e2e-'): Promise<TmpHome> {
   return {
     path: homePath,
     ptahDir,
+    dbPath,
     async writeFile(rel: string, contents: string | Buffer): Promise<void> {
       const target = resolveSafe(rel);
       await fsp.mkdir(path.dirname(target), { recursive: true });

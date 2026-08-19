@@ -9,9 +9,13 @@
  *
  * Curation trigger path (R3.3) stays covered by memory-curator unit and
  * integration tests.
+ *
+ * The database seeded here is `tmp.dbPath` — the one the harness exports to
+ * every spawn as `PTAH_DB_PATH`. Never rebuild it from a file-name literal:
+ * the CLI picks its file by NODE_ENV profile, and when `test` gained a file of
+ * its own these specs kept opening the old name, seeding an empty database
+ * that better-sqlite3 created for them. See `_harness/tmp-home.ts`.
  */
-
-import * as path from 'node:path';
 
 import { CliRunner, createTmpHome, type TmpHome } from './_harness';
 
@@ -27,6 +31,19 @@ const openDatabase = require('better-sqlite3') as new (
   path: string,
   opts?: Record<string, unknown>,
 ) => SqliteDb;
+
+/**
+ * Open the database the CLI already created and migrated.
+ *
+ * `fileMustExist` is the point: without it better-sqlite3 conjures an empty
+ * file for a path nobody has booted, and the seed fails several lines later
+ * with `no such table` — a schema complaint about a database that was never
+ * the right one. Every test below runs `memory stats` first, so the file
+ * existing is a precondition these specs are entitled to assert.
+ */
+function openSeededDb(dbPath: string): SqliteDb {
+  return new openDatabase(dbPath, { fileMustExist: true });
+}
 
 jest.setTimeout(90_000);
 
@@ -85,7 +102,7 @@ async function seedMemoryRows(
     content: string;
   }>,
 ): Promise<void> {
-  const db = new openDatabase(dbPath);
+  const db = openSeededDb(dbPath);
   const t = now();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO memories
@@ -164,7 +181,7 @@ describe('memory curator e2e (TASK_2026_141 Batch 7 — direct DB seed)', () => 
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     await seedMemoryRows(dbPath, [
       {
         id: makeMemoryId(1),
@@ -208,7 +225,7 @@ describe('memory curator e2e (TASK_2026_141 Batch 7 — direct DB seed)', () => 
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     await seedMemoryRows(dbPath, [
       {
         id: makeMemoryId(3),
@@ -243,7 +260,7 @@ describe('memory curator e2e (TASK_2026_141 Batch 7 — direct DB seed)', () => 
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     const memId = makeMemoryId(4);
     await seedMemoryRows(dbPath, [
       { id: memId, tier: 'recall', kind: 'fact', content: 'pin-test row' },
@@ -286,7 +303,7 @@ describe('memory curator e2e (TASK_2026_141 Batch 7 — direct DB seed)', () => 
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     const memId = makeMemoryId(5);
     await seedMemoryRows(dbPath, [
       { id: memId, tier: 'recall', kind: 'fact', content: 'forget-test row' },
