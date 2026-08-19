@@ -127,11 +127,10 @@ export class StreamingHandlerService {
       // already mutated state — so a throw there was swallowed by the catch and
       // turned into `null`, silently dropping the compaction / queued-content
       // dispatch that `chat.store.processStreamEvent` reads from the return
-      // value. Parse once, non-throwing, and skip every session lookup when
-      // there is no session.
-      const eventSession = event.sessionId
-        ? SessionId.safeParse(event.sessionId)
-        : null;
+      // value. Never reach for `from` here. `safeParse` takes the absent case
+      // itself (`undefined` → `null`), so every session lookup below is already
+      // skipped when there is no session.
+      const eventSession = SessionId.safeParse(event.sessionId);
       let primaryTab: TabState | undefined;
       if (tabId) {
         primaryTab = this.tabManager.tabs().find((t) => t.id === tabId);
@@ -153,8 +152,7 @@ export class StreamingHandlerService {
         const activeTab = this.tabManager.activeTab();
         // `attachSession` runs `SessionId.from` internally and throws the same
         // way, so the hijack only fires when we actually hold a session id.
-        const realSessionId =
-          (sessionId ? SessionId.safeParse(sessionId) : null) ?? eventSession;
+        const realSessionId = SessionId.safeParse(sessionId) ?? eventSession;
 
         if (
           activeTab &&

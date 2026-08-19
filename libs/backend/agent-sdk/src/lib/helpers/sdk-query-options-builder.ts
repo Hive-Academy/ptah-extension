@@ -644,7 +644,7 @@ export class SdkQueryOptionsBuilder {
       model,
     );
     const routingId = sessionConfig?.tabId ?? sessionId;
-    const routingSessionId = routingId ? SessionId.safeParse(routingId) : null;
+    const routingSessionId = SessionId.safeParse(routingId);
     const routingTabId = sessionConfig?.tabId
       ? TabId.safeParse(sessionConfig.tabId)
       : null;
