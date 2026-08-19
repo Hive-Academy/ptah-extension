@@ -199,10 +199,15 @@ export interface LaneRun {
 }
 
 /**
- * Three outcomes, not two. `unavailable` is not a failure: a CLI or e2e host
- * that registers no `InternalQueryService` has nothing wrong with it, and
- * turning that into a `SkillLaneFailure` would put a retry backoff on a queue
- * row that will never succeed in this host.
+ * Three outcomes, not two. `unavailable` is not a failure: a host with no LLM
+ * has nothing wrong with it, and turning that into a `SkillLaneFailure` would
+ * put a retry backoff on a queue row that will never succeed in this host.
+ *
+ * "No LLM" has TWO shapes and the second one is the one that bit us. A host may
+ * register no `InternalQueryService` at all (an e2e host), or it may register
+ * one that was never initialized — which is every `ptah` command booting
+ * `withEngine({ mode: 'full', requireSdk: false })`. Both are `unavailable`;
+ * see `IInternalQuery.isInitialized`.
  */
 export type LaneRunResult =
   | { readonly status: 'ok'; readonly run: LaneRun }
@@ -272,6 +277,20 @@ export class LaneRunnerService {
       return {
         status: 'unavailable',
         reason: `Lane ${req.laneId}: no internal query service in this host`,
+      };
+    }
+    // Registered is not usable. The CLI registers `agent-sdk` on every
+    // `mode: 'full'` boot and then skips `initialize()` via `requireSdk: false`,
+    // so the token above resolves on a host whose `execute` can only ever
+    // throw. Asking is the difference between `unavailable` (this host has no
+    // LLM — nothing is wrong, do not back off) and a `SkillLaneFailure` the
+    // caller must treat as a transport fault. `?.() === false` and not
+    // `!isInitialized?.()`: an implementation that does not answer is not an
+    // implementation that answered "no".
+    if (this.internalQuery.isInitialized?.() === false) {
+      return {
+        status: 'unavailable',
+        reason: `Lane ${req.laneId}: the SDK was never initialized in this host`,
       };
     }
 

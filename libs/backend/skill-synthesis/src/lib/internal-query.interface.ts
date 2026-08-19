@@ -22,6 +22,31 @@
 import type { LaneAuthOverride } from './lanes/lane.types';
 
 export interface IInternalQuery {
+  /**
+   * Whether the host initialized its SDK at all. Optional, and absent means
+   * "assume yes" — a double that does not implement it keeps today's behaviour.
+   *
+   * ## Registered is NOT the same as usable
+   *
+   * `LaneRunnerService` used to read "there is no LLM in this host" off the DI
+   * registration alone (`!this.internalQuery`). That is true of a host which
+   * never registers `agent-sdk` and FALSE of the CLI, which registers it on
+   * every `withEngine({ mode: 'full' })` boot and then passes
+   * `requireSdk: false` so `SdkAgentAdapter.initialize()` never runs — the
+   * documented posture for `doctor`, the auth/config bootstrap verbs and
+   * `skill-synthesis`, all of which must work before any credentials exist.
+   * `execute` then throws on every call, which reaches `SkillJudgeService` as
+   * `judge-call-threw` (an `unscored` verdict), so `ptah skill-synthesis
+   * promote` answered `judge-unscored` and exited 2 on a host that simply has
+   * no judge to run — the exact outcome `unavailable` exists to prevent.
+   *
+   * `false` means NEVER INITIALIZED, not "currently failing": an SDK that
+   * initialized and errored still answers `true`, so a real transport fault
+   * stays a retryable `SkillLaneFailure` instead of being downgraded to "no LLM
+   * here" and dropped.
+   */
+  isInitialized?(): boolean;
+
   execute(config: {
     cwd: string;
     model: string;

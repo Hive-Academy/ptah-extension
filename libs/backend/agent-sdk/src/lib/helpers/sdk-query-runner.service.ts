@@ -261,6 +261,21 @@ export class SdkQueryRunner {
     return { sdkQuery };
   }
 
+  /**
+   * Whether a one-shot query can be ATTEMPTED in this process at all.
+   *
+   * `false` only on a host that never initialized the SDK — see
+   * `SdkRuntimeStateService.hasInitialized`. It is the cheap pre-check for
+   * {@link verifyHealth}'s hardest case: that guard throws an `SdkError` on
+   * `status: 'initializing'`, and a caller that cannot import `SdkError`
+   * (`skill-synthesis` keeps zero SDK imports) can only read that throw as a
+   * transport fault and retry it forever against a host that will never have an
+   * LLM. Asking first is what lets such a caller answer "not here" instead.
+   */
+  isInitialized(): boolean {
+    return this.runtimeState.hasInitialized();
+  }
+
   private verifyHealth(): void {
     const health = this.runtimeState.getHealth();
     if (health.status !== 'available') {

@@ -14,10 +14,12 @@ import {
   timeoutBackoffMs,
 } from './lane-runner.service';
 import { LANE_AUTH_RETRY_MS, SKILL_LANE_IDS } from './lane.types';
+import type { IInternalQuery } from '../internal-query.interface';
 import {
   assistantText,
   makeBudgetStub,
   makeFailingResolverStub,
+  makeHangingQueryStub,
   makeLogger,
   makeQueryStub,
   makeQueueStub,
@@ -88,6 +90,78 @@ describe('LaneRunnerService — a host with no SDK is unavailable, not failed', 
     // A `SkillLaneFailure` would schedule a retry for a host that can never
     // succeed; `unavailable` lets the caller mark the row `skipped` instead.
     expect(out).not.toHaveProperty('failure');
+  });
+
+  it('answers `unavailable` for a REGISTERED query service that was never initialized, without calling it', async () => {
+    // The CLI's shape: `withEngine({ mode: 'full', requireSdk: false })`
+    // registers `agent-sdk` — so the DI token resolves — and never runs
+    // `SdkAgentAdapter.initialize()`, so `execute` can only throw. Reading the
+    // registration alone called that a live lane, and the throw reached
+    // `SkillJudgeService` as `judge-call-threw`, which is an `unscored` verdict:
+    // `ptah skill-synthesis promote` then answered `judge-unscored` and exited 2
+    // on a host that simply has no judge.
+    const query = makeQueryStub([]);
+    const uninitialized: IInternalQuery = {
+      ...query.query,
+      isInitialized: () => false,
+    };
+    const runner = new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      uninitialized,
+    );
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'x' });
+
+    expect(out.status).toBe('unavailable');
+    expect(out).not.toHaveProperty('failure');
+    expect(query.execute).not.toHaveBeenCalled();
+  });
+
+  it('runs normally when the query service does not answer the question at all', async () => {
+    // Absent is not "no". Every existing test double omits `isInitialized`, and
+    // an optional probe read as `!isInitialized?.()` would silently disable
+    // every one of them.
+    const query = makeQueryStub([
+      [assistantText('hi'), resultMessage({ result: 'hi' })],
+    ]);
+    const runner = new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge')).service,
+      makeBudgetStub().store,
+      query.query,
+    );
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'x' });
+
+    expect(out.status).toBe('ok');
+    expect(query.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports an INITIALIZED but broken SDK as a retryable failure', async () => {
+    // `isInitialized()` is "was there ever an SDK here", not "is it healthy".
+    // An adapter that initialized and errored owns a transport fault, and
+    // downgrading that to `unavailable` would let a caller mark the row
+    // `skipped` and drop work a later retry could have finished.
+    const hanging = makeHangingQueryStub();
+    const initialized: IInternalQuery = {
+      ...hanging.query,
+      isInitialized: () => true,
+    };
+    const runner = new LaneRunnerService(
+      makeLogger(),
+      makeResolverStub(resolvedLane('judge', { config: { timeoutMs: 10 } }))
+        .service,
+      makeBudgetStub().store,
+      initialized,
+    );
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'x' });
+
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.failure.kind).toBe('timeout');
   });
 });
 

@@ -50,14 +50,21 @@ function createFakeQuery(tag = 'fake'): Query & { close: jest.Mock } {
 }
 
 function createRuntimeState(
-  opts: { status?: 'available' | 'error'; cliJsPath?: string | null } = {},
-): jest.Mocked<Pick<SdkRuntimeStateService, 'getHealth' | 'getCliJsPath'>> {
+  opts: {
+    status?: 'available' | 'error';
+    cliJsPath?: string | null;
+    initialized?: boolean;
+  } = {},
+): jest.Mocked<
+  Pick<SdkRuntimeStateService, 'getHealth' | 'getCliJsPath' | 'hasInitialized'>
+> {
   return {
     getHealth: jest.fn().mockReturnValue({
       status: opts.status ?? 'available',
       lastCheck: Date.now(),
     }),
     getCliJsPath: jest.fn().mockReturnValue(opts.cliJsPath ?? null),
+    hasInitialized: jest.fn().mockReturnValue(opts.initialized ?? true),
   };
 }
 
@@ -200,6 +207,28 @@ describe('SdkQueryRunner', () => {
       expect(params.prompt).toBe('hi');
       expect(params.options.permissionMode).toBe('bypassPermissions');
       expect(params.options.persistSession).toBe(false);
+    });
+  });
+
+  describe('isInitialized — the pre-check headless callers need', () => {
+    it('is false on a host that never initialized the SDK', () => {
+      // `withEngine({ requireSdk: false })`. `runOneShot` would throw SdkError
+      // here on every call, and a caller that cannot import SdkError
+      // (`skill-synthesis` keeps zero SDK imports) can only read that as a
+      // transport fault and retry it against a host that has no LLM at all.
+      const h = makeRunner({
+        runtimeState: { status: 'error', initialized: false },
+      });
+      expect(h.runner.isInitialized()).toBe(false);
+    });
+
+    it('is true for an initialized SDK even when its health is "error"', () => {
+      // Deliberately NOT a health check: an errored SDK owns a retryable fault,
+      // and answering false here would let a caller drop the work instead.
+      const h = makeRunner({
+        runtimeState: { status: 'error', initialized: true },
+      });
+      expect(h.runner.isInitialized()).toBe(true);
     });
   });
 
