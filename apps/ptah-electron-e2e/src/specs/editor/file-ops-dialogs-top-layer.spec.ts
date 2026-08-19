@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Locator, Page, TestInfo } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
  * The delete confirmation and the name-input dialog, answered by MOUSE —
@@ -99,6 +100,33 @@ function overlaps(
 }
 
 /**
+ * Put the app on the Orchestra Canvas — and keep it there.
+ *
+ * A real boot does NOT reliably land on the canvas. `AppShellComponent` runs a
+ * one-shot `auth:getAuthStatus` check and redirects `chat` -> `settings` when
+ * the machine has no usable provider. A developer box reports
+ * `claudeCliInstalled` and never sees that redirect; a clean CI runner has no
+ * CLI, no keys and an isolated `$HOME`, so it always does. That is the whole
+ * difference between this spec passing locally and failing in CI, and the
+ * failure reads as a missing heading rather than a redirect: `settings` is a
+ * standalone view, the shared chrome (canvas included) goes `display: none`,
+ * and a `display: none` heading is not in the accessibility tree at all, so
+ * `getByRole` reports "element(s) not found".
+ *
+ * The canvas is the thing this spec needs BEHIND the dialog, so it has to be
+ * the active view before the collision below means anything. Retried rather
+ * than clicked once: the redirect is fired from a promise, so a switch that
+ * lands before `auth:getAuthStatus` settles can be undone exactly once.
+ */
+async function showCanvas(ui: UiDriver): Promise<void> {
+  const grid = ui.page.locator('[data-testid="canvas-grid"]');
+  await expect(async () => {
+    await ui.goto('canvas');
+    await expect(grid).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 60_000 });
+}
+
+/**
  * Assert the canvas really is behind `dialog`. Without this the spec could pass
  * in a layout where nothing overlaps, and would then be guarding nothing.
  */
@@ -156,6 +184,7 @@ test.describe('file-ops dialogs are answerable by mouse (TASK_2026_216)', () => 
   }, testInfo) => {
     const page = ui.page;
     await ui.goto('editor');
+    await showCanvas(ui);
 
     await chooseMenuAction(page, 'src', 'Delete');
 
@@ -197,6 +226,7 @@ test.describe('file-ops dialogs are answerable by mouse (TASK_2026_216)', () => 
   }, testInfo) => {
     const page = ui.page;
     await ui.goto('editor');
+    await showCanvas(ui);
 
     await chooseMenuAction(page, 'src', 'New File');
 
