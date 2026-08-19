@@ -30,6 +30,16 @@ export interface WebviewFixtures {
  * worker (not per test) for speed.
  */
 export interface WebviewWorkerFixtures {
+  /**
+   * Whether {@link fixtureServer} serves the real `ptah-extension-webview`
+   * build instead of the inline placeholder. Declared as a Playwright *option*
+   * so a spec that asserts against the live Angular bundle can opt in with a
+   * top-level `test.use({ useAppBuild: true })` — Playwright then runs it in
+   * its own worker, leaving every placeholder-scaffolded spec untouched.
+   *
+   * @default false
+   */
+  useAppBuild: boolean;
   fixtureServer: FixtureServerHandle;
 }
 
@@ -49,10 +59,11 @@ export interface WebviewWorkerFixtures {
  * ```
  */
 export const test = baseTest.extend<WebviewFixtures, WebviewWorkerFixtures>({
+  useAppBuild: [false, { scope: 'worker', option: true }],
+
   fixtureServer: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
-      const server = await startFixtureServer();
+    async ({ useAppBuild }, use) => {
+      const server = await startFixtureServer({ appBuild: useAppBuild });
       try {
         await use(server);
       } finally {

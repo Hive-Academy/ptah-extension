@@ -245,6 +245,15 @@ async function installRpcAutoResponder(
   }, JSON.stringify(fixtures));
 }
 
+/**
+ * This is the one scenario that needs the REAL Angular bundle rather than the
+ * harness's inline placeholder, so it opts the fixture server into serving
+ * `dist/apps/ptah-extension-webview/browser`. Worker options must be set at
+ * file scope — Playwright gives this file its own worker, which is exactly
+ * what keeps the placeholder-scaffolded specs on the placeholder.
+ */
+test.use({ useAppBuild: true });
+
 test.describe('webview > thoth > skills > lane pickers', () => {
   test('four lane pickers render, enumerate providers, and a pinned lane renders pinned', async ({
     page,

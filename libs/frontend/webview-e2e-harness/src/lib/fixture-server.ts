@@ -18,13 +18,25 @@ export interface FixtureServerOptions {
   readonly port?: number;
 
   /**
-   * Absolute path to the directory whose contents are served at `/`. If
-   * omitted, the harness probes
-   * `<repo>/dist/apps/ptah-extension-webview/browser` and
-   * `<repo>/dist/apps/ptah-extension-webview` and falls back to a minimal
-   * inline `index.html` fixture if neither exists.
+   * Absolute path to the directory whose contents are served at `/`. When
+   * given it wins over {@link appBuild}.
    */
   readonly rootDir?: string;
+
+  /**
+   * Serve the real `ptah-extension-webview` build — probed at
+   * `<repo>/dist/apps/ptah-extension-webview/browser` then
+   * `<repo>/dist/apps/ptah-extension-webview`.
+   *
+   * **Opt-in, and deliberately so.** Most scenario specs mount their own DOM
+   * scaffold into the `#ptah-e2e-fixture-root` div of the inline placeholder
+   * and break the moment a live Angular app owns the document instead — so
+   * whether a build happens to be sitting in `dist/` must not decide what a
+   * spec sees. Only a spec asserting against the real bundle asks for this.
+   *
+   * @default false — serve {@link FALLBACK_HTML}.
+   */
+  readonly appBuild?: boolean;
 }
 
 export interface FixtureServerHandle {
@@ -72,9 +84,12 @@ const FALLBACK_HTML = `<!doctype html>
 </html>
 `;
 
-function resolveRoot(explicit?: string): string | null {
+function resolveRoot(explicit?: string, appBuild?: boolean): string | null {
   if (explicit && existsSync(explicit)) {
     return explicit;
+  }
+  if (!appBuild) {
+    return null;
   }
   const here = resolve(HERE);
   let cursor = here;
@@ -139,7 +154,15 @@ function streamFile(
 export async function startFixtureServer(
   options: FixtureServerOptions = {},
 ): Promise<FixtureServerHandle> {
-  const rootDir = resolveRoot(options.rootDir);
+  const rootDir = resolveRoot(options.rootDir, options.appBuild);
+
+  if (options.appBuild && rootDir === null) {
+    throw new Error(
+      'startFixtureServer({ appBuild: true }) found no webview build. Run ' +
+        '`nx build ptah-extension-webview` first — otherwise every DOM ' +
+        'assertion against the real bundle would time out with no explanation.',
+    );
+  }
 
   const handler = (req: IncomingMessage, res: ServerResponse): void => {
     const urlPath = req.url ?? '/';
