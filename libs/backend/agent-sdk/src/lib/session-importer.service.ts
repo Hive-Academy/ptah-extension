@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { blankToUndefined } from '@ptah-extension/shared';
 import {
   SessionMetadataStore,
   SessionMetadata,
@@ -237,7 +238,7 @@ export class SessionImporterService {
         .filter(
           (e) =>
             typeof e.sessionId === 'string' &&
-            e.sessionId.length > 0 &&
+            blankToUndefined(e.sessionId) !== undefined &&
             !e.isSidechain,
         )
         .sort((a, b) => {

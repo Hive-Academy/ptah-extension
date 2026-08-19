@@ -146,17 +146,31 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
         PARENT_SESSION,
         '/repo',
       );
-      expect(compactionCreateHooks).toHaveBeenCalledWith('', '/repo');
+      // Absent is `undefined`, not `''`. `createHooks` takes
+      // `string | undefined`, so there is nothing left to coerce for
+      // (TASK_2026_296).
+      expect(compactionCreateHooks).toHaveBeenCalledWith(undefined, '/repo');
     });
 
-    it('collapses a blank own session id to the absent marker', async () => {
+    it('collapses a blank own session id to absent', async () => {
       const { service, compactionCreateHooks } = buildService();
 
       await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
         ownSessionId: '   ',
       });
 
-      expect(compactionCreateHooks).toHaveBeenCalledWith('', '/repo');
+      expect(compactionCreateHooks).toHaveBeenCalledWith(undefined, '/repo');
+    });
+
+    it('never hands the handler a blank string', async () => {
+      const { service, compactionCreateHooks } = buildService();
+
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+        ownSessionId: '',
+      });
+
+      expect(compactionCreateHooks).not.toHaveBeenCalledWith('', '/repo');
+      expect(compactionCreateHooks).toHaveBeenCalledWith(undefined, '/repo');
     });
   });
 });

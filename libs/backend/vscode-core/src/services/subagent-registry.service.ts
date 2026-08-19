@@ -33,6 +33,7 @@ import type {
   SubagentStatus,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { SubagentStateStore } from './subagent-registry/subagent-state-store';
 import { SubagentHistoryRegistrar } from './subagent-registry/subagent-history-registrar';
 
@@ -460,7 +461,14 @@ export class SubagentRegistryService {
    * @returns Array of background SubagentRecords
    */
   getBackgroundAgents(parentSessionId?: string): SubagentRecord[] {
-    if (parentSessionId === '') {
+    // The `!== undefined` arm is load-bearing and must stay explicit: this is a
+    // TRI-state, and `blankToUndefined` alone would collapse the omitted
+    // argument ("every background agent") into the blank case ("none"). Only
+    // the PRESENT-but-blank filter is refused here.
+    if (
+      parentSessionId !== undefined &&
+      blankToUndefined(parentSessionId) === undefined
+    ) {
       this.logger.warn(
         '[SubagentRegistryService.getBackgroundAgents] Empty parentSessionId is not a filter for all sessions — returning none',
       );

@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
@@ -33,7 +34,7 @@ export class SkillInvocationRecorder {
 
   recordSkillEvent(input: RecordSkillEventInput): void {
     if (!input.slug || input.slug.length === 0) return;
-    if (!input.sessionId || input.sessionId.length === 0) return;
+    if (blankToUndefined(input.sessionId) === undefined) return;
 
     const key = `${input.slug}|${input.sessionId}|${Math.floor(
       input.invokedAt / DEDUP_BUCKET_MS,

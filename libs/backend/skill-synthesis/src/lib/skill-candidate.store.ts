@@ -601,8 +601,7 @@ export class SkillCandidateStore {
         );
       }
     }
-    const holdout = measurement.holdoutSessionId?.trim() ?? '';
-    const holdoutSessionId = holdout.length > 0 ? holdout : null;
+    const holdoutSessionId = measurement.holdoutSessionId?.trim() || null;
     if (confidence !== null && holdoutSessionId === null) {
       throw new Error(
         `[skill-synthesis] recordReplay: a confidence for ${id} needs the hold-out session it was measured against`,

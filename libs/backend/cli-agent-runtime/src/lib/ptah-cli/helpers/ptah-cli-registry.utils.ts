@@ -37,14 +37,14 @@ export function generateAgentId(): string {
  * a caller that passes `parentSessionId: ''` silently defeats every
  * `a ?? b ?? fallback` default downstream. Normalise at the boundary instead of
  * teaching each consumer a second spelling of "absent".
+ *
+ * This was a local copy of the rule until TASK_2026_296. It is now re-exported
+ * from `@ptah-extension/shared` so the trim policy is defined once for the
+ * whole monorepo — the behaviour is identical (trims, returns the trimmed
+ * value, `undefined` for blank), so the four call sites in this lib are
+ * unchanged. See `libs/shared/src/lib/utils/session-id.utils.ts`.
  */
-export function blankToUndefined(
-  value: string | undefined,
-): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+export { blankToUndefined } from '@ptah-extension/shared';
 
 /**
  * Summarize tool input for display in structured segments.

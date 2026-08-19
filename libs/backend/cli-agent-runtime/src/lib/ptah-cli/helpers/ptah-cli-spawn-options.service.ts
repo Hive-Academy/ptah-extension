@@ -198,11 +198,18 @@ export class PtahCliSpawnOptions {
         // parent's (that would curate the parent's transcript as if the child
         // had compacted). A fresh spawn has no id yet: it arrives in the
         // system `init` message, and the handler reads `input.session_id`
-        // first for exactly that reason. `''` is the absent marker the handler
-        // expects, identical to what `SdkQueryOptionsBuilder.createHooks`
-        // captures for a new chat session (TASK_2026_293).
+        // first for exactly that reason.
+        //
+        // Absence is `undefined` here, NOT `''`. `createHooks` takes
+        // `string | undefined`, and the hook resolves through
+        // `resolveHookSessionId`, which returns `null` — never `''` — when the
+        // id is missing from both payload and closure, and the handler rejects
+        // that `null` before publishing anything (TASK_2026_293/296). Do not
+        // re-add a `?? ''`: the `blankToUndefined` above exists precisely to
+        // keep `''` off this path, and coercing it back re-creates the blank
+        // id that reached the memory curator as a path-traversal reject.
         const compactionHooks = this.compactionHookHandler.createHooks(
-          ownSessionId ?? '',
+          ownSessionId,
           cwd,
         );
         Object.assign(hooks, compactionHooks);

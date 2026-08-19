@@ -24,6 +24,7 @@ import type {
   AISessionConfig,
   PermissionLevel,
 } from '@ptah-extension/shared';
+import { blankToUndefined } from '@ptah-extension/shared';
 
 import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
 
@@ -154,7 +155,7 @@ export class SessionRegistry {
    * registered.
    */
   bindRealSessionId(tabId: string, realSessionId: string): void {
-    if (!realSessionId || realSessionId.trim().length === 0) {
+    if (blankToUndefined(realSessionId) === undefined) {
       this.logger.warn(
         `[SessionRegistry] bindRealSessionId: rejected empty/whitespace realSessionId for tabId ${tabId}`,
       );

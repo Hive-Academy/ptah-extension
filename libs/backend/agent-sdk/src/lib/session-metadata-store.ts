@@ -29,6 +29,7 @@ import type {
   SessionMetadataChangedNotification,
   SessionMetadataChangeKind,
 } from '@ptah-extension/shared';
+import { blankToUndefined } from '@ptah-extension/shared';
 
 /**
  * Session metadata - UI state only, NOT message storage
@@ -403,7 +404,7 @@ export class SessionMetadataStore {
     // session anyone can address: the sidebar, the resume path and the
     // authorization layer all look sessions up by id, and there is no sensible
     // metadata to return for a session that has no identity (TASK_2026_295).
-    if (!sessionId || sessionId.trim().length === 0) {
+    if (blankToUndefined(sessionId) === undefined) {
       throw new SdkError(
         'Cannot create session metadata with an empty sessionId — the SDK session UUID from the system init message is the only valid key.',
       );
