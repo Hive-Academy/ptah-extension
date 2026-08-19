@@ -13,6 +13,7 @@
     "gen:qr": "node scripts/gen-qr.mjs",
     "selfshot:transcribe": "node scripts/selfshot-transcribe.mjs",
     "selfshot:draft": "node scripts/selfshot-draft-beats.mjs",
-    "selfshot:render": "node scripts/selfshot-render.mjs"
+    "selfshot:render": "node scripts/selfshot-render.mjs",
+    "outro": "node scripts/render-outro.mjs"
   }
 }

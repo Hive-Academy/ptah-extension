@@ -24,6 +24,7 @@ import {
 import { TalkingHead } from './selfshot/TalkingHead';
 import { ScreenDemo } from './selfshot/ScreenDemo';
 import { Hybrid } from './selfshot/Hybrid';
+import { Outro, type OutroProps } from './selfshot/Outro';
 import { totalSelfShotFrames } from './selfshot/metadata';
 import type { ResolvedSelfShotProps } from './selfshot/resolved';
 
@@ -152,6 +153,28 @@ const calculateSelfShotMetadata: CalculateMetadataFunction<ResolvedSelfShotProps
   };
 };
 
+// Standalone end card. `whoosh`/`ring` are deliberately absent here: Remotion
+// merges defaultProps into the CLI props, so listing an SFX name the render
+// script chose NOT to stage would resolve to a 404 at play time.
+const FALLBACK_OUTRO: OutroProps = {
+  res: { width: 1920, height: 1080 },
+  fps: 30,
+  durationMs: 8000,
+};
+
+const outroFrames = (p: OutroProps): number =>
+  Math.max(1, Math.round((p.durationMs / 1000) * (p.fps || 30)));
+
+const calculateOutroMetadata: CalculateMetadataFunction<OutroProps> = ({ props }) => {
+  const p = props ?? FALLBACK_OUTRO;
+  return {
+    width: p.res.width,
+    height: p.res.height,
+    fps: p.fps || 30,
+    durationInFrames: outroFrames(p),
+  };
+};
+
 const RemotionRoot: React.FC = () => {
   return (
     <>
@@ -253,6 +276,19 @@ const RemotionRoot: React.FC = () => {
       schema={undefined}
       calculateMetadata={calculateSelfShotMetadata}
       defaultProps={{ ...FALLBACK_SELFSHOT, mode: 'hybrid', layouts: [{ atMs: 0, layout: 'camera-full' }] }}
+    />
+    {/* The branded end card on its own, for cutting onto the tail of a video
+        edited elsewhere. Real props come from scripts/render-outro.mjs. */}
+    <Composition
+      id="Outro"
+      component={Outro}
+      width={FALLBACK_OUTRO.res.width}
+      height={FALLBACK_OUTRO.res.height}
+      fps={FALLBACK_OUTRO.fps}
+      durationInFrames={outroFrames(FALLBACK_OUTRO)}
+      schema={undefined}
+      calculateMetadata={calculateOutroMetadata}
+      defaultProps={FALLBACK_OUTRO}
     />
 
     <Composition

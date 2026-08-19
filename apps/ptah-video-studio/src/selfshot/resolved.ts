@@ -117,7 +117,19 @@ export const resolvedSelfShotSchema = z.object({
   bubble: bubbleSchema.optional(),
   endCard: endCardSchema.optional(),
   music: z.string().optional(),
+  /** Draw the bottom playback bar. Omitted or true → drawn. */
+  progressBar: z.boolean().optional(),
   whoosh: z.string().optional(),
+  /**
+   * Staged SFX srcs cued to the overlay animations (see `components/SoundDesign`).
+   * Each key is independent — a missing asset just drops that cue.
+   */
+  sfx: z
+    .object({
+      pop: z.string().optional(),
+      ring: z.string().optional(),
+    })
+    .optional(),
 });
 export type ResolvedSelfShotProps = z.infer<typeof resolvedSelfShotSchema>;
 

@@ -61,9 +61,19 @@ async function main() {
     throw new Error(`Ingest folder not found: ${dir}. Create it and drop your recording(s) in.`);
   }
 
-  const wordsPath = path.join(dir, 'words.json');
-  if (fs.existsSync(wordsPath) && !args.force) {
-    console.log(`[transcribe] ${slug}: words.json exists — skipping (use --force to redo).`);
+  // `--language ar` forces whisper's source language. Without it a multilingual
+  // model may decide the audio is "not speech in my target language" and emit
+  // placeholder tokens ("[SPEAKING ARABIC]") instead of a transcript.
+  const language = typeof args.language === 'string' ? args.language : null;
+  // `--translate` writes English SEGMENTS to translation.json and leaves
+  // words.json alone. This is an AUTHORING aid, not caption data: it exists so a
+  // beats manifest can be written against what the founder actually SAYS when
+  // the narration is in a language the author can't time by ear. Captions must
+  // never be built from it — they would be English text over non-English speech.
+  const translate = args.translate === true || args.translate === 'true';
+  const outPath = path.join(dir, translate ? 'translation.json' : 'words.json');
+  if (fs.existsSync(outPath) && !args.force) {
+    console.log(`[transcribe] ${slug}: ${path.basename(outPath)} exists — skipping (use --force to redo).`);
     return;
   }
 
@@ -99,14 +109,37 @@ async function main() {
   await installWhisperCpp({ to: WHISPER_DIR, version: WHISPER_VERSION });
   await downloadWhisperModel({ model, folder: WHISPER_DIR });
 
-  console.log(`[transcribe] ${slug}: transcribing (${model})…`);
+  console.log(
+    `[transcribe] ${slug}: ${translate ? 'translating' : 'transcribing'} (${model}` +
+      `${language ? `, lang=${language}` : ''})…`,
+  );
   const whisperOutput = await transcribe({
     inputPath: tmp16k,
     whisperPath: WHISPER_DIR,
     whisperCppVersion: WHISPER_VERSION,
     model,
-    tokenLevelTimestamps: true,
+    tokenLevelTimestamps: !translate,
+    ...(language ? { language } : {}),
+    ...(translate ? { translateToEnglish: true } : {}),
   });
+
+  if (translate) {
+    const segments = (whisperOutput.transcription ?? [])
+      .map((t) => ({
+        startMs: Math.round(t.offsets.from),
+        endMs: Math.round(t.offsets.to),
+        text: String(t.text ?? '').trim(),
+      }))
+      .filter((s) => s.text.length > 0);
+    fs.rmSync(tmp16k, { force: true });
+    fs.writeFileSync(
+      outPath,
+      JSON.stringify({ slug, model, language, translatedToEnglish: true, segments }, null, 2),
+    );
+    console.log(`[transcribe] ${slug}: wrote ${segments.length} segments → ${outPath}`);
+    return;
+  }
+
   const { captions } = toCaptions({ whisperCppOutput: whisperOutput });
   const words = mergeToWords(captions).map((w) => ({
     text: w.text,
@@ -116,10 +149,10 @@ async function main() {
   fs.rmSync(tmp16k, { force: true });
 
   fs.writeFileSync(
-    wordsPath,
+    outPath,
     JSON.stringify({ slug, model, generatedAt: new Date().toISOString(), words }, null, 2),
   );
-  console.log(`[transcribe] ${slug}: wrote ${words.length} words → ${wordsPath}`);
+  console.log(`[transcribe] ${slug}: wrote ${words.length} words → ${outPath}`);
 }
 
 main().catch((error) => {

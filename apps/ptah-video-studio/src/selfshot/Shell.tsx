@@ -99,12 +99,17 @@ export const SelfShotShell: React.FC<{
         shots={props.shots}
         introMs={0}
         narrationWindows={narrationWindows}
+        overlays={props.overlays}
+        sfx={{
+          pop: props.sfx?.pop ? resolveSrc(props.sfx.pop) : undefined,
+          ring: props.sfx?.ring ? resolveSrc(props.sfx.ring) : undefined,
+        }}
         whooshSrc={props.whoosh ? resolveSrc(props.whoosh) : undefined}
         musicSrc={props.music ? resolveSrc(props.music) : undefined}
       />
 
       <Watermark videoHeight={videoHeight} />
-      <ProgressBar />
+      {props.progressBar === false ? null : <ProgressBar />}
     </AbsoluteFill>
   );
 };

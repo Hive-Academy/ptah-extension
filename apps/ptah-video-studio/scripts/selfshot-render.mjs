@@ -33,7 +33,13 @@ import { getMediaDurationMs, getVideoSize } from './lib/media.mjs';
 import { masterAudio, describeMasterResult } from './lib/master-audio.mjs';
 
 const ROOT_ENTRY = 'src/Root.tsx';
-const WHOOSH_ASSET = path.join(APP_ROOT, 'assets', 'sfx', 'whoosh.mp3');
+const SFX_DIR = path.join(APP_ROOT, 'assets', 'sfx');
+const WHOOSH_ASSET = path.join(SFX_DIR, 'whoosh.mp3');
+/**
+ * SFX cued to the overlay animations (see `src/components/SoundDesign.tsx`),
+ * staged by role → filename. A file that isn't on disk simply drops its cue.
+ */
+const SFX_ASSETS = { pop: 'pop.mp3', ring: 'ring.mp3' };
 const MUSIC_DIR = path.join(APP_ROOT, 'assets', 'music');
 
 const COMPOSITION_BY_MODE = {
@@ -102,6 +108,11 @@ function buildProps(slug, mode, res, ctx) {
   const muteVideo = !!inputs.audio;
 
   const whoosh = stage(publicDir, WHOOSH_ASSET, 'whoosh.mp3') ?? undefined;
+  const sfx = {};
+  for (const [role, file] of Object.entries(SFX_ASSETS)) {
+    const staged = stage(publicDir, path.join(SFX_DIR, file), file);
+    if (staged) sfx[role] = staged;
+  }
   const musicAbs = resolveMusic(dir, manifest.music);
   const music = musicAbs ? stage(publicDir, musicAbs, `music${ext(musicAbs)}`) ?? undefined : undefined;
 
@@ -135,14 +146,18 @@ function buildProps(slug, mode, res, ctx) {
     ...(audioSrc ? { audioSrc } : {}),
     ...(muteVideo ? { muteVideo } : {}),
     ...(screenSource ? { screenSource } : {}),
-    captions: captionsFromWords(words),
+    // `captions: false` keeps the transcript available for word anchors while
+    // drawing nothing — the escape hatch for narration the renderer can't set.
+    captions: manifest.captions === false ? [] : captionsFromWords(words),
     shots: resolvedBeats.shots,
     overlays: resolvedBeats.overlays,
     layouts: resolvedBeats.layouts,
     ...(bubble ? { bubble } : {}),
     ...(endMs > 0 ? { endCard: { atMs: bodyMs, durationMs: endMs, ...(manifest.endCard?.headline ? { headline: manifest.endCard.headline } : {}) } } : {}),
     ...(music ? { music } : {}),
+    ...(manifest.progressBar === false ? { progressBar: false } : {}),
     ...(whoosh ? { whoosh } : {}),
+    ...(Object.keys(sfx).length > 0 ? { sfx } : {}),
   };
 }
 

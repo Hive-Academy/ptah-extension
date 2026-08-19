@@ -40,7 +40,10 @@ export type GraphicName =
   | 'runtime-trio'
   | 'agent-grid'
   | 'memory-timeline'
-  | 'trajectory-skill';
+  | 'trajectory-skill'
+  | 'cli-spawn'
+  | 'browser-control'
+  | 'tool-surface';
 
 export interface GraphicProps {
   /** Entry progress 0→1 (spring-driven). */
@@ -775,6 +778,149 @@ const WizardOutput: React.FC<GraphicProps> = ({ p, frame, u }) => {
   );
 };
 
+/**
+ * The rival-CLI fleet. Names come from the adapters that actually exist in
+ * `libs/backend/cli-agent-runtime/.../cli-adapters` — keep them in step, an
+ * invented vendor on screen is a claim the product does not honour.
+ */
+const CLI_VENDORS = ['Codex', 'Copilot', 'Cursor', 'Antigravity', 'OpenCode', 'Pi'];
+
+/**
+ * Counts are the real MCP tool surface exported by `vscode-lm-tools` — 48 total,
+ * of which 11 drive a browser and 6 drive spawned CLI agents. Recount before
+ * changing them; a number on screen is a promise.
+ */
+const TOOL_GROUPS: Array<[number, string]> = [
+  [11, 'browser'],
+  [6, 'cli agents'],
+  [5, 'tasks'],
+  [3, 'git worktrees'],
+];
+
+const ToolSurface: React.FC<GraphicProps> = ({ p, frame, u }) => {
+  const c = interpolate(frame, [4, 28], [0, 1], { ...CLAMP, easing: Easing.out(Easing.cubic) });
+  return (
+    <>
+      <Title text="Tools in the box" u={u} p={p} />
+      <div
+        style={{
+          fontSize: u * 2.4,
+          fontWeight: 800,
+          lineHeight: 1,
+          letterSpacing: -3,
+          fontVariantNumeric: 'tabular-nums',
+          background: `linear-gradient(90deg, ${THEME.amberLight}, ${THEME.amber})`,
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+        }}
+      >
+        {Math.round(48 * c)}
+      </div>
+      <Stack gap={u * 0.24}>
+        {TOOL_GROUPS.map(([n, label], i) => (
+          <div
+            key={label}
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: u * 0.4,
+              marginTop: i === 0 ? u * 0.6 : 0,
+              opacity: reveal(frame, i + 1, 6, 12),
+            }}
+          >
+            <div
+              style={{
+                fontSize: u * 0.74,
+                fontWeight: 800,
+                color: THEME.amberLight,
+                fontVariantNumeric: 'tabular-nums',
+                minWidth: u * 1.2,
+              }}
+            >
+              {n}
+            </div>
+            <div
+              style={{
+                fontSize: u * 0.5,
+                fontWeight: 600,
+                letterSpacing: 1.4,
+                textTransform: 'uppercase',
+                color: THEME.textSoft,
+              }}
+            >
+              {label}
+            </div>
+          </div>
+        ))}
+      </Stack>
+    </>
+  );
+};
+
+const CliSpawn: React.FC<GraphicProps> = ({ p, frame, u }) => {
+  const chip = u * 4.4;
+  return (
+    <>
+      <Title text="Spawn a rival CLI" u={u} p={p} />
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(2, ${chip}px)`, gap: u * 0.34 }}>
+        {CLI_VENDORS.map((name, i) => {
+          const r = reveal(frame, i, 5, 12);
+          return (
+            <div
+              key={name}
+              style={{
+                padding: `${u * 0.4}px ${u * 0.5}px`,
+                borderRadius: u * 0.34,
+                background: 'rgba(245,181,68,0.13)',
+                border: '1px solid rgba(245,181,68,0.42)',
+                opacity: r,
+                transform: `translateY(${(1 - r) * 14}px)`,
+                fontSize: u * 0.58,
+                fontWeight: 700,
+                color: THEME.textStrong,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {name}
+            </div>
+          );
+        })}
+      </div>
+      <div
+        style={{
+          marginTop: u * 0.7,
+          opacity: reveal(frame, 6, 5, 14),
+          fontSize: u * 0.46,
+          fontWeight: 600,
+          letterSpacing: 1.6,
+          textTransform: 'uppercase',
+          color: THEME.textSoft,
+        }}
+      >
+        spawn · steer · read · stop
+      </div>
+    </>
+  );
+};
+
+const BROWSER_ACTIONS: Array<[string, string, IconName]> = [
+  ['Navigate & click', 'it drives a real page', 'plug'],
+  ['Screenshot & read', 'it sees what rendered', 'layers'],
+  ['Network log', 'it watches the requests', 'trending'],
+  ['Record the session', 'it keeps the evidence', 'code'],
+];
+
+const BrowserControl: React.FC<GraphicProps> = ({ p, frame, u }) => (
+  <>
+    <Title text="It drives the browser" u={u} p={p} />
+    <Stack gap={u * 0.36}>
+      {BROWSER_ACTIONS.map(([label, sub, icon], i) => (
+        <Tile key={label} label={label} sub={sub} icon={icon} u={u} r={reveal(frame, i, 7, 12)} active />
+      ))}
+    </Stack>
+  </>
+);
+
 const CliBothWays: React.FC<GraphicProps> = ({ p, frame, u }) => (
   <>
     <Title text="The CLI goes both ways" u={u} p={p} />
@@ -818,6 +964,9 @@ const GRAPHICS: Record<GraphicName, React.FC<GraphicProps>> = {
   'agent-grid': AgentGrid,
   'memory-timeline': MemoryTimeline,
   'trajectory-skill': TrajectorySkill,
+  'cli-spawn': CliSpawn,
+  'browser-control': BrowserControl,
+  'tool-surface': ToolSurface,
 };
 
 export function isGraphicName(v: unknown): v is GraphicName {

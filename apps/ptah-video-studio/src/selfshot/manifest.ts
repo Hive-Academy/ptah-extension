@@ -85,6 +85,9 @@ export const graphicNameSchema = z.enum([
   'agent-grid',
   'memory-timeline',
   'trajectory-skill',
+  'cli-spawn',
+  'browser-control',
+  'tool-surface',
 ]);
 
 /** Fields shared by every beat. */
@@ -179,6 +182,30 @@ export const selfShotManifestSchema = z.object({
   /** Output slug — names the render files. Defaults to the ingest folder name. */
   slug: z.string().optional(),
   mode: selfShotModeSchema,
+  /**
+   * Composition rate. Defaults to 30. A manifest over footage shot at another
+   * rate MUST declare it — a 30fps render of 24fps footage judders, and every
+   * ms→frame conversion (shots, overlays, SFX cues) lands on the wrong frame.
+   */
+  fps: z.number().positive().optional(),
+  /**
+   * Body length (ms) before the end card. Defaults to the source duration; a
+   * manifest may declare a SHORTER one to land on an exact frame count.
+   */
+  bodyMs: z.number().positive().optional(),
+  /**
+   * Burn word-timed captions from words.json. Defaults to true. Set false when
+   * the narration is in a language the caption renderer cannot serve (no glyph
+   * coverage, or right-to-left): the transcript still drives word anchors, but
+   * nothing is drawn on screen.
+   */
+  captions: z.boolean().optional(),
+  /**
+   * Draw the thin amber playback bar along the bottom edge. Defaults to true.
+   * Set false for a segment that is spliced INTO a longer video — a bar that
+   * fills to 100% at the segment's end reads as "the video ends here".
+   */
+  progressBar: z.boolean().optional(),
   /** Input recordings (filenames relative to the ingest dir). */
   input: z.object({
     cameraVideo: z.string().optional(),

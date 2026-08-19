@@ -71,6 +71,9 @@ const GRAPHIC_NAMES = [
   'agent-grid',
   'memory-timeline',
   'trajectory-skill',
+  'cli-spawn',
+  'browser-control',
+  'tool-surface',
 ];
 const MODES = ['talking-head', 'screen-demo', 'hybrid'];
 
@@ -161,6 +164,16 @@ export function validateManifest(raw) {
   for (const k of ['cameraVideo', 'screenVideo', 'audio']) {
     if (raw.input[k] !== undefined && typeof raw.input[k] !== 'string') {
       fail(`manifest.input.${k} must be a string filename.`);
+    }
+  }
+  for (const k of ['fps', 'bodyMs']) {
+    if (raw[k] !== undefined && (typeof raw[k] !== 'number' || raw[k] <= 0)) {
+      fail(`manifest.${k} must be a positive number.`);
+    }
+  }
+  for (const k of ['captions', 'progressBar']) {
+    if (raw[k] !== undefined && typeof raw[k] !== 'boolean') {
+      fail(`manifest.${k} must be a boolean.`);
     }
   }
   if (!Array.isArray(raw.beats)) fail('manifest.beats must be an array.');
