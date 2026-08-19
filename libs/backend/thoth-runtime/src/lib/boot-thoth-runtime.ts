@@ -187,7 +187,7 @@ export async function bootThothRuntime(
           const created = Number(ev.stats['created'] ?? 0);
           const merged = Number(ev.stats['merged'] ?? 0);
           void webviewManager.broadcastMessage(MESSAGE_TYPES.MEMORY_EXTRACTED, {
-            sessionId: ev.sessionId ?? '',
+            sessionId: ev.sessionId,
             workspaceRoot: null,
             extracted,
             created,

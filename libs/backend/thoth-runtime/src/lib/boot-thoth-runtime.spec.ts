@@ -182,6 +182,51 @@ describe('bootThothRuntime', () => {
     );
   });
 
+  // TASK_2026_296 item 1 — `CuratorEvent.sessionId` is optional at the source
+  // (`diagnostics.types.ts`), so the bridge used to invent `''` to satisfy a
+  // required wire field. The field is now optional; an absent id must stay
+  // absent rather than becoming a string nobody can resolve.
+  it('broadcasts an absent sessionId as undefined, never as an empty string', async () => {
+    const webviewManager = makeWebviewManager();
+    let onEventCb: ((ev: Record<string, unknown>) => void) | null = null;
+    const memoryCurator = {
+      start: jest.fn(),
+      onEvent: jest.fn((cb: (ev: Record<string, unknown>) => void) => {
+        onEventCb = cb;
+      }),
+    };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [MEMORY_TOKENS.MEMORY_CURATOR, memoryCurator],
+      [TOKENS.WEBVIEW_MANAGER, webviewManager],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+
+    const emit = onEventCb as unknown as (ev: Record<string, unknown>) => void;
+    emit({
+      kind: 'curator-run',
+      stats: { created: 1, extracted: 3, merged: 0 },
+      timestamp: 7,
+    });
+
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.MEMORY_EXTRACTED,
+      {
+        sessionId: undefined,
+        workspaceRoot: null,
+        extracted: 3,
+        created: 1,
+        merged: 0,
+        timestamp: 7,
+      },
+    );
+    const payload = webviewManager.broadcastMessage.mock.calls[0][1] as {
+      sessionId?: string;
+    };
+    expect(payload.sessionId).not.toBe('');
+  });
+
   it('collects vec + embedder status bridge disposables', async () => {
     const vecDispose = jest.fn();
     const embedderDispose = jest.fn();
