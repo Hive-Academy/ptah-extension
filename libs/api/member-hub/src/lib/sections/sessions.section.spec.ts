@@ -1,5 +1,6 @@
 import type { MemberContext } from '@ptah-api/membership';
 import type { BuildersSession, SessionsService } from '@ptah-api/community';
+import { freezeTime, type FrozenClock } from '@ptah-extension/shared/testing';
 import { SessionsSection } from './sessions.section';
 
 /**
@@ -318,6 +319,26 @@ function createThreeWaySection(opts: ThreeWayOptions): {
 }
 
 describe('SessionsSection — the Phase-4 three-way merge', () => {
+  /**
+   * ⚠️ THE CLOCK IS PINNED BECAUSE THE PRIVATE SOURCE FILTERS ON `now`.
+   *
+   * `readPrivate` shows only sessions whose `scheduledAt` is still ahead — that
+   * rule is the subject of its own test below ("ignores a scheduled session that
+   * is already in the PAST"). Against the real clock, `PRIVATE_REQUEST`'s
+   * 2026-08-11 slot silently crossed into the past and every private-source
+   * assertion here started failing on a date, not on a change. Freezing to the
+   * instant the fixtures were written for is what keeps them fixtures.
+   */
+  let clock: FrozenClock;
+
+  beforeEach(() => {
+    clock = freezeTime('2026-08-08T12:00:00.000Z');
+  });
+
+  afterEach(() => {
+    clock.restore();
+  });
+
   describe('the per-source truth table', () => {
     it('Calendar FAILS but a LiveSession exists -> ok, NOT unavailable', async () => {
       // 🔴 TASK 12.15's NAMED CASE, and the whole reason the two-state logic had
