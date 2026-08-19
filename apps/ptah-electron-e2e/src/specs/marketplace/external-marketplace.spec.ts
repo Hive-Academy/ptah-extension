@@ -371,8 +371,17 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
     // showing the FRESH plan.
     const dialog = ui.page.locator('[data-testid="external-consent"]');
     await expect(dialog).toBeVisible();
+    // The dialog element never unmounts between the two consent-required
+    // answers -- `plan` is an `input.required()` signal update, not a fresh
+    // `@if` branch getting created -- so `toBeVisible()` above was already
+    // true from the FIRST plan and proves nothing about whether the SECOND
+    // `plugins:install-external` round trip has landed and re-rendered yet.
+    // Gate on content only the fresh plan carries, with Playwright's own
+    // auto-retry, before taking a snapshot; a plain `.innerText()` read here
+    // races the async RPC + change-detection cycle and can catch the stale
+    // v1 text.
+    await expect(dialog).toContainText('2.0.0');
     const dialogText = await dialog.innerText();
-    expect(dialogText).toContain('2.0.0');
     expect(dialogText).toContain('dotnet-trace');
 
     // `approval-expired` covers a lapsed TTL, a host restart AND changed
