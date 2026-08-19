@@ -18,7 +18,7 @@ import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -59,6 +59,7 @@ import type {
   SessionId,
   TabId,
 } from '@ptah-extension/shared';
+import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 
 @injectable()
 export class AgentRpcHandlers {
@@ -752,6 +753,20 @@ export class AgentRpcHandlers {
       { success: boolean; agentId?: string; error?: string }
     >('agent:resumeCliSession', async (params) => {
       try {
+        // Validate BEFORE anything reads the params. The static type above
+        // says what the webview is supposed to send; it cannot stop an
+        // outdated webview, the CLI or an MCP caller sending `''` for an id.
+        // Parsing inside this try is deliberate: the catch below returns
+        // `{ success: false, error }` — the shape AgentMonitorStore already
+        // reads — and keeps this handler's own error logging in the path.
+        const parsed = AgentResumeCliSessionParamsSchema.safeParse(params);
+        if (!parsed.success) {
+          throw new RpcUserError(
+            `agent:resumeCliSession: invalid params — ${parsed.error.message}`,
+            'INVALID_PARAMS',
+          );
+        }
+
         this.logger.debug('RPC: agent:resumeCliSession called', {
           cliSessionId: params.cliSessionId,
           cli: params.cli,

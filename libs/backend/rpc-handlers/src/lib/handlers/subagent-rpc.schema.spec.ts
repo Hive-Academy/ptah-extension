@@ -3,20 +3,82 @@
  *
  * Surface under test: Zod schemas for the four command RPC methods
  * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`,
- * `subagent:background`).
+ * `subagent:background`) and, since TASK_2026_296, `chat:subagent-query`.
  *
- * Note: `chat:subagent-query` has no Zod schema (uses static TS types
- * with trivial presence checks — see SubagentRpcHandlers).
+ * The query schema is deliberately weaker than its four siblings: shape only,
+ * no `.min(1)`. The block below pins that weakness as intentional, because
+ * "tighten it to match the others" is the single change most likely to be
+ * proposed here and it would reintroduce a fixed cross-session leak.
  */
 
 import 'reflect-metadata';
 
 import {
+  SubagentQuerySchema,
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
   SubagentBackgroundSchema,
 } from './subagent-rpc.schema';
+
+describe('SubagentQuerySchema', () => {
+  it('accepts no params at all (the unscoped query)', () => {
+    const result = SubagentQuerySchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a real sessionId', () => {
+    const result = SubagentQuerySchema.safeParse({ sessionId: 'sess-abc' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a real toolCallId', () => {
+    const result = SubagentQuerySchema.safeParse({ toolCallId: 'toolu_abc' });
+    expect(result.success).toBe(true);
+  });
+
+  // THE load-bearing assertion in this file. `chat:subagent-query` answers a
+  // present-but-empty sessionId with an empty result, on purpose. If the
+  // schema rejected `''`, that deliberate empty result would become an error;
+  // if it normalized `''` away, the query would fall through to the UNSCOPED
+  // branch and offer this session another session's interrupted subagents.
+  // Zod must pass `''` through UNCHANGED and let the handler decide.
+  it('accepts an empty sessionId and preserves it verbatim', () => {
+    const result = SubagentQuerySchema.safeParse({ sessionId: '' });
+    expect(result.success).toBe(true);
+    expect(result.data?.['sessionId']).toBe('');
+  });
+
+  it('does not trim a whitespace-only sessionId into absence', () => {
+    const result = SubagentQuerySchema.safeParse({ sessionId: '   ' });
+    expect(result.success).toBe(true);
+    expect(result.data?.['sessionId']).toBe('   ');
+  });
+
+  it('rejects a non-string sessionId', () => {
+    const result = SubagentQuerySchema.safeParse({ sessionId: 123 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a non-string toolCallId', () => {
+    const result = SubagentQuerySchema.safeParse({ toolCallId: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a non-object param bag', () => {
+    expect(SubagentQuerySchema.safeParse('nope').success).toBe(false);
+    expect(SubagentQuerySchema.safeParse(null).success).toBe(false);
+  });
+
+  it('passes unknown fields through rather than rejecting them', () => {
+    const result = SubagentQuerySchema.safeParse({
+      sessionId: 'sess-abc',
+      someFutureField: 'from a newer webview',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.['someFutureField']).toBe('from a newer webview');
+  });
+});
 
 describe('SubagentSendMessageSchema', () => {
   it('accepts valid params', () => {

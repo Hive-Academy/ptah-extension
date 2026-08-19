@@ -41,6 +41,7 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
 import {
+  SubagentQuerySchema,
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
@@ -125,7 +126,12 @@ export class SubagentRpcHandlers {
       'chat:subagent-query',
       async (params) => {
         try {
-          const { toolCallId, sessionId } = params;
+          // Shape validation only — see SubagentQuerySchema. The empty-id rule
+          // below is this handler's, not Zod's. Parsing inside this try is
+          // deliberate: the catch returns `{ subagents: [] }` and captures to
+          // Sentry, so a malformed param yields an empty list plus one Sentry
+          // event rather than a thrown RPC.
+          const { toolCallId, sessionId } = SubagentQuerySchema.parse(params);
 
           this.logger.debug('RPC: subagent:query called', {
             toolCallId,

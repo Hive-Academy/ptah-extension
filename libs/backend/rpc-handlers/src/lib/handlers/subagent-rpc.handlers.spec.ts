@@ -11,7 +11,9 @@
  *
  * Behavioural contracts:
  *   - Registration: `register()` wires all six methods into the mock RpcHandler.
- *   - chat:subagent-query: three query modes (toolCallId, sessionId, all-resumable).
+ *   - chat:subagent-query: three query modes (toolCallId, sessionId, all-resumable),
+ *     plus SHAPE-ONLY Zod validation. The empty-sessionId rule is the handler's,
+ *     not the schema's — see subagent-rpc.schema.ts.
  *   - subagent:send-message: delegates to dispatcher.sendToSubagent; validates params.
  *   - subagent:stop: delegates to dispatcher.stopSubagent; validates params.
  *   - subagent:interrupt: delegates to dispatcher.interruptSession; validates params.
@@ -354,6 +356,74 @@ describe('SubagentRpcHandlers', () => {
 
       expect(result.subagents).toEqual([]);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:subagent-query — malformed params (TASK_2026_296)
+  //
+  // The schema validates SHAPE. A wrong-typed id is refused there; a
+  // present-but-empty one is not its business and reaches the handler rule
+  // above. Both must end in an empty list, never in a throw and never in the
+  // unscoped all-resumable branch.
+  // -------------------------------------------------------------------------
+
+  describe('chat:subagent-query malformed params', () => {
+    it('does not throw out of the handler when sessionId is not a string', async () => {
+      const h = makeHarness();
+      h.registry.getResumable.mockReturnValue([
+        makeSubagentRecord({
+          toolCallId: 'toolu_other',
+          parentSessionId: 's2',
+        }),
+      ]);
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { sessionId: 123 },
+      );
+
+      expect(result.subagents).toEqual([]);
+      // A malformed scope must not become an unscoped query either.
+      expect(h.registry.getResumable).not.toHaveBeenCalled();
+      expect(h.registry.getResumableBySession).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('does not throw out of the handler when toolCallId is not a string', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { toolCallId: { nope: true } },
+      );
+
+      expect(result.subagents).toEqual([]);
+      expect(h.registry.get).not.toHaveBeenCalled();
+    });
+
+    // `.passthrough()`, not `.strict()` — an outdated webview sending an extra
+    // field must still get its answer.
+    it('answers normally when an unknown extra field is present', async () => {
+      const h = makeHarness();
+      const records = [
+        makeSubagentRecord({ toolCallId: 'toolu_1', parentSessionId: 's1' }),
+      ];
+      h.registry.getResumable.mockReturnValue(records);
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { someFutureField: 'from a newer webview' },
+      );
+
+      expect(result.subagents).toEqual(records);
+      expect(h.registry.getResumable).toHaveBeenCalledTimes(1);
     });
   });
 
