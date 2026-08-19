@@ -89,6 +89,7 @@ import type {
 } from './diagnostics.types';
 import {
   MESSAGE_TYPES,
+  blankToUndefined,
   type SkillSynthesisPromoteBulkDecision,
   type SkillSynthesisEventWire,
 } from '@ptah-extension/shared';
@@ -372,6 +373,42 @@ export class SkillSynthesisService {
   }
 
   /**
+   * Migrate this service's session-keyed state from `fromId` to `toId`, and
+   * re-point the durable queue rows with it.
+   *
+   * Driven by `SkillTriggerService.rekeySession`, which is in turn driven by
+   * the SDK's `SessionIdResolvedCallbackRegistry`. Before the canonical UUID
+   * exists a residual hook path reports the **tabId**, so both
+   * `analyzedSessions` and `skill_synthesis_queue` can end up keyed by it while
+   * every later signal — and `SessionEnd` — arrives under the UUID. Split keys
+   * mean the turn-count high-water mark is split too, so a session would be
+   * re-analyzed from zero under its real id. TASK_2026_296 item 6, Part B.
+   *
+   * Synchronous by contract: no `await` here or in `SkillQueueStore`'s
+   * backfill, so nothing interleaves between the read and the write.
+   *
+   * **Refuse-overwrite**: when `toId` already has a recorded turn count that
+   * count is KEPT and the `fromId` entry discarded. Never clobber — the
+   * surviving value was recorded under the canonical id, and a stale HIGHER
+   * count would suppress legitimate re-analysis while a stale LOWER one only
+   * costs one redundant round trip against `UNIQUE(session_id, stage)`'s
+   * durable guard.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    const turnCount = this.analyzedSessions.get(from);
+    this.analyzedSessions.delete(from);
+    if (turnCount !== undefined && !this.analyzedSessions.has(to)) {
+      this.analyzedSessions.set(to, turnCount);
+    }
+
+    this.queue?.backfillSessionId(from, to);
+  }
+
+  /**
    * THE way a trigger reaches synthesis. It ENQUEUES; it never analyzes.
    *
    * Every trigger funnels here — session end (B0.6), and from B0.9 the idle,
@@ -421,7 +458,7 @@ export class SkillSynthesisService {
     // `turn_count < ?` — so the first such session's turn count wedges every
     // later one out, permanently and silently. The rejection belongs here
     // because this is the one entry point every trigger and the boot scan share.
-    if (sessionId.trim().length === 0) {
+    if (blankToUndefined(sessionId) === undefined) {
       this.logger.warn(
         '[skill-synthesis] enqueueAnalyze called with an empty sessionId — rejecting',
         { source: opts.source, workspaceRoot },

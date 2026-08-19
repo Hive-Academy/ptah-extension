@@ -23,6 +23,7 @@ import {
   type IWorkspaceProvider,
   type ITracer,
 } from '@ptah-extension/platform-core';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
@@ -238,9 +239,64 @@ export class MemoryCuratorService {
     sessionId: string;
     workspaceRoot?: string | null;
   }): string | null {
-    const sessionId = input.sessionId.trim();
-    if (sessionId.length === 0) return null;
+    const sessionId = blankToUndefined(input.sessionId);
+    if (sessionId === undefined) return null;
     return `${input.workspaceRoot ?? ''}::${sessionId}`;
+  }
+
+  /**
+   * Re-point the in-flight coalescing keys of `fromId` onto `toId`.
+   *
+   * Called synchronously from `MemoryTriggerService.rekeySession` when the SDK
+   * resolves a session's canonical UUID (TASK_2026_296 item 6, Part B). Without
+   * it a curate started under the tabId keeps the suppression guard on the old
+   * key, so a second curate triggered under the UUID would run concurrently —
+   * a double-curate, which is exactly what {@link curate}'s coalescing exists
+   * to prevent.
+   *
+   * ## The key is `${workspaceRoot ?? ''}::${sessionId}`, so this is a suffix
+   * migration, not a lookup
+   *
+   * One session can hold entries under several workspace roots, so every key
+   * whose trailing segment equals `fromId` moves. The split is on the LAST
+   * `::` because a session id never contains one (a tabId and an SDK session
+   * id are both UUID v4) while a Windows workspace root plausibly could.
+   *
+   * ## Refuse-overwrite
+   *
+   * Mirrors `SessionRegistry.bindRealSessionId`: when the destination key
+   * already holds a promise, that promise WINS and the `fromId` entry is left
+   * exactly where it is — it still owns a real run whose own `.finally` will
+   * clear it. Never clobber; a missed merge is recoverable, a lost in-flight
+   * handle is not.
+   *
+   * ## Why the cleanup is re-armed
+   *
+   * {@link curate} attaches `.finally(() => this.inFlight.delete(key))` with
+   * the ORIGINAL key captured in the closure. After a move that delete is a
+   * no-op, so the migrated entry would otherwise sit under `toId` forever and
+   * every later curate for that session would be handed a long-settled
+   * promise. The re-armed cleanup below is what keeps the map self-draining; it
+   * is guarded on identity so it cannot delete a newer entry that replaced it.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    for (const [key, work] of [...this.inFlight]) {
+      const split = key.lastIndexOf('::');
+      if (split < 0 || key.slice(split + 2) !== from) continue;
+      const nextKey = key.slice(0, split).concat('::', to);
+      if (this.inFlight.has(nextKey)) continue;
+
+      this.inFlight.delete(key);
+      this.inFlight.set(nextKey, work);
+      const clear = (): void => {
+        if (this.inFlight.get(nextKey) === work) this.inFlight.delete(nextKey);
+      };
+      void work.then(clear, clear);
+    }
   }
 
   /** Internal worker. Public callers must use {@link curate}, which dedupes. */

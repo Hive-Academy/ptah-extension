@@ -12,6 +12,7 @@ import {
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   StopCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   SubagentStopCallbackRegistry,
   UserPromptExpansionCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
@@ -106,6 +107,7 @@ interface IntegrationHarness {
   sessionEndRegistry: SessionEndCallbackRegistry;
   activityRegistry: SessionActivityRegistry;
   stopRegistry: StopCallbackRegistry;
+  sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry;
 }
 
 function buildHarness(opts?: {
@@ -126,6 +128,9 @@ function buildHarness(opts?: {
     makeLogger(),
   );
   const stopRegistry = new StopCallbackRegistry(makeLogger());
+  const sessionIdResolvedRegistry = new SessionIdResolvedCallbackRegistry(
+    makeLogger(),
+  );
   const recorder = {
     recordSkillEvent: jest.fn(),
   } as unknown as SkillInvocationRecorder;
@@ -159,6 +164,7 @@ function buildHarness(opts?: {
         taskId: null,
       }),
     } as never,
+    sessionIdResolvedRegistry,
   );
   return {
     service,
@@ -169,6 +175,7 @@ function buildHarness(opts?: {
     sessionEndRegistry,
     activityRegistry,
     stopRegistry,
+    sessionIdResolvedRegistry,
   };
 }
 

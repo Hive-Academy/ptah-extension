@@ -75,10 +75,11 @@ describe('migration 0038_gateway_message_turn_state — registry entry', () => {
   });
 
   it('is the highest bundled version', () => {
-    // Bumped to 38 when TASK_2026_277 appended
-    // 0038_gateway_message_turn_state. Tracks the current highest version and
-    // moves forward with every appended migration (0027 → 0028 precedent).
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(38);
+    // Bumped to 39 when TASK_2026_296 appended 0039_reap_orphaned_queue_rows
+    // (38 was TASK_2026_277's own 0038_gateway_message_turn_state). Tracks the
+    // current highest version and moves forward with every appended migration
+    // (0027 → 0028 precedent).
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(39);
   });
 
   it('adds exactly the two columns TASK_2026_277 needs and nothing else', () => {

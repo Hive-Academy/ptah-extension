@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -23,6 +24,7 @@ import {
   type UserPromptExpansionPayload,
   type StopCallbackRegistry,
   type StopPayload,
+  type SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   BootScanRunner,
@@ -52,11 +54,21 @@ const TURN_COMPLETE_DEBOUNCE_MS = 90 * 1000;
 interface SessionState {
   readonly workspaceRoot: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Wall-clock instant `idleTimer` is due to fire, or `null` when none is
+   * armed. Recorded so `rekeySession` can re-arm under the new key with the
+   * REMAINING delay: a `setTimeout` closure captures the id it was armed with,
+   * so the timer must be recreated, and recreating it with the full window
+   * would silently extend it.
+   */
+  idleDueAt: number | null;
 }
 
 interface TurnCompleteState {
   readonly workspaceRoot: string;
   timer: ReturnType<typeof setTimeout> | null;
+  /** See {@link SessionState.idleDueAt} — same contract, debounce timer. */
+  dueAt: number | null;
 }
 
 interface EditTestState {
@@ -75,6 +87,7 @@ export class SkillTriggerService {
   private postToolUseDisposer: (() => void) | null = null;
   private userPromptExpansionDisposer: (() => void) | null = null;
   private stopDisposer: (() => void) | null = null;
+  private sessionIdResolvedDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly editTestStates = new Map<string, EditTestState>();
   private readonly turnCompleteStates = new Map<string, TurnCompleteState>();
@@ -112,6 +125,8 @@ export class SkillTriggerService {
     private readonly harvester: SpecHarvesterService,
     @inject(SKILL_SYNTHESIS_TOKENS.SUBAGENT_METRICS_EXTRACTOR)
     private readonly metricsExtractor: SubagentMetricsExtractor,
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
+    private readonly sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry,
   ) {}
 
   start(): void {
@@ -139,6 +154,14 @@ export class SkillTriggerService {
     this.stopDisposer = this.stopRegistry.register((payload) => {
       this.onStop(payload);
     });
+    // Deliberately a synchronous arrow with no `await` anywhere beneath it —
+    // see the ordering contract on `rekeySession`.
+    this.sessionIdResolvedDisposer = this.sessionIdResolvedRegistry.register(
+      (payload) => {
+        if (payload.tabId === undefined) return;
+        this.rekeySession(payload.tabId, payload.realSessionId);
+      },
+    );
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -156,12 +179,14 @@ export class SkillTriggerService {
     this.postToolUseDisposer?.();
     this.userPromptExpansionDisposer?.();
     this.stopDisposer?.();
+    this.sessionIdResolvedDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.subagentStopDisposer = null;
     this.postToolUseDisposer = null;
     this.userPromptExpansionDisposer = null;
     this.stopDisposer = null;
+    this.sessionIdResolvedDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
@@ -187,7 +212,7 @@ export class SkillTriggerService {
    * ever analysed.
    */
   private onActivity(payload: SessionActivityPayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 
@@ -196,14 +221,113 @@ export class SkillTriggerService {
       state = {
         workspaceRoot: payload.workspaceRoot,
         idleTimer: null,
+        idleDueAt: null,
       };
       this.sessions.set(payload.sessionId, state);
     }
 
     if (state.idleTimer) clearTimeout(state.idleTimer);
+    state.idleDueAt = Date.now() + idleMs;
     state.idleTimer = setTimeout(() => {
       this.fireIdle(payload.sessionId);
     }, idleMs);
+  }
+
+  /**
+   * Migrate every piece of state keyed by `fromId` onto `toId`.
+   *
+   * Fired from the SDK's `SessionIdResolvedCallbackRegistry` when a session's
+   * canonical UUID becomes known. Before that instant a residual hook path —
+   * one whose payload genuinely lacks `session_id` and falls back to the
+   * closure — reports the **tabId**, while `SessionEnd` always canonicalises to
+   * `realSessionId ?? tabId` (`session-control.service.ts:126`) and arrives
+   * under the UUID. That split leaves both timers here orphaned: nothing ever
+   * clears them, and when they fire they analyze under an id whose transcript
+   * cannot be read. TASK_2026_296 item 6, Part B.
+   *
+   * A tabId is itself a UUID v4, so nothing here inspects an id's SHAPE.
+   *
+   * ## Three rules, all load-bearing
+   *
+   * 1. **Synchronous, start to finish.** No `await` here or in anything it
+   *    calls, including `SkillSynthesisService.rekeySession` and the queue
+   *    backfill — so nothing interleaves between reading the old key and
+   *    writing the new one. The suppression-bearing state (the turn-count
+   *    high-water mark in `analyzedSessions`, and the durable
+   *    `UNIQUE(session_id, stage)` rows behind it) is migrated FIRST.
+   * 2. **Refuse-overwrite.** Where `toId` already holds an entry, that entry is
+   *    KEPT and the `fromId` entry discarded with its timer cleared. Never
+   *    clobber; mirrors `SessionRegistry.bindRealSessionId`.
+   * 3. **Timers are re-armed, never carried.** A `setTimeout` closure captures
+   *    the id it was armed with, so a carried timer would call
+   *    `fireIdle(tabId)` / `fireTurnComplete(tabId)` against a map that no
+   *    longer has that key — a silent no-op that loses the trigger entirely.
+   *    Each is cleared and recreated under `toId` with the REMAINING delay.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    // 1 — the turn-count high-water mark and the durable queue rows.
+    this.synthesis.rekeySession(from, to);
+
+    // 2 — the edit-then-test window (no timer of its own).
+    const editState = this.editTestStates.get(from);
+    if (editState) {
+      this.editTestStates.delete(from);
+      if (!this.editTestStates.has(to)) this.editTestStates.set(to, editState);
+    }
+
+    // 3 — the idle timer.
+    const sessionState = this.sessions.get(from);
+    if (sessionState) {
+      this.sessions.delete(from);
+      if (sessionState.idleTimer) clearTimeout(sessionState.idleTimer);
+      if (this.sessions.has(to)) {
+        sessionState.idleTimer = null;
+        sessionState.idleDueAt = null;
+      } else {
+        const remaining =
+          sessionState.idleDueAt === null
+            ? null
+            : sessionState.idleDueAt - Date.now();
+        sessionState.idleTimer =
+          remaining === null
+            ? null
+            : setTimeout(
+                () => {
+                  this.fireIdle(to);
+                },
+                Math.max(0, remaining),
+              );
+        this.sessions.set(to, sessionState);
+      }
+    }
+
+    // 4 — the turn-complete debounce timer.
+    const turnState = this.turnCompleteStates.get(from);
+    if (turnState) {
+      this.turnCompleteStates.delete(from);
+      if (turnState.timer) clearTimeout(turnState.timer);
+      if (this.turnCompleteStates.has(to)) {
+        turnState.timer = null;
+        turnState.dueAt = null;
+      } else {
+        const remaining =
+          turnState.dueAt === null ? null : turnState.dueAt - Date.now();
+        turnState.timer =
+          remaining === null
+            ? null
+            : setTimeout(
+                () => {
+                  this.fireTurnComplete(to);
+                },
+                Math.max(0, remaining),
+              );
+        this.turnCompleteStates.set(to, turnState);
+      }
+    }
   }
 
   private onSessionEnd(payload: SessionEndPayload): void {
@@ -222,15 +346,20 @@ export class SkillTriggerService {
 
   private onStop(payload: StopPayload): void {
     if (!this.readTurnCompleteEnabled()) return;
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.hasBackgroundWork) return;
 
     let state = this.turnCompleteStates.get(payload.sessionId);
     if (!state) {
-      state = { workspaceRoot: payload.workspaceRoot, timer: null };
+      state = {
+        workspaceRoot: payload.workspaceRoot,
+        timer: null,
+        dueAt: null,
+      };
       this.turnCompleteStates.set(payload.sessionId, state);
     }
     if (state.timer) clearTimeout(state.timer);
+    state.dueAt = Date.now() + TURN_COMPLETE_DEBOUNCE_MS;
     state.timer = setTimeout(() => {
       this.fireTurnComplete(payload.sessionId);
     }, TURN_COMPLETE_DEBOUNCE_MS);
@@ -240,6 +369,7 @@ export class SkillTriggerService {
     const state = this.turnCompleteStates.get(sessionId);
     if (!state) return;
     state.timer = null;
+    state.dueAt = null;
     this.turnCompleteStates.delete(sessionId);
 
     const decision = this.rateLimiter.tryAcquire(
@@ -302,7 +432,7 @@ export class SkillTriggerService {
     }
 
     if (!this.readSubagentStopEnabled()) return;
-    if (!payload.subagentSessionId || payload.subagentSessionId.length === 0) {
+    if (blankToUndefined(payload.subagentSessionId) === undefined) {
       this.logger.warn(
         '[skill-synthesis] empty sessionId in onSubagentStop, skipping',
         { workspaceRoot: payload.workspaceRoot },
@@ -344,7 +474,7 @@ export class SkillTriggerService {
 
   private onPostToolUse(payload: PostToolUsePayload): void {
     if (!this.readPostToolUseEnabled()) return;
-    if (!payload.sessionId || payload.sessionId.length === 0) {
+    if (blankToUndefined(payload.sessionId) === undefined) {
       this.logger.warn(
         '[skill-synthesis] empty sessionId in onPostToolUse, skipping',
         { workspaceRoot: payload.workspaceRoot },
@@ -454,7 +584,7 @@ export class SkillTriggerService {
   private onUserPromptExpansion(payload: UserPromptExpansionPayload): void {
     if (!this.readSkillInvocationTelemetryEnabled()) return;
     if (!payload.skillSlug || payload.skillSlug.length === 0) return;
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     void this.recordInvocation({
       slug: payload.skillSlug,
       sessionId: payload.sessionId,
@@ -578,6 +708,7 @@ export class SkillTriggerService {
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.idleTimer = null;
+    state.idleDueAt = null;
     const timestamp = Date.now();
     this.synthesis.pushEvent({
       kind: 'idle-trigger',

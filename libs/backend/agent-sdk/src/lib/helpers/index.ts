@@ -47,6 +47,11 @@ export {
   isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export {
+  SessionIdResolvedCallbackRegistry,
+  type SessionIdResolvedPayload,
+  type SessionIdResolvedRegistryCallback,
+} from './session-id-resolved-callback-registry';
 export { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 export {
   SessionEndCallbackRegistry,

@@ -155,6 +155,7 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
         enqueued.push(input);
         return { outcome: 'created', row: null };
       }),
+      backfillSessionId: jest.fn(() => ({ migrated: 0, discarded: 0 })),
     } as unknown as jest.Mocked<SkillQueueStore>;
 
     const svc = new SkillSynthesisService(
@@ -406,6 +407,91 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
     await fireSessionEnd();
 
     expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+
+  /**
+   * TASK_2026_296 item 6, Part B — `rekeySession`.
+   *
+   * `analyzedSessions` is the same-process high-water mark of the turn count
+   * already handed to the pipeline. Armed under a tabId and never migrated, it
+   * splits in two: the canonical id starts from zero and the session is
+   * re-enqueued from scratch. Both ids below are real UUID v4 strings, because
+   * a tabId IS one.
+   */
+  describe('rekeySession (TASK_2026_296)', () => {
+    const TAB_ID = '4a4a0d5e-6a1c-4d2f-9d3b-3e6f1c5a7b21';
+    const REAL_ID = 'b7c2f9a1-0e44-4a6b-8c1d-2f5e9a3b6d70';
+
+    it('carries the turn-count high-water mark onto the new id', async () => {
+      const { svc, extractor, enqueued, queue } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(7));
+
+      await svc.enqueueAnalyze(TAB_ID, '/repo', { source: 'idle' });
+      expect(prefilterRows(enqueued)).toHaveLength(1);
+
+      svc.rekeySession(TAB_ID, REAL_ID);
+      expect(queue.backfillSessionId).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+
+      // The same-process fast path now recognises the canonical id: the
+      // session has not grown past 7, so nothing is re-enqueued.
+      const outcome = await svc.enqueueAnalyze(REAL_ID, '/repo', {
+        source: 'idle',
+      });
+      expect(outcome).toBeNull();
+      expect(prefilterRows(enqueued)).toHaveLength(1);
+    });
+
+    it('re-enqueues once the session grows past the migrated count', async () => {
+      // The paired-isolation sibling: migrating the mark must not turn into a
+      // permanent seen-set. A grown session is still legitimately re-analyzed.
+      const { svc, extractor, enqueued } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(7));
+      await svc.enqueueAnalyze(TAB_ID, '/repo', { source: 'idle' });
+      svc.rekeySession(TAB_ID, REAL_ID);
+
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(12));
+      await svc.enqueueAnalyze(REAL_ID, '/repo', { source: 'idle' });
+
+      const rows = prefilterRows(enqueued);
+      expect(rows).toHaveLength(2);
+      expect(rows[1]).toMatchObject({ sessionId: REAL_ID, turnCount: 12 });
+    });
+
+    it('keeps the destination mark and discards the tabId one when toId already exists', async () => {
+      // R4 — never clobber. The canonical id already recorded 12; the stale
+      // tabId mark of 7 must not overwrite it and re-open a finished row.
+      const { svc, extractor, enqueued } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(7));
+      await svc.enqueueAnalyze(TAB_ID, '/repo', { source: 'idle' });
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(12));
+      await svc.enqueueAnalyze(REAL_ID, '/repo', { source: 'idle' });
+      expect(prefilterRows(enqueued)).toHaveLength(2);
+
+      svc.rekeySession(TAB_ID, REAL_ID);
+
+      // Still 12, not 7: a 9-turn observation is below the mark and enqueues
+      // nothing. Had the rekey clobbered, this would have re-enqueued.
+      (extractor.extract as jest.Mock).mockResolvedValue(trajectory(9));
+      const outcome = await svc.enqueueAnalyze(REAL_ID, '/repo', {
+        source: 'idle',
+      });
+      expect(outcome).toBeNull();
+      expect(prefilterRows(enqueued)).toHaveLength(2);
+    });
+
+    it('is a no-op for a blank or identical id pair', async () => {
+      const { svc, queue } = setup();
+      await svc.start();
+
+      svc.rekeySession('', REAL_ID);
+      svc.rekeySession(TAB_ID, '   ');
+      svc.rekeySession(TAB_ID, TAB_ID);
+
+      expect(queue.backfillSessionId).not.toHaveBeenCalled();
+    });
   });
 });
 

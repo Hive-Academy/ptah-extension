@@ -23,6 +23,9 @@ import type {
   StopCallback,
   StopCallbackRegistry,
   StopPayload,
+  SessionIdResolvedCallbackRegistry,
+  SessionIdResolvedRegistryCallback,
+  SessionIdResolvedPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
@@ -198,6 +201,34 @@ interface StopHarness {
   fire: (payload: StopPayload) => void;
 }
 
+interface SessionIdResolvedHarness {
+  registry: SessionIdResolvedCallbackRegistry;
+  fire: (payload: SessionIdResolvedPayload) => void;
+}
+
+function makeSessionIdResolvedRegistry(): SessionIdResolvedHarness {
+  const subscribers = new Set<SessionIdResolvedRegistryCallback>();
+  return {
+    fire: (payload) => {
+      for (const cb of subscribers) cb(payload);
+    },
+    registry: {
+      register: jest.fn((cb: SessionIdResolvedRegistryCallback) => {
+        subscribers.add(cb);
+        return () => {
+          subscribers.delete(cb);
+        };
+      }),
+      notifyAll: jest.fn((payload: SessionIdResolvedPayload) => {
+        for (const cb of subscribers) cb(payload);
+      }),
+      get size() {
+        return subscribers.size;
+      },
+    } as unknown as SessionIdResolvedCallbackRegistry,
+  };
+}
+
 function makeStopRegistry(): StopHarness {
   const subscribers = new Set<StopCallback>();
   return {
@@ -278,6 +309,7 @@ function makeSynthesis(): SkillSynthesisService {
         new Error('B0.9 violated: a trigger reached analyzeSession inline'),
       ),
     enqueueAnalyze: jest.fn().mockResolvedValue('created'),
+    rekeySession: jest.fn(),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
@@ -326,6 +358,7 @@ function buildService(opts?: {
   postToolUse: PostToolUseHarness;
   expansion: ExpansionHarness;
   stop: StopHarness;
+  sessionIdResolved: SessionIdResolvedHarness;
   recorder: SkillInvocationRecorder;
   synthesis: SkillSynthesisService;
   workspace: IWorkspaceProvider;
@@ -338,6 +371,7 @@ function buildService(opts?: {
   const postToolUse = makePostToolUseRegistry();
   const expansion = makeUserPromptExpansionRegistry();
   const stop = makeStopRegistry();
+  const sessionIdResolved = makeSessionIdResolvedRegistry();
   const recorder = makeRecorder();
   const synthesis = opts?.synthesis ?? makeSynthesis();
   const workspace = opts?.workspace ?? makeWorkspace();
@@ -361,6 +395,7 @@ function buildService(opts?: {
     stop.registry,
     { harvest: jest.fn().mockResolvedValue(undefined) } as never,
     extractor,
+    sessionIdResolved.registry,
   );
   return {
     service,
@@ -370,6 +405,7 @@ function buildService(opts?: {
     postToolUse,
     expansion,
     stop,
+    sessionIdResolved,
     recorder,
     synthesis,
     workspace,
@@ -479,6 +515,67 @@ describe('SkillTriggerService', () => {
     // Before the fix exactly ONE enqueue fired — for /ws/B, whichever session
     // reported activity last. /ws/A was silently dropped.
     expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+  });
+
+  /**
+   * TASK_2026_296 (R12) — DELIBERATE BEHAVIOUR CHANGE, pinned so it is not
+   * silent. Every blank guard in this service used to be `!x || x.length === 0`,
+   * which does NOT trim: a session reporting `'   '` was a *valid* id, armed a
+   * timer under a whitespace key, and was enqueued for analysis. The guards now
+   * route through the shared `blankToUndefined`, whose policy is trim-and-treat-
+   * whitespace-only-as-absent, so a whitespace-only id is refused exactly like
+   * `''` — and two sessions reporting `'   '` can no longer collide on one
+   * timer slot the way two reporting `''` did.
+   */
+  it('arms no idle timer for a whitespace-only sessionId (trim policy)', async () => {
+    const { service, activity, synthesis } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.idleMs': 100,
+      }),
+    });
+    service.start();
+    activity.registry.notifyAll({
+      sessionId: '   ',
+      workspaceRoot: '/ws/A',
+      role: 'user',
+      timestamp: 1,
+    });
+    activity.registry.notifyAll({
+      sessionId: '\t\n',
+      workspaceRoot: '/ws/B',
+      role: 'user',
+      timestamp: 2,
+    });
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Paired isolation for the trim policy above: narrowing the accepted set must
+   * not narrow it onto real ids. A non-blank session id still arms the timer and
+   * still enqueues.
+   */
+  it('still arms the idle timer for a real sessionId after the trim tightening', async () => {
+    const { service, activity, synthesis } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.idleMs': 100,
+      }),
+    });
+    service.start();
+    activity.registry.notifyAll({
+      sessionId: 's-real',
+      workspaceRoot: '/ws',
+      role: 'user',
+      timestamp: 1,
+    });
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith('s-real', '/ws', {
+      signal: undefined,
+      transcriptPath: undefined,
+      source: 'idle',
+    });
   });
 
   it('idle timer resets on new activity', async () => {
@@ -1514,5 +1611,221 @@ describe('SkillTriggerService — lifecycle and rate-limit windows', () => {
     );
     await Promise.resolve();
     expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * TASK_2026_296 item 6, Part B — the rekey signal.
+ *
+ * Before the SDK's system `init` message lands there is no canonical UUID, so a
+ * residual hook path (payload without `session_id`, falling back to the
+ * tabId-bearing closure) arms state under the **tabId**. `SessionEnd` always
+ * canonicalises to `realSessionId ?? tabId` (`session-control.service.ts:126`)
+ * and therefore arrives under the UUID, leaving BOTH timers here orphaned: the
+ * idle timer and the 90s turn-complete debounce.
+ *
+ * Both ids are real UUID v4 strings. A tabId IS a UUID v4 (`TabId.create()`),
+ * so `tab_N` would make these pass for the wrong reason.
+ */
+describe('SkillTriggerService — rekeySession (TASK_2026_296)', () => {
+  const TAB_ID = '4a4a0d5e-6a1c-4d2f-9d3b-3e6f1c5a7b21';
+  const REAL_ID = 'b7c2f9a1-0e44-4a6b-8c1d-2f5e9a3b6d70';
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-01T10:05:00Z'));
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function armed(idleMs = 100_000) {
+    const h = buildService({
+      workspace: makeWorkspace({ 'skillSynthesis.triggers.idleMs': idleMs }),
+    });
+    h.service.start();
+    return h;
+  }
+
+  function armIdle(
+    h: ReturnType<typeof armed>,
+    sessionId: string,
+    workspaceRoot = '/ws',
+  ): void {
+    h.activity.registry.notifyAll({
+      sessionId,
+      workspaceRoot,
+      role: 'user',
+      timestamp: Date.now(),
+    });
+  }
+
+  it('subscribes on start() and disposes on stop()', () => {
+    const h = buildService();
+    h.service.start();
+    expect(h.sessionIdResolved.registry.register).toHaveBeenCalledTimes(1);
+    expect(h.sessionIdResolved.registry.size).toBe(1);
+    h.service.stop();
+    expect(h.sessionIdResolved.registry.size).toBe(0);
+  });
+
+  // The literal context.md acceptance criterion (plan §6e spec 2).
+  it('a SessionEnd under the UUID clears state registered under the tabId, both timers included', async () => {
+    const h = armed();
+    armIdle(h, TAB_ID);
+    h.stop.fire(stopPayload({ sessionId: TAB_ID }));
+
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    h.sessionEnd.endActive.current?.({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+    });
+
+    // Neither the idle timer nor the 90s turn-complete debounce survives.
+    jest.advanceTimersByTime(500_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+
+    // Nothing survives under the tabId either.
+    h.sessionEnd.endActive.current?.({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+    });
+    jest.advanceTimersByTime(500_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+  });
+
+  it('re-arms both timers under the new id with the REMAINING delay', async () => {
+    const h = armed(100_000);
+    armIdle(h, TAB_ID);
+    h.stop.fire(stopPayload({ sessionId: TAB_ID }));
+
+    // 60s of the 90s debounce and 60s of the 100s idle window elapse.
+    jest.advanceTimersByTime(60_000);
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    // Turn-complete has 30s left; a full-window re-arm would still be pending.
+    jest.advanceTimersByTime(31_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).toHaveBeenCalledWith(REAL_ID, '/ws', {
+      signal: undefined,
+      transcriptPath: undefined,
+      source: 'turn-complete',
+    });
+
+    // Idle has 40s left from the resolve, i.e. 9s more from here.
+    jest.advanceTimersByTime(10_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).toHaveBeenCalledWith(REAL_ID, '/ws', {
+      signal: undefined,
+      transcriptPath: undefined,
+      source: 'idle',
+    });
+    // Never under the tabId, on either path.
+    for (const call of (h.synthesis.enqueueAnalyze as jest.Mock).mock.calls) {
+      expect(call[0]).toBe(REAL_ID);
+    }
+  });
+
+  // R4 — never clobber.
+  it('keeps the destination entry and discards the tabId one when toId already exists', async () => {
+    const h = armed(100_000);
+    // The canonical entry is armed FIRST and is the live one.
+    armIdle(h, REAL_ID, '/ws-real');
+    jest.advanceTimersByTime(40_000);
+    armIdle(h, TAB_ID, '/ws-tab');
+
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    // The destination keeps its own 60s remainder AND its own workspace root.
+    jest.advanceTimersByTime(59_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
+    expect(h.synthesis.enqueueAnalyze).toHaveBeenCalledWith(
+      REAL_ID,
+      '/ws-real',
+      expect.objectContaining({ source: 'idle' }),
+    );
+
+    // The discarded entry's timer was cleared, not orphaned.
+    jest.advanceTimersByTime(500_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
+  });
+
+  it('delegates the turn-count high-water mark and the durable queue rows', () => {
+    const h = armed();
+    armIdle(h, TAB_ID);
+
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+
+    expect(h.synthesis.rekeySession).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+  });
+
+  // Paired-isolation siblings.
+  it('does nothing when the payload carries no tabId, or when the ids are blank or equal', () => {
+    const h = armed();
+    armIdle(h, TAB_ID);
+
+    h.sessionIdResolved.fire({
+      tabId: undefined,
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+    h.sessionIdResolved.fire({
+      tabId: '   ',
+      realSessionId: REAL_ID,
+      timestamp: Date.now(),
+    });
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: ' ',
+      timestamp: Date.now(),
+    });
+    h.sessionIdResolved.fire({
+      tabId: TAB_ID,
+      realSessionId: TAB_ID,
+      timestamp: Date.now(),
+    });
+
+    expect(h.synthesis.rekeySession).not.toHaveBeenCalled();
+  });
+
+  it('a session whose id never resolves is still torn down under its tabId', async () => {
+    // The Wave 1 paired-isolation rule.
+    const h = armed();
+    armIdle(h, TAB_ID);
+    h.stop.fire(stopPayload({ sessionId: TAB_ID }));
+
+    h.sessionEnd.endActive.current?.({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+    });
+
+    jest.advanceTimersByTime(500_000);
+    await Promise.resolve();
+    expect(h.synthesis.enqueueAnalyze).not.toHaveBeenCalled();
   });
 });

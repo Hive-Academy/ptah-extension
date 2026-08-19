@@ -124,6 +124,15 @@ export const SDK_TOKENS = {
     'SdkSessionStartCallbackRegistry',
   ),
   SDK_SESSION_START_HOOK_HANDLER: Symbol.for('SdkSessionStartHookHandler'),
+  /**
+   * Fan-out fired when a session's canonical SDK UUID becomes known
+   * (TASK_2026_296). Added ALONGSIDE the single-slot
+   * `IAgentAdapter.setSessionIdResolvedCallback`, which is part of the shared
+   * adapter port and is deliberately left untouched.
+   */
+  SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionIdResolvedCallbackRegistry',
+  ),
 } as const;
 
 /**

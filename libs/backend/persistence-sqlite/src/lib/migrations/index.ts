@@ -64,6 +64,7 @@ import { sql as sql0035SkillSynthesisBudgetStage } from './0035_skill_synthesis_
 import { sql as sql0036SkillEmpiricalGates } from './0036_skill_empirical_gates';
 import { sql as sql0037SkillInvocationSessionJoin } from './0037_skill_invocation_session_join';
 import { sql as sql0038GatewayMessageTurnState } from './0038_gateway_message_turn_state';
+import { sql as sql0039ReapOrphanedQueueRows } from './0039_reap_orphaned_queue_rows';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -298,5 +299,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 38,
     name: '0038_gateway_message_turn_state',
     sql: sql0038GatewayMessageTurnState,
+  },
+  {
+    version: 39,
+    name: '0039_reap_orphaned_queue_rows',
+    sql: sql0039ReapOrphanedQueueRows,
   },
 ];

@@ -23,6 +23,7 @@ import {
   type ProviderProfile,
   type MessageAnchorHint,
   type PermissionLevel,
+  blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
@@ -47,6 +48,7 @@ import {
   SdkModelService,
   SessionForkService,
   SdkAdapterCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
@@ -78,6 +80,16 @@ const SDK_CAPABILITIES: ProviderCapabilities = {
   functionCalling: true,
 };
 
+/**
+ * A user activity reported before the session's SDK id was known. Held only
+ * between `startChatSession` and the system `init` message — see
+ * `SdkAgentAdapter.recordPendingUserActivity`.
+ */
+interface PendingUserActivity {
+  readonly workspaceRoot: string;
+  readonly timestamp: number;
+}
+
 const SDK_PROVIDER_INFO: ProviderInfo = {
   id: 'claude-cli' as ProviderId,
   name: 'Claude Agent SDK',
@@ -104,6 +116,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
   } | null = null;
 
   private readonly callbacks: SdkAdapterCallbackRegistry;
+
+  /**
+   * First-turn user activity awaiting a canonical session id, keyed by tabId
+   * (the adapter's `trackingId`). Empty except during the window between a new
+   * session's first prompt and its system `init` message.
+   */
+  private readonly pendingUserActivity = new Map<string, PendingUserActivity>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -136,6 +155,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly activityRegistry: SessionActivityRegistry,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    /**
+     * Fan-out fired ALONGSIDE `this.callbacks.emitSessionIdResolved(...)`,
+     * never instead of it. The single-slot setter is part of the shared
+     * `IAgentAdapter` port and stays exactly as it was; this registry lets the
+     * memory / skill trigger services reconcile state that a residual
+     * tabId-bearing path armed before the UUID existed (TASK_2026_296).
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
+    private readonly sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
@@ -145,6 +173,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
       );
+      this.flushAllPendingUserActivity();
       await this.sessionLifecycle.disposeAllSessions();
       this.cliDetector.clearCache();
       this.modelService.clearCache();
@@ -368,6 +397,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.events.emitDisposed({ timestamp: Date.now() });
+    this.flushAllPendingUserActivity();
     this.sessionLifecycle
       .disposeAllSessions()
       .catch((err) => {
@@ -503,7 +533,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
 
     if (config.prompt) {
-      this.notifyActivity(trackingId, 'user', resolvedProjectPath);
+      this.recordPendingUserActivity(trackingId, resolvedProjectPath);
     }
 
     return this.streamTransformer.transform({
@@ -522,6 +552,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   endSession(sessionId: SessionId): void {
+    this.flushPendingUserActivityFor(sessionId);
     this.sessionLifecycle.endSession(sessionId).catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error ending session',
@@ -608,6 +639,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
       }
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
+      // ALONGSIDE the single-slot setter above, never instead of it. Fired on
+      // the resume path too: a resume registers under `registerKey = tabId`,
+      // so a residual tabId-keyed consumer here needs the same reconciliation
+      // signal the new-session path gets (TASK_2026_296).
+      this.sessionIdResolvedRegistry.notifyAll({
+        tabId,
+        realSessionId,
+        timestamp: Date.now(),
+      });
     };
 
     return this.streamTransformer.transform({
@@ -644,7 +684,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // be rejected by bindRealSessionId anyway, and tell the webview that a
       // session resolved to '' (TASK_2026_295). This callback is invoked
       // un-awaited, so a rejection here would surface as an unhandled one.
-      if (!realSessionId || realSessionId.trim().length === 0) {
+      if (blankToUndefined(realSessionId) === undefined) {
         this.logger.warn(
           `[SdkAgentAdapter] SDK init reported an empty session id — skipping metadata create, bind and resolve notification (tabId: ${tabId})`,
         );
@@ -659,9 +699,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
       if (tabId) {
         this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
+        // The bind above is what makes `resolveActivityIds` answer with the
+        // SDK UUID, so the first turn's buffered activity is published here —
+        // after the bind, under the canonical id.
+        this.flushPendingUserActivity(tabId);
       }
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
+      // ALONGSIDE the single-slot setter above, never instead of it. Placed
+      // after the flush so the buffered first turn is already published under
+      // the canonical id; what this signal reconciles is the RESIDUAL — state
+      // armed by a hook payload that genuinely lacked `session_id` and fell
+      // back to the tabId-bearing closure (TASK_2026_296).
+      this.sessionIdResolvedRegistry.notifyAll({
+        tabId,
+        realSessionId,
+        timestamp: Date.now(),
+      });
     };
   }
 
@@ -751,6 +805,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
+    this.flushPendingUserActivityFor(sessionId);
     await this.sessionLifecycle.endSession(sessionId);
   }
 
@@ -838,6 +893,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     role: 'user' | 'assistant',
     workspaceRootOverride?: string,
+    timestamp: number = Date.now(),
   ): void {
     try {
       const ids = this.resolveActivityIds(sessionId);
@@ -845,13 +901,95 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId: ids.sessionId,
         workspaceRoot: workspaceRootOverride ?? ids.workspaceRoot,
         role,
-        timestamp: Date.now(),
+        timestamp,
       });
     } catch (err: unknown) {
       this.logger.warn(
         '[SdkAgentAdapter] activity notify failed',
         err instanceof Error ? err : new Error(String(err)),
       );
+    }
+  }
+
+  /**
+   * Hold a NEW session's first user activity instead of publishing it.
+   *
+   * `startChatSession` reports that activity before the SDK's system `init`
+   * message has arrived, so no real session id is bound yet and
+   * `resolveActivityIds` can only answer with the tabId. Publishing it there
+   * armed consumer state — memory/skill trigger timers and their SQLite work
+   * queues — under the tabId, while teardown always resolves
+   * `realSessionId ?? tabId` (`SessionControlService.endSession`) and so cleared
+   * under the SDK UUID. State was armed under one key and torn down under
+   * another, on the first turn only, which is why it presented as intermittent
+   * (TASK_2026_296).
+   *
+   * Note the two ids are shape-indistinguishable — a tabId is a UUID v4
+   * (`TabId.create()`), so `SessionId.validate(tabId)` is true and no consumer
+   * can detect the wrong id by inspection. Prevention at the emitter is the
+   * only fix available.
+   *
+   * Buffering changes ONLY the id: the role, the workspace root and the
+   * original timestamp are preserved, and the activity is published exactly
+   * once — by `flushPendingUserActivity` when the id resolves, or by the
+   * teardown flush under the tabId if it never does, which keeps both ends of
+   * the lifecycle on the same key.
+   */
+  private recordPendingUserActivity(
+    trackingId: SessionId,
+    workspaceRoot: string,
+  ): void {
+    // A second start on the same tab without an intervening teardown would
+    // otherwise drop the earlier turn's activity; publish it before the slot
+    // is replaced. Nothing is buffered in the common case, so this is a no-op.
+    this.flushPendingUserActivity(trackingId as string);
+    this.pendingUserActivity.set(trackingId as string, {
+      workspaceRoot,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Publish the activity buffered for `tabId`, if any, under whichever id is
+   * canonical now. The entry is removed BEFORE the notification so a
+   * re-entrant subscriber cannot trigger a second emission — this is the
+   * exactly-once guarantee the buffer exists to provide.
+   */
+  private flushPendingUserActivity(tabId: string): void {
+    const pending = this.pendingUserActivity.get(tabId);
+    if (!pending) {
+      return;
+    }
+    this.pendingUserActivity.delete(tabId);
+    this.notifyActivity(
+      tabId as SessionId,
+      'user',
+      pending.workspaceRoot,
+      pending.timestamp,
+    );
+  }
+
+  /**
+   * Teardown-side flush for a single session. Callers hold whichever id they
+   * were given — tabId or SDK UUID — so resolve the record back to its tabId,
+   * which is the key the buffer uses.
+   */
+  private flushPendingUserActivityFor(sessionId: SessionId): void {
+    if (this.pendingUserActivity.size === 0) {
+      return;
+    }
+    const rec = this.sessionLifecycle.find(sessionId as string);
+    this.flushPendingUserActivity(rec?.tabId ?? (sessionId as string));
+  }
+
+  /**
+   * Teardown-side flush for the bulk paths, which end every live session at
+   * once. Runs BEFORE `disposeAllSessions` so each record is still present to
+   * canonicalise against.
+   */
+  private flushAllPendingUserActivity(): void {
+    for (const tabId of Array.from(this.pendingUserActivity.keys())) {
+      this.flushPendingUserActivity(tabId);
     }
   }
 

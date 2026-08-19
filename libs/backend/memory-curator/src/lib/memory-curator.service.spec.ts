@@ -794,3 +794,215 @@ describe('MemoryCuratorService — in-flight coalescing (TASK_2026_295)', () => 
     expect(transcripts).toEqual(['transcript A', 'transcript B']);
   });
 });
+
+/**
+ * TASK_2026_296 item 6, Part B — a rekey landing mid-curate must not produce a
+ * double-curate.
+ *
+ * A residual hook path can start a curate under the **tabId**, because the SDK
+ * UUID does not exist until the system `init` message lands. When it does land,
+ * `MemoryTriggerService.rekeySession` fires and moves the in-flight coalescing
+ * key onto the UUID. If it did not, the guard would still be holding the old
+ * key and a curate triggered under the UUID would start a SECOND concurrent
+ * run of the same session (plan §6c Q3).
+ *
+ * Both ids here are real UUID v4 strings — a tabId IS one, so `tab_N` would
+ * make these pass for the wrong reason.
+ */
+describe('MemoryCuratorService — rekeySession (TASK_2026_296)', () => {
+  const TAB_ID = '4a4a0d5e-6a1c-4d2f-9d3b-3e6f1c5a7b21';
+  const REAL_ID = 'b7c2f9a1-0e44-4a6b-8c1d-2f5e9a3b6d70';
+  const OTHER_ID = 'f31c8a2d-55b6-4e19-9a07-1d8c4b2e6f93';
+
+  function gatedLlm(): {
+    llm: ICuratorLLM;
+    transcripts: string[];
+    release: () => void;
+  } {
+    const transcripts: string[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const llm = {
+      extract: jest.fn(async (transcript: string) => {
+        transcripts.push(transcript);
+        await gate;
+        return [];
+      }),
+      resolve: jest.fn(async () => []),
+    } as unknown as ICuratorLLM;
+    return { llm, transcripts, release: () => release() };
+  }
+
+  it('runs exactly one curate when the rekey lands mid-flight', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    // Armed under the tabId — the residual path.
+    const started = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'the one real run',
+    });
+
+    svc.rekeySession(TAB_ID, REAL_ID);
+
+    // The trigger now fires under the canonical id. Without the rekey this
+    // would miss the in-flight guard and start a second concurrent run.
+    const afterRekey = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'the double that must not happen',
+    });
+
+    release();
+    const [a, b] = await Promise.all([started, afterRekey]);
+
+    expect(transcripts).toEqual(['the one real run']);
+    expect(b).toEqual(a);
+  });
+
+  it('drains the migrated key when the run settles, so the session is curatable again', async () => {
+    // The migrated entry inherits a `.finally` that deletes the OLD key, so
+    // without a re-armed cleanup it would sit under `toId` forever and every
+    // later curate would be handed a long-settled promise.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const started = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'first run',
+    });
+    svc.rekeySession(TAB_ID, REAL_ID);
+    release();
+    await started;
+    await Promise.resolve();
+
+    await svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'second run',
+    });
+
+    expect(transcripts).toEqual(['first run', 'second run']);
+  });
+
+  it('refuses to overwrite an entry already held under toId', async () => {
+    // R4. The destination is a LIVE run; the fromId entry is discarded rather
+    // than clobbering it, and the destination's own promise still serves its
+    // callers.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const underTab = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'tab run',
+    });
+    const underReal = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'real run',
+    });
+
+    svc.rekeySession(TAB_ID, REAL_ID);
+
+    // The destination is unchanged: a further curate under REAL_ID still
+    // coalesces onto the run that was already there.
+    const third = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws',
+      transcript: 'must coalesce onto the real run',
+    });
+
+    release();
+    const [, realStats, thirdStats] = await Promise.all([
+      underTab,
+      underReal,
+      third,
+    ]);
+    expect(transcripts).toEqual(['tab run', 'real run']);
+    expect(thirdStats).toEqual(realStats);
+  });
+
+  // Paired-isolation siblings: the rekey must be inert where it has no
+  // business acting, and must leave every unrelated session alone.
+  it('is a no-op for a blank, identical or unrelated id', async () => {
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const running = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'untouched run',
+    });
+
+    svc.rekeySession('', REAL_ID);
+    svc.rekeySession(TAB_ID, '   ');
+    svc.rekeySession(TAB_ID, TAB_ID);
+    svc.rekeySession(OTHER_ID, REAL_ID);
+
+    // Still coalescing under its original key — nothing moved.
+    const same = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws',
+      transcript: 'must coalesce',
+    });
+
+    release();
+    const [a, b] = await Promise.all([running, same]);
+    expect(transcripts).toEqual(['untouched run']);
+    expect(b).toEqual(a);
+  });
+
+  it('migrates only the matching workspace-scoped keys', async () => {
+    // The key is `${workspaceRoot ?? ''}::${sessionId}`, so one session can hold
+    // several entries. All of them move; a same-id entry in another workspace
+    // must not be left behind, and another session's entry must not move.
+    const { llm, transcripts, release } = gatedLlm();
+    const svc = buildService({ llm });
+
+    const inA = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws-a',
+      transcript: 'ws-a run',
+    });
+    const inB = svc.curate({
+      sessionId: TAB_ID,
+      workspaceRoot: '/ws-b',
+      transcript: 'ws-b run',
+    });
+    const other = svc.curate({
+      sessionId: OTHER_ID,
+      workspaceRoot: '/ws-a',
+      transcript: 'other session run',
+    });
+
+    svc.rekeySession(TAB_ID, REAL_ID);
+
+    const coalescedA = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws-a',
+      transcript: 'should coalesce onto ws-a',
+    });
+    const coalescedB = svc.curate({
+      sessionId: REAL_ID,
+      workspaceRoot: '/ws-b',
+      transcript: 'should coalesce onto ws-b',
+    });
+
+    release();
+    const [statsA, statsB, , cA, cB] = await Promise.all([
+      inA,
+      inB,
+      other,
+      coalescedA,
+      coalescedB,
+    ]);
+    expect(transcripts).toEqual(['ws-a run', 'ws-b run', 'other session run']);
+    expect(cA).toEqual(statsA);
+    expect(cB).toEqual(statsB);
+  });
+});

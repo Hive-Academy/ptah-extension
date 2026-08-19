@@ -25,6 +25,7 @@ import type {
   SessionEndHookPayload,
   PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import type { ITranscriptReader } from '@ptah-extension/memory-contracts';
@@ -206,6 +207,16 @@ function makeNoopSessionStart(): SessionStartCallbackRegistry {
   } as unknown as SessionStartCallbackRegistry;
 }
 
+function makeNoopSessionIdResolved(): SessionIdResolvedCallbackRegistry {
+  return {
+    register: jest.fn(() => () => undefined),
+    notifyAll: jest.fn(),
+    get size() {
+      return 0;
+    },
+  } as unknown as SessionIdResolvedCallbackRegistry;
+}
+
 function makeNoopTranscriptReader(): ITranscriptReader {
   return {
     read: jest.fn().mockResolvedValue(''),
@@ -279,6 +290,7 @@ function buildService(opts?: {
     makeNoopPreToolUse(),
     makeNoopSessionStart(),
     makeNoopTranscriptReader(),
+    makeNoopSessionIdResolved(),
   );
   return { service, stop, sessionEndHook, curator, debug };
 }

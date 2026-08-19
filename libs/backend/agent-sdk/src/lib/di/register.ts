@@ -44,6 +44,7 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
   CompactionCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
   SubagentStopCallbackRegistry,
@@ -367,6 +368,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
     { useClass: CompactionCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    { useClass: SessionIdResolvedCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

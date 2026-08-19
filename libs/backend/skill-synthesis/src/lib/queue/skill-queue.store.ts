@@ -33,6 +33,7 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   isUniqueConstraintError,
@@ -236,6 +237,79 @@ export class SkillQueueStore {
       // merging is not clearing, and the two must not be confused.
       const merged = this.mergePayloadWithin(row.id, input.payload ?? {});
       return { outcome, row: merged ? { ...row, payload: merged } : row };
+    });
+  }
+
+  /**
+   * Re-point every `skill_synthesis_queue` row from `fromId` to `toId`.
+   *
+   * Called synchronously by `SkillSynthesisService.rekeySession` when the SDK
+   * resolves a session's canonical UUID, so rows a residual tabId-bearing path
+   * enqueued before the resolve become visible to the UUID-keyed drain
+   * (TASK_2026_296 item 6, Part B).
+   *
+   * ## Why this is not a plain UPDATE
+   *
+   * `UNIQUE(session_id, stage)` (migration `0032`) is the constraint every
+   * other primitive in this store is built around. A bare
+   * `UPDATE ... SET session_id = ?` collides the moment a row already exists
+   * for `(toId, stage)` — which is the NORMAL case here, because the same
+   * session is very likely to have enqueued the same stage under its canonical
+   * id once that id existed. better-sqlite3 raises `SQLITE_CONSTRAINT_UNIQUE`,
+   * the exception unwinds out of the rekey handler, and the in-memory half of
+   * the migration is abandoned half-done. That is R5.
+   *
+   * So: `UPDATE OR IGNORE` migrates every row that has no collision, then a
+   * `DELETE` removes the un-migrated remainder. **The pre-existing `toId` row
+   * wins** — the same refuse-overwrite rule the in-memory maps follow, and the
+   * right one here too: the surviving row was enqueued under the canonical id,
+   * so its `turn_count` is the one the re-open guard should be comparing
+   * against. Both statements run inside one `BEGIN IMMEDIATE`, so a second
+   * process draining the shared `~/.ptah/state/ptah.sqlite` can never observe
+   * the intermediate state where both rows exist.
+   *
+   * No id-shape predicate anywhere: a tabId is a UUID v4, so `LIKE 'tab\_%'`
+   * would match only the retired legacy format and is wrong by construction.
+   *
+   * @returns `{ migrated, discarded }` row counts.
+   */
+  backfillSessionId(
+    fromId: string,
+    toId: string,
+  ): { migrated: number; discarded: number } {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) {
+      return { migrated: 0, discarded: 0 };
+    }
+
+    return this.inImmediateTransaction<{
+      migrated: number;
+      discarded: number;
+    }>(() => {
+      const migrated = Number(
+        this.db
+          .prepare(
+            `UPDATE OR IGNORE skill_synthesis_queue
+                SET session_id = ?
+              WHERE session_id = ?`,
+          )
+          .run(to, from).changes,
+      );
+      const discarded = Number(
+        this.db
+          .prepare(`DELETE FROM skill_synthesis_queue WHERE session_id = ?`)
+          .run(from).changes,
+      );
+      if (migrated > 0 || discarded > 0) {
+        this.logger.info('[skill-synthesis] queue rows re-pointed', {
+          fromId: from,
+          toId: to,
+          migrated,
+          discarded,
+        });
+      }
+      return { migrated, discarded };
     });
   }
 
