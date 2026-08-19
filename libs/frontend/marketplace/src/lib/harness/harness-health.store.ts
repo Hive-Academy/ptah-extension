@@ -108,7 +108,18 @@ export class HarnessHealthStore implements MessageHandler {
         timeout: HARNESS_RPC_TIMEOUTS.HEALTH_MS,
       });
       if (result.isSuccess() && result.data) {
-        this.applyReport(result.data.health, result.data.summary);
+        // Guarded like `ExternalMarketplacesComponent.loadMarketplaces`: a
+        // reply missing `health` must not write `undefined` into a signal
+        // `generatedLabel()` reads a property off — `health === null` was the
+        // only case it checked, so `undefined` (an unmocked or malformed RPC
+        // reply, e.g. a version-skewed host answering before this field
+        // existed) reached `new Date(undefined.generatedAt)` and threw INSIDE
+        // a template computed. That aborts the change-detection pass for this
+        // component's whole ancestor chain rather than just this badge, which
+        // is why the Plugins page — mounted a level above this badge — reads
+        // as frozen (Add stays disabled, dialogs never open) rather than as a
+        // visible error here.
+        this.applyReport(result.data.health ?? null, result.data.summary);
       } else {
         this._error.set(result.error ?? 'Failed to read harness health');
       }
