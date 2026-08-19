@@ -53,6 +53,6 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 ## Deployment Notes
 
 - `better-sqlite3` must be compiled from source for the Electron ABI (no prebuilt exists for Electron 38+; Electron 40 = ABI 143): run `nx rebuild-native ptah-electron` after Electron upgrades. Requires a C++ toolchain (MSVC / Xcode CLT / gcc). `node-pty` (N-API prebuild) and `sqlite-vec` (loadable extension) need no rebuild.
-- Update detection queries the GitHub Releases API directly (no `electron-updater`); it runs in `post-window` Phase 6 (`UpdateManager.start()`) and is skipped in dev builds. The Download action opens the platform installer in the browser.
+- Update detection queries the GitHub Releases API directly (no `electron-updater`); it runs in `post-window` Phase 6 (`UpdateManager.start()`) and is skipped in dev builds and under the e2e harness (`PTAH_E2E=1`; a spec that wants the real network path opts back in with `PTAH_E2E_ALLOW_UPDATE_CHECK=1`). The Download action opens the platform installer in the browser.
 - Code signing inputs (Windows SSL.com IV / eSigner, macOS Developer ID) are read from env at `electron-builder` invocation time; never commit signing material.
 - Renderer copy: `scripts/copy-renderer.js` lives under `apps/ptah-electron/scripts/`. Run as a script it does a clean copy (packaging); required as a module it exports `syncRenderer({ clean })`, which `watch-renderer.js` calls with `clean: false` so a running window keeps the stale chunks it already resolved.

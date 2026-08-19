@@ -74,10 +74,31 @@ export class UpdateManager implements IAppUpdater {
    *
    * Idempotent: the periodic interval is created only once. Dev-mode gate:
    * bails immediately when NODE_ENV === 'development'.
+   *
+   * E2E gate: `apps/ptah-electron-e2e/src/support/electron-launcher.ts` sets
+   * `PTAH_E2E=1` on every harness launch (the same flag `bootstrap.ts` and the
+   * RPC handlers already honour). Without this gate, the boot-time check hits
+   * the real GitHub Releases API on every e2e run; the verdict then depends on
+   * whatever tag happens to be published and on runner network reachability —
+   * not on the code under test. A CI build reporting an older version than the
+   * latest tag makes `<ptah-update-banner>` render and shift layout, which
+   * failed a spec whose overlap guard assumed the banner never appears
+   * (TASK_2026_296). Specs that intentionally want the real network path
+   * (`auto-updater.spec.ts`'s forced-NODE_ENV cases) opt back in by passing
+   * `PTAH_E2E_ALLOW_UPDATE_CHECK: '1'` through `launchPtah`'s `opts.env`.
    */
   async start(): Promise<void> {
     if (process.env['NODE_ENV'] === 'development') {
       this.logger.info('[UpdateManager] Skipped — development mode');
+      return;
+    }
+    if (
+      process.env['PTAH_E2E'] === '1' &&
+      process.env['PTAH_E2E_ALLOW_UPDATE_CHECK'] !== '1'
+    ) {
+      this.logger.info(
+        '[UpdateManager] Skipped — e2e harness (set PTAH_E2E_ALLOW_UPDATE_CHECK=1 to opt back in)',
+      );
       return;
     }
     if (this._checkInterval !== null) {

@@ -11,8 +11,14 @@ import { launchPtah, resolveElectronEntry } from '../support/electron-launcher';
  * electron-updater) and broadcasts the result to the renderer. The harness
  * tests *observable* behavior:
  *   - In dev (NODE_ENV=development), detection is skipped.
- *   - In production NODE_ENV, the GitHub check either resolves or fails;
- *     either way the app must not crash and the renderer must remain alive.
+ *   - Under the default e2e harness (PTAH_E2E=1, no override), detection is
+ *     ALSO skipped — `UpdateManager.start()` no longer makes a live GitHub
+ *     call on every run (TASK_2026_296). Specs below that specifically want
+ *     to exercise the real network path pass `PTAH_E2E_ALLOW_UPDATE_CHECK: '1'`
+ *     through `launchPtah`'s `opts.env` to opt back in.
+ *   - With that opt-in and a forced production NODE_ENV, the GitHub check
+ *     either resolves or fails; either way the app must not crash and the
+ *     renderer must remain alive.
  *   - The bundled electron-builder.yml declares the GitHub publish provider
  *     (the source the detector reads installers from).
  */
@@ -82,7 +88,15 @@ test.describe('Update detection', () => {
     // renderer. We block all network at the Electron session level via
     // the same evaluate so we don't accidentally hit github.com in CI.
     testInfo.setTimeout(60_000);
-    const app = await launchPtah({ env: { NODE_ENV: 'production' } });
+    // `launchPtah` sets PTAH_E2E=1 on every launch, which now makes
+    // UpdateManager.start() skip the check by default (TASK_2026_296 — a live
+    // GitHub call every e2e run made the update banner's appearance depend on
+    // network reachability and whatever tag was published, not on the code
+    // under test). This spec exists to exercise the real network path, so it
+    // opts back in explicitly.
+    const app = await launchPtah({
+      env: { NODE_ENV: 'production', PTAH_E2E_ALLOW_UPDATE_CHECK: '1' },
+    });
     const logs: string[] = [];
     app
       .process()
@@ -137,7 +151,12 @@ test.describe('Update detection', () => {
     // Update detection surfaces results in the renderer banner only -- it
     // never shows a native dialog. The app must always close cleanly.
     testInfo.setTimeout(45_000);
-    const app = await launchPtah({ env: { NODE_ENV: 'production' } });
+    // Same opt-in as the spec above — this test's purpose is to prove the
+    // real check (which paints no native dialog) never blocks shutdown, so it
+    // must not be skipped by the default e2e gate.
+    const app = await launchPtah({
+      env: { NODE_ENV: 'production', PTAH_E2E_ALLOW_UPDATE_CHECK: '1' },
+    });
 
     try {
       const win = await app.firstWindow();
@@ -186,9 +205,10 @@ test.describe('Update detection', () => {
     rpcBridge,
     mainWindow,
   }) => {
-    // Even with the harness default (NODE_ENV=test), the updater runs and
-    // either succeeds or fails non-fatally. State persistence -- which
-    // is wired up in earlier phases -- must still work.
+    // With the harness default (PTAH_E2E=1, no opt-in), UpdateManager.start()
+    // now skips the check entirely -- this spec asserts the negative: skipping
+    // it must not disturb anything wired up in earlier boot phases. State
+    // persistence must still work regardless of whether the updater ran.
     await mainWindow.waitForLoadState('domcontentloaded');
     const marker = { e2eMarker: 'auto-updater-spec', ts: Date.now() };
     await rpcBridge.setState(marker);
