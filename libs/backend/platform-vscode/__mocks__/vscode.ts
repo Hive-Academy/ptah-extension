@@ -266,9 +266,53 @@ const activeEditorEmitter = createEmitter<
   { document: { uri: { fsPath: string } } } | undefined
 >();
 const openDocumentEmitter = createEmitter<{ uri: { fsPath: string } }>();
+
+/**
+ * An open document, as `vscode.workspace.textDocuments` reports it.
+ *
+ * `isDirty`, `uri.scheme` and `save()` are the three properties
+ * `VscodeWorkspaceProvider`'s dirty-settings retry actually reads, so the
+ * double models exactly those and nothing more.
+ */
+export interface MockTextDocument {
+  uri: { fsPath: string; path: string; scheme: string };
+  isDirty: boolean;
+  save: jest.Mock<Promise<boolean>, []>;
+}
+
+let textDocumentsState: MockTextDocument[] = [];
+
 let activeTextEditorState:
+  | { document: MockTextDocument }
   | { document: { uri: { fsPath: string; path: string } } }
   | undefined = undefined;
+
+/**
+ * Errors queued to be thrown by the next `getConfiguration(...).update(...)`
+ * calls, one per entry, oldest first. Lets a spec drive the "VS Code refuses
+ * the write while settings.json is dirty" path and then let the retry succeed.
+ */
+const configUpdateFailures: Error[] = [];
+
+function makeMockTextDocument(spec: {
+  path: string;
+  scheme?: string;
+  isDirty?: boolean;
+}): MockTextDocument {
+  const doc: MockTextDocument = {
+    uri: {
+      fsPath: spec.path,
+      path: spec.path,
+      scheme: spec.scheme ?? 'vscode-userdata',
+    },
+    isDirty: spec.isDirty ?? true,
+    save: jest.fn(async () => {
+      doc.isDirty = false;
+      return true;
+    }),
+  };
+  return doc;
+}
 
 let diagnosticsState: Array<[{ fsPath: string; path: string }, Array<any>]> =
   [];
@@ -352,6 +396,8 @@ export const workspace = {
     has: jest.fn((key: string) => configStore.has(`${section}.${key}`)),
     inspect: jest.fn(() => undefined),
     update: jest.fn(async (key: string, value: unknown) => {
+      const queued = configUpdateFailures.shift();
+      if (queued) throw queued;
       configStore.set(`${section}.${key}`, value);
       configEmitter.fire({
         affectsConfiguration: (s: string) => s === section,
@@ -385,6 +431,9 @@ export const workspace = {
   onDidOpenTextDocument: jest.fn((listener: Listener<any>) =>
     openDocumentEmitter.event(listener),
   ),
+  get textDocuments(): MockTextDocument[] {
+    return textDocumentsState;
+  },
   getWorkspaceFolder: jest.fn((_uri: any) => workspaceFoldersState[0]),
   /**
    * Stub for vscode.workspace.updateWorkspaceFolders.
@@ -636,7 +685,35 @@ export const __vscodeState = {
         document: { uri: { fsPath: filePath, path: filePath } },
       };
     }
-    activeEditorEmitter.fire(activeTextEditorState);
+    activeEditorEmitter.fire(activeTextEditorState as any);
+  },
+  /**
+   * Seed `vscode.workspace.textDocuments`. Returns the created doubles so a
+   * spec can assert which one had `save()` called on it.
+   */
+  setTextDocuments(
+    specs: Array<{ path: string; scheme?: string; isDirty?: boolean }>,
+  ): MockTextDocument[] {
+    textDocumentsState = specs.map(makeMockTextDocument);
+    return textDocumentsState;
+  },
+  /** Make the active editor host a full document double (dirty, savable). */
+  setActiveEditorDocument(
+    spec: { path: string; scheme?: string; isDirty?: boolean } | undefined,
+  ): MockTextDocument | undefined {
+    if (spec === undefined) {
+      activeTextEditorState = undefined;
+      activeEditorEmitter.fire(undefined);
+      return undefined;
+    }
+    const doc = makeMockTextDocument(spec);
+    activeTextEditorState = { document: doc };
+    activeEditorEmitter.fire(activeTextEditorState as any);
+    return doc;
+  },
+  /** Queue an error for the next `getConfiguration(...).update(...)` call. */
+  queueConfigUpdateFailure(error: Error): void {
+    configUpdateFailures.push(error);
   },
   fireOpenDocument(filePath: string): void {
     openDocumentEmitter.fire({ uri: { fsPath: filePath } });
@@ -684,6 +761,8 @@ export function __resetVscodeTestDouble(): void {
   createdWatchers.length = 0;
   workspaceFoldersState = [];
   activeTextEditorState = undefined;
+  textDocumentsState = [];
+  configUpdateFailures.length = 0;
   diagnosticsState = [];
   chatModels = [];
   scripted.nextAction = undefined;
