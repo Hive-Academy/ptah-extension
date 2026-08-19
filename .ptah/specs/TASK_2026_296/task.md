@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_296
-status: backlog
+status: in_review
 type: refactoring
 dependsOn:
   - TASK_2026_295

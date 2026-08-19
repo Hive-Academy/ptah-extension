@@ -119,6 +119,43 @@ Weigh it against item 2: validating at the two doors may make this unnecessary,
 and it is the larger change by far — it would touch every construction site in
 the streaming path. **Decide after items 1–2 land, not before.**
 
+### 6. The tabId-vs-UUID identity split — folded in by user decision
+
+**Scope decision, 2026-08-19.** This item was written above as explicitly out of
+scope and was offered as its own task. The user chose to fold it into 296
+instead. Recording the objection so the reasoning survives: this is a defect
+class **independent of the empty string**, so 296's gate now covers two
+unrelated failure modes and a regression in either blocks the other. Proceeding
+as directed.
+
+On the chat path the hook closure holds a **tabId**, not the canonical SDK UUID,
+so one turn emits some hook payloads keyed `tab_N` and others by the real UUID.
+Consumers that key state by the reported id can hold two live entries for one
+session, and an idle timer registered under `tab_N` is never cleared by the
+`SessionEnd` arriving under the UUID.
+
+**Critical constraint — do not "fix" this by swapping in the UUID.**
+`libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:460` sets
+`const trackingId = tabId as SessionId`, and `agent-sdk/CLAUDE.md` documents that
+choice as deliberate under **MCP caller identity**: for a NEW session the tabId
+is the only id that exists, because the SDK UUID arrives later in the system
+`init` message. The same doc pins `registerKey` to `sessionConfig.tabId ??
+sessionId` so the MCP consumer's `resolveSessionId` can `find()` it, and makes a
+missing routing id throw `SdkError`. Any change here must keep those two
+invariants and the `resolveHookSessionId` contract (payload first, closure
+second, `''` from either source treated as absent, publish only after rejecting
+`null`) intact.
+
+So the real problem is **reconciliation, not substitution**: when the `init`
+message delivers the canonical UUID, consumers holding `tab_N` state need to be
+told the two ids denote one session. The architect owns choosing between an
+aliasing map, a rekey-on-init event, or a consumer-side canonicalisation step —
+and owns saying which consumers actually key by the reported id today.
+
+**Ordering:** this lands **after** items 1–4. It is independent of them, and
+sequencing it last keeps a regression in the identity work from masking the
+empty-string gate.
+
 ## Explicitly out of scope
 
 - **`agent-monitor.store.ts` is ~1,610 lines** against the 700 soft ceiling and
@@ -126,14 +163,16 @@ the streaming path. **Decide after items 1–2 land, not before.**
   filtering) that would pass the facade-rule nameability test if split. Real, but
   a different concern from session identity. Recorded in
   `../TASK_2026_295/context.md` for whoever next touches that file.
-- **The tabId-vs-UUID identity split.** On the chat path the hook closure holds
-  a **tabId** (`sdk-agent-adapter.ts:460`), not the canonical SDK UUID, so one
-  turn emits some hook payloads keyed by `tab_N` and others by the real UUID.
-  Consumers that key state by the reported id can hold two live entries for one
-  session, and an idle timer registered under `tab_N` is never cleared by the
-  `SessionEnd` arriving under the UUID. This is a genuine identity bug
-  **independent of `''`**, untouched by either wave, and deserves its own task
-  rather than being absorbed here.
+
+## Orchestration decisions
+
+- **CLI delegation: disabled.** Checkpoint 0.1 run 2026-08-19; codex installed,
+  claude-cli and ollama-cloud available via ptah-cli. Sub-agents only — item 3's
+  audit needs one head holding the whole call-site map, and items 1–2 change the
+  compile surface later items depend on.
+- **Workflow depth: Partial.** project-manager skipped; this file is already a
+  superset of `task-description.md`. Flow is architect → team-leader → developers
+  → QA.
 
 ## Acceptance criteria
 
@@ -148,6 +187,11 @@ the streaming path. **Decide after items 1–2 land, not before.**
   tests. Any drop explained by name.
 - No guard deleted on the grounds that "the type prevents it" without first
   confirming the type actually does — see the correction at the top of this file.
+- **Item 6:** the two ids for one session are reconciled, with a spec proving a
+  `SessionEnd` arriving under the canonical UUID clears state registered under
+  `tab_N`. The `registerKey` / MCP-routing-segment invariants in
+  `agent-sdk/CLAUDE.md` still hold, and `resolveHookSessionId` still returns
+  `null` rather than `''`.
 
 ## Verification
 
