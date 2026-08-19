@@ -215,7 +215,8 @@
           "nx build-main ptah-electron --configuration=development",
           "nx build-preload ptah-electron",
           "nx build-embedder-worker ptah-electron",
-          "nx build-voice-worker ptah-electron"
+          "nx build-voice-worker ptah-electron",
+          "node scripts/copy-wasm.js dist/apps/ptah-electron"
         ],
         "parallel": false
       }
