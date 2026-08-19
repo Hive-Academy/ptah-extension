@@ -179,7 +179,7 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
                       @if (laneFor(tile); as lane) {
                         <ptah-vendor-card
                           [lane]="lane"
-                          [tribunalSessionId]="tribunalSessionId() ?? ''"
+                          [tribunalSessionId]="tribunalSessionId()"
                         />
                       } @else {
                         <div class="p-3 text-xs text-base-content-muted">

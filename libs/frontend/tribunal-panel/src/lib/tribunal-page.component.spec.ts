@@ -83,7 +83,7 @@ class ConductorTileStub {}
 })
 class VendorCardStub {
   readonly lane = input<unknown>();
-  readonly tribunalSessionId = input('');
+  readonly tribunalSessionId = input<string | null>(null);
 }
 
 @Component({
