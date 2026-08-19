@@ -32,7 +32,9 @@ env:
 jobs:
   electron-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, not 30: the suite only started running to completion once the 11
+    # failing specs were fixed — earlier runs bailed early at 13-18m.
+    timeout-minutes: 45
     # head_commit is null on pull_request events, so the commit-message check
     # never skipped bump PRs — guard on the chore/bump-* head branch too.
     if: |
