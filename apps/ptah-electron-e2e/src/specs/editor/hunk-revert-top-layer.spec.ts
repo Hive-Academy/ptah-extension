@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
+import { showCanvas } from '../../support/show-canvas';
 
 /**
  * The hunk revert confirmation, answered by MOUSE — TASK_2026_227.
@@ -169,6 +170,7 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
   }, testInfo) => {
     const page = ui.page;
     await ui.goto('editor');
+    await showCanvas(ui);
 
     const before = repo.worktreeDiff();
     expect(before.match(/^@@ /gm)?.length).toBe(3);
