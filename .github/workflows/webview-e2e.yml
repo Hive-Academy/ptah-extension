@@ -21,7 +21,11 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22
+  # 24, not 22: node 22 ships npm 10, which cannot resolve our lockfile
+  # (see package.json engines.npm >= 11) and silently degrades `npm ci` into
+  # an unpinned `npm install` fallback. The publish-* and deploy-* workflows
+  # stay on 22 deliberately -- they match release and DO buildpack targets.
+  NODE_VERSION: 24
   NX_TUI: false
 
 jobs:

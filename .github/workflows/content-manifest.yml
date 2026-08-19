@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # Self-test first, against planted drift fixtures, so a checker that has
       # stopped detecting anything cannot silently pass the real check below.
