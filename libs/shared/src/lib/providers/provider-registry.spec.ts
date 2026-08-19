@@ -280,6 +280,50 @@ describe('custom provider entries', () => {
       expect(result.rejected[0].id).toBe('BAD ID');
       expect(result.rejected[0].reason).toContain('baseUrl');
     });
+
+    it.each([
+      ['a string', 'not-an-entry'],
+      ['null', null],
+      ['a number', 42],
+      ['an array', []],
+    ])(
+      'reports %s as <unknown> rather than crashing on the id read',
+      (_label, candidate) => {
+        // A hand-edited `providers: ["oops"]` reaches here as a bare string.
+        // Reading `.id` off it must not throw during boot.
+        const result = setCustomProviderEntries([
+          candidate as unknown as CustomProviderEntry,
+          makeEntry(),
+        ]);
+
+        expect(result.accepted.map((e) => e.id)).toEqual(['my-vllm-box']);
+        expect(result.rejected).toHaveLength(1);
+        expect(result.rejected[0].id).toBe('<unknown>');
+        // The reason must still say something — a blank reason is a rejection
+        // the user cannot act on.
+        expect(result.rejected[0].reason.length).toBeGreaterThan(0);
+      },
+    );
+
+    it('labels a whole-entry schema failure as `entry` rather than an empty path', () => {
+      const result = setCustomProviderEntries([
+        'not-an-entry' as unknown as CustomProviderEntry,
+      ]);
+
+      // Zod reports a top-level type error with an EMPTY path; without the
+      // fallback the reason would read `: expected object...`.
+      expect(result.rejected[0].reason).toMatch(/^entry: /);
+    });
+
+    it('keeps an object entry’s declared id in the rejection even when malformed', () => {
+      const result = setCustomProviderEntries([
+        { id: 123 } as unknown as CustomProviderEntry,
+      ]);
+
+      // `String(...)` on a non-string id — the user still gets a handle on
+      // which line of their settings file is at fault.
+      expect(result.rejected[0].id).toBe('123');
+    });
   });
 
   describe('getAnthropicProvider', () => {
