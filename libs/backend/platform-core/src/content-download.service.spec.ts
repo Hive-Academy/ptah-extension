@@ -661,6 +661,43 @@ describe('ContentDownloadService', () => {
       expect(fs.existsSync(stale)).toBe(false);
     });
 
+    it('announces the prune on STDERR and writes nothing to stdout', async () => {
+      // `ptah`'s stdout is the JSON-RPC NDJSON channel and nothing else, and
+      // `ensureContent()` runs fire-and-forget on every
+      // `withEngine({ mode: 'full' })` boot — so one non-JSON line here
+      // corrupts the protocol for every consumer parsing it. Node's
+      // `console.debug` IS `console.log` (fd 1), which is how the breadcrumb
+      // added with the scoping fix broke `ptah doctor`: only on a boot that
+      // found content an earlier boot had left, so the fresh-home case stayed
+      // green and hid it.
+      //
+      // Asserted at `process.stdout.write` rather than at `console.debug`,
+      // because the defect is the CHANNEL: any of log/debug/info/dir/table
+      // reintroduces it, and only this spy catches all of them.
+      const stale = path.join(PLUGINS_DIR, 'ptah-core', 'agents', 'gone.md');
+      seedFile(stale, '# removed upstream');
+      routeManifestOwningPtahCore();
+
+      const stdout = jest
+        .spyOn(process.stdout, 'write')
+        .mockImplementation(() => true);
+      try {
+        await new ContentDownloadService().ensureContent();
+      } finally {
+        stdout.mockRestore();
+      }
+
+      expect(fs.existsSync(stale)).toBe(false);
+      expect(stdout).not.toHaveBeenCalled();
+      // Deleting a cached file silently is the defect the scoping fix closed;
+      // the announcement must survive the channel change.
+      expect(
+        warnSpy.mock.calls.some((args: unknown[]) =>
+          String(args[0]).includes('Pruned stale file'),
+        ),
+      ).toBe(true);
+    });
+
     it('DOES delete a stale root-level template (flat manifest still swept)', async () => {
       const staleTemplate = path.join(TEMPLATES_DIR, 'removed.template.md');
       seedFile(staleTemplate, '# removed');

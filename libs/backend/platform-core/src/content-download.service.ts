@@ -392,9 +392,21 @@ export class ContentDownloadService {
       const fullPath = path.join(localDir, ...segments);
       try {
         fs.unlinkSync(fullPath);
-        console.debug(
-          `[ContentDownloadService] Pruned stale file: ${fullPath}`,
-        );
+        // STDERR, like every other diagnostic in this file — `console.warn`,
+        // never `console.debug`/`console.log`/`console.info`.
+        //
+        // Node's `console.debug` IS `console.log`: it writes to fd 1. This
+        // library is runtime-agnostic and one of its hosts is `ptah`, whose
+        // stdout is the JSON-RPC NDJSON channel and nothing else — one
+        // non-JSON line there corrupts the protocol for every consumer
+        // parsing it. `ensureContent()` is fire-and-forget on every
+        // `withEngine({ mode: 'full' })` boot, so this ran on `ptah doctor`
+        // and broke it the first time a boot found content an earlier boot
+        // had left, which is why the fresh-home case looked fine. Deleting a
+        // cached file the user never asked us to delete is worth surfacing —
+        // doing it silently is the defect TASK_2026_259 fixed — so the line
+        // stays; only the channel changes.
+        console.warn(`[ContentDownloadService] Pruned stale file: ${fullPath}`);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         console.warn(
