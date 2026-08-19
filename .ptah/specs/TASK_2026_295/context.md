@@ -307,6 +307,10 @@ pinning both axes at the definition.
 
 ## Remaining follow-up
 
+**Filed as TASK_2026_296** (`../TASK_2026_296/`). Items 1–5 below are its work
+items; item 6 is recorded there as explicitly out of scope. The list is kept
+here for the record.
+
 1. **`MemoryExtractedPayload.sessionId: string`** (`shared/.../messages/memory.ts:46`)
    is a _third_ required declaration of the same shape, and the last thing
    forcing `?? ''` anywhere in the repo (`cli-engine/.../wire-thoth-push-bridges.ts:46`,
