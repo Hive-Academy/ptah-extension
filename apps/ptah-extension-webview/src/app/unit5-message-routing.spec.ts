@@ -49,6 +49,12 @@ import {
   StreamRouter,
   StreamingSurfaceRegistry,
 } from '@ptah-extension/chat-routing';
+// `HarnessWorkflowMessageHandler` reaches `TabManagerService` (via
+// `HarnessWorkflowService` → `PermissionHandlerService`), which injects the
+// inverted-dependency `MODEL_REFRESH_CONTROL` token. `app.config.ts:181` binds
+// it with this exact helper, so the spec uses the same one rather than a
+// hand-rolled stub — same precedent as `thoth-message-routing.spec.ts`.
+import { provideModelRefreshControl } from '@ptah-extension/chat';
 
 // The three services under test, each imported through the SAME specifier
 // `app.config.ts` uses after Batch 4. If a narrow barrel ever stops exporting
@@ -141,6 +147,7 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
             getAdapter: jest.fn().mockReturnValue(null),
           },
         },
+        ...provideModelRefreshControl(),
         MessageRouterService,
         // Mirrors app.config.ts exactly — same token, same useExisting shape.
         { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
