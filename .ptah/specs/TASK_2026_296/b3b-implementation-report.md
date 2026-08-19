@@ -137,11 +137,32 @@ function sessionIdOrNull(value: string | null | undefined): string | null {
 `sessionId: '  <uuid>  '` previously wrote `'  <uuid>  '` into `memories.session_id`
 and now writes `'<uuid>'`.
 
-This is **correct and deliberate**. The column is read back with `WHERE session_id = ?`
-against ids that were never padded, so a padded row was already unreachable by
-every scoped read — it was a silent orphan, not working behaviour. Normalising it
-makes the row findable. Recording it here because it is a real write-path change
-and must not look like it slipped through.
+This is **correct and deliberate**. Recording it here because it is a real
+write-path change and must not look like it slipped through.
+
+> **CORRECTED by the orchestrator, post-merge.** The paragraph that stood here
+> justified the change as: _"the column is read back with `WHERE session_id = ?`
+> against ids that were never padded, so a padded row was already unreachable by
+> every scoped read."_ **There is no such query.** `memories.session_id` is never
+> a `WHERE` predicate anywhere in the repo — `memory-search.service.ts:684`
+> selects `FROM memories WHERE id IN (...)`, filtering on `id`.
+>
+> The real mechanism is stronger, and it makes the change matter more rather
+> than less. `memories.session_id` is a **cross-table join key**:
+> `memory-search.service.ts:715-721` feeds it to
+> `observationQueue.peekForSession(r.session_id, 50)`, which filters
+> `observation_queue WHERE session_id = ?`, and dedups by it through
+> `seenSessions`. A padded value therefore joins to nothing and splits one real
+> session into two dedup entries.
+>
+> That correction exposed a defect this batch introduced and neither this report
+> nor the B5b one caught: B3b trimmed **one side of that join and not the
+> other**. `observation-queue.store.ts` and `skill-queue.store.ts` both call
+> `blankToUndefined` as a _predicate_ and then bind the RAW value, so after B3b
+> `memories.session_id` was trimmed while both queue tables were not. Fixed in a
+> follow-up commit by binding the normalised value in both stores. No padded id
+> is known to have occurred — ids arrive from the SDK as UUIDs — so this was a
+> latent inconsistency, not an observed failure.
 
 The bind-parameter object shape is intact; its sibling
 `workspace_root: insert.workspaceRoot ?? null` at the next line is unchanged. The

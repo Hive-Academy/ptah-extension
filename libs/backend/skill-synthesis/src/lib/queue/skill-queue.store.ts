@@ -199,6 +199,16 @@ export class SkillQueueStore {
    */
   enqueue(input: EnqueueInput): EnqueueResult {
     const turnCount = input.turnCount ?? 0;
+    // Normalise ONCE, and use the same value for the INSERT, the re-open and
+    // the read-back below — `UNIQUE(session_id, stage)` is the gate, so an id
+    // that is trimmed on one of those three and raw on another stops being one
+    // key. Callers upstream already test `blankToUndefined(sessionId)` and then
+    // pass the RAW id (`skill-synthesis.service.ts` `enqueueAnalyze`), which is
+    // how a padded id reaches a table whose siblings all store it trimmed.
+    // A blank id is left exactly as it arrives: this store has never refused
+    // one, the refusal lives at the entry point, and inventing one here would
+    // be a behavioural change wearing a normalisation's clothes.
+    const sessionId = blankToUndefined(input.sessionId) ?? input.sessionId;
     return this.inImmediateTransaction<EnqueueResult>(() => {
       const id = ulid();
       try {
@@ -206,7 +216,7 @@ export class SkillQueueStore {
           .prepare(INSERT_SQL)
           .run(
             id,
-            input.sessionId,
+            sessionId,
             input.workspaceRoot ?? '',
             input.transcriptPath ?? null,
             input.source,
@@ -226,10 +236,10 @@ export class SkillQueueStore {
       const changes = Number(
         this.db
           .prepare(REOPEN_SQL)
-          .run(turnCount, input.sessionId, input.stage, turnCount).changes,
+          .run(turnCount, sessionId, input.stage, turnCount).changes,
       );
       const outcome = changes > 0 ? 'reopened' : 'unchanged';
-      const row = this.findBySessionStage(input.sessionId, input.stage);
+      const row = this.findBySessionStage(sessionId, input.stage);
       if (outcome !== 'reopened' || !row) return { outcome, row };
 
       // The caller's payload is MERGED onto the re-opened row, inside the same

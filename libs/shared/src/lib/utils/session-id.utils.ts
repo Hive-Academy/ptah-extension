@@ -28,6 +28,36 @@
  * and is out of scope for the sweep that introduced this file: changing its
  * trim behaviour is a behavioural change on a frontend scoping rule and needs
  * its own justification. Do not "restore consistency" by editing it.
+ *
+ * ## Where this is the WRONG tool: tri-state parameters
+ *
+ * `blankToUndefined` maps blank ONTO `undefined`. Wherever `undefined` already
+ * carries its own meaning, that merge destroys information — so on an OPTIONAL
+ * parameter whose absence means **"no filter"**, this function is a defect, not
+ * a cleanup. Such a site has THREE states, not two:
+ *
+ * - argument omitted → apply no filter, return everything
+ * - a real id → filter to it
+ * - blank → a caller that LOST its id; return nothing, and say so
+ *
+ * Collapse the third into the first and "I don't know which session" silently
+ * becomes "every session". Every such site in this repo is spelled as a bare
+ * `=== ''` or `!== undefined &&` comparison, and there are three of them:
+ *
+ * - `agent-sdk/.../sdk-permission-handler.ts` `cleanupPendingPermissions` —
+ *   collapsing here resolves EVERY pending permission in the process as
+ *   deny/systemAbort (TASK_2026_295)
+ * - `vscode-core/.../subagent-registry.service.ts` `getBackgroundAgents` —
+ *   collapsing here returns every background agent to a caller that asked for
+ *   one session's. Pinned by `subagent-registry-session-isolation.spec.ts`
+ * - `rpc-handlers/.../subagent-rpc.handlers.ts` `chat:subagent-query` —
+ *   collapsing here drops a scoped query into the UNSCOPED branch, letting one
+ *   session resume another's interrupted subagents
+ *
+ * All three are correct as written and are deliberately NOT routed through this
+ * module. If you need the blankness rule at a tri-state site, keep the
+ * `undefined` arm explicit and test only the present-but-blank case:
+ * `if (x !== undefined && blankToUndefined(x) === undefined)`.
  */
 
 /**

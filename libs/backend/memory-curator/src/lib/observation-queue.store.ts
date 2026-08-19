@@ -128,7 +128,15 @@ export class ObservationQueueStore {
    * `countUnprocessed` for a session that cannot be curated.
    */
   insert(row: ObservationQueueInsert): void {
-    if (blankToUndefined(row.sessionId) === undefined) {
+    // `blankToUndefined` is the refusal predicate AND the normaliser, and the
+    // NORMALISED value is what gets bound below. Testing the trimmed id and
+    // then binding the raw one is not a style wart — `memories.session_id` is
+    // written through `blankToNull` (trimmed), and `memory-search.service.ts`
+    // joins the two by handing that value to `peekForSession`, which filters
+    // `WHERE session_id = ?` here. Normalising one side of a join and not the
+    // other means a padded id writes a row this store can never read back.
+    const sessionId = blankToUndefined(row.sessionId);
+    if (sessionId === undefined) {
       this.logger.warn(
         '[memory-curator] observation-queue insert skipped — empty sessionId',
         { kind: row.kind, workspaceRoot: row.workspaceRoot },
@@ -148,7 +156,7 @@ export class ObservationQueueStore {
     const capturedAt = Date.now();
     try {
       stmt.run({
-        session_id: row.sessionId,
+        session_id: sessionId,
         workspace_root: row.workspaceRoot,
         prompt_number: row.promptNumber ?? null,
         kind: row.kind,
