@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discussion Thread - Ptah Builders</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#007cb1",
+                        "inverse-surface": "#2e3037",
+                        "surface-container": "#ededf6",
+                        "on-error": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#845000",
+                        "on-tertiary-fixed": "#001e2f",
+                        "secondary-fixed-dim": "#ffb957",
+                        "secondary": "#835400",
+                        "on-primary-fixed": "#2b1700",
+                        "on-error-container": "#93000a",
+                        "surface-container-highest": "#e2e2ea",
+                        "primary-fixed-dim": "#ffb866",
+                        "surface": "#faf8ff",
+                        "outline-variant": "#d8c3b0",
+                        "surface-bright": "#faf8ff",
+                        "on-surface-variant": "#534435",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-container": "#6c4400",
+                        "on-primary-container": "#fffbff",
+                        "background": "#faf8ff",
+                        "surface-tint": "#875200",
+                        "secondary-fixed": "#ffddb5",
+                        "primary-fixed": "#ffddba",
+                        "outline": "#857463",
+                        "on-surface": "#191b21",
+                        "on-secondary-fixed": "#2a1800",
+                        "primary-container": "#a66600",
+                        "on-tertiary-fixed-variant": "#004c6e",
+                        "inverse-primary": "#ffb866",
+                        "tertiary-fixed": "#c8e6ff",
+                        "tertiary": "#00628d",
+                        "on-tertiary-container": "#fcfcff",
+                        "error": "#ba1a1a",
+                        "inverse-on-surface": "#f0f0f9",
+                        "tertiary-fixed-dim": "#88ceff",
+                        "on-background": "#191b21",
+                        "secondary-container": "#ffad2e",
+                        "error-container": "#ffdad6",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed-variant": "#673d00",
+                        "surface-container-high": "#e7e7f0",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#d9d9e2",
+                        "on-secondary-fixed-variant": "#643f00",
+                        "surface-variant": "#e2e2ea",
+                        "surface-container-low": "#f3f3fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "max_width": "1280px",
+                        "xs": "4px",
+                        "md": "16px",
+                        "gutter": "24px",
+                        "sm": "8px",
+                        "xl": "48px",
+                        "margin": "32px",
+                        "lg": "24px",
+                        "unit": "4px"
+                    },
+                    "fontFamily": {
+                        "label-mono": ["JetBrains Mono"],
+                        "caption": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-mono": ["14px", { "lineHeight": "1.4", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "caption": ["12px", { "lineHeight": "1.4", "fontWeight": "500" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #faf8ff; }
+        .bg-custom-amber { background-color: #c97e0e; }
+        .hover-bg-custom-amber:hover { background-color: #f5a524; }
+        .text-custom-amber { color: #c97e0e; }
+        .border-custom-amber { border-color: #c97e0e; }
+        
+        .code-block {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+        .code-keyword { color: #569cd6; }
+        .code-string { color: #ce9178; }
+        .code-function { color: #dcdcaa; }
+        .code-comment { color: #6a9955; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden bg-surface text-on-surface font-body-md text-body-md">
+<!-- Persistent Left Sidebar -->
+<nav class="bg-surface border-r border-outline-variant h-screen w-[260px] flex-shrink-0 sticky top-0 left-0 flex flex-col py-gutter px-gutter gap-stack-tight hidden md:flex z-30">
+<!-- Brand -->
+<div class="mb-xl">
+<span class="text-title-sm font-title-sm font-bold text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">architecture</span>
+                Ptah Builders
+            </span>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 overflow-y-auto space-y-sm">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                Home
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">school</span>
+                Courses
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">history_edu</span>
+                Artifacts
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+                Packs
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+                Sessions
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">video_library</span>
+                Replays
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">add_task</span>
+                Request a session
+            </a>
+<!-- Active State -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-primary font-bold bg-surface-container-highest/30 opacity-90 transition-all duration-100 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">forum</span>
+                Feed
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+                My Threads
+            </a>
+</div>
+<!-- Bottom User Info -->
+<div class="mt-auto pt-lg border-t border-outline-variant">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">notifications</span>
+                Notifications
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm mt-2" href="#">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="A small, circular profile picture of a young man with dark hair, wearing a white shirt, set against a light grey background in a bright, modern, minimalist style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAU_6Ye5oPvzxPbLqwqqjVi2KeidTrde52bjZ5L5dCGH24SQAt97p0Wp-H_I-LKSSnN2e7ZSjbEev_HkT7c9VICYglL1krnmiEjnXCCMMDOOwLseSMrdChBq81RmdC3lNEngRFWqvOHzfdKBywpgvqewTReqWLefYvfNaSzpizxznD-00kxZqeJQZpK7FF-sRW0QaEAIUIrzAiMU9u-B-jIu9CG3lj2B30o8Pz_CxluSvcZM0SwTd1_mg"/>
+                Profile
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 text-body-sm font-body-sm" href="#">
+<span class="material-symbols-outlined">workspace_premium</span>
+                Membership
+            </a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col h-screen overflow-hidden">
+<!-- Top App Bar (Mobile only for Nav, but provides top context) -->
+<header class="bg-surface border-b border-outline-variant flex justify-between items-center h-14 w-full px-gutter md:hidden z-20">
+<span class="text-title-sm font-title-sm font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined">architecture</span>
+                Ptah Builders
+            </span>
+<div class="flex gap-4">
+<span class="material-symbols-outlined text-on-surface-variant">help_outline</span>
+<span class="material-symbols-outlined text-on-surface-variant">settings</span>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<div class="flex-1 overflow-y-auto flex justify-center p-md md:p-lg lg:p-xl relative">
+<div class="flex w-full max-w-[1140px] gap-lg lg:gap-xl">
+<!-- Main Thread Column -->
+<div class="flex-1 max-w-[820px] flex flex-col relative pb-32">
+<!-- Breadcrumbs -->
+<div class="text-caption font-caption text-on-surface-variant mb-md flex items-center gap-2">
+<a class="hover:text-primary transition-colors" href="#">Community</a>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<a class="hover:text-primary transition-colors" href="#">Packs</a>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-on-surface truncate">Custom Kubernetes Operators</span>
+</div>
+<!-- Thread Title -->
+<h1 class="text-headline-lg-mobile md:text-headline-lg font-headline-lg text-on-surface mb-xl">
+                        Best practices for building custom Kubernetes Operators in Go
+                    </h1>
+<!-- Original Post -->
+<article class="bg-surface-container-lowest rounded-xl border border-outline-variant p-md md:p-lg mb-lg shadow-sm">
+<!-- Author Header -->
+<div class="flex items-center justify-between mb-lg">
+<div class="flex items-center gap-3">
+<img class="w-10 h-10 rounded-full object-cover" data-alt="A professional headshot of a woman with black hair, wearing glasses and a dark blazer, smiling slightly, set against a clean white background in a bright, modern corporate style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMdASN9kM8pxk2d2MDXssOrv9DY8ybb8gPXIwujzASZTV7fbbxNueZ_p3qD3qjyCLAo8mQinNPLGOlZXR3mTl3YYNdPj3e4mtO8Gk_Q0_0aCWBshZEyrigqHymQUZK41XO3giPOgXeArIJuT06Ahk0Asyn4bQPB-AVR-aFzpV9MM4heR5FI-PRWTqhWRzyj1fk4tNYGtNbjxdYUGepZDspjPvJiqSdbWNqiO-T0ZbDG3jaD9IvaJQmtw"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-bold text-on-surface">Sarah Chen</span>
+<span class="bg-tertiary-container/10 text-tertiary px-2 py-0.5 rounded-full text-caption font-caption border border-tertiary/20 flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">verified</span>
+                                            Core Team
+                                        </span>
+</div>
+<div class="text-caption font-caption text-on-surface-variant">Posted 2 hours ago • Edited</div>
+</div>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+<!-- Post Body -->
+<div class="text-body-md font-body-md text-on-surface space-y-4">
+<p>
+                                I've been reviewing a lot of community PRs lately involving custom controllers and operators. While the functionality is often great, I'm noticing a recurring pattern of issues related to state reconciliation and client usage.
+                            </p>
+<p>
+                                Here are a few key practices we should standardise on:
+                            </p>
+<ul class="list-disc pl-6 space-y-2 text-on-surface-variant">
+<li><strong>Always use Informers:</strong> Never poll the API server directly in your reconcile loop. Use `cache.SharedIndexInformer` to keep a local, watch-updated cache.</li>
+<li><strong>Idempotent Reconciliation:</strong> Your reconcile loop must be idempotent. It should arrive at the desired state regardless of how many times it is triggered for the same object.</li>
+<li><strong>Update Status Subresource Separately:</strong> Avoid updating the spec and status in the same API call to prevent conflicts.</li>
+</ul>
+<p>Here is a basic example of a clean setup using controller-runtime:</p>
+<!-- Code Block -->
+<div class="relative group mt-4 mb-4">
+<button class="absolute top-2 right-2 p-1.5 rounded-md bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 text-caption font-caption">
+<span class="material-symbols-outlined text-[14px]">content_copy</span> Copy
+                                </button>
+<pre class="code-block"><code><span class="code-keyword">import</span> (
+    <span class="code-string">"context"</span>
+    <span class="code-string">"k8s.io/apimachinery/pkg/runtime"</span>
+    <span class="code-string">ctrl "sigs.k8s.io/controller-runtime"</span>
+    <span class="code-string">"sigs.k8s.io/controller-runtime/pkg/client"</span>
+    <span class="code-string">"sigs.k8s.io/controller-runtime/pkg/log"</span>
+    
+    <span class="code-string">myappv1 "github.com/example/operator/api/v1"</span>
+)
+
+<span class="code-keyword">type</span> MyReconciler <span class="code-keyword">struct</span> {
+    client.Client
+    Scheme *runtime.Scheme
+}
+
+<span class="code-keyword">func</span> (r *MyReconciler) <span class="code-function">Reconcile</span>(ctx context.Context, req ctrl.Request) (ctrl.Result, <span class="code-keyword">error</span>) {
+    logger := log.<span class="code-function">FromContext</span>(ctx)
+    <span class="code-comment">// Fetch the MyResource instance</span>
+    <span class="code-keyword">var</span> resource myappv1.MyResource
+    <span class="code-keyword">if</span> err := r.<span class="code-function">Get</span>(ctx, req.NamespacedName, &amp;resource); err != <span class="code-keyword">nil</span> {
+        <span class="code-keyword">return</span> ctrl.Result{}, client.<span class="code-function">IgnoreNotFound</span>(err)
+    }
+
+    logger.<span class="code-function">Info</span>(<span class="code-string">"Reconciling MyResource"</span>, <span class="code-string">"name"</span>, resource.Name)
+    <span class="code-comment">// ... business logic ...</span>
+    <span class="code-keyword">return</span> ctrl.Result{}, <span class="code-keyword">nil</span>
+}</code></pre>
+</div>
+<p>What patterns have you all found most robust for handling transient API errors during reconciliation?</p>
+</div>
+<!-- Actions -->
+<div class="mt-md pt-md border-t border-outline-variant flex items-center gap-6">
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors text-caption font-caption">
+<span class="material-symbols-outlined text-[18px]">favorite</span> 24 Likes
+                            </button>
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors text-caption font-caption">
+<span class="material-symbols-outlined text-[18px]">share</span> Share
+                            </button>
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors text-caption font-caption ml-auto">
+<span class="material-symbols-outlined text-[18px]">bookmark_border</span> Save
+                            </button>
+</div>
+</article>
+<!-- Replies Separator -->
+<div class="flex items-center gap-4 my-xl">
+<hr class="flex-1 border-outline-variant"/>
+<span class="text-caption font-caption text-on-surface-variant">12 replies</span>
+<hr class="flex-1 border-outline-variant"/>
+</div>
+<!-- Replies Section -->
+<div class="space-y-lg">
+<!-- Accepted Answer -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-md md:p-lg shadow-sm relative overflow-hidden">
+<!-- Green left border accent -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-green-600"></div>
+<div class="flex items-center justify-between mb-sm pl-2">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="A casual portrait of a woman with curly brown hair, wearing a grey sweater, in a brightly lit modern office setting. The style is soft and inviting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAimgu0sH5mKO8TcqakPT77LVZO2yR8QFUmOmqjbEpHf2kbBp3IbtNAzIsBOscMWAPzlHF1jwfHRuswuU079Umabakq4wO48Vd3TzK3YWFTUIAerGVpfyRNcnXxLNoHRReec-hmymg4jmN8TGUMWFW2L6hFoosgQb-rdWI-qTZSme_r6XodL_EKNz307dzJnkp9FBPH-RemakJI3N1uEWxdq0YhYB5oDcTKd4VGKMjg1fXnBr57WzRZhA"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-bold text-on-surface text-[14px]">Elena Rodriguez</span>
+<span class="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-[10px] font-caption border border-green-200 flex items-center gap-1 uppercase tracking-wider font-bold">
+<span class="material-symbols-outlined text-[12px]">check_circle</span>
+                                                Accepted Answer
+                                            </span>
+</div>
+<div class="text-caption font-caption text-on-surface-variant text-[11px]">Replied 1 hour ago</div>
+</div>
+</div>
+</div>
+<div class="text-[15px] leading-relaxed text-on-surface pl-2 mt-2">
+<p>For transient API errors, implementing exponential backoff in the requeue logic is crucial. If an API call fails (like updating status), don't just return an error which triggers immediate requeue. </p>
+<p class="mt-2">Instead, return <code>ctrl.Result{RequeueAfter: time.Second * 5}</code> (or a variable backoff) along with the error. Controller-runtime handles this gracefully, preventing hot loops against the API server.</p>
+</div>
+<div class="mt-sm pt-sm flex items-center gap-4 pl-2">
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">thumb_up</span> 15
+                                </button>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">reply</span> Reply
+                                </button>
+</div>
+</div>
+<!-- Regular Reply -->
+<div class="bg-surface rounded-xl border border-outline-variant p-md">
+<div class="flex items-center justify-between mb-sm">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-bold text-sm">
+                                        JD
+                                    </div>
+<div>
+<div class="font-bold text-on-surface text-[14px]">Jason Davies</div>
+<div class="text-caption font-caption text-on-surface-variant text-[11px]">Replied 45 mins ago</div>
+</div>
+</div>
+</div>
+<div class="text-[15px] leading-relaxed text-on-surface mt-2">
+<p>Great post, Sarah. One thing I struggle with is testing these loops. Mocking the client can get very verbose. Do you prefer using `envtest` for integration-style tests over unit testing the Reconcile function directly?</p>
+</div>
+<div class="mt-sm pt-sm flex items-center gap-4">
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">thumb_up</span> 4
+                                </button>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">reply</span> Reply
+                                </button>
+</div>
+</div>
+<!-- Nested Reply (Indented) -->
+<div class="ml-xl relative">
+<!-- Connection Line -->
+<div class="absolute -left-6 top-0 bottom-0 w-px bg-outline-variant"></div>
+<div class="absolute -left-6 top-8 w-6 h-px bg-outline-variant"></div>
+<div class="bg-surface rounded-xl border border-outline-variant p-md">
+<div class="flex items-center justify-between mb-sm">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="A professional headshot of a woman with black hair, wearing glasses and a dark blazer, smiling slightly, set against a clean white background in a bright, modern corporate style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCRk6sGwNpoNYMOwnsMbPVPXFvXnL0_fBji1ChViWgurKKCoZR9OIDw2350xBXUWGKQbi25tu1y8NdaaEG4esYLMQSqHTeIJw_v3Zs7yLfB8Ut2lJT7qeCRlt_5pMeSqnRqRdpZ8d0bDUIWdnXfHd_ZJkuI6kPGsGbhoZgcM-ANIdGY5ZMAlO7guAwOS3wp6OdsRdQRTxAYT-cI5heni-1uIWWvheHZggR9CCeDLcRFH9ZgY5EHbMpRyw"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-bold text-on-surface text-[14px]">Sarah Chen</span>
+<span class="bg-tertiary-container/10 text-tertiary px-2 py-0.5 rounded-full text-[10px] font-caption border border-tertiary/20">Author</span>
+</div>
+<div class="text-caption font-caption text-on-surface-variant text-[11px]">Replied 30 mins ago</div>
+</div>
+</div>
+</div>
+<div class="text-[15px] leading-relaxed text-on-surface mt-2">
+<p><span class="text-primary font-medium">@Jason Davies</span> Absolutely. We almost exclusively use `envtest` for our controllers now. It stands up a real control plane (API server and etcd), so you are testing against actual Kubernetes behaviour, not a mocked client's interpretation of it. It catches so many subtle state bugs.</p>
+</div>
+<div class="mt-sm pt-sm flex items-center gap-4">
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">thumb_up</span> 8
+                                    </button>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">reply</span> Reply
+                                    </button>
+</div>
+</div>
+</div>
+<!-- Elevated Reply (Ptah Team) -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-md shadow-md transition-shadow hover:shadow-lg relative mt-md z-10">
+<div class="flex items-center justify-between mb-sm">
+<div class="flex items-center gap-3">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="A headshot of a man with short dark hair and a beard, wearing a navy blue collared shirt, set against a neutral, well-lit background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD2SG76cGe2zUf-XnFOPGOqZnEJQVc5k1TlS3v5r3fVmdfW_2f2CxRs2Ig-3vXxgqP2zsm2f48966R9P53thDSeXKUqKjQGDzq1WUE03DTzGwKAvrPNV48nJV2bjn3g0rCOrK6WZD8WfY5vajSPXzgHwmwwydy2OLhAyHnIwis3cor_U2nVoU6RZArcrOVVexN1C4e-KXoMRo3b3gn3f-Wh5ecdr0miXN8YUo9Tt3GfHOnK8KvgBO1yCw"/>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-bold text-on-surface text-[14px]">Marcus Chen</span>
+<span class="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-[10px] font-caption border border-primary/20 flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">local_fire_department</span>
+                                                Ptah Team
+                                            </span>
+</div>
+<div class="text-caption font-caption text-on-surface-variant text-[11px]">Replied 15 mins ago</div>
+</div>
+</div>
+</div>
+<div class="text-[15px] leading-relaxed text-on-surface mt-2">
+<p>Just to add to Sarah's excellent points: when working with `envtest`, make sure you are properly handling the teardown phase. Leaking API servers in your test suite can cause massive slowdowns in CI.</p>
+<p class="mt-2">We've added a new helper library in the <code>ptah-core</code> pack that wraps <code>envtest</code> setup/teardown in a Ginkgo suite to make this foolproof.</p>
+</div>
+<div class="mt-sm pt-sm flex items-center gap-4">
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">thumb_up</span> 12
+                                </button>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors text-[12px] font-caption">
+<span class="material-symbols-outlined text-[16px]">reply</span> Reply
+                                </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Rail (Metadata & Participants) -->
+<aside class="hidden lg:block w-[280px] flex-shrink-0 space-y-xl">
+<!-- Metadata Card -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-md">
+<h3 class="text-label-mono font-label-mono text-on-surface-variant uppercase mb-4 text-[12px]">Thread Info</h3>
+<div class="space-y-3 text-sm">
+<div class="flex justify-between">
+<span class="text-on-surface-variant">Created</span>
+<span class="text-on-surface font-label-mono text-[13px]">2h ago</span>
+</div>
+<div class="flex justify-between">
+<span class="text-on-surface-variant">Last Activity</span>
+<span class="text-on-surface font-label-mono text-[13px]">15m ago</span>
+</div>
+<div class="flex justify-between">
+<span class="text-on-surface-variant">Views</span>
+<span class="text-on-surface font-label-mono text-[13px]">342</span>
+</div>
+<div class="flex justify-between">
+<span class="text-on-surface-variant">Replies</span>
+<span class="text-on-surface font-label-mono text-[13px]">12</span>
+</div>
+</div>
+</div>
+<!-- Participants Card -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-md">
+<h3 class="text-label-mono font-label-mono text-on-surface-variant uppercase mb-4 text-[12px]">Participants</h3>
+<div class="space-y-4">
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="A professional headshot of a woman with black hair, wearing glasses and a dark blazer, smiling slightly, set against a clean white background in a bright, modern corporate style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCMULG4hA2znh1IVK_riZOLLdrk4ORqHILQOTecyfDI-dZ7VblOuKXelV-s2OjoDx4sX3M9q7fCFW8iNXDgpZ3eFcPSW03Dbhf0Xboa208uBqBck9ceTYQPGEzDcYqLTqiRr0JgnpIunSUCtbxU7YddR8Pen2FtjD3JtarkSmd64CTQZlOebYZ7d7ld6510QhBvcqrAekj3g2E2H5mpG5OY9s3zXwr2UVooqB2wS2kmtj7CQ5SlhyGmmA"/>
+<span class="text-sm font-medium text-on-surface group-hover:text-primary transition-colors cursor-pointer">Sarah Chen</span>
+</div>
+<span class="bg-surface-variant text-on-surface-variant text-[10px] px-1.5 py-0.5 rounded font-label-mono">4</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="A casual portrait of a woman with curly brown hair, wearing a grey sweater, in a brightly lit modern office setting. The style is soft and inviting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDKoYf5kuuOCSkQUO75ypvB9bmfOpFF3_Z-ib-A2wLYRKu3KuXcMCJjKy7whgxR1gOQXkl4QWAO6pI857uqKKTFlBvYosPyt085SgWck0tlVFdOQaNkC-WmXJFyfg59GqYIo2hM4ipYKDPKuvOZ0juiHsp8QY5zcVRMgPPKCXQcw1Tr9o4mrO3KWEvu1QCaXIG2GC5uFuHOmKC9VWcaZVqGeITdDo-o7hPazbIpGS8NVKGupmJKqVckTQ"/>
+<span class="text-sm font-medium text-on-surface group-hover:text-primary transition-colors cursor-pointer">Elena R.</span>
+</div>
+<span class="bg-surface-variant text-on-surface-variant text-[10px] px-1.5 py-0.5 rounded font-label-mono">2</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="A headshot of a man with short dark hair and a beard, wearing a navy blue collared shirt, set against a neutral, well-lit background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOMuehAZ3ZR3lVhGI8ZRi_dHX8_sGSNXUPsz7oOtqFDEJHrHjpInv6HHm0pqaPCp_cL0L_WCAHAWVSfS5vfRr2mY6HcyD3qctVsZv16XyGXj3fTvt-GGP0h7LfgLsNBcbeVcwZtDg3CMvD-ZwHOy6ynDW7BHtadisCiVh_DQConLwdtCo3-fpiAdOIJZ-JW-09aSB8AwzN1EI8_qS4TiJkVbeU3NcEbORyCfJCKpbdBv9cupNbHGtWVQ"/>
+<span class="text-sm font-medium text-on-surface group-hover:text-primary transition-colors cursor-pointer">Marcus Chen</span>
+</div>
+<span class="bg-surface-variant text-on-surface-variant text-[10px] px-1.5 py-0.5 rounded font-label-mono">2</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-bold text-[10px]">JD</div>
+<span class="text-sm font-medium text-on-surface group-hover:text-primary transition-colors cursor-pointer">Jason D.</span>
+</div>
+<span class="bg-surface-variant text-on-surface-variant text-[10px] px-1.5 py-0.5 rounded font-label-mono">1</span>
+</div>
+</div>
+</div>
+<!-- Related Threads -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-md">
+<h3 class="text-label-mono font-label-mono text-on-surface-variant uppercase mb-4 text-[12px]">Related</h3>
+<div class="space-y-4">
+<a class="block group" href="#">
+<h4 class="text-sm font-medium text-on-surface group-hover:text-primary transition-colors leading-tight mb-1">Controller-runtime client caching explained</h4>
+<div class="text-[11px] text-on-surface-variant font-caption">Packs • 24 replies</div>
+</a>
+<a class="block group" href="#">
+<h4 class="text-sm font-medium text-on-surface group-hover:text-primary transition-colors leading-tight mb-1">Optimising memory usage in large operators</h4>
+<div class="text-[11px] text-on-surface-variant font-caption">Artifacts • 8 replies</div>
+</a>
+</div>
+</div>
+</aside>
+</div>
+</div>
+<!-- Sticky Footer Composer -->
+<div class="bg-surface-container-lowest border-t border-outline-variant p-md absolute bottom-0 left-[260px] right-0 z-20 md:left-[260px] max-md:left-0 shadow-[0_-4px_12px_rgba(26,28,34,0.05)]">
+<div class="max-w-[820px] mx-auto ml-0 md:ml-auto md:mr-auto lg:ml-[calc(50%-570px)] lg:mr-auto lg:max-w-[820px]">
+<div class="border border-outline-variant rounded-xl bg-surface focus-within:border-primary transition-colors overflow-hidden">
+<!-- Toolbar -->
+<div class="bg-surface-container-lowest border-b border-outline-variant px-3 py-2 flex items-center gap-2">
+<button class="p-1 rounded hover:bg-surface-variant text-on-surface-variant transition-colors" title="Bold">
+<span class="material-symbols-outlined text-[18px]">format_bold</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-on-surface-variant transition-colors" title="Italic">
+<span class="material-symbols-outlined text-[18px]">format_italic</span>
+</button>
+<div class="w-px h-4 bg-outline-variant mx-1"></div>
+<button class="p-1 rounded hover:bg-surface-variant text-on-surface-variant transition-colors" title="Link">
+<span class="material-symbols-outlined text-[18px]">link</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-on-surface-variant transition-colors" title="Code block">
+<span class="material-symbols-outlined text-[18px]">code</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-on-surface-variant transition-colors" title="List">
+<span class="material-symbols-outlined text-[18px]">format_list_bulleted</span>
+</button>
+<div class="ml-auto text-[11px] font-caption text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">markdown</span> Markdown supported
+                        </div>
+</div>
+<!-- Textarea -->
+<textarea class="w-full bg-transparent border-none focus:ring-0 resize-none p-3 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 min-h-[80px]" placeholder="Write a reply..."></textarea>
+<!-- Action Bar -->
+<div class="bg-surface-container-lowest px-3 py-2 flex justify-between items-center">
+<button class="p-1.5 rounded-full hover:bg-surface-variant text-on-surface-variant transition-colors" title="Attach file">
+<span class="material-symbols-outlined text-[20px]">attach_file</span>
+</button>
+<button class="bg-custom-amber hover-bg-custom-amber text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm">
+                            Post reply
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -50,14 +50,21 @@ function createFakeQuery(tag = 'fake'): Query & { close: jest.Mock } {
 }
 
 function createRuntimeState(
-  opts: { status?: 'available' | 'error'; cliJsPath?: string | null } = {},
-): jest.Mocked<Pick<SdkRuntimeStateService, 'getHealth' | 'getCliJsPath'>> {
+  opts: {
+    status?: 'available' | 'error';
+    cliJsPath?: string | null;
+    initialized?: boolean;
+  } = {},
+): jest.Mocked<
+  Pick<SdkRuntimeStateService, 'getHealth' | 'getCliJsPath' | 'hasInitialized'>
+> {
   return {
     getHealth: jest.fn().mockReturnValue({
       status: opts.status ?? 'available',
       lastCheck: Date.now(),
     }),
     getCliJsPath: jest.fn().mockReturnValue(opts.cliJsPath ?? null),
+    hasInitialized: jest.fn().mockReturnValue(opts.initialized ?? true),
   };
 }
 
@@ -77,6 +84,7 @@ interface RunnerHarness {
   moduleLoader: ReturnType<typeof createModuleLoader>;
   queryFn: jest.Mock;
   subagentHooks: { createHooks: jest.Mock };
+  compactionHooks: CompactionHookHandler;
 }
 
 function makeRunner(
@@ -105,8 +113,24 @@ function makeRunner(
     createHooks: jest.fn().mockReturnValue({}),
   } as unknown as CompactionHookHandler;
   const authEnv: AuthEnv = opts.authEnv ?? ({} as AuthEnv);
+  // Mirrors the one branch of ModelResolver.resolve() these specs exercise: a
+  // `claude-<tier>-*` id is remapped to the tier's env override when the
+  // effective env defines one. Identity otherwise. The tier remap matters
+  // because the identity clarification now names the RESOLVED model, so a
+  // pass-through stub would hide whether the override env reached resolution.
+  const resolveModelId = (m: string, envOverride?: AuthEnv): string => {
+    const env = envOverride ?? authEnv;
+    const tierVar = m.startsWith('claude-sonnet-')
+      ? env.ANTHROPIC_DEFAULT_SONNET_MODEL
+      : m.startsWith('claude-opus-')
+        ? env.ANTHROPIC_DEFAULT_OPUS_MODEL
+        : m.startsWith('claude-haiku-')
+          ? env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+          : undefined;
+    return tierVar && tierVar !== m ? tierVar : m;
+  };
   const modelService = {
-    resolveModelId: jest.fn((m: string) => m),
+    resolveModelId: jest.fn(resolveModelId),
   } as unknown as SdkModelService;
 
   const defaultImpl = () => createFakeQuery('fresh');
@@ -139,6 +163,7 @@ function makeRunner(
     moduleLoader,
     queryFn,
     subagentHooks,
+    compactionHooks,
   };
 }
 
@@ -157,7 +182,6 @@ describe('SdkQueryRunner', () => {
           cwd: '/work',
           model: 'claude-sonnet-4-20250514',
           prompt: 'hi',
-          isPremium: false,
           mcpServerRunning: false,
         }),
       ).rejects.toBeInstanceOf(SdkError);
@@ -173,7 +197,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
 
@@ -187,6 +210,28 @@ describe('SdkQueryRunner', () => {
     });
   });
 
+  describe('isInitialized — the pre-check headless callers need', () => {
+    it('is false on a host that never initialized the SDK', () => {
+      // `withEngine({ requireSdk: false })`. `runOneShot` would throw SdkError
+      // here on every call, and a caller that cannot import SdkError
+      // (`skill-synthesis` keeps zero SDK imports) can only read that as a
+      // transport fault and retry it against a host that has no LLM at all.
+      const h = makeRunner({
+        runtimeState: { status: 'error', initialized: false },
+      });
+      expect(h.runner.isInitialized()).toBe(false);
+    });
+
+    it('is true for an initialized SDK even when its health is "error"', () => {
+      // Deliberately NOT a health check: an errored SDK owns a retryable fault,
+      // and answering false here would let a caller drop the work instead.
+      const h = makeRunner({
+        runtimeState: { status: 'error', initialized: true },
+      });
+      expect(h.runner.isInitialized()).toBe(true);
+    });
+  });
+
   describe('runOneShot — unsafe cwd is rewritten at the chokepoint', () => {
     async function capturedCwd(installCwd: string): Promise<string> {
       const h = makeRunner({
@@ -197,7 +242,6 @@ describe('SdkQueryRunner', () => {
         cwd: installCwd,
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
       const [params] = h.queryFn.mock.calls[0] as [
@@ -220,7 +264,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work/project',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
       const [params] = h.queryFn.mock.calls[0] as [
@@ -236,7 +279,6 @@ describe('SdkQueryRunner', () => {
         cwd: '',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
       const [params] = h.queryFn.mock.calls[0] as [
@@ -272,11 +314,21 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
 
-      expect(h.subagentHooks.createHooks).toHaveBeenCalledWith('/work');
+      // TASK_2026_295: the subagent handler gates registration on a parent
+      // session id. Passing only cwd left every subagent of a one-shot query
+      // unregistered — no steering, no stop, no resumption. It gets the same
+      // synthetic id the compaction handler already had.
+      expect(h.subagentHooks.createHooks).toHaveBeenCalledWith(
+        '/work',
+        expect.stringMatching(/^internal-query-\d+$/),
+      );
+      const subagentParentId = h.subagentHooks.createHooks.mock.calls[0][1];
+      const compactionSessionId = (h.compactionHooks.createHooks as jest.Mock)
+        .mock.calls[0][0];
+      expect(subagentParentId).toBe(compactionSessionId);
     });
 
     it('omits PostToolUse and UserPromptSubmit hooks so internal queries never feed the curators', async () => {
@@ -288,7 +340,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
 
@@ -329,7 +380,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
         auth,
       });
@@ -360,6 +410,56 @@ describe('SdkQueryRunner', () => {
       expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
       expect(options.settingSources).toEqual(['user', 'project', 'local']);
       expect(env['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS']).toBe('1');
+    });
+
+    it('does not leak an ambient chat-session token into an API-key override', async () => {
+      // `options.env` starts from `process.env`, and OAuthProxyStrategy writes
+      // ANTHROPIC_AUTH_TOKEN there for the ACTIVE chat provider. A one-shot
+      // that overrides to an API-key provider must not inherit it — the SDK
+      // would otherwise hold credentials for two different backends at once.
+      const previous = process.env['ANTHROPIC_AUTH_TOKEN'];
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'codex-proxy-managed';
+      try {
+        const h = makeRunner({ authEnv: {} as AuthEnv });
+
+        const options = await capturedOptions(h, {
+          env: {
+            ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+            ANTHROPIC_API_KEY: 'curator-key',
+          } as AuthEnv,
+        });
+        const env = options.env as Record<string, string | undefined>;
+
+        expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+        expect(env['ANTHROPIC_API_KEY']).toBe('curator-key');
+      } finally {
+        if (previous === undefined) {
+          delete process.env['ANTHROPIC_AUTH_TOKEN'];
+        } else {
+          process.env['ANTHROPIC_AUTH_TOKEN'] = previous;
+        }
+      }
+    });
+
+    it('leaves the ambient token in place when there is no override', async () => {
+      // The clearing is scoped to the override path. A normal run still
+      // inherits process.env exactly as it did before.
+      const previous = process.env['ANTHROPIC_AUTH_TOKEN'];
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'codex-proxy-managed';
+      try {
+        const h = makeRunner({ authEnv: {} as AuthEnv });
+
+        const options = await capturedOptions(h);
+        const env = options.env as Record<string, string | undefined>;
+
+        expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('codex-proxy-managed');
+      } finally {
+        if (previous === undefined) {
+          delete process.env['ANTHROPIC_AUTH_TOKEN'];
+        } else {
+          process.env['ANTHROPIC_AUTH_TOKEN'] = previous;
+        }
+      }
     });
 
     it('honours an explicit override baseUrl for the derived decisions', async () => {
@@ -438,19 +538,19 @@ describe('SdkQueryRunner', () => {
     });
   });
 
-  describe('runOneShot — curator env strip at the subprocess boundary (S-2)', () => {
+  describe('runOneShot — lane env strip at the subprocess boundary (S-2)', () => {
     const CHAT_AUTH_KEYS = [
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_AUTH_TOKEN',
       'ANTHROPIC_BASE_URL',
     ] as const;
 
-    function buildCuratorEnvLike(curatorValues: AuthEnv): AuthEnv {
+    function buildLaneEnvLike(laneValues: AuthEnv): AuthEnv {
       const base: Record<string, string | undefined> = { ...process.env };
       for (const key of CHAT_AUTH_KEYS) {
         base[key] = undefined;
       }
-      return { ...base, ...curatorValues } as AuthEnv;
+      return { ...base, ...laneValues } as AuthEnv;
     }
 
     async function capturedEnv(
@@ -462,7 +562,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
         auth,
       });
@@ -484,7 +583,7 @@ describe('SdkQueryRunner', () => {
       try {
         const h = makeRunner({ authEnv: {} as AuthEnv });
         const env = await capturedEnv(h, {
-          env: buildCuratorEnvLike({} as AuthEnv),
+          env: buildLaneEnvLike({} as AuthEnv),
         });
 
         for (const key of CHAT_AUTH_KEYS) {
@@ -511,7 +610,7 @@ describe('SdkQueryRunner', () => {
       try {
         const h = makeRunner({ authEnv: {} as AuthEnv });
         const env = await capturedEnv(h, {
-          env: buildCuratorEnvLike({} as AuthEnv),
+          env: buildLaneEnvLike({} as AuthEnv),
         });
 
         const child = spawnSync(

@@ -28,7 +28,8 @@ Workspace: `WorkspaceService`, `WorkspaceAnalyzerService`, `ProjectDetectorServi
 Context: `ContextService`, `ContextOrchestrationService`, `FileTypeClassifierService`, `FileRelevanceScorerService`, `ContextSizeOptimizerService`, `ContextEnrichmentService`.
 Indexing: `WorkspaceIndexerService`, `PatternMatcherService`, `IgnorePatternResolverService`.
 Files: `FileSystemService` (+ `FileSystemError`), `TokenCounterService`.
-AST: `TreeSitterParserService`, `AstAnalysisService`, `DependencyGraphService` (+ `DependencyGraph`, `FileNode`, `SymbolIndex`).
+AST: `TreeSitterParserService`, `AstAnalysisService`, `DependencyGraphService` (+ `DependencyGraph`, `FileNode`, `SymbolIndex`). Languages: JavaScript, TypeScript, Python, Go, C#. Adding one means a grammar in `scripts/copy-wasm.js`, the `SupportedLanguage` union, `EXTENSION_LANGUAGE_MAP`, a grammar load, and a query set reusing the shared capture names so the extraction layer needs no change.
+Toolchain: `probeToolchain` (`project-analysis/toolchain-probe.ts`) — answers whether a stack's CLI is installed, for `STACK_PROFILES` consumers.
 Plus rich typing (`WorkspaceAnalysisResult`, `WorkspaceInfo`, `ContextRecommendations`, `OptimizedContext`, `IndexingProgress`, `FileSearchOptions`, AST query types, etc.) and a code-symbol indexer (TASK_2026_THOTH_CODE_INDEX).
 
 ## Internal Structure
@@ -48,7 +49,7 @@ Plus rich typing (`WorkspaceAnalysisResult`, `WorkspaceInfo`, `ContextRecommenda
 ## Dependencies
 
 **Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/memory-contracts`
-**External**: `web-tree-sitter` (^0.26.8), `picomatch`, `gray-matter`, `tsyringe`
+**External**: `web-tree-sitter` (^0.26.8), `picomatch`, `gray-matter`, `tsyringe`, `cross-spawn` (toolchain probe only — see `project-analysis/toolchain-probe.ts` for why it is not a `platform-core` port)
 
 ## Guidelines
 

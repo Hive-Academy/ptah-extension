@@ -1,0 +1,104 @@
+/**
+ * ElectronHttpServerProvider — IHttpServerProvider implementation using
+ * `node:http`, for the Electron main process.
+ *
+ * The Electron main process is a full Node runtime, so this wraps Node's
+ * built-in `http.createServer` exactly like the CLI adapter. It exists so the
+ * Electron host can bind a short-lived loopback listener (e.g. the OAuth
+ * authorization-code callback) without coupling callers to `node:http`.
+ *
+ * Lifecycle contract (mirrors the interface docblock):
+ *   - `listen(host, port, handler)` resolves once the server has bound. Pass
+ *     `port: 0` to let the OS assign a free port — the actual bound port is
+ *     returned via `IHttpServerHandle.port`.
+ *   - Bind failures (`EADDRINUSE`, `EACCES`, etc.) reject the returned promise
+ *     with the underlying Node error.
+ *   - `close()` is idempotent: the second invocation resolves on the first
+ *     close's completion without throwing.
+ *   - Handler exceptions are caught and translated to a 500 response
+ *     (best-effort — only when nothing has been written yet).
+ */
+
+import * as http from 'http';
+import type {
+  IHttpServerProvider,
+  IHttpServerHandle,
+  HttpServerRequestHandler,
+} from '@ptah-extension/platform-core';
+
+/**
+ * Best-effort 500 fallback when a handler throws BEFORE writing any response.
+ */
+function writeFallback500(
+  response: http.ServerResponse,
+  message: string,
+): void {
+  if (!response.headersSent) {
+    response.writeHead(500, { 'Content-Type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        type: 'error',
+        error: { type: 'internal_error', message },
+      }),
+    );
+  } else if (!response.writableEnded) {
+    response.end();
+  }
+}
+
+export class ElectronHttpServerProvider implements IHttpServerProvider {
+  async listen(
+    host: string,
+    port: number,
+    handler: HttpServerRequestHandler,
+  ): Promise<IHttpServerHandle> {
+    const server = http.createServer((req, res) => {
+      Promise.resolve()
+        .then(() => handler(req, res))
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          writeFallback500(res, message);
+        });
+    });
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: Error): void => {
+        server.removeListener('listening', onListening);
+        reject(err);
+      };
+      const onListening = (): void => {
+        server.removeListener('error', onError);
+        resolve();
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(port, host);
+    });
+
+    const address = server.address();
+    const boundPort =
+      address && typeof address === 'object' ? address.port : port;
+    const boundHost =
+      address && typeof address === 'object' ? address.address : host;
+
+    let closing: Promise<void> | undefined;
+    const close = (): Promise<void> => {
+      if (closing) return closing;
+      closing = new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        const maybeCloseIdle = (
+          server as unknown as { closeIdleConnections?: () => void }
+        ).closeIdleConnections;
+        if (typeof maybeCloseIdle === 'function') {
+          maybeCloseIdle.call(server);
+        }
+      });
+      return closing;
+    };
+
+    return {
+      port: boundPort,
+      host: boundHost,
+      close,
+    };
+  }
+}

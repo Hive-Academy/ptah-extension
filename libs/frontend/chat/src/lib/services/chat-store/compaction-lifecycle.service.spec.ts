@@ -47,6 +47,9 @@ const SESS_RELOAD = SessionId.create();
 const SESS_SHARED = SessionId.create();
 const SESS_UNKNOWN = SessionId.create();
 const SESS_X = SessionId.create();
+// A live session id that has rotated away from the compacting session id —
+// the canvas tile still points at it after an SDK session-id rotation.
+const SESS_ROTATED = SessionId.create();
 const NONEXISTENT_TAB_ID = SharedTabId.create();
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
@@ -85,6 +88,8 @@ describe('CompactionLifecycleService', () => {
   let setCompactionMarkerSummaryMock: jest.Mock;
   let conversationsMock: jest.Mock;
   let conversationForMock: jest.Mock;
+  let tabsForMock: jest.Mock;
+  let findContainingSessionMock: jest.Mock;
   let warn: jest.SpyInstance;
 
   // Each tab maps to a synthetic conversation id so registry writes are
@@ -93,6 +98,9 @@ describe('CompactionLifecycleService', () => {
     'tab-1': 'conv-1' as unknown as ConversationId,
     'tab-2': 'conv-2' as unknown as ConversationId,
     'tab-3': 'conv-3' as unknown as ConversationId,
+    // A canvas tile bound to the SAME conversation as `tab-1` (`conv-1`).
+    // Used by the fan-out widening regression tests below.
+    'tile-1': 'conv-1' as unknown as ConversationId,
   };
 
   beforeEach(() => {
@@ -116,6 +124,18 @@ describe('CompactionLifecycleService', () => {
     conversationForMock = jest.fn(
       (tabId: TabId) => tabToConv[tabId as unknown as string] ?? null,
     );
+    // `tabsFor` mirrors the real binding by deriving membership from
+    // `tabToConv` against whatever `tabs` the test sets, so the fan-out
+    // conversation-expansion path resolves the same tiles a real workspace
+    // would. Tabs with no `tabToConv` entry are treated as unbound.
+    tabsForMock = jest.fn((convId: ConversationId) =>
+      tabs
+        .filter((t) => tabToConv[t.id as unknown as string] === convId)
+        .map((t) => t.id),
+    );
+    // Defaults to "no containing conversation"; individual tests override to
+    // exercise the SDK session-id-rotation branch.
+    findContainingSessionMock = jest.fn(() => null);
 
     const tabManagerMock = {
       applyCompactionTimeoutReset: applyCompactionTimeoutResetMock,
@@ -143,10 +163,12 @@ describe('CompactionLifecycleService', () => {
       setCompactionMarkerTokens: setCompactionMarkerTokensMock,
       setCompactionMarkerSummary: setCompactionMarkerSummaryMock,
       conversations: conversationsMock,
+      findContainingSession: findContainingSessionMock,
     } as unknown as ConversationRegistry;
 
     const tabSessionBindingMock = {
       conversationFor: conversationForMock,
+      tabsFor: tabsForMock,
     } as unknown as TabSessionBinding;
 
     warn = jest.spyOn(console, 'warn').mockImplementation();
@@ -475,6 +497,170 @@ describe('CompactionLifecycleService', () => {
       });
 
       expect(switchSessionMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED, {
+        reason: 'compaction',
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // N2 — widened fan-out to canvas tiles the plain `findTabsBySessionId`
+  // path does NOT return. Regression for: after compaction a tile kept its
+  // pre-compaction transcript because it was excluded from the fan-out, so
+  // its `messages` were never cleared + reloaded in place. The widening
+  // unions in (1) tabs whose `claudeSessionId === compactionSessionId`
+  // directly, and (2) tabs bound to the same conversation(s).
+  // -------------------------------------------------------------------
+  describe('N2 — handleCompactionComplete widens the fan-out to excluded tiles', () => {
+    it('includes a same-conversation tile whose claudeSessionId has rotated (not returned by findTabsBySessionId)', () => {
+      // Originating tab-1 is on the compacting session. The tile shares the
+      // SAME conversation (conv-1) but its live session id has rotated to
+      // SESS_ROTATED, so `findTabsBySessionId(compactionSessionId)` returns
+      // ONLY tab-1 — the tile is excluded from the plain path.
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: SESS_SHARED,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+          compactionCount: 0,
+        }),
+        makeTab({
+          id: 'tile-1',
+          claudeSessionId: SESS_ROTATED,
+          messages: [{ id: 'm2' } as unknown as TabState['messages'][number]],
+          compactionCount: 3,
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_SHARED,
+      });
+
+      // Plain path would only match tab-1; assert the tile is fanned out too.
+      expect(findTabsBySessionIdMock).toHaveReturnedWith([tabs[0]]);
+      // The tile's stale `messages` are cleared in place via
+      // applyCompactionComplete (count incremented from its own value).
+      const calls = applyCompactionCompleteMock.mock.calls.map(
+        (c) =>
+          [
+            c[0],
+            (c[1] as { compactionCount: number }).compactionCount,
+          ] as const,
+      );
+      expect(calls).toEqual(
+        expect.arrayContaining([
+          ['tab-1', 1],
+          ['tile-1', 4],
+        ] as const),
+      );
+      expect(markTabIdleMock).toHaveBeenCalledWith('tile-1');
+      // The tile is reloaded from disk via its own (rotated) session id.
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_ROTATED, {
+        reason: 'compaction',
+      });
+    });
+
+    it('includes an UNBOUND tile whose claudeSessionId equals compactionSessionId via the direct-match path', () => {
+      // Simulate the registry-driven lookup EXCLUDING an unbound tile: the
+      // plain path returns []. The tile is not in `tabToConv` (unbound), so
+      // only the direct claudeSessionId scan of `tabManager.tabs()` can
+      // rescue it.
+      findTabsBySessionIdMock.mockReturnValue([]);
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: SESS_SHARED,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+        makeTab({
+          id: 'tile-unbound',
+          claudeSessionId: SESS_SHARED,
+          messages: [{ id: 'm2' } as unknown as TabState['messages'][number]],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_SHARED,
+      });
+
+      const clearedTabIds = applyCompactionCompleteMock.mock.calls.map(
+        (c) => c[0],
+      );
+      expect(clearedTabIds).toEqual(
+        expect.arrayContaining(['tab-1', 'tile-unbound']),
+      );
+      expect(markTabIdleMock).toHaveBeenCalledWith('tile-unbound');
+    });
+
+    it('includes a tile via findContainingSession when the originating tab is unbound', () => {
+      // The originating tab ('tab-orphan') has NO conversation binding
+      // (absent from `tabToConv`), so the conversation for the fan-out can
+      // only be discovered by resolving the compacting session through the
+      // registry. `findContainingSession` returns conv-1, whose expansion
+      // pulls in the same-conversation tile ('tile-1', rotated session id so
+      // the direct-match path also misses it).
+      findContainingSessionMock.mockReturnValue({
+        id: tabToConv['tile-1'],
+      });
+      tabs = [
+        makeTab({
+          id: 'tab-orphan',
+          claudeSessionId: SESS_SHARED,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+        makeTab({
+          id: 'tile-1',
+          claudeSessionId: SESS_ROTATED,
+          messages: [{ id: 'm2' } as unknown as TabState['messages'][number]],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-orphan',
+        compactionSessionId: SESS_SHARED,
+      });
+
+      expect(findContainingSessionMock).toHaveBeenCalledWith(SESS_SHARED);
+      const clearedTabIds = applyCompactionCompleteMock.mock.calls.map(
+        (c) => c[0],
+      );
+      expect(clearedTabIds).toEqual(
+        expect.arrayContaining(['tab-orphan', 'tile-1']),
+      );
+      expect(switchSessionMock).toHaveBeenCalledWith(SESS_ROTATED, {
+        reason: 'compaction',
+      });
+    });
+
+    it('reloads a widened tile with a null claudeSessionId via the compactionSessionId fallback', () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: SESS_SHARED,
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+        makeTab({
+          id: 'tile-1',
+          claudeSessionId: null as unknown as SessionId,
+          messages: [{ id: 'm2' } as unknown as TabState['messages'][number]],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: SESS_SHARED,
+      });
+
+      // Tile is cleared in place...
+      const clearedTabIds = applyCompactionCompleteMock.mock.calls.map(
+        (c) => c[0],
+      );
+      expect(clearedTabIds).toEqual(
+        expect.arrayContaining(['tab-1', 'tile-1']),
+      );
+      // ...and the null-session tile still reloads via the compaction session.
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_SHARED, {
         reason: 'compaction',
       });

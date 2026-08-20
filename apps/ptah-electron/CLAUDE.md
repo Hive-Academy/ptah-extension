@@ -18,7 +18,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 
 ## Key Wiring
 
-- `src/activation/bootstrap.ts` — minimal DI, license verify, full DI, workspace restore, SDK auth.
+- `src/activation/bootstrap.ts` — minimal DI, license/membership verify (non-blocking, identity-only — never gates bootstrap), full DI, workspace restore, SDK auth.
 - `src/activation/wire-runtime.ts` — `IpcBridge`, RPC registration, plugin loader, skill junctions, CLI sync, MCP code execution, git watcher, memory curator, cron scheduler, messaging gateway, symbol watcher.
 - `src/activation/post-window.ts` — startup config IPC handler, `BrowserWindow` creation, auto-updater (production only).
 - `src/di/container.ts` — `ElectronDIContainer`, same phased pattern as VS Code.
@@ -39,7 +39,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 - `nx build ptah-electron` — chains `build-main` + `build-preload` + `build-embedder-worker` + `ptah-extension-webview:build`, then copies WASM.
 - `nx build-embedder-worker ptah-electron` — bundles `libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts` separately to `embedder-worker.mjs` (runs as an Electron `utilityProcess`, like the voice worker; `@huggingface/transformers` stays external). Spawned via `ElectronEmbedderWorkerFactory` (`src/services/platform/electron-embedder-worker-factory.ts`, alongside `electron-voice-worker-factory.ts`), registered under `MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY` in `phase-2-libraries.ts`. The factory posts the `init` config (model cache dir) immediately after `utilityProcess.fork`.
 - `nx serve ptah-electron` — runs `rebuild-native.js` first (compiles `better-sqlite3` from source for the current Electron ABI via `@electron/rebuild`), then dev builds, copies renderer, launches via `scripts/launch.js`.
-- `nx serve:watch ptah-electron` — parallel watch on main/preload/embedder/webview.
+- `nx serve:watch ptah-electron` — parallel watch on main/preload/embedder/webview, plus `scripts/watch-renderer.js`, which mirrors each webview rebuild into `dist/apps/ptah-electron/renderer`. Without it the renderer keeps the chunk hashes of the last `copy-renderer` run, and the next lazy import in a live window 404s.
 - `nx package ptah-electron` — depends on `rebuild-native`; runs `electron-builder` then `verify-packed-native.js` (asserts the packed `better-sqlite3` carries the Electron ABI).
 - `nx validate-deps ptah-electron` — runs after `build-main`; verifies externals declared in the generated `package.json`.
 
@@ -53,6 +53,6 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 ## Deployment Notes
 
 - `better-sqlite3` must be compiled from source for the Electron ABI (no prebuilt exists for Electron 38+; Electron 40 = ABI 143): run `nx rebuild-native ptah-electron` after Electron upgrades. Requires a C++ toolchain (MSVC / Xcode CLT / gcc). `node-pty` (N-API prebuild) and `sqlite-vec` (loadable extension) need no rebuild.
-- Update detection queries the GitHub Releases API directly (no `electron-updater`); it runs in `post-window` Phase 6 (`UpdateManager.start()`) and is skipped in dev builds. The Download action opens the platform installer in the browser.
+- Update detection queries the GitHub Releases API directly (no `electron-updater`); it runs in `post-window` Phase 6 (`UpdateManager.start()`) and is skipped in dev builds and under the e2e harness (`PTAH_E2E=1`; a spec that wants the real network path opts back in with `PTAH_E2E_ALLOW_UPDATE_CHECK=1`). The Download action opens the platform installer in the browser.
 - Code signing inputs (Windows SSL.com IV / eSigner, macOS Developer ID) are read from env at `electron-builder` invocation time; never commit signing material.
-- Renderer copy: `scripts/copy-renderer.js` lives under `apps/ptah-electron/scripts/`.
+- Renderer copy: `scripts/copy-renderer.js` lives under `apps/ptah-electron/scripts/`. Run as a script it does a clean copy (packaging); required as a module it exports `syncRenderer({ clean })`, which `watch-renderer.js` calls with `clean: false` so a running window keeps the stale chunks it already resolved.

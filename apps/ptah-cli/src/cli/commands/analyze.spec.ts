@@ -298,8 +298,7 @@ describe('ptah analyze RPC failure', () => {
     const engine = makeEngine();
     engine.scripted.set('wizard:deep-analyze', {
       success: false,
-      error: 'premium licence required',
-      errorCode: 'license_required',
+      error: 'MCP server required for workspace analysis.',
     });
 
     const exit = await execute({} satisfies AnalyzeOptions, baseGlobals, {

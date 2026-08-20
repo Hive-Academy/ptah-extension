@@ -27,16 +27,9 @@ import type { Locator, Page } from '@playwright/test';
  *   authenticated and a real workspace is restored.
  * - No other Ptah instance is running (single-instance lock).
  *
- * Gating note: the Marketplace hub is Pro-gated. On a premium profile it renders
- * the provider grid; on a non-premium / trial-ended profile it renders an
- * upgrade affordance instead (no provider RPC fires). This scene detects which
- * surface mounted and narrates either gracefully — it never assumes the grid
- * exists.
- *
  * Selector notes (no Settings-style spec exists for Marketplace — these were
  * discovered from `libs/frontend/marketplace` + `chat-ui` setup-plugins):
- * - Top nav is a `role="tab"` tablist; `Marketplace` selects the surface (the
- *   tab itself only renders for premium profiles).
+ * - Top nav is a `role="tab"` tablist; `Marketplace` selects the surface.
  * - Hub root: `ptah-marketplace-hub`. Provider cards are `<button>` with
  *   `aria-label="Open <name>"` (e.g. "Open MCP Registry"); coming-soon cards
  *   are `disabled`. A selected provider shows a "Back to providers" button.
@@ -179,18 +172,12 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
   page,
   director,
 }) => {
-  // The persistent authed profile ALWAYS shows the "Pro Trial Has Ended"
-  // startup modal — clear it before filming so it stays out of frame.
-  await director.dismissDialogs();
-
   // Navigate + clean up BEFORE the first beat: everything until the hook is
   // trimmed by render-all's lead-in trim, so this surface swap never airs — and
   // the hook lands on the Marketplace instead of the stale restored surface.
-  // Entering the hub here also forces its Pro-gated, network-populated
-  // first-mount, so no separate pre-warm is needed. The trial modal can
-  // re-assert after navigation, so dismiss again before we start the tour.
+  // Entering the hub here forces its network-populated first-mount, so no
+  // separate pre-warm is needed.
   await goToMarketplace(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
@@ -199,45 +186,21 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
 
-  // Detect which surface mounted: the provider grid (premium) or the Pro gate.
-  const aProviderCard = page
-    .locator('ptah-marketplace-hub')
-    .getByRole('button', { name: /^Open / })
-    .first();
-  const hasGrid = await aProviderCard.isVisible().catch(() => false);
+  // Full tour of the provider registry.
+  await tourProviderGrid(page, director);
 
-  if (hasGrid) {
-    // Premium path — full tour of the registry.
-    await tourProviderGrid(page, director);
+  for (const [i, name] of PROVIDER_NAMES.entries()) {
+    await tourProvider(page, director, name, PROVIDER_SCRIPT_BASE + i);
+  }
 
-    for (const [i, name] of PROVIDER_NAMES.entries()) {
-      await tourProvider(page, director, name, PROVIDER_SCRIPT_BASE + i);
-    }
-
-    // Tease the coming-soon provider so the breadth reads as "and more on the
-    // way". Composio is a disabled card — spotlight it, never click it.
-    const composio = page
-      .getByRole('button', { name: 'Open Composio' })
-      .first();
-    if (await composio.isVisible().catch(() => false)) {
-      await director.say(6, {
-        target: composio,
-        during: async () => {
-          await director.spotlight(composio, 1500);
-        },
-      });
-    }
-  } else {
-    // Non-premium / trial-ended path — narrate the Pro gate gracefully and pan
-    // whatever copy is visible. No provider RPC fires here by design.
-    await director.say(7, {
+  // Tease the coming-soon provider so the breadth reads as "and more on the
+  // way". Composio is a disabled card — spotlight it, never click it.
+  const composio = page.getByRole('button', { name: 'Open Composio' }).first();
+  if (await composio.isVisible().catch(() => false)) {
+    await director.say(6, {
+      target: composio,
       during: async () => {
-        await director.hold(1600);
-        await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
-          steps: 3,
-          dwellMs: 700,
-          andBack: true,
-        });
+        await director.spotlight(composio, 1500);
       },
     });
   }

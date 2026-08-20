@@ -499,9 +499,7 @@ export class StreamRouter {
     if (containing) {
       const surfaces = this.binding.surfacesFor(containing.id);
       if (surfaces.length > 0) {
-        const interactive = surfaces.filter((s) =>
-          this.surfaceRegistry.isInteractive(s),
-        );
+        const interactive = this.interactiveSurfacesForSession(sessionId);
         if (interactive.length > 0) {
           this.permissionHandler.attachQuestionTargets(
             question.id,
@@ -527,10 +525,37 @@ export class StreamRouter {
       if (tabsAfterTick.length > 0) {
         const targets = this.resolveQuestionTargets(question, tabsAfterTick);
         this.permissionHandler.attachQuestionTargets(question.id, targets);
+        return;
+      }
+      const surfacesAfterTick = this.interactiveSurfacesForSession(sessionId);
+      if (surfacesAfterTick.length > 0) {
+        this.permissionHandler.attachQuestionTargets(
+          question.id,
+          surfacesAfterTick,
+        );
       }
     });
 
     return tabs;
+  }
+
+  /**
+   * Interactive surfaces bound to the conversation containing `sessionId`.
+   *
+   * Question routing's surface counterpart to `tabsForSession`. A surface is
+   * a valid question target only when its host registered it as interactive
+   * (harness workflow, tribunal conductor) — background surfaces run full-auto
+   * and have no card to render on. Returns an empty array when the session is
+   * unknown to the registry or every bound surface is non-interactive.
+   */
+  private interactiveSurfacesForSession(
+    sessionId: ClaudeSessionId,
+  ): readonly SurfaceId[] {
+    const containing = this.registry.findContainingSession(sessionId);
+    if (!containing) return [];
+    const surfaces = this.binding.surfacesFor(containing.id);
+    if (surfaces.length === 0) return [];
+    return surfaces.filter((s) => this.surfaceRegistry.isInteractive(s));
   }
 
   /**
@@ -706,7 +731,10 @@ export class StreamRouter {
    */
   refreshQuestionTargetsForSession(sessionId: ClaudeSessionId): void {
     const tabs = this.tabsForSession(sessionId);
-    if (tabs.length === 0) return;
+    if (tabs.length === 0) {
+      this.attachSurfaceQuestionTargets(sessionId);
+      return;
+    }
 
     const pending = this.permissionHandler.questionRequests();
     for (const q of pending) {
@@ -735,18 +763,62 @@ export class StreamRouter {
       if (!containing || containing.id !== convId) continue;
 
       const tabs = this.tabsForSession(sessionId);
-      if (tabs.length === 0) continue;
-
       const existing = this.permissionHandler.questionTargetTabsFor(q.id);
-      const stale =
-        existing.length === 0 ||
-        existing.some((t) => !tabs.some((b) => (b as string) === t));
-      if (!stale) continue;
+
+      if (tabs.length === 0) {
+        const surfaces = this.interactiveSurfacesForSession(sessionId);
+        if (surfaces.length === 0) continue;
+        if (!this.targetsAreStale(existing, surfaces)) continue;
+        this.permissionHandler.clearQuestionTargets(q.id);
+        this.permissionHandler.attachQuestionTargets(q.id, surfaces);
+        continue;
+      }
+
+      if (!this.targetsAreStale(existing, tabs)) continue;
 
       const targets = this.resolveQuestionTargets(q, tabs);
       this.permissionHandler.clearQuestionTargets(q.id);
       this.permissionHandler.attachQuestionTargets(q.id, targets);
     }
+  }
+
+  /**
+   * Attach interactive-surface targets to every pending question for
+   * `sessionId` that has no targets yet.
+   *
+   * Surface counterpart of the tab branch in
+   * `refreshQuestionTargetsForSession`. Reached when a question arrived
+   * before its surface conversation knew the real session id (late
+   * `SESSION_ID_RESOLVED`), so no tab and no surface could be resolved at
+   * routing time. Only empty target lists are filled — an already-resolved
+   * question keeps whatever the router decided first.
+   */
+  private attachSurfaceQuestionTargets(sessionId: ClaudeSessionId): void {
+    const surfaces = this.interactiveSurfacesForSession(sessionId);
+    if (surfaces.length === 0) return;
+
+    for (const q of this.permissionHandler.questionRequests()) {
+      if (q.sessionId !== (sessionId as unknown as string)) continue;
+      const existing = this.permissionHandler.questionTargetTabsFor(q.id);
+      if (existing.length > 0) continue;
+      this.permissionHandler.clearQuestionTargets(q.id);
+      this.permissionHandler.attachQuestionTargets(q.id, surfaces);
+    }
+  }
+
+  /**
+   * A target list is stale when it is empty, or when any entry no longer
+   * appears in the live consumer set (tabs or surfaces) it was resolved
+   * against.
+   */
+  private targetsAreStale(
+    existing: readonly string[],
+    live: readonly (TabId | SurfaceId)[],
+  ): boolean {
+    return (
+      existing.length === 0 ||
+      existing.some((t) => !live.some((l) => (l as string) === t))
+    );
   }
 
   /**

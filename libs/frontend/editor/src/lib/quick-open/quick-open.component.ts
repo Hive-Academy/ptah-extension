@@ -54,7 +54,7 @@ import { VSCodeService, rpcCall } from '@ptah-extension/core';
           <input
             #searchInput
             type="text"
-            class="bg-transparent w-full text-sm outline-none placeholder:text-base-content/30"
+            class="bg-transparent w-full text-sm outline-none placeholder:text-base-content-muted"
             placeholder="Type a file name to open..."
             aria-label="File search query"
             [ngModel]="query()"

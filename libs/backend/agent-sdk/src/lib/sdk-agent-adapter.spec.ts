@@ -53,6 +53,10 @@ import { SdkAgentAdapter } from './sdk-agent-adapter';
 import { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
 import { SessionActivityRegistry } from './helpers/session-activity-registry';
+import {
+  SessionIdResolvedCallbackRegistry,
+  type SessionIdResolvedPayload,
+} from './helpers/session-id-resolved-callback-registry';
 import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
 import type {
@@ -65,6 +69,7 @@ import type {
   Query,
   ResultStatsCallback,
 } from './helpers';
+import { NoActivityWatchdog } from './helpers';
 import type { IAuthEnvProvider } from './auth-env.port';
 import type {
   ClaudeCliDetector,
@@ -181,6 +186,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'bindRealSessionId'
     | 'sendMessage'
     | 'interruptCurrentTurn'
+    | 'markTurnEnded'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
   >
@@ -195,6 +201,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     bindRealSessionId: jest.fn(),
     sendMessage: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
+    markTurnEnded: jest.fn().mockReturnValue(true),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
   };
@@ -282,6 +289,8 @@ interface AdapterHarness {
   workspaceProvider: jest.Mocked<IWorkspaceProvider>;
   forkService: ReturnType<typeof createMockForkService>;
   events: SdkAdapterEvents;
+  activityRegistry: SessionActivityRegistry;
+  sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry;
 }
 
 function makeAdapter(
@@ -312,6 +321,9 @@ function makeAdapter(
   const runtimeState = new SdkRuntimeStateService(asLogger(logger));
   const events = new SdkAdapterEvents(asLogger(logger));
   const activityRegistry = new SessionActivityRegistry(asLogger(logger));
+  const sessionIdResolvedRegistry = new SessionIdResolvedCallbackRegistry(
+    asLogger(logger),
+  );
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -330,6 +342,7 @@ function makeAdapter(
     events,
     activityRegistry,
     workspaceProvider,
+    sessionIdResolvedRegistry,
   );
 
   return {
@@ -348,6 +361,8 @@ function makeAdapter(
     workspaceProvider,
     forkService,
     events,
+    activityRegistry,
+    sessionIdResolvedRegistry,
   };
 }
 
@@ -533,11 +548,9 @@ describe('SdkAgentAdapter', () => {
       const cfg = {
         ...makeSessionConfig(),
         prompt: 'Write a spec',
-        isPremium: true,
       } as AISessionConfig & {
         tabId: string;
         prompt: string;
-        isPremium: boolean;
       };
       await h.adapter.startChatSession(cfg);
 
@@ -545,7 +558,6 @@ describe('SdkAgentAdapter', () => {
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
       expect(callArg).toMatchObject({
         sessionId: 'tab_1',
-        isPremium: true,
         mcpServerRunning: true,
       });
       expect(callArg.initialPrompt).toMatchObject({
@@ -553,23 +565,25 @@ describe('SdkAgentAdapter', () => {
       });
     });
 
-    it('threads the AbortController from executeQuery() into StreamTransformer.transform()', async () => {
+    it('threads the no-activity watchdog from executeQuery() into StreamTransformer.transform()', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
+      const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
+        activityWatchdog,
       } as ExecuteQueryResult);
 
       await h.adapter.startChatSession(makeSessionConfig());
 
       expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(transformArg.abortController).toBe(abortController);
+      expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.sessionId).toBe('tab_1');
       expect(transformArg.initialModel).toBe('claude-sonnet-4-20250514');
@@ -681,6 +695,7 @@ describe('SdkAgentAdapter', () => {
         abortController: new AbortController(),
         messageQueue: [],
         resolveNext: null,
+        turnInFlight: false,
         currentModel: 'claude-sonnet-4-20250514',
         permissionLevel: 'ask',
         lastActivityAt: 0,
@@ -700,17 +715,19 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.tabId).toBe('tab-resume');
     });
 
-    it('dispatches a new executeQuery() when no active session exists, threading AbortController through', async () => {
+    it('dispatches a new executeQuery() when no active session exists, threading the watchdog through', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
       h.sessionLifecycle.find.mockReturnValueOnce(undefined);
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
+      const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
+        activityWatchdog,
       } as ExecuteQueryResult);
 
       await h.adapter.resumeSession('sess-1' as SessionId);
@@ -722,7 +739,7 @@ describe('SdkAgentAdapter', () => {
         }),
       );
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(transformArg.abortController).toBe(abortController);
+      expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
   });
@@ -735,16 +752,18 @@ describe('SdkAgentAdapter', () => {
       ).rejects.toBeInstanceOf(SdkError);
     });
 
-    it('delegates to executeSlashCommandQuery and threads AbortController into the transformer', async () => {
+    it('delegates to executeSlashCommandQuery and threads the watchdog into the transformer', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
+      const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
+        activityWatchdog,
       } as ExecuteQueryResult);
 
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/help', {
@@ -757,7 +776,7 @@ describe('SdkAgentAdapter', () => {
         expect.any(Object),
       );
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(transformArg.abortController).toBe(abortController);
+      expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.tabId).toBe('tab-1');
     });
@@ -984,6 +1003,304 @@ describe('SdkAgentAdapter', () => {
 
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
       expect(callArg.includePartialMessages).toBe(false);
+    });
+  });
+
+  // TASK_2026_296 item 6 Part A — first-turn activity identity.
+  //
+  // A new session's first user activity used to be published from
+  // startChatSession BEFORE the SDK's system `init` message arrived, so
+  // `resolveActivityIds` could only answer with the tabId. Every LATER
+  // activity, and every teardown, resolves `realSessionId ?? tabId` — the SDK
+  // UUID. Consumer state was therefore armed under one key and cleared under
+  // another, on the first turn only.
+  //
+  // The two ids are shape-indistinguishable (a tabId is a UUID v4), so no
+  // consumer can detect the wrong one. These specs pin the emitter instead:
+  // exactly one publication, under whichever id teardown will use.
+  describe('first-turn activity identity (TASK_2026_296)', () => {
+    const TAB_ID = '11111111-1111-4111-8111-111111111111';
+    const REAL_ID = '22222222-2222-4222-8222-222222222222';
+    const PROJECT_PATH = '/fake/workspace';
+
+    interface FakeRecord {
+      tabId: string;
+      realSessionId: string | null;
+      config: { projectPath?: string };
+    }
+
+    function asFoundRecord(
+      rec: FakeRecord | undefined,
+    ): ReturnType<SessionLifecycleManager['find']> {
+      return rec as unknown as ReturnType<SessionLifecycleManager['find']>;
+    }
+
+    /**
+     * A minimal stand-in for `SessionRegistry` + `SessionControlService`,
+     * faithful on the three behaviours these specs depend on: `find` resolves
+     * by either id, `bindRealSessionId` is set-once, and `endSession` reports
+     * its teardown id as `realSessionId ?? tabId`
+     * (`session-control.service.ts:126`).
+     */
+    function wireFakeRegistry(h: AdapterHarness) {
+      const byTabId = new Map<string, FakeRecord>();
+      const bySessionId = new Map<string, FakeRecord>();
+      const teardownIds: string[] = [];
+
+      h.sessionLifecycle.find.mockImplementation((id: string) =>
+        asFoundRecord(byTabId.get(id) ?? bySessionId.get(id)),
+      );
+      h.sessionLifecycle.bindRealSessionId.mockImplementation(
+        (tabId: string, realSessionId: string) => {
+          const rec = byTabId.get(tabId);
+          if (!rec || rec.realSessionId !== null) {
+            return;
+          }
+          rec.realSessionId = realSessionId;
+          bySessionId.set(realSessionId, rec);
+        },
+      );
+      h.sessionLifecycle.endSession.mockImplementation(async (id) => {
+        const rec = byTabId.get(id as string) ?? bySessionId.get(id as string);
+        if (!rec) {
+          return;
+        }
+        teardownIds.push(rec.realSessionId ?? rec.tabId);
+        byTabId.delete(rec.tabId);
+        if (rec.realSessionId) {
+          bySessionId.delete(rec.realSessionId);
+        }
+      });
+
+      return {
+        teardownIds,
+        register(tabId: string): void {
+          byTabId.set(tabId, {
+            tabId,
+            realSessionId: null,
+            config: { projectPath: PROJECT_PATH },
+          });
+        },
+      };
+    }
+
+    /**
+     * Stand-in for the two real consumers, `MemoryTriggerService` and
+     * `SkillTriggerService`. Both key their `sessions` map (and its idle
+     * timer) by the id on the activity payload and clear it by the id on the
+     * SessionEnd payload. `agent-sdk` must not import either lib, so the
+     * contract is modelled here rather than reached for.
+     */
+    function makeTriggerConsumer(registry: SessionActivityRegistry) {
+      const armed = new Set<string>();
+      const published: Array<{ sessionId: string; role: string }> = [];
+      registry.register((payload) => {
+        published.push({ sessionId: payload.sessionId, role: payload.role });
+        armed.add(payload.sessionId);
+      });
+      return {
+        armed,
+        published,
+        onSessionEnd(sessionId: string): void {
+          armed.delete(sessionId);
+        },
+      };
+    }
+
+    async function startSessionWithPrompt(
+      h: AdapterHarness,
+      registry: ReturnType<typeof wireFakeRegistry>,
+      options: { prompt?: string } = { prompt: 'first turn' },
+    ): Promise<void> {
+      h.sessionLifecycle.executeQuery.mockImplementationOnce(async () => {
+        registry.register(TAB_ID);
+        return {
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude-sonnet-4-20250514',
+          abortController: new AbortController(),
+        } as ExecuteQueryResult;
+      });
+
+      await h.adapter.startChatSession({
+        ...makeSessionConfig({ tabId: TAB_ID }),
+        prompt: options.prompt,
+      });
+    }
+
+    /**
+     * Deliver the SDK's system `init` message through the callback the adapter
+     * handed to `StreamTransformer`. The published signature returns `void`
+     * while the implementation is async, so awaiting it needs a cast.
+     */
+    async function deliverInit(
+      h: AdapterHarness,
+      realSessionId: string,
+    ): Promise<void> {
+      const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+      await (
+        transformArg.onSessionIdResolved as unknown as (
+          tabId: string | undefined,
+          realSessionId: string,
+        ) => Promise<void>
+      )(TAB_ID, realSessionId);
+    }
+
+    it('publishes the first turn once under the SDK UUID, never under the tabId, and SessionEnd clears it', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const consumer = makeTriggerConsumer(h.activityRegistry);
+
+      await startSessionWithPrompt(h, registry);
+
+      // The window the defect lived in: nothing may be published while the
+      // tabId is the only id available.
+      expect(consumer.published).toEqual([]);
+
+      await deliverInit(h, REAL_ID);
+
+      expect(consumer.published).toEqual([
+        { sessionId: REAL_ID, role: 'user' },
+      ]);
+      expect(Array.from(consumer.armed)).toEqual([REAL_ID]);
+
+      h.adapter.endSession(REAL_ID as SessionId);
+
+      // Exactly once: teardown must not re-publish an already-flushed turn.
+      expect(consumer.published).toHaveLength(1);
+      expect(registry.teardownIds).toEqual([REAL_ID]);
+      consumer.onSessionEnd(registry.teardownIds[0]);
+      expect(consumer.armed.size).toBe(0);
+    });
+
+    // Paired-isolation sibling: the legitimate path where no id ever resolves
+    // must still arm and tear down consistently — under the tabId, which is
+    // exactly what `realSessionId ?? tabId` yields at teardown.
+    it('publishes under the tabId when the session ends without ever resolving', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const consumer = makeTriggerConsumer(h.activityRegistry);
+
+      await startSessionWithPrompt(h, registry);
+      expect(consumer.published).toEqual([]);
+
+      h.adapter.endSession(TAB_ID as SessionId);
+
+      expect(consumer.published).toEqual([{ sessionId: TAB_ID, role: 'user' }]);
+      expect(registry.teardownIds).toEqual([TAB_ID]);
+      consumer.onSessionEnd(registry.teardownIds[0]);
+      expect(consumer.armed.size).toBe(0);
+    });
+
+    // The §0 init-callback blank refusal (`sdk-agent-adapter.ts`, guarded by
+    // `blankToUndefined`) stops before the bind, so the buffered turn must
+    // stay buffered and fall through to the tabId teardown flush — not be
+    // published under a blank id.
+    it('does not publish on a blank SDK init id, and still flushes under the tabId at teardown', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const consumer = makeTriggerConsumer(h.activityRegistry);
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, '   ');
+
+      expect(consumer.published).toEqual([]);
+      expect(h.sessionLifecycle.bindRealSessionId).not.toHaveBeenCalled();
+
+      h.adapter.endSession(TAB_ID as SessionId);
+
+      expect(consumer.published).toEqual([{ sessionId: TAB_ID, role: 'user' }]);
+      expect(registry.teardownIds).toEqual([TAB_ID]);
+    });
+
+    it('publishes nothing for a session started without a prompt', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const consumer = makeTriggerConsumer(h.activityRegistry);
+
+      await startSessionWithPrompt(h, registry, { prompt: undefined });
+      await deliverInit(h, REAL_ID);
+      h.adapter.endSession(REAL_ID as SessionId);
+
+      expect(consumer.published).toEqual([]);
+    });
+
+    // --- Part B (Batch 5b): the rekey signal, fired from BOTH emit sites ---
+
+    function captureResolved(h: AdapterHarness): SessionIdResolvedPayload[] {
+      const seen: SessionIdResolvedPayload[] = [];
+      h.sessionIdResolvedRegistry.register((payload) => {
+        seen.push(payload);
+      });
+      return seen;
+    }
+
+    it('notifies the SessionIdResolved registry ALONGSIDE the single-slot setter on the new-session path', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      await startSessionWithPrompt(h, registry);
+      expect(seen).toEqual([]);
+
+      await deliverInit(h, REAL_ID);
+
+      // Alongside, never instead of: the port's single-slot setter still fires
+      // with its original arguments, unchanged.
+      expect(singleSlot).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toEqual(
+        expect.objectContaining({ tabId: TAB_ID, realSessionId: REAL_ID }),
+      );
+      expect(typeof seen[0].timestamp).toBe('number');
+    });
+
+    it('notifies the SessionIdResolved registry ALONGSIDE the single-slot setter on the resume path', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const seen = captureResolved(h);
+      const singleSlot = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.resumeSession(
+        REAL_ID as SessionId,
+        makeSessionConfig({ tabId: TAB_ID }),
+      );
+      await deliverInit(h, REAL_ID);
+
+      expect(singleSlot).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toEqual(
+        expect.objectContaining({ tabId: TAB_ID, realSessionId: REAL_ID }),
+      );
+    });
+
+    // Paired-isolation sibling for the two above: the §0 init-callback blank
+    // refusal returns before the notify, so a blank SDK id publishes no rekey
+    // signal at all — the reconciliation must never be asked to migrate onto
+    // a non-id.
+    it('does not notify the SessionIdResolved registry on a blank SDK init id', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const registry = wireFakeRegistry(h);
+      const seen = captureResolved(h);
+
+      await startSessionWithPrompt(h, registry);
+      await deliverInit(h, '   ');
+
+      expect(seen).toEqual([]);
     });
   });
 });

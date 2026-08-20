@@ -26,6 +26,10 @@ export {
   type ResultModelUsage,
   type StreamTransformConfig,
 } from './stream-transformer';
+export {
+  NoActivityWatchdog,
+  NO_ACTIVITY_TIMEOUT_MS,
+} from './no-activity-watchdog';
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
 export {
@@ -43,6 +47,11 @@ export {
   isPostCompactHook,
 } from './compaction-hook-handler';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export {
+  SessionIdResolvedCallbackRegistry,
+  type SessionIdResolvedPayload,
+  type SessionIdResolvedRegistryCallback,
+} from './session-id-resolved-callback-registry';
 export { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
 export {
   SessionEndCallbackRegistry,
@@ -98,6 +107,7 @@ export {
 export { StopHookHandler } from './stop-hook-handler';
 export { StopFailureHookHandler } from './stop-failure-hook-handler';
 export { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+export { TeammateLifecycleHookHandler } from './teammate-lifecycle-hook-handler';
 export {
   isStopFailureHook,
   isSubagentStopHook,
@@ -134,6 +144,7 @@ export {
   SdkQueryOptionsBuilder,
   assembleSystemPrompt,
   buildModelIdentityPrompt,
+  buildFlagSettings,
   getActiveProviderId,
   type AssembleSystemPromptInput,
   type SystemPromptAssemblyResult,
@@ -153,10 +164,12 @@ export {
 export { MemoryPromptInjector } from './memory-prompt-injector';
 export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
-export type { ICuratorAuthResolver } from '../curator-llm-adapter';
+export type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 export {
   SdkModelService,
   TIER_ENV_VAR_MAP,
+  TIER_METADATA_ENV_VAR_MAP,
+  ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
   type ModelTier,
   type EnvMappedTier,
@@ -172,11 +185,6 @@ export {
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
-export {
-  SkillJunctionService,
-  type SkillJunctionActivateOptions,
-  type SkillJunctionResult,
-} from './skill-junction.service';
 export {
   SessionForkService,
   type ForkSessionParams,
@@ -201,4 +209,5 @@ export {
   type SdkAdapterTurnEndedEvent,
   type SdkAdapterTurnFailedEvent,
   type SdkAdapterSubagentEndedEvent,
+  type SdkAdapterTeammateIdleEvent,
 } from './sdk-adapter-events.service';

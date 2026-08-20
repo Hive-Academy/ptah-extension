@@ -101,14 +101,6 @@ export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
 export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 
 /**
- * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs
- * Responsibilities: Transform Claude agents to Copilot/Cursor format, write to user-level directories
- */
-export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
-  'MultiCliAgentWriterService',
-);
-
-/**
  * MigrationService - Agent upgrade and migration
  * Responsibilities: Detect outdated agents, calculate update impact, show diff preview, regenerate with consent
  */
@@ -195,7 +187,6 @@ export const AGENT_GENERATION_TOKENS = {
   AGENT_CUSTOMIZATION_SERVICE,
   OUTPUT_VALIDATION_SERVICE,
   AGENT_FILE_WRITER_SERVICE,
-  MULTI_CLI_AGENT_WRITER_SERVICE,
   MIGRATION_SERVICE,
   WIZARD_WEBVIEW_LIFECYCLE,
   AGENTIC_ANALYSIS_SERVICE,

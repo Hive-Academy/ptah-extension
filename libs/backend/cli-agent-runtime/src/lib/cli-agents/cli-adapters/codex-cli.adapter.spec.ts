@@ -119,7 +119,19 @@ jest.mock('child_process', () => ({
   spawn: jest.fn(),
 }));
 
+// Mock fs.existsSync so the native-binary resolver probes a deterministic,
+// synthetic filesystem instead of the developer's real node_modules tree.
+const mockExistsSync = jest.fn();
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    existsSync: (...args: unknown[]) => mockExistsSync(...args),
+  };
+});
+
 // Import adapter AFTER mocks are declared
+import path from 'path';
 import { CodexCliAdapter } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
 
@@ -138,6 +150,9 @@ describe('CodexCliAdapter', () => {
     mockStartThread.mockReturnValue({
       runStreamed: mockRunStreamed,
     });
+
+    // No native binary candidate exists unless a test says otherwise.
+    mockExistsSync.mockReturnValue(false);
 
     adapter = new CodexCliAdapter();
   });
@@ -760,6 +775,125 @@ describe('CodexCliAdapter', () => {
       const code = await handle.done;
       expect(code).toBe(1);
       expect(handle.abort.signal.aborted).toBe(true);
+    });
+  });
+
+  // `@openai/codex-<platform>` >= 0.147 ships its native binary at
+  // `vendor/<triple>/bin/`; earlier releases used `vendor/<triple>/codex/`.
+  // The resolver must probe both, newest layout first, at every candidate root
+  // — a resolver that only knows the legacy segment never matches, leaves
+  // codexPathOverride unset, and lets the SDK self-resolve into `app.asar`.
+  describe('native binary resolution (codexPathOverride)', () => {
+    const RESOURCES = path.join(path.sep, 'ptah-app', 'resources');
+    const VENDOR_ROOT = path.join(
+      RESOURCES,
+      'app.asar.unpacked',
+      'node_modules',
+      '@openai',
+      'codex-win32-x64',
+      'vendor',
+      'x86_64-pc-windows-msvc',
+    );
+    const binLayout = path.join(VENDOR_ROOT, 'bin', 'codex.exe');
+    const legacyLayout = path.join(VENDOR_ROOT, 'codex', 'codex.exe');
+
+    type ResourcesProcess = NodeJS.Process & { resourcesPath?: string };
+    const originalPlatform = process.platform;
+    const originalArch = process.arch;
+    const originalResourcesPath = (process as ResourcesProcess).resourcesPath;
+
+    function stub(key: 'platform' | 'arch', value: string): void {
+      Object.defineProperty(process, key, { value, configurable: true });
+    }
+
+    beforeEach(() => {
+      // Pin platform/arch so the target triple (and therefore every candidate
+      // path asserted below) is identical on every CI runner.
+      stub('platform', 'win32');
+      stub('arch', 'x64');
+      (process as ResourcesProcess).resourcesPath = RESOURCES;
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([]),
+      });
+    });
+
+    afterEach(() => {
+      stub('platform', originalPlatform);
+      stub('arch', originalArch);
+      if (originalResourcesPath === undefined) {
+        delete (process as ResourcesProcess).resourcesPath;
+      } else {
+        (process as ResourcesProcess).resourcesPath = originalResourcesPath;
+      }
+    });
+
+    /** Every path handed to existsSync, in probe order. */
+    function probedPaths(): string[] {
+      return mockExistsSync.mock.calls.map((call) => call[0] as string);
+    }
+
+    /** The codexPathOverride the adapter handed to the Codex constructor. */
+    function resolvedOverride(): string | undefined {
+      const [options] = mockCodexConstructor.mock.calls[0] as [
+        { codexPathOverride?: string },
+      ];
+      return options.codexPathOverride;
+    }
+
+    async function runAndSettle(): Promise<void> {
+      const handle = await adapter.runSdk({
+        task: 'T',
+        workingDirectory: '/proj',
+      });
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+    }
+
+    it('probes both vendor layouts per candidate root, bin/ first', async () => {
+      await runAndSettle();
+
+      const probed = probedPaths();
+      expect(probed[0]).toBe(binLayout);
+      expect(probed[1]).toBe(legacyLayout);
+      expect(resolvedOverride()).toBeUndefined();
+    });
+
+    it('probes the packaged Electron root under app.asar.unpacked', async () => {
+      await runAndSettle();
+
+      // The asar-rewrite behaviour itself is pinned directly on
+      // withAsarUnpackedTwin in cli-adapter.utils.spec.ts — no candidate here
+      // ever contains `app.asar`, so asserting its absence would be vacuous.
+      const unpackedRoot = path.join(RESOURCES, 'app.asar.unpacked') + path.sep;
+      expect(probedPaths()[0].startsWith(unpackedRoot)).toBe(true);
+    });
+
+    it('prefers the bin/ layout when both layouts exist', async () => {
+      mockExistsSync.mockImplementation(
+        (p: string) => p === binLayout || p === legacyLayout,
+      );
+
+      await runAndSettle();
+
+      expect(resolvedOverride()).toBe(binLayout);
+    });
+
+    it('resolves when only the current bin/ layout exists', async () => {
+      mockExistsSync.mockImplementation((p: string) => p === binLayout);
+
+      await runAndSettle();
+
+      expect(resolvedOverride()).toBe(binLayout);
+    });
+
+    it('resolves when only the legacy codex/ layout exists', async () => {
+      mockExistsSync.mockImplementation((p: string) => p === legacyLayout);
+
+      await runAndSettle();
+
+      expect(resolvedOverride()).toBe(legacyLayout);
     });
   });
 

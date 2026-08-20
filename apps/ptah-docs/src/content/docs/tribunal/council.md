@@ -5,7 +5,7 @@ description: Fan one question to your installed vendor panel, run an anonymized 
 
 # Council
 
-Council is the first and currently available Tribunal move. It takes one question and fans it across your installed vendor panel — each vendor answers independently, then each vendor critiques the others' answers (without knowing who wrote them), and a judge synthesizes a single cited verdict from the debate.
+Council is Tribunal's discussion move. It takes one question and fans it across your vendor panel — each vendor answers independently, then each vendor critiques the others' answers (without knowing who wrote them), and a judge synthesizes a single cited verdict from the debate.
 
 No code is written. No git changes happen. Council is for decisions, not implementations.
 
@@ -37,7 +37,7 @@ Each vendor receives the other answers in anonymized form — labeled "Vendor A"
 - Identify claims they dispute, with reasons
 - Identify what the other answers missed
 
-Vendor identity is hidden during critique to prevent deference effects ("Well, if it's from Claude…").
+Vendor identity is hidden during critique to prevent deference effects — "well, if the biggest lab wrote it, it must be right". Anonymization is best-effort: a vendor can still identify itself in its own prose, so treat it as a strong nudge rather than an airtight guarantee.
 
 ### Phase 3 — Synthesis
 
@@ -91,6 +91,8 @@ Panel size: 3 vendors
 - "Multi-vendor review"
 - "What do the other vendors think about this approach?"
 
+**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard, pick **Council**, assemble the panel (add a lane per vendor, choose a model for each), and launch. The page switches to the live grid — a tile per panelist, with the conductor chat alongside. Type your question there to start the run.
+
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then choose **Council** when prompted.
 
 ## Limitations
@@ -102,4 +104,4 @@ Panel size: 3 vendors
 
 ## Panel size & cost
 
-Council discovers your installed vendors and uses one per family, defaulting to **3 concurrent** panelists. You can ask to widen or narrow the panel for a given run (for example, "use just two vendors" or "bring in every vendor"). Each panelist answer and each critique is a real, paid vendor call, so a Council costs roughly `panel size × 2` calls — Ptah announces the chosen panel before it spends anything.
+Council discovers what is installed and configured on your machine and uses one lane per vendor family, defaulting to **3 concurrent** panelists. The list is never hardcoded — it is whatever discovery reports right now, which is why the wizard shows it to you with a Refresh button. You can ask to widen or narrow the panel for a given run (for example, "use just two vendors" or "bring in every vendor"). Each panelist answer and each critique is a real, paid vendor call, so a Council costs roughly `panel size × 2` calls — Ptah announces the chosen panel before it spends anything.

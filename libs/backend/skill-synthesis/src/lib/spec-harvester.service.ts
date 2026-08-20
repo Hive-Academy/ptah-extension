@@ -4,8 +4,10 @@
  * is `done`/`cancelled` (see `extractSpec`); legacy carrier-less folders are
  * skipped. Three jobs:
  *  1. harvest()  — reconcile the optimistic `succeeded:true` subagent events
- *     against graded per-batch verdicts (tasks.md word statuses), keyed by
- *     executor slug.
+ *     against graded per-batch verdicts (batches.md word statuses, falling back
+ *     permanently to the legacy tasks.md name), keyed by executor slug. Folders
+ *     skipped for want of a carrier are warned about once per run rather than
+ *     dropped silently.
  *  2. getRecentFindings() — feed review reports into the enhancer (SpecFindingsPort).
  *  3. listSpecs() / clearStaleSpecs() — classify and prune harvested specs.
  *
@@ -28,6 +30,7 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { CARRIER_FILE } from '@ptah-extension/shared';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
 import {
@@ -88,7 +91,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
    */
   async harvest(workspaceRoot?: string): Promise<HarvestResult> {
     const root = this.resolveSpecsRoot(workspaceRoot);
-    const specs = await this.readSpecs(root);
+    const specs = await this.readSpecs(root, { warnOnSkipped: true });
     let harvested = 0;
     let reconciled = 0;
     const now = Date.now();
@@ -227,7 +230,24 @@ export class SpecHarvesterService implements SpecFindingsPort {
       .slice(0, MAX_FINDINGS_CHARS);
   }
 
-  private async readSpecs(root: string): Promise<HarvestedSpec[]> {
+  /**
+   * Read every `TASK_*` folder under the specs root.
+   *
+   * `extractSpec` returns null for a folder with no readable `task.md` carrier.
+   * Those nulls used to be dropped silently, which made a whole class of
+   * failure — a missed carrier — indistinguishable from "nothing to harvest".
+   * `warnOnSkipped` surfaces them.
+   *
+   * The warn is emitted ONCE PER RUN naming every skipped folder, not once per
+   * folder and not once per read attempt: a workspace can easily carry a dozen
+   * carrier-less folders, and per-folder logging would turn a real signal into
+   * noise. Only `harvest()` opts in — the read-only accessors run on hot paths
+   * where this would repeat without telling anyone anything new.
+   */
+  private async readSpecs(
+    root: string,
+    options: { warnOnSkipped?: boolean } = {},
+  ): Promise<HarvestedSpec[]> {
     let entries: string[];
     try {
       entries = await readdir(root);
@@ -235,10 +255,21 @@ export class SpecHarvesterService implements SpecFindingsPort {
       return [];
     }
     const specs: HarvestedSpec[] = [];
+    const skipped: string[] = [];
     for (const entry of entries) {
       if (!entry.startsWith('TASK_')) continue;
       const spec = await extractSpec(join(root, entry));
-      if (spec) specs.push(spec);
+      if (spec) {
+        specs.push(spec);
+      } else {
+        skipped.push(entry);
+      }
+    }
+    if (options.warnOnSkipped === true && skipped.length > 0) {
+      this.logger.warn(
+        `[spec-harvester] skipped ${skipped.length} TASK_* folder(s) with no valid ${CARRIER_FILE} carrier — invisible to harvesting and to the Tasks board`,
+        { folders: skipped, carrier: CARRIER_FILE },
+      );
     }
     return specs;
   }

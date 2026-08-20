@@ -16,11 +16,11 @@ import {
   ExternalLink,
   LucideAngularModule,
 } from 'lucide-angular';
-import { NavigationComponent } from '../../components/navigation.component';
-import { FooterComponent } from '../../components/footer.component';
-import { GitHubReleaseService } from '../../services/github-release.service';
-import { SeoService } from '../../services/seo.service';
-import { ConsoleGridBackgroundComponent } from '../../components/console/console-grid-background.component';
+import { NavigationComponent } from '@ptah-web/ui';
+import { FooterComponent } from '@ptah-web/ui';
+import { GitHubReleaseService } from '@ptah-web/core';
+import { SeoService } from '@ptah-web/core';
+import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 
 @Component({
   selector: 'ptah-download-page',
@@ -403,11 +403,11 @@ export class DownloadPageComponent {
     inject(SeoService).setPage({
       title: 'Download Ptah — AI Coding Agent for Windows, macOS & Linux',
       description:
-        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. 100-day free trial, no credit card.',
+        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. Free and open source, no credit card.',
       url: 'https://ptah.live/download',
       ogTitle: 'Download Ptah — Windows, macOS & Linux',
       ogDescription:
-        "The desktop AI coding agent that remembers your codebase and works while you're away. 100-day free trial, no credit card.",
+        "The desktop AI coding agent that remembers your codebase and works while you're away. Free and open source, no credit card.",
     });
 
     afterNextRender(() => {

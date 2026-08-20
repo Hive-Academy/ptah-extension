@@ -105,7 +105,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   }
                   @if (segment.toolArgs) {
                     <span
-                      class="text-[10px] text-base-content/40 truncate ml-auto font-mono"
+                      class="text-[10px] text-base-content-muted truncate ml-auto font-mono"
                       >{{ segment.toolArgs }}</span
                     >
                   }
@@ -115,7 +115,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                     class="border-t border-base-content/5 px-2 py-1 max-h-24 overflow-y-auto"
                   >
                     <pre
-                      class="text-[10px] font-mono text-base-content/70 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                      class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                       >{{ segment.content }}</pre
                     >
                   </div>
@@ -147,7 +147,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                   }
                   @if (segment.toolArgs) {
                     <span
-                      class="text-[10px] text-base-content/40 truncate ml-auto font-mono"
+                      class="text-[10px] text-base-content-muted truncate ml-auto font-mono"
                       >{{ segment.toolArgs }}</span
                     >
                   }
@@ -157,7 +157,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                     class="border-t border-base-content/5 px-2 py-1 max-h-24 overflow-y-auto"
                   >
                     <pre
-                      class="text-[10px] font-mono text-base-content/70 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                      class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                       >{{ segment.content }}</pre
                     >
                   </div>
@@ -169,7 +169,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                 class="bg-base-200/30 rounded border border-base-content/5 overflow-hidden"
               >
                 <div class="flex items-center gap-1.5 px-2 py-0.5">
-                  <span class="text-[10px] text-base-content/40"
+                  <span class="text-[10px] text-base-content-muted"
                     >Tool result</span
                   >
                 </div>
@@ -214,7 +214,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
                 class="bg-base-200/40 rounded px-2 py-1 border border-base-content/5"
               >
                 <pre
-                  class="text-[10px] font-mono text-base-content/40 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                  class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                   >{{ segment.content }}</pre
                 >
               </div>
@@ -235,7 +235,7 @@ $ {{ segment.toolName }}</pre
                     class="border-t border-base-content/10 px-2 py-1 max-h-24 overflow-y-auto"
                   >
                     <pre
-                      class="text-[10px] font-mono text-base-content/60 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                      class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                       >{{ segment.content }}</pre
                     >
                   </div>
@@ -259,14 +259,14 @@ $ {{ segment.toolName }}</pre
                     'text-success': segment.changeKind === 'added',
                     'text-info': segment.changeKind === 'modified',
                     'text-error': segment.changeKind === 'deleted',
-                    'text-base-content/50':
+                    'text-base-content-muted':
                       segment.changeKind !== 'added' &&
                       segment.changeKind !== 'modified' &&
                       segment.changeKind !== 'deleted',
                   }"
                   >{{ segment.changeKind }}</span
                 >
-                <code class="text-[10px] font-mono text-base-content/70">{{
+                <code class="text-[10px] font-mono text-base-content-muted">{{
                   segment.content
                 }}</code>
               </div>
@@ -278,7 +278,7 @@ $ {{ segment.toolName }}</pre
                 <summary
                   class="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none hover:bg-base-200/50 transition-colors"
                 >
-                  <span class="text-[10px] font-medium text-base-content/50"
+                  <span class="text-[10px] font-medium text-base-content-muted"
                     >Thinking</span
                   >
                 </summary>
@@ -286,7 +286,7 @@ $ {{ segment.toolName }}</pre
                   class="border-t border-base-content/5 px-2 py-1 max-h-32 overflow-y-auto"
                 >
                   <pre
-                    class="text-[10px] font-mono text-base-content/40 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                    class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                     >{{ segment.content }}</pre
                   >
                 </div>
@@ -297,7 +297,7 @@ $ {{ segment.toolName }}</pre
                 class="bg-base-200/40 rounded px-2 py-1 border border-base-content/5"
               >
                 <pre
-                  class="text-[10px] font-mono text-base-content/35 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                  class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                   >{{ segment.content }}</pre
                 >
               </div>
@@ -326,7 +326,7 @@ $ {{ segment.toolName }}</pre
               class="bg-base-200/40 rounded px-2 py-1 border border-base-content/5 mt-1"
             >
               <pre
-                class="text-[10px] font-mono text-base-content/40 whitespace-pre-wrap break-words m-0 leading-relaxed"
+                class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
                 >{{ seg.content }}</pre
               >
             </div>

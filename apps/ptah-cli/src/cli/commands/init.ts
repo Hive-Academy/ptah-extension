@@ -159,7 +159,7 @@ function buildPlanSteps(snapshot: ReadinessSnapshot): PlanStep[] {
   steps.push({
     id: 'license',
     description:
-      'Set a Ptah license key (optional — Community tier works without one)',
+      'Link a Ptah Builders membership key (optional — Community tier works without one)',
     command: 'ptah license set --key ptah_lic_...',
     satisfied:
       snapshot.license.valid === true && snapshot.license.tier !== 'free',
@@ -244,7 +244,7 @@ async function runInteractive(
   p.note(
     [
       'Three things get you running:',
-      '  1. A Ptah license (optional — Community tier works without one)',
+      '  1. A Ptah Builders membership key (optional — Community tier works without one)',
       '  2. A provider (Anthropic, OpenRouter, Ollama, Copilot, ...)',
       '  3. Credentials for that provider',
     ].join('\n'),
@@ -311,45 +311,40 @@ async function stepLicense(
   transport: CliMessageTransport,
 ): Promise<'done' | 'cancelled'> {
   const hasLicense = await p.confirm({
-    message: 'Do you have a Ptah license key?',
+    message: 'Do you have a Ptah Builders membership key?',
     initialValue: false,
   });
   if (p.isCancel(hasLicense)) return 'cancelled';
 
   if (hasLicense !== true) {
     p.log.info(
-      'Community tier is fine for most usage — continuing without a license.',
+      'Community tier is fine for most usage — continuing without a membership key.',
     );
     return 'done';
   }
 
   const key = await p.password({
-    message: 'Paste your license key (ptah_lic_...)',
+    message: 'Paste your membership key (ptah_lic_...)',
   });
   if (p.isCancel(key)) return 'cancelled';
 
   const spin = p.spinner();
-  spin.start('Validating license key');
+  spin.start('Validating membership key');
   const result = await safeCall<{
     success?: boolean;
     tier?: string;
     error?: string;
   }>(transport, 'license:setKey', { licenseKey: key });
-  spin.stop('License check complete');
+  spin.stop('Membership check complete');
 
   if (result?.success === true) {
-    const status = await safeCall<{ tier?: string }>(
-      transport,
-      'license:getStatus',
-      {},
-    );
     p.note(
-      `Tier: ${status?.tier ?? result.tier ?? 'unknown'}`,
-      'License activated',
+      'Your Ptah Builders membership key is now linked.',
+      'Membership key linked',
     );
   } else {
     p.log.error(
-      `License rejected: ${result?.error ?? 'invalid key'}. Continuing on Community tier.`,
+      `Membership key rejected: ${result?.error ?? 'invalid key'}. Continuing on Community tier.`,
     );
   }
   return 'done';

@@ -113,9 +113,15 @@ export function AgentMonitor(): React.JSX.Element {
   }, [pushAdapter, handleSpawned, handleOutput, handleExited]);
 
   if (agents.length === 0) {
+    // An empty panel has to say what would fill it. "No active agents" on its
+    // own was the entire content of a permanently-open column, and it told you
+    // nothing about how to get one.
     return (
-      <Box paddingX={1}>
-        <Text dimColor>No active agents</Text>
+      <Box flexDirection="column" paddingX={1}>
+        <Text dimColor>No agents running</Text>
+        <Text dimColor italic>
+          Delegated CLI agents appear here while they work
+        </Text>
       </Box>
     );
   }

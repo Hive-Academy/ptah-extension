@@ -25,4 +25,17 @@ export class VsCodePlatformCommands implements IPlatformCommands {
   async focusChat(): Promise<void> {
     await vscode.commands.executeCommand('ptah.main.focus');
   }
+
+  /**
+   * Forward to VS Code's command registry. Anything registered — by Ptah or
+   * by the editor — is reachable, so the caller's allowlist is what keeps a
+   * webview from running arbitrary commands.
+   */
+  async executeCommand(
+    command: string,
+    args?: readonly unknown[],
+  ): Promise<{ handled: boolean; error?: string }> {
+    await vscode.commands.executeCommand(command, ...(args ?? []));
+    return { handled: true };
+  }
 }

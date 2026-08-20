@@ -1,10 +1,17 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+} from 'react';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { TuiTheme } from '../hooks/use-theme.js';
 import { THEMES, DEFAULT_THEME, type ThemeName } from '../lib/themes.js';
+import { adaptTheme, resolveColorDepth } from '../lib/palette.js';
 
 interface ThemeContextValue {
   theme: TuiTheme;
@@ -75,7 +82,19 @@ export function ThemeProvider({
     persistTheme(name);
   }, []);
 
-  const theme = THEMES[themeName];
+  // Adapted once here rather than at every call site, so components keep
+  // reading `theme.ui.accent` and get whatever that colour has to become on
+  // this terminal. See `lib/palette.ts` for why Ink cannot be trusted to
+  // downsample the hex itself.
+  const theme = useMemo(
+    () =>
+      adaptTheme(
+        THEMES[themeName],
+        resolveColorDepth(process.env),
+        themeName === 'light' ? 'light' : 'dark',
+      ),
+    [themeName],
+  );
 
   return (
     <ThemeCtx.Provider value={{ theme, themeName, setTheme, availableThemes }}>

@@ -11,11 +11,10 @@
  *
  *   search <query>             RPC `skillsSh:search`
  *   installed                  RPC `skillsSh:listInstalled`
- *   install <source> [--skill-id <id>] [--scope project|global]
+ *   install <source> [--skill-id <id>]
  *                              RPC `skillsSh:install` (idempotent — second
  *                              run reports `changed: false`)
- *   remove <name> [--scope project|global]
- *                              RPC `skillsSh:uninstall`
+ *   remove <name>              RPC `skillsSh:uninstall`
  *   popular                    RPC `skillsSh:getPopular`
  *   recommended                RPC `skillsSh:detectRecommended`
  *   create [--from-spec <path>] RPC `harness:create-skill`
@@ -25,8 +24,12 @@
  *     `skillsSh:listInstalled` already shows the skill present (matched by
  *     `source` ± `skillId`) before the install call.
  *
- * The `--scope` flag defaults to `project`; `global` is also accepted.
- * Anything else is rejected with `ExitCode.UsageError` BEFORE bootstrapping DI.
+ * `--scope` is GONE (TASK_2026_288). It used to choose between
+ * `{ws}/.claude/skills` and `~/.claude/skills`; a skills.sh skill now lands in a
+ * user-global source root under `~/.ptah/plugins` and is propagated into every
+ * detected CLI by the harness reconciler, so neither value named a real
+ * destination any more. Per-workspace control is `disabledPluginIds` /
+ * `disabledSkillIds`, and unlike an install-time flag it is reversible.
  */
 
 import { promises as fs } from 'node:fs';
@@ -51,8 +54,6 @@ export type SkillSubcommand =
   | 'recommended'
   | 'create';
 
-export type SkillScope = 'project' | 'global';
-
 export interface SkillOptions {
   subcommand: SkillSubcommand;
   /** For `search` — free-form query. */
@@ -63,8 +64,6 @@ export interface SkillOptions {
   skillId?: string;
   /** For `remove` — local skill name. */
   name?: string;
-  /** For `install` / `remove` — installation scope. */
-  scope?: string;
   /** For `create` — optional path to a JSON spec describing the skill. */
   fromSpec?: string;
 }
@@ -83,8 +82,6 @@ export interface SkillExecuteHooks {
    */
   readSpec?: (path: string) => Promise<string>;
 }
-
-const VALID_SCOPES: readonly SkillScope[] = ['project', 'global'];
 
 export async function execute(
   opts: SkillOptions,
@@ -193,14 +190,6 @@ async function runInstall(
   }
   const source = opts.source;
   const skillId = opts.skillId;
-  const scope = parseScope(opts.scope);
-  if (scope === null) {
-    stderr.write(
-      `ptah skill install: --scope must be one of ${VALID_SCOPES.join('|')}\n`,
-    );
-    return ExitCode.UsageError;
-  }
-
   return engine(globals, { mode: 'full' }, async (ctx) => {
     const before = await callRpc<{ skills: InstalledSkill[] }>(
       ctx.transport,
@@ -211,13 +200,11 @@ async function runInstall(
       before?.skills ?? [],
       source,
       skillId,
-      scope,
     );
     if (alreadyInstalled) {
       await formatter.writeNotification('skill.installed', {
         source,
         skillId,
-        scope,
         changed: false,
       });
       return ExitCode.Success;
@@ -225,9 +212,8 @@ async function runInstall(
 
     const params: {
       source: string;
-      scope: SkillScope;
       skillId?: string;
-    } = { source, scope };
+    } = { source };
     if (skillId) {
       params.skillId = skillId;
     }
@@ -242,7 +228,6 @@ async function runInstall(
     await formatter.writeNotification('skill.installed', {
       source,
       skillId,
-      scope,
       changed: true,
     });
     return ExitCode.Success;
@@ -260,14 +245,6 @@ async function runRemove(
     stderr.write('ptah skill remove: <name> is required\n');
     return ExitCode.UsageError;
   }
-  const scope = parseScope(opts.scope);
-  if (scope === null) {
-    stderr.write(
-      `ptah skill remove: --scope must be one of ${VALID_SCOPES.join('|')}\n`,
-    );
-    return ExitCode.UsageError;
-  }
-
   return engine(globals, { mode: 'full' }, async (ctx) => {
     const before = await callRpc<{ skills: InstalledSkill[] }>(
       ctx.transport,
@@ -275,13 +252,11 @@ async function runRemove(
       {},
     );
     const present = (before?.skills ?? []).some(
-      (s) =>
-        (s.source === opts.name || s.name === opts.name) && s.scope === scope,
+      (s) => s.source === opts.name || s.name === opts.name,
     );
     if (!present) {
       await formatter.writeNotification('skill.removed', {
         name: opts.name,
-        scope,
         changed: false,
       });
       return ExitCode.Success;
@@ -290,14 +265,13 @@ async function runRemove(
     const result = await callRpc<{ success: boolean; error?: string }>(
       ctx.transport,
       'skillsSh:uninstall',
-      { name: opts.name, scope },
+      { name: opts.name },
     );
     if (!result?.success) {
       throw new Error(result?.error ?? 'skillsSh:uninstall failed');
     }
     await formatter.writeNotification('skill.removed', {
       name: opts.name,
-      scope,
       changed: true,
     });
     return ExitCode.Success;
@@ -400,31 +374,20 @@ async function runCreate(
   });
 }
 
-function parseScope(raw: string | undefined): SkillScope | null {
-  if (raw === undefined) return 'project';
-  const trimmed = raw.trim();
-  return (VALID_SCOPES as readonly string[]).includes(trimmed)
-    ? (trimmed as SkillScope)
-    : null;
-}
-
 /**
- * A skill is "already installed" at `scope` when the `listInstalled` payload
- * contains an entry whose `source` matches `<source>` (or `<source>/<skillId>`
- * in the case of multi-skill repos) AND whose scope is the requested scope.
+ * A skill is "already installed" when the `listInstalled` payload contains an
+ * entry whose `source` matches `<source>` (or `<source>/<skillId>` for
+ * multi-skill repos), or whose slug matches `skillId`.
  *
- * The Electron handler stores `source` as just `owner/repo` for project-scope
- * skills and as the skill name itself for global scope, so we accept matches
- * on either field.
+ * There is no scope test any more. Every skills.sh skill lives in one
+ * user-global source root, so comparing scopes could only ever be a tautology.
  */
 function isAlreadyInstalled(
   installed: readonly InstalledSkill[],
   source: string,
   skillId: string | undefined,
-  scope: SkillScope,
 ): boolean {
   for (const skill of installed) {
-    if (skill.scope !== scope) continue;
     if (skill.source === source) return true;
     if (skillId && skill.source === `${source}/${skillId}`) return true;
     if (skillId && skill.name === skillId) return true;

@@ -18,7 +18,7 @@
     </div>
 
     <!-- Header -->
-    <div class="chat-header text-xs text-base-content/70 mb-1">
+    <div class="chat-header text-xs text-base-content-muted mb-1">
       Claude
       <time
         class="ml-2 opacity-60"
@@ -49,11 +49,11 @@
           >
             <lucide-angular
               [img]="isCollapsed() ? ChevronRightIcon : ChevronDownIcon"
-              class="w-3.5 h-3.5 text-base-content/50 flex-shrink-0"
+              class="w-3.5 h-3.5 text-base-content-muted flex-shrink-0"
             />
             @if (!isCollapsed()) {
               <span
-                class="flex-1 text-xs text-base-content/70 truncate min-w-0"
+                class="flex-1 text-xs text-base-content-muted truncate min-w-0"
               >
                 {{ summary.title }}
               </span>
@@ -79,7 +79,7 @@
               (click)="toggleCollapse()"
             >
               <p
-                class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2"
+                class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2"
               >
                 {{ summary.description ?? summary.title }}
               </p>
@@ -113,7 +113,7 @@
               class="prose prose-sm max-w-none"
             />
             @if (isStreaming()) {
-              <ptah-typing-cursor colorClass="text-base-content/70" />
+              <ptah-typing-cursor colorClass="text-base-content-muted" />
             }
           }
         </div>
@@ -125,7 +125,7 @@
         as summary
       ) {
         <div
-          class="flex gap-1.5 items-center text-base-content/70 py-0.5"
+          class="flex gap-1.5 items-center text-base-content-muted py-0.5"
           animate.enter="bubble-fade-enter"
           animate.leave="bubble-fade-leave"
         >
@@ -155,7 +155,7 @@
         message().duration !== undefined
       ) {
         <div
-          class="flex gap-1.5 items-center text-base-content/70"
+          class="flex gap-1.5 items-center text-base-content-muted"
           animate.enter="bubble-fade-enter"
           animate.leave="bubble-fade-leave"
         >
@@ -164,8 +164,14 @@
               [count]="message().tokens!.input + message().tokens!.output"
             />
           }
+          <!--
+            No `!` and no undefined-only guard. A turn on a provider with no
+            known pricing carries `cost: null`, which slipped past the old
+            `!== undefined` check and then rendered as "$0.0000" — the badge now
+            takes the nullable value and says "cost unavailable" itself.
+          -->
           @if (message().cost !== undefined) {
-            <ptah-cost-badge [cost]="message().cost!" />
+            <ptah-cost-badge [cost]="message().cost" />
           }
           @if (message().duration !== undefined) {
             <ptah-duration-badge [durationMs]="message().duration!" />
@@ -183,7 +189,7 @@
   <!-- User message (right-aligned) -->
   <div class="chat chat-end group">
     <!-- Header -->
-    <div class="chat-header text-xs text-base-content/70 mb-1">
+    <div class="chat-header text-xs text-base-content-muted mb-1">
       <time
         class="mr-2 opacity-60"
         [attr.datetime]="formatDateTime(message().timestamp)"

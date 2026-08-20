@@ -3,7 +3,6 @@ import {
   ChangeDetectionStrategy,
   inject,
   OnInit,
-  OnDestroy,
   signal,
   computed,
   viewChild,
@@ -19,6 +18,10 @@ import {
   CheckCircle,
   Sparkles,
   PanelRightClose,
+  RotateCcw,
+  History,
+  Square,
+  AlertCircle,
 } from 'lucide-angular';
 import { FormsModule } from '@angular/forms';
 import {
@@ -38,15 +41,9 @@ import type {
 } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
-import {
-  HarnessWorkflowService,
-  type HarnessWorkflowMode,
-} from '../services/harness-workflow.service';
+import { HarnessWorkflowService } from '../services/harness-workflow.service';
+import { formatIntakeSummary } from '../services/new-project-intake';
 import { HarnessConfigPreviewComponent } from './harness-config-preview.component';
-
-interface UserBubble {
-  text: string;
-}
 
 @Component({
   selector: 'ptah-harness-builder-view',
@@ -72,7 +69,7 @@ interface UserBubble {
     `,
   ],
   template: `
-    @if (isInitializing()) {
+    @if (showInitializing()) {
       <div class="flex items-center justify-center h-full">
         <div class="text-center">
           <lucide-angular
@@ -80,15 +77,15 @@ interface UserBubble {
             class="w-8 h-8 animate-spin text-primary mx-auto"
             aria-hidden="true"
           />
-          <p class="mt-3 text-sm text-base-content/60">
+          <p class="mt-3 text-sm text-base-content-muted">
             Initializing AI Team Builder...
           </p>
         </div>
       </div>
-    } @else if (initError()) {
+    } @else if (displayInitError()) {
       <div class="flex items-center justify-center h-full">
         <div class="alert alert-error max-w-md">
-          <span>{{ initError() }}</span>
+          <span>{{ displayInitError() }}</span>
           <button class="btn btn-sm" (click)="initializeBuilder()">
             Retry
           </button>
@@ -103,12 +100,36 @@ interface UserBubble {
             {{ headerTitle() }}
           </h1>
           @if (state.configSummary() !== 'No configuration yet') {
-            <span class="text-xs text-base-content/40 hidden sm:inline">
+            <span class="text-xs text-base-content-muted hidden sm:inline">
               {{ state.configSummary() }}
+            </span>
+          }
+          @if (state.workspaceSwitchedDuringBuild()) {
+            <span
+              class="badge badge-warning badge-sm gap-1"
+              role="status"
+              title="You switched workspaces mid-build. This configuration will still be applied to the workspace this build started in."
+            >
+              Targeting {{ pinnedWorkspaceName() }}
             </span>
           }
         </div>
         <div class="flex items-center gap-1">
+          @if (isProcessing()) {
+            <button
+              class="btn btn-ghost btn-sm text-error"
+              (click)="stopWorkflow()"
+              aria-label="Stop the running agent — keeps this transcript"
+              data-testid="workflow-stop"
+            >
+              <lucide-angular
+                [img]="SquareIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+              <span class="hidden sm:inline text-xs">Stop</span>
+            </button>
+          }
           <button
             class="btn btn-ghost btn-sm"
             (click)="toggleSidePanel()"
@@ -124,10 +145,26 @@ interface UserBubble {
               {{ showSidePanel() ? 'Hide panel' : 'Show panel' }}
             </span>
           </button>
+          @if (workflow.isActive()) {
+            <button
+              class="btn btn-ghost btn-sm"
+              (click)="requestStartOver()"
+              aria-label="Start over — discard this workflow"
+              data-testid="workflow-start-over"
+            >
+              <lucide-angular
+                [img]="RotateCcwIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              <span class="hidden sm:inline text-xs">Start over</span>
+            </button>
+          }
           <button
             class="btn btn-ghost btn-sm btn-circle"
-            (click)="requestClose()"
-            aria-label="Close AI Team Builder"
+            (click)="leaveBuilder()"
+            aria-label="Back to chat — this workflow keeps running"
+            data-testid="workflow-leave"
           >
             <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
           </button>
@@ -158,11 +195,56 @@ interface UserBubble {
                 <h2 class="text-lg font-semibold text-base-content mb-2">
                   Describe your AI team
                 </h2>
-                <p class="text-sm text-base-content/50 max-w-md">
+                <p class="text-sm text-base-content-muted max-w-md">
                   Tell me what you're building and I'll plan it with you, then
                   configure the agents, skills, prompts, and MCP servers for
                   your workspace.
                 </p>
+              </div>
+            }
+
+            @if (workflow.resumedFromReload()) {
+              <div
+                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20 text-xs text-base-content-muted"
+                role="status"
+                data-testid="workflow-resumed-note"
+              >
+                <lucide-angular
+                  [img]="HistoryIcon"
+                  class="w-3.5 h-3.5 text-info shrink-0"
+                  aria-hidden="true"
+                />
+                <span
+                  >Resumed after reload — earlier output replayed below.</span
+                >
+              </div>
+            }
+
+            @if (workflow.error(); as workflowError) {
+              <div
+                class="flex items-start gap-2 px-3 py-2 rounded-lg bg-error/10 border border-error/30 text-sm text-base-content"
+                role="alert"
+                data-testid="workflow-error"
+              >
+                <lucide-angular
+                  [img]="AlertCircleIcon"
+                  class="w-4 h-4 text-error shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <span class="flex-1">{{ workflowError }}</span>
+                <button
+                  class="btn btn-ghost btn-xs btn-circle shrink-0"
+                  type="button"
+                  (click)="dismissError()"
+                  aria-label="Dismiss error"
+                  data-testid="workflow-error-dismiss"
+                >
+                  <lucide-angular
+                    [img]="XIcon"
+                    class="w-3.5 h-3.5"
+                    aria-hidden="true"
+                  />
+                </button>
               </div>
             }
 
@@ -191,7 +273,7 @@ interface UserBubble {
               <div class="flex justify-start">
                 <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-base-200">
                   <span
-                    class="loading loading-dots loading-sm text-base-content/50"
+                    class="loading loading-dots loading-sm text-base-content-muted"
                   ></span>
                 </div>
               </div>
@@ -321,11 +403,10 @@ interface UserBubble {
               id="harness-close-title"
               class="text-base font-semibold text-base-content mb-2"
             >
-              Discard unsaved changes?
+              Start over?
             </h2>
-            <p class="text-sm text-base-content/70 mb-4">
-              You have an in-progress AI team configuration. Closing now will
-              reset it.
+            <p class="text-sm text-base-content-muted mb-4">
+              {{ startOverWarning() }}
             </p>
             <div class="flex justify-end gap-2">
               <button
@@ -333,14 +414,15 @@ interface UserBubble {
                 (click)="cancelClose()"
                 type="button"
               >
-                Keep editing
+                Keep this workflow
               </button>
               <button
                 class="btn btn-error btn-sm"
                 (click)="confirmClose()"
                 type="button"
+                data-testid="workflow-start-over-confirm"
               >
-                Discard and close
+                Discard and start over
               </button>
             </div>
           </div>
@@ -349,10 +431,10 @@ interface UserBubble {
     }
   `,
 })
-export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
+export class HarnessBuilderViewComponent implements OnInit {
   protected readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
-  private readonly workflow = inject(HarnessWorkflowService);
+  protected readonly workflow = inject(HarnessWorkflowService);
   private readonly navigation = inject(WebviewNavigationService);
   private readonly appState = inject(AppStateManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
@@ -365,6 +447,10 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly SparklesIcon = Sparkles;
   protected readonly PanelRightCloseIcon = PanelRightClose;
+  protected readonly RotateCcwIcon = RotateCcw;
+  protected readonly HistoryIcon = History;
+  protected readonly SquareIcon = Square;
+  protected readonly AlertCircleIcon = AlertCircle;
 
   private readonly scrollContainer =
     viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
@@ -375,9 +461,12 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
   readonly showSidePanel = signal(true);
   readonly showCloseConfirmation = signal(false);
 
-  private readonly _viewMode = signal<HarnessWorkflowMode>('configure-harness');
-  private readonly _userBubbles = signal<UserBubble[]>([]);
-  readonly userBubbles = this._userBubbles.asReadonly();
+  /**
+   * Transcript and mode live on the root {@link HarnessWorkflowService}, not
+   * here — this component is destroyed on every navigation away, and holding
+   * them locally is what used to drop a live run.
+   */
+  readonly userBubbles = this.workflow.userBubbles;
 
   protected messageText = '';
 
@@ -385,10 +474,45 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
     this.workflow.isProcessing(),
   );
 
+  /**
+   * Show the initializing spinner for the component's own initial load AND
+   * while the state service re-initializes after an idle workspace switch, so
+   * the view is never left silently empty during a follow-the-workspace
+   * re-init (review Issue 1).
+   */
+  protected readonly showInitializing = computed(
+    () => this.isInitializing() || this.state.isLoading(),
+  );
+
+  /**
+   * Surface either the component's own init error OR a service-level re-init
+   * failure so the Retry button appears in both cases. Retry calls
+   * `initializeBuilder()`, which clears both on success.
+   */
+  protected readonly displayInitError = computed(
+    () => this.initError() ?? this.state.error(),
+  );
+
   protected readonly headerTitle = computed(() =>
-    this._viewMode() === 'new-project'
+    this.workflow.viewMode() === 'new-project'
       ? 'New Project Setup'
       : 'AI Team Builder',
+  );
+
+  /** Consequence text for the Start over dialog, tuned to what is at risk. */
+  protected readonly startOverWarning = computed(() => {
+    if (this.isProcessing()) {
+      return 'This workflow is still running. Starting over abandons the run and clears the transcript.';
+    }
+    if (this.hasAnyConfig()) {
+      return 'You have an in-progress AI team configuration. Starting over clears it along with the transcript.';
+    }
+    return 'This clears the transcript and releases the workflow session.';
+  });
+
+  /** Name of the pinned (original) workspace, shown in the switch badge. */
+  protected readonly pinnedWorkspaceName = computed(
+    () => this.state.workspaceContext()?.projectName ?? 'original workspace',
   );
 
   protected readonly executionNodes = computed(() => {
@@ -415,12 +539,12 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
   protected readonly surfaceQuestions = computed(() =>
     this.permissionHandler
       .questionRequests()
-      .filter((q) => this.permissionHandler.hasSurfaceTargets(q.id)),
+      .filter((q) => this.permissionHandler.hasSurfaceQuestionTargets(q.id)),
   );
 
   constructor() {
     effect(() => {
-      this._userBubbles();
+      this.userBubbles();
       this.state.streamingState();
       const container = this.scrollContainer()?.nativeElement;
       if (container) {
@@ -439,27 +563,43 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
     this.initializeBuilder();
 
     const request = this.appState.consumeHarnessWorkflowRequest();
-    if (request) {
-      this._viewMode.set(request.mode);
-      if (request.mode === 'new-project' && request.seedPrompt) {
-        this._userBubbles.set([{ text: request.seedPrompt }]);
-        this.workflow
-          .startWorkflow('new-project', request.seedPrompt)
-          .catch((error: unknown) => {
-            console.error(
-              '[HarnessBuilderView] startWorkflow failed:',
-              error instanceof Error ? error.message : String(error),
-            );
-          });
-      }
+    if (!request) return;
+
+    this.workflow.setViewMode(request.mode);
+    if (request.mode !== 'new-project' || !request.seedPrompt) return;
+
+    // The visible first turn is the user's intake answers; the seed prompt is
+    // the instruction block the agent gets. Rendering the latter as a user
+    // bubble is what made this flow read as "hardcoded".
+    if (request.intake) {
+      this.workflow.setUserBubbles([
+        { text: formatIntakeSummary(request.intake) },
+      ]);
     }
+    this.workflow
+      .startWorkflow('new-project', request.seedPrompt)
+      .catch((error: unknown) => {
+        console.error(
+          '[HarnessBuilderView] startWorkflow failed:',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
   }
 
-  public ngOnDestroy(): void {
-    this.workflow.dispose();
-  }
-
+  /**
+   * Load agents / skills / presets and pin the workspace root.
+   *
+   * Skipped when the store is already initialized AND a workflow is live: the
+   * view re-mounts on every navigation back, and re-running
+   * `harness:initialize` there would re-pin the workspace root and clear the
+   * "switched workspace mid-build" badge under a running agent.
+   */
   public async initializeBuilder(): Promise<void> {
+    if (this.state.hasInitialized() && this.workflow.isActive()) {
+      this.isInitializing.set(false);
+      return;
+    }
+
     this.isInitializing.set(true);
     this.initError.set(null);
 
@@ -477,12 +617,21 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
     }
   }
 
-  public requestClose(): void {
-    if (this.hasAnyConfig()) {
+  /**
+   * Leave the builder WITHOUT tearing the workflow down. Navigating away is
+   * not a decision to abandon a running agent — only "Start over" is.
+   */
+  protected leaveBuilder(): void {
+    this.navigation.navigateToView('chat');
+  }
+
+  /** Discard the workflow. Confirms whenever there is something to lose. */
+  public requestStartOver(): void {
+    if (this.isProcessing() || this.hasAnyConfig()) {
       this.showCloseConfirmation.set(true);
       return;
     }
-    this.performClose();
+    void this.performStartOver();
   }
 
   protected cancelClose(): void {
@@ -491,13 +640,31 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
 
   protected confirmClose(): void {
     this.showCloseConfirmation.set(false);
-    this.performClose();
+    void this.performStartOver();
   }
 
-  private performClose(): void {
-    this.workflow.dispose();
+  protected dismissError(): void {
+    this.workflow.clearError();
+  }
+
+  /**
+   * Stop the agent but keep everything else. Distinct from "Start over": the
+   * transcript, the surface and any config produced so far all survive, so the
+   * user can read what happened and send another turn.
+   */
+  protected async stopWorkflow(): Promise<void> {
+    await this.workflow.abort();
+  }
+
+  /**
+   * Discard the workflow. Aborts the backend session FIRST — `dispose()` only
+   * releases the frontend claim and closes the surface, so on its own it left
+   * the agent running against a surface nobody was listening to.
+   */
+  private async performStartOver(): Promise<void> {
+    await this.workflow.abortAndDispose();
     this.state.reset();
-    this.navigation.navigateToView('chat');
+    this.navigation.navigateToView('setup-hub');
   }
 
   protected onKeydown(event: KeyboardEvent): void {
@@ -512,10 +679,10 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
     if (!text || this.isProcessing()) return;
 
     this.messageText = '';
-    this._userBubbles.update((bubbles) => [...bubbles, { text }]);
+    this.workflow.addUserBubble(text);
 
     if (!this.workflow.isActive()) {
-      if (this._viewMode() === 'configure-harness') {
+      if (this.workflow.viewMode() === 'configure-harness') {
         try {
           const composed = await this.rpc.workflowPrompt({
             mode: 'configure-harness',
@@ -533,7 +700,7 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
         }
         return;
       }
-      await this.workflow.startWorkflow(this._viewMode(), text);
+      await this.workflow.startWorkflow(this.workflow.viewMode(), text);
       return;
     }
 
@@ -560,6 +727,8 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
         },
         skills: {
           selectedSkills: partial.skills?.selectedSkills ?? [],
+          // Origin metadata the backend needs to install skills.sh entries.
+          selectedSkillRefs: partial.skills?.selectedSkillRefs ?? [],
           createdSkills: partial.skills?.createdSkills ?? [],
         },
         prompt: {
@@ -579,9 +748,11 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
         createdAt: partial.createdAt ?? now,
         updatedAt: now,
       };
+      const pinnedRoot = this.state.pinnedWorkspaceRoot();
       await this.rpc.apply({
         config: fullConfig,
         outputFormat: 'claude-md',
+        ...(pinnedRoot ? { workspaceRoot: pinnedRoot } : {}),
       });
     } catch (err) {
       this.initError.set(

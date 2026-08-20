@@ -29,10 +29,16 @@ import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   SetupRpcHandlers,
   registerSharedRpcHandlers,
+  resolveRpcHandlerPlan,
 } from '@ptah-extension/rpc-handlers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import {
+  EXPECTED_ABSENT_CAPABILITIES,
+  EXPECTED_ABSENT_HANDLERS,
+} from './expected-absent';
+import { createVscodeRpcHostProfile } from '../rpc-host-profile';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -58,7 +64,7 @@ function buildMinimalContainer(): DependencyContainer {
     useValue: { captureException: jest.fn(), captureMessage: jest.fn() },
   });
   c.register(TOKENS.LICENSE_SERVICE, {
-    useValue: { getStatus: jest.fn(), isPremium: jest.fn(() => false) },
+    useValue: { getStatus: jest.fn() },
   });
   c.register(TOKENS.SAVE_DIALOG_PROVIDER, {
     useValue: { showSaveDialog: jest.fn() },
@@ -162,4 +168,32 @@ describe('VS Code DI — shared RPC handler resolution', () => {
       expect(typeof ms.selectedModel.get).toBe('function');
     }
   });
+});
+
+describe('VS Code DI — handlers that must NOT be constructed', () => {
+  const profile = createVscodeRpcHostProfile({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+  } as unknown as Parameters<typeof createVscodeRpcHostProfile>[0]);
+
+  const planned = new Set(
+    resolveRpcHandlerPlan(profile).map((step) => step.ctor),
+  );
+
+  it.each(EXPECTED_ABSENT_HANDLERS.map((c) => [c.name, c] as const))(
+    'never constructs %s',
+    (_name, Ctor) => {
+      expect(planned.has(Ctor as never)).toBe(false);
+    },
+  );
+
+  it.each(EXPECTED_ABSENT_CAPABILITIES.map((c) => [c] as const))(
+    'keeps the %s capability off',
+    (capability) => {
+      expect(profile.capabilities[capability]).toBe(false);
+    },
+  );
 });

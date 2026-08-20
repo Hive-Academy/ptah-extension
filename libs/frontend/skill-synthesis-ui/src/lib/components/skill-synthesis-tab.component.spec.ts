@@ -3,6 +3,7 @@ import { signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
+  SkillSynthesisSettingsDto,
   EligibilityHistogramDto,
   SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
@@ -12,10 +13,19 @@ import type {
   SkillSynthesisPromoteResult,
   SkillSynthesisRejectByPatternResult,
   SkillSynthesisStatsResult,
+  SkillSynthesisDrainRun,
+  SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
+  SkillDigestItem,
 } from '@ptah-extension/shared';
 
-import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
+import {
+  SkillSynthesisTabComponent,
+  skillSettingsDtoToForm,
+  skillSettingsFormToDto,
+} from './skill-synthesis-tab.component';
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
+import type { RefreshDigestOptions } from '../services/skill-synthesis-state.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 
 interface DiagnosticsStub {
@@ -186,14 +196,48 @@ interface StubState {
   readonly candidateDetail: ReturnType<typeof signal<unknown>>;
   readonly candidateDetailLoading: ReturnType<typeof signal<boolean>>;
   readonly loadCandidateDetail: jest.Mock<Promise<void>, [string | null]>;
+  readonly drainRuns: ReturnType<typeof signal<SkillSynthesisDrainRun[]>>;
+  readonly queueItems: ReturnType<typeof signal<SkillSynthesisQueueItem[]>>;
+  readonly stageSpend: ReturnType<typeof signal<SkillSynthesisStageSpend[]>>;
+  readonly queueLoading: ReturnType<typeof signal<boolean>>;
+  readonly queuedAttemptTotal: ReturnType<typeof computed<number>>;
+  readonly refreshQueue: jest.Mock<Promise<void>, []>;
+  readonly digestItems: ReturnType<typeof signal<SkillDigestItem[]>>;
+  readonly digestLoading: ReturnType<typeof signal<boolean>>;
+  /**
+   * Takes the options bag so B4.8's `allowRewrite:false` is assertable at the
+   * init seam. A bare `[]` here would make `toHaveBeenCalledWith({…})` a type
+   * error and push the money rule out of this spec's reach.
+   */
+  readonly refreshDigest: jest.Mock<Promise<void>, [RefreshDigestOptions?]>;
 }
 
 function makeStub(
   candidatesValue: SkillSynthesisCandidateSummary[] = [],
+  queueValue: {
+    items?: SkillSynthesisQueueItem[];
+    runs?: SkillSynthesisDrainRun[];
+    stageSpend?: SkillSynthesisStageSpend[];
+    digest?: SkillDigestItem[];
+  } = {},
 ): StubState {
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
   const suggestions = signal<SkillSuggestionSummary[]>([]);
+  const queueItems = signal<SkillSynthesisQueueItem[]>(queueValue.items ?? []);
   return {
+    drainRuns: signal<SkillSynthesisDrainRun[]>(queueValue.runs ?? []),
+    queueItems,
+    stageSpend: signal<SkillSynthesisStageSpend[]>(queueValue.stageSpend ?? []),
+    queueLoading: signal<boolean>(false),
+    queuedAttemptTotal: computed(() =>
+      queueItems().reduce((sum, item) => sum + item.attemptCount, 0),
+    ),
+    refreshQueue: jest.fn(async () => undefined),
+    digestItems: signal<SkillDigestItem[]>(queueValue.digest ?? []),
+    digestLoading: signal<boolean>(false),
+    refreshDigest: jest.fn(
+      async (_options?: RefreshDigestOptions) => undefined,
+    ),
     candidates,
     suggestions,
     suggestionsLoading: signal<boolean>(false),
@@ -278,6 +322,138 @@ describe('SkillSynthesisTabComponent', () => {
     expect(stub.refreshCandidates).toHaveBeenCalledTimes(1);
     expect(stub.loadStats).toHaveBeenCalledTimes(1);
     expect(diag.refresh).toHaveBeenCalledTimes(1);
+    expect(stub.refreshQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('feeds drain runs and queue rows from state into the pipeline strip', () => {
+    const stub = makeStub([], {
+      runs: [
+        {
+          id: 'run-a',
+          jobId: '@ptah/skills-drain-nightly',
+          tier: 'nightly',
+          scheduledFor: 1_700_000_000_000,
+          startedAt: 1_700_000_000_000,
+          endedAt: 1_700_000_004_000,
+          status: 'succeeded',
+          durationMs: 4_000,
+          summary: 'drained 3 items',
+        },
+      ],
+      items: [
+        {
+          id: 'q-1',
+          sessionId: 's-1',
+          workspaceRoot: '/w',
+          stage: 'archaeology',
+          status: 'queued',
+          attemptCount: 2,
+          enqueuedAt: 1_700_000_000_000,
+          notBefore: 0,
+          finishedAt: null,
+          lane: null,
+          reason: null,
+          candidateId: null,
+        },
+      ],
+    });
+    const diag = makeDiagnosticsStub();
+
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: SkillDiagnosticsStateService, useValue: diag },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    openActivity(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    const runs = root.querySelectorAll('[data-testid="skills-drain-run"]');
+    expect(runs.length).toBe(1);
+    expect(runs[0].textContent).toContain('succeeded');
+    expect(runs[0].textContent).toContain('4.0s');
+
+    const stages = root.querySelectorAll('[data-testid="skills-stage-cost"]');
+    expect(stages.length).toBe(1);
+    expect(stages[0].textContent).toContain('archaeology');
+    expect(stages[0].textContent).toContain('2 dispatches');
+  });
+
+  /**
+   * B4.5.1 — the digest is a sibling of the pipeline strip on Activity, and it
+   * is fetched at init like the queue is. The `null` win rate is carried
+   * through the whole tab wiring here, not just unit-tested on the panel, so a
+   * host that coalesced the field on the way down would still be caught.
+   */
+  it('feeds the weekly digest from state into the Activity panel', () => {
+    const stub = makeStub([], {
+      digest: [
+        {
+          kind: 'missed-trigger',
+          title: 'compose skill never fired',
+          rationale: '3 sessions matched and none invoked it.',
+          score: 0.82,
+          evidence: {
+            sessionIds: ['sess-1', 'sess-2'],
+            counts: { missedSessions: 3 },
+            winRate: null,
+          },
+        },
+        {
+          kind: 'win-rate',
+          title: 'lint-fixer loses every run',
+          rationale: 'Measured over 6 invocations.',
+          score: 0.44,
+          evidence: {
+            sessionIds: ['sess-3'],
+            counts: { invocations: 6 },
+            winRate: 0,
+          },
+        },
+      ],
+    });
+    const diag = makeDiagnosticsStub();
+
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: SkillDiagnosticsStateService, useValue: diag },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    expect(stub.refreshDigest).toHaveBeenCalledTimes(1);
+    // B4.8 — OPENING A TAB IS NOT A REQUEST TO SPEND. The sweep behind this
+    // call can author its description rewrite on an LLM lane, and nothing
+    // budgets that: the `digest` queue stage has no handler and no producer, so
+    // the drain's daily token gate never sees a digest item. `ngOnInit` is an
+    // automatic path, so it reads.
+    expect(stub.refreshDigest).toHaveBeenCalledWith({ allowRewrite: false });
+
+    openActivity(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    const items = root.querySelectorAll('[data-testid="skills-digest-item"]');
+    expect(items.length).toBe(2);
+
+    const winRates = Array.from(items).map((n) =>
+      n
+        .querySelector('[data-testid="skills-digest-win-rate"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    );
+    // `null` and a measured `0` must stay distinguishable end to end.
+    expect(winRates).toEqual(['win rate not measured', 'win rate 0%']);
   });
 
   it('switches to the Activity sub-view when its tab is clicked', () => {
@@ -419,6 +595,15 @@ describe('SkillSynthesisTabComponent', () => {
         promotedAt: null,
         rejectedAt: null,
         rejectedReason: null,
+        pinned: false,
+        displayName: 'Share one Jest preset across libs',
+        judgeScore: null,
+        judgeStatus: null,
+        judgeReason: null,
+        judgeCriteria: null,
+        replayConfidence: null,
+        triggerScore: null,
+        judgePanelRationales: null,
       },
     ]);
     const diag = makeDiagnosticsStub();
@@ -438,7 +623,10 @@ describe('SkillSynthesisTabComponent', () => {
     openSessions(fixture);
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('refactor-tests');
+    // The TITLE, not the `name` slug — the slug is a prompt fragment and is
+    // never rendered (P1-10).
+    expect(text).toContain('Share one Jest preset across libs');
+    expect(text).not.toContain('refactor-tests');
     expect(text).toContain('Promote');
     expect(text).toContain('Reject');
   });
@@ -465,10 +653,158 @@ describe('SkillSynthesisTabComponent', () => {
 
     expect(stub.refreshCandidates).not.toHaveBeenCalled();
     expect(stub.loadStats).not.toHaveBeenCalled();
+    expect(stub.refreshQueue).not.toHaveBeenCalled();
 
     const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll(
       '[role="tab"]',
     );
     expect(tabs.length).toBe(0);
+  });
+});
+
+/**
+ * SKILL_SETTINGS_MAPPERS round-trip.
+ *
+ * These two functions are the ONLY place the dotted wire keys and the nested
+ * form paths meet, and TypeScript cannot police them: `skillSettingsFormToDto`
+ * opens its return literal with `...(flat as unknown as
+ * SkillSynthesisSettingsDto)`, and a spread typed as the full DTO satisfies
+ * every required key. So a forgotten mapper line compiles clean, emits
+ * `undefined` on the wire, passes the `.partial()` update schema, and reaches
+ * `setConfiguration('ptah', 'skillSynthesis.drain.nightlyMaxItemsPerRun',
+ * undefined)` — wiping a value the user set in `~/.ptah/settings.json`,
+ * silently, on every Save. This spec is the only thing standing there.
+ */
+describe('skill settings mappers', () => {
+  /**
+   * Distinct, deliberately NON-default values for the three item caps (4 / 40 /
+   * 400 are the shipped defaults) so a value crossing wires between the tiers
+   * shows up as a mismatch instead of passing by accident.
+   */
+  const dto: SkillSynthesisSettingsDto = {
+    enabled: true,
+    successesToPromote: 3,
+    dedupCosineThreshold: 0.85,
+    maxActiveSkills: 50,
+    candidatesDir: '.ptah/skills',
+    eligibilityMinTurns: 5,
+    evictionDecayRate: 0.95,
+    generalizationContextThreshold: 3,
+    dedupClusterThreshold: 0.78,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
+    judgeEnabled: true,
+    minJudgeScore: 6,
+    judgeModel: 'inherit',
+    maxPinnedSkills: 10,
+    curatorEnabled: true,
+    curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
+    'drain.cronExpr': '*/15 * * * *',
+    'drain.nightlyCronExpr': '0 3 * * *',
+    'drain.weeklyCronExpr': '0 4 * * 0',
+    'drain.maxItemsPerRun': 7,
+    'drain.nightlyMaxItemsPerRun': 55,
+    'drain.weeklyMaxItemsPerRun': 321,
+    'drain.perWorkspaceBatch': 1,
+    'drain.foregroundBackoffMs': 300_000,
+    'drain.pauseOnBattery': true,
+    'drain.maxAttempts': 5,
+    'drain.staleClaimTtlMs': 900_000,
+    'budget.maxTokensPerDay': 2_000_000,
+    trayKeepalive: false,
+  };
+
+  /**
+   * The REAL production path, and the only one that proves anything.
+   *
+   * `loadSettings` does `patchValue(skillSettingsDtoToForm(s))` and
+   * `onSaveSettings` does `skillSettingsFormToDto(settingsForm.getRawValue())`.
+   * The FORM in the middle is what makes a dropped mapper line fatal: it holds
+   * only declared controls, so `patchValue` discards a key with no control and
+   * `getRawValue()` never re-emits one.
+   *
+   * Chaining the two mappers directly instead would be a FALSE pin — verified,
+   * not assumed: `skillSettingsDtoToForm` spreads `...dto`, leaving the dotted
+   * keys in `flat`, which `skillSettingsFormToDto`'s own `...flat` re-emits. A
+   * deleted mapper line still round-trips clean that way.
+   */
+  function saveThroughForm(): SkillSynthesisSettingsDto {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    // No `detectChanges()`: this exercises the form, not the template, and
+    // `ngOnInit` would fire a wall of RPC reads we do not need here.
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+    return skillSettingsFormToDto(form.getRawValue());
+  }
+
+  it('round-trips all three per-tier item caps without crossing them', () => {
+    const out = saveThroughForm();
+
+    expect(out['drain.maxItemsPerRun']).toBe(7);
+    expect(out['drain.nightlyMaxItemsPerRun']).toBe(55);
+    expect(out['drain.weeklyMaxItemsPerRun']).toBe(321);
+  });
+
+  it('never emits undefined for a per-tier item cap', () => {
+    const out = saveThroughForm();
+
+    // `undefined` is the exact shape the laundering cast lets through, and it
+    // is what would reach `setConfiguration('ptah', '…', undefined)` and erase
+    // the user's `~/.ptah/settings.json` value on every Save. `toBeDefined()`
+    // alone would also pass on a MISSING key, so assert presence separately.
+    expect('drain.nightlyMaxItemsPerRun' in out).toBe(true);
+    expect('drain.weeklyMaxItemsPerRun' in out).toBe(true);
+    expect(out['drain.nightlyMaxItemsPerRun']).not.toBeUndefined();
+    expect(out['drain.weeklyMaxItemsPerRun']).not.toBeUndefined();
+  });
+
+  it('lands both new caps on their own form controls', () => {
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    const form = TestBed.createComponent(SkillSynthesisTabComponent)
+      .componentInstance.settingsForm;
+    form.patchValue(skillSettingsDtoToForm(dto));
+
+    // Pins the READ direction and the control's existence independently of the
+    // write direction: a missing control makes the panel render a blank input.
+    expect(form.get('drain.nightlyMaxItemsPerRun')?.value).toBe(55);
+    expect(form.get('drain.weeklyMaxItemsPerRun')?.value).toBe(321);
+  });
+
+  it('drops the nested drain / budget groups from the outgoing DTO', () => {
+    const out = saveThroughForm();
+
+    // Sending both shapes would offer the backend two keys for one setting.
+    expect('drain' in out).toBe(false);
+    expect('budget' in out).toBe(false);
+  });
+
+  it('round-trips every settings key unchanged', () => {
+    expect(saveThroughForm()).toEqual(dto);
   });
 });

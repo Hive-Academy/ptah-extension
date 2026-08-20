@@ -23,7 +23,16 @@ import {
   ProviderSetModelTierSchema,
   ProviderGetModelTiersSchema,
   ProviderClearModelTierSchema,
+  ProviderAddCustomEntrySchema,
+  ProviderUpdateCustomEntrySchema,
+  ProviderRemoveCustomEntrySchema,
+  ProviderTestCustomEntrySchema,
 } from './provider-rpc.schema';
+import {
+  SETTINGS_TOKENS,
+  CustomProviderStore,
+} from '@ptah-extension/settings-core';
+import { probeCustomProvider } from '../utils/custom-provider-probe';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import {
@@ -53,6 +62,16 @@ import {
   ProviderGetModelTiersResult,
   ProviderClearModelTierParams,
   ProviderClearModelTierResult,
+  ProviderListCustomEntriesParams,
+  ProviderListCustomEntriesResult,
+  ProviderAddCustomEntryParams,
+  ProviderAddCustomEntryResult,
+  ProviderUpdateCustomEntryParams,
+  ProviderUpdateCustomEntryResult,
+  ProviderRemoveCustomEntryParams,
+  ProviderRemoveCustomEntryResult,
+  ProviderTestCustomEntryParams,
+  ProviderTestCustomEntryResult,
   getModelPricingDescription,
   getModelContextWindow,
 } from '@ptah-extension/shared';
@@ -69,6 +88,11 @@ export class ProviderRpcHandlers {
     'provider:setModelTier',
     'provider:getModelTiers',
     'provider:clearModelTier',
+    'provider:listCustomEntries',
+    'provider:addCustomEntry',
+    'provider:updateCustomEntry',
+    'provider:removeCustomEntry',
+    'provider:testCustomEntry',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -96,6 +120,8 @@ export class ProviderRpcHandlers {
     private readonly codexAuthService: CodexAuthService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE)
+    private readonly customProviders: CustomProviderStore,
   ) {}
 
   /**
@@ -110,14 +136,10 @@ export class ProviderRpcHandlers {
     this.registerSetModelTier();
     this.registerGetModelTiers();
     this.registerClearModelTier();
+    this.registerCustomEntryMethods();
 
     this.logger.debug('Provider RPC handlers registered', {
-      methods: [
-        'provider:listModels',
-        'provider:setModelTier',
-        'provider:getModelTiers',
-        'provider:clearModelTier',
-      ],
+      methods: ProviderRpcHandlers.METHODS,
     });
   }
 
@@ -333,16 +355,39 @@ export class ProviderRpcHandlers {
 
     // The virtual 'anthropic' direct provider and the native 'claude-cli'
     // ptah-cli provider share the same auth path — both resolve models from the
-    // host's Claude login via the SDK (no API key needed). Register the same
-    // live fetcher for both so the model dropdown shows subscription-appropriate
-    // models. Unlike 'anthropic' (not in the registry), 'claude-cli' also has
-    // CLAUDE_CLI_PROVIDER_ENTRY.staticModels as a registry fallback when the
-    // SDK lookup returns nothing.
+    // host's Claude login via the SDK (no API key needed).
     this.providerModels.registerDynamicFetcher(
       ANTHROPIC_DIRECT_PROVIDER_ID,
       fetcher,
     );
-    this.providerModels.registerDynamicFetcher('claude-cli', fetcher);
+
+    // 'claude-cli' is a `nativeAuth` provider: an agent running on it ALWAYS
+    // spawns with an EMPTY auth env (see CLAUDE_CLI_PROVIDER_ENTRY /
+    // PtahCliRegistry.buildAuthEnv), so it always talks to the host's real
+    // Claude login. The fetcher above reads the PROCESS-GLOBAL AuthEnv — when a
+    // third-party provider is active (Codex, Copilot, Moonshot, …) its proxy
+    // owns ANTHROPIC_BASE_URL and the SDK reports THAT catalog instead. Ask the
+    // SDK under the native login so this list always matches what the agent
+    // actually runs on, whatever the active provider happens to be.
+    this.providerModels.registerDynamicFetcher('claude-cli', async () => {
+      const models = await this.sdkAdapter.getNativeClaudeModels();
+      if (models.length === 0) {
+        this.logger.debug(
+          '[ProviderRpc] claude-cli: native Claude login returned no models — falling back to the static catalog',
+        );
+        return [];
+      }
+      this.logger.info(
+        `[ProviderRpc] Fetched ${models.length} claude-cli models from the native Claude login`,
+      );
+      return models.map((m) => ({
+        id: m.value,
+        name: m.displayName,
+        description: m.description || getModelPricingDescription(m.value),
+        contextLength: getModelContextWindow(m.value),
+        supportsToolUse: true,
+      }));
+    });
   }
 
   /**
@@ -439,6 +484,17 @@ export class ProviderRpcHandlers {
           totalCount: result.totalCount,
           isStatic: result.isStatic,
         });
+
+        // Opening the picker warms both catalog caches, which is exactly what
+        // the tier derivation reads — but nothing used to tell it so, and the
+        // ambient tier env vars stayed unset until the next provider
+        // activation (TASK_2026_262 residual hole 3). Guarded, synchronous and
+        // total by contract; it decides nothing here and cannot throw into
+        // this handler. `totalCount` rather than `models.length` because the
+        // latter is already narrowed by `toolUseOnly`.
+        if (result.totalCount > 0) {
+          this.providerModels.reapplyTiersForWarmedCatalog(providerId);
+        }
 
         return result;
       } catch (error) {
@@ -619,5 +675,198 @@ export class ProviderRpcHandlers {
         };
       }
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // User-defined provider entries (TASK_2026_236)
+  //
+  // All five methods live under the already-allowlisted `provider:` prefix, so
+  // no `ALLOWED_METHOD_PREFIXES` change was needed — only the compile-time
+  // `RpcMethodName` union and the METHODS tuple above.
+  //
+  // SECRET HANDLING: `apiKey` never reaches CustomProviderStore. It is routed
+  // straight to AuthSecretsService (platform SecretStorage) so that
+  // `provider.custom.entries` in ~/.ptah/settings.json stays non-secret
+  // metadata that is safe to hand-edit, diff, and log.
+  // -------------------------------------------------------------------------
+  private registerCustomEntryMethods(): void {
+    this.registerListCustomEntries();
+    this.registerAddCustomEntry();
+    this.registerUpdateCustomEntry();
+    this.registerRemoveCustomEntry();
+    this.registerTestCustomEntry();
+  }
+
+  /** provider:listCustomEntries — every user-defined entry, freshly read. */
+  private registerListCustomEntries(): void {
+    this.rpcHandler.registerMethod<
+      ProviderListCustomEntriesParams,
+      ProviderListCustomEntriesResult
+    >('provider:listCustomEntries', async () => {
+      const { entries, dropped } = this.customProviders.load();
+      if (dropped.length > 0) {
+        this.logger.warn(
+          'RPC: provider:listCustomEntries dropped invalid entries',
+          { dropped: dropped.map((entry) => entry.id) },
+        );
+      }
+      return { entries: [...entries] };
+    });
+  }
+
+  /** provider:addCustomEntry — create an entry, optionally storing its key. */
+  private registerAddCustomEntry(): void {
+    this.rpcHandler.registerMethod<
+      ProviderAddCustomEntryParams,
+      ProviderAddCustomEntryResult
+    >('provider:addCustomEntry', async (params) => {
+      const validated = ProviderAddCustomEntrySchema.parse(params);
+      try {
+        const entry = await this.customProviders.add(validated.entry);
+        await this.storeProviderKey(entry.id, validated.apiKey);
+        this.logger.info('RPC: provider:addCustomEntry completed', {
+          providerId: entry.id,
+          lane: entry.lane,
+          hasApiKey: !!validated.apiKey,
+        });
+        return { entry };
+      } catch (error: unknown) {
+        throw this.describeCustomEntryFailure('addCustomEntry', error);
+      }
+    });
+  }
+
+  /**
+   * provider:updateCustomEntry — patch an entry.
+   *
+   * A supplied `apiKey` REPLACES the stored key; omitting it leaves the
+   * existing key untouched, so an edit to (say) the display name does not
+   * silently wipe the credential.
+   */
+  private registerUpdateCustomEntry(): void {
+    this.rpcHandler.registerMethod<
+      ProviderUpdateCustomEntryParams,
+      ProviderUpdateCustomEntryResult
+    >('provider:updateCustomEntry', async (params) => {
+      const validated = ProviderUpdateCustomEntrySchema.parse(params);
+      try {
+        const entry = await this.customProviders.update(
+          validated.id,
+          validated.changes,
+        );
+        await this.storeProviderKey(entry.id, validated.apiKey);
+        this.logger.info('RPC: provider:updateCustomEntry completed', {
+          providerId: entry.id,
+          changedKeys: Object.keys(validated.changes),
+          hasApiKey: !!validated.apiKey,
+        });
+        return { entry };
+      } catch (error: unknown) {
+        throw this.describeCustomEntryFailure('updateCustomEntry', error);
+      }
+    });
+  }
+
+  /**
+   * provider:removeCustomEntry — delete an entry AND its stored key.
+   *
+   * The secret is deleted even when the entry was already absent: a stale
+   * `ptah.auth.provider.<id>` secret left behind after a partial delete would
+   * otherwise be re-adopted by any future entry that reuses the id.
+   */
+  private registerRemoveCustomEntry(): void {
+    this.rpcHandler.registerMethod<
+      ProviderRemoveCustomEntryParams,
+      ProviderRemoveCustomEntryResult
+    >('provider:removeCustomEntry', async (params) => {
+      const validated = ProviderRemoveCustomEntrySchema.parse(params);
+      try {
+        const removed = await this.customProviders.remove(validated.id);
+        await this.authSecretsService.deleteProviderKey(validated.id);
+        this.logger.info('RPC: provider:removeCustomEntry completed', {
+          providerId: validated.id,
+          removed,
+        });
+        return { removed };
+      } catch (error: unknown) {
+        throw this.describeCustomEntryFailure('removeCustomEntry', error);
+      }
+    });
+  }
+
+  /**
+   * provider:testCustomEntry — one REAL round-trip with a tool definition.
+   *
+   * Custom entries only. Built-in providers keep today's local-health
+   * `auth:testConnection` behaviour; closing that latent gap is deliberately
+   * out of scope (plan.md decision 1).
+   */
+  private registerTestCustomEntry(): void {
+    this.rpcHandler.registerMethod<
+      ProviderTestCustomEntryParams,
+      ProviderTestCustomEntryResult
+    >('provider:testCustomEntry', async (params) => {
+      const validated = ProviderTestCustomEntrySchema.parse(params);
+      const entry = this.customProviders.get(validated.id);
+      if (!entry) {
+        return {
+          ok: false,
+          message: `No custom provider entry with id '${validated.id}'. Save the entry before testing it.`,
+        };
+      }
+
+      const apiKey = await this.authSecretsService.getProviderKey(entry.id);
+      const result = await probeCustomProvider(entry, apiKey);
+
+      this.logger.info('RPC: provider:testCustomEntry completed', {
+        providerId: entry.id,
+        lane: entry.lane,
+        ok: result.ok,
+        failure: result.failure,
+        latencyMs: result.latencyMs,
+      });
+
+      // `failure` is an internal classification for logs and tests — the wire
+      // contract is exactly { ok, message, latencyMs? }.
+      return {
+        ok: result.ok,
+        message: result.message,
+        ...(result.latencyMs === undefined
+          ? {}
+          : { latencyMs: result.latencyMs }),
+      };
+    });
+  }
+
+  /** Write (or clear) the SecretStorage key for a custom entry. */
+  private async storeProviderKey(
+    providerId: string,
+    apiKey: string | undefined,
+  ): Promise<void> {
+    if (apiKey === undefined) return;
+    // setProviderKey already deletes on an empty/whitespace value, so an
+    // explicit '' from the form is a deliberate "forget my key".
+    await this.authSecretsService.setProviderKey(providerId, apiKey);
+  }
+
+  /**
+   * Turn a store failure into an error the user can act on.
+   *
+   * `CustomProviderStoreError` messages are ours and are written for humans, so
+   * they pass through. Anything else is logged in full and reported as a
+   * generic failure rather than leaking an internal message to the client.
+   */
+  private describeCustomEntryFailure(method: string, error: unknown): Error {
+    if (error instanceof Error && error.name === 'CustomProviderStoreError') {
+      return error;
+    }
+    const wrapped = error instanceof Error ? error : new Error(String(error));
+    this.logger.error(`RPC: provider:${method} failed`, wrapped);
+    this.sentryService.captureException(wrapped, {
+      errorSource: `ProviderRpcHandlers.${method}`,
+    });
+    return new Error(
+      `Could not ${method === 'removeCustomEntry' ? 'remove' : 'save'} the custom provider entry. See the Ptah output channel for details.`,
+    );
   }
 }

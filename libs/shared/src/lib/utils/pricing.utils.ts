@@ -41,9 +41,9 @@ export interface TokenBreakdown {
 }
 
 /**
- * Bundled pricing for known-zero-cost surfaces (Copilot subscription, local
- * Ollama / LM Studio) and a small Anthropic-direct table that ships with the
- * binary for the case where the OpenRouter catalog hasn't fetched yet.
+ * Bundled pricing for local zero-cost surfaces (Ollama / LM Studio) plus a
+ * small usage-billed table that ships with the binary for the case where the
+ * OpenRouter catalog hasn't fetched yet.
  *
  * For every other model the runtime pricing map is hydrated from OpenRouter's
  * public `/api/v1/models` catalog at startup via {@link registerProviderPricing}.
@@ -51,46 +51,17 @@ export interface TokenBreakdown {
  * models return `null` from {@link findModelPricing} so the UI can render
  * "Pricing unavailable" instead of a fabricated dollar figure.
  *
+ * Subscription-covered surfaces (GitHub Copilot, OpenAI Codex) are deliberately
+ * ABSENT here. Seeding their models at $0 would publish that price under a bare
+ * slug — `gpt-5.4` is a Codex model AND an OpenRouter one — and pin the shared
+ * catalog rate to zero for whichever provider looked it up next. Their turns are
+ * costed from the same published rates as everyone else's; the flat-fee billing
+ * is a labelling concern, carried per call by {@link FindPricingOptions}.
+ *
  * @see https://www.anthropic.com/pricing
  * @see https://openrouter.ai/api/v1/models
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
-  'claude-sonnet-4.6': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
-  'claude-opus-4.7': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 1_000_000,
-    provider: 'github-copilot',
-  },
-  'claude-opus-4.6': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 1_000_000,
-    provider: 'github-copilot',
-  },
-  'claude-opus-4.5': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
-  'claude-sonnet-4.5': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
-  'claude-haiku-4.5': {
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-    maxTokens: 200_000,
-    provider: 'github-copilot',
-  },
   'gpt-4o': {
     inputCostPerToken: 2.5e-6, // $2.50 per 1M tokens
     outputCostPerToken: 10e-6, // $10.00 per 1M tokens
@@ -203,9 +174,24 @@ export function getPricingMap(): Record<string, ModelPricing> {
 }
 
 /**
+ * Per-call pricing context that the model id alone cannot carry.
+ */
+export interface FindPricingOptions {
+  /**
+   * True when the ACTIVE provider bills a flat subscription rather than per
+   * token (GitHub Copilot, OpenAI Codex).
+   *
+   * Rates are still the published per-token ones — a subscription turn is
+   * costed at what the same tokens would bill on the open market, matching how
+   * `claude /usage` and the Codex CLI report consumption. The flag only changes
+   * how the figure is LABELLED, never its value.
+   */
+  readonly subscriptionCovered?: boolean;
+}
+
+/**
  * Find pricing for a model by ID.
  *
- * Matching strategy:
  * 1. Exact match (e.g., "claude-opus-4-5-20251101", "gpt-5.4", "kimi-k2.5")
  * 2. Partial match (e.g., "claude-opus-4-5" matches "claude-opus-4-5-20251101")
  * 3. Returns `null` — pricing genuinely unknown.
@@ -229,6 +215,25 @@ export function findModelPricing(modelId: string): ModelPricing | null {
     return null;
   }
 
+  const found = lookupPricingEntry(modelId);
+  if (found) {
+    return found;
+  }
+  if (!warnedModelIds.has(modelId)) {
+    warnedModelIds.add(modelId);
+    console.warn(
+      `[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`,
+    );
+  }
+  return null;
+}
+
+/**
+ * Exact-then-partial lookup against the runtime map. Silent: the "unknown
+ * model" warning belongs to {@link findModelPricing}, which alone knows
+ * whether a miss is actually a problem.
+ */
+function lookupPricingEntry(modelId: string): ModelPricing | null {
   const normalizedId = modelId.toLowerCase();
   if (modelPricingMap[normalizedId]) {
     return modelPricingMap[normalizedId];
@@ -240,12 +245,6 @@ export function findModelPricing(modelId: string): ModelPricing | null {
     if (key.toLowerCase().includes(normalizedId)) {
       return pricing;
     }
-  }
-  if (!warnedModelIds.has(modelId)) {
-    warnedModelIds.add(modelId);
-    console.warn(
-      `[Pricing] Model '${modelId}' not found in pricing map — cost will render as unavailable`,
-    );
   }
   return null;
 }
@@ -335,14 +334,22 @@ export function getModelContextWindow(modelId: string): number {
  * // Returns: "Input: $5.00/1M, Output: $25.00/1M"
  * ```
  */
-export function getModelPricingDescription(modelId: string): string {
+export function getModelPricingDescription(
+  modelId: string,
+  options?: FindPricingOptions,
+): string {
   const pricing = findModelPricing(modelId);
   if (!pricing) return 'Pricing unavailable';
 
   const inputPer1M = (pricing.inputCostPerToken * 1000000).toFixed(2);
   const outputPer1M = (pricing.outputCostPerToken * 1000000).toFixed(2);
+  const rates = `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
 
-  return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
+  // Same rates, flagged as reference: the user is not billed these per token,
+  // they are what the tokens would cost on the open market.
+  return options?.subscriptionCovered
+    ? `${rates} · covered by subscription`
+    : rates;
 }
 
 export function formatClaudeModelDisplayName(modelId: string): string {

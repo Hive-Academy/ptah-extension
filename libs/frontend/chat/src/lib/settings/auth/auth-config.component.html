@@ -39,11 +39,12 @@
         >
       </button>
 
-      <!-- Dynamic provider tiles from registry -->
+      <!-- Dynamic provider tiles from registry (built-in + user-defined) -->
       @for (provider of authState.availableProviders(); track provider.id) {
+        <div class="relative">
         <button
           type="button"
-          class="btn btn-sm h-auto py-2 px-1 flex flex-col items-center gap-1 min-h-0 rounded-lg border-2"
+          class="btn btn-sm h-auto py-2 px-1 w-full flex flex-col items-center gap-1 min-h-0 rounded-lg border-2"
           [class.btn-primary]="selectedTileId() === provider.id"
           [class.btn-ghost]="selectedTileId() !== provider.id"
           [class.border-base-300]="
@@ -118,13 +119,63 @@
             {{ provider.name }}
           </span>
         </button>
+        <!--
+          Edit affordance — user-defined tiles ONLY. Built-in providers ship in
+          Ptah's own source and have nothing the user can edit here, so they
+          must not grow this control. Rendered as a sibling of the tile button
+          rather than a child: a button inside a button is invalid HTML and
+          swallows the click in some engines.
+        -->
+        @if (isCustomTile(provider.id)) {
+          <button
+            type="button"
+            class="absolute -top-1 -right-1 btn btn-xs btn-circle btn-ghost bg-base-100 border border-base-300"
+            (click)="openEditCustomProvider(provider.id)"
+            [attr.aria-label]="'Edit ' + provider.name"
+            [attr.title]="'Edit ' + provider.name"
+            [attr.data-testid]="'edit-custom-provider-' + provider.id"
+          >
+            <lucide-angular [img]="PencilIcon" class="w-2.5 h-2.5" />
+          </button>
+        }
+        </div>
       }
+
+      <!--
+        Add-custom tile. It lives IN the grid, as the last tile, because that is
+        the one moment the user is already scanning provider choices and finding
+        none that fit. A button elsewhere in Settings would be a different
+        question asked in a different place.
+      -->
+      <button
+        type="button"
+        class="btn btn-sm btn-ghost h-auto py-2 px-1 flex flex-col items-center gap-1 min-h-0 rounded-lg border-2 border-dashed border-base-300"
+        (click)="openAddCustomProvider()"
+        aria-label="Add a custom provider"
+        data-testid="add-custom-provider"
+      >
+        <lucide-angular [img]="PlusIcon" class="w-4 h-4" />
+        <span class="text-[10px] font-medium leading-tight text-center"
+          >Custom</span
+        >
+      </button>
     </div>
+
+    @if (isCustomFormOpen()) {
+      <div class="mt-2">
+        <ptah-custom-provider-form
+          [entry]="customFormEntry()"
+          (saved)="onCustomProviderSaved($event)"
+          (deleted)="onCustomProviderDeleted()"
+          (cancelled)="closeCustomForm()"
+        />
+      </div>
+    }
     <!-- Active provider indicator -->
     @if (activeTileId()) {
       <div class="flex items-center gap-1 mt-1.5 px-0.5">
         <lucide-angular [img]="CheckIcon" class="w-3 h-3 text-success" />
-        <span class="text-[10px] text-base-content/70">
+        <span class="text-[10px] text-base-content-muted">
           Active:
           <span class="font-semibold text-success">{{
             activeProviderName()
@@ -193,7 +244,7 @@
         @if (authState.hasApiKey() && !apiKey()) {
           <div class="flex gap-1.5">
             <div
-              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content-muted font-mono"
             >
               sk-ant-api03-••••••••••••
             </div>
@@ -297,8 +348,8 @@
             class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20"
           >
             <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
-            <p class="text-[10px] text-base-content/60 leading-relaxed">
-              <strong class="text-base-content/70">Claude CLI detected.</strong>
+            <p class="text-[10px] text-base-content-muted leading-relaxed">
+              <strong class="text-base-content-muted">Claude CLI detected.</strong>
               Authentication is managed by the CLI. If you're logged in via
               <code class="text-[10px]">claude login</code>, your credentials
               will be used automatically.
@@ -310,8 +361,8 @@
             class="flex items-start gap-1.5 p-2 rounded bg-warning/10 border border-warning/20"
           >
             <span class="text-warning text-[10px] shrink-0 mt-0.5">●</span>
-            <p class="text-[10px] text-base-content/60 leading-relaxed">
-              <strong class="text-base-content/70"
+            <p class="text-[10px] text-base-content-muted leading-relaxed">
+              <strong class="text-base-content-muted"
                 >Claude CLI not found.</strong
               >
               Install it and log in to use your Claude subscription.
@@ -368,7 +419,7 @@
                 [img]="GithubIcon"
                 class="w-3.5 h-3.5 opacity-70"
               />
-              <span class="text-base-content/70">
+              <span class="text-base-content-muted">
                 {{ authState.copilotUsername() ?? 'Connected via GitHub' }}
               </span>
             </div>
@@ -442,7 +493,7 @@
         <div
           class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
         >
-          <span class="text-base-content/70">
+          <span class="text-base-content-muted">
             Authenticated via
             <code class="text-[10px]">~/.codex/auth.json</code>
           </span>
@@ -498,7 +549,7 @@
           class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
         >
           <lucide-angular [img]="ServerIcon" class="w-3.5 h-3.5 opacity-70" />
-          <span class="text-base-content/70">
+          <span class="text-base-content-muted">
             No API key needed — runs locally
           </span>
         </div>
@@ -525,7 +576,7 @@
           <span class="label-text text-xs font-medium">
             {{ selectedProvider()?.name ?? 'Provider' }} API Key
             @if (supportsOptionalKey()) {
-              <span class="text-base-content/50 font-normal">(optional)</span>
+              <span class="text-base-content-muted font-normal">(optional)</span>
             }
           </span>
           @if (authState.isLoading()) {
@@ -549,7 +600,7 @@
         @if (authState.hasProviderKey() && !providerKey()) {
           <div class="flex gap-1.5">
             <div
-              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content-muted font-mono"
             >
               {{ selectedProvider()?.maskedKeyDisplay ?? '••••••••••••' }}
             </div>
@@ -634,14 +685,22 @@
           } @else if (selectedProvider(); as provider) {
             <span class="label-text-alt text-[10px] opacity-70">
               <strong>{{ provider.name }}:</strong> {{ provider.description }}.
-              Get key from
-              <a
-                [href]="provider.helpUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="link link-primary font-semibold"
-                >{{ provider.helpUrl | slice: 8 }}</a
-              >
+              <!--
+                A user-defined entry may legitimately have no help URL — the
+                user typed the endpoint and may be the only person who knows
+                where its keys come from. Rendering an empty <a> there produced
+                a link to nowhere.
+              -->
+              @if (provider.helpUrl) {
+                Get key from
+                <a
+                  [href]="provider.helpUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link link-primary font-semibold"
+                  >{{ provider.helpUrl | slice: 8 }}</a
+                >
+              }
             </span>
             @if (provider.keyPrefix) {
               <span class="label-text-alt text-[10px] opacity-70">
@@ -702,7 +761,7 @@
       <div class="label py-1">
         <button
           type="button"
-          class="btn btn-ghost btn-xs gap-1 text-base-content/70"
+          class="btn btn-ghost btn-xs gap-1 text-base-content-muted"
           (click)="resetToGlobalDefault()"
           [disabled]="authState.isSaving()"
           aria-label="Clear the workspace override and revert to the global default"

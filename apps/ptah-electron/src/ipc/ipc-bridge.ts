@@ -56,6 +56,8 @@ interface QueuedStreamEvent {
 interface ElectronWindowHandle {
   webContents: {
     send(channel: string, ...args: unknown[]): void;
+    /** Present on real Electron webContents; absent on lightweight test stubs. */
+    isDestroyed?(): boolean;
   };
 }
 
@@ -121,6 +123,9 @@ export class IpcBridge {
       console.warn('[IpcBridge] Cannot send to renderer: no window available');
       return;
     }
+    if (win.webContents.isDestroyed?.() === true) {
+      return;
+    }
     win.webContents.send('to-renderer', message);
   }
 
@@ -153,6 +158,9 @@ export class IpcBridge {
       console.warn(
         '[IpcBridge] Cannot flush stream queue: no window available',
       );
+      return;
+    }
+    if (win.webContents.isDestroyed?.() === true) {
       return;
     }
     if (events.length === 1) {
@@ -210,6 +218,12 @@ export class IpcBridge {
           correlationId,
         });
         this.flushStreamQueue();
+        // The renderer can be torn down (app quitting / window closed) while an
+        // async RPC is in flight; sending to a destroyed sender throws
+        // "Object has been destroyed". Skip the reply — nothing is listening.
+        if (event.sender.isDestroyed()) {
+          return;
+        }
         event.sender.send('to-renderer', {
           type: MESSAGE_TYPES.RPC_RESPONSE,
           correlationId,
@@ -236,7 +250,7 @@ export class IpcBridge {
             (rpcData['requestId'] as string) ||
             '';
 
-          if (correlationId) {
+          if (correlationId && !event.sender.isDestroyed()) {
             event.sender.send('to-renderer', {
               type: MESSAGE_TYPES.RPC_RESPONSE,
               correlationId,

@@ -49,12 +49,8 @@ API keys are encrypted on disk using [Electron `safeStorage`](https://www.electr
 
 Non-secret settings live in `~/.ptah/settings.json`. Secrets live in secure storage, managed from the Providers settings page inside the app.
 
-## Pro-tier gating
+## No provider gating
 
-A few provider integrations require a Ptah Pro subscription:
-
-- GitHub Copilot OAuth (enterprise SSO support).
-- OpenAI Codex OAuth flow.
-- OpenRouter with the Ptah-hosted cost registry.
-
-Every provider has a "bring your own key, no subscription required" path — see the individual provider pages.
+Every provider integration — API keys and OAuth flows alike — is part of the free, open-source
+Community tier. Bring your own key (or sign in via OAuth) and you're set; nothing here requires a
+subscription. See the individual provider pages for setup details.

@@ -40,7 +40,7 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
 
       @if (state.anchorId() !== null) {
         <div class="flex items-center justify-between gap-2 text-xs">
-          <span class="text-base-content/70">
+          <span class="text-base-content-muted">
             Anchored on
             <span class="font-mono">{{ state.anchorId() }}</span>
           </span>
@@ -72,7 +72,7 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
         } @else if (state.rows().length === 0) {
           <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
             <p class="text-sm font-medium">No timeline events</p>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-base-content-muted">
               Try widening the date range or removing concept/file filters.
             </p>
           </div>
@@ -90,13 +90,13 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
                     class="inline-block size-1.5 rounded-full bg-info"
                     aria-hidden="true"
                   ></span>
-                  <span class="text-base-content/60">
+                  <span class="text-base-content-muted">
                     {{ row.type }} · {{ formatCapturedAt(row.capturedAt) }} ·
                     {{ row.score.toFixed(2) }}
                   </span>
                   <button
                     type="button"
-                    class="btn btn-ghost btn-xs ml-auto text-base-content/50 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                    class="btn btn-ghost btn-xs ml-auto text-base-content-muted opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                     (click)="onDrill(row.id)"
                     [attr.aria-label]="'Drill into timeline for ' + row.id"
                   >
@@ -109,13 +109,13 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
                   </div>
                 }
                 @if (row.concepts.length > 0) {
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-base-content-muted">
                     {{ row.concepts.join(' · ') }}
                   </div>
                 }
                 @if (row.files.length > 0) {
                   <div
-                    class="line-clamp-1 font-mono text-xs text-base-content/50"
+                    class="line-clamp-1 font-mono text-xs text-base-content-muted"
                   >
                     {{ row.files.join(', ') }}
                   </div>

@@ -33,8 +33,6 @@ Two concrete examples:
 
 To see the exact context bundle passed to an agent for a given run, use **Chat → Show context** in the message overflow menu. The context panel shows each source and lets you toggle any of them off for the next message.
 
-![Context inspector](/screenshots/context-inspector.png)
-
 ## Manual overrides
 
 You can pin extra files or notes to the workspace context through `.ptah/context.md`. Anything in that file is appended to every agent invocation in the workspace.

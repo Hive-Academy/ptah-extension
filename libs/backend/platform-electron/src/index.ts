@@ -3,6 +3,7 @@ export type { ElectronPlatformOptions } from './registration';
 export { registerElectronSettings } from './settings/electron-settings-registration';
 export { FileSettingsStore } from './settings/file-settings-store';
 export { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
+export { ElectronFileDialog } from './implementations/electron-file-dialog';
 export { ElectronStateStorage } from './implementations/electron-state-storage';
 export { ElectronSecretStorage } from './implementations/electron-secret-storage';
 export type { SafeStorageApi } from './implementations/electron-secret-storage';
@@ -17,3 +18,4 @@ export { ElectronOutputChannel } from './implementations/electron-output-channel
 export { ElectronCommandRegistry } from './implementations/electron-command-registry';
 export { ElectronEditorProvider } from './implementations/electron-editor-provider';
 export { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
+export { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';

@@ -341,6 +341,70 @@ describe('withEngine', () => {
         },
       );
     });
+
+    /**
+     * The bootstrap already builds a `CliFireAndForgetHandler`; not exposing
+     * it forced the TUI to construct a second one against the same container,
+     * duplicating the permission/question response listeners.
+     */
+    it('exposes the bootstrap fireAndForget handler so hosts do not build a second one', async () => {
+      const { bootstrap, trace } = makeFakeBootstrap();
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap },
+        async (ctx) => {
+          expect(ctx.fireAndForget).toBe(trace.results[0]?.fireAndForget);
+          return undefined;
+        },
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Workspace activation sequencing.
+  //
+  // `CliDIContainer.setup` is synchronous but creates the workspace context
+  // asynchronously. Settings reads/writes issued before that resolves land in
+  // the global default bucket instead of the workspace bucket, so `withEngine`
+  // must gate `fn` on the promise.
+  // -------------------------------------------------------------------------
+  describe('workspace activation sequencing', () => {
+    it('awaits workspaceReady before invoking fn', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const order: string[] = [];
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        result.workspaceReady = new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push('workspace-ready');
+            resolve();
+          }, 20);
+        });
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'minimal', bootstrap: wrapped },
+        async () => {
+          order.push('fn');
+          return undefined;
+        },
+      );
+
+      expect(order).toEqual(['workspace-ready', 'fn']);
+    });
+
+    it('tolerates a bootstrap result without workspaceReady (test doubles)', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'minimal', bootstrap },
+          async () => 'ok',
+        ),
+      ).resolves.toBe('ok');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -569,6 +633,216 @@ describe('withEngine', () => {
         async () => undefined,
       );
       expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    // The bootstrap-FAILURE teardown, which is a different code path from the
+    // success one: it throws before reaching the `try/finally` that owns the
+    // single dispose site, so for a while it disposed the container and left
+    // the adapter alone. An adapter that returned `false` from `initialize()`
+    // has still constructed and may be holding a spawned CLI subprocess or an
+    // open socket, and a one-shot `ptah run` on an unconfigured machine has
+    // nobody left to close it.
+    it('calls SDK adapter dispose() when initialize() returns false', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = jest.fn(async () => false);
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toBeInstanceOf(SdkInitFailedError);
+
+      stderrSpy.mockRestore();
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls SDK adapter dispose() when initialize() throws', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = jest.fn(async () => {
+          throw new Error('boom');
+        });
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toBeInstanceOf(SdkInitFailedError);
+
+      stderrSpy.mockRestore();
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    // Belt and braces on the idempotence that makes the two dispose sites safe
+    // to coexist: `disposeSdkAdapter` clears `ctx.sdkAdapter`, so a host that
+    // reaches BOTH (late init, then a throw inside `fn`) still disposes once.
+    it('disposes the adapter exactly once when fn throws after late init', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', requireSdk: false, bootstrap: wrapped },
+          async (ctx) => {
+            await ctx.initializeSdk();
+            throw new Error('fn-broke');
+          },
+        ),
+      ).rejects.toThrow('fn-broke');
+
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Late SDK initialization via `ctx.initializeSdk`.
+  //
+  // Hosts booted with `requireSdk: false` (the TUI) initialize the adapter
+  // themselves so an unconfigured first run still reaches the UI. Before
+  // `ctx.initializeSdk` existed they called the bare `initializeSdkAdapter`
+  // export, which `withEngine` knew nothing about — so that adapter was NEVER
+  // disposed.
+  // -------------------------------------------------------------------------
+  describe('late SDK initialization (ctx.initializeSdk)', () => {
+    interface CaptureHandle {
+      wrapped: NonNullable<WithEngineOptions['bootstrap']>;
+      /** Populated when the wrapped bootstrap runs. */
+      container?: FakeContainer;
+    }
+
+    function captureContainer(
+      bootstrap: NonNullable<WithEngineOptions['bootstrap']>,
+    ): CaptureHandle {
+      const handle: CaptureHandle = {
+        wrapped: (options) => {
+          const result = bootstrap(options);
+          const c = result.container as unknown as FakeContainer;
+          c.resolve = jest.fn(() => c.__sdkAdapter);
+          handle.container = c;
+          return result;
+        },
+      };
+      return handle;
+    }
+
+    it('initializes the adapter on demand and returns its result', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const capture = captureContainer(bootstrap);
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: capture.wrapped },
+        async (ctx) => {
+          const result = await ctx.initializeSdk();
+          expect(result.initialized).toBe(true);
+          expect(
+            capture.container?.__sdkAdapter.initialize,
+          ).toHaveBeenCalledTimes(1);
+          return undefined;
+        },
+      );
+    });
+
+    it('disposes an adapter initialized late, even under requireSdk=false', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const capture = captureContainer(bootstrap);
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: capture.wrapped },
+        async (ctx) => {
+          await ctx.initializeSdk();
+          expect(
+            capture.container?.__sdkAdapter.dispose,
+          ).not.toHaveBeenCalled();
+          return undefined;
+        },
+      );
+
+      expect(capture.container?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the adapter on the context so dispose has a single source', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const capture = captureContainer(bootstrap);
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: capture.wrapped },
+        async (ctx) => {
+          expect(ctx.sdkAdapter).toBeUndefined();
+          await ctx.initializeSdk();
+          expect(ctx.sdkAdapter).toBe(capture.container?.__sdkAdapter);
+          return undefined;
+        },
+      );
+    });
+
+    it('disposes only once when initializeSdk is called repeatedly (re-auth loop)', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const capture = captureContainer(bootstrap);
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: capture.wrapped },
+        async (ctx) => {
+          await ctx.initializeSdk();
+          await ctx.initializeSdk();
+          await ctx.initializeSdk();
+          return undefined;
+        },
+      );
+
+      expect(capture.container?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves nothing to dispose when the host never initializes the adapter', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const capture = captureContainer(bootstrap);
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: capture.wrapped },
+        async () => undefined,
+      );
+
+      expect(capture.container?.__sdkAdapter.initialize).not.toHaveBeenCalled();
+      expect(capture.container?.__sdkAdapter.dispose).not.toHaveBeenCalled();
     });
   });
 

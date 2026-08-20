@@ -8,12 +8,14 @@ import {
 } from '@ptah-extension/memory-contracts';
 import {
   PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import type { InternalQueryService } from '../internal-query';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
-import type { ICuratorAuthResolver } from './curator-auth-resolver.port';
+import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
@@ -33,8 +35,32 @@ import { CuratorLlmQueryError } from './curator-llm-query.error';
 const CURATOR_MODEL_SECTION = 'ptah';
 const CURATOR_MODEL_KEY = 'memory.curatorModel';
 const CURATOR_PROVIDER_KEY = 'memory.curatorProvider';
-const CURATOR_AUTH_ERROR_NAME = 'CuratorAuthError';
-export const CURATOR_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
+/**
+ * Matched by `name` rather than `instanceof` because the error class lives in
+ * `auth-providers`, which depends on this lib — importing it here would close
+ * the cycle. Kept in sync with `ProviderAuthError`'s constructor.
+ */
+const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
+
+/**
+ * What the curator asks for when the user has pinned no explicit model.
+ *
+ * This is a TIER ALIAS, not a model id, and that distinction is the whole fix
+ * (TASK_2026_159). `SdkQueryRunner` runs every one-shot model through
+ * `ModelResolver.resolve()`, whose two branches are not equivalent:
+ *
+ *  - a pinned Claude id (`claude-haiku-4-5-...`, what this constant used to be)
+ *    only consults `ANTHROPIC_DEFAULT_HAIKU_MODEL`. With that env var absent —
+ *    a curator provider whose entry declares no `defaultTiers`, or any point
+ *    before `applyPersistedTiers()` has run — the Anthropic id reaches a
+ *    non-Anthropic endpoint verbatim and 404s.
+ *  - a bare tier consults the env var AND falls back to the resolved provider's
+ *    `defaultTiers`, and on direct Anthropic stays the alias, which tracks the
+ *    current Haiku instead of pinning a dated snapshot that will be retired.
+ *
+ * Haiku is the right tier: curation is high-volume, low-reasoning summarisation.
+ */
+export const CURATOR_DEFAULT_MODEL_TIER = 'haiku';
 
 @injectable()
 export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
@@ -44,8 +70,10 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     private readonly internalQuery: InternalQueryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER, { isOptional: true })
-    private readonly resolver: ICuratorAuthResolver | null = null,
+    @inject(SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER, { isOptional: true })
+    private readonly resolver: IProviderAuthResolver | null = null,
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   private resolveCuratorProviderId(): string {
@@ -64,7 +92,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       const auth = await this.resolver.resolve(curatorProviderId);
       return auth ?? undefined;
     } catch (error: unknown) {
-      if (error instanceof Error && error.name === CURATOR_AUTH_ERROR_NAME) {
+      if (error instanceof Error && error.name === PROVIDER_AUTH_ERROR_NAME) {
         this.logger.warn(
           '[memory-curator] curator provider auth unavailable; riding active provider',
           { error: error.message, curatorProviderId },
@@ -90,15 +118,20 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         '',
       );
       const configured = (typeof rawModel === 'string' ? rawModel : '').trim();
-      if (configured.length === 0) return CURATOR_FALLBACK_MODEL;
+      if (configured.length === 0) {
+        this.logger.debug(
+          '[memory-curator] no curator model pinned; riding the haiku tier of the resolved provider',
+        );
+        return CURATOR_DEFAULT_MODEL_TIER;
+      }
       return configured;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        '[memory-curator] curator model resolution failed; using fallback',
+        '[memory-curator] curator model resolution failed; using the haiku tier',
         { error: message },
       );
-      return CURATOR_FALLBACK_MODEL;
+      return CURATOR_DEFAULT_MODEL_TIER;
     }
   }
 
@@ -151,8 +184,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         model: this.resolveCuratorModel(),
         prompt,
         systemPromptAppend,
-        isPremium: false,
-        mcpServerRunning: false,
+        // Was hard-coded false (defect 13). The curator reads and writes memory
+        // through Ptah tools when they are reachable.
+        ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 1,
         abortController,
         auth,

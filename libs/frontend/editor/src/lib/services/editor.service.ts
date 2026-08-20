@@ -1,9 +1,24 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  signal,
+  computed,
+  DestroyRef,
+  type Signal,
+} from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type {
+  FileContentChangedPayload,
+  GitStatusUpdatePayload,
+} from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
-import type { EditorTab } from './editor/editor-tab.types';
+import type {
+  EditorTab,
+  GitApplyHunksResult,
+  HunkApplyRequest,
+} from './editor/editor-tab.types';
 import {
   EditorInternalState,
   EditorWorkspaceState,
@@ -12,8 +27,12 @@ import {
 import { EditorWorkspaceHelper } from './editor/editor-workspace';
 import { EditorTabsHelper } from './editor/editor-tabs';
 import { EditorFileOpsHelper } from './editor/editor-file-ops';
-import { EditorDiffSplitHelper } from './editor/editor-diff-split';
+import {
+  EditorDiffSplitHelper,
+  type OpenDiffRequest,
+} from './editor/editor-diff-split';
 export type { EditorTab } from './editor/editor-tab.types';
+export type { OpenDiffRequest } from './editor/editor-diff-split';
 
 /**
  * EditorService — coordinator that owns editor signals and delegates to
@@ -35,6 +54,7 @@ export type { EditorTab } from './editor/editor-tab.types';
 })
 export class EditorService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * Map of workspace path to editor state. Contains cached editor state
@@ -104,7 +124,7 @@ export class EditorService implements MessageHandler {
     const tabs = this._openTabs();
     const activePath = this._activeFilePath();
     const tab = tabs.find((t) => t.filePath === activePath);
-    return tab?.isDiff ? tab : null;
+    return tab?.diff ? tab : null;
   });
 
   private readonly internalState: EditorInternalState;
@@ -156,7 +176,19 @@ export class EditorService implements MessageHandler {
     this.workspaceHelper = new EditorWorkspaceHelper(this.internalState, {
       handleFileContentChanged: (filePath: string): Promise<void> =>
         this.fileOpsHelper.handleFileContentChanged(filePath),
+      refreshDiffTabsForFile: (absolutePath: string): void =>
+        this.diffSplitHelper.onFileContentChanged(absolutePath),
       closeSplit: (): void => this.diffSplitHelper.closeSplit(),
+      clearSplitDiverged: (): void => this.diffSplitHelper.clearSplitDiverged(),
+    });
+
+    // C1 AC3: nothing may stay pending past destruction. The panel already
+    // calls stopFileTreeWatcher() in ngOnDestroy; this is the backstop for
+    // teardown paths that do not, and also clears the error auto-dismiss.
+    this.destroyRef.onDestroy(() => {
+      this.workspaceHelper.stopFileTreeWatcher();
+      this.diffSplitHelper.dispose();
+      this.clearError();
     });
   }
 
@@ -223,9 +255,28 @@ export class EditorService implements MessageHandler {
     this._terminalHeight.set(px);
   }
 
-  /** Open a diff view for a file. */
-  async openDiff(relativePath: string, absolutePath: string): Promise<void> {
-    return this.diffSplitHelper.openDiff(relativePath, absolutePath);
+  /**
+   * Open (or activate and revalidate) a diff view for one comparison of a file.
+   */
+  async openDiff(request: OpenDiffRequest): Promise<void> {
+    return this.diffSplitHelper.openDiff(request);
+  }
+
+  /** Force a revalidation of one diff tab — backs the diff view's Retry action. */
+  async refreshDiffTab(diffKey: string): Promise<void> {
+    return this.diffSplitHelper.refreshDiffTab(diffKey);
+  }
+
+  /**
+   * Stage / unstage / revert the selected hunks of a diff tab (D2).
+   *
+   * Bound into the diff view as a plain function input, so that component keeps
+   * no dependency on this coordinator. Refuses without an RPC when the tab
+   * record has moved on since the selection was made — see
+   * `EditorDiffSplitHelper.applyHunks`.
+   */
+  async applyHunks(request: HunkApplyRequest): Promise<GitApplyHunksResult> {
+    return this.diffSplitHelper.applyHunks(request);
   }
 
   /** Save the active file content. */
@@ -296,6 +347,35 @@ export class EditorService implements MessageHandler {
   /** Update a tab's content and mark it as dirty. */
   updateTabContent(filePath: string, content: string): void {
     this.tabsHelper.updateTabContent(filePath, content);
+    // The tab record owns content for both split panes (C2). An edit landing
+    // here came from the primary pane, so the split pane may now be behind.
+    this.diffSplitHelper.scheduleSplitMirror(filePath);
+  }
+
+  /**
+   * Whether a save of `content` to `filePath` would discard an edit the OTHER
+   * split pane has made and this pane has not absorbed (C2 AC2/AC3).
+   */
+  hasUnabsorbedPeerEdit(filePath: string, content: string): boolean {
+    return this.diffSplitHelper.hasUnabsorbedPeerEdit(filePath, content);
+  }
+
+  /**
+   * Whether the two split panes are knowingly holding different text — a
+   * save-conflict Cancel that nothing has reconciled since (TASK_2026_214).
+   */
+  get splitPanesDiverged(): Signal<boolean> {
+    return this.diffSplitHelper.splitPanesDiverged;
+  }
+
+  /** Record that a Cancel left `filePath` disagreeing across the two panes. */
+  markSplitDiverged(filePath: string): void {
+    this.diffSplitHelper.markSplitDiverged(filePath);
+  }
+
+  /** Forget a recorded divergence — the user answered the question. */
+  clearSplitDiverged(): void {
+    this.diffSplitHelper.clearSplitDiverged();
   }
 
   /** Mark a tab as clean (not dirty) after a successful save. */
@@ -363,14 +443,60 @@ export class EditorService implements MessageHandler {
     }, 5000);
   }
 
+  /**
+   * The single place a new inbound editor message type is declared (C1 AC4).
+   *
+   * `EditorWorkspaceHelper` is a plain class and cannot register itself, so
+   * its three push types are declared here and delegated in
+   * {@link handleMessage}. Adding a fifth type means one entry here and one
+   * `case` below — never a raw `window.addEventListener`.
+   */
   readonly handledMessageTypes = [
     MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED,
+    MESSAGE_TYPES.FILE_TREE_CHANGED,
+    MESSAGE_TYPES.FILE_CONTENT_CHANGED,
+    MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS,
+    MESSAGE_TYPES.GIT_STATUS_UPDATE,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
-    if (message.type !== MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED) return;
+    switch (message.type) {
+      case MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED:
+        this.handleTabContentReverted(message.payload);
+        return;
+      case MESSAGE_TYPES.FILE_TREE_CHANGED:
+        this.workspaceHelper.onFileTreeChanged();
+        return;
+      case MESSAGE_TYPES.FILE_CONTENT_CHANGED: {
+        const payload = message.payload as
+          | Partial<FileContentChangedPayload>
+          | undefined;
+        if (payload?.filePath) {
+          this.workspaceHelper.onFileContentChanged(payload.filePath);
+        }
+        return;
+      }
+      case MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS:
+        this.workspaceHelper.onRereadOpenTabs();
+        return;
+      case MESSAGE_TYPES.GIT_STATUS_UPDATE: {
+        // The authoritative "git state changed" push — it already fires on
+        // every commit / stage / checkout / discard, which is exactly when an
+        // open diff tab stops being true (A1).
+        const payload = message.payload as
+          | Partial<GitStatusUpdatePayload>
+          | undefined;
+        this.diffSplitHelper.onGitStatusUpdate(payload?.workspaceRoot);
+        return;
+      }
+      default:
+        return;
+    }
+  }
 
-    const payload = message.payload as
+  /** Apply an `editor:tabContentReverted` push (Electron git rewind). */
+  private handleTabContentReverted(rawPayload: unknown): void {
+    const payload = rawPayload as
       | { files?: Array<{ filePath: string; content: string }> }
       | undefined;
     const files = payload?.files ?? [];

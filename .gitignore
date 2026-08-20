@@ -52,6 +52,11 @@ Thumbs.db
 /.env
 .mcp.json
 
+# Ephemeral agent worktrees (tribunal skill, worktree isolation) — never track;
+# also excluded in .nxignore so they don't inject duplicate Nx project graphs
+.tribunal/
+.claude-worktrees/
+
 # ============================================
 # Docker Environment Files
 # ============================================
@@ -121,6 +126,20 @@ ptah-settings-export.json
 # Security audit reports (may contain redacted findings)
 # ============================================
 .ptah/**
+# ...except the task specs, which are tracked history: carriers, planning prose,
+# review artifacts and their screenshots.
+!.ptah/specs/
+!.ptah/specs/**
+# ...except the GENERATED files inside them, which are re-excluded here.
+# Later patterns win, so these come after the allow-list above.
+#   .harvested.json  — written by skill-synthesis when it harvests a trajectory
+#   README.md        — emitted by `renderSpecsReadme` on every index start
+# Both are derived from the carriers beside them and rewrite themselves, so
+# tracking them puts churn from an unrelated harvest or reindex into whatever
+# commit happens to be open. registry.md is deliberately NOT here: it is also
+# generated, but it is the human-readable index people link to.
+.ptah/specs/**/.harvested.json
+.ptah/specs/README.md
 .agent-legacy/**
 .github/agents/**
 # ============================================
@@ -167,6 +186,7 @@ ptah-settings-export.json
 .vibe/
 .windsurf/
 .zencoder/
+.codex/**
 skills/
 !apps/ptah-extension-vscode/assets/plugins/**/skills/
 !apps/ptah-cli/src/skills/
@@ -182,5 +202,15 @@ skills-lock.json
 .remocn-fetch
 
 apps/coverage/**
-
+apps/ptah-video-studio/build/**
+apps/ptah-video-studio/selfshot/**
 libs/frontend/webview-e2e-harness/test-results/**
+
+# Developer scratch, matching the eslint `ignores` in eslint.config.mjs.
+# Mutation-testing a fix copies a source file to `.bak`, stubs it out, runs the
+# spec and restores it; scratch render/bundle harnesses land beside the code
+# they drive. Ignoring them here makes "never a committed source file"
+# structural rather than a convention someone has to remember — the eslint half
+# alone once silently un-linted a tracked file that merely started with `tmp-`.
+*.bak
+tmp-scratch-*

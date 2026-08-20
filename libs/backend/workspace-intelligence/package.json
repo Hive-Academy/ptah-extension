@@ -9,6 +9,7 @@
     "@ptah-extension/shared": "*",
     "@ptah-extension/platform-core": "*",
     "picomatch": "*",
+    "cross-spawn": "*",
     "tsyringe": "*",
     "@ptah-extension/vscode-core": "*",
     "gray-matter": "*",

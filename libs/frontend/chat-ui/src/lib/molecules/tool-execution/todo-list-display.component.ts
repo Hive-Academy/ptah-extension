@@ -43,7 +43,7 @@ export type { TodoItem };
             [style]="'--progress-width:' + progressPercentage() + '%'"
           ></div>
         </div>
-        <span class="text-base-content/60 font-mono">
+        <span class="text-base-content-muted font-mono">
           {{ completedCount() }}/{{ totalCount() }}
         </span>
       </div>
@@ -66,7 +66,7 @@ export type { TodoItem };
             } @else {
               <lucide-angular
                 [img]="CircleIcon"
-                class="w-4 h-4 text-base-content/30 flex-shrink-0 mt-0.5"
+                class="w-4 h-4 text-base-content-muted flex-shrink-0 mt-0.5"
               />
             }
 
@@ -77,7 +77,7 @@ export type { TodoItem };
                   {{ item.activeForm }}
                 </span>
               } @else if (item.status === 'completed') {
-                <span class="font-medium text-base-content/50">
+                <span class="font-medium text-base-content-muted">
                   {{ item.content }}
                 </span>
               } @else {

@@ -104,7 +104,6 @@ export class App implements OnInit, OnDestroy {
       'context-tree',
       'settings',
       'setup-wizard',
-      'welcome',
       'orchestra-canvas',
       'tribunal',
     ];

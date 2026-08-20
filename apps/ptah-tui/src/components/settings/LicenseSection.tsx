@@ -12,17 +12,10 @@ import type { BadgeVariant } from '../atoms/index.js';
 interface LicenseStatus {
   valid: boolean;
   tier: string;
-  isPremium: boolean;
-  isCommunity: boolean;
   daysRemaining: number | null;
-  trialActive: boolean;
-  trialDaysRemaining: number | null;
   plan?: {
     name: string;
-    description: string;
-    features: string[];
   };
-  reason?: 'expired' | 'trial_ended' | 'no_license';
   user?: {
     email: string;
     firstName: string | null;
@@ -42,18 +35,15 @@ interface LicenseClearKeyResult {
   error?: string;
 }
 
-const ACTIONS = ['Enter License Key', 'Clear License'] as const;
+const ACTIONS = ['Enter Membership Key', 'Clear Membership Key'] as const;
 
 function tierBadgeVariant(tier: string): BadgeVariant {
-  if (tier === 'pro') return 'success';
-  if (tier === 'trial_pro') return 'warning';
-  if (tier === 'community') return 'ghost';
+  if (tier === 'builders') return 'success';
   return 'ghost';
 }
 
 function tierLabel(tier: string): string {
-  if (tier === 'pro') return 'Pro';
-  if (tier === 'trial_pro') return 'Trial';
+  if (tier === 'builders') return 'Ptah Builders member';
   if (tier === 'community') return 'Community';
   return tier;
 }
@@ -130,13 +120,13 @@ export function LicenseSection({
 
       if (result?.success) {
         setMessage({
-          text: 'License key activated successfully',
+          text: 'Membership key linked',
           type: 'success',
         });
         await loadStatus();
       } else {
         setMessage({
-          text: result?.error ?? 'Failed to set license key',
+          text: result?.error ?? 'Failed to set membership key',
           type: 'error',
         });
       }
@@ -158,11 +148,11 @@ export function LicenseSection({
     );
 
     if (result?.success) {
-      setMessage({ text: 'License key cleared', type: 'success' });
+      setMessage({ text: 'Membership key cleared', type: 'success' });
       await loadStatus();
     } else {
       setMessage({
-        text: result?.error ?? 'Failed to clear license key',
+        text: result?.error ?? 'Failed to clear membership key',
         type: 'error',
       });
     }
@@ -195,7 +185,7 @@ export function LicenseSection({
   );
 
   if (loading) {
-    return <Spinner label="Loading license status..." />;
+    return <Spinner label="Loading membership status..." />;
   }
 
   const tier = status?.tier ?? 'unknown';
@@ -204,10 +194,10 @@ export function LicenseSection({
     <Box flexDirection="column">
       <Box flexDirection="column" marginBottom={1}>
         <Box gap={1}>
-          <Text>Tier:</Text>
+          <Text>Membership:</Text>
           <Badge variant={tierBadgeVariant(tier)}>{tierLabel(tier)}</Badge>
           <Badge variant={status?.valid ? 'success' : 'error'}>
-            {status?.valid ? 'Valid' : 'Invalid'}
+            {status?.valid ? 'Active' : 'Invalid'}
           </Badge>
         </Box>
 
@@ -218,13 +208,6 @@ export function LicenseSection({
               <Text>{status.daysRemaining}</Text>
             </Box>
           )}
-
-        {status?.trialActive && status.trialDaysRemaining !== null && (
-          <Box>
-            <Text color={theme.status.warning}>Trial: </Text>
-            <Text>{status.trialDaysRemaining} days remaining</Text>
-          </Box>
-        )}
 
         {status?.user?.email && (
           <Box>
@@ -252,7 +235,7 @@ export function LicenseSection({
       {editMode && (
         <Box marginLeft={4} marginTop={1}>
           {saving ? (
-            <Spinner label="Verifying license key..." />
+            <Spinner label="Verifying membership key..." />
           ) : (
             <Box>
               <Text color={theme.status.warning}>Key: </Text>
@@ -262,7 +245,7 @@ export function LicenseSection({
                 onSubmit={(val) => {
                   void handleSetKey(val);
                 }}
-                placeholder="Paste license key and press Enter"
+                placeholder="Paste membership key and press Enter"
                 focus={true}
                 mask="*"
               />

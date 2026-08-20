@@ -20,7 +20,7 @@ interface FormattedEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (formatted().length === 0) {
-      <div class="text-xs text-base-content/60">No recent events.</div>
+      <div class="text-xs text-base-content-muted">No recent events.</div>
     } @else {
       <ul class="flex flex-col gap-1 text-xs" role="list">
         @for (ev of formatted(); track ev.timestamp + '-' + ev.kind) {
@@ -28,15 +28,19 @@ interface FormattedEvent {
             <span class="badge badge-xs" [class]="badgeClass(ev.kind)">
               {{ ev.kind }}
             </span>
-            <span class="font-mono text-[10px] text-base-content/60">
+            <span class="font-mono text-[10px] text-base-content-muted">
               {{ ev.relative }}
             </span>
             @if (ev.sessionId) {
-              <span class="font-mono text-[10px] text-base-content/40 truncate">
+              <span
+                class="font-mono text-[10px] text-base-content-muted truncate"
+              >
                 {{ ev.sessionId }}
               </span>
             }
-            <span class="text-base-content/80 truncate">{{ ev.outcome }}</span>
+            <span class="text-base-content-muted truncate">{{
+              ev.outcome
+            }}</span>
           </li>
         }
       </ul>

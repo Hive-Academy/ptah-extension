@@ -68,18 +68,16 @@ jest.mock('tsyringe', () => ({
 
 // Mock the Logger token + service classes that AgentProcessManager now
 // depends on after the god-service split-up. The source file
-// constructor-injects LicenseService, SubagentRegistryService, and
-// SentryService alongside the original logger/cliDetection.
+// constructor-injects SubagentRegistryService and SentryService alongside
+// the original logger/cliDetection.
 jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: {
     LOGGER: Symbol('LOGGER'),
     CLI_DETECTION_SERVICE: Symbol('CLI_DETECTION_SERVICE'),
-    LICENSE_SERVICE: Symbol('LICENSE_SERVICE'),
     SUBAGENT_REGISTRY_SERVICE: Symbol('SUBAGENT_REGISTRY_SERVICE'),
     SENTRY_SERVICE: Symbol('SENTRY_SERVICE'),
   },
   Logger: class {},
-  LicenseService: class {},
   SubagentRegistryService: class {},
   SentryService: class {},
 }));
@@ -310,16 +308,6 @@ function createMockWorkspaceProvider(): Record<string, jest.Mock> {
   };
 }
 
-/** Build a LicenseService stub that reports premium so MCP resolution
- *  reaches the HTTP health check (mocked to fail above — no real network). */
-function createMockLicenseService(): Record<string, jest.Mock> {
-  const status = { tier: 'pro', plan: { isPremium: true } };
-  return {
-    getCachedStatus: jest.fn().mockReturnValue(status),
-    verifyLicense: jest.fn().mockResolvedValue(status),
-  };
-}
-
 /** Minimal SubagentRegistryService stub — spawn() only touches it when a
  *  parentSessionId is provided (none of these tests do). */
 function createMockSubagentRegistry(): Record<string, jest.Mock> {
@@ -356,9 +344,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     setupVscodeConfig();
 
     // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // The constructor takes 7 deps: logger, cliDetection, licenseService,
-    // subagentRegistry, workspaceProvider, sentryService, reasoningSettings.
-    const licenseService = createMockLicenseService();
+    // The constructor takes 6 deps: logger, cliDetection, subagentRegistry,
+    // workspaceProvider, sentryService, reasoningSettings.
     const subagentRegistry = createMockSubagentRegistry();
     const workspaceProvider = createMockWorkspaceProvider();
     const sentryService = createMockSentryService();
@@ -367,21 +354,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     manager = new AgentProcessManager(
       logger,
       cliDetection,
-      licenseService as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[2],
       subagentRegistry as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[3],
+      >[2],
       workspaceProvider as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[4],
+      >[3],
       sentryService as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[5],
+      >[4],
       reasoningSettings as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[6],
+      >[5],
     );
   });
 
@@ -484,6 +468,73 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(runSdkCall.reasoningEffort).toBeUndefined();
     });
+
+    const spawnPi = async () => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli: 'pi',
+        workingDirectory: '/workspace/root',
+      });
+      return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+    };
+
+    // Pi maps effort to `--thinking` and supports the full off..max scale, so
+    // the configured value must flow through RAW — no `max`→`xhigh` coercion
+    // (unlike Codex/Copilot). These cases guard that documented divergence.
+    it.each([
+      ['max', 'max'],
+      ['off', 'off'],
+      ['high', 'high'],
+    ])(
+      "passes Pi reasoning effort '%s' through raw (no max->xhigh coercion)",
+      async (configured, expected) => {
+        // UI driver is Codex/Copilot-only; it must NOT influence Pi.
+        reasoningEffortGet.mockReturnValue('max');
+        setupVscodeConfig({ piReasoningEffort: configured });
+
+        const runSdkCall = await spawnPi();
+
+        expect(runSdkCall.reasoningEffort).toBe(expected);
+      },
+    );
+
+    it('is undefined for Pi when no reasoning effort is configured', async () => {
+      setupVscodeConfig({ piReasoningEffort: '' });
+
+      const runSdkCall = await spawnPi();
+
+      expect(runSdkCall.reasoningEffort).toBeUndefined();
+    });
+  });
+
+  describe('model resolution', () => {
+    const spawnWith = async (cli: 'pi' | 'opencode' | 'antigravity') => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli,
+        workingDirectory: '/workspace/root',
+      });
+      return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+    };
+
+    // MODEL_CONFIG_KEYS maps each CLI to its `agentOrchestration.*Model` key;
+    // these cases guard the three new CLI entries added for this task.
+    it.each([
+      ['pi', 'piModel', 'anthropic/claude-sonnet'],
+      ['opencode', 'opencodeModel', 'gpt-5-codex'],
+      ['antigravity', 'antigravityModel', 'gemini-2.5-pro'],
+    ] as const)(
+      'reads %s model via MODEL_CONFIG_KEYS (%s)',
+      async (cli, configKey, model) => {
+        setupVscodeConfig({ [configKey]: model });
+
+        const runSdkCall = await spawnWith(cli);
+
+        expect(runSdkCall.model).toBe(model);
+      },
+    );
   });
 
   describe('SDK output in readOutput()', () => {
@@ -659,6 +710,26 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         /not supported/i,
       );
     });
+
+    it('routes steering to sdkHandle.steer when the handle exposes it', async () => {
+      // Simulate a steer-capable SDK adapter (e.g. Pi RPC mode): the adapter
+      // reports supportsSteer() true and the handle owns a live steer channel.
+      const steerSpy = jest.fn();
+      (sdkControls.handle as { steer?: (message: string) => void }).steer =
+        steerSpy;
+      sdkAdapter.supportsSteer.mockReturnValue(true);
+
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(() =>
+        manager.steer(result.agentId, 'also handle errors'),
+      ).not.toThrow();
+      expect(steerSpy).toHaveBeenCalledWith('also handle errors');
+    });
   });
 
   describe('shutdownAll() with SDK agents', () => {
@@ -752,6 +823,39 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
 
       // Since our mock detection returns codex as installed, it should be chosen
+      expect(result.cli).toBe('codex');
+    });
+
+    // Regression: the system-CLI allowlist used to be a hard-coded
+    // ['codex','copilot','cursor'] triple, so antigravity/opencode/pi were
+    // silently skipped when preferred and the manager fell through to
+    // auto-detect. It now derives from SYSTEM_CLI_TYPES.
+    it.each(['antigravity', 'opencode', 'pi'])(
+      'honours %s as a preferred CLI',
+      async (cli) => {
+        setupVscodeConfig({ preferredAgentOrder: [cli] });
+
+        const result = await manager.spawn({
+          task: 'Task without explicit CLI',
+          workingDirectory: '/workspace/root',
+        });
+
+        expect(result.cli).toBe(cli);
+      },
+    );
+
+    it('skips a preferred CLI that is disabled', async () => {
+      setupVscodeConfig({
+        preferredAgentOrder: ['antigravity'],
+        disabledClis: ['antigravity'],
+      });
+
+      const result = await manager.spawn({
+        task: 'Task without explicit CLI',
+        workingDirectory: '/workspace/root',
+      });
+
+      // Falls through to auto-detect, which the mock reports as codex.
       expect(result.cli).toBe('codex');
     });
   });
@@ -904,6 +1008,37 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(() => manager.getStatus(agentId)).toThrow(/not found/i);
     });
 
+    it('announces the TTL removal so the UI can stop offering a continuation', async () => {
+      const agentId = await spawnContinuable();
+      const expired: string[] = [];
+      manager.events.on('agent:expired', (payload: { agentId: string }) =>
+        expired.push(payload.agentId),
+      );
+      await completeTurn1();
+
+      expect(expired).toEqual([]);
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+
+      // Without this the card keeps a live-looking follow-up box wired to an id
+      // the manager can only answer `not_found` for.
+      expect(expired).toEqual([agentId]);
+    });
+
+    it('does not announce an expiry for an agent kept alive by continue', async () => {
+      const agentId = await spawnContinuable();
+      const expired: string[] = [];
+      manager.events.on('agent:expired', (payload: { agentId: string }) =>
+        expired.push(payload.agentId),
+      );
+      await completeTurn1();
+      await manager.continueConversation(agentId, 'keep me alive');
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+
+      expect(expired).toEqual([]);
+    });
+
     it('clears the cleanup timer on continue so TTL no longer removes the agent', async () => {
       const agentId = await spawnContinuable();
       await completeTurn1();
@@ -972,6 +1107,74 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
 
       blockerControls.resolve(0);
+    });
+  });
+
+  /**
+   * TASK_2026_295 — `''` is not a tab id.
+   *
+   * The loop matched `record.parentSessionId === tabId` with no guard, so one
+   * call with an empty tabId re-parented EVERY agent whose parent was also
+   * empty — agents from unrelated sessions, or from none — onto whichever
+   * session happened to resolve first.
+   */
+  describe('resolveParentSessionId()', () => {
+    const spawnWithParent = async (
+      parentSessionId: string | undefined,
+    ): Promise<string> => {
+      const controls = createMockSdkHandle();
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId,
+      });
+      return result.agentId;
+    };
+
+    const parentOf = (agentId: string): string | undefined =>
+      (manager.getStatus(agentId) as { parentSessionId?: string })
+        .parentSessionId;
+
+    it('does not re-parent unrelated agents when the tab id is empty', async () => {
+      const orphan = await spawnWithParent('');
+      const real = await spawnWithParent(
+        '11111111-2222-4333-8444-555555555555',
+      );
+
+      manager.resolveParentSessionId(
+        '',
+        'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      );
+
+      expect(parentOf(orphan)).toBe('');
+      expect(parentOf(real)).toBe('11111111-2222-4333-8444-555555555555');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('blank id'),
+        expect.anything(),
+      );
+    });
+
+    it('does not rewrite a parent to an empty real session id', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-111111111111';
+      const agentId = await spawnWithParent(tabId);
+
+      manager.resolveParentSessionId(tabId, '');
+
+      expect(parentOf(agentId)).toBe(tabId);
+    });
+
+    it('still remaps matching agents for a real tab id', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-222222222222';
+      const realSessionId = '11111111-2222-4333-8444-555555555555';
+      const matching = await spawnWithParent(tabId);
+      const other = await spawnWithParent('');
+
+      manager.resolveParentSessionId(tabId, realSessionId);
+
+      expect(parentOf(matching)).toBe(realSessionId);
+      expect(parentOf(other)).toBe('');
     });
   });
 });

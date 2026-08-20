@@ -1126,3 +1126,50 @@ describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-g
     },
   );
 });
+
+/**
+ * TASK_2026_295 — an empty session id is stored as NULL, never verbatim.
+ *
+ * `''` is not a scope. Written into `memories.session_id` it becomes a third
+ * state — "the empty session" — which reads back as legitimately scoped and
+ * which every row carrying the same upstream defect shares. NULL is the value
+ * the column already has for "this memory has no session".
+ *
+ * Asserted on the bound statement parameters rather than through a round trip,
+ * because what is under test is exactly what gets handed to SQLite.
+ */
+describe('MemoryStore — empty sessionId normalises to NULL (TASK_2026_295)', () => {
+  const baseInsert: MemoryInsert = {
+    tier: 'core',
+    kind: 'fact',
+    content: 'curated without a usable session id',
+    workspaceRoot: '/ws/A',
+  };
+
+  async function insertAndReadParams(
+    sessionId: string | null | undefined,
+  ): Promise<Record<string, unknown>> {
+    const { stub, runMock } = makeDb();
+    const store = makeStore(stub);
+    await store.insertMemoryWithChunks({ ...baseInsert, sessionId }, []);
+    return runMock.mock.calls[0][0] as Record<string, unknown>;
+  }
+
+  it('stores NULL for an empty sessionId', async () => {
+    expect((await insertAndReadParams('')).session_id).toBeNull();
+  });
+
+  it('stores NULL for a whitespace-only sessionId', async () => {
+    expect((await insertAndReadParams('   ')).session_id).toBeNull();
+  });
+
+  it('stores NULL when no sessionId is supplied at all', async () => {
+    expect((await insertAndReadParams(undefined)).session_id).toBeNull();
+  });
+
+  it('stores a real sessionId unchanged', async () => {
+    // The control: normalisation must not touch a usable id.
+    const id = '8f1c7d2e-2a5b-4b6e-9d3f-0c1a2b3c4d5e';
+    expect((await insertAndReadParams(id)).session_id).toBe(id);
+  });
+});

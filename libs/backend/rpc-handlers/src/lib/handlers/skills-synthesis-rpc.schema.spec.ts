@@ -17,32 +17,107 @@ import {
   SkillInvocationStatsParamsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
+  SkillQueueParamsSchema,
+  SkillLaneSchema,
+  SkillSetLanesParamsSchema,
+  SkillGetLanesParamsSchema,
+  SKILL_LANE_ID_VALUES,
 } from './skills-synthesis-rpc.schema';
 
-describe('SkillSynthesisSettingsSchema', () => {
-  const validFull = {
-    enabled: true,
-    successesToPromote: 3,
-    dedupCosineThreshold: 0.85,
-    maxActiveSkills: 50,
-    candidatesDir: '',
-    eligibilityMinTurns: 5,
-    evictionDecayRate: 0.95,
-    generalizationContextThreshold: 3,
-    dedupClusterThreshold: 0.78,
-    prefilterMinEdits: 1,
-    prefilterMinChars: 800,
-    prefilterMinToolUses: 2,
-    judgeEnabled: true,
-    minJudgeScore: 6.0,
-    judgeModel: 'inherit',
-    maxPinnedSkills: 10,
-    curatorEnabled: true,
-    curatorIntervalHours: 24,
-    suggestionMinClusterSize: 2,
-    suggestionMaxCandidates: 200,
-  };
+describe('SkillQueueParamsSchema', () => {
+  // The Skills tab calls this with nothing at all on first paint.
+  it.each([
+    ['undefined', undefined],
+    ['an empty object', {}],
+  ])('accepts %s', (_label, params) => {
+    expect(() => SkillQueueParamsSchema.parse(params)).not.toThrow();
+  });
 
+  it('accepts both limits within range', () => {
+    const result = SkillQueueParamsSchema.parse({ limit: 10, runLimit: 5 });
+    expect(result).toEqual({ limit: 10, runLimit: 5 });
+  });
+
+  it('coerces numeric strings arriving over the bridge', () => {
+    expect(SkillQueueParamsSchema.parse({ limit: '25' })?.limit).toBe(25);
+  });
+
+  it.each([
+    ['limit', 0],
+    ['limit', 201],
+    ['limit', -5],
+    ['runLimit', 0],
+    ['runLimit', 201],
+  ])('rejects %s = %s', (field, value) => {
+    expect(() => SkillQueueParamsSchema.parse({ [field]: value })).toThrow();
+  });
+
+  it('rejects a non-numeric limit', () => {
+    expect(() => SkillQueueParamsSchema.parse({ limit: 'all' })).toThrow();
+  });
+});
+
+/**
+ * The one complete settings fixture, shared by every settings describe below.
+ *
+ * `SkillSynthesisSettingsSchema` declares all of its keys as REQUIRED — no key
+ * carries a Zod `.default()`, because the defaults live on the other side of
+ * the boundary in `FILE_BASED_SETTINGS_DEFAULTS` and `registerGetSettings`
+ * fills each key from there before parsing. That is the house contract and it
+ * is what makes a settings key that a host forgot to write a loud failure
+ * rather than a silent zero.
+ *
+ * The consequence is that every settings spec needs the WHOLE object, and this
+ * file used to carry three drifting copies of it — so adding the eleven Phase 0
+ * drain keys broke two describes that had nothing to do with the drain. One
+ * fixture, hoisted: the next settings key is a one-line change here.
+ */
+const validFull = {
+  enabled: true,
+  successesToPromote: 3,
+  dedupCosineThreshold: 0.85,
+  maxActiveSkills: 50,
+  candidatesDir: '',
+  eligibilityMinTurns: 5,
+  evictionDecayRate: 0.95,
+  generalizationContextThreshold: 3,
+  dedupClusterThreshold: 0.78,
+  prefilterMinEdits: 1,
+  prefilterMinChars: 800,
+  prefilterMinToolUses: 2,
+  judgeEnabled: true,
+  minJudgeScore: 6.0,
+  judgeModel: 'inherit',
+  maxPinnedSkills: 10,
+  curatorEnabled: true,
+  curatorIntervalHours: 24,
+  suggestionMinClusterSize: 2,
+  suggestionMaxCandidates: 200,
+  // TASK_2026_180 Phase 0 — the drain knobs. These are the shipped defaults;
+  // `file-settings-keys.spec.ts` pins the same values on the other side.
+  'drain.cronExpr': '*/15 * * * *',
+  'drain.nightlyCronExpr': '0 3 * * *',
+  'drain.weeklyCronExpr': '0 4 * * 0',
+  'drain.maxItemsPerRun': 4,
+  'drain.nightlyMaxItemsPerRun': 40,
+  'drain.weeklyMaxItemsPerRun': 400,
+  'drain.perWorkspaceBatch': 1,
+  'drain.foregroundBackoffMs': 300000,
+  'drain.pauseOnBattery': true,
+  'drain.maxAttempts': 5,
+  'drain.staleClaimTtlMs': 900000,
+  'budget.maxTokensPerDay': 2000000,
+  trayKeepalive: false,
+  // TASK_2026_180 Phase 3 — the empirical gates. Same shipped defaults as
+  // `file-settings-keys.spec.ts` pins on the other side of the boundary.
+  'replayValidation.enabled': true,
+  'replayValidation.minConfidence': 0.5,
+  'triggerEval.enabled': true,
+  'judgePanel.enabled': true,
+  'judgePanel.disagreementThreshold': 3,
+};
+
+describe('SkillSynthesisSettingsSchema', () => {
   it('accepts a fully valid settings object', () => {
     expect(() => SkillSynthesisSettingsSchema.parse(validFull)).not.toThrow();
   });
@@ -99,6 +174,308 @@ describe('SkillSynthesisSettingsSchema', () => {
     expect(result.successesToPromote).toBe(5);
     expect(result.maxActiveSkills).toBe(100);
     expect(result.minJudgeScore).toBe(7.5);
+  });
+
+  describe('drain + budget knobs (TASK_2026_180 Phase 0)', () => {
+    /**
+     * The schema key IS the settings path suffix: `registerGetSettings` reads
+     * `skillSynthesis.${key}` and `registerUpdateSettings` writes it back. A
+     * renamed key would read and write a path no host stores, and nothing
+     * would raise — this is the assertion that keeps the dotted names.
+     */
+    it('names its keys so `skillSynthesis.<key>` is the settings path', () => {
+      const keys = Object.keys(SkillSynthesisSettingsSchema.shape);
+      expect(keys).toEqual(
+        expect.arrayContaining([
+          'drain.cronExpr',
+          'drain.nightlyCronExpr',
+          'drain.weeklyCronExpr',
+          'drain.maxItemsPerRun',
+          'drain.nightlyMaxItemsPerRun',
+          'drain.weeklyMaxItemsPerRun',
+          'drain.perWorkspaceBatch',
+          'drain.foregroundBackoffMs',
+          'drain.pauseOnBattery',
+          'drain.maxAttempts',
+          'drain.staleClaimTtlMs',
+          'budget.maxTokensPerDay',
+          'trayKeepalive',
+        ]),
+      );
+    });
+
+    // Phase 0 REPLACES the inline path; a second switch would be the parallel
+    // implementation the brief forbids. `skillSynthesis.enabled` is the one
+    // master switch and the drain's first gate.
+    it('declares no queueEnabled or paused flag beside `enabled`', () => {
+      const keys = Object.keys(SkillSynthesisSettingsSchema.shape);
+      expect(keys.filter((k) => /queueEnabled|paused/i.test(k))).toEqual([]);
+      expect(keys).toContain('enabled');
+    });
+
+    it.each([
+      ['5 fields', '*/15 * * * *'],
+      ['6 fields', '0 */15 * * * *'],
+    ])('accepts a cron expression with %s', (_label, expr) => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'drain.cronExpr': expr,
+        }),
+      ).not.toThrow();
+    });
+
+    it.each([
+      ['an empty expression', ''],
+      ['a whitespace-only expression', '   '],
+      ['too few fields', '*/15 * *'],
+      ['too many fields', '0 0 */15 * * * *'],
+    ])('rejects %s', (_label, expr) => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'drain.cronExpr': expr,
+        }),
+      ).toThrow();
+    });
+
+    // `0` is a supported value, not an omission: it turns the foreground gate
+    // off entirely, which is what a user on a dedicated machine wants.
+    it('accepts foregroundBackoffMs = 0, which disables the gate', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'drain.foregroundBackoffMs': 0,
+      });
+      expect(result['drain.foregroundBackoffMs']).toBe(0);
+    });
+
+    // `0` here means UNLIMITED, not "spend nothing".
+    it('accepts maxTokensPerDay = 0, which means unlimited', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'budget.maxTokensPerDay': 0,
+      });
+      expect(result['budget.maxTokensPerDay']).toBe(0);
+    });
+
+    // A TTL below the longest stage timeout reaps live work mid-flight (R5).
+    it('rejects a stale-claim TTL below one minute', () => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'drain.staleClaimTtlMs': 5_000,
+        }),
+      ).toThrow();
+    });
+
+    it('rejects a per-run item budget of 0, which would drain nothing', () => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'drain.maxItemsPerRun': 0,
+        }),
+      ).toThrow();
+    });
+
+    it('coerces numeric strings from the settings form', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'drain.maxItemsPerRun': '8',
+        'budget.maxTokensPerDay': '1500000',
+      });
+      expect(result['drain.maxItemsPerRun']).toBe(8);
+      expect(result['budget.maxTokensPerDay']).toBe(1_500_000);
+    });
+
+    /**
+     * The per-tier item caps (TASK_2026_242).
+     *
+     * The three caps deliberately do NOT share bounds. `drain.maxItemsPerRun`
+     * is `.max(100)` because the frequent tier fires ~96 times a day; the
+     * nightly and weekly tiers fire once a day and once a week and ship
+     * defaults of 40 and 400. Reusing `.max(100)` here would reject the shipped
+     * weekly default outright, so the ceilings keep the SAME 25× head-room the
+     * frequent cap already encodes (100 / 4): 1_000 nightly, 10_000 weekly.
+     *
+     * The single most important assertion below is that 400 PARSES — that is
+     * the exact value the copied `.max(100)` would have refused, which is what
+     * made surfacing these keys a wiring task rather than a one-liner.
+     */
+    it('parses the shipped per-tier item caps (40 nightly, 400 weekly)', () => {
+      const result = SkillSynthesisSettingsSchema.parse(validFull);
+      expect(result['drain.nightlyMaxItemsPerRun']).toBe(40);
+      expect(result['drain.weeklyMaxItemsPerRun']).toBe(400);
+    });
+
+    // `0` is not "off" for an item cap — `skillSynthesis.enabled` is the stop
+    // switch. A `0` here drains nothing while the panel shows a configured tier.
+    it.each([
+      ['nightly', 'drain.nightlyMaxItemsPerRun'],
+      ['weekly', 'drain.weeklyMaxItemsPerRun'],
+    ])(
+      'rejects a %s per-run item budget of 0, which would drain nothing',
+      (_tier, key) => {
+        expect(() =>
+          SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: 0 }),
+        ).toThrow();
+      },
+    );
+
+    // Ceiling + 1 at the 25×-head-room ceilings. These also fail loudly if
+    // someone re-narrows either tier back to `.max(100)`, because the shipped
+    // 400 default in `validFull` would stop parsing at all.
+    it.each([
+      ['nightly', 'drain.nightlyMaxItemsPerRun', 1_000, 1_001],
+      ['weekly', 'drain.weeklyMaxItemsPerRun', 10_000, 10_001],
+    ])(
+      'accepts the %s ceiling and rejects one above it',
+      (_tier, key, ceiling, over) => {
+        expect(() =>
+          SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: ceiling }),
+        ).not.toThrow();
+        expect(() =>
+          SkillSynthesisSettingsSchema.parse({ ...validFull, [key]: over }),
+        ).toThrow();
+      },
+    );
+
+    it('coerces per-tier item caps arriving as numeric strings', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'drain.nightlyMaxItemsPerRun': '60',
+        'drain.weeklyMaxItemsPerRun': '500',
+      });
+      expect(result['drain.nightlyMaxItemsPerRun']).toBe(60);
+      expect(result['drain.weeklyMaxItemsPerRun']).toBe(500);
+    });
+
+    it('defaults the tray keep-alive off in the shipped settings object', () => {
+      const result = SkillSynthesisSettingsSchema.parse(validFull);
+      expect(result.trayKeepalive).toBe(false);
+    });
+  });
+
+  describe('empirical-gate knobs (TASK_2026_180 Phase 3)', () => {
+    /**
+     * The schema key IS the settings path suffix, exactly as for the drain
+     * keys: `registerGetSettings` reads `skillSynthesis.${key}` and
+     * `registerUpdateSettings` writes it back. A renamed key here would read
+     * and write a path no host stores, and nothing would raise — the wire would
+     * simply stop persisting. `file-settings-keys.spec.ts` pins the same five
+     * names from the routing side; this is the wire side of the same contract.
+     */
+    it('names its keys so `skillSynthesis.<key>` is the settings path', () => {
+      const keys = Object.keys(SkillSynthesisSettingsSchema.shape);
+      expect(keys).toEqual(
+        expect.arrayContaining([
+          'replayValidation.enabled',
+          'replayValidation.minConfidence',
+          'triggerEval.enabled',
+          'judgePanel.enabled',
+          'judgePanel.disagreementThreshold',
+        ]),
+      );
+    });
+
+    /**
+     * NO GATE KEY MAY SIT INSIDE A LANE'S SUB-TREE.
+     *
+     * The schema key is the settings-path suffix, so a `'replay.enabled'` here
+     * would write `skillSynthesis.replay.enabled` — inside the replay LANE's
+     * eight capability fields, which `getLanes` / `setLanes` round-trip. That
+     * is what the batch text asked for and what B1.8's stray-lane-key guards
+     * (in `platform-core` and in `skills-synthesis-rpc.handlers.spec.ts`)
+     * rejected. Derived from `SKILL_LANE_ID_VALUES` rather than a literal list
+     * so a fifth lane automatically extends the check.
+     */
+    it('places no gate key inside one of the lane sub-trees', () => {
+      const lanePrefixes = SKILL_LANE_ID_VALUES.map((id) => `${id}.`);
+      const gateKeys = Object.keys(SkillSynthesisSettingsSchema.shape).filter(
+        (k) =>
+          /^(replayValidation|triggerEval|judgePanel)\./.test(k) ||
+          k.startsWith('replay.'),
+      );
+      expect(gateKeys).not.toHaveLength(0);
+      for (const key of gateKeys) {
+        for (const prefix of lanePrefixes) {
+          expect(key.startsWith(prefix)).toBe(false);
+        }
+      }
+    });
+
+    // 0–1, because it is compared against `skill_candidates.replay_confidence`,
+    // which `0036` and the store both hold to that range.
+    it.each([
+      ['above 1', 1.5],
+      ['below 0', -0.1],
+    ])('rejects a minConfidence %s', (_label, value) => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'replayValidation.minConfidence': value,
+        }),
+      ).toThrow();
+    });
+
+    // `0` means "any measured replay clears". It does NOT promote unmeasured
+    // candidates: a NULL `replay_confidence` is not below any threshold.
+    it('accepts a minConfidence of 0, which clears any measured replay', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'replayValidation.minConfidence': 0,
+      });
+      expect(result['replayValidation.minConfidence']).toBe(0);
+    });
+
+    it('rejects a disagreement threshold above the judge 0–10 scale', () => {
+      expect(() =>
+        SkillSynthesisSettingsSchema.parse({
+          ...validFull,
+          'judgePanel.disagreementThreshold': 11,
+        }),
+      ).toThrow();
+    });
+
+    /**
+     * Judge scores are reals (7.4), so a 2.5-point gap between two panellists
+     * is a meaningful setting. An `.int()` here would silently round the user's
+     * intent, which for a threshold means escalating strictly more or strictly
+     * fewer verdicts than they asked for.
+     */
+    it('accepts a fractional disagreement threshold', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'judgePanel.disagreementThreshold': 2.5,
+      });
+      expect(result['judgePanel.disagreementThreshold']).toBe(2.5);
+    });
+
+    it('coerces numeric strings from the settings form', () => {
+      const result = SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        'replayValidation.minConfidence': '0.75',
+        'judgePanel.disagreementThreshold': '4',
+      });
+      expect(result['replayValidation.minConfidence']).toBe(0.75);
+      expect(result['judgePanel.disagreementThreshold']).toBe(4);
+    });
+
+    // Each gate has its own switch (R8): trigger-eval's retrieval is
+    // local-embedding only and spends nothing, while replay and judge-panel
+    // each cost a lane call per candidate. One shared flag would tie them.
+    it('declares a separate enabled flag per gate', () => {
+      const keys = Object.keys(SkillSynthesisSettingsSchema.shape);
+      expect(
+        keys
+          .filter((k) => /^(replayValidation|triggerEval|judgePanel)\./.test(k))
+          .filter((k) => k.endsWith('.enabled'))
+          .sort(),
+      ).toEqual([
+        'judgePanel.enabled',
+        'replayValidation.enabled',
+        'triggerEval.enabled',
+      ]);
+    });
   });
 });
 
@@ -592,29 +969,6 @@ describe('getScorecardDetailParamsSchema', () => {
 });
 
 describe('SkillSynthesisSettingsSchema — suggestionMinClusterSize boundary', () => {
-  const validFull = {
-    enabled: true,
-    successesToPromote: 3,
-    dedupCosineThreshold: 0.85,
-    maxActiveSkills: 50,
-    candidatesDir: '',
-    eligibilityMinTurns: 5,
-    evictionDecayRate: 0.95,
-    generalizationContextThreshold: 3,
-    dedupClusterThreshold: 0.78,
-    prefilterMinEdits: 1,
-    prefilterMinChars: 800,
-    prefilterMinToolUses: 2,
-    judgeEnabled: true,
-    minJudgeScore: 6.0,
-    judgeModel: 'inherit',
-    maxPinnedSkills: 10,
-    curatorEnabled: true,
-    curatorIntervalHours: 24,
-    suggestionMinClusterSize: 2,
-    suggestionMaxCandidates: 200,
-  };
-
   it('accepts suggestionMinClusterSize=2 (minimum)', () => {
     expect(() =>
       SkillSynthesisSettingsSchema.parse({
@@ -658,29 +1012,6 @@ describe('SkillSynthesisSettingsSchema — suggestionMinClusterSize boundary', (
 });
 
 describe('SkillSynthesisSettingsSchema — suggestionMaxCandidates boundary', () => {
-  const validFull = {
-    enabled: true,
-    successesToPromote: 3,
-    dedupCosineThreshold: 0.85,
-    maxActiveSkills: 50,
-    candidatesDir: '',
-    eligibilityMinTurns: 5,
-    evictionDecayRate: 0.95,
-    generalizationContextThreshold: 3,
-    dedupClusterThreshold: 0.78,
-    prefilterMinEdits: 1,
-    prefilterMinChars: 800,
-    prefilterMinToolUses: 2,
-    judgeEnabled: true,
-    minJudgeScore: 6.0,
-    judgeModel: 'inherit',
-    maxPinnedSkills: 10,
-    curatorEnabled: true,
-    curatorIntervalHours: 24,
-    suggestionMinClusterSize: 2,
-    suggestionMaxCandidates: 200,
-  };
-
   it('accepts suggestionMaxCandidates=1 (minimum)', () => {
     expect(() =>
       SkillSynthesisSettingsSchema.parse({
@@ -720,5 +1051,160 @@ describe('SkillSynthesisSettingsSchema — suggestionMaxCandidates boundary', ()
   it('rejects missing suggestionMaxCandidates (required field)', () => {
     const { suggestionMaxCandidates: _omit, ...rest } = validFull;
     expect(() => SkillSynthesisSettingsSchema.parse(rest)).toThrow();
+  });
+});
+
+describe('SkillGetLanesParamsSchema', () => {
+  it.each([
+    ['undefined', undefined],
+    ['an empty object', {}],
+  ])('accepts %s', (_label, params) => {
+    expect(() => SkillGetLanesParamsSchema.parse(params)).not.toThrow();
+  });
+
+  it('rejects unknown params', () => {
+    expect(() => SkillGetLanesParamsSchema.parse({ lane: 'judge' })).toThrow();
+  });
+});
+
+describe('SkillLaneSchema', () => {
+  const validLane = {
+    provider: '',
+    model: '',
+    defaultTier: 'haiku',
+    structuredOutput: 'sdk',
+    toolUse: 'none',
+    timeoutMs: 45000,
+    maxInputChars: 3000,
+    maxPasses: 1,
+  };
+
+  it('accepts a fully specified lane', () => {
+    expect(() => SkillLaneSchema.parse(validLane)).not.toThrow();
+  });
+
+  it('accepts empty provider and model — the "inherit" default', () => {
+    const parsed = SkillLaneSchema.parse(validLane);
+    expect(parsed.provider).toBe('');
+    expect(parsed.model).toBe('');
+  });
+
+  it('accepts any opaque provider id without an allowlist', () => {
+    // Global invariant 1: lanes differ ONLY by capability fields. An enum of
+    // known provider ids here would reject a newly registered provider at the
+    // boundary, with nothing near the registry to explain why.
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, provider: 'some-new-endpoint' }),
+    ).not.toThrow();
+  });
+
+  it.each([0, -1, 999])(
+    'rejects timeoutMs=%s (below the 1000ms floor)',
+    (ms) => {
+      // A non-positive timeout arms an AbortController that fires before the
+      // request leaves, so every call on the lane fails as a timeout that cannot
+      // be told apart from a real one.
+      expect(() =>
+        SkillLaneSchema.parse({ ...validLane, timeoutMs: ms }),
+      ).toThrow();
+    },
+  );
+
+  it('rejects a non-integer timeoutMs', () => {
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, timeoutMs: 45000.5 }),
+    ).toThrow();
+  });
+
+  it.each([0, -1])('rejects maxPasses=%s', (passes) => {
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, maxPasses: passes }),
+    ).toThrow();
+  });
+
+  it.each([
+    ['defaultTier', 'ultra'],
+    ['structuredOutput', 'yaml'],
+    ['toolUse', 'optional'],
+  ])('rejects an out-of-vocabulary %s', (field, value) => {
+    expect(() =>
+      SkillLaneSchema.parse({ ...validLane, [field]: value }),
+    ).toThrow();
+  });
+});
+
+describe('SkillSetLanesParamsSchema', () => {
+  it('accepts a single-field patch on a single lane', () => {
+    const parsed = SkillSetLanesParamsSchema.parse({
+      lanes: { judge: { timeoutMs: 60000 } },
+    });
+    expect(parsed.lanes.judge).toEqual({ timeoutMs: 60000 });
+  });
+
+  it.each(SKILL_LANE_ID_VALUES)('accepts a patch on the %s lane', (id) => {
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { [id]: { maxPasses: 2 } } }),
+    ).not.toThrow();
+  });
+
+  it('accepts all four lanes with all eight fields at once', () => {
+    const full = {
+      provider: 'lane-provider',
+      model: 'lane-model',
+      defaultTier: 'sonnet' as const,
+      structuredOutput: 'parse' as const,
+      toolUse: 'required' as const,
+      timeoutMs: 60000,
+      maxInputChars: 6000,
+      maxPasses: 2,
+    };
+    const lanes = Object.fromEntries(
+      SKILL_LANE_ID_VALUES.map((id) => [id, full]),
+    );
+    const parsed = SkillSetLanesParamsSchema.parse({ lanes });
+    expect(Object.keys(parsed.lanes).sort()).toEqual(
+      [...SKILL_LANE_ID_VALUES].sort(),
+    );
+  });
+
+  it('does NOT demand every lane — the patch is sparse', () => {
+    // A Zod 4 record keyed by an enum is exhaustive; spelling the four lanes as
+    // optional members is what keeps "change one field" from becoming a
+    // full-tree write.
+    const parsed = SkillSetLanesParamsSchema.parse({
+      lanes: { synthesis: { model: 'lane-model' } },
+    });
+    expect(parsed.lanes.judge).toBeUndefined();
+    expect(parsed.lanes.archaeologist).toBeUndefined();
+    expect(parsed.lanes.replay).toBeUndefined();
+  });
+
+  it('rejects an unknown lane id', () => {
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { curator: { maxPasses: 1 } } }),
+    ).toThrow();
+  });
+
+  it('rejects an unknown field inside a known lane', () => {
+    // flattenSkillLanes drops unknown fields silently — correct for it, wrong
+    // for a boundary, where a typo must surface as INVALID_PARAMS instead of a
+    // write that vanishes.
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { judge: { temperature: 1 } } }),
+    ).toThrow();
+  });
+
+  it('rejects a patch that names no lane at all', () => {
+    expect(() => SkillSetLanesParamsSchema.parse({ lanes: {} })).toThrow();
+  });
+
+  it('rejects a missing lanes key', () => {
+    expect(() => SkillSetLanesParamsSchema.parse({})).toThrow();
+  });
+
+  it('rejects an id field — lane identity is the map key, not writable', () => {
+    expect(() =>
+      SkillSetLanesParamsSchema.parse({ lanes: { judge: { id: 'judge' } } }),
+    ).toThrow();
   });
 });

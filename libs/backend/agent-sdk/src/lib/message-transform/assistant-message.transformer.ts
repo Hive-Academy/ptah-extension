@@ -11,6 +11,7 @@ import {
   calculateMessageCost,
   EventSource,
   isAgentDispatchTool,
+  isWorkflowTool,
 } from '@ptah-extension/shared';
 
 import {
@@ -70,13 +71,21 @@ export class AssistantMessageTransformer {
       id: generateEventId(),
       eventType: 'message_start',
       timestamp: Date.now(),
-      sessionId: sessionId || '',
+      sessionId,
       source: 'complete' as EventSource,
       messageId,
       role: 'assistant',
       parentToolUseId: parent_tool_use_id ?? undefined,
     };
     events.push(messageStartEvent);
+
+    // If this assistant turn is itself running inside a workflow run (its
+    // parent tool_use is a known run member), any subagent it dispatches
+    // belongs to the same run. Resolve the run once for the whole message so
+    // dispatched Task tool_use blocks can inherit it.
+    const messageWorkflowRun = parent_tool_use_id
+      ? state.getWorkflowRun(parent_tool_use_id)
+      : undefined;
 
     for (let contentIndex = 0; contentIndex < content.length; contentIndex++) {
       const block = content[contentIndex];
@@ -86,7 +95,7 @@ export class AssistantMessageTransformer {
             id: generateEventId(),
             eventType: 'thinking_delta',
             timestamp: Date.now(),
-            sessionId: sessionId || '',
+            sessionId,
             source: 'complete' as EventSource,
             messageId,
             delta: block.thinking,
@@ -100,7 +109,7 @@ export class AssistantMessageTransformer {
           id: generateEventId(),
           eventType: 'text_delta',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'complete' as EventSource,
           messageId,
           delta: block.text,
@@ -111,9 +120,29 @@ export class AssistantMessageTransformer {
       } else if (isToolUseBlock(block)) {
         const isTaskTool = isAgentDispatchTool(block.name);
 
+        // The Workflow tool launches a fire-and-forget local workflow run.
+        // Record its tool_use id as a run root so the eventual
+        // `local_workflow` task_started (whose tool_use_id equals this id) and
+        // any descendant agents can be correlated back to it. The name is not
+        // known yet — it arrives on the task_started.
+        if (isWorkflowTool(block.name)) {
+          state.registerWorkflowRunRoot(block.id);
+          helpers.logger.debug(
+            '[SdkMessageTransformer] Detected Workflow tool_use — registered workflow run root',
+            { workflowRunId: block.id },
+          );
+        }
+
+        // Propagate an active workflow run to a subagent dispatched from
+        // within it, so the child's task_started inherits the runId/name.
+        if (isTaskTool && messageWorkflowRun) {
+          state.associateWorkflowRunChild(block.id, parent_tool_use_id ?? '');
+        }
+
         let agentType: string | undefined;
         let agentDescription: string | undefined;
         let agentPrompt: string | undefined;
+        let teammateName: string | undefined;
 
         if (isTaskTool && block.input) {
           agentType =
@@ -130,6 +159,17 @@ export class AssistantMessageTransformer {
             'prompt' in block.input && typeof block.input['prompt'] === 'string'
               ? block.input['prompt']
               : undefined;
+
+          teammateName =
+            'name' in block.input && typeof block.input['name'] === 'string'
+              ? block.input['name'].trim()
+              : undefined;
+          if (teammateName) {
+            helpers.subagentRegistry.markPendingTeammateName(
+              block.id,
+              teammateName,
+            );
+          }
 
           const isBackground =
             'run_in_background' in block.input &&
@@ -160,7 +200,7 @@ export class AssistantMessageTransformer {
           id: generateEventId(),
           eventType: 'tool_start',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'complete' as EventSource,
           messageId,
           toolCallId: block.id,
@@ -174,20 +214,28 @@ export class AssistantMessageTransformer {
         };
 
         if (isTaskTool && !state.isTaskStartedEmitted(block.id)) {
+          const workflowRun = state.getWorkflowRun(block.id);
           const agentStartEvent: AgentStartEvent = {
             id: generateEventId(),
             eventType: 'agent_start',
             timestamp: Date.now(),
-            sessionId: sessionId || '',
+            sessionId,
             source: 'complete' as EventSource,
             messageId,
             toolCallId: block.id,
             agentType: agentType || 'unknown',
             agentDescription,
             agentPrompt,
+            teammateName,
             parentToolUseId: block.id,
+            workflowRunId: workflowRun?.runId,
+            workflowName: workflowRun?.name,
           };
           events.push(agentStartEvent);
+          // Mark emitted so the parallel task_started channel (now that the
+          // stream gate forwards task_* messages) does not double-emit
+          // agent_start for the same tool_use id.
+          state.markTaskStartedEmitted(block.id);
         }
 
         events.push(toolStartEvent);
@@ -196,7 +244,7 @@ export class AssistantMessageTransformer {
           id: generateEventId(),
           eventType: 'tool_result',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'complete' as EventSource,
           messageId,
           toolCallId: block.tool_use_id,
@@ -221,11 +269,13 @@ export class AssistantMessageTransformer {
             id: generateEventId(),
             eventType: 'background_agent_started',
             timestamp: Date.now(),
-            sessionId: sessionId || '',
+            sessionId,
             source: 'complete' as EventSource,
             messageId,
             toolCallId: block.tool_use_id,
             agentType: 'unknown',
+            teammateName: helpers.subagentRegistry.get(block.tool_use_id)
+              ?.teammateName,
             outputFilePath: outputFileMatch?.[1]?.trim(),
             parentToolUseId: parent_tool_use_id ?? undefined,
           };
@@ -252,18 +302,20 @@ export class AssistantMessageTransformer {
           }
         : undefined;
 
-    const cost = tokenUsage
-      ? (calculateMessageCost(
-          helpers.modelResolver.resolveForPricing(message.model || ''),
-          tokenUsage,
-        ) ?? undefined)
+    const priced = tokenUsage
+      ? helpers.modelResolver.resolveForCost(message.model || '')
       : undefined;
+    const cost =
+      tokenUsage && priced
+        ? (calculateMessageCost(priced.modelId, tokenUsage, priced.pricing) ??
+          undefined)
+        : undefined;
 
     const messageCompleteEvent: MessageCompleteEvent = {
       id: generateEventId(),
       eventType: 'message_complete',
       timestamp: Date.now(),
-      sessionId: sessionId || '',
+      sessionId,
       source: 'complete' as EventSource,
       messageId,
       stopReason: message.stop_reason ?? undefined,

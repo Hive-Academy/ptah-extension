@@ -20,7 +20,10 @@ import type {
   IUserInteraction,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ISettingsStore } from '@ptah-extension/settings-core';
 import { CopilotAuthService } from './copilot-auth.service';
+import type { CopilotLoginOptions } from './copilot-provider.types';
 
 @injectable()
 export class VscodeCopilotAuthService extends CopilotAuthService {
@@ -30,8 +33,16 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
     @inject(PLATFORM_TOKENS.USER_INTERACTION) userInteraction: IUserInteraction,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     workspaceProvider: IWorkspaceProvider,
+    @inject(SETTINGS_TOKENS.SETTINGS_STORE)
+    settingsStore: ISettingsStore,
   ) {
-    super(logger, platformInfo, userInteraction, workspaceProvider);
+    super(
+      logger,
+      platformInfo,
+      userInteraction,
+      workspaceProvider,
+      settingsStore,
+    );
   }
 
   /**
@@ -41,8 +52,14 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
    * seamless OAuth dialog without needing to copy device codes.
    * Falls back to the base class strategy (file + device code) on failure.
    */
-  override async login(): Promise<boolean> {
+  override async login(opts: CopilotLoginOptions = {}): Promise<boolean> {
     try {
+      // Explicit login clears the Ptah logout tombstone before ANY credential
+      // source is consulted. `super.login()` clears it too, but this override
+      // can succeed via the VS Code session and return without ever calling
+      // super — leaving a stale tombstone that would kill the next silent
+      // restore despite the user being signed in.
+      await this.clearLogoutTombstone();
       this.logger.info(
         '[VscodeCopilotAuth] Trying VS Code native GitHub auth...',
       );
@@ -59,7 +76,7 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
         `[VscodeCopilotAuth] VS Code native auth failed, falling back to base: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    return super.login();
+    return super.login(opts);
   }
 
   /**
@@ -71,6 +88,14 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
    * authenticated through VS Code's GitHub auth provider.
    */
   override async tryRestoreAuth(): Promise<boolean> {
+    // The VS Code session path runs BEFORE `super.tryRestoreAuth()`, so the
+    // base-class tombstone check alone would not stop a silent re-auth here.
+    if (this.isLogoutTombstoneSet()) {
+      this.logger.info(
+        '[VscodeCopilotAuth] Silent restore skipped — user logged out of Copilot in Ptah',
+      );
+      return false;
+    }
     try {
       const session = await this.getVscodeGitHubSession(false);
       if (session) {

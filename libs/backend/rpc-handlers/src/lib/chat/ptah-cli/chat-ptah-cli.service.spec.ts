@@ -1,12 +1,30 @@
 import 'reflect-metadata';
 
+import * as path from 'path';
+
+// `fs/promises` exports are non-configurable, so jest.spyOn cannot wrap them —
+// the module has to be mocked outright.
+jest.mock('fs/promises', () => ({
+  readdir: jest.fn(),
+  access: jest.fn(),
+}));
+
+import * as fs from 'fs/promises';
+
+const mockReaddir = fs.readdir as unknown as jest.Mock;
+const mockAccess = fs.access as unknown as jest.Mock;
+
+function enoent(): Error {
+  return Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+}
+
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   CLI_AGENT_RUNTIME_TOKENS: {
     SDK_PTAH_CLI_REGISTRY: Symbol.for('PtahCliRegistry'),
   },
 }));
 
-import type { Logger, LicenseService } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -23,7 +41,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { ChatPtahCliService } from './chat-ptah-cli.service';
-import type { ChatPremiumContextService } from '../session/chat-premium-context.service';
+import type { ChatSdkContextService } from '../session/chat-sdk-context.service';
 
 const TAB_UUID = '11111111-2222-4333-8444-555555555555';
 const SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
@@ -32,7 +50,6 @@ const AGENT_ID = 'pc-test-001';
 interface Suite {
   service: ChatPtahCliService;
   logger: MockLogger;
-  licenseService: jest.Mocked<Pick<LicenseService, 'verifyLicense'>>;
   codeExecutionMcp: jest.Mocked<
     Pick<CodeExecutionMCP, 'ensureRegisteredForSubagents'>
   >;
@@ -46,9 +63,9 @@ interface Suite {
       | 'isSessionActive'
     >
   >;
-  premiumContext: jest.Mocked<
+  sdkContext: jest.Mocked<
     Pick<
-      ChatPremiumContextService,
+      ChatSdkContextService,
       | 'isMcpServerRunning'
       | 'resolveEnhancedPromptsContent'
       | 'resolvePluginPaths'
@@ -70,10 +87,6 @@ function makeSuite(): Suite {
     baseUrl: 'https://api.moonshot.ai/anthropic/',
     cliJsPath: '/tmp/cli.js',
   };
-
-  const licenseService = {
-    verifyLicense: jest.fn().mockResolvedValue({ valid: false, tier: 'free' }),
-  } as jest.Mocked<Pick<LicenseService, 'verifyLicense'>>;
 
   const codeExecutionMcp = {
     ensureRegisteredForSubagents: jest.fn(),
@@ -119,13 +132,13 @@ function makeSuite(): Suite {
     >
   >;
 
-  const premiumContext = {
+  const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     resolvePluginPaths: jest.fn().mockReturnValue([]),
   } as jest.Mocked<
     Pick<
-      ChatPremiumContextService,
+      ChatSdkContextService,
       | 'isMcpServerRunning'
       | 'resolveEnhancedPromptsContent'
       | 'resolvePluginPaths'
@@ -134,21 +147,19 @@ function makeSuite(): Suite {
 
   const service = new ChatPtahCliService(
     logger as unknown as Logger,
-    licenseService as unknown as LicenseService,
     codeExecutionMcp as unknown as CodeExecutionMCP,
     registry as unknown as PtahCliRegistry,
     agentAdapter as unknown as SdkAgentAdapter,
-    premiumContext as unknown as ChatPremiumContextService,
+    sdkContext as unknown as ChatSdkContextService,
   );
 
   return {
     service,
     logger,
-    licenseService,
     codeExecutionMcp,
     registry,
     agentAdapter,
-    premiumContext,
+    sdkContext,
     profile,
   };
 }
@@ -309,6 +320,115 @@ describe('ChatPtahCliService', () => {
       const s = makeSuite();
       s.service.setSdkSessionId(TAB_UUID, SESSION_UUID);
       expect(s.service.getSdkSessionId(TAB_UUID)).toBe(SESSION_UUID);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_295 — probeSubagentTranscript must not confuse "not there" with
+  // "could not look".
+  //
+  // The transcript path is built with path.join(projectsDir, projectDir,
+  // parentSessionId, 'subagents', `agent-${agentId}.jsonl`). path.join
+  // SILENTLY COLLAPSES a zero-length segment, so an empty parentSessionId used
+  // to probe `<projectsDir>/<projectDir>/subagents/agent-<id>.jsonl` — a path
+  // that cannot exist — and report a confident "no transcript". The caller
+  // then destroyed the resume record permanently.
+  // -------------------------------------------------------------------------
+
+  describe('probeSubagentTranscript', () => {
+    beforeEach(() => {
+      mockReaddir.mockReset();
+      mockAccess.mockReset();
+      // Default: the workspace resolves to a project dir and the transcript is
+      // there. Each test narrows from this baseline.
+      mockReaddir.mockResolvedValue(['-tmp-ws']);
+      mockAccess.mockResolvedValue(undefined);
+    });
+
+    it('collapse guard: path.join really does swallow an empty segment', () => {
+      // Pins the platform behaviour the guard exists for. If this ever stops
+      // holding, the guard is still correct but its rationale changed.
+      expect(path.join('a', 'b', '', 'subagents', 'agent-x.jsonl')).toBe(
+        path.join('a', 'b', 'subagents', 'agent-x.jsonl'),
+      );
+    });
+
+    it('returns "indeterminate" for an empty parentSessionId without touching the disk', async () => {
+      const s = makeSuite();
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', '', 'abc1234'),
+      ).resolves.toBe('indeterminate');
+
+      expect(mockReaddir).not.toHaveBeenCalled();
+      expect(mockAccess).not.toHaveBeenCalled();
+    });
+
+    it('returns "indeterminate" for an empty agentId', async () => {
+      const s = makeSuite();
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', SESSION_UUID, ''),
+      ).resolves.toBe('indeterminate');
+    });
+
+    it('returns "indeterminate" for a parentSessionId carrying a path separator', async () => {
+      const s = makeSuite();
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', '../..', 'abc1234'),
+      ).resolves.toBe('indeterminate');
+      expect(mockAccess).not.toHaveBeenCalled();
+    });
+
+    it('returns "indeterminate" when the projects directory cannot be read', async () => {
+      const s = makeSuite();
+      mockReaddir.mockRejectedValue(enoent());
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', SESSION_UUID, 'abc1234'),
+      ).resolves.toBe('indeterminate');
+    });
+
+    it('returns "indeterminate" when no project directory matches the workspace', async () => {
+      const s = makeSuite();
+      mockReaddir.mockResolvedValue(['-some-other-workspace']);
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', SESSION_UUID, 'abc1234'),
+      ).resolves.toBe('indeterminate');
+    });
+
+    it('returns "absent" only when the resolved transcript path is genuinely missing', async () => {
+      const s = makeSuite();
+      mockAccess.mockRejectedValue(enoent());
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', SESSION_UUID, 'abc1234'),
+      ).resolves.toBe('absent');
+
+      // The probed path carries the session id as its own segment — this is
+      // exactly what the collapsed empty segment used to erase.
+      expect(String(mockAccess.mock.calls[0]?.[0])).toContain(SESSION_UUID);
+    });
+
+    it('returns "indeterminate" when access fails for a reason other than absence', async () => {
+      const s = makeSuite();
+      mockAccess.mockRejectedValue(
+        Object.assign(new Error('EACCES'), { code: 'EACCES' }),
+      );
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', SESSION_UUID, 'abc1234'),
+      ).resolves.toBe('indeterminate');
+    });
+
+    it('returns "present" when the transcript is readable', async () => {
+      const s = makeSuite();
+
+      await expect(
+        s.service.probeSubagentTranscript('/tmp/ws', SESSION_UUID, 'abc1234'),
+      ).resolves.toBe('present');
     });
   });
 });

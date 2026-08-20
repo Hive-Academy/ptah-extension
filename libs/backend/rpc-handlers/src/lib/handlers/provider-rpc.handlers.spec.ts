@@ -93,6 +93,7 @@ type MockProviderModels = jest.Mocked<
     | 'setModelTier'
     | 'getModelTiers'
     | 'clearModelTier'
+    | 'reapplyTiersForWarmedCatalog'
   >
 >;
 
@@ -100,6 +101,7 @@ function createMockProviderModels(): MockProviderModels {
   return {
     registerDynamicFetcher: jest.fn(),
     fetchModels: jest.fn(),
+    reapplyTiersForWarmedCatalog: jest.fn(),
     setModelTier: jest.fn().mockResolvedValue(undefined),
     getModelTiers: jest.fn().mockReturnValue({
       sonnet: null,
@@ -113,7 +115,10 @@ function createMockProviderModels(): MockProviderModels {
 type MockSdkAdapter = jest.Mocked<
   Pick<
     SdkAgentAdapter,
-    'clearModelCache' | 'getApiModels' | 'getSupportedModels'
+    | 'clearModelCache'
+    | 'getApiModels'
+    | 'getSupportedModels'
+    | 'getNativeClaudeModels'
   >
 >;
 
@@ -122,6 +127,7 @@ function createMockSdkAdapter(): MockSdkAdapter {
     clearModelCache: jest.fn(),
     getApiModels: jest.fn().mockResolvedValue([]),
     getSupportedModels: jest.fn().mockResolvedValue([]),
+    getNativeClaudeModels: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -223,6 +229,20 @@ function makeHarness(
     copilotAuthService as unknown as CopilotAuthService,
     codexAuthService as unknown as CodexAuthService,
     sentry as unknown as SentryService,
+    // User-defined provider entries (TASK_2026_236). Not exercised by this
+    // suite — see provider-rpc.custom-entries.spec.ts for its coverage.
+    {
+      load: () => ({ entries: [], dropped: [] }),
+      list: () => [],
+      get: () => undefined,
+      add: async () => {
+        throw new Error('not used');
+      },
+      update: async () => {
+        throw new Error('not used');
+      },
+      remove: async () => false,
+    } as unknown as import('@ptah-extension/settings-core').CustomProviderStore,
   );
 
   return {
@@ -265,17 +285,28 @@ async function call<TResult>(
 
 describe('ProviderRpcHandlers', () => {
   describe('register()', () => {
-    it('registers the four provider RPC methods', () => {
+    it('registers exactly the methods it declares on METHODS', () => {
       const h = makeHarness();
       h.handlers.register();
 
+      // Pinned against METHODS rather than a hand-written list: the manifest
+      // reads the same tuple, so a method added to one and not the other is
+      // what `rpc-allowlist.spec.ts` would fail on.
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
-        [
+        [...ProviderRpcHandlers.METHODS].sort(),
+      );
+      expect(h.rpcHandler.getRegisteredMethods()).toEqual(
+        expect.arrayContaining([
           'provider:clearModelTier',
           'provider:getModelTiers',
           'provider:listModels',
           'provider:setModelTier',
-        ].sort(),
+          'provider:listCustomEntries',
+          'provider:addCustomEntry',
+          'provider:updateCustomEntry',
+          'provider:removeCustomEntry',
+          'provider:testCustomEntry',
+        ]),
       );
     });
 
@@ -294,6 +325,83 @@ describe('ProviderRpcHandlers', () => {
           'ollama-cloud',
         ]),
       );
+    });
+
+    /**
+     * `claude-cli` is a `nativeAuth` provider — a lane on it always runs against
+     * the host's ambient Claude login. Its model list must therefore never be
+     * derived from the process-global AuthEnv while a third-party
+     * Anthropic-compatible provider is active, or the picker leaks that
+     * provider's catalog (e.g. bare `kimi-*` ids) into the Claude lane.
+     */
+    describe('claude-cli dynamic fetcher', () => {
+      function claudeCliFetcher(h: Harness): () => Promise<unknown[]> {
+        const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+          (c) => c[0] === 'claude-cli',
+        );
+        if (!entry) throw new Error('claude-cli fetcher was not registered');
+        return entry[1] as () => Promise<unknown[]>;
+      }
+
+      it('lists the native Claude login models', async () => {
+        const h = makeHarness();
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue([
+          {
+            value: 'claude-opus-4-8',
+            displayName: 'Claude Opus 4.8',
+            description: '',
+          },
+        ]);
+        h.handlers.register();
+
+        await expect(claudeCliFetcher(h)()).resolves.toEqual([
+          expect.objectContaining({
+            id: 'claude-opus-4-8',
+            name: 'Claude Opus 4.8',
+          }),
+        ]);
+      });
+
+      it('still lists the native Claude models while a third-party provider owns the ambient env', async () => {
+        const h = makeHarness({
+          authEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:58306' },
+        });
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue([
+          {
+            value: 'opus[1m]',
+            displayName: 'Opus (1M context)',
+            description: '',
+          },
+          {
+            value: 'claude-fable-5[1m]',
+            displayName: 'Fable',
+            description: '',
+          },
+        ]);
+        // The active-provider list must never be the source for this provider.
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          {
+            value: 'gpt-5.6-luna',
+            displayName: 'gpt-5.6-luna',
+            description: '',
+          },
+        ]);
+        h.handlers.register();
+
+        await expect(claudeCliFetcher(h)()).resolves.toEqual([
+          expect.objectContaining({ id: 'opus[1m]' }),
+          expect.objectContaining({ id: 'claude-fable-5[1m]' }),
+        ]);
+        expect(h.sdkAdapter.getSupportedModels).not.toHaveBeenCalled();
+      });
+
+      it('returns empty (→ static Claude catalog) when the native login reports nothing', async () => {
+        const h = makeHarness();
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue([]);
+        h.handlers.register();
+
+        await expect(claudeCliFetcher(h)()).resolves.toEqual([]);
+      });
     });
   });
 
@@ -365,6 +473,60 @@ describe('ProviderRpcHandlers', () => {
         'sk-or-test',
         true,
       );
+    });
+
+    it('tells the models service the catalog was warmed, with the RESOLVED provider id', async () => {
+      // TASK_2026_262 residual hole 3. Fetching for the picker warms both
+      // catalogue caches — which is precisely what the tier derivation reads —
+      // and before this nothing said so, leaving the ambient tier env vars
+      // unset until the next provider activation.
+      //
+      // The id has to be the RESOLVED one, not the raw param: the service
+      // compares it against the active provider before writing any global env,
+      // and an unresolved `undefined` would silently disable that guard.
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'z-ai' },
+        providerKeysSeed: { 'z-ai': 'key-z' },
+      });
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [
+          {
+            id: 'kimi-k2',
+            name: 'Kimi K2',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+        ],
+        totalCount: 1,
+        isStatic: false,
+      });
+      h.handlers.register();
+
+      await call(h, 'provider:listModels', {});
+
+      expect(
+        h.providerModels.reapplyTiersForWarmedCatalog,
+      ).toHaveBeenCalledWith('z-ai');
+    });
+
+    it('does not claim a warm when the provider returned no catalog at all', async () => {
+      // Nothing landed, so there is nothing new to derive from. Saying
+      // otherwise would push the service into re-applying against the same
+      // hole and scheduling a fetch the user's own just failed to satisfy.
+      const h = makeHarness({ providerKeysSeed: { moonshot: 'key-m' } });
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [],
+        totalCount: 0,
+        isStatic: false,
+      });
+      h.handlers.register();
+
+      await call(h, 'provider:listModels', { providerId: 'moonshot' });
+
+      expect(
+        h.providerModels.reapplyTiersForWarmedCatalog,
+      ).not.toHaveBeenCalled();
     });
 
     it('short-circuits to empty result for purely-dynamic providers without an API key', async () => {

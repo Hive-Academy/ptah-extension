@@ -78,12 +78,10 @@ async function goToCron(page: Page, director: Director): Promise<Locator> {
     }
   }
   await page.locator('#thoth-tab-cron').waitFor({ state: 'visible' });
-  await director.dismissDialogs();
 
   await director.click(page.locator('#thoth-tab-cron'));
   const panel = page.locator('#thoth-panel-cron');
   await panel.waitFor({ state: 'visible' });
-  await director.dismissDialogs();
   return panel;
 }
 
@@ -91,9 +89,6 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   page,
   director,
 }) => {
-  // The persistent authed profile ALWAYS shows the trial modal on boot.
-  await director.dismissDialogs();
-
   // Navigate + settle BEFORE the first beat: enter the Schedules (cron) tab (the
   // subject surface) so the hook lands on it instead of the stale restored
   // surface. Everything until the hook is trimmed by render-all's lead-in trim,
@@ -123,7 +118,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
     await director.say(2);
   }
 
-  // 2) Pan the schedules table top→bottom so the camera reveals every job
+  // 2) Pan the schedules grid top→bottom so the camera reveals every job
   // while the narration plays over the scroll.
   await director.say(3, {
     target: panel,
@@ -132,8 +127,8 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
     },
   });
 
-  // 3) Spotlight a single schedule row (or gracefully narrate the empty state).
-  const row = page.locator('[data-testid="cron-job-row"]').first();
+  // 3) Spotlight a single schedule card (or gracefully narrate the empty state).
+  const row = page.locator('[data-testid="cron-job-card"]').first();
   const hasJob = await row.isVisible().catch(() => false);
 
   if (hasJob) {
@@ -145,8 +140,8 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
       },
     });
 
-    // 4) Click the row — selection only — to reveal the READ-ONLY run-history
-    //    panel below the table. This mutates nothing.
+    // 4) Click the card — selection only — to open the READ-ONLY run-history
+    //    detail drawer. This mutates nothing.
     await director.say(5, {
       target: row,
       during: async () => {
@@ -178,8 +173,6 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
       await director.say(6);
     }
   }
-
-  await director.dismissDialogs();
 
   // 5) Payoff.
   await director.say(7);

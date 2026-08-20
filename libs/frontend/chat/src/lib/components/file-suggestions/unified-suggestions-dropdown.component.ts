@@ -66,7 +66,7 @@ export type { SuggestionItem } from './suggestion-option.component';
       <!-- Header -->
       <div class="px-2 py-1.5 border-b border-base-300">
         <span
-          class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wide"
+          class="text-[11px] font-semibold text-base-content-muted uppercase tracking-wide"
         >
           {{ getHeaderTitle() }}
         </span>
@@ -76,7 +76,7 @@ export type { SuggestionItem } from './suggestion-option.component';
       @if (isLoading()) {
         <div class="flex items-center justify-center gap-2 p-3">
           <span class="loading loading-spinner loading-xs"></span>
-          <span class="text-xs text-base-content/70">Loading...</span>
+          <span class="text-xs text-base-content-muted">Loading...</span>
         </div>
       }
 
@@ -90,7 +90,7 @@ export type { SuggestionItem } from './suggestion-option.component';
       <!-- Empty State -->
       @else if (suggestions().length === 0) {
         <div class="flex items-center justify-center p-3">
-          <span class="text-xs text-base-content/60">No matches found</span>
+          <span class="text-xs text-base-content-muted">No matches found</span>
         </div>
       }
 

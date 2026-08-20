@@ -5,8 +5,9 @@
  * The harness builder configures: agents, skills, system prompts, MCP servers, and CLAUDE.md.
  */
 
-import { z } from 'zod';
 import type { FlatStreamEventUnion } from '../execution';
+import type { McpInstallTarget, McpServerConfig } from '../mcp-directory.types';
+import type { StackProfileId } from '../stack-profile.types';
 
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {
@@ -88,8 +89,44 @@ export interface GeneratedSkillSpec {
 
 /** Skill configuration: selected and newly created skills */
 export interface HarnessSkillConfig {
+  /**
+   * IDs of the skills the design selected. Kept as a plain `string[]` — it is
+   * what CLAUDE.md, the system prompt, and the wizard surface render.
+   */
   selectedSkills: string[];
+  /**
+   * Origin metadata for the entries in `selectedSkills`, used to actually
+   * install marketplace skills when the harness is applied. Optional on
+   * purpose: presets written before install support existed — and every
+   * locally-discovered skill — carry only the ID. A selected skill without a
+   * ref is still described in the generated CLAUDE.md; it is just never
+   * installed from skills.sh.
+   */
+  selectedSkillRefs?: HarnessSkillRef[];
   createdSkills: NewSkillDefinition[];
+}
+
+/**
+ * Where a selected skill came from, so `harness:apply` can install it.
+ *
+ * `installSource` is the `owner/repo` slug the skills.sh CLI needs
+ * (`npx skills add <owner/repo> --skill <skillId>`). It is the field that the
+ * search result carries and the bare `selectedSkills` ID throws away.
+ *
+ * `scope` (and its `HARNESS_DEFAULT_SKILL_SCOPE` default) used to live here and
+ * is gone with TASK_2026_288. It chose between `{ws}/.claude/skills` and
+ * `~/.claude/skills`; a skills.sh skill now lands in a user-global source root
+ * under `~/.ptah/plugins` and is propagated from there, so the field named a
+ * destination that no longer exists. Leaving it on the type would have kept a
+ * knob the designing agent could set and nothing could honour.
+ */
+export interface HarnessSkillRef {
+  /** Matches the corresponding entry in `HarnessSkillConfig.selectedSkills`. */
+  skillId: string;
+  /** Origin as reported by `ptah.harness.searchSkills`. */
+  source: 'local' | 'skills.sh';
+  /** `owner/repo` backing a skills.sh skill. Required to install it. */
+  installSource?: string;
 }
 
 /** Definition for a skill created during the wizard flow */
@@ -118,7 +155,25 @@ export interface McpServerEntry {
   url: string;
   description?: string;
   enabled: boolean;
+  /**
+   * Transport config used to actually install the server when the harness is
+   * applied. Optional on purpose: entries discovered from an existing workspace
+   * mcp.json, and presets written before install support existed, carry only
+   * the descriptive fields. An entry without a config is still described in the
+   * generated CLAUDE.md — it is just never installed.
+   */
+  config?: McpServerConfig;
+  /** Config key written into the target mcp.json. Defaults to `name`. */
+  serverKey?: string;
+  /** Where to install. Defaults to `['claude', 'vscode']`. */
+  installTargets?: McpInstallTarget[];
 }
+
+/** Default install targets for a harness MCP entry that does not specify any. */
+export const HARNESS_DEFAULT_MCP_TARGETS: McpInstallTarget[] = [
+  'claude',
+  'vscode',
+];
 
 /** CLAUDE.md generation configuration */
 export interface HarnessClaudeMdConfig {
@@ -168,6 +223,13 @@ export interface HarnessInitializeResponse {
   availableAgents: AvailableAgent[];
   availableSkills: SkillSummary[];
   existingPresets: HarnessPreset[];
+  /**
+   * Absolute path of the workspace the backend resolved at initialize time,
+   * or `null` when no workspace folder is open. The frontend PINS this value
+   * so that a later `harness:apply` targets the workspace the build started in,
+   * even if the user switches the active workspace mid-build (Electron).
+   */
+  workspaceRoot: string | null;
 }
 
 /** harness:suggest-config — AI-generate config from persona description */
@@ -236,6 +298,14 @@ export interface HarnessGenerateClaudeMdResponse {
 export interface HarnessApplyParams {
   config: HarnessConfig;
   outputFormat: string;
+  /**
+   * Optional pinned workspace root the config should be written into. When
+   * omitted the backend falls back to the currently active workspace. Set by
+   * the frontend to the root captured at `harness:initialize`, so file writes
+   * land in the workspace the build started in rather than whichever workspace
+   * happens to be active at apply time.
+   */
+  workspaceRoot?: string;
 }
 export interface HarnessApplyResponse {
   appliedPaths: string[];
@@ -324,8 +394,109 @@ export interface HarnessConversationMessage {
   content: string;
 }
 
+/** Who the new project is being built for. */
+export type NewProjectAudience = 'b2b' | 'b2c' | 'internal' | 'unsure';
+
+/**
+ * The platform question, asked BEFORE the stack question.
+ *
+ * Every entry except `other` is a {@link StackProfileId}, and the `satisfies`
+ * clause makes that a compile-time fact rather than a comment — a typo here
+ * fails the build. The reverse direction (every registered profile is
+ * offerable) is a runtime assertion in `stack-profiles.spec.ts`, because a
+ * missing member is not a type error.
+ *
+ * `other` is the escape hatch for a platform Ptah has no profile for. It
+ * resolves to no profile at all rather than falling back to `node-ts`:
+ * scaffolding an Nx/TypeScript workspace for someone who just said "none of
+ * these" is worse than admitting we do not know the stack yet.
+ */
+export const NEW_PROJECT_PLATFORM_VALUES = [
+  'node-ts',
+  'dotnet',
+  'python',
+  'other',
+] as const satisfies readonly (StackProfileId | 'other')[];
+
+export type NewProjectPlatform = (typeof NEW_PROJECT_PLATFORM_VALUES)[number];
+
+/**
+ * Every stack chip value across every profile's `stackOptions`.
+ *
+ * Declared as one `as const` tuple rather than a hand-written union so the
+ * TypeScript type and the Zod enum at the RPC boundary are literally the same
+ * list — `harness-rpc.schema.ts` builds `z.enum` from this array, which is what
+ * makes TS/Zod parity structural instead of a promise. `stack-profiles.spec.ts`
+ * pins the other half: every value here is used by some profile, and every
+ * profile's chips are listed here.
+ *
+ * `recommend` and `other` are platform-independent: the first defers the choice
+ * to the agent, the second opens the free-text field.
+ */
+export const NEW_PROJECT_STACK_VALUES = [
+  'recommend',
+  'angular-nestjs',
+  'react-nestjs',
+  'aspnetcore-blazor',
+  'aspnetcore-angular',
+  'aspnetcore-api',
+  'fastapi',
+  'django',
+  'flask',
+  'other',
+] as const;
+
+/** Tech-stack preference expressed up front, before discovery runs. */
+export type NewProjectStack = (typeof NEW_PROJECT_STACK_VALUES)[number];
+
+/**
+ * Narrow a chip value to the wire union.
+ *
+ * `StackOption.value` is a plain `string` — the registry is data and does not
+ * know about this union — so the intake needs one real check on the way from a
+ * rendered chip to a typed answer. This is that check, and it is why the
+ * component needs no cast.
+ */
+export function isNewProjectStack(value: string): value is NewProjectStack {
+  return (NEW_PROJECT_STACK_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * Answers collected by the Setup Hub intake form BEFORE the agent starts.
+ *
+ * These become the first real user turn: the backend renders them verbatim
+ * into the seed prompt so discovery never re-asks what the user already
+ * told us, and the frontend renders a readable summary of the same object
+ * as the first transcript bubble.
+ */
+export interface NewProjectIntake {
+  /** "What are you building?" — required, freeform. */
+  what: string;
+  /** "Who is it for?" */
+  audience: NewProjectAudience;
+  /** "Must-haves / constraints" — optional, freeform. */
+  constraints?: string;
+  /**
+   * Which platform the project targets, asked before {@link stack} because it
+   * decides which stack chips exist.
+   *
+   * OPTIONAL, and absence means `node-ts`. Two reasons, and they are the same
+   * reason: every client that predates this field meant Node/TypeScript, and
+   * the intake omits the value when it IS `node-ts` so the payload an existing
+   * user produces stays byte-identical to the one they produced before this
+   * field existed.
+   */
+  platform?: NewProjectPlatform;
+  /** Stack preference; `recommend` defers the choice to the agent. */
+  stack: NewProjectStack;
+  /** Free text captured when `stack === 'other'`. */
+  stackOther?: string;
+}
+
 /** harness:start-new-project — hand the New Project flow off to the chat surface */
-export type HarnessStartNewProjectParams = Record<string, never>;
+export interface HarnessStartNewProjectParams {
+  intake: NewProjectIntake;
+}
 export interface HarnessStartNewProjectResult {
   success: boolean;
   error?: string;
@@ -339,59 +510,6 @@ export interface HarnessWorkflowPromptParams {
 export interface HarnessWorkflowPromptResponse {
   prompt: string;
 }
-
-/**
- * Zod schema validating a `Partial<HarnessConfig>` at the `proposeConfig` MCP
- * tool boundary. Every field is optional so the agent can stream incremental
- * config decisions; structures are intentionally permissive (the agent owns
- * the authoring contract) while still rejecting non-object payloads.
- */
-export const HarnessConfigUpdatesSchema = z
-  .object({
-    name: z.string(),
-    persona: z
-      .object({
-        label: z.string(),
-        description: z.string(),
-        goals: z.array(z.string()),
-        templateId: z.string().optional(),
-      })
-      .partial(),
-    agents: z
-      .object({
-        enabledAgents: z.record(z.string(), z.unknown()),
-        harnessSubagents: z.array(z.unknown()),
-      })
-      .partial(),
-    skills: z
-      .object({
-        selectedSkills: z.array(z.string()),
-        createdSkills: z.array(z.unknown()),
-      })
-      .partial(),
-    prompt: z
-      .object({
-        systemPrompt: z.string(),
-        enhancedSections: z.record(z.string(), z.string()),
-      })
-      .partial(),
-    mcp: z
-      .object({
-        servers: z.array(z.unknown()),
-        enabledTools: z.record(z.string(), z.array(z.string())),
-      })
-      .partial(),
-    claudeMd: z
-      .object({
-        generateProjectClaudeMd: z.boolean(),
-        customSections: z.record(z.string(), z.string()),
-        previewContent: z.string(),
-      })
-      .partial(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  })
-  .partial();
 
 /** Operation types that can produce streaming events */
 export type HarnessStreamOperation =

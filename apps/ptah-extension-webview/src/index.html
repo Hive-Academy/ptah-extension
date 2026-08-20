@@ -6,15 +6,105 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
-    <!-- FOUC Prevention: Apply saved theme before Angular bootstraps -->
+    <!--
+      Carrier for the deferred theme sheet's URL. `rel` is deliberately NOT
+      "stylesheet" / "preload": no browser fetches a link with an unknown rel,
+      so a default-theme user never pays for this. Its only job is to let the
+      HOST resolve the URL for us — the VS Code webview rewrites every href in
+      this document to a `vscode-resource:` URI, and Electron's copy-renderer
+      rewrites the base href from "/" to "./" for the file: origin. Reading
+      `marker.href` therefore yields a correct absolute URL in both hosts
+      without this document ever constructing one itself.
+    -->
+    <link
+      id="ptah-theme-extra"
+      rel="ptah-deferred-stylesheet"
+      href="theme-extra.css"
+    />
+    <!--
+      Pre-paint theme boot.
+
+      Only `anubis` and `anubis-light` are compiled into styles.css. The other
+      32 daisyUI themes are emitted to `theme-extra.css`, which the build does
+      NOT link from this document (project.json -> styles -> inject:false).
+
+      A user whose persisted theme is one of those 32 must get that sheet
+      BEFORE the first painted frame, or they see a frame of `anubis` first.
+      Inserting a render-blocking stylesheet link into the head while the
+      parser is still running is exactly that guarantee. A user on the default
+      must never fetch it at all.
+
+      The persisted theme is read SYNCHRONOUSLY from, in order:
+        1. window.vscode.getState().theme — available in Electron, where the
+           contextBridge preload runs before any document script and backs
+           getState with ipcRenderer.sendSync('get-state').
+        2. localStorage 'ptah-theme' — the mirror ThemeService writes on every
+           setTheme(). This is the only source available inside the VS Code
+           webview, where the host's `acquireVsCodeApi()` call is injected at
+           the END of <body> and so has not run yet at <head> parse time.
+
+      Keep these three name lists in sync with DAISYUI_THEMES in
+      libs/frontend/core/src/lib/services/theme.service.ts —
+      theme.service.spec.ts asserts they still match.
+    -->
     <script>
       (function () {
+        var EAGER = 'anubis anubis-light';
+        var DEFERRED =
+          'light dark cupcake bumblebee emerald corporate synthwave retro cyberpunk valentine halloween garden forest aqua lofi pastel fantasy wireframe black luxury dracula cmyk autumn business acid lemonade night coffee winter dim nord sunset';
+        var DARK =
+          'anubis dark synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
+
+        function has(list, name) {
+          return (' ' + list + ' ').indexOf(' ' + name + ' ') !== -1;
+        }
+
+        function apply(theme) {
+          var root = document.documentElement;
+          root.setAttribute('data-theme', theme);
+          root.setAttribute(
+            'data-theme-mode',
+            has(DARK, theme) ? 'dark' : 'light',
+          );
+        }
+
+        var theme = null;
         try {
-          var savedTheme = window.ptahConfig && window.ptahConfig.savedTheme;
-          if (savedTheme === 'anubis' || savedTheme === 'anubis-light') {
-            document.documentElement.setAttribute('data-theme', savedTheme);
+          var state =
+            window.vscode && typeof window.vscode.getState === 'function'
+              ? window.vscode.getState()
+              : null;
+          if (state && typeof state.theme === 'string') {
+            theme = state.theme;
           }
         } catch (e) {}
+        if (!theme) {
+          try {
+            theme = localStorage.getItem('ptah-theme');
+          } catch (e) {}
+        }
+
+        // Nothing persisted, or an unrecognised value: leave the
+        // <html data-theme="anubis"> default in place and fetch nothing.
+        if (!theme) return;
+        if (has(EAGER, theme)) {
+          apply(theme);
+          return;
+        }
+        if (!has(DEFERRED, theme)) return;
+
+        apply(theme);
+
+        var marker = document.getElementById('ptah-theme-extra');
+        if (!marker) return;
+        var sheet = document.createElement('link');
+        sheet.id = 'ptah-theme-extra-sheet';
+        sheet.rel = 'stylesheet';
+        // Explicit render-blocking (Chromium 105+). Head-inserted stylesheets
+        // block rendering anyway while the parser is active; this states it.
+        sheet.setAttribute('blocking', 'render');
+        sheet.href = marker.href;
+        document.head.appendChild(sheet);
       })();
     </script>
   </head>

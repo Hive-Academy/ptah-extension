@@ -61,8 +61,6 @@ export const SDK_TOKENS = {
 
   SDK_SLASH_COMMAND_INTERCEPTOR: Symbol.for('SdkSlashCommandInterceptor'),
 
-  SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
-
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
 
@@ -74,7 +72,7 @@ export const SDK_TOKENS = {
 
   SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
 
-  SDK_CURATOR_AUTH_RESOLVER: Symbol.for('SdkCuratorAuthResolver'),
+  SDK_PROVIDER_AUTH_RESOLVER: Symbol.for('SdkProviderAuthResolver'),
 
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
@@ -105,6 +103,9 @@ export const SDK_TOKENS = {
   SDK_STOP_HOOK_HANDLER: Symbol.for('SdkStopHookHandler'),
   SDK_STOP_FAILURE_HOOK_HANDLER: Symbol.for('SdkStopFailureHookHandler'),
   SDK_SUBAGENT_STOP_HOOK_HANDLER: Symbol.for('SdkSubagentStopHookHandler'),
+  SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER: Symbol.for(
+    'SdkTeammateLifecycleHookHandler',
+  ),
   SDK_SESSION_END_HOOK_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndHookCallbackRegistry',
   ),
@@ -123,6 +124,15 @@ export const SDK_TOKENS = {
     'SdkSessionStartCallbackRegistry',
   ),
   SDK_SESSION_START_HOOK_HANDLER: Symbol.for('SdkSessionStartHookHandler'),
+  /**
+   * Fan-out fired when a session's canonical SDK UUID becomes known
+   * (TASK_2026_296). Added ALONGSIDE the single-slot
+   * `IAgentAdapter.setSessionIdResolvedCallback`, which is part of the shared
+   * adapter port and is deliberately left untouched.
+   */
+  SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionIdResolvedCallbackRegistry',
+  ),
 } as const;
 
 /**

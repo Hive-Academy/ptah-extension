@@ -9,6 +9,7 @@
  */
 
 import * as path from 'path';
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import { FileSystemManager } from '@ptah-extension/vscode-core';
 import { FileType } from '@ptah-extension/platform-core';
 import type {
@@ -230,11 +231,12 @@ Call this after writing any JSON file to ensure clean, parseable output.`,
 
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 
-Spawn Codex CLI or Copilot CLI as background workers for parallel task execution.
+Spawn CLI agents as background workers for parallel task execution. Which agents
+exist is per-machine — call list() first rather than assuming a vendor.
 
 LIFECYCLE:
 - spawn(request) - Launch a CLI agent with a task
-  request: { task: string, cli?: 'codex'|'copilot', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  request: { task: string, cli?: ${SYSTEM_CLI_TYPES.map((cli) => `'${cli}'`).join('|')}, workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
   returns: { agentId, cli, status, startedAt }
 
 - status(agentId?) - Get agent status (omit agentId for all agents)
@@ -258,7 +260,8 @@ WAITING:
   Default pollInterval: 2000ms
 
 EXAMPLE:
-  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'codex' });
+  const [agent] = (await ptah.agent.list()).filter((a) => a.installed);
+  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: agent.cli });
   const status = await ptah.agent.status(result.agentId);
   if (status.status === 'completed') {
     const output = await ptah.agent.read(result.agentId);

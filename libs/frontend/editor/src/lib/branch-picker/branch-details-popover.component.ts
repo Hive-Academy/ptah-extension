@@ -52,7 +52,7 @@ import { GitBranchesService } from '../services/git-branches.service';
           @if (stashCount() > 0) {
             <span
               class="ml-auto text-[10px] px-1.5 py-0.5 rounded
-                     bg-base-300 text-base-content/70 flex-shrink-0"
+                     bg-base-300 text-base-content-muted flex-shrink-0"
               [title]="stashCount() + ' stash entries'"
             >
               <lucide-angular

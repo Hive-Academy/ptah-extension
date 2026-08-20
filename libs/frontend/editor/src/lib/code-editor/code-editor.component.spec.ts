@@ -480,3 +480,151 @@ describe('CodeEditorComponent — pure computed logic', () => {
     expect(detect(undefined)).toBe('plaintext');
   });
 });
+
+// ---------------------------------------------------------------------------
+// C2 — split-pane content ownership as seen from inside the editor.
+//
+// The most important assertion in this file is the NEGATIVE one: typing in the
+// focused pane must never cause a pushEditOperations on that pane's own model.
+// A full-model replacement moves the cursor to the end of the buffer and
+// flattens the undo stack, so an echo of the user's own edits reaching syncFile
+// is silent, intermittent data damage — the exact failure a passing
+// divergence/conflict suite would not catch.
+// ---------------------------------------------------------------------------
+describe('CodeEditorComponent — split-pane content ownership (C2)', () => {
+  let fixture: ComponentFixture<CodeEditorComponent>;
+  let component: CodeEditorComponent;
+  let fake: ReturnType<typeof makeFakeMonaco>;
+
+  async function setup(
+    filePath = '/ws/a.ts',
+    content = 'AAA',
+    contentIsPersisted: boolean | undefined = undefined,
+  ): Promise<void> {
+    fake = makeFakeMonaco();
+    TestBed.configureTestingModule({
+      imports: [CodeEditorComponent],
+      providers: [
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: EditorService, useValue: makeEditorServiceStub() },
+        {
+          provide: MonacoLoaderService,
+          useValue: { load: jest.fn(() => Promise.resolve(fake.api)) },
+        },
+      ],
+    });
+    fixture = TestBed.createComponent(CodeEditorComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('filePath', filePath);
+    fixture.componentRef.setInput('content', content);
+    fixture.componentRef.setInput('contentIsPersisted', contentIsPersisted);
+    fixture.detectChanges();
+    await flush();
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('(§1.2) continuous typing in the FOCUSED pane never pushes an edit into its own model', async () => {
+    await setup('/ws/a.ts', 'AAA', true);
+    const model = fake.createdModels[0];
+
+    // Wire the component the way the panel wires the pane that has focus: a
+    // user edit is emitted OUT to the tab record, and the only thing derived
+    // from the tab record and fed back in is `contentIsPersisted`, which flips
+    // on the very first keystroke. `content` is deliberately NOT re-fed.
+    const tabRecord = { content: 'AAA', isDirty: false };
+    component.contentChanged.subscribe((value: string) => {
+      tabRecord.content = value;
+      tabRecord.isDirty = true;
+      fixture.componentRef.setInput('contentIsPersisted', !tabRecord.isDirty);
+    });
+    fixture.detectChanges();
+    await flush();
+    model.pushEditOperations.mockClear();
+
+    let text = 'AAA';
+    for (const ch of 'the quick brown fox jumps') {
+      text += ch;
+      model._value = text;
+      fake.editor._contentCb?.();
+      fixture.detectChanges();
+      await flush();
+    }
+
+    // The cursor never moved and the undo stack was never collapsed.
+    expect(model.pushEditOperations).not.toHaveBeenCalled();
+    expect(fake.editor._active?.getValue()).toBe(text);
+    // Ownership moved to the tab record; the read source did NOT. Rebinding
+    // `content` to the tab record is what would break this assertion.
+    expect(component.content()).toBe('AAA');
+    expect(tabRecord.content).toBe(text);
+    // ...and the pane still reports itself modified.
+    expect(component.isDirty()).toBe(true);
+  });
+
+  it('applies a mirror of the other pane and keeps the pane marked modified', async () => {
+    await setup('/ws/a.ts', 'AAA', true);
+    const model = fake.createdModels[0];
+
+    // The other pane edited the shared file: the tab record is dirty, and its
+    // text arrives here as an unsaved mirror.
+    fixture.componentRef.setInput('contentIsPersisted', false);
+    fixture.componentRef.setInput('content', 'AAA + peer edit');
+    fixture.detectChanges();
+    await flush();
+
+    expect(model.pushEditOperations).toHaveBeenCalled();
+    expect(fake.editor._active?.getValue()).toBe('AAA + peer edit');
+    // Unsaved text is not a clean baseline — the badge must stay lit, matching
+    // the dirty dot the tab strip is showing (C2 AC4).
+    expect(component.isDirty()).toBe(true);
+  });
+
+  it('clears the modified badge when the OTHER pane saves the shared file (AC4)', async () => {
+    await setup('/ws/a.ts', 'AAA', true);
+
+    fixture.componentRef.setInput('contentIsPersisted', false);
+    fixture.componentRef.setInput('content', 'AAA + peer edit');
+    fixture.detectChanges();
+    await flush();
+    expect(component.isDirty()).toBe(true);
+
+    // The other pane saves. No content change reaches this pane — it already
+    // shows the saved text — so only the persisted flag can clear the badge.
+    fixture.componentRef.setInput('contentIsPersisted', true);
+    fixture.detectChanges();
+    await flush();
+
+    expect(component.isDirty()).toBe(false);
+    expect(fake.editor._active?.getValue()).toBe('AAA + peer edit');
+  });
+
+  it('(AC5) leaves the badge behaviour untouched when contentIsPersisted is unset', async () => {
+    await setup('/ws/a.ts', 'AAA');
+
+    // Legacy shape: an external update is a revert/reread, i.e. a new clean
+    // baseline. This is what every non-split and different-files pane sees.
+    fixture.componentRef.setInput('content', 'REVERTED');
+    fixture.detectChanges();
+    await flush();
+
+    expect(fake.editor._active?.getValue()).toBe('REVERTED');
+    expect(component.isDirty()).toBe(false);
+  });
+
+  it('does not emit contentChanged when a mirror is applied — no edit ping-pong', async () => {
+    await setup('/ws/a.ts', 'AAA', true);
+    const changed = jest.fn();
+    component.contentChanged.subscribe(changed);
+
+    fixture.componentRef.setInput('contentIsPersisted', false);
+    fixture.componentRef.setInput('content', 'AAA + peer edit');
+    fixture.detectChanges();
+    await flush();
+
+    expect(changed).not.toHaveBeenCalled();
+  });
+});

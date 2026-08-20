@@ -12,6 +12,7 @@ import {
   narrowTerminalReason,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { StopCallbackRegistry } from './stop-callback-registry';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 
@@ -26,7 +27,7 @@ export class StopHookHandler {
   ) {}
 
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const sdkAdapterEvents = this.sdkAdapterEvents;
@@ -43,18 +44,31 @@ export class StopHookHandler {
                 if (!isStopHook(input)) {
                   return { continue: true };
                 }
-                const resolvedSessionId =
-                  typeof input.session_id === 'string' &&
-                  input.session_id.length > 0
-                    ? input.session_id
-                    : sessionId;
-                const resolvedCwd =
-                  typeof input.cwd === 'string' && input.cwd.length > 0
-                    ? input.cwd
-                    : cwd;
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                const resolvedCwd = resolveHookCwd(input.cwd, cwd);
                 const backgroundTasks = input.background_tasks ?? [];
                 const sessionCrons = input.session_crons ?? [];
                 const terminalReason = narrowTerminalReason(input);
+
+                // The guard sits ahead of BOTH fan-outs on purpose. It used to
+                // gate only the bus emit, so a Stop with no resolvable id still
+                // pushed `sessionId: ''` into every StopCallbackRegistry
+                // subscriber (TASK_2026_295).
+                if (!resolvedSessionId || !resolvedCwd) {
+                  this.logger.warn(
+                    '[StopHookHandler] Stop missing sessionId or cwd, skipping fan-out',
+                    {
+                      hasSessionId: Boolean(resolvedSessionId),
+                      hasCwd: Boolean(resolvedCwd),
+                      terminalReason,
+                      backgroundTaskCount: backgroundTasks.length,
+                    },
+                  );
+                  return { continue: true };
+                }
 
                 if (this.callbackRegistry.size > 0) {
                   this.callbackRegistry.notifyAll({
@@ -68,19 +82,6 @@ export class StopHookHandler {
                 }
 
                 if (!sdkAdapterEvents) {
-                  return { continue: true };
-                }
-
-                if (!resolvedSessionId || !resolvedCwd) {
-                  this.logger.warn(
-                    '[StopHookHandler] Stop missing sessionId or cwd, skipping bus emit',
-                    {
-                      hasSessionId: Boolean(resolvedSessionId),
-                      hasCwd: Boolean(resolvedCwd),
-                      terminalReason,
-                      backgroundTaskCount: backgroundTasks.length,
-                    },
-                  );
                   return { continue: true };
                 }
 

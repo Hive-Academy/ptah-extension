@@ -91,9 +91,17 @@ export class SessionHistoryReaderService {
    * @throws Error if sessionId is invalid or contains path traversal characters
    */
   private validateSessionId(sessionId: string): void {
-    if (!sessionId || !this.SESSION_ID_PATTERN.test(sessionId)) {
+    if (!this.isValidSessionId(sessionId)) {
       throw new SdkError(`Invalid sessionId format: ${sessionId}`);
     }
+  }
+
+  /**
+   * Non-throwing form of {@link validateSessionId}, for callers that treat a
+   * bad id as "no history" rather than as an error.
+   */
+  private isValidSessionId(sessionId: string): boolean {
+    return !!sessionId && this.SESSION_ID_PATTERN.test(sessionId);
   }
 
   /**
@@ -251,9 +259,19 @@ export class SessionHistoryReaderService {
       timestamp: number;
     }[]
   > {
-    try {
-      this.validateSessionId(sessionId);
+    // A malformed id is a soft miss here, not an error: every caller of this
+    // method treats `[]` as "no history". Logging it at ERROR with a stack —
+    // as the shared catch below does — made an empty id look like a failed
+    // read of a real session, which is how TASK_2026_293 stayed hidden.
+    if (!this.isValidSessionId(sessionId)) {
+      this.logger.warn(
+        '[SessionHistoryReader] Invalid sessionId, skipping history read',
+        { sessionId },
+      );
+      return [];
+    }
 
+    try {
       const sessionsDir =
         await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
@@ -586,7 +604,8 @@ export class SessionHistoryReaderService {
       cacheRead: number,
       cacheCreation: number,
     ): void => {
-      const resolvedModel = this.modelResolver.resolveForPricing(rawModel);
+      const priced = this.modelResolver.resolveForCost(rawModel);
+      const resolvedModel = priced.modelId;
       const modelKey = resolvedModel || rawModel || 'unknown';
       const existing = perModelUsage.get(modelKey) || {
         input: 0,
@@ -596,12 +615,16 @@ export class SessionHistoryReaderService {
       };
       existing.input += input;
       existing.output += output;
-      const contribution = calculateMessageCost(resolvedModel, {
-        input,
-        output,
-        cacheHit: cacheRead,
-        cacheCreation,
-      });
+      const contribution = calculateMessageCost(
+        resolvedModel,
+        {
+          input,
+          output,
+          cacheHit: cacheRead,
+          cacheCreation,
+        },
+        priced.pricing,
+      );
       if (contribution !== null) {
         existing.cost += contribution;
         existing.hasCostContribution = true;
@@ -717,14 +740,16 @@ export class SessionHistoryReaderService {
           ? contributors.reduce((sum, entry) => sum + (entry.costUSD ?? 0), 0)
           : null;
     } else {
+      const priced = this.modelResolver.resolveForCost(detectedModel || '');
       totalCost = calculateMessageCost(
-        this.modelResolver.resolveForPricing(detectedModel || ''),
+        priced.modelId,
         {
           input: totalInput,
           output: totalOutput,
           cacheHit: totalCacheRead,
           cacheCreation: totalCacheCreation,
         },
+        priced.pricing,
       );
     }
 

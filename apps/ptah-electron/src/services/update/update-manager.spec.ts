@@ -134,6 +134,8 @@ beforeEach(() => {
   getVersion.mockReturnValue('0.1.48');
   setPlatform('win32');
   delete process.env['NODE_ENV'];
+  delete process.env['PTAH_E2E'];
+  delete process.env['PTAH_E2E_ALLOW_UPDATE_CHECK'];
   netFetch.mockReset();
 });
 
@@ -144,6 +146,8 @@ afterEach(() => {
     configurable: true,
   });
   delete process.env['NODE_ENV'];
+  delete process.env['PTAH_E2E'];
+  delete process.env['PTAH_E2E_ALLOW_UPDATE_CHECK'];
 });
 
 // ---------------------------------------------------------------------------
@@ -163,6 +167,48 @@ describe('UpdateManager', () => {
       );
       expect(netFetch).not.toHaveBeenCalled();
       expect(manager.getCheckInterval()).toBeNull();
+    });
+  });
+
+  describe('e2e gate', () => {
+    it('skips the check when PTAH_E2E=1 and no override is set — no outbound request', async () => {
+      process.env['PTAH_E2E'] = '1';
+      mockFetchReleases([release('0.1.49')]); // would resolve if the gate were bypassed
+      const { manager, logger } = createUpdateManager();
+
+      await manager.start();
+
+      expect(netFetch).not.toHaveBeenCalled();
+      expect(manager.getCheckInterval()).toBeNull();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('e2e harness'),
+      );
+    });
+
+    it('runs the check when PTAH_E2E=1 but PTAH_E2E_ALLOW_UPDATE_CHECK=1 opts back in', async () => {
+      process.env['PTAH_E2E'] = '1';
+      process.env['PTAH_E2E_ALLOW_UPDATE_CHECK'] = '1';
+      mockFetchReleases([release('0.1.49')]);
+      const { manager } = createUpdateManager();
+
+      await manager.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(netFetch).toHaveBeenCalledTimes(1);
+      expect(manager.getCheckInterval()).not.toBeNull();
+    });
+
+    it('is unaffected when PTAH_E2E is unset — production/default behavior unchanged', async () => {
+      mockFetchReleases([release('0.1.49')]);
+      const { manager } = createUpdateManager();
+
+      await manager.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(netFetch).toHaveBeenCalledTimes(1);
+      expect(manager.getCheckInterval()).not.toBeNull();
     });
   });
 

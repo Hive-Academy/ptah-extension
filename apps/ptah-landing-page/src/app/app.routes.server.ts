@@ -5,7 +5,7 @@ import { RenderMode, ServerRoute } from '@angular/ssr';
  *
  * The six marketing routes are prerendered to static HTML at build time so
  * their full copy ships in the initial document (GEO/SEO backbone). Everything
- * else (login, signup, profile, trial-ended, contact, sessions, docs redirect,
+ * else (login, signup, profile, contact, sessions, docs redirect,
  * admin/**) stays client-rendered and boots via the static-host catchall.
  */
 export const serverRoutes: ServerRoute[] = [

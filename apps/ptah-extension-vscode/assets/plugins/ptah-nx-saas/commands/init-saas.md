@@ -1,67 +1,37 @@
 ---
-description: Initialize a complete SaaS workspace with NestJS, Nx, and Angular/React — multi-turn PRD-to-implementation workflow.
-argument-hint: '[project name] or TASK_YYYY_NNN'
+description: Initialize a complete SaaS workspace with NestJS, Nx, and Angular/React — discovery-first Stage A bootstrap.
+argument-hint: '[project name]'
 ---
 
 # Initialize SaaS Workspace
 
-Standalone command for SaaS workspace initialization with multi-turn discovery.
+Standalone command that runs Stage A of the `saas-workspace-initializer` skill: discovery, domain + workspace design, roadmap, foundation scaffold, handoff.
 
 ## Usage
 
 ```
 /init-saas                  # New SaaS project
-/init-saas TASK_YYYY_NNN    # Continue existing SaaS init
 ```
 
 ## Execution
 
-1. Load the `saas-workspace-initializer` skill from the active plugins
-2. Load `orchestration/references/task-tracking.md` — task ID format, registry management, folder structure, file path conventions
-3. **Phase 0: Framework Selection** — Ask the user which frontend framework they want:
-   - **Angular** — loads `angular-frontend-patterns` skill (from ptah-angular plugin)
-   - **React** — loads `react-best-practices` and `react-nx-patterns` skills (from ptah-react plugin)
-4. Follow the Execution Protocol (Mode Detection → Phases 1-6)
-5. Load dependent skills on demand during discovery steps:
-   - `ddd-architecture` skill — Step 2a: Domain Modeling
-   - `nx-workspace-architect` skill — Step 2b: NX Structure
-   - `nestjs-backend-patterns` skill — Step 2c: Backend Architecture
-   - **Selected frontend skill** — Step 2d: Frontend Architecture
-   - `webhook-architecture` skill — Step 2e: Webhook Architecture (if webhooks needed)
-   - `resilient-nestjs-patterns` skill — Step 2f: Resilience Patterns
-   - `saas-platform-patterns` skill — Step 2g: Monetization Architecture (if payment needed)
-   - `nestjs-deployment` skill — Step 2h: Deployment Architecture
-6. Load on demand during implementation phases:
-   - `orchestration/references/team-leader-modes.md` — Phases 3-5: MODE 1/2/3 integration
-   - `orchestration/references/checkpoints.md` — User validation templates
-   - `orchestration/references/git-standards.md` — Commit rules and hook handling
+1. Load the `saas-workspace-initializer` skill from the active plugins.
+2. Follow its Stage A contract in order:
+   - **Step a) Discovery** — mandatory, two-round `AskUserQuestion`. Round 1 asks business questions (what is being built, customer type, core jobs-to-be-done/candidate domains, MVP scope, monetization). Round 2 asks stack questions (frontend, API, DB/ORM, auth shape, tenancy), each with a "Recommend for me" option. Never answer a discovery question for the user; never proceed while a required question is unanswered.
+   - **Step a2) Domain + workspace design** — invoke the `ddd-architecture` skill (ptah-core plugin) with the Round 1 answers to name bounded contexts and aggregates, then the `nx-workspace-architect` skill to derive the lib layout and tags. Both outputs seed the roadmap.
+   - **Step b) Roadmap** — write `.ptah/roadmap.md` following `saas-workspace-initializer/references/roadmap-format.md`. Derive phases and items from the Step a2 output; the reference file's worked example is illustrative only.
+   - **Step c) Foundation scaffold** — scaffold the Nx workspace and only the primitives Stage B depends on, per the skill's foundation table.
+   - **Step d) Handoff** — emit the "Foundation complete" block listing the next roadmap items to run via `/orchestrate <slug>` in new chat sessions.
+   - **Step e) STOP** — do not implement features beyond the foundation in this session.
 
 ## Quick Reference
 
-**Decision Files** (written to `.ptah/specs/TASK_[ID]/`):
+**Files written** (workspace root):
 
-- `scope-decisions.md` — Phase 0 output (includes frontend framework choice)
-- `task-description.md` — Phase 1 output (PM)
-- `domain-decisions.md` — Step 2a output
-- `workspace-decisions.md` — Step 2b output
-- `backend-decisions.md` — Step 2c output
-- `frontend-decisions.md` — Step 2d output
-- `webhook-decisions.md` — Step 2e output (webhook sources, verification strategy)
-- `resilience-decisions.md` — Step 2f output (service patterns, retry strategy, events)
-- `monetization-decisions.md` — Step 2g output (tier model, licensing, subscriptions)
-- `deployment-decisions.md` — Step 2h output (Docker, production config, CI/CD)
-- `implementation-plan.md` — Step 2i output (Architect synthesis)
+- `.ptah/scope-decisions.md` — Step a discovery answers, one section per question with chosen value and rationale.
+- `.ptah/roadmap.md` — Step b output, phased checklist with charters.
 
-**Phase Summary**:
-
-1. Phase 0: Scope Clarification + Framework Selection (main thread, user conversation)
-2. Phase 1: PM Requirements (sub-agent: project-manager)
-3. Steps 2a-2d: Architecture Discovery (main thread, user conversation per skill)
-4. Steps 2e-2h: Infrastructure Discovery (conditional — webhook, resilience, monetization, deployment)
-5. Step 2i: Architect Synthesis (sub-agent: software-architect)
-6. Phases 3-5: Implementation (sub-agent: team-leader MODE 1/2/3)
-
-**Checkpoints**: Every discovery step requires explicit user confirmation before proceeding.
+**Stage B**: every unchecked roadmap item is its own task, run later via `/orchestrate <slug>` or the project-manager agent, in a new chat session.
 
 ## Skill Path
 

@@ -39,21 +39,21 @@ import type { AgentScorecard } from '@ptah-extension/shared';
       </span>
 
       <span
-        class="tabular-nums text-base-content/60"
+        class="tabular-nums text-base-content-muted"
         data-testid="scorecard-invocations"
       >
         {{ invocationsLabel() }}
       </span>
 
       <span
-        class="tabular-nums text-base-content/60"
+        class="tabular-nums text-base-content-muted"
         data-testid="scorecard-tokens"
       >
         {{ tokensLabel() }}
       </span>
 
       <span
-        class="tabular-nums text-base-content/60"
+        class="tabular-nums text-base-content-muted"
         data-testid="scorecard-cost"
       >
         {{ costLabel() }}

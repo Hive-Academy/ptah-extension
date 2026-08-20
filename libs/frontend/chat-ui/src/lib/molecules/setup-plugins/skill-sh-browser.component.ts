@@ -62,7 +62,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         <div class="relative">
           <lucide-angular
             [img]="SearchIcon"
-            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40"
+            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content-muted"
             aria-hidden="true"
           />
           <input
@@ -98,7 +98,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         @if (isLoadingRecommendations() && !searchQuery()) {
           <div>
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               Recommended for your project
             </div>
@@ -109,7 +109,7 @@ interface DisplaySkillEntry extends SkillShEntry {
         ) {
           <div>
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               Recommended for your project
             </div>
@@ -142,11 +142,11 @@ interface DisplaySkillEntry extends SkillShEntry {
                       }
                     </div>
                     <p
-                      class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                      class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
                     >
                       {{ skill.description }}
                     </p>
-                    <span class="text-[10px] text-base-content/40 font-mono"
+                    <span class="text-[10px] text-base-content-muted font-mono"
                       >{{ skill.source }}/{{ skill.skillId }}</span
                     >
                   </div>
@@ -199,12 +199,12 @@ interface DisplaySkillEntry extends SkillShEntry {
             }
           } @else {
             <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+              class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
             >
               {{ searchQuery() ? 'Search Results' : 'Popular Skills' }}
             </div>
             @if (displaySkills().length === 0) {
-              <div class="text-xs text-base-content/50 text-center py-4">
+              <div class="text-xs text-base-content-muted text-center py-4">
                 {{
                   searchQuery()
                     ? 'No skills found for "' + searchQuery() + '"'
@@ -241,11 +241,11 @@ interface DisplaySkillEntry extends SkillShEntry {
                       }
                     </div>
                     <p
-                      class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                      class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2 mt-0.5"
                     >
                       {{ skill.description }}
                     </p>
-                    <span class="text-[10px] text-base-content/40 font-mono"
+                    <span class="text-[10px] text-base-content-muted font-mono"
                       >{{ skill.source }}/{{ skill.skillId }}</span
                     >
                   </div>
@@ -298,7 +298,7 @@ interface DisplaySkillEntry extends SkillShEntry {
             <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
           }
         } @else if (installedSkills().length === 0) {
-          <div class="text-xs text-base-content/50 text-center py-6">
+          <div class="text-xs text-base-content-muted text-center py-6">
             <p class="mb-1">No skills installed yet</p>
             <button
               class="btn btn-ghost btn-xs"
@@ -309,99 +309,54 @@ interface DisplaySkillEntry extends SkillShEntry {
             </button>
           </div>
         } @else {
-          @if (projectSkills().length > 0) {
-            <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
-            >
-              Project Skills
-            </div>
-            <div class="space-y-1.5">
-              @for (skill of projectSkills(); track skill.path) {
-                <div
-                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
-                >
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-medium">{{ skill.name }}</div>
-                    @if (skill.agents.length) {
-                      <div class="flex flex-wrap gap-1 mt-0.5">
-                        @for (agent of skill.agents; track agent) {
-                          <span
-                            class="badge badge-xs badge-outline text-[9px]"
-                            >{{ agent }}</span
-                          >
-                        }
-                      </div>
-                    }
-                    <span class="text-[10px] text-base-content/40 font-mono">{{
-                      skill.source
-                    }}</span>
-                  </div>
-                  <button
-                    class="btn btn-ghost btn-xs text-error shrink-0"
-                    [disabled]="uninstallingSkillIds().has(skill.name)"
-                    (click)="removeInstalledSkill(skill)"
-                    type="button"
-                    [attr.aria-label]="'Remove ' + skill.name"
-                  >
-                    @if (uninstallingSkillIds().has(skill.name)) {
-                      <span class="loading loading-spinner loading-xs"></span>
-                    } @else {
-                      Remove
-                    }
-                  </button>
+          <!--
+            ONE list, no scope headings. Every skills.sh skill now lives in a
+            user-global source root under ~/.ptah/plugins and is propagated into
+            each detected CLI from there, so the old "Project Skills" / "Global
+            Skills" split described a destination that no longer exists — and
+            the project half would have rendered empty forever.
+          -->
+          <div
+            class="text-[11px] text-base-content-muted uppercase tracking-wide mb-1.5 font-medium"
+          >
+            Installed Skills
+          </div>
+          <div class="space-y-1.5">
+            @for (skill of installedSkills(); track skill.path) {
+              <div
+                class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
+              >
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium">{{ skill.name }}</div>
+                  <span class="text-[10px] text-base-content-muted font-mono">{{
+                    skill.source
+                  }}</span>
                 </div>
-              }
-            </div>
-          }
-          @if (globalSkills().length > 0) {
-            <div
-              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium mt-3"
-            >
-              Global Skills
-            </div>
-            <div class="space-y-1.5">
-              @for (skill of globalSkills(); track skill.path) {
-                <div
-                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
+                <button
+                  class="btn btn-ghost btn-xs text-error shrink-0"
+                  [disabled]="uninstallingSkillIds().has(skill.name)"
+                  (click)="removeInstalledSkill(skill)"
+                  type="button"
+                  [attr.aria-label]="'Remove ' + skill.name"
                 >
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-medium">{{ skill.name }}</div>
-                    @if (skill.agents.length) {
-                      <div class="flex flex-wrap gap-1 mt-0.5">
-                        @for (agent of skill.agents; track agent) {
-                          <span
-                            class="badge badge-xs badge-outline text-[9px]"
-                            >{{ agent }}</span
-                          >
-                        }
-                      </div>
-                    }
-                    <span class="text-[10px] text-base-content/40 font-mono">{{
-                      skill.source
-                    }}</span>
-                  </div>
-                  <button
-                    class="btn btn-ghost btn-xs text-error shrink-0"
-                    [disabled]="uninstallingSkillIds().has(skill.name)"
-                    (click)="removeInstalledSkill(skill)"
-                    type="button"
-                    [attr.aria-label]="'Remove ' + skill.name"
-                  >
-                    @if (uninstallingSkillIds().has(skill.name)) {
-                      <span class="loading loading-spinner loading-xs"></span>
-                    } @else {
-                      Remove
-                    }
-                  </button>
-                </div>
-              }
-            </div>
-          }
+                  @if (uninstallingSkillIds().has(skill.name)) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  } @else {
+                    Remove
+                  }
+                </button>
+              </div>
+            }
+          </div>
+          <p class="text-[10px] text-base-content-muted mt-2">
+            Installed skills reach every AI CLI Ptah detects. Turn one off for
+            this workspace from the Plugins panel.
+          </p>
         }
       }
 
       <!-- skills.sh attribution -->
-      <div class="text-[10px] text-base-content/30 text-center pt-1">
+      <div class="text-[10px] text-base-content-muted text-center pt-1">
         Powered by
         <a
           href="https://skills.sh"
@@ -430,7 +385,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   /**
    * Increment this input to trigger a reload of the installed skills list.
    * Used by the parent settings component when plugin configuration changes
-   * (skills are added/removed via SkillJunctionService) so the Installed tab
+   * (skills are added/removed via the harness reconciler) so the Installed tab
    * reflects the current state without requiring a full page reload.
    */
   readonly refreshTrigger = input(0);
@@ -473,14 +428,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       formattedInstalls: this.formatInstallCount(s.installs),
     }));
   });
-
-  readonly projectSkills = computed(() =>
-    this.installedSkills().filter((s) => s.scope === 'project'),
-  );
-
-  readonly globalSkills = computed(() =>
-    this.installedSkills().filter((s) => s.scope === 'global'),
-  );
 
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -535,7 +482,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       const result = await this.rpcService.call('skillsSh:install', {
         source: skill.source,
         skillId: skill.skillId,
-        scope: 'project',
       });
 
       if (this.destroyed) return;
@@ -565,7 +511,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     try {
       const result = await this.rpcService.call('skillsSh:uninstall', {
         name: skill.skillId,
-        scope: 'project',
       });
 
       if (this.destroyed) return;
@@ -595,7 +540,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     try {
       const result = await this.rpcService.call('skillsSh:uninstall', {
         name: skill.name,
-        scope: skill.scope,
       });
 
       if (this.destroyed) return;

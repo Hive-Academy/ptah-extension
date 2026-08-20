@@ -55,11 +55,15 @@ export function buildAstNamespace(
   } = deps;
 
   return {
-    analyze: async (filePath: string): Promise<AstCodeInsights> => {
+    analyze: async (
+      filePath: string,
+      workspaceRoot?: string,
+    ): Promise<AstCodeInsights> => {
       const { content, language, absolutePath } = await readFileForAst(
         filePath,
         fileSystemProvider,
         workspaceProvider,
+        workspaceRoot,
       );
 
       const result = await astAnalysis.analyzeSource(
@@ -194,12 +198,17 @@ async function readFileForAst(
   filePath: string,
   fileSystemProvider: IFileSystemProvider,
   workspaceProvider: IWorkspaceProvider,
+  workspaceRoot?: string,
 ): Promise<{
   content: string;
   language: SupportedLanguage;
   absolutePath: string;
 }> {
-  const absolutePath = resolveFilePath(filePath, workspaceProvider);
+  const absolutePath = resolveFilePath(
+    filePath,
+    workspaceProvider,
+    workspaceRoot,
+  );
 
   const stat = await fileSystemProvider.stat(absolutePath);
   if (stat.type === FileType.Directory) {
@@ -226,11 +235,18 @@ async function readFileForAst(
 }
 
 /**
- * Resolve file path to absolute path
+ * Resolve file path to absolute path.
+ *
+ * Absolute filePaths (POSIX root, Windows drive, or UNC) are returned verbatim.
+ * A relative filePath is joined against `explicitRoot` when the caller supplied
+ * one, otherwise against the active workspace root. The explicit root lets a
+ * caller disambiguate when multiple workspaces are open, where the process-
+ * global active folder can point at a different workspace than intended.
  */
 function resolveFilePath(
   filePath: string,
   workspaceProvider: IWorkspaceProvider,
+  explicitRoot?: string,
 ): string {
   if (
     filePath.startsWith('/') ||
@@ -240,7 +256,8 @@ function resolveFilePath(
     return filePath;
   }
 
-  const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+  const workspaceRoot =
+    explicitRoot?.trim() || workspaceProvider.getWorkspaceRoot();
   if (!workspaceRoot) {
     throw new Error('No workspace folder open');
   }

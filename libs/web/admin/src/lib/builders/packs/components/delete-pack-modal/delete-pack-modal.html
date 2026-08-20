@@ -1,0 +1,100 @@
+@if (open()) {
+  @if (pack(); as target) {
+  <dialog class="modal modal-open" aria-labelledby="delete-pack-title">
+    <div class="modal-box max-w-lg">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="delete-pack-title" class="text-lg font-semibold text-error">
+            Delete Pack
+          </h3>
+          <p class="text-sm opacity-70">
+            Removes Ptah's record of this pack.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="deleting()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+        @if (errorMessage(); as msg) {
+          <div class="alert alert-error text-sm">
+            <span>{{ msg }}</span>
+          </div>
+        }
+
+        <div class="rounded-lg border border-hairline p-3 text-sm">
+          <div class="font-medium">{{ target.title }}</div>
+          <div class="font-mono text-xs opacity-60">{{ target.slug }}</div>
+          <div class="mt-1 break-all font-mono text-xs opacity-60">
+            {{ target.repoUrl }}
+          </div>
+        </div>
+
+        <div class="alert alert-warning text-sm" role="note">
+          <span>
+            The GitHub repository and everyone's access to it are unaffected —
+            Ptah does not control either. What is lost is the record of which
+            repo went to which cohort, including its notes.
+          </span>
+        </div>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">
+              Type <span class="font-mono">{{ target.slug }}</span> to confirm
+            </span>
+          </div>
+          <input
+            type="text"
+            class="input input-bordered input-sm font-mono"
+            [value]="typedSlug()"
+            (input)="onSlugInput($event)"
+            [disabled]="deleting()"
+            autocomplete="off"
+            [attr.placeholder]="target.slug"
+          />
+        </label>
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="deleting()"
+            (click)="onCloseClick()"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-error px-8"
+            [disabled]="!canSubmit()"
+          >
+            @if (deleting()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Deleting…
+            } @else {
+              Delete Pack
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="deleting()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+  }
+}

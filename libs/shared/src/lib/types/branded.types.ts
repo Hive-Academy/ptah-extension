@@ -5,7 +5,6 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { z } from 'zod';
 /**
  * Branded SessionId type - prevents mixing with other string IDs
  */
@@ -57,14 +56,29 @@ export const SessionId = {
   },
 
   /**
-   * Validate if a string is a valid SessionId format
+   * Validate if a string is a valid SessionId format.
+   *
+   * Accepts `undefined` because absence of a session is a modelled state — a
+   * caller asking "is this a valid id" should not have to answer "do I even
+   * have one" first. `undefined` is not a valid SessionId, so it returns
+   * `false`.
+   *
+   * `''` is still rejected, and deliberately so: widening the parameter to
+   * `string | undefined` does NOT make `''` unrepresentable — `''` is a
+   * `string`. Guards elsewhere that reject a blank session id remain
+   * load-bearing.
    */
-  validate(id: string): id is SessionId {
-    return UUID_REGEX.test(id);
+  validate(id: string | undefined): id is SessionId {
+    return id !== undefined && UUID_REGEX.test(id);
   },
 
   /**
    * Convert string to SessionId with validation
+   *
+   * Deliberately NOT widened to `string | undefined`: this throws by contract,
+   * and every caller passes an id it already knows it has. Widening would
+   * invite `SessionId.from(undefined)` at sites the compiler checks today.
+   *
    * @throws TypeError if invalid format
    */
   from(id: string): SessionId {
@@ -75,9 +89,22 @@ export const SessionId = {
   },
 
   /**
-   * Safely convert string to SessionId, returns null if invalid
+   * Safely convert string to SessionId, returns null if invalid.
+   *
+   * Accepts `undefined` (returns `null`) so callers need no `x ? parse(x) :
+   * null` ternary around the one function whose job is to answer the question.
+   *
+   * **The widening asymmetry is deliberate — do not "restore consistency".**
+   * `SessionId` is the one brand whose *absence* is a modelled state: after
+   * TASK_2026_295 Wave 2, "no session yet" travels as `undefined` on wire
+   * types rather than as an invented `''`, so possibly-absent ids reach
+   * `validate` / `safeParse` on the normal path. The sibling brands —
+   * `MessageId`, `CorrelationId`, `TabId`, `JobId`, `RunId` — have no caller
+   * that passes them a possibly-undefined value, so their `validate` /
+   * `safeParse` stay on a required `string`. Widening those five would be
+   * churn against zero evidence.
    */
-  safeParse(id: string): SessionId | null {
+  safeParse(id: string | undefined): SessionId | null {
     return SessionId.validate(id) ? (id as SessionId) : null;
   },
 };
@@ -239,59 +266,6 @@ export const RunId = {
     return RunId.validate(id) ? (id as RunId) : null;
   },
 };
-
-/**
- * Zod schemas for runtime validation of branded types
- */
-export const SessionIdSchema = z
-  .string()
-  .uuid()
-  .refine((id): id is SessionId => SessionId.validate(id), {
-    message: 'Invalid SessionId format',
-  });
-
-export const MessageIdSchema = z
-  .string()
-  .uuid()
-  .refine((id): id is MessageId => MessageId.validate(id), {
-    message: 'Invalid MessageId format',
-  });
-
-export const CorrelationIdSchema = z
-  .string()
-  .uuid()
-  .refine((id): id is CorrelationId => CorrelationId.validate(id), {
-    message: 'Invalid CorrelationId format',
-  });
-
-/**
- * Runtime validation functions for branded types
- */
-export class BrandedTypeValidator {
-  static validateSessionId(data: unknown): SessionId {
-    const result = SessionIdSchema.safeParse(data);
-    if (!result.success) {
-      throw new TypeError(`Invalid SessionId: ${JSON.stringify(data)}`);
-    }
-    return result.data as SessionId;
-  }
-
-  static validateMessageId(data: unknown): MessageId {
-    const result = MessageIdSchema.safeParse(data);
-    if (!result.success) {
-      throw new TypeError(`Invalid MessageId: ${JSON.stringify(data)}`);
-    }
-    return result.data as MessageId;
-  }
-
-  static validateCorrelationId(data: unknown): CorrelationId {
-    const result = CorrelationIdSchema.safeParse(data);
-    if (!result.success) {
-      throw new TypeError(`Invalid CorrelationId: ${JSON.stringify(data)}`);
-    }
-    return result.data as CorrelationId;
-  }
-}
 
 /**
  * Branded HarnessStreamId — identifies a streaming pipeline for the harness

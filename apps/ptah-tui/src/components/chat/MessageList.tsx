@@ -1,65 +1,86 @@
 import React from 'react';
-import { Box, Text } from 'ink';
-import BigText from 'ink-big-text';
-import Gradient from 'ink-gradient';
+import { Box, Text, useStdout } from 'ink';
 
 import type { ChatMessage } from '../../hooks/use-chat.js';
 import { MessageBubble } from './MessageBubble.js';
-import { Spinner, Divider, KeyHint } from '../atoms/index.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { useTuiContext } from '../../context/TuiContext.js';
+import { GLYPHS } from '../../lib/glyphs.js';
+import { buildWelcome } from '../../lib/welcome.js';
 
 interface MessageListProps {
   messages: ChatMessage[];
   isStreaming: boolean;
+  authReady?: boolean;
+  authError?: string;
+  model?: string | null;
 }
 
 const MAX_VISIBLE_MESSAGES = 50;
 
-function WelcomeScreen(): React.JSX.Element {
+interface WelcomeScreenProps {
+  authReady: boolean;
+  authError?: string;
+  model?: string | null;
+}
+
+function WelcomeScreen({
+  authReady,
+  authError,
+  model,
+}: WelcomeScreenProps): React.JSX.Element {
   const theme = useTheme();
+  const { workspacePath } = useTuiContext();
+  const { stdout } = useStdout();
+
+  const welcome = buildWelcome(
+    {
+      workspacePath,
+      authReady,
+      authError,
+      model,
+      columns: stdout.columns ?? 80,
+    },
+    GLYPHS,
+  );
+
+  const keyColumn = Math.max(
+    ...welcome.actions.map((action) => action.keys.length),
+  );
 
   return (
-    <Box
-      flexDirection="column"
-      alignItems="center"
-      justifyContent="center"
-      flexGrow={1}
-      paddingY={2}
-    >
-      <Box flexDirection="column" alignItems="center">
-        <Gradient name="vice">
-          <BigText text="PTAH" font="tiny" align="center" />
-        </Gradient>
-        <Text color={theme.ui.dimmed} italic>
-          𓂀 The Coding Orchestra — AI-powered development in your terminal
+    <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" paddingX={1}>
+      <Box marginBottom={1}>
+        <Text color={theme.ui.brand} bold>
+          {welcome.logo}
         </Text>
-
-        <Box marginTop={1}>
-          <Divider title="Quick Start" width={52} />
-        </Box>
-
-        <Box marginTop={1} flexDirection="column" paddingX={4} gap={0}>
-          <KeyHint
-            keys="  Ctrl+S"
-            label="Configure API keys and provider settings"
-          />
-          <KeyHint keys="  Ctrl+B" label="Toggle the agents sidebar" />
-          <KeyHint keys="  Ctrl+E" label="Toggle the sessions sidebar" />
-          <KeyHint keys="  Ctrl+K" label="Open the command palette" />
-          <KeyHint keys="  Ctrl+Q" label="Quit the application" />
-        </Box>
-
-        <Box marginTop={1}>
-          <Divider width={52} />
-        </Box>
-
-        <Box marginTop={1}>
-          <Text dimColor italic>
-            Type a message below to start chatting — or press Ctrl+S to set up a
-            provider
-          </Text>
-        </Box>
+        <Text color={theme.ui.dimmed}>{`  ${welcome.tagline}`}</Text>
       </Box>
+
+      <Box>
+        <Text color={theme.ui.dimmed}>{'workspace  '}</Text>
+        <Text color={theme.ui.muted}>{welcome.workspace}</Text>
+      </Box>
+
+      <Box marginBottom={1}>
+        <Text color={theme.ui.dimmed}>{'provider   '}</Text>
+        <Text
+          color={
+            welcome.provider.ready ? theme.status.success : theme.status.warning
+          }
+        >
+          {welcome.provider.label}
+        </Text>
+      </Box>
+
+      {welcome.actions.map((action) => (
+        <Box key={action.keys}>
+          <Text color={theme.ui.accent} bold>
+            {action.keys.padEnd(keyColumn)}
+          </Text>
+          <Text color={theme.ui.dimmed}>{`  ${action.label}`}</Text>
+        </Box>
+      ))}
     </Box>
   );
 }
@@ -67,18 +88,15 @@ function WelcomeScreen(): React.JSX.Element {
 export function MessageList({
   messages,
   isStreaming,
+  authReady = false,
+  authError,
+  model = null,
 }: MessageListProps): React.JSX.Element {
-  const theme = useTheme();
-
   if (messages.length === 0 && !isStreaming) {
-    return <WelcomeScreen />;
+    return (
+      <WelcomeScreen authReady={authReady} authError={authError} model={model} />
+    );
   }
-
-  const last = messages[messages.length - 1];
-
-  const showThinkingSpinner =
-    isStreaming &&
-    (!last || last.role !== 'assistant' || last.content.length === 0);
 
   // Cap the rendered history so the element tree can't grow unbounded; the
   // bounded viewport below keeps only the most recent messages on screen.
@@ -95,7 +113,6 @@ export function MessageList({
       overflow="hidden"
       justifyContent="flex-end"
       paddingX={1}
-      paddingY={1}
     >
       {visible.map((message) => (
         <MessageBubble
@@ -107,13 +124,6 @@ export function MessageList({
           isStreaming={message.isStreaming === true}
         />
       ))}
-
-      {showThinkingSpinner && (
-        <Box paddingX={1} marginBottom={1} gap={1}>
-          <Text color={theme.ui.accent}>{'┃'}</Text>
-          <Spinner label="Thinking..." />
-        </Box>
-      )}
     </Box>
   );
 }

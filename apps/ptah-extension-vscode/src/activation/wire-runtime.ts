@@ -16,14 +16,18 @@ import {
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
-import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import type {
+  CodeSymbolIndexer,
+  WorkspaceFileIndexService,
+} from '@ptah-extension/workspace-intelligence';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
 import {
-  activateSkillJunctions,
   initPluginLoader,
   mirrorUserLayer,
+  reconcileHarness,
   reconcileUserLayer,
+  subscribeHarnessToWorkspaceChanges,
 } from './plugin-activation';
 
 /**
@@ -42,7 +46,12 @@ export async function wireRuntimeVscode(
   initPluginLoader(contentDownload.getPluginsPath(), logger);
   const userLayerWorkspaceRoot =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const userLayerRoots = await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  await mirrorUserLayer(userLayerWorkspaceRoot, logger);
+  // Pre-network, so a warm start detects divergence and reaps deleted upstreams
+  // with no download at all. The post-download callback runs the same pass
+  // again against the refreshed sources; this one is what makes an offline or
+  // fully-cached start still notice a clone the user edited (defect 8).
+  await reconcileUserLayer(userLayerWorkspaceRoot, logger);
   contentDownload
     .ensureContent()
     .then(async (result) => {
@@ -53,22 +62,31 @@ export async function wireRuntimeVscode(
         );
       }
       await mirrorUserLayer(userLayerWorkspaceRoot, logger);
-      if (result && !result.fromCache) {
-        await reconcileUserLayer(userLayerWorkspaceRoot, logger);
-      }
+      // Unconditional: the `!result.fromCache` gate that used to sit here is
+      // defect 8. A cached download still needs the sweep, because what changed
+      // may be the CLONE (a user edit) or the upstream's absence, neither of
+      // which the download result knows anything about.
+      await reconcileUserLayer(userLayerWorkspaceRoot, logger);
+      // Re-reconcile against the post-download user layer. The pass below this
+      // block runs before the network is done — so on a cold first run it sees
+      // an empty user layer and copies nothing, and on a content update it
+      // copies the previous revision. Both leave the workspace without skills
+      // until the NEXT activation (TASK_2026_278). Running this for cached
+      // downloads too is deliberate: that branch is exactly where the re-run is
+      // a cheap hash-compare no-op.
+      await reconcileHarness(logger, 'content-download-complete');
     })
     .catch((err: unknown) => {
       logger.warn('Post-download reconcile failed (non-fatal)', {
         error: err instanceof Error ? err.message : String(err),
       });
     });
-  activateSkillJunctions(
-    contentDownload.getPluginsPath(),
-    logger,
-    userLayerRoots
-      ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
-      : undefined,
-  );
+  // First pass, not awaiting the network, so a warm start has skills
+  // immediately. `downloadPending` only changes how an empty user layer is
+  // REPORTED (`pending-download` vs `sources-missing`); the callback above
+  // corrects the content once it lands.
+  await reconcileHarness(logger, 'activation', { downloadPending: true });
+  context.subscriptions.push(subscribeHarnessToWorkspaceChanges(logger));
   void licenseStatus;
   try {
     const providerModels = DIContainer.getContainer().resolve(
@@ -237,6 +255,33 @@ export async function wireRuntimeVscode(
       {
         error: err instanceof Error ? err.message : String(err),
       },
+    );
+  }
+
+  // Live in-memory file index that powers `@`-mention autocomplete. Build it
+  // eagerly (non-blocking) so the first `@` search is instant and the index
+  // stays fresh via its file watcher. Lazy-builds on first query otherwise.
+  try {
+    if (DIContainer.isRegistered(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)) {
+      const fileIndex = DIContainer.resolve<WorkspaceFileIndexService>(
+        TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+      );
+      const workspaceRoot =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      if (workspaceRoot) {
+        void fileIndex.start(workspaceRoot).catch((err: unknown) => {
+          logger.warn(
+            '[wire-runtime] WorkspaceFileIndex.start failed (non-fatal)',
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        });
+        context.subscriptions.push({ dispose: () => fileIndex.dispose() });
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      '[wire-runtime] Workspace file index wiring skipped (non-fatal)',
+      { error: err instanceof Error ? err.message : String(err) },
     );
   }
 }

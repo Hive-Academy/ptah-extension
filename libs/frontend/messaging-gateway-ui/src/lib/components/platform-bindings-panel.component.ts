@@ -35,7 +35,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
       <h3 class="text-xs font-semibold">Pending requests</h3>
       @if (pending().length === 0) {
         <p
-          class="text-xs text-base-content/50"
+          class="text-xs text-base-content-muted"
           data-testid="gateway-binding-empty"
         >
           No pending requests — send <span class="font-mono">/ptah bind</span>
@@ -50,7 +50,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
             >
               <div class="flex flex-col">
                 <span class="font-mono text-xs">{{ b.platform }}</span>
-                <span class="text-xs text-base-content/60">
+                <span class="text-xs text-base-content-muted">
                   Awaiting code from bot — paste the code the bot sent you.
                 </span>
               </div>
@@ -108,7 +108,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
             <li class="flex items-center justify-between px-3 py-2">
               <div class="flex flex-col">
                 <span class="font-mono text-xs">{{ b.platform }}</span>
-                <span class="text-xs text-base-content/60">
+                <span class="text-xs text-base-content-muted">
                   {{ b.displayName ?? '—' }}
                   @if (b.lastActiveAt) {
                     · last active

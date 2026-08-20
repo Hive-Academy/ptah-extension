@@ -50,7 +50,7 @@ export interface PlatformCardConfig {
         >
           <div class="space-y-1">
             <h3 class="text-sm font-semibold">Connection</h3>
-            <p class="text-xs text-base-content/55">
+            <p class="text-xs text-base-content-muted">
               Save a bot token to start the {{ config().label }} adapter.
             </p>
           </div>
@@ -93,7 +93,7 @@ export interface PlatformCardConfig {
         >
           <div class="space-y-1">
             <h3 class="text-sm font-semibold">Access</h3>
-            <p class="text-xs text-base-content/55">
+            <p class="text-xs text-base-content-muted">
               Control who can reach this adapter and approve pairing requests.
             </p>
           </div>
@@ -116,7 +116,7 @@ export interface PlatformCardConfig {
           >
             <div class="space-y-1">
               <h3 class="text-sm font-semibold">Integration</h3>
-              <p class="text-xs text-base-content/55">
+              <p class="text-xs text-base-content-muted">
                 Generate an invite, register the
                 <span class="font-mono">/ptah</span> command, and pick allowed
                 servers.

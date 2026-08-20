@@ -35,7 +35,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
         >
           <div class="flex-1 min-w-0">
             <span class="text-xs font-medium">Allow Localhost</span>
-            <p class="text-[10px] text-base-content/50">
+            <p class="text-[10px] text-base-content-muted">
               Allow browser tools to navigate to localhost URLs (dev servers,
               local APIs). Enables AI agents to access local network services.
             </p>

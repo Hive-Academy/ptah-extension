@@ -165,7 +165,7 @@ Categorize discovered documents by filename patterns:
 **Validation Documents** (Read FIFTH, understand quality gates):
 
 - `*-validation.md` - Architecture/plan approvals
-- `code-review.md` - Code review findings
+- `code-style-review.md` / `code-logic-review.md` - Code review findings
 - These identify **additional test scenarios**
 
 **Progress Documents** (Read LAST, understand current state):
@@ -473,7 +473,8 @@ If task-tracking directory exists and TASK_ID is set:
 
    **Phase 5: Validation** (additional test scenarios)
    - \*-validation.md
-   - code-review.md
+   - code-style-review.md
+   - code-logic-review.md
 
    **Phase 6: Progress** (current state)
    - progress.md
@@ -485,7 +486,7 @@ If task-tracking directory exists and TASK_ID is set:
    - Acceptance Criteria: Search ALL documents for "acceptance", "criteria", "should", "must"
    - Bug Fixes: From correction-_.md and bug-fix-_.md (CREATE REGRESSION TESTS)
    - Implementation Phases: From phase-\*-plan.md or implementation-plan.md
-   - Code Review Issues: From code-review.md (CREATE TESTS FOR ISSUES)
+   - Code Review Issues: From code-style-review.md / code-logic-review.md (CREATE TESTS FOR ISSUES)
    - Testing Mission: Validate ALL above with industry-standard testing practices
 
 Otherwise (Standalone Testing Context):

@@ -1,0 +1,309 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+} from '@angular/core';
+import {
+  ViewportAnimationConfig,
+  ViewportAnimationDirective,
+} from '@hive-academy/angular-gsap';
+import {
+  Calendar,
+  Check,
+  Crown,
+  LucideAngularModule,
+  Unlock,
+} from 'lucide-angular';
+import {
+  getMemberGroupBadgeLabel,
+  hasActiveMembership,
+  isBuildersTier,
+  isFoundingMemberGroup,
+  LicenseData,
+  MemberGroupBadge,
+} from '@ptah-web/core';
+
+/**
+ * ProfileHeaderComponent - User profile header with avatar, stats, and badges
+ *
+ * Displays:
+ * - Gradient hero background with decorative pattern
+ * - User avatar with initials
+ * - User name and member since date
+ * - Membership badge + status badge
+ * - Stats grid (open-source framing, membership status)
+ *
+ * @input license - User license data
+ * @output logout - Emits when user clicks logout
+ */
+@Component({
+  selector: 'ptah-profile-header',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [ViewportAnimationDirective, LucideAngularModule],
+  template: `
+    <!-- Hero Header with Gradient Background -->
+    <div
+      class="relative h-[28rem] md:h-[38rem] bg-gradient-to-br from-base-100 via-primary/30 to-base-100 overflow-hidden"
+    >
+      <!-- Background Image Layer -->
+      <div
+        viewportAnimation
+        [viewportConfig]="cardConfig"
+        class="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-60"
+        style="background-image: url('/assets/backgrounds/floating_obelisks.png')"
+      ></div>
+
+      <!-- Radial glow overlay -->
+      <div
+        class="absolute inset-0 z-[1] bg-gradient-to-b from-slate-950/30 via-slate-900/35 to-slate-950/45"
+        aria-hidden="true"
+      ></div>
+
+      <!-- Bottom fade for smooth transition -->
+      <div
+        class="absolute bottom-0 left-0 right-0 h-44 bg-gradient-to-t from-base-100 to-transparent"
+      ></div>
+    </div>
+
+    <!-- Profile Card (overlapping hero) -->
+    <div
+      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 -mt-[240px] relative z-10"
+    >
+      <div
+        viewportAnimation
+        [viewportConfig]="cardConfig"
+        class="bg-base-200/95 backdrop-blur-xl border border-secondary/20 rounded-3xl shadow-2xl overflow-hidden"
+      >
+        <!-- Avatar & Name Section -->
+        <div class="px-6 md:px-8 pt-6 pb-8 border-b border-secondary/10">
+          <div class="flex flex-col sm:flex-row items-center gap-6">
+            <!-- Avatar -->
+            <div
+              class="w-28 h-28 rounded-full bg-gradient-to-br from-secondary to-accent
+                       flex items-center justify-center text-4xl font-display font-bold text-base-100
+                       ring-4 ring-base-200 shadow-glow-gold"
+            >
+              {{ userInitials() }}
+            </div>
+
+            <!-- User Info -->
+            <div class="text-center sm:text-left flex-1">
+              <h1
+                class="text-2xl md:text-3xl font-display font-bold text-base-content"
+              >
+                {{ displayName() }}
+              </h1>
+              <p
+                class="text-neutral-content mt-1 flex items-center justify-center sm:justify-start gap-2"
+              >
+                <lucide-angular
+                  [img]="CalendarIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
+                Member since
+                {{ formatDate(license()?.user?.memberSince ?? null) }}
+              </p>
+
+              <!-- Plan Badge -->
+              <div
+                class="mt-3 flex flex-wrap gap-2 justify-center sm:justify-start"
+              >
+                <span
+                  class="badge badge-lg gap-1"
+                  [class]="getPlanBadgeClass()"
+                >
+                  <lucide-angular
+                    [img]="CrownIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  {{ getPlanDisplayName() }}
+                </span>
+                <span class="badge badge-lg" [class]="getStatusBadgeClass()">
+                  {{ getStatusLabel() }}
+                </span>
+                @if (license()?.user?.emailVerified) {
+                  <span class="badge badge-lg badge-success gap-1">
+                    <lucide-angular
+                      [img]="CheckIcon"
+                      class="w-3 h-3"
+                      aria-hidden="true"
+                    />
+                    Verified
+                  </span>
+                }
+                @for (group of memberGroups(); track group.key) {
+                  <span
+                    class="badge badge-lg gap-1"
+                    [class]="
+                      isFoundingGroup(group) ? 'badge-warning' : 'badge-ghost'
+                    "
+                  >
+                    {{ groupBadgeLabel(group) }}
+                  </span>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div
+          class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-secondary/10"
+        >
+          <!-- Open Source -->
+          <div class="p-6 text-center">
+            <div
+              class="flex items-center justify-center gap-2 text-2xl font-bold bg-gradient-to-r from-secondary to-accent bg-clip-text text-transparent"
+            >
+              <lucide-angular
+                [img]="UnlockIcon"
+                class="w-5 h-5 text-secondary"
+                aria-hidden="true"
+              />
+              Open Source
+            </div>
+            <p class="text-sm text-neutral-content mt-1">
+              Full product, free forever
+            </p>
+          </div>
+
+          <!-- Membership Status -->
+          <div class="p-6 text-center">
+            @if (isExpired()) {
+              <div class="text-2xl font-bold text-error">
+                Membership Expired
+              </div>
+              <p class="text-sm text-neutral-content mt-1">
+                Renew to restore Builders access
+              </p>
+            } @else if (isActiveMember()) {
+              <div class="text-2xl font-bold text-success">Active</div>
+              <p class="text-sm text-neutral-content mt-1">
+                Builder Membership
+              </p>
+            } @else {
+              <div class="text-2xl font-bold text-secondary">Community</div>
+              <p class="text-sm text-neutral-content mt-1">
+                No subscription needed
+              </p>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  `,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
+})
+export class ProfileHeaderComponent {
+  /** Lucide icon references */
+  public readonly CheckIcon = Check;
+  public readonly CrownIcon = Crown;
+  public readonly CalendarIcon = Calendar;
+  public readonly UnlockIcon = Unlock;
+
+  /** License data input */
+  public readonly license = input<LicenseData | null>(null);
+
+  /** Cohort/group memberships to render as chips (empty when unassigned). */
+  public readonly memberGroups = computed<MemberGroupBadge[]>(
+    () => this.license()?.memberGroups ?? [],
+  );
+
+  /** Cohort chip helpers, shared with `MembersPageComponent`. */
+  protected readonly isFoundingGroup = isFoundingMemberGroup;
+  protected readonly groupBadgeLabel = getMemberGroupBadgeLabel;
+  public readonly cardConfig: ViewportAnimationConfig = {
+    animation: 'slideUp',
+    duration: 0.6,
+    threshold: 0.1,
+    ease: 'power2.out',
+  };
+  public readonly userInitials = computed(() => {
+    const user = this.license()?.user;
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
+    }
+    if (user?.email) {
+      return user.email.substring(0, 2).toUpperCase();
+    }
+    return 'U';
+  });
+
+  public readonly displayName = computed(() => {
+    const user = this.license()?.user;
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName} ${user.lastName}`;
+    }
+    if (user?.firstName) {
+      return user.firstName;
+    }
+    return user?.email?.split('@')[0] || 'User';
+  });
+
+  /**
+   * Check if the membership has expired.
+   */
+  public isExpired(): boolean {
+    return this.license()?.reason === 'expired';
+  }
+
+  /**
+   * Whether the viewer holds an active Ptah Builders membership, with no
+   * expired reason attached.
+   */
+  public isActiveMember(): boolean {
+    return hasActiveMembership(this.license());
+  }
+
+  public getPlanBadgeClass(): string {
+    if (this.isExpired()) return 'badge-error';
+    if (isBuildersTier(this.license()?.plan)) return 'badge-primary';
+    return 'badge-secondary';
+  }
+
+  /**
+   * Get display name for the membership badge: 'Builder' for a Builders
+   * plan, 'Community' otherwise, 'Membership Expired' once it has lapsed.
+   */
+  public getPlanDisplayName(): string {
+    if (this.isExpired()) return 'Membership Expired';
+    return isBuildersTier(this.license()?.plan) ? 'Builder' : 'Community';
+  }
+
+  public getStatusBadgeClass(): string {
+    if (this.isExpired()) return 'badge-error';
+
+    const status = this.license()?.status;
+    if (status === 'active') return 'badge-success';
+    if (status === 'expired') return 'badge-error';
+    return 'badge-ghost';
+  }
+
+  public getStatusLabel(): string {
+    if (this.isExpired()) return 'Expired';
+
+    const status = this.license()?.status;
+    if (status === 'active') return 'Active';
+    if (status === 'expired') return 'Expired';
+    if (status === 'none') return 'No License';
+    return (status && (status as string).toUpperCase()) || 'Unknown';
+  }
+
+  public formatDate(isoDate: string | null): string {
+    if (!isoDate) return 'N/A';
+    return new Date(isoDate).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  }
+}

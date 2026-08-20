@@ -49,6 +49,28 @@ jobs:
       - name: Set image name (lowercase)
         run: echo "IMAGE_NAME=$(echo '${{ github.repository }}/license-server' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      # Sync .env.prod from the ENV_PROD_FILE secret (single source of truth).
+      # Refresh the secret after any local .env.prod change:
+      #   gh secret set ENV_PROD_FILE < .env.prod
+      # NOTE: this overwrites the droplet copy on every deploy — never hand-edit
+      # env on the droplet.
+      - name: Write .env.prod from secret
+        run: |
+          if [ -z "${{ secrets.ENV_PROD_FILE }}" ]; then
+            echo "::error::ENV_PROD_FILE secret is not set — run: gh secret set ENV_PROD_FILE < .env.prod"
+            exit 1
+          fi
+          printf '%s' "${{ secrets.ENV_PROD_FILE }}" > env.prod.tmp
+
+      - name: Copy .env.prod to Droplet
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: env.prod.tmp
+          target: /opt/ptah-extension/
+
       - name: Deploy to Droplet
         uses: appleboy/ssh-action@v1
         with:
@@ -58,6 +80,8 @@ jobs:
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd /opt/ptah-extension
+            mv -f env.prod.tmp .env.prod
+            chmod 600 .env.prod
             docker compose -f docker-compose.prod.yml pull license-server
             docker compose -f docker-compose.prod.yml up -d
             docker image prune -f

@@ -899,4 +899,78 @@ describe('StreamingHandlerService', () => {
       );
     });
   });
+
+  /**
+   * TASK_2026_295 — the backend can emit `sessionId: ''` before the SDK session
+   * resolves. `SessionId.from('')` THROWS, and the fan-out lookup that used it
+   * ran unconditionally AFTER the event had already been applied to the tab, so
+   * the throw was swallowed by the outer catch and the method returned `null` —
+   * losing the compaction / queued-content dispatch that `ChatStore` reads.
+   */
+  describe('empty sessionId on the event', () => {
+    it('applies a tabId-routed event without logging a swallowed throw', () => {
+      service.processStreamEvent(
+        msgStart({ sessionId: '' as unknown as SessionId }),
+        TAB_ID,
+      );
+
+      expect(currentState().events.has('evt-msg-start')).toBe(true);
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('reports compaction_complete instead of swallowing it', () => {
+      const result = service.processStreamEvent(
+        {
+          id: 'evt-compaction-complete',
+          eventType: 'compaction_complete',
+          timestamp: 9,
+          sessionId: '',
+          preTokens: 100,
+          postTokens: 10,
+          durationMs: 5,
+          source: 'stream',
+        } as unknown as FlatStreamEventUnion,
+        TAB_ID,
+      );
+
+      expect(result?.compactionComplete).toBe(true);
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('never looks a tab up by an unparseable session id', () => {
+      service.processStreamEvent(
+        msgStart({ sessionId: '' as unknown as SessionId }),
+        TAB_ID,
+      );
+
+      expect(tabManager.findTabsBySessionId).not.toHaveBeenCalled();
+    });
+
+    it('does not hijack the active tab with an empty session id', () => {
+      const freshTab = makeTab({
+        claudeSessionId: undefined,
+        status: 'fresh',
+      } as Partial<TabState>);
+      tabsSignal.set([freshTab]);
+
+      const result = service.processStreamEvent(
+        msgStart({ sessionId: '' as unknown as SessionId }),
+      );
+
+      // `attachSession` runs `SessionId.from` internally and would have thrown.
+      expect(tabManager.attachSession).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+    });
+
+    it('handleSessionStats does not throw on an empty session id', () => {
+      expect(() =>
+        service.handleSessionStats({
+          sessionId: '',
+          cost: 1,
+          tokens: { input: 1, output: 1 },
+          duration: 1,
+        }),
+      ).not.toThrow();
+    });
+  });
 });

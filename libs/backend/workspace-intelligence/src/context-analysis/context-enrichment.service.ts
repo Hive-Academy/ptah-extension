@@ -378,6 +378,18 @@ export class ContextEnrichmentService {
 
   /**
    * Convert an absolute file path to a workspace-relative path for display.
+   *
+   * AUDIT VERDICT — TASK_2026_200, task 3.5: this reads the raw, process-global
+   * `IWorkspaceProvider` rather than a session-scoped root, but it is
+   * **display-string only and deliberately left as-is**. The value never
+   * selects, filters or reads a file: it only shortens an already-resolved
+   * absolute path for a token-reduction summary, and when the root does not
+   * match it degrades to the harmless 3-segment tail below. A wrong root here
+   * produces a slightly longer label, never another workspace's contents — so
+   * it is NOT in the silent-wrong-answer defect class the task targets.
+   * Rewriting it is explicitly out of scope (tasks.md "Out of scope — do not
+   * implement"). Please do not re-litigate this without new evidence that a
+   * caller consumes the string as a lookup key rather than as a label.
    */
   private toRelativePath(filePath: string): string {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();

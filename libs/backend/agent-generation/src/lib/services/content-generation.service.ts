@@ -17,6 +17,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import {
+  PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
 import { Result, WizardPhaseId } from '@ptah-extension/shared';
 import type {
   GenerationStreamPayload,
@@ -93,6 +98,8 @@ export class ContentGenerationService implements IContentGenerationService {
     private readonly internalQueryService: InternalQueryService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   /**
@@ -268,11 +275,11 @@ OUTPUT FORMAT:
         model,
         prompt,
         systemPromptAppend: systemPrompt,
-        isPremium: sdkConfig?.isPremium ?? false,
-        mcpServerRunning: false,
+        // Was hard-coded false (defect 13); wizard content generation benefits
+        // from the workspace-intelligence tools like any other session.
+        ...resolveMcpSessionWiring(this.mcpServerStatus),
         maxTurns: 25,
         outputFormat: { type: 'json_schema', schema: outputSchema },
-        pluginPaths: sdkConfig?.pluginPaths,
       });
 
       let structuredOutput: unknown | null;

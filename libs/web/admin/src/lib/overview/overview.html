@@ -1,0 +1,127 @@
+<section class="flex flex-col gap-6">
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <h2 class="text-xl font-semibold">Overview</h2>
+    @if (stats(); as s) {
+      <span class="text-xs text-base-content-muted">
+        Updated {{ s.updatedAt | date: 'medium' }}
+      </span>
+    }
+  </header>
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (loading() && !stats()) {
+    <!-- First-paint skeleton: queue rows, funnel bars, member/cohort tiles -->
+    <div class="flex flex-col gap-6">
+      <div
+        class="flex flex-col gap-2 rounded-lg border border-hairline bg-base-200 p-4"
+      >
+        @for (i of [1, 2, 3, 4]; track i) {
+          <div class="h-12 animate-pulse rounded-md bg-base-300"></div>
+        }
+      </div>
+      <div class="rounded-lg border border-hairline bg-base-200 p-4 md:p-6">
+        <div class="flex flex-col gap-3">
+          @for (i of [1, 2, 3]; track i) {
+            <div class="h-8 animate-pulse rounded-md bg-base-300"></div>
+          }
+        </div>
+      </div>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        @for (i of [1, 2, 3]; track i) {
+          <div class="h-24 animate-pulse rounded-lg bg-base-200"></div>
+        }
+      </div>
+    </div>
+  } @else if (stats(); as s) {
+    <!-- Needs Attention queue -->
+    <ptah-admin-needs-attention-queue
+      [waitlistUninvited]="waitlistUninvited()"
+      [attention]="s.attention ?? null"
+    />
+
+    <!-- Hero: Builders waitlist funnel -->
+    <div>
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content-muted">
+        Builders Waitlist
+      </h3>
+      <div class="rounded-lg border border-hairline bg-base-200 p-4 md:p-6">
+        <ptah-admin-waitlist-funnel
+          [total]="s.waitlist.total"
+          [notified]="s.waitlist.notified"
+          [converted]="s.waitlist.converted"
+          [last7Days]="s.waitlist.last7Days"
+        />
+      </div>
+    </div>
+
+    <!-- Members + Cohorts -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div>
+        <h3
+          class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+        >
+          Members
+        </h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <ptah-stat-tile
+            label="Builders"
+            [value]="s.members.builders"
+            [delta]="buildersDelta()"
+            deltaTone="success"
+            [emphasis]="true"
+            link="/admin/users"
+            [linkQueryParams]="buildersLinkParams"
+          />
+          <ptah-stat-tile
+            label="Community"
+            [value]="s.members.community"
+          />
+          <ptah-stat-tile
+            label="Total Members"
+            [value]="totalMembers()"
+          />
+        </div>
+      </div>
+
+      <div>
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <h3
+            class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+          >
+            Cohorts
+          </h3>
+          <a routerLink="/admin/groups" class="btn btn-ghost btn-xs text-primary">
+            Manage groups →
+          </a>
+        </div>
+        @if (s.groups.length > 0) {
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            @for (g of s.groups; track g.key) {
+              <ptah-stat-tile
+                [label]="g.name"
+                [value]="g.memberCount"
+                [delta]="g.key"
+                deltaTone="neutral"
+                link="/admin/groups"
+              />
+            }
+          </div>
+        } @else {
+          <div
+            class="rounded-lg border border-hairline bg-base-200 p-6 text-center text-sm text-base-content-muted"
+          >
+            No cohorts yet.
+          </div>
+        }
+      </div>
+    </div>
+  }
+</section>

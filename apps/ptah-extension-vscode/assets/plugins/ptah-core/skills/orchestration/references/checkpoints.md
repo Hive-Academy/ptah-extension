@@ -91,8 +91,8 @@ When CLI delegation is enabled or auto, add to context.md:
 ## CLI Agent Delegation
 
 **Mode**: [enabled|disabled|auto]
-**Available Agents**: [list from ptah_agent_list]
-**Selection Priority**: ptah-cli > codex > copilot
+**Available Agents**: [the rows returned by ptah_agent_list, verbatim]
+**Selection**: by task fit — see cli-agent-delegation.md § CLI Agent Selection
 ```
 
 ---
@@ -170,7 +170,7 @@ Send the checkpoint as a regular text message in the chat. **Do NOT call `AskUse
 REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 ---
 
-📄 **Document**: `.ptah/tasks/TASK_[ID]/task-description.md`
+📄 **Document**: `.ptah/specs/TASK_[ID]/task-description.md`
 
 ## Overview
 
@@ -284,7 +284,7 @@ Send the checkpoint as a regular text message in the chat. **Do NOT call `AskUse
 ARCHITECTURE READY FOR REVIEW — TASK_[ID]
 ---
 
-📄 **Document**: `.ptah/tasks/TASK_[ID]/implementation-plan.md`
+📄 **Document**: `.ptah/specs/TASK_[ID]/implementation-plan.md`
 
 ## Design Summary
 

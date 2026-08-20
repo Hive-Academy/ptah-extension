@@ -143,8 +143,10 @@ describe('HarnessStreamBroadcaster.teeStreamWithFlatEvents', () => {
       event: FlatStreamEventUnion;
     };
     expect(payload.operationId).toBe(operationId);
-    // The carried event preserves the HarnessStreamId-shaped sessionId.
+    // The carried event preserves the HarnessStreamId-shaped sessionId — the
+    // routing key the frontend subscribed with, which is deliberately NOT a
+    // canonical SDK session UUID and must not be normalized into one.
     expect(payload.event.sessionId).toBe('harness-op-broadcast-test');
-    expect(SessionId.validate(payload.event.sessionId)).toBe(false);
+    expect(SessionId.validate('harness-op-broadcast-test')).toBe(false);
   });
 });

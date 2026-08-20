@@ -25,10 +25,6 @@ You have two ways to authenticate:
 
 ### OAuth (ChatGPT subscription)
 
-:::caution[Pro tier]
-The Codex OAuth flow (using your ChatGPT subscription for API-style access) is a **Ptah Pro** feature.
-:::
-
 1. Open **Settings → Providers → OpenAI Codex**.
 2. Click **Sign in with ChatGPT**.
 3. Approve the Ptah app in your browser.

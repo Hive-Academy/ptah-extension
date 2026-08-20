@@ -19,6 +19,7 @@ import type {
 import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
 import {
   SETTINGS_TOKENS,
+  type CustomProviderStore,
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
@@ -34,8 +35,6 @@ import type { PtyManagerService } from '../services/pty-manager.service';
 export interface BootstrapResult {
   container: DependencyContainer;
   startupWorkspaceRoot: string | undefined;
-  startupIsLicensed: boolean;
-  startupInitialView: string | null;
   initialFolders: string[] | undefined;
   flushWorkspacePersistence: (() => void) | null;
   /** Mutable ref box so the workspace-change subscription can pick up the
@@ -128,7 +127,23 @@ export async function bootstrapElectron(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    console.log('[Ptah Electron] Settings registered and migrations applied');
+    // Publish user-defined providers to the shared registry cache BEFORE
+    // anything resolves a provider by id — until this runs,
+    // getAnthropicProvider() knows only the built-ins.
+    const customProviders = container.resolve<CustomProviderStore>(
+      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+    );
+    const { entries, dropped } = customProviders.load();
+    if (dropped.length > 0) {
+      console.warn(
+        `[Ptah Electron] Dropped ${dropped.length} malformed custom provider entr${
+          dropped.length === 1 ? 'y' : 'ies'
+        }`,
+      );
+    }
+    console.log(
+      `[Ptah Electron] Settings registered and migrations applied (${entries.length} custom providers)`,
+    );
   } catch (settingsError) {
     console.warn(
       '[Ptah Electron] Settings registration / migration failed (non-fatal):',
@@ -200,9 +215,10 @@ export async function bootstrapElectron(
   if (!startupWorkspaceRoot && initialFolders?.[0]) {
     startupWorkspaceRoot = initialFolders[0];
   }
-  let startupIsLicensed = true;
-  let startupInitialView: string | null = null;
 
+  // Resolve membership status once at startup to prime the license cache for
+  // the membership card. This is identity only — it never gates activation or
+  // the initial view; Ptah's local features are available to everyone.
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
       verifyLicense: () => Promise<{
@@ -212,23 +228,12 @@ export async function bootstrapElectron(
       }>;
     };
     const licenseStatus = await licenseService.verifyLicense();
-
-    if (!licenseStatus.valid) {
-      startupIsLicensed = false;
-      startupInitialView = 'welcome';
-      console.log(
-        `[Ptah Electron] License invalid (reason: ${
-          licenseStatus.reason ?? 'unknown'
-        }, tier: ${licenseStatus.tier ?? 'unknown'}), showing welcome screen`,
-      );
-    } else {
-      console.log(
-        `[Ptah Electron] License verified (tier: ${licenseStatus.tier})`,
-      );
-    }
+    console.log(
+      `[Ptah Electron] Membership status resolved (valid: ${licenseStatus.valid}, tier: ${licenseStatus.tier ?? 'none'})`,
+    );
   } catch (error) {
     console.warn(
-      '[Ptah Electron] License verification failed (non-fatal, defaulting to licensed):',
+      '[Ptah Electron] Membership status resolution failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -319,8 +324,6 @@ export async function bootstrapElectron(
   return {
     container,
     startupWorkspaceRoot,
-    startupIsLicensed,
-    startupInitialView,
     initialFolders,
     flushWorkspacePersistence,
     gitWatcherRef,

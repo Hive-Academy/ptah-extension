@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Course: Kubernetes Operator Design Patterns</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#19202c",
+                        "primary-fixed": "#ffddb5",
+                        "primary": "#ffc77f",
+                        "inverse-on-surface": "#2a313d",
+                        "outline": "#9f8e7a",
+                        "inverse-primary": "#835400",
+                        "surface-container-low": "#151c27",
+                        "on-background": "#dce2f3",
+                        "secondary-container": "#00a6e0",
+                        "surface-container-highest": "#2e3542",
+                        "secondary-fixed-dim": "#7bd0ff",
+                        "tertiary-fixed-dim": "#7bd0ff",
+                        "background": "#0c141f",
+                        "outline-variant": "#524434",
+                        "on-primary": "#462b00",
+                        "primary-fixed-dim": "#ffb957",
+                        "on-tertiary-fixed": "#001e2c",
+                        "on-tertiary-container": "#004d69",
+                        "surface-bright": "#323946",
+                        "surface": "#0c141f",
+                        "inverse-surface": "#dce2f3",
+                        "tertiary": "#9ad9ff",
+                        "surface-container-high": "#232a36",
+                        "tertiary-fixed": "#c4e7ff",
+                        "on-primary-fixed-variant": "#643f00",
+                        "surface-tint": "#ffb957",
+                        "on-primary-fixed": "#2a1800",
+                        "on-error": "#690005",
+                        "surface-dim": "#0c141f",
+                        "error-container": "#93000a",
+                        "tertiary-container": "#36c2ff",
+                        "on-secondary-container": "#00374d",
+                        "error": "#ffb4ab",
+                        "on-primary-container": "#643f00",
+                        "secondary-fixed": "#c4e7ff",
+                        "on-tertiary-fixed-variant": "#004c69",
+                        "primary-container": "#f5a524",
+                        "surface-container-lowest": "#070e1a",
+                        "on-tertiary": "#003549",
+                        "on-surface-variant": "#d7c3ae",
+                        "on-secondary-fixed": "#001e2c",
+                        "on-secondary": "#00354a",
+                        "surface-variant": "#2e3542",
+                        "on-secondary-fixed-variant": "#004c69",
+                        "on-error-container": "#ffdad6",
+                        "on-surface": "#dce2f3",
+                        "secondary": "#7bd0ff",
+                        "border-color": "#2c3342", // Layer 1 border from spec
+                        "border-color-dim": "#1e2632" // From prompt
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "card": "12px",
+                        "btn": "8px"
+                    },
+                    "spacing": {
+                        "stack-tight": "8px",
+                        "stack-loose": "32px",
+                        "container-padding": "24px",
+                        "unit": "4px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "code-sm": ["JetBrains Mono"],
+                        "title-sm": ["Inter"],
+                        "numeric-data": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-base": ["Inter"]
+                    },
+                    "fontSize": {
+                        "code-sm": ["13px", { "lineHeight": "1.6", "fontWeight": "450" }],
+                        "title-sm": ["18px", { "lineHeight": "1.4", "fontWeight": "600" }],
+                        "numeric-data": ["14px", { "lineHeight": "1", "fontWeight": "500" }],
+                        "label-caps": ["11px", { "lineHeight": "1", "letterSpacing": "0.08em", "fontWeight": "600" }],
+                        "display-lg": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-base": ["14px", { "lineHeight": "1.6", "fontWeight": "400" }]
+                    },
+                    "boxShadow": {
+                        "modal": "0px 8px 24px rgba(0,0,0,0.5)"
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #0b0d12; color: #dce2f3; }
+        .layer-1 { background-color: #161a23; border: 1px solid #2c3342; }
+        .layer-2 { background-color: #232936; border: 1px solid #2c3342; box-shadow: 0px 8px 24px rgba(0,0,0,0.5); }
+        .code-bg { background-color: #0b0d12; }
+        .primary-btn { background-color: #f5a524; color: #462b00; border-radius: 8px; transition: background-color 0.15s; }
+        .primary-btn:hover { background-color: #ffbb4d; }
+        .secondary-btn { background-color: transparent; border: 1px solid #2c3342; color: #ffc77f; border-radius: 8px; }
+        .secondary-btn:hover { border-color: rgba(245, 165, 36, 0.5); }
+        
+        /* Scrollbar styling for panels */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #2c3342; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #524434; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+<!-- Sidebar (Collapsed) -->
+<nav aria-label="Main Navigation" class="w-16 flex-shrink-0 bg-surface border-r border-border-color-dim flex flex-col items-center py-4 gap-4 z-10">
+<div class="mb-4 text-primary">
+<span class="material-symbols-outlined text-2xl font-bold" data-icon="terminal">terminal</span>
+</div>
+<a class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-highest/20 transition-colors" href="#" title="Home">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+</a>
+<a class="w-10 h-10 flex items-center justify-center rounded-lg text-primary font-bold bg-surface-container-highest/30 transition-colors" href="#" title="Courses">
+<span class="material-symbols-outlined" data-icon="school" data-weight="fill">school</span>
+</a>
+<a class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-highest/20 transition-colors" href="#" title="Artifacts">
+<span class="material-symbols-outlined" data-icon="history_edu">history_edu</span>
+</a>
+<a class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-highest/20 transition-colors" href="#" title="Packs">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+</a>
+<div class="mt-auto flex flex-col gap-4">
+<a class="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-highest/20 transition-colors" href="#" title="Profile">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 flex overflow-hidden">
+<!-- Curriculum Panel (Left) -->
+<aside class="w-[320px] flex-shrink-0 bg-surface-container-low border-r border-border-color-dim flex flex-col h-full z-0">
+<!-- Header -->
+<div class="p-gutter border-b border-border-color-dim flex flex-col gap-3 shrink-0">
+<a class="text-label-caps font-label-caps text-on-surface-variant flex items-center gap-1 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[14px]" data-icon="arrow_back">arrow_back</span>
+                    ALL COURSES
+                </a>
+<h1 class="text-title-sm font-title-sm font-bold text-on-surface leading-tight">Kubernetes Operator Design Patterns</h1>
+<div class="flex flex-col gap-1 mt-2">
+<div class="flex justify-between items-center text-label-caps font-label-caps">
+<span class="text-primary">42% COMPLETED</span>
+<span class="text-on-surface-variant font-numeric-data">8 of 19 lessons</span>
+</div>
+<div class="w-full h-1 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary-container" style="width: 42%;"></div>
+</div>
+</div>
+</div>
+<!-- Modules List -->
+<div class="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
+<!-- Module 1: Open -->
+<div class="rounded-card border border-border-color-dim bg-[#111620] overflow-hidden mb-2">
+<button aria-expanded="true" class="w-full p-3 flex justify-between items-center hover:bg-surface-variant transition-colors text-left">
+<div class="flex flex-col gap-1">
+<span class="text-label-caps font-label-caps text-on-surface-variant">MODULE 1</span>
+<span class="text-body-sm font-body-sm font-medium">Foundations</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-numeric-data font-numeric-data text-on-surface-variant text-[12px]">3/5</span>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="expand_less">expand_less</span>
+</div>
+</button>
+<div class="flex flex-col pb-2">
+<!-- Lesson 1: Complete -->
+<a class="px-4 py-2 flex items-start gap-3 hover:bg-surface-variant/50 transition-colors group" href="#">
+<div class="mt-0.5 w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full bg-primary-container/20 text-primary-container">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle" data-weight="fill">check_circle</span>
+</div>
+<div class="flex flex-col">
+<span class="text-body-sm font-body-sm text-on-surface-variant group-hover:text-on-surface transition-colors">01: Reconcile Loop Fundamentals</span>
+<span class="text-numeric-data font-numeric-data text-on-surface-variant/70 text-[11px] mt-0.5">14:22</span>
+</div>
+</a>
+<!-- Lesson 2: Active -->
+<a class="px-4 py-2.5 flex items-start gap-3 bg-surface-container-high border-l-2 border-primary-container group" href="#">
+<div class="mt-0.5 w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full border border-primary-container text-primary-container">
+<span class="material-symbols-outlined text-[14px]" data-icon="play_arrow">play_arrow</span>
+</div>
+<div class="flex flex-col">
+<span class="text-body-sm font-body-sm text-primary font-medium">02: Managing State with CRDs</span>
+<span class="text-numeric-data font-numeric-data text-primary/70 text-[11px] mt-0.5">22:45</span>
+</div>
+</a>
+<!-- Lesson 3: Incomplete -->
+<a class="px-4 py-2 flex items-start gap-3 hover:bg-surface-variant/50 transition-colors group" href="#">
+<div class="mt-0.5 w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full border border-outline-variant text-outline-variant group-hover:border-on-surface-variant transition-colors">
+</div>
+<div class="flex flex-col">
+<span class="text-body-sm font-body-sm text-on-surface-variant group-hover:text-on-surface transition-colors">03: Finalizer Logic &amp; Cleanup</span>
+<span class="text-numeric-data font-numeric-data text-on-surface-variant/70 text-[11px] mt-0.5">18:10</span>
+</div>
+</a>
+</div>
+</div>
+<!-- Module 2: Closed -->
+<div class="rounded-card border border-transparent hover:border-border-color-dim hover:bg-[#111620] transition-colors overflow-hidden">
+<button aria-expanded="false" class="w-full p-3 flex justify-between items-center text-left">
+<div class="flex flex-col gap-1">
+<span class="text-label-caps font-label-caps text-on-surface-variant">MODULE 2</span>
+<span class="text-body-sm font-body-sm font-medium text-on-surface-variant">Core Controllers</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-numeric-data font-numeric-data text-on-surface-variant text-[12px]">0/6</span>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="expand_more">expand_more</span>
+</div>
+</button>
+</div>
+<!-- Module 3: Locked -->
+<div class="rounded-card border border-transparent opacity-60 hover:opacity-100 transition-opacity overflow-hidden group relative">
+<button class="w-full p-3 flex justify-between items-center text-left cursor-not-allowed" disabled="">
+<div class="flex flex-col gap-1">
+<span class="text-label-caps font-label-caps text-on-surface-variant">MODULE 3</span>
+<span class="text-body-sm font-body-sm font-medium text-on-surface-variant flex items-center gap-2">
+                                Advanced Patterns
+                                <span class="material-symbols-outlined text-[16px] text-outline-variant" data-icon="lock">lock</span>
+</span>
+</div>
+<span class="material-symbols-outlined text-outline-variant" data-icon="expand_more">expand_more</span>
+</button>
+<!-- Tooltip (Simulated on hover via CSS sibling/child or simple relative positioning) -->
+<div class="absolute inset-0 bg-surface-container-highest/90 hidden group-hover:flex items-center justify-center rounded-card text-label-caps font-label-caps text-on-surface z-10 backdrop-blur-sm">
+                        Available to Founding cohort
+                    </div>
+</div>
+</div>
+</aside>
+<!-- Lesson Content (Center Fluid) -->
+<section class="flex-1 flex flex-col h-full bg-background overflow-y-auto">
+<!-- Video Player Area -->
+<div class="w-full bg-black aspect-video relative group border-b border-border-color-dim flex-shrink-0">
+<!-- Simulated Video Placeholder -->
+<div class="w-full h-full bg-cover bg-center opacity-60 mix-blend-luminosity" data-alt="A dark, high-contrast visual representation of code structural blocks, symbolizing a Kubernetes operator managing state, overlaid with a subtle tech-noir grid and glowing amber nodes." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBr9of1cDqCrILUKcUPGuCswckXmV6hXe4XV2jNnCoCjrppURNhvXEeh7rUosm3V55ImfZVcR5RYtPMlVieqP3wYorDhL5wOGvfey4jg1ytHmvsOOHt19RssYTo6-Vikyl9_nFqWot85g3Y9O88mN9lc9YfQ8up_Bq84Mqs9UhwP_khxzEEDXLqUK63CXvGAMxLIICeTrRykKRR9J8W-T-IvXcRo_2rZQWEdV0noL19dbej35O1YBJxeQ')"></div>
+<!-- Custom ControlsOverlay -->
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+<!-- Scrubber -->
+<div class="w-full h-1 bg-surface-variant rounded-full mb-4 cursor-pointer relative group/scrub">
+<div class="h-full bg-primary-container rounded-full absolute left-0 top-0" style="width: 45%;"></div>
+<div class="w-3 h-3 bg-primary-container rounded-full absolute top-1/2 -translate-y-1/2 shadow-[0_0_8px_rgba(245,165,36,0.5)] opacity-0 group-hover/scrub:opacity-100 transition-opacity" style="left: 45%;"></div>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-4 text-white">
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="pause" data-weight="fill">pause</span></button>
+<div class="flex items-center gap-2">
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="volume_up">volume_up</span></button>
+<span class="text-numeric-data font-numeric-data text-[12px]">10:12 / 22:45</span>
+</div>
+</div>
+<div class="flex items-center gap-4 text-white">
+<button class="text-label-caps font-label-caps hover:text-primary transition-colors border border-white/20 rounded px-2 py-1">1.25x</button>
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="closed_caption">closed_caption</span></button>
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="settings">settings</span></button>
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="fullscreen">fullscreen</span></button>
+</div>
+</div>
+</div>
+<!-- Large Play Button (Hidden when playing, just for visual completeness) -->
+<div class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
+<div class="w-16 h-16 bg-primary-container/90 rounded-full flex items-center justify-center text-on-primary-container backdrop-blur shadow-lg">
+<span class="material-symbols-outlined text-[32px]" data-icon="play_arrow" data-weight="fill">play_arrow</span>
+</div>
+</div>
+</div>
+<!-- Content Container -->
+<div class="flex-1 p-container-padding flex flex-col gap-6 max-w-4xl mx-auto w-full">
+<!-- Lesson Header -->
+<div class="flex justify-between items-start gap-4">
+<div class="flex flex-col gap-2">
+<h2 class="text-headline-md font-headline-md font-bold text-on-surface">Managing State with CRDs</h2>
+<p class="text-body-sm font-body-sm text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="schedule">schedule</span> 22 mins
+                            <span class="text-border-color-dim">|</span>
+<span class="material-symbols-outlined text-[16px]" data-icon="visibility">visibility</span> 1.2k views
+                        </p>
+</div>
+<button class="primary-btn px-4 py-2 text-body-sm font-body-sm font-medium flex items-center gap-2 whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]" data-icon="check">check</span>
+                        Mark complete
+                    </button>
+</div>
+<!-- Tabs -->
+<div class="border-b border-border-color-dim flex gap-6">
+<button class="pb-3 text-body-sm font-body-sm text-on-surface-variant hover:text-on-surface transition-colors">Transcript</button>
+<button class="pb-3 text-body-sm font-body-sm text-primary border-b-2 border-primary font-medium">Notes</button>
+<button class="pb-3 text-body-sm font-body-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+                        Resources
+                        <span class="bg-surface-variant text-on-surface-variant text-[10px] px-1.5 py-0.5 rounded-full">2</span>
+</button>
+</div>
+<!-- Notes Content (Active) -->
+<article class="prose prose-invert prose-sm max-w-none prose-headings:font-title-sm prose-p:font-body-base prose-p:text-on-surface-variant prose-a:text-primary prose-code:font-code-sm prose-code:text-primary-fixed">
+<h3 class="text-title-sm font-bold text-on-surface mt-4 mb-3">State Management Strategies</h3>
+<p class="mb-4">
+                        In a Kubernetes operator, the custom resource (CR) is the single source of truth. However, ensuring idempotency in your reconcile loop requires careful handling of the observed state versus the desired state defined in the CR spec.
+                    </p>
+<ul class="list-disc pl-5 mb-6 space-y-2 text-on-surface-variant font-body-base">
+<li><strong>Observed State:</strong> Read dynamically from the cluster (e.g., existing Pods, Services).</li>
+<li><strong>Desired State:</strong> Derived entirely from the <code>Spec</code> field of your CRD.</li>
+<li><strong>Status Subresource:</strong> Used strictly to report the diff between observed and desired state.</li>
+</ul>
+<!-- Code Block Component -->
+<div class="relative layer-1 rounded-card overflow-hidden mt-6 mb-8 group">
+<div class="flex justify-between items-center px-4 py-2 border-b border-border-color-dim bg-surface-container-low">
+<span class="text-label-caps font-label-caps text-on-surface-variant">GO</span>
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 text-[11px] font-label-caps bg-surface-variant px-2 py-1 rounded">
+<span class="material-symbols-outlined text-[14px]" data-icon="content_copy">content_copy</span> Copy
+                            </button>
+</div>
+<pre class="p-4 overflow-x-auto text-code-sm font-code-sm text-on-surface-variant leading-relaxed"><code><span class="text-primary-fixed">func</span> (r *MyAppReconciler) <span class="text-secondary-fixed">Reconcile</span>(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    log := log.FromContext(ctx)
+
+    <span class="text-outline-variant">// Fetch the MyApp instance</span>
+    <span class="text-primary-fixed">var</span> myApp v1alpha1.MyApp
+    <span class="text-primary-fixed">if</span> err := r.Get(ctx, req.NamespacedName, &amp;myApp); err != nil {
+        <span class="text-primary-fixed">return</span> ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+
+    <span class="text-outline-variant">// Example: Update Status</span>
+    myApp.Status.Phase = <span class="text-[#c4e7ff]">"Reconciling"</span>
+    <span class="text-primary-fixed">if</span> err := r.Status().Update(ctx, &amp;myApp); err != nil {
+        log.Error(err, <span class="text-[#c4e7ff]">"Failed to update MyApp status"</span>)
+        <span class="text-primary-fixed">return</span> ctrl.Result{}, err
+    }
+
+    <span class="text-primary-fixed">return</span> ctrl.Result{}, nil
+}</code></pre>
+</div>
+</article>
+<!-- Bottom Navigation -->
+<div class="mt-8 pt-6 border-t border-border-color-dim grid grid-cols-2 gap-4 pb-8">
+<a class="layer-1 rounded-card p-4 flex flex-col gap-1 hover:border-primary-container/30 transition-colors group" href="#">
+<span class="text-label-caps font-label-caps text-on-surface-variant flex items-center gap-1 group-hover:-translate-x-1 transition-transform">
+<span class="material-symbols-outlined text-[14px]" data-icon="arrow_back">arrow_back</span> PREVIOUS
+                        </span>
+<span class="text-body-sm font-body-sm text-on-surface font-medium truncate">Reconcile Loop Fundamentals</span>
+</a>
+<a class="layer-1 rounded-card p-4 flex flex-col gap-1 items-end hover:border-primary-container/30 transition-colors group text-right" href="#">
+<span class="text-label-caps font-label-caps text-on-surface-variant flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                            NEXT <span class="material-symbols-outlined text-[14px]" data-icon="arrow_forward">arrow_forward</span>
+</span>
+<span class="text-body-sm font-body-sm text-on-surface font-medium truncate">Finalizer Logic &amp; Cleanup</span>
+</a>
+</div>
+</div>
+</section>
+<!-- Right Rail (Discussions & Packs) -->
+<aside class="w-[260px] flex-shrink-0 bg-surface border-l border-border-color-dim flex flex-col h-full hidden lg:flex">
+<!-- Discussions Section -->
+<div class="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+<div class="flex justify-between items-center">
+<h3 class="text-title-sm font-title-sm font-bold text-on-surface">Discuss this lesson</h3>
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]" data-icon="forum">forum</span>
+</div>
+<!-- Threads List -->
+<div class="flex flex-col gap-3">
+<!-- Thread 1 -->
+<div class="layer-1 rounded-lg p-3 hover:bg-surface-variant/30 transition-colors cursor-pointer border border-transparent hover:border-border-color-dim">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-5 h-5 rounded-full bg-secondary-container/20 flex items-center justify-center text-[10px] text-secondary font-bold">JD</div>
+<span class="text-label-caps font-label-caps text-on-surface-variant">Jane Doe</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface line-clamp-2 text-[12px] leading-relaxed">How do you handle race conditions when updating the status subresource across multiple workers?</p>
+<div class="mt-2 flex items-center gap-3 text-label-caps font-label-caps text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]" data-icon="thumb_up">thumb_up</span> 4</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]" data-icon="chat_bubble">chat_bubble</span> 2</span>
+</div>
+</div>
+<!-- Thread 2 -->
+<div class="layer-1 rounded-lg p-3 hover:bg-surface-variant/30 transition-colors cursor-pointer border border-transparent hover:border-border-color-dim">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-5 h-5 rounded-full bg-tertiary-container/20 flex items-center justify-center text-[10px] text-tertiary font-bold">MK</div>
+<span class="text-label-caps font-label-caps text-on-surface-variant">Mike K.</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface line-clamp-2 text-[12px] leading-relaxed">I'm getting a conflict error when updating. Should I use RetryOnConflict here?</p>
+<div class="mt-2 flex items-center gap-3 text-label-caps font-label-caps text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]" data-icon="thumb_up">thumb_up</span> 1</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]" data-icon="chat_bubble">chat_bubble</span> 0</span>
+</div>
+</div>
+<!-- Thread 3 -->
+<div class="layer-1 rounded-lg p-3 hover:bg-surface-variant/30 transition-colors cursor-pointer border border-transparent hover:border-border-color-dim">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-5 h-5 rounded-full bg-primary-container/20 flex items-center justify-center text-[10px] text-primary font-bold">AL</div>
+<span class="text-label-caps font-label-caps text-on-surface-variant">Alex L.</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface line-clamp-2 text-[12px] leading-relaxed">Great explanation on desired vs observed state mapping.</p>
+<div class="mt-2 flex items-center gap-3 text-label-caps font-label-caps text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]" data-icon="thumb_up">thumb_up</span> 8</span>
+</div>
+</div>
+</div>
+<button class="secondary-btn w-full py-2 mt-2 text-body-sm font-body-sm font-medium flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="add_comment">add_comment</span>
+                    Ask a question
+                </button>
+</div>
+<!-- Pack Section (Bottom fixed) -->
+<div class="p-4 border-t border-border-color-dim bg-surface-container-low shrink-0">
+<span class="text-label-caps font-label-caps text-on-surface-variant mb-2 block">PACK FOR THIS COURSE</span>
+<a class="layer-1 rounded-card p-3 flex items-center gap-3 hover:border-primary-container/50 transition-colors group" href="#">
+<div class="w-10 h-10 rounded bg-surface-variant flex items-center justify-center text-on-surface">
+<svg aria-hidden="true" class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24"><path clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" fill-rule="evenodd"></path></svg>
+</div>
+<div class="flex flex-col overflow-hidden">
+<span class="text-body-sm font-body-sm font-medium text-on-surface truncate group-hover:text-primary transition-colors">k8s-operator-toolkit</span>
+<span class="text-label-caps font-label-caps text-on-surface-variant mt-1">GITHUB REPO</span>
+</div>
+</a>
+</div>
+</aside>
+</main>
+</body></html>

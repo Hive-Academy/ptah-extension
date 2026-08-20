@@ -10,7 +10,7 @@ datasource db {
 }
 generator client {
   provider = "prisma-client"
-  output   = "../src/generated-prisma-client"
+  output   = "../../../libs/api/core/src/lib/generated-prisma-client"
 }
 
 // User model - stores user information for license ownership
@@ -19,6 +19,9 @@ model User {
   id               String         @id @default(uuid()) @db.Uuid
   workosId         String?        @unique @map("workos_id") // WorkOS user ID for sync
   paddleCustomerId String?        @unique @map("paddle_customer_id") // Paddle customer ID for billing
+  // Circle community member ID for paid Builders members (headless Admin API v2).
+  // Populated when a Builders subscription is provisioned; cleared/ignored on cancel.
+  circleMemberId   String?        @map("circle_member_id")
   email            String         @unique
   firstName        String?        @map("first_name")
   lastName         String?        @map("last_name")
@@ -30,13 +33,163 @@ model User {
   updatedAt        DateTime       @updatedAt @map("updated_at")
   licenses         License[]
   subscriptions    Subscription[]
-  trialReminders   TrialReminder[]
   sessionRequests  SessionRequest[]
+  memberGroupAssignments MemberGroupAssignment[]
+  // TASK_2026_177 Phase 2 — the native community forum (see the models at the
+  // end of this file). All four are BACK-RELATIONS ONLY: the FK and its
+  // `onDelete` live on the owning model, deliberately split two ways.
+  //   topics / posts   -> `SetNull`. Deleting a user must NOT delete the
+  //                       conversation; the thread stays readable with a null
+  //                       author (A-4), which is also how migrated content is
+  //                       represented.
+  //   reactions / read -> `Cascade`. A reaction and a read marker are personal
+  //                       state with no meaning once the user is gone.
+  topics           Topic[]          @relation("TopicAuthor")
+  posts            Post[]           @relation("PostAuthor")
+  postReactions    PostReaction[]
+  topicReadStates  TopicReadState[]
+  // TASK_2026_177 Phase 3 — courses (see the models at the end of this file).
+  // TWO back-relations, not four: §1.4's five course models name `User` in
+  // exactly two relation fields, `LessonProgress.user` and
+  // `LessonComment.author`. `Course.createdBy` and `LessonComment.answeredBy`
+  // are PLAIN STRING COLUMNS, not relations — they record who acted for audit
+  // display and deliberately carry no FK, so deleting an admin cannot cascade
+  // into course content or fail on a Restrict.
+  //   lessonProgress -> `Cascade`. Personal progress state has no meaning once
+  //                     the user is gone.
+  //   lessonComments -> `SetNull`. Same rule as topics/posts (A-4): deleting a
+  //                     user must not delete the conversation.
+  lessonProgress   LessonProgress[]
+  lessonComments   LessonComment[]  @relation("LessonCommentAuthor")
+  // TASK_2026_177 Phase 5 — notifications (see the model at the end of this
+  // file). §1.7's eighth and ninth back-relations, held back by Batch 6A's D-7
+  // until the model existed; migration 5 creates it, so they land here.
+  // TWO back-relations for ONE model, because `Notification` names `User`
+  // twice and the two FKs are split the same way Phase 2's were:
+  //   notifications      -> `Cascade`. A notification is personal state with no
+  //                         meaning once the recipient is gone.
+  //   actedNotifications -> `SetNull`. The row SURVIVES the actor's deletion
+  //                         and then reads as system-generated, which is the
+  //                         same shape a genuinely system-authored row has
+  //                         (A-4's rule applied to the actor side).
+  notifications      Notification[]   @relation("NotificationRecipient")
+  actedNotifications Notification[]   @relation("NotificationActor")
 
   @@index([workosId])
   @@index([paddleCustomerId])
   @@map("users")
 }
+
+// Member cohort/group (e.g. "Founding Members"). Exactly one group is the
+// current default (`isDefault`); new paid Builders members are auto-assigned to
+// it. Groups are durable cohort identity — assignments survive churn
+// (deprovisioning never removes them).
+//
+// A group used to also carry a column naming a group on the external forum that
+// a provisioning fan-out kept in sync. TASK_2026_177 P1b deleted that
+// integration, and the `20260805090000_` migration dropped the column. Cohort
+// membership is now resolved and rendered in-product: `CohortResolver` turns a
+// user's assignments into `cohortKeys`, and the native community surface gates
+// category visibility on them (AD-10).
+//
+// `sessionEventId` makes the weekly live session COHORT-AWARE: two cohorts (e.g.
+// English and Arabic) can run concurrently against two different Google Meet
+// events. It names that cohort's MASTER recurring Google Calendar event — the
+// same kind of id as the `BUILDERS_SESSION_EVENT_ID` env var, which remains the
+// fallback for every cohort that leaves this null. A single-cohort deployment
+// therefore keeps working with the env var alone and no rows populated here.
+model MemberGroup {
+  id             String   @id @default(cuid())
+  key            String   @unique // stable slug, e.g. 'founding'
+  name           String
+  description    String?
+  sessionEventId String?  @map("session_event_id") // cohort's Google Calendar master event (null = fall back to BUILDERS_SESSION_EVENT_ID)
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  assignments MemberGroupAssignment[]
+  // Bookkeeping back-relation only — a Pack row labelled with this cohort.
+  // Grants nothing: see the Pack model docblock below.
+  packs       Pack[]
+
+  @@index([isDefault])
+  @@map("member_groups")
+}
+
+// Join row linking a User to a MemberGroup. `source` records how the assignment
+// was made ('auto_provisioning' from the Builders fan-out, 'admin' from the
+// admin panel, 'migration' from a data backfill). One row per (user, group).
+model MemberGroupAssignment {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id") @db.Uuid
+  groupId    String   @map("group_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  source     String // 'auto_provisioning' | 'admin' | 'migration'
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group MemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+  @@map("member_group_assignments")
+}
+
+// TASK_2026_169: A "pack" is a Ptah-authored source-code deliverable — a GitHub
+// repository containing a production-shaped codebase plus its Claude plugins and
+// MCP servers — shared with a Builders cohort.
+//
+// DELIVERY HAPPENS ENTIRELY ON GITHUB. The admin invites the cohort's members as
+// collaborators, or hands the repo link to the cohort, by hand. There is
+// deliberately NO GitHub App integration, no collaborator-invite automation, and
+// no storage of members' GitHub handles. `notes` records whichever manual step
+// was taken, for the admin's own reference.
+//
+// ONE PACK = ONE REPO. `repoUrl` is the pack's own dedicated GitHub repository;
+// packs never share a repo. Adding a second deliverable means adding a second
+// Pack row, not a second URL on this one.
+//
+// THIS TABLE GATES NOTHING, AND THAT SURVIVES THE CHANNEL CHANGE.
+// Ptah never serves pack content and never decides who may access a pack.
+// Access is administered ENTIRELY on GitHub. This table exists so the admin has
+// one place recording which repo belongs to which cohort.
+//
+// It is admin-only TODAY. The link used to reach members through the cohort's
+// group on the external forum that TASK_2026_177 P1b deleted; Phase 5 replaces
+// that channel with an in-product `GET /members/packs` filtered on
+// `member_visible` alone (A-1, R5.6). Delivering a link is not granting access,
+// so a member-facing READ does not make this table a gate.
+//
+// `cohortKey` is therefore a BOOKKEEPING LABEL, NOT AN ACCESS CONTROL:
+//   null     -> the repo is not tied to a particular cohort.
+//   non-null -> the repo was shared with that MemberGroup cohort (on GitHub).
+// Changing this field grants and revokes nothing.
+model Pack {
+  id          String   @id @default(cuid())
+  slug        String   @unique // stable lowercase slug, e.g. 'saas-starter'
+  title       String
+  description String
+  repoUrl     String   @map("repo_url") // https://github.com/<owner>/<repo> — one repo per pack
+  notes       String? // freeform ADMIN note (e.g. "invites sent 2026-08-01")
+  /// A-1: the single admin control over member visibility. cohortKey is NOT it
+  /// and never becomes it. Default false so no existing pack becomes visible
+  /// by migration.
+  memberVisible Boolean @default(false) @map("member_visible")
+  /// R5.5: how repo access is granted, shown to members before they hit a
+  /// GitHub 404. Distinct from `notes`, which stays admin-internal (R5.2).
+  accessNote    String? @map("access_note")
+  tags        String[] @default([])
+  cohortKey   String?  @map("cohort_key") // bookkeeping label only — gates nothing
+  createdBy   String?  @map("created_by") // admin email at creation time
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  cohort MemberGroup? @relation(fields: [cohortKey], references: [key], onDelete: SetNull)
+
+  @@index([cohortKey])
+  @@map("packs")
+}
+
+// Index on memberVisible REJECTED: tens of rows, always read in full.
 
 // Subscription model - tracks Paddle subscription state for payment lifecycle
 // TASK_2025_121: Added trialEnd field for trial period tracking
@@ -66,9 +219,11 @@ model License {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   licenseKey String    @unique @map("license_key")
-  plan       String // "community" | "pro"
+  plan       String // "community" | "builders"
   status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
-  // TASK_2025_292: License origin. "paddle" = paid subscription, "complimentary" = admin-issued gift, "manual" = admin-issued refund-in-kind.
+  // TASK_2025_292: License origin. "paddle" = paid subscription, "complimentary" = admin-issued gift, "manual" = admin-issued refund-in-kind,
+  // "signup" = auto-issued free community tier at registration (NOT revenue).
+  // ⚠️ The default below is "paddle", so any non-purchase creation path MUST set `source` explicitly or it will be counted as a sale.
   // NOTE: When MRR dashboards are built, they MUST filter `source = 'paddle'` (or join via `subscriptions` which is the correct source of truth).
   source     String    @default("paddle")
   expiresAt  DateTime? @map("expires_at")
@@ -104,22 +259,6 @@ model FailedWebhook {
   @@map("failed_webhooks")
 }
 
-// TrialReminder model - tracks trial reminder emails sent to users
-// TASK_2025_142: Trial reminder scheduler - tracks which reminders have been sent
-model TrialReminder {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reminderType String   @map("reminder_type") // "7_day" | "3_day" | "1_day" | "expired"
-  sentAt       DateTime @default(now()) @map("sent_at")
-  emailSentTo  String   @map("email_sent_to")
-
-  @@unique([userId, reminderType])
-  @@index([userId])
-  @@index([reminderType])
-  @@map("trial_reminders")
-}
-
 // SessionRequest model - stores training session registration requests
 // Users can request free (community) or paid ($100) 2-hour training sessions
 model SessionRequest {
@@ -133,12 +272,124 @@ model SessionRequest {
   paymentStatus       String    @default("none") @map("payment_status") // none | pending | completed
   paddleTransactionId String?   @map("paddle_transaction_id")
   scheduledAt         DateTime? @map("scheduled_at")
+
+  // ── TASK_2026_177 migration 4 — OQ-1 / AD-2 ────────────────────────────────
+  // Option (a): four nullable columns on this row, NOT a separate
+  // `ScheduledSession` child table. A 1:1-optional child adds a join to every
+  // read of a table that will hold a few hundred rows and expresses no
+  // invariant the unique column below does not — and R4.10 requires the
+  // payment fields above to stay here regardless, so splitting the scheduling
+  // half off would spread one row's lifecycle across two tables for no gain.
+  //
+  // ⚠️ EVERY FIELD ABOVE THIS BLOCK IS UNCHANGED (R4.10). `isFreeSession`,
+  // `paymentStatus` and `paddleTransactionId` keep their exact prior meanings;
+  // nothing in the Phase-4 scheduling path writes any of them.
+
+  /// R4.6 + AD-2. The Google Calendar event created when an admin ACCEPTS this
+  /// request.
+  ///
+  /// 🔴 `@unique` IS THE LOAD-BEARING PART OF AD-2, not a tidiness constraint.
+  /// It makes "two requests reconciled to one event" — the state R4.6 calls a
+  /// defect — UNREPRESENTABLE rather than merely unlikely. Reschedule and
+  /// decline locate the event BY THIS COLUMN, never by a fuzzy
+  /// (title, startsAt) match.
+  ///
+  /// Postgres treats multiple NULLs as distinct, so every `pending` request is
+  /// unconstrained and the index costs nothing until an accept happens.
+  calendarEventId     String?   @unique @map("calendar_event_id")
+  /// R4.1 + PRE-5. Resolved from the created event's `hangoutLink` /
+  /// `conferenceData` — NEVER from a Meet API, none of which is called and
+  /// none of which is built. An accept that creates an event but cannot
+  /// resolve this link fails `502 { reason: 'meet_link_unresolved' }` and
+  /// DELETES the orphan event, so a `scheduled` row with a null `meet_link` is
+  /// unreachable through the API.
+  meetLink            String?   @map("meet_link")
+  /// Admin-supplied at accept time. Persisted because `endsAt` must be
+  /// reconstructible on reschedule without re-reading Google.
+  durationMinutes     Int?      @map("duration_minutes")
+  /// R4.8. Admin-supplied reason on decline. MEMBER-VISIBLE by design — it is
+  /// on `MemberSessionRequest`, unlike every other column added here.
+  declineReason       String?   @map("decline_reason")
+
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
-  @@index([status])
+  // TASK_2026_177 migration 4: was `@@index([status])`. R4.4's admin queue is
+  // `where status = 'pending' order by created_at asc` — the single-column
+  // index serves the filter and leaves the sort to a heap sort over every
+  // pending row. The composite serves both in one seek.
+  @@index([status, createdAt])
   @@map("session_requests")
+}
+
+/// R3 + OQ-3/AD-3 (TASK_2026_177, Phase 4). A scheduled or past Ptah live
+/// session.
+///
+/// ⚠️ BOTH LINKAGES ARE OPTIONAL AND THAT IS THE WHOLE DESIGN. A Ptah-scheduled
+/// stream has a `youtubeVideoId` and no `calendarEventId`; an existing Google
+/// Calendar cohort session that later gains a replay has a `calendarEventId`
+/// and a `replayYoutubeVideoId`. Rejected (option b): two entities merged only
+/// at read time with no linkage column — replays would have nowhere to attach
+/// for calendar-sourced sessions, and de-duplication would have to key on a
+/// fuzzy (title, startsAt) match.
+///
+/// ⚠️ NO `published` COLUMN, DELIBERATELY (ASSUMPTION-13). Unlike `Course`
+/// there is no draft posture: a session is visible the moment it exists, to
+/// whom `visibility` says. Adding one later is one column and one clause in
+/// `buildLiveSessionVisibilityWhere`.
+model LiveSession {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  startsAt    DateTime  @map("starts_at")
+  endsAt      DateTime? @map("ends_at")
+  /// 'member' | 'cohort' | 'staff' — the same three-branch rule as a forum
+  /// category and a course (ASSUMPTION-12).
+  visibility  String    @default("member")
+  /// AD-10: a `String[]`, not a join table. ANY-match via `hasSome`.
+  cohortKeys  String[]  @default([]) @map("cohort_keys")
+
+  /// R3.1: the scheduled unlisted stream.
+  youtubeVideoId         String?   @map("youtube_video_id")
+  /// R3.4: the recording. Often the same id as the stream; kept SEPARATE so a
+  /// re-uploaded recording does not overwrite the stream reference.
+  replayYoutubeVideoId   String?   @map("replay_youtube_video_id")
+  /// R3.2 + §4.5: fetched ONCE at authoring time through the SAME
+  /// `@ptah-api/youtube` provider the lessons path uses, and persisted.
+  /// Persistence IS the cache — a member read makes no YouTube request.
+  videoTitle             String?   @map("video_title")
+  videoDurationSeconds   Int?      @map("video_duration_seconds")
+  videoThumbnailUrl      String?   @map("video_thumbnail_url")
+  videoMetadataFetchedAt DateTime? @map("video_metadata_fetched_at")
+  /// 'api' | 'manual' — 'manual' is the feature-off path when YOUTUBE_API_KEY
+  /// is unset and an admin typed the metadata.
+  videoMetadataSource    String?   @map("video_metadata_source")
+
+  /// AD-3: claims an existing Google Calendar event, so a replay can attach to
+  /// it and the Live feed de-duplicates DETERMINISTICALLY rather than on a
+  /// fuzzy (title, startsAt) match.
+  ///
+  /// ⚠️ THE MERGE MATCHES THIS AGAINST BOTH `event.id` AND
+  /// `event.recurringEventId` (RISK-V). `listEvents` expands recurrences, so
+  /// members see INSTANCES whose ids differ from the master id stored here;
+  /// comparing only `id` would de-duplicate none of them and show every
+  /// occurrence twice.
+  calendarEventId String? @unique @map("calendar_event_id")
+
+  createdBy String?   @map("created_by")
+  deletedAt DateTime? @map("deleted_at")
+  /// ASSUMPTION-14 — the same column migration 4 adds to `Course`,
+  /// `CourseModule` and `Lesson` for Batch 9B's F-1. Authoring this model
+  /// without one would reproduce, in the very migration that closes that gap,
+  /// exactly the gap it closes.
+  deletedBy String?   @map("deleted_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  /// Serves the upcoming / live / replay split AND the hub's "next session".
+  @@index([startsAt])
+  @@map("live_sessions")
 }
 
 // TASK_2025_292: Append-only audit log for admin actions (user deletion, complimentary license issuance, marketing campaigns, bounce/complaint webhooks, unsubscribe/resubscribe).
@@ -186,7 +437,7 @@ model MarketingCampaign {
   name              String
   subject           String
   templateId        String?   @map("template_id") @db.Uuid
-  segment           String // 'all' | 'proActive' | 'communityActive' | 'trialing' | 'subscriptionPastDue' | 'custom'
+  segment           String // 'all' | 'buildersActive' | 'communityActive' | 'subscriptionPastDue' | 'custom'
   recipientCount    Int       @default(0) @map("recipient_count")
   sentCount         Int       @default(0) @map("sent_count")
   bouncedCount      Int       @default(0) @map("bounced_count")
@@ -203,4 +454,453 @@ model MarketingCampaign {
   @@index([createdBy])
   @@index([createdAt])
   @@map("marketing_campaigns")
+}
+
+// Builders waitlist - captures leads for the new premium "Builders" tier.
+// Public, un-authenticated signups deduped by lowercased email.
+//
+// TASK_2026_201 R4 — THREE LIFECYCLE STAMPS, THREE DISJOINT WRITERS. They are not
+// interchangeable, and no code may write one to mean another:
+//
+//   notifiedAt  — HISTORICAL ONLY. Set by the retired paid-invite wave
+//                 (`POST /v1/admin/waitlist/invite`, deleted by TASK_2026_201).
+//                 NOTHING WRITES IT AFTER THAT TASK. Existing rows are kept
+//                 because "was mailed the withdrawn 70%-off invite" is a real
+//                 fact about a real person; it is never a precondition for
+//                 approval, and approval never touches it.
+//   approvedAt  — granted FREE founding access. Written by approve-to-cohort
+//                 (`POST /v1/admin/waitlist/approve`) and by complimentary
+//                 licence issuance. A gift is not a conversion.
+//   convertedAt — PAID. Written by exactly one thing, the Paddle provisioning
+//                 fan-out (`WAITLIST_CONVERSION_SINK`, paddle.module.ts). Keeping
+//                 free grants out of it is the whole point of `approvedAt`: the
+//                 conversion metric must stay uncontaminated once checkout opens.
+model Waitlist {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  source      String? // origin of the signup: 'landing' | 'pricing' | 'profile' | 'vscode' | ...
+  createdAt   DateTime  @default(now()) @map("created_at")
+  notifiedAt  DateTime? @map("notified_at")
+  approvedAt  DateTime? @map("approved_at")
+  convertedAt DateTime? @map("converted_at")
+
+  @@index([createdAt])
+  @@index([source])
+  @@map("waitlist")
+}
+
+// ===========================================================================
+// TASK_2026_177 Phase 2 — the native community forum.
+//
+// Replaces the Discourse integration deleted in Phase 1. Five models, one
+// migration (`20260812090000_community_forum`), served by `@ptah-api/forum`.
+//
+// ⚠️ TWO INDEXES IN THAT MIGRATION ARE INVISIBLE HERE. Prisma cannot express
+// `gin_trgm_ops`, so `community_topics_title_trgm` and
+// `community_posts_body_trgm` are hand-written SQL. A `prisma migrate diff`
+// will therefore NEVER mention them, and a future migration can silently drop
+// them. Read the generated SQL before every subsequent migration in this app.
+// ===========================================================================
+
+/// Community category. ~10 rows. Visibility is enforced server-side on every
+/// read; an invisible category yields 404, never 403 (R1.1.3).
+model Category {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  /// 'member' | 'cohort' | 'staff' (R1.1.1)
+  visibility  String   @default("member")
+  /// MemberGroup.key values, ANY-match. AD-10: array not join table.
+  /// Empty while visibility != 'cohort'.
+  cohortKeys  String[] @default([]) @map("cohort_keys")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  topics Topic[]
+
+  @@index([sortOrder])   // R1.1.4 admin-defined display order
+  @@map("community_categories")
+}
+
+// Index on visibility/cohortKeys REJECTED: ~10 rows, always read in full and
+// filtered in memory-equivalent time.
+
+/// A discussion thread. Carries NO body — post #1 is the body (AD-9).
+model Topic {
+  id             String    @id @default(cuid())
+  categoryId     String    @map("category_id")
+  /// Generated at creation, stable for life; a title edit never changes it (R1.2.2).
+  slug           String    @unique
+  title          String
+  /// null for migrated/system content (A-4). Never a fabricated User row.
+  authorId       String?   @map("author_id") @db.Uuid
+  pinned         Boolean   @default(false)
+  locked         Boolean   @default(false)
+  /// At most one accepted answer (R1.5.2), enforced by @unique.
+  acceptedPostId String?   @unique @map("accepted_post_id")
+  /// AD-11. Replies only (excludes post #1 and soft-deleted posts).
+  /// Maintained in the same transaction as every post write.
+  postCount      Int       @default(0) @map("post_count")
+  lastPostedAt   DateTime  @map("last_posted_at")
+  editedAt       DateTime? @map("edited_at")
+  deletedAt      DateTime? @map("deleted_at")
+  deletedBy      String?   @map("deleted_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  category     Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  author       User?    @relation("TopicAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  posts        Post[]
+  acceptedPost Post?    @relation("AcceptedAnswer", fields: [acceptedPostId], references: [id], onDelete: SetNull)
+  readStates   TopicReadState[]
+
+  @@index([categoryId, pinned, lastPostedAt])  // category listing: pinned first, then recency (R1.2.5)
+  @@index([pinned, lastPostedAt])              // cross-category feed, same ordering
+  @@index([authorId])                          // "My Threads" (R9.2)
+  @@map("community_topics")
+}
+
+// Index on deletedAt REJECTED: low thousands of rows, always filtered after a
+// categoryId/pinned seek. Index on slug is implied by @unique.
+//
+// `onDelete: Restrict` on `category` is deliberate: R8.2 permits MOVING a topic
+// between categories, so a category holding topics must not be deletable out
+// from under them. `onDelete: SetNull` on `author` keeps a thread readable
+// after a user is deleted — the `User` cascade above would otherwise take the
+// whole conversation with them.
+
+/// Every body in the forum: post #1 is the topic's opening body, post N>1 is a
+/// reply. parentId non-null = a child reply, indented exactly one level.
+/// Depth 3 is unrepresentable: a valid parentId points only at a post whose own
+/// parentId is null, enforced and repaired on write (R1.3.3, RK-12).
+model Post {
+  id           String    @id @default(cuid())
+  topicId      String    @map("topic_id")
+  parentId     String?   @map("parent_id")
+  postNumber   Int       @map("post_number")
+  bodyMarkdown String    @map("body_markdown")
+  authorId     String?   @map("author_id") @db.Uuid
+  editedAt     DateTime? @map("edited_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  topic      Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  parent     Post?          @relation("PostChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children   Post[]         @relation("PostChildren")
+  author     User?          @relation("PostAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  reactions  PostReaction[]
+  acceptedOn Topic?         @relation("AcceptedAnswer")
+
+  @@unique([topicId, postNumber])   // MG-1.7 ordering + blocks duplicate numbering
+                                    // under concurrent replies (allocated in-transaction)
+  @@index([topicId, createdAt])     // thread render — the hottest query in the product
+  @@index([authorId])               // R10.2 self-notification suppression + "My Threads"
+  @@map("community_posts")
+}
+
+// `onDelete: Restrict` on `parent` is a SAFETY NET, not a workflow: nothing
+// hard-deletes a post, and if something ever tried, Postgres would refuse
+// rather than orphan the children R1.3.5 requires stay readable.
+
+/// R1.4. Fixed server-defined type set; a second identical reaction toggles off
+/// by deleting the row (R1.4.1). No free-form emoji (R1.4.3).
+model PostReaction {
+  id        String   @id @default(cuid())
+  postId    String   @map("post_id")
+  userId    String   @map("user_id") @db.Uuid
+  /// 'like' | 'insightful' | 'celebrate' | 'thanks' — 4 types, server-defined.
+  type      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId, type])   // R1.4.1 one per member per target per type
+  @@index([userId])                  // cascade on user delete
+  @@map("community_post_reactions")
+}
+
+// A separate @@index([postId]) is REJECTED as redundant: the composite unique
+// above is a btree leading with postId, which already serves the per-post
+// groupBy that produces reaction counts.
+
+/// A-6: one marker per member per topic. No per-post read receipts.
+model TopicReadState {
+  userId             String   @map("user_id") @db.Uuid
+  topicId            String   @map("topic_id")
+  lastReadPostNumber Int      @default(0) @map("last_read_post_number")
+  lastReadAt         DateTime @updatedAt @map("last_read_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([userId, topicId])
+  @@map("community_topic_read_state")
+}
+
+// No surrogate id and no extra index. The composite PK leads with userId, which
+// is exactly the feed query ("every read state for this member, for these topic
+// ids"). Unread = Topic.postCount - lastReadPostNumber, clamped at 0 (R1.6.2).
+
+// ===========================================================================
+// TASK_2026_177 Phase 3 — COURSES (plan §1.4)
+//
+// Five models: Course, CourseModule, Lesson, LessonProgress, LessonComment.
+// Migration 3 (`<ts>_courses`) creates all five.
+//
+// 🔴 THE LESSON-TITLE TRIGRAM INDEX EXISTS ONLY IN SQL AND IS INVISIBLE HERE.
+// `CREATE INDEX "course_lessons_title_trgm" ON "course_lessons" USING gin
+// (title gin_trgm_ops);` is hand-written into migration 3 below the generated
+// DDL, because Prisma cannot express `gin_trgm_ops` in a model. Consequences a
+// schema reader must know:
+//   - `prisma migrate diff` will NEVER mention it. It is not drift; it is
+//     outside the model.
+//   - A later migration can therefore SILENTLY DROP IT, and nothing in this
+//     file will say so. THE GENERATED SQL OF EVERY SUBSEQUENT MIGRATION IN
+//     THIS APP MUST BE READ before it is applied.
+//   - Losing it is a SILENT PERFORMANCE failure, not an error: lesson search
+//     still returns correct results, by sequential scan.
+// The same warning already applies to `community_topics_title_trgm` and
+// `community_posts_body_trgm` from migration 2.
+//
+// 🔴 RISK-O — THREE MUTUALLY CONFUSABLE UNITS LIVE IN THIS BLOCK. Read this
+// before touching any number below.
+//   1. A POSITION in seconds — `LessonProgress.furthestPositionSeconds`.
+//      Where the member got to. Monotonic; the server only ever advances it.
+//   2. A DURATION in seconds — `Lesson.videoDurationSeconds`. How long the
+//      video is. The ONLY duration R2.3.2's 90% rule may read (ASSUMPTION-8).
+//   3. A PERCENTAGE — which HAS NO COLUMN ANYWHERE IN THIS SCHEMA, on purpose.
+//      R2.3.5's course percentage is derived from LESSON COUNTS
+//      (completedLessons / totalLessons), never from seconds. If you find
+//      yourself adding a percent column here, or computing a course percentage
+//      from a sum of seconds, that is the bug.
+// (1) and (2) are both `Int` and both end in `Seconds`, so they are
+// interchangeable at every call site WITHOUT A TYPE ERROR — swapping the
+// operands of `furthest >= 0.9 * duration` yields a plausible boolean, not a
+// compile failure. That is why the comparison belongs in exactly one named
+// file (`libs/api/learning/src/lib/progress/completion.ts`, Task 9.13) and
+// never as a bare `* 0.9` at a call site. This is the same class of defect as
+// `Topic.postCount` vs `lastReadPostNumber`, which was "consistent with each
+// other and all wrong" across four sites and which no single-site test saw.
+// ===========================================================================
+
+model Course {
+  id            String    @id @default(cuid())
+  slug          String    @unique
+  title         String
+  description   String
+  coverImageUrl String?   @map("cover_image_url")
+  visibility    String    @default("member")   // 'member' | 'cohort' | 'staff'
+  cohortKeys    String[]  @default([]) @map("cohort_keys")
+  /// R2.1.2: a draft course is invisible to every member endpoint (404).
+  published     Boolean   @default(false)
+  /// R2.4.2: when true, a module unlocks only after every lesson in the
+  /// preceding module is complete. When false only releaseAt applies (R2.4.3).
+  sequential    Boolean   @default(false)
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdBy     String?   @map("created_by")
+  deletedAt     DateTime? @map("deleted_at")
+  /// TASK_2026_177 migration 4, closing Batch 9B's F-1. The admin `User.id`
+  /// that soft-deleted this row. Batch 9B's `CoursesService.deleteCourse`
+  /// already DEMANDED a real actor id and had nowhere to put it, so "who
+  /// deleted this" was answerable only from the audit row. It now lives on the
+  /// tombstone too, matching `Topic`, `Post` and `LessonComment`.
+  deletedBy     String?   @map("deleted_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  modules CourseModule[]
+
+  @@index([published, sortOrder])   // the member course list, in one seek
+  @@map("courses")
+}
+
+model CourseModule {
+  id          String    @id @default(cuid())
+  courseId    String    @map("course_id")
+  slug        String
+  title       String
+  description String?
+  /// Sparse ordering, gaps of 100 (AD: see R8.8 note below).
+  sortOrder   Int       @map("sort_order")
+  /// R2.4.1: future date ⇒ locked, lessons return 403.
+  releaseAt   DateTime? @map("release_at")
+  deletedAt   DateTime? @map("deleted_at")
+  /// TASK_2026_177 migration 4 — see `Course.deletedBy` (Batch 9B's F-1).
+  deletedBy   String?   @map("deleted_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@unique([courseId, slug])       // stable URLs + AD-15 migration idempotency key
+  @@index([courseId, sortOrder])   // R2.1.4 strict sort order render
+  @@map("course_modules")
+}
+
+// @@unique([courseId, sortOrder]) DELIBERATELY NOT DECLARED. R8.8 forbids
+// renumbering siblings one request at a time; a uniqueness constraint would
+// force the bulk reorder to sequence its UPDATEs to dodge transient collisions.
+// Ties break deterministically on (sortOrder, createdAt, id) — R2.1.4.
+
+model Lesson {
+  id           String @id @default(cuid())
+  moduleId     String @map("module_id")
+  slug         String
+  title        String
+  bodyMarkdown String @map("body_markdown")
+  sortOrder    Int    @map("sort_order")
+
+  /// R2.2.1: the 11-char YouTube id, extracted server-side from an id or URL.
+  youtubeVideoId         String?   @map("youtube_video_id")
+  /// R2.2.2 + NFR-R2: fetched ONCE at authoring time and persisted. A member
+  /// page view never calls YouTube.
+  videoTitle             String?   @map("video_title")
+  /// The number R2.3.2's 90% completion threshold is computed against — the
+  /// reason the Data API was chosen over a manual checkbox at Checkpoint 0.
+  ///
+  /// A DURATION IN SECONDS, NOT A POSITION — see the RISK-O banner above.
+  /// NULLABLE, and ASSUMPTION-8 makes the null meaningful: a lesson with
+  /// videoDurationSeconds = null is MANUAL-COMPLETION-ONLY even when it has a
+  /// youtubeVideoId. That is exactly the R2.2.6 feature-off shape, where an
+  /// admin typed a title and no runtime. Keying manual-only on the DURATION
+  /// rather than on the ID is the only reading that cannot compute a threshold
+  /// against null.
+  videoDurationSeconds   Int?      @map("video_duration_seconds")
+  videoThumbnailUrl      String?   @map("video_thumbnail_url")
+  videoMetadataFetchedAt DateTime? @map("video_metadata_fetched_at")
+  /// 'api' | 'manual' — 'manual' is the R2.2.6 feature-off path when
+  /// YOUTUBE_API_KEY is unset and an admin typed the metadata.
+  videoMetadataSource    String?   @map("video_metadata_source")
+
+  deletedAt DateTime? @map("deleted_at")
+  /// TASK_2026_177 migration 4 — see `Course.deletedBy` (Batch 9B's F-1).
+  deletedBy String?   @map("deleted_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  module   CourseModule     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress LessonProgress[]
+  comments LessonComment[]
+
+  @@unique([moduleId, slug])
+  @@index([moduleId, sortOrder])   // R2.1.5 prev/next across module boundaries
+  @@map("course_lessons")
+}
+
+/// R2.3. Per member per lesson. Composite PK, no surrogate id.
+model LessonProgress {
+  userId                  String    @map("user_id") @db.Uuid
+  lessonId                String    @map("lesson_id")
+  /// R2.3.1. Monotonic — the server only ever advances it.
+  ///
+  /// A POSITION IN SECONDS, NOT A DURATION — see the RISK-O banner above. It
+  /// is compared against Lesson.videoDurationSeconds, which has the same type
+  /// and is a different quantity.
+  furthestPositionSeconds Int       @default(0) @map("furthest_position_seconds")
+  completedAt             DateTime? @map("completed_at")
+  /// 'auto' (R2.3.2 threshold) | 'manual' (R2.3.3). Manual is reversible.
+  completionSource        String?   @map("completion_source")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+// @@index([lessonId]) REJECTED. The composite PK leads with userId, which
+// serves every query this task issues ("this member's progress across these
+// lessons" — R2.3.5, R2.3.6, R2.4.2, hub continue-learning). A lessonId-leading
+// index would only serve cross-member analytics, which §5 does not ship.
+// It also enforces NFR-S4/R2.3.7 by SHAPE: there is no efficient way to ask
+// "who else completed this lesson", so no member endpoint accidentally can.
+
+/// R2.5 + Checkpoint 0: a DISTINCT model, never a polymorphic comment table
+/// shared with Post. Same one-level nesting rule and same server enforcement
+/// as R1.3.
+model LessonComment {
+  id           String    @id @default(cuid())
+  lessonId     String    @map("lesson_id")
+  parentId     String?   @map("parent_id")
+  bodyMarkdown String    @map("body_markdown")
+  authorId     String?   @map("author_id") @db.Uuid
+  /// R2.5.3 "Answered" treatment. A-8: lesson comments get this INSTEAD of
+  /// reactions, matching the course_learning screens.
+  answeredAt   DateTime? @map("answered_at")
+  answeredBy   String?   @map("answered_by")
+  editedAt     DateTime? @map("edited_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  lesson   Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  parent   LessonComment?  @relation("LessonCommentChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children LessonComment[] @relation("LessonCommentChildren")
+  author   User?           @relation("LessonCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([lessonId, createdAt])   // the lesson comment thread render
+  @@map("lesson_comments")
+}
+
+// ===========================================================================
+// TASK_2026_177 Phase 5 — NOTIFICATIONS (plan §1.6)
+//
+// One model. Migration 5 (`20260902090000_packs_visibility_and_notifications`)
+// creates it alongside the two `packs` columns above.
+//
+// 🔴 IN-APP ONLY. No email, no push, no websocket and no SSE (§5, AD-14). The
+// client POLLS `GET /api/v1/members/notifications/unread-count` every 60 s.
+// `libs/api/licensing`'s existing `@Sse` endpoint is NOT extended and NOT
+// imported — if a future change wants a stream, that is a new decision, not an
+// extension of this table.
+//
+// ⚠️ NO TRIGRAM INDEX HERE, DELIBERATELY. Migrations 2 and 3 own the only three
+// `gin_trgm_ops` indexes in this database (A-7) and both carry the banner above
+// warning that they are invisible to `prisma migrate diff`. A notification has
+// no searchable long text — `title` is server-composed and `bodyPreview` is a
+// short excerpt — so there is no fourth, and the "read the generated SQL"
+// warning applies to migration 5 only because of the OTHER three.
+// ===========================================================================
+
+/// R10. In-app only — no email, no websocket, no SSE (§5).
+///
+/// ⚠️ ONE ROW IS OWNED BY EXACTLY ONE USER AND READ BY EXACTLY THAT USER. There
+/// is no visibility rule, no soft delete and no admin mutation on this table —
+/// which is why every read and write carries `userId` in its `where` rather
+/// than fetching by `id` and checking ownership afterwards (NFR-S8).
+model Notification {
+  id      String @id @default(cuid())
+  userId  String @map("user_id") @db.Uuid
+  /// 'topic.reply' | 'post.child_reply' | 'post.accepted' |
+  /// 'session_request.status' | 'announcement'
+  kind    String
+  /// The member who caused it, for "X replied to your topic". null for system.
+  actorId String? @map("actor_id") @db.Uuid
+  /// 'Topic' | 'Post' | 'SessionRequest' | 'LiveSession'
+  targetType  String  @map("target_type")
+  targetId    String  @map("target_id")
+  title       String
+  bodyPreview String? @map("body_preview")
+  /// The /members deep link opening one navigates to (R10.3). Stored rather
+  /// than derived so a routing change never orphans historical notifications.
+  route       String
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user  User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])  // serves BOTH the unread badge count
+                                        // (R10.4) and the newest-first list (R10.3)
+  @@index([createdAt])                  // R10.6 retention prune — a global sweep
+                                        // the userId-leading index cannot serve
+  @@map("member_notifications")
 }

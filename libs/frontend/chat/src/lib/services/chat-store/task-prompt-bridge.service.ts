@@ -22,7 +22,7 @@ import { MessageSenderService } from '../message-sender.service';
  *     overlap; single layout has no canvas so the request is skipped,
  *  3. submits the prompt through the normal send path (`MessageSenderService`
  *     → `chat:start`; the backend `SlashCommandInterceptor` routes a
- *     `/ptah-core:orchestrate …` prompt to `executeSlashCommandQuery`),
+ *     `/orchestrate …` prompt to `executeSlashCommandQuery`),
  *  4. settles `request.resolve` and clears the bridge signal.
  *
  * Sends run against the standard workspace root (the existing `chat:start`

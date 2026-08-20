@@ -70,7 +70,7 @@ import {
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300">
           <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+            class="text-xs font-semibold text-base-content-muted uppercase tracking-wide"
           >
             Select Agent
           </span>
@@ -80,14 +80,16 @@ import {
         @if (isLoading()) {
           <div class="flex items-center justify-center gap-3 p-4">
             <span class="loading loading-spinner loading-sm"></span>
-            <span class="text-sm text-base-content/70">Loading agents...</span>
+            <span class="text-sm text-base-content-muted"
+              >Loading agents...</span
+            >
           </div>
         }
 
         <!-- Empty State -->
         @else if (agents().length === 0) {
           <div class="flex items-center justify-center p-4">
-            <span class="text-sm text-base-content/60"
+            <span class="text-sm text-base-content-muted"
               >No agents available</span
             >
           </div>

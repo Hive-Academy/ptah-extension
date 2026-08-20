@@ -159,4 +159,60 @@ describe('EpisodeTracker', () => {
     expect(t.recordToolSuccess('s1', 'Bash')).toBe(false);
     expect(t.snapshot('s1').isEmpty).toBe(true);
   });
+
+  /**
+   * TASK_2026_296 item 6, Part B. A residual hook path buffers an episode
+   * under the tabId; when the SDK resolves the canonical UUID the buffer has to
+   * move with the rest of the session's state, or the episode is curated under
+   * an id whose transcript cannot be read.
+   *
+   * Real UUID v4 strings on both sides: a tabId IS one.
+   */
+  describe('rekey (TASK_2026_296)', () => {
+    const TAB_ID = '4a4a0d5e-6a1c-4d2f-9d3b-3e6f1c5a7b21';
+    const REAL_ID = 'b7c2f9a1-0e44-4a6b-8c1d-2f5e9a3b6d70';
+
+    it('moves the buffer to the new id and leaves nothing behind', () => {
+      const t = new EpisodeTracker();
+      t.recordTurn(TAB_ID, 'did the work');
+      t.recordCommit(TAB_ID);
+
+      expect(t.rekey(TAB_ID, REAL_ID)).toBe(true);
+
+      const moved = t.snapshot(REAL_ID);
+      expect(moved.turnCount).toBe(1);
+      expect(moved.commits).toBe(1);
+      expect(moved.assistantMessages).toEqual(['did the work']);
+      expect(t.snapshot(TAB_ID).isEmpty).toBe(true);
+    });
+
+    it('refuses to overwrite a buffer already held under the destination', () => {
+      // R4 — never clobber. The destination buffer is the live one; the stale
+      // tabId buffer is discarded rather than replacing it.
+      const t = new EpisodeTracker();
+      t.recordTurn(TAB_ID, 'stale');
+      t.recordTurn(REAL_ID, 'live');
+      t.recordTurn(REAL_ID, 'live again');
+
+      expect(t.rekey(TAB_ID, REAL_ID)).toBe(false);
+
+      expect(t.snapshot(REAL_ID).turnCount).toBe(2);
+      expect(t.snapshot(REAL_ID).assistantMessages).toEqual([
+        'live',
+        'live again',
+      ]);
+      // The discarded buffer is gone, not left dangling under the old key.
+      expect(t.snapshot(TAB_ID).isEmpty).toBe(true);
+    });
+
+    it('is inert when there is nothing under the source id', () => {
+      // Paired-isolation sibling: an unrelated buffer must survive untouched.
+      const t = new EpisodeTracker();
+      t.recordTurn(REAL_ID, 'untouched');
+
+      expect(t.rekey(TAB_ID, REAL_ID)).toBe(false);
+
+      expect(t.snapshot(REAL_ID).assistantMessages).toEqual(['untouched']);
+    });
+  });
 });

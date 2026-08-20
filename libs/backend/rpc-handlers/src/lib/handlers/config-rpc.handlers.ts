@@ -11,7 +11,6 @@ import {
   RpcHandler,
   TOKENS,
   ConfigManager,
-  FeatureGateService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -82,8 +81,6 @@ export class ConfigRpcHandlers {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-    @inject(TOKENS.FEATURE_GATE_SERVICE)
-    private readonly featureGate: FeatureGateService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
@@ -298,12 +295,6 @@ export class ConfigRpcHandlers {
           sessionId,
         });
         if (enabled && permissionLevel === 'yolo') {
-          const isPro = await this.featureGate.isProTier();
-          if (!isPro) {
-            throw new Error(
-              'YOLO mode requires a Pro subscription. Upgrade to enable unattended execution.',
-            );
-          }
           this.logger.warn(
             'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
             { enabled, permissionLevel },
@@ -323,8 +314,13 @@ export class ConfigRpcHandlers {
         // most-recently-active session. Permission gating is now per-session
         // (each session reads its own level), so the toggle must reach a
         // concrete session to take effect on a running turn.
+        //
+        // An empty sessionId counts as "not supplied": `??` alone kept it, and
+        // the truthiness check below then discarded it, so the toggle reached
+        // no session at all and the fallback never fired.
+        const requestedSessionId = sessionId ? sessionId : undefined;
         const targetSessionId =
-          sessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+          requestedSessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
         if (targetSessionId) {
           try {
             const sdkMode = enabled
@@ -442,6 +438,12 @@ export class ConfigRpcHandlers {
             tierOverrides: tierOverrides ?? 'null',
             savedModel,
           });
+          // Rates are the published ones either way; the active provider's
+          // billing policy only decides whether the line says they are
+          // charged per token or absorbed by a flat fee.
+          const pricingOptions = {
+            subscriptionCovered: this.modelResolver.isSubscriptionCovered(),
+          };
           const sdkModelIds = new Set(sdkModels.map((m) => m.value));
           const models: Array<{
             id: string;
@@ -471,7 +473,7 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
+                ? getModelPricingDescription(providerModelId, pricingOptions)
                 : m.description,
               isSelected:
                 m.value === savedModel ||
@@ -496,8 +498,8 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
-                : getModelPricingDescription(m.value),
+                ? getModelPricingDescription(providerModelId, pricingOptions)
+                : getModelPricingDescription(m.value, pricingOptions),
               isSelected:
                 m.value === savedModel ||
                 (savedModel.startsWith('claude-') &&

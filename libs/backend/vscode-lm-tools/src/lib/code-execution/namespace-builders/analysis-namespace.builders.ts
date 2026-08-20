@@ -5,6 +5,7 @@
  * These namespaces leverage workspace-intelligence for intelligent file selection.
  */
 
+import * as path from 'node:path';
 import {
   ContextSizeOptimizerService,
   MonorepoDetectorService,
@@ -58,6 +59,7 @@ export function buildContextNamespace(
     tokenCounter,
     workspaceIndexer,
     contextEnrichment,
+    workspaceProvider,
   } = deps;
 
   return {
@@ -87,7 +89,13 @@ export function buildContextNamespace(
       query: string,
       maxTokens = 150000,
     ): Promise<OptimizedContextResult> => {
+      // TASK_2026_200 task 3.5: `workspaceFolder` is now mandatory. Omitting it
+      // used to fall through to `WorkspaceIndexerService`'s private
+      // `getDefaultWorkspaceFolder()`, i.e. the raw process-global provider, so
+      // this MCP tool indexed the IDE's folder instead of the calling session's
+      // root even though the session-aware provider was sitting in `deps`.
       const index = await workspaceIndexer.indexWorkspace({
+        workspaceFolder: workspaceProvider.getWorkspaceRoot(),
         estimateTokens: true,
         respectIgnoreFiles: true,
       });
@@ -165,7 +173,11 @@ export function buildProjectNamespace(
     },
 
     detectType: async (): Promise<string> => {
-      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo();
+      // Root resolved per call from the session-aware provider so this agrees
+      // with `ptah_workspace_analyze` for the same session (criterion 2).
+      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo(
+        workspaceProvider.getWorkspaceRoot(),
+      );
       return info?.projectType || 'unknown';
     },
 
@@ -205,14 +217,17 @@ export function buildProjectNamespace(
 export function buildRelevanceNamespace(
   deps: AnalysisNamespaceDependencies,
 ): RelevanceNamespace {
-  const { relevanceScorer, workspaceIndexer } = deps;
+  const { relevanceScorer, workspaceIndexer, workspaceProvider } = deps;
 
   return {
     scoreFile: async (
       filePath: string,
       query: string,
     ): Promise<FileRelevanceResult> => {
+      // See the note in `buildContextNamespace.optimize` — an explicit,
+      // session-aware `workspaceFolder` is required (TASK_2026_200 task 3.5).
       const index = await workspaceIndexer.indexWorkspace({
+        workspaceFolder: workspaceProvider.getWorkspaceRoot(),
         estimateTokens: false,
         respectIgnoreFiles: true,
       });
@@ -241,7 +256,10 @@ export function buildRelevanceNamespace(
       query: string,
       limit = 20,
     ): Promise<FileRelevanceResult[]> => {
+      // See the note in `buildContextNamespace.optimize` — an explicit,
+      // session-aware `workspaceFolder` is required (TASK_2026_200 task 3.5).
       const index = await workspaceIndexer.indexWorkspace({
+        workspaceFolder: workspaceProvider.getWorkspaceRoot(),
         estimateTokens: false,
         respectIgnoreFiles: true,
       });
@@ -257,6 +275,11 @@ export function buildRelevanceNamespace(
   };
 }
 
+/** Join a workspace-relative path to its root; pass absolute paths through. */
+function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
+  return path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+}
+
 /**
  * Build dependency graph namespace
  * Import-based file dependency tracking and symbol indexing
@@ -270,7 +293,14 @@ export function buildDependencyNamespace(
     buildGraph: async (filePaths: string[], workspaceRoot: string) => {
       try {
         const graph = await dependencyGraph.buildGraph(
-          filePaths,
+          // The graph reads real files and keys its nodes by ABSOLUTE path, but
+          // every other path in this sandbox is workspace-relative — `ptah.files`
+          // rejects absolute paths outright, so `ptah.search.findFiles()` (the
+          // natural source for this argument) yields relative ones. Handing
+          // those straight through resolved them against process.cwd, every read
+          // failed, and the call returned a cheerful `0 nodes, 0 edges` instead
+          // of an error. Resolve against the root the caller already passed.
+          filePaths.map((file) => toAbsoluteWorkspacePath(workspaceRoot, file)),
           workspaceRoot,
         );
         let edgeCount = 0;
@@ -314,9 +344,9 @@ export function buildDependencyNamespace(
       }
     },
 
-    getSymbolIndex: async () => {
+    getSymbolIndex: async (workspaceRoot?: string) => {
       try {
-        const index = dependencyGraph.getSymbolIndex();
+        const index = dependencyGraph.getSymbolIndex(workspaceRoot);
         const result: Array<{ file: string; symbols: string[] }> = [];
         for (const [file, exports] of index) {
           result.push({
@@ -330,9 +360,9 @@ export function buildDependencyNamespace(
       }
     },
 
-    isBuilt: async () => {
+    isBuilt: async (workspaceRoot?: string) => {
       try {
-        return dependencyGraph.isBuilt();
+        return dependencyGraph.isBuilt(workspaceRoot);
       } catch {
         return false;
       }

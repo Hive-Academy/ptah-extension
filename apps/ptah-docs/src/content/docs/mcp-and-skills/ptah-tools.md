@@ -76,24 +76,20 @@ Keep experiments isolated without cluttering your main checkout.
 
 ## Validation & harness
 
-| Tool                               | Purpose                                                                   | Typical use case                        |
-| ---------------------------------- | ------------------------------------------------------------------------- | --------------------------------------- |
-| `ptah_json_validate`               | Validate JSON against a schema                                            | Check config files before writing       |
-| `ptah_harness_create_skill`        | Create a new skill under `~/.ptah/skills/` or workspace `.claude/skills/` | Capture a reusable workflow on the fly  |
-| `ptah_harness_search_skills`       | Search the skill registry by keyword                                      | Find a skill by intent rather than name |
-| `ptah_harness_search_mcp_registry` | Search the public MCP server registry                                     | Discover third-party tools to plug in   |
-| `harness_list_installed_mcp`       | List every MCP server configured in the harness                           | Audit what's connected                  |
+| Tool                               | Purpose                                                                                                                                                 | Typical use case                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `ptah_json_validate`               | Validate JSON against a schema                                                                                                                          | Check config files before writing       |
+| `ptah_harness_create_skill`        | Create a new skill as its own plugin at `~/.ptah/plugins/ptah-harness-<slug>/skills/<slug>/SKILL.md` — see [Harness plugins](/plugins/harness-plugins/) | Capture a reusable workflow on the fly  |
+| `ptah_harness_search_skills`       | Search the skill registry by keyword                                                                                                                    | Find a skill by intent rather than name |
+| `ptah_harness_search_mcp_registry` | Search the public MCP server registry                                                                                                                   | Discover third-party tools to plug in   |
+| `ptah_harness_list_installed_mcp`  | List every MCP server configured in the harness                                                                                                         | Audit what's connected                  |
 
-## Code Execution (Pro)
+## Code Execution
 
 | Tool              | Purpose                                                               | Typical use case                                    |
 | ----------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
 | `execute_code`    | Run code in the sandboxed runtime with scoped file and network access | Transform data, verify a snippet, run quick scripts |
 | `approval_prompt` | Request explicit user approval mid-execution                          | Gate side-effectful steps                           |
-
-:::caution[Pro tier]
-`execute_code` requires the Pro subscription. See [Built-in MCP Server](/mcp-and-skills/built-in-mcp-server/) for details.
-:::
 
 ## Next steps
 

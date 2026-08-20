@@ -40,7 +40,7 @@ Internet
 ### Fix 1: OAuth Redirect URL Bug
 
 **File**: `apps/ptah-landing-page/src/app/pages/auth/services/auth-api.service.ts`
-**Problem**: `redirectToOAuth()` uses `window.location.href` (browser redirect) which bypasses Angular's `HttpClient` interceptor. In production, this sent users to `ptah.live/api/auth/oauth/github` instead of `api.ptah.live/api/auth/oauth/github`.
+**Problem**: `redirectToOAuth()` uses `window.location.href` (browser redirect) which bypasses Angular's `HttpClient` interceptor. In production, this sent users to `ptah.live/api/v1/auth/oauth/github` instead of `api.ptah.live/api/v1/auth/oauth/github`.
 **Fix**: Added `environment.apiBaseUrl` prefix to the redirect URL.
 
 ```typescript
@@ -83,10 +83,10 @@ All services using Angular `HttpClient` are correctly handled by the `apiInterce
 
 **Services correctly using HttpClient (no fix needed)**:
 
-- `auth.service.ts` — `/api/auth/me`, `/api/auth/logout`
+- `auth.service.ts` — `/api/v1/auth/me`, `/api/v1/auth/logout`
 - `paddle-checkout.service.ts` — `/api/v1/subscriptions/*`, `/api/v1/licenses/me`
 - `subscription-state.service.ts` — `/api/v1/licenses/me`
-- `sse-events.service.ts` (ticket endpoint) — `POST /api/auth/stream/ticket`
+- `sse-events.service.ts` (ticket endpoint) — `POST /api/v1/auth/stream/ticket`
 - `profile-page.component.ts` — `/api/v1/licenses/*`, `/api/v1/subscriptions/*`
 - `sessions-grid.component.ts` — `/api/v1/sessions/*`
 - `pricing-grid.component.ts` — `/api/v1/subscriptions/portal-session`
@@ -175,7 +175,7 @@ All services using Angular `HttpClient` are correctly handled by the `apiInterce
 ### Key Production Env Vars (from .env.prod.example)
 
 - `FRONTEND_URL=https://ptah.live` — CORS origin
-- `WORKOS_REDIRECT_URI=https://api.ptah.live/api/auth/callback` — OAuth callback
+- `WORKOS_REDIRECT_URI=https://api.ptah.live/api/v1/auth/callback` — OAuth callback
 - `WORKOS_LOGOUT_REDIRECT_URI=https://ptah.live` — Post-logout redirect
 
 ---

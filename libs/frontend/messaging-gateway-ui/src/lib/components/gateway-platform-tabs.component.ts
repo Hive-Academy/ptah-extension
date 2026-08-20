@@ -59,7 +59,7 @@ const TILES: readonly PlatformTileSpec[] = [
           <span class="flex flex-col gap-0.5">
             <span class="text-sm font-medium">{{ tile.label }}</span>
             <span
-              class="flex items-center gap-1.5 text-xs text-base-content/60"
+              class="flex items-center gap-1.5 text-xs text-base-content-muted"
             >
               <span
                 class="inline-block size-1.5 rounded-full"

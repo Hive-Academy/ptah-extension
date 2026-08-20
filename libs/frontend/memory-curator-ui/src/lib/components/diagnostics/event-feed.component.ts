@@ -30,7 +30,7 @@ const MAX_ROWS = 10;
       </header>
       @if (rows().length === 0) {
         <div
-          class="px-3 py-3 text-xs text-base-content/60"
+          class="px-3 py-3 text-xs text-base-content-muted"
           data-testid="event-feed-empty"
         >
           No recent events
@@ -50,7 +50,7 @@ const MAX_ROWS = 10;
                 >{{ row.kind }}</span
               >
               <span class="flex-1 truncate">{{ row.outcome }}</span>
-              <span class="tabular-nums text-base-content/60">{{
+              <span class="tabular-nums text-base-content-muted">{{
                 row.relative
               }}</span>
             </li>

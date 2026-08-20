@@ -1,0 +1,371 @@
+<section class="flex flex-col gap-4">
+  <button
+    type="button"
+    class="btn btn-ghost btn-sm w-fit gap-1 px-2 text-base-content-muted"
+    (click)="back()"
+  >
+    <lucide-angular [img]="ArrowLeftIcon" class="h-4 w-4" aria-hidden="true" />
+    Users
+  </button>
+
+  @if (loading()) {
+    <div class="flex flex-col gap-4" aria-busy="true" aria-label="Loading user">
+      <div class="h-28 animate-pulse rounded-xl bg-base-200"></div>
+      <div class="h-64 animate-pulse rounded-xl bg-base-200"></div>
+      <div class="h-24 animate-pulse rounded-xl bg-base-200"></div>
+    </div>
+  } @else if (loadError()) {
+    <div class="alert alert-error">
+      <span>{{ loadError() }}</span>
+    </div>
+  } @else if (user(); as u) {
+    <!-- 1. Identity -->
+    <div class="rounded-xl border border-hairline bg-base-200 p-5">
+      <div class="flex items-start gap-4">
+        <div
+          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-accent"
+          aria-hidden="true"
+        >
+          {{ initials() }}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="truncate text-xl font-semibold">{{ fullName() }}</h2>
+            <ptah-status-badge
+              [variant]="u.emailVerified ? 'success' : 'ghost'"
+              [label]="u.emailVerified ? 'Verified' : 'Unverified'"
+              size="sm"
+            />
+          </div>
+          <p class="truncate text-sm text-base-content-muted">{{ u.email }}</p>
+
+          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-xs text-base-content-muted sm:grid-cols-2">
+            <div class="flex justify-between gap-2">
+              <dt>WorkOS ID</dt>
+              <dd class="truncate">{{ asString(u.workosId) }}</dd>
+            </div>
+            <div class="flex justify-between gap-2">
+              <dt>Paddle Customer ID</dt>
+              <dd class="truncate">{{ asString(u.paddleCustomerId) }}</dd>
+            </div>
+            <div class="flex justify-between gap-2">
+              <dt>Created</dt>
+              <dd>{{ u.createdAt ? (u.createdAt | date: 'medium') : '—' }}</dd>
+            </div>
+            <div class="flex justify-between gap-2">
+              <dt>Updated</dt>
+              <dd>{{ u.updatedAt ? (u.updatedAt | date: 'medium') : '—' }}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Billing & Entitlement — the merged Licenses + Subscriptions surface -->
+    @if (entitlement(); as ent) {
+      <div class="rounded-xl border border-hairline bg-base-200 p-5">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
+            Billing &amp; Entitlement
+          </h3>
+          <button
+            type="button"
+            class="btn btn-outline btn-primary btn-xs"
+            (click)="openIssueLicense()"
+          >
+            Issue Complimentary License
+          </button>
+        </div>
+
+        <!-- Headline: what this user is entitled to, and what pays for it -->
+        <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-base-300 px-4 py-3">
+          @if (ent.activeLicense; as lic) {
+            <div class="flex items-center gap-2">
+              <span class="text-lg font-semibold capitalize">{{ lic.plan }}</span>
+              <ptah-status-badge
+                [badgeMap]="licenseStatusMap"
+                [value]="lic.status"
+                size="sm"
+              />
+            </div>
+            <span class="text-base-content-muted" aria-hidden="true">·</span>
+            <span
+              class="text-sm"
+              [class.text-warning]="ent.expiringSoon"
+              [class.text-base-content-muted]="!ent.expiringSoon"
+            >
+              {{
+                lic.expiresAt
+                  ? (ent.expiringSoon ? 'Expires ' : 'Valid until ') +
+                    (lic.expiresAt | date: 'mediumDate')
+                  : 'Lifetime'
+              }}
+            </span>
+          } @else {
+            <span class="text-lg font-semibold text-base-content-muted">No active license</span>
+          }
+
+          <span class="text-base-content-muted" aria-hidden="true">·</span>
+
+          @if (ent.liveSubscription; as sub) {
+            <span class="flex items-center gap-2 text-sm text-base-content-muted">
+              Paid by Paddle
+              <ptah-status-badge
+                [badgeMap]="subStatusMap"
+                [value]="sub.status"
+                size="xs"
+              />
+              <span class="font-mono text-xs">{{ sub.paddleSubscriptionId }}</span>
+            </span>
+          } @else {
+            <span class="text-sm text-base-content-muted">No live Paddle subscription</span>
+          }
+        </div>
+
+        <!-- Reconciliation: the two records disagree and a human must decide -->
+        @if (ent.discrepancies.length > 0) {
+          <div class="mb-4 flex flex-col gap-2">
+            @for (d of ent.discrepancies; track d.code) {
+              <div
+                class="alert py-2 text-sm"
+                [class.alert-error]="d.severity === 'error'"
+                [class.alert-warning]="d.severity === 'warning'"
+              >
+                <span>{{ d.message }}</span>
+              </div>
+            }
+          </div>
+        }
+
+        <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <!-- Licenses -->
+          <div>
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-sm font-medium">
+                Licenses
+                <span class="text-base-content-muted">({{ licenses().length }})</span>
+              </span>
+            </div>
+
+            @if (licenses().length === 0) {
+              <p class="text-xs text-base-content-muted">No licenses issued to this user.</p>
+            } @else {
+              <div class="overflow-x-auto rounded-lg border border-hairline">
+                <table class="table table-xs">
+                  <thead>
+                    <tr class="text-[0.65rem] uppercase tracking-wide text-base-content-muted">
+                      <th>Plan</th>
+                      <th>Status</th>
+                      <th>Source</th>
+                      <th>Expires</th>
+                      <th>Paddle link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (lic of licenses(); track lic.id) {
+                      <tr>
+                        <td>
+                          <div class="flex flex-col">
+                            <span class="capitalize">{{ lic.plan }}</span>
+                            <span class="font-mono text-[0.6rem] text-base-content-muted">
+                              {{ lic.licenseKey }}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <ptah-status-badge
+                            [badgeMap]="licenseStatusMap"
+                            [value]="lic.status"
+                            size="xs"
+                          />
+                        </td>
+                        <td>
+                          <ptah-status-badge
+                            [badgeMap]="licenseSourceMap"
+                            [value]="lic.source"
+                            size="xs"
+                          />
+                        </td>
+                        <td
+                          class="text-xs"
+                          [class.text-warning]="isExpiringSoon(lic)"
+                          [class.text-base-content-muted]="!isExpiringSoon(lic)"
+                        >
+                          {{
+                            lic.expiresAt
+                              ? (lic.expiresAt | date: 'mediumDate')
+                              : 'Lifetime'
+                          }}
+                        </td>
+                        <!-- The join the schema does not model, made explicit -->
+                        <td class="text-xs">
+                          @if (linkedSubscription(lic); as sub) {
+                            <span class="font-mono text-info">
+                              {{ sub.paddleSubscriptionId }}
+                            </span>
+                          } @else {
+                            <span
+                              [class.text-error]="lic.source === 'paddle'"
+                              [class.text-base-content-muted]="lic.source !== 'paddle'"
+                            >
+                              {{ unlinkedReason(lic) }}
+                            </span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+
+          <!-- Subscriptions -->
+          <div>
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-sm font-medium">
+                Paddle subscriptions
+                <span class="text-base-content-muted">({{ subscriptions().length }})</span>
+              </span>
+              <span class="badge badge-ghost badge-xs">read-only</span>
+            </div>
+
+            @if (subscriptions().length === 0) {
+              <p class="text-xs text-base-content-muted">
+                No Paddle subscription records for this user.
+              </p>
+            } @else {
+              <div class="overflow-x-auto rounded-lg border border-hairline">
+                <table class="table table-xs">
+                  <thead>
+                    <tr class="text-[0.65rem] uppercase tracking-wide text-base-content-muted">
+                      <th>Subscription</th>
+                      <th>Status</th>
+                      <th>Price</th>
+                      <th>Period end</th>
+                      <th>Trial end</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (sub of subscriptions(); track sub.id) {
+                      <tr>
+                        <td>
+                          <div class="flex flex-col">
+                            <span class="font-mono text-[0.65rem]">
+                              {{ sub.paddleSubscriptionId }}
+                            </span>
+                            <span class="font-mono text-[0.6rem] text-base-content-muted">
+                              {{ sub.paddleCustomerId }}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <ptah-status-badge
+                            [badgeMap]="subStatusMap"
+                            [value]="sub.status"
+                            size="xs"
+                          />
+                        </td>
+                        <td class="font-mono text-[0.65rem]">{{ sub.priceId }}</td>
+                        <td class="text-xs text-base-content-muted">
+                          {{
+                            sub.currentPeriodEnd
+                              ? (sub.currentPeriodEnd | date: 'mediumDate')
+                              : '—'
+                          }}
+                        </td>
+                        <td class="text-xs text-base-content-muted">
+                          {{
+                            sub.trialEnd ? (sub.trialEnd | date: 'mediumDate') : '—'
+                          }}
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- 3. Session requests (not part of the billing merge) -->
+    <div class="rounded-xl border border-hairline bg-base-200 p-5">
+      <div class="mb-2 flex items-center justify-between">
+        <span class="text-sm font-medium">Session Requests</span>
+        @if (sessions().status === 'ok' && sessions().total > 0) {
+          <a
+            class="link link-hover text-xs text-info"
+            [routerLink]="['/admin', 'session-requests']"
+            [queryParams]="{ search: u.id }"
+          >
+            View all →
+          </a>
+        }
+      </div>
+      @switch (sessions().status) {
+        @case ('loading') {
+          <div class="h-10 animate-pulse rounded-md bg-base-300"></div>
+        }
+        @case ('error') {
+          <p class="text-xs text-error">Failed to load session requests.</p>
+        }
+        @default {
+          @if (sessions().rows.length === 0) {
+            <p class="text-xs text-base-content-muted">No session requests for this user.</p>
+          } @else {
+            <ul class="flex flex-col gap-1.5 text-sm">
+              @for (ses of sessions().rows; track $index) {
+                <li class="flex items-center justify-between gap-2 rounded-md bg-base-300 px-2.5 py-1.5">
+                  <span class="truncate">{{ asString(ses['sessionTopicId']) }}</span>
+                  <ptah-status-badge
+                    [badgeMap]="sessionStatusMap"
+                    [value]="ses['status']"
+                    size="xs"
+                  />
+                </li>
+              }
+            </ul>
+          }
+        }
+      }
+    </div>
+
+    <!-- 4. Danger zone -->
+    <div class="rounded-xl border border-error/20 bg-base-200 p-5">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
+        Danger zone
+      </h3>
+
+      <div class="mt-3">
+        <button
+          type="button"
+          class="btn btn-outline btn-error btn-sm"
+          (click)="openDelete()"
+        >
+          Delete User
+        </button>
+        <p class="mt-2 text-xs text-base-content-muted">
+          Permanently removes the user and cascades their records. This cannot be undone.
+        </p>
+      </div>
+    </div>
+
+    <!-- Modals (bound to this user) -->
+    <app-issue-comp-license-modal
+      [userId]="u.id"
+      [userEmail]="u.email"
+      (issued)="onLicenseIssued()"
+    />
+    <app-delete-user-modal
+      [userId]="u.id"
+      [userEmail]="u.email"
+      (deleted)="onUserDeleted()"
+    />
+  } @else {
+    <div class="alert alert-warning">
+      <span>User not found.</span>
+    </div>
+  }
+</section>

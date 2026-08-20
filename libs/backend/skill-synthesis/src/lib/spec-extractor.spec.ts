@@ -158,6 +158,61 @@ describe('extractSpec', () => {
     expect(spec).toBeNull();
   });
 
+  it('reads batches.md for the per-batch verdicts', async () => {
+    const specDir = await makeSpec('TASK_2026_010');
+    await writeFile(
+      join(specDir, 'task.md'),
+      taskMd('TASK_2026_010', 'done'),
+      'utf8',
+    );
+    await writeFile(join(specDir, 'batches.md'), TASKS_MD, 'utf8');
+
+    const spec = await extractSpec(specDir);
+    expect(spec?.batches).toEqual([
+      { slug: 'backend-developer', status: 'COMPLETE' },
+      { slug: 'frontend-developer', status: 'FAILED' },
+    ]);
+  });
+
+  it('falls back to the legacy tasks.md name — permanently', async () => {
+    const specDir = await makeSpec('TASK_2026_011');
+    await writeFile(
+      join(specDir, 'task.md'),
+      taskMd('TASK_2026_011', 'done'),
+      'utf8',
+    );
+    // Only the pre-rename name exists. Task folders are gitignored, so this is
+    // the steady state for every folder created before the rename — it must
+    // keep working forever, not warn and not degrade.
+    await writeFile(join(specDir, 'tasks.md'), TASKS_MD, 'utf8');
+
+    const spec = await extractSpec(specDir);
+    expect(spec?.batches).toEqual([
+      { slug: 'backend-developer', status: 'COMPLETE' },
+      { slug: 'frontend-developer', status: 'FAILED' },
+    ]);
+  });
+
+  it('prefers batches.md when both names are present', async () => {
+    const specDir = await makeSpec('TASK_2026_012');
+    await writeFile(
+      join(specDir, 'task.md'),
+      taskMd('TASK_2026_012', 'done'),
+      'utf8',
+    );
+    await writeFile(
+      join(specDir, 'batches.md'),
+      `## Batch 1: Current — COMPLETE\n\n**Recommended Executor**: senior-tester\n`,
+      'utf8',
+    );
+    await writeFile(join(specDir, 'tasks.md'), TASKS_MD, 'utf8');
+
+    const spec = await extractSpec(specDir);
+    expect(spec?.batches).toEqual([
+      { slug: 'senior-tester', status: 'COMPLETE' },
+    ]);
+  });
+
   it('skips a folder whose task.md has unparseable YAML frontmatter', async () => {
     const specDir = await makeSpec('TASK_2026_BADYAML');
     await writeFile(

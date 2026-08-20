@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ptah Builders - Community Feed</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#c8e6ff",
+                        "surface-bright": "#faf8ff",
+                        "on-error": "#ffffff",
+                        "tertiary-container": "#007cb1",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "surface-container-highest": "#e2e2ea",
+                        "on-surface-variant": "#534435",
+                        "surface": "#faf9f7",
+                        "primary-fixed": "#ffddba",
+                        "background": "#faf9f7",
+                        "on-secondary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-surface": "#191b21",
+                        "on-primary": "#ffffff",
+                        "secondary": "#835400",
+                        "on-tertiary-fixed-variant": "#004c6e",
+                        "on-background": "#191b21",
+                        "inverse-surface": "#2e3037",
+                        "outline-variant": "#e2ddd4",
+                        "on-secondary-fixed-variant": "#643f00",
+                        "on-secondary-fixed": "#2a1800",
+                        "outline": "#857463",
+                        "inverse-primary": "#ffb866",
+                        "surface-container-low": "#f3f3fb",
+                        "on-tertiary-container": "#fcfcff",
+                        "tertiary": "#00628d",
+                        "primary-fixed-dim": "#ffb866",
+                        "on-primary-fixed-variant": "#673d00",
+                        "surface-tint": "#875200",
+                        "on-tertiary": "#ffffff",
+                        "primary-container": "#a66600",
+                        "tertiary-fixed-dim": "#88ceff",
+                        "on-tertiary-fixed": "#001e2f",
+                        "on-secondary-container": "#6c4400",
+                        "surface-container-high": "#e7e7f0",
+                        "secondary-container": "#ffad2e",
+                        "primary": "#c97e0e",
+                        "surface-variant": "#ffffff",
+                        "secondary-fixed-dim": "#ffb957",
+                        "surface-dim": "#d9d9e2",
+                        "on-primary-container": "#fffbff",
+                        "secondary-fixed": "#ffddb5",
+                        "on-primary-fixed": "#2b1700",
+                        "surface-container": "#ededf6",
+                        "inverse-on-surface": "#f0f0f9"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "xs": "4px",
+                        "unit": "4px",
+                        "max_width": "1280px",
+                        "margin": "32px",
+                        "xl": "48px",
+                        "md": "16px",
+                        "lg": "24px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Inter"],
+                        "label-mono": ["JetBrains Mono"],
+                        "caption": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "label-mono": ["14px", { "lineHeight": "1.4", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "caption": ["12px", { "lineHeight": "1.4", "fontWeight": "500" }],
+                        "headline-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .fill-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md min-h-screen flex">
+<!-- SideNavBar -->
+<nav class="bg-surface border-r border-outline-variant h-screen w-[260px] flex-shrink-0 sticky top-0 left-0 flex flex-col py-gutter px-gutter gap-stack-tight z-50 hidden md:flex">
+<!-- Brand -->
+<div class="mb-lg">
+<a class="text-headline-md font-headline-md font-bold text-on-surface flex items-center gap-2" href="#">
+<div class="w-8 h-8 rounded bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined fill-icon text-[20px]">architecture</span>
+</div>
+                Ptah Builders
+            </a>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 flex flex-col gap-1 overflow-y-auto">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">dashboard</span>
+<span class="text-body-md font-body-md">Home</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">school</span>
+<span class="text-body-md font-body-md">Courses</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">history_edu</span>
+<span class="text-body-md font-body-md">Artifacts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">inventory_2</span>
+<span class="text-body-md font-body-md">Packs</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">calendar_today</span>
+<span class="text-body-md font-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">video_library</span>
+<span class="text-body-md font-body-md">Replays</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">add_task</span>
+<span class="text-body-md font-body-md">Request a session</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-primary font-bold bg-surface-container-highest/30 transition-all duration-100 opacity-90" href="#">
+<span class="material-symbols-outlined fill-icon text-primary">forum</span>
+<span class="text-body-md font-body-md">Feed</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">chat_bubble</span>
+<span class="text-body-md font-body-md">My Threads</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">notifications</span>
+<span class="text-body-md font-body-md">Notifications</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">person</span>
+<span class="text-body-md font-body-md">Profile</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 transition-colors duration-150 group mt-auto" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">workspace_premium</span>
+<span class="text-body-md font-body-md">Membership</span>
+</a>
+</div>
+<!-- User Profile Area -->
+<div class="mt-lg pt-lg border-t border-outline-variant flex items-center gap-3">
+<img alt="Abdallah's Profile Picture" class="w-10 h-10 rounded-full object-cover border border-outline-variant" data-alt="A small, circular profile picture of Abdallah, a professional individual in a minimalist, well-lit studio setting with a clean, light-mode background. Warm, subtle lighting highlighting professionalism." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZH-aXchkCg06SoIxF5p_eWdbazL5zp_IOxFJYwdHXzT6Fz2Hiv12wAgZrI46AdX1f2g6uDjwucqAiP4kubQPzJMJtFc0nEYxuLLA-QwuYwCLwbFGQOLqalXULiVB9zluWcD18XzGXXNxFdFO1W1Adt6TG8fdQZ_nX3LMTZQMzY-Hi4NAZz1wOEjX5aBDL_IfrDzW1MW5yxSCEN4TzeamFXl2ndUUqwbmuZJSRdt9FeoC0z5zTYye4Vw"/>
+<div class="flex flex-col">
+<span class="text-body-md font-body-md font-bold text-on-surface leading-tight">Abdallah</span>
+<span class="text-caption font-caption text-on-surface-variant">Founding Member</span>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- TopAppBar -->
+<header class="bg-surface border-b border-outline-variant flex justify-between items-center h-14 w-full px-gutter sticky top-0 z-40">
+<!-- Mobile Menu Toggle -->
+<button class="md:hidden text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<!-- Mobile Brand (Hidden on Desktop) -->
+<a class="md:hidden text-headline-md font-headline-md font-bold text-on-surface flex items-center gap-2" href="#">
+<div class="w-6 h-6 rounded bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined fill-icon text-[16px]">architecture</span>
+</div>
+</a>
+<!-- Search Bar -->
+<div class="hidden md:flex items-center flex-1 max-w-md ml-4">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">search</span>
+<input class="w-full bg-surface-variant border border-outline-variant rounded-lg pl-10 pr-4 py-1.5 text-body-sm font-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" placeholder="Search community..." type="text"/>
+</div>
+</div>
+<!-- Actions -->
+<div class="flex items-center gap-2 ml-auto">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-full hover:bg-surface-container-highest/20">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-full hover:bg-surface-container-highest/20">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<img alt="Abdallah's Profile Picture" class="w-8 h-8 rounded-full object-cover border border-outline-variant md:hidden" data-alt="A small, circular profile picture of Abdallah, a professional individual in a minimalist, well-lit studio setting with a clean, light-mode background. Warm, subtle lighting highlighting professionalism." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAt2QAAQriNEQGRJCy5Idm9k4Y2C75rTJWWFnkeaRH5izTy8iDV6woJ8ecXJhvxy1SmJNLQQi2hrRAKhmRieT9cxKlzwIdnhBO0YjiEf9SgX-5kqKYN0Su_0Vrai9_R_rD1c5aWxqu3kOC-KNWSZvEzS-BS0D20oHtipTd50sLDyQqYttDVZSDwEYGQxTDZ4QXD9uALSUV2Lo1cF99TGbn9GzyL-EGGzaiAPd3r91N5_nRKX0PCvQkJ8A"/>
+</div>
+</header>
+<!-- Page Content -->
+<main class="flex-1 overflow-y-auto">
+<div class="max-w-[1280px] mx-auto w-full p-md lg:p-gutter flex flex-col lg:flex-row gap-lg">
+<!-- Center Feed Column -->
+<div class="flex-1 flex flex-col gap-lg min-w-0">
+<!-- Page Header & Actions -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+<h1 class="text-headline-md font-headline-md text-on-surface">Community Feed</h1>
+<div class="flex items-center gap-3 w-full sm:w-auto">
+<div class="relative flex-1 sm:flex-none">
+<select class="w-full sm:w-auto appearance-none bg-surface-variant border border-outline-variant rounded-lg pl-4 pr-10 py-2 text-body-md font-body-md focus:outline-none focus:border-primary cursor-pointer text-on-surface">
+<option>Recent Activity</option>
+<option>Newest</option>
+<option>Top Voted</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant">expand_more</span>
+</div>
+<button class="bg-primary text-on-primary hover:bg-[#f5a524] transition-colors px-4 py-2 rounded-lg font-body-md font-medium whitespace-nowrap flex items-center gap-2 flex-shrink-0">
+<span class="material-symbols-outlined">add</span>
+                                New Topic
+                            </button>
+</div>
+</div>
+<!-- Filter Chips -->
+<div class="flex items-center gap-2 overflow-x-auto pb-2 -mx-md px-md lg:mx-0 lg:px-0 scrollbar-hide">
+<button class="px-4 py-1.5 rounded-[8px] bg-[#f2f0ec] text-on-surface-variant border border-outline-variant text-body-md font-body-md whitespace-nowrap hover:bg-surface-variant transition-colors">All</button>
+<button class="px-4 py-1.5 rounded-[8px] bg-primary text-on-primary font-medium text-body-md font-body-md whitespace-nowrap transition-colors border border-primary">Announcements</button>
+<button class="px-4 py-1.5 rounded-[8px] bg-[#f2f0ec] text-on-surface-variant border border-outline-variant text-body-md font-body-md whitespace-nowrap hover:bg-surface-variant transition-colors">Packs</button>
+<button class="px-4 py-1.5 rounded-[8px] bg-[#f2f0ec] text-on-surface-variant border border-outline-variant text-body-md font-body-md whitespace-nowrap hover:bg-surface-variant transition-colors">Sessions</button>
+<button class="px-4 py-1.5 rounded-[8px] bg-[#f2f0ec] text-on-surface-variant border border-outline-variant text-body-md font-body-md whitespace-nowrap hover:bg-surface-variant transition-colors">Show &amp; Tell</button>
+<button class="px-4 py-1.5 rounded-[8px] bg-[#f2f0ec] text-on-surface-variant border border-outline-variant text-body-md font-body-md whitespace-nowrap hover:bg-surface-variant transition-colors">Help</button>
+</div>
+<!-- Inline Composer -->
+<div class="bg-surface-variant border border-outline-variant rounded-[12px] p-4 flex flex-col gap-3 shadow-sm hover:shadow-[0_4px_12px_rgba(26,28,34,0.05)] transition-shadow duration-300">
+<div class="flex gap-3">
+<img alt="User" class="w-10 h-10 rounded-full object-cover flex-shrink-0" data-alt="A small, circular profile picture of Abdallah, a professional individual in a minimalist, well-lit studio setting with a clean, light-mode background. Warm, subtle lighting highlighting professionalism." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB8YFOkSTavOTLi6MA5aERoWLbMcixDFwk7h2o_kOtoi5LjCpyT9G3RsBC4xhiacQP770I3xfwU15evuY6wxxOZak250uO_0RS-HeMzL2ALELl-JFj6O3nGrYOOsdZOTBxaBmVkxqpM_9mzpmMYNcfpqwp2-2geGVIo_4jFIakAwY0x9aUFULjjxnSGeVr9IE1WpEhSz9erGimTRl4mD0SGsJI64xJL6Y0Tc1DIdV-RxweUR9nZJqR6CA"/>
+<input class="w-full bg-transparent border-none p-0 text-body-lg font-body-lg focus:ring-0 placeholder:text-on-surface-variant/50" placeholder="Start a new discussion..." type="text"/>
+</div>
+<div class="flex items-center justify-between border-t border-outline-variant pt-3 mt-1">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<button class="p-1.5 hover:bg-[#f2f0ec] rounded transition-colors" title="Bold"><span class="material-symbols-outlined text-[20px]">format_bold</span></button>
+<button class="p-1.5 hover:bg-[#f2f0ec] rounded transition-colors" title="Code"><span class="material-symbols-outlined text-[20px]">code</span></button>
+<button class="p-1.5 hover:bg-[#f2f0ec] rounded transition-colors" title="Link"><span class="material-symbols-outlined text-[20px]">link</span></button>
+<button class="p-1.5 hover:bg-[#f2f0ec] rounded transition-colors" title="Image"><span class="material-symbols-outlined text-[20px]">image</span></button>
+</div>
+<button class="bg-surface text-primary border border-primary px-4 py-1.5 rounded-lg font-medium text-body-md hover:bg-primary hover:text-on-primary transition-colors">Post</button>
+</div>
+</div>
+<!-- Feed List -->
+<div class="flex flex-col gap-4">
+<!-- Card 1 (Pinned) -->
+<article class="bg-surface-variant border border-outline-variant rounded-[12px] p-5 flex flex-col sm:flex-row gap-4 hover:shadow-[0_4px_12px_rgba(26,28,34,0.05)] transition-shadow duration-300 relative overflow-hidden group cursor-pointer">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex-1 flex flex-col gap-2 min-w-0">
+<div class="flex items-start justify-between gap-4">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined fill-icon text-primary text-[18px]">push_pin</span>
+<span class="text-caption font-caption text-primary font-medium uppercase tracking-wider">Pinned Announcement</span>
+</div>
+<h2 class="text-[18px] font-semibold text-on-surface leading-snug group-hover:text-primary transition-colors">Q3 Architecture Roadmap &amp; Migration Plan</h2>
+</div>
+</div>
+<p class="text-body-md text-on-surface-variant line-clamp-2 mt-1">Here is the detailed breakdown for our upcoming migration to the new edge infrastructure. We'll be rolling this out in phases starting next month. Please review the attached specs and leave your feedback below.</p>
+<div class="flex items-center justify-between mt-3 pt-3 border-t border-outline-variant/50">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2">
+<img alt="Sarah Chen" class="w-6 h-6 rounded-full object-cover" data-alt="Profile picture of Sarah Chen, a professional software engineer smiling softly in a well-lit modern office setting. Clean background, minimalist aesthetic, professional attire." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCchQkLee6-8VZXgPPYScjXqlcSQgAaD2pV4NTRIGHMvizsnXNTvkrg2ApIJnqBEVF9pDeutLqfXQ4rUQMFaX01LHYCRL81Vtwsal9k9lcAK77JaVNiyi3ahtWXsV2MBHReLXtGDrg6Qnt16esnuGU-q6TS-Qgn2mx9Djl2Ny-1s18JTlRD22DIvQMtLEP0ovcw5aZHgonQtmoIiSjk44X3WfWH2DCXumXpWXkZ1C1Td6Scv5F0Pp6wag"/>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">Sarah Chen</span>
+</div>
+<span class="text-caption text-on-surface-variant/50">•</span>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">Core Team</span>
+<span class="text-caption text-on-surface-variant/50">•</span>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">2h ago</span>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px]">chat_bubble_outline</span>
+<span class="font-label-mono text-[13px]">24</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px]">favorite_border</span>
+<span class="font-label-mono text-[13px]">12</span>
+</div>
+</div>
+</div>
+</div>
+</article>
+<!-- Card 2 (Unread) -->
+<article class="bg-surface-variant border border-outline-variant rounded-[12px] p-5 flex flex-col sm:flex-row gap-4 hover:shadow-[0_4px_12px_rgba(26,28,34,0.05)] transition-shadow duration-300 group cursor-pointer relative">
+<div class="absolute top-5 left-3 w-2 h-2 rounded-full bg-tertiary-container hidden sm:block"></div>
+<div class="flex-1 flex flex-col gap-2 min-w-0 sm:pl-4">
+<div class="flex items-start justify-between gap-4">
+<h2 class="text-[18px] font-semibold text-on-surface leading-snug group-hover:text-primary transition-colors flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tertiary-container sm:hidden"></div>
+                                        Debugging aggressive memory leaks in Node.js
+                                    </h2>
+<span class="px-2 py-0.5 bg-[#f2f0ec] text-on-surface-variant border border-outline-variant rounded text-caption font-caption whitespace-nowrap">Help</span>
+</div>
+<p class="text-body-md text-on-surface-variant line-clamp-2 mt-1">I'm seeing a steady increase in heap usage over 24 hours on our worker nodes. I've tracked it down to a potential closure issue within the event loop, but heap snapshots are inconclusive. Anyone faced similar issues with the latest LTS?</p>
+<div class="flex items-center justify-between mt-3 pt-3 border-t border-outline-variant/50">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2">
+<img alt="David Miller" class="w-6 h-6 rounded-full object-cover" data-alt="Profile picture of David Miller, an experienced developer in a casual professional setting, looking thoughtful. Warm, clear lighting, minimalist." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyJ9Z-I9x33VUOOd_pGo1j9RBlBFsxAV2_Tna53_Kc5nlxMwnUYHmT5BqPWWignD4RwnENCcL7SsoVxrTeZwwh_OdFWorcvhrfJ7fp5ApxfDlTtgKOEZ35zI_S0k0K3JWBHS_ncO3GsA6zpxYEoFAXsCT05lQ2yR7q5fDwvqoUTYTFFeW354mefB-ulNWl4_6HOMWb4OzobYbhEjJ9AAv8mvAcO5uSCwf9NGHHpYYSu59Tr37wJPVvAA"/>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">David Miller</span>
+</div>
+<span class="text-caption text-on-surface-variant/50 hidden sm:inline">•</span>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px] hidden sm:inline">Founding Member</span>
+<span class="text-caption text-on-surface-variant/50">•</span>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">5h ago</span>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px]">chat_bubble_outline</span>
+<span class="font-label-mono text-[13px] font-bold text-on-surface">5</span>
+</div>
+</div>
+</div>
+</div>
+</article>
+<!-- Card 3 (Answered) -->
+<article class="bg-surface-variant border border-outline-variant rounded-[12px] p-5 flex flex-col sm:flex-row gap-4 hover:shadow-[0_4px_12px_rgba(26,28,34,0.05)] transition-shadow duration-300 group cursor-pointer">
+<div class="flex-1 flex flex-col gap-2 min-w-0 sm:pl-4">
+<div class="flex items-start justify-between gap-4">
+<h2 class="text-[18px] font-semibold text-on-surface leading-snug group-hover:text-primary transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-green-600 text-[20px]">check_circle</span>
+                                        Optimal retry strategies for rate-limited APIs
+                                    </h2>
+</div>
+<p class="text-body-md text-on-surface-variant line-clamp-2 mt-1">What's the consensus on implementing exponential backoff with jitter when dealing with strict third-party rate limits? I'm trying to avoid thundering herd problems when the rate limit window resets.</p>
+<div class="flex items-center justify-between mt-3 pt-3 border-t border-outline-variant/50">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2">
+<img alt="Elena Rodriguez" class="w-6 h-6 rounded-full object-cover" data-alt="Profile picture of Elena Rodriguez, a young professional woman in a bright, modern cafe setting. Natural lighting, minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrIIOaM3VjqQN9NCugUGKRup3Il006Pf4BWj5Et1SjprRceqIX6hrMKKcJ59geioodt3fyYhwQCYOwHnAre992_wlqZRHWQOs2yW9YeN47I_FhaVbQ0Dd0qW0cgWi7lcKZQxyNjz_hBCpQRLP7qv3TbmOLrfiNOcBsGMeU1b5DMFQFGYrJmi4Zc1lqWRXMmj0jFYfxOjYTA63FPOxCGCn9kYqtAiR5mnKtW-MZ4jPZx5u_efOSRxaLTg"/>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">Elena Rodriguez</span>
+</div>
+<span class="text-caption text-on-surface-variant/50 hidden sm:inline">•</span>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px] hidden sm:inline">Pro Member</span>
+<span class="text-caption text-on-surface-variant/50">•</span>
+<span class="text-label-mono font-label-mono text-on-surface-variant text-[13px]">1d ago</span>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px]">chat_bubble_outline</span>
+<span class="font-label-mono text-[13px]">12</span>
+</div>
+</div>
+</div>
+</div>
+</article>
+</div>
+<!-- Load More -->
+<button class="w-full py-3 mt-2 border border-outline-variant rounded-lg text-body-md font-medium text-on-surface hover:bg-surface-variant transition-colors bg-surface">
+                        Load More Discussions
+                    </button>
+</div>
+<!-- Right Rail -->
+<aside class="w-full lg:w-[320px] flex-shrink-0 flex flex-col gap-lg">
+<!-- Next Live Session -->
+<div class="bg-surface-variant border border-outline-variant rounded-[12px] p-5 shadow-sm">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary text-[20px]">live_tv</span>
+<h3 class="text-body-lg font-semibold text-on-surface">Next Live Session</h3>
+</div>
+<div class="mb-4">
+<h4 class="font-medium text-on-surface mb-1">System Design Deep Dive: Caching</h4>
+<p class="text-body-md text-on-surface-variant">Tomorrow, 10:00 AM PST</p>
+</div>
+<div class="flex items-center justify-between bg-surface p-3 rounded-lg border border-outline-variant mb-4">
+<div class="flex flex-col items-center">
+<span class="font-label-mono font-bold text-on-surface">14</span>
+<span class="text-caption text-on-surface-variant uppercase">Hrs</span>
+</div>
+<span class="text-outline-variant">:</span>
+<div class="flex flex-col items-center">
+<span class="font-label-mono font-bold text-on-surface">32</span>
+<span class="text-caption text-on-surface-variant uppercase">Min</span>
+</div>
+<span class="text-outline-variant">:</span>
+<div class="flex flex-col items-center">
+<span class="font-label-mono font-bold text-on-surface">45</span>
+<span class="text-caption text-on-surface-variant uppercase">Sec</span>
+</div>
+</div>
+<button class="w-full bg-primary text-on-primary hover:bg-[#f5a524] transition-colors py-2.5 rounded-lg font-body-md font-medium">
+                            RSVP Now
+                        </button>
+</div>
+<!-- Trending This Week -->
+<div class="bg-surface-variant border border-outline-variant rounded-[12px] p-5 shadow-sm">
+<h3 class="text-body-lg font-semibold text-on-surface mb-4">Trending This Week</h3>
+<ul class="flex flex-col">
+<li class="py-3 border-b border-outline-variant last:border-0 hover:bg-[#f2f0ec] -mx-5 px-5 transition-colors group cursor-pointer">
+<a class="flex gap-3" href="#">
+<span class="font-label-mono text-primary font-bold mt-0.5">1</span>
+<div>
+<h4 class="text-body-md text-on-surface group-hover:text-primary transition-colors line-clamp-2">Best practices for structuring large React applications in 2024</h4>
+<p class="text-label-mono text-on-surface-variant text-[12px] mt-1">45 replies</p>
+</div>
+</a>
+</li>
+<li class="py-3 border-b border-outline-variant last:border-0 hover:bg-[#f2f0ec] -mx-5 px-5 transition-colors group cursor-pointer">
+<a class="flex gap-3" href="#">
+<span class="font-label-mono text-primary font-bold mt-0.5">2</span>
+<div>
+<h4 class="text-body-md text-on-surface group-hover:text-primary transition-colors line-clamp-2">Show &amp; Tell: My new terminal-based productivity tool</h4>
+<p class="text-label-mono text-on-surface-variant text-[12px] mt-1">32 replies</p>
+</div>
+</a>
+</li>
+<li class="py-3 border-b border-outline-variant last:border-0 hover:bg-[#f2f0ec] -mx-5 px-5 transition-colors group cursor-pointer">
+<a class="flex gap-3" href="#">
+<span class="font-label-mono text-primary font-bold mt-0.5">3</span>
+<div>
+<h4 class="text-body-md text-on-surface group-hover:text-primary transition-colors line-clamp-2">Moving away from AWS: Our migration story and lessons learned</h4>
+<p class="text-label-mono text-on-surface-variant text-[12px] mt-1">28 replies</p>
+</div>
+</a>
+</li>
+<li class="py-3 border-b border-outline-variant last:border-0 hover:bg-[#f2f0ec] -mx-5 px-5 transition-colors group cursor-pointer">
+<a class="flex gap-3" href="#">
+<span class="font-label-mono text-primary font-bold mt-0.5">4</span>
+<div>
+<h4 class="text-body-md text-on-surface group-hover:text-primary transition-colors line-clamp-2">Understanding zero-knowledge proofs (simplified)</h4>
+<p class="text-label-mono text-on-surface-variant text-[12px] mt-1">19 replies</p>
+</div>
+</a>
+</li>
+</ul>
+</div>
+<!-- Active Members -->
+<div class="bg-surface-variant border border-outline-variant rounded-[12px] p-5 shadow-sm">
+<div class="flex justify-between items-center mb-4">
+<h3 class="text-body-lg font-semibold text-on-surface">Active Members</h3>
+<a class="text-caption font-medium text-primary hover:underline" href="#">View All</a>
+</div>
+<div class="flex flex-wrap gap-2">
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 1: A close-up portrait of a professional in a minimalist setting. Light mode aesthetic, clean white background, soft natural lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCI3Axpd0057HZ4xcl1iEmNqBsxNVamtYM6ReqHGdH4zJmeZz8p9C95Q2P6brdxCI72kEA88nuytkU2eUUX4xSJ9E26vsLC87Cac6wzVuGvlk6QVzL8CYQj-su4fmMC9IIjUnOmSomMCxSzMRXpdtvcnBnkk11CHuZjfGlh9p1LmNK69i1-lOANVexGxmr4UQtEoI86g5aR9MRd-pEsE2_Vq4XXs8CW1YYD_T6P9-H98_eugYNS5k38Sw"/>
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 2: A professional headshot of a developer, friendly expression, well-lit modern studio, bright minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBHye_KcHEs2prN6HcDcXtvggPLEqsZJxGX9KGWylVSppBVS3EM2LL5397bGOKeeZGeKFOyI1_WvO6RZWF6Wff9MNV8x4ztG3aH7BNfgJLGyf1t1eU_vM3UND203RDMDwM9ZPKDaM8RgqLBM_wZ5cpCaY5G-TBKZxpe-ZSouewRoB8dSEf136MUhsi6Z9O4ojmtoh1-94-uAXBl1psYfqbQZabiHdF5tyrOU0rs9s0i58gXMGM1kNcdVg"/>
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 3: Portrait of a designer in a creative office space. High-key lighting, bright airy feel, professional tone." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDSEQfr8UpI0k_xF71MdraHMq9KF5s3Ebr8qwwN3cCx9qaUJifEmuSpISH7euMuT-kbUTu9rrMhcIqBD0PKIa95p4uwRBVPhm3cIrS2G567saMCr2u1QnCkFew0ObGX-xMyqCnc0G3uMZZ7QVY7Q2iSn6UT7Xgfz9ixYnOg7SszHpphA4mEfghkZ_x-2AMyQEzfjzNRyNyHFfKCYmR5iQURVGCMNtjOKYBKJIfE65YNbYvUI-BwvWv3EQ"/>
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 4: Clean, professional profile picture. Person looking directly at camera, soft shadows, pristine light environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFWgmx49sqiZrL2oFBzCrpM98iaZsx3ezYL9MaMiaKKdpLZyBsuM7mhv8u5oZKjDf9tBhKL240BZy6Mvrj0OysW9zWab6mxrqSy5aoalv_KgYbiNJApK4aBB0wgNsI67cder8mfE6yZCorN7G649rZo6mNC4vBN7vIwKsbAfY-E1xm-DBqKWaRJRxJlXsqwBvj6BkfAldth-mUiZN7DJXA-1bg8iEtXsuBGjRa9Iumpx3t7CuSHNRMNA"/>
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 5: Modern corporate headshot. Warm tones, crisp focus, minimalist background reflecting a premium SaaS feel." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCdG1way_1IlPt0sz3VSCKYEq9mOE4eyWVbrxaLb2J2188DJn9CmfUsL-NeuioxOCcildWLL3uTvwA0BDQSNjxPRuGqcN1yqjNXOxjz07WXQ4nGI8C19VeVGigseeyEdvPRg86tGR2i0jPaQOPcjIJpZed9wAcQUhEOxEVWyOUZLpZVXH8EElTkkrQKiCqQoP3Ta7MqwhHm7sc4tQ5jrlFkcORk7f_GKN91RLC7oU5y1y-KSRPbAneT3A"/>
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 6: Tech professional smiling. Bright, diffused light, uncluttered background, conveying trustworthiness and expertise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWwMmACGKJc3ReQ40E-FgOlqPbfYssgJGxP8CJM_37MB1w2QCXJM-vGXSaaXW08CqEVkrMRe2dZ5SoRs08J5U7DwUu_ZCJaAF9JqneNzNd5nib0AKu-KYhQ-zaf_W9i_qD2mEp2RAHltThieKXHmM8YC6zvDL_q8QSCqZPw0pIPkZsbMW9TsxsnEHcd2Jg5NK21dFDo9acuDN89SJDPV9tIkrmfhQTJgcW-sul7BZ7xK1HbtDqNi-MAw"/>
+<img alt="Member" class="w-10 h-10 rounded-full object-cover border-2 border-surface cursor-pointer hover:border-primary transition-colors" data-alt="Avatar 7: Stylish, contemporary portrait of a community member. Bright exposure, clean composition, high-end professional look." src="https://lh3.googleusercontent.com/aida-public/AB6AXuArFIi-hxlZi3GiiZ-ZCT2AorTQzloz7MldkY37bFVJ_ElvLxXfACvPBYDqMdrbGtrg_08SaHvuPOQcboKnZatFuMH96mS4oLB4UcxGrH752LhMK8Jk0KjUh8JUL220rHtO9ckcSGx8lh1EqvTA9jE5efsL2RnM5ZE7xzJLuEnyjQwh8eD_Bu9PTNUNJ65-zug0buZEwUWz7eBiFzy5_vRYH3sQSoCb8PkHxYFSNux3UT7VqfRN81CcjQ"/>
+<div class="w-10 h-10 rounded-full bg-[#f2f0ec] border-2 border-surface flex items-center justify-center text-caption font-bold text-on-surface-variant cursor-pointer hover:border-primary transition-colors">
+                                 +42
+                             </div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</body></html>

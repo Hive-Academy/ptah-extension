@@ -133,8 +133,8 @@ export interface AISessionConfig {
    * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
    * otherwise falls back to 'claude_code'.
    *
-   * For premium users, PTAH_SYSTEM_PROMPT (MCP documentation) is always injected
-   * regardless of preset selection when MCP server is running.
+   * PTAH_SYSTEM_PROMPT (MCP documentation) is always injected regardless of
+   * preset selection when the MCP server is running.
    */
   readonly preset?: 'claude_code' | 'enhanced';
   /**
@@ -169,6 +169,38 @@ export interface AISessionConfig {
    * track which sessions are kept alive for follow-up `corpus:query` calls.
    */
   readonly isCorpusPrimingSession?: boolean;
+  /**
+   * Kill switch for the SDK's built-in workflows (ultracode/workflow keyword).
+   * Resolved from the persisted `workflows.disabled` ptah config at the session
+   * origination point (chat-session.service) and threaded through to
+   * `SdkQueryOptionsBuilder`, which injects `CLAUDE_CODE_DISABLE_WORKFLOWS=1`
+   * into the query env only when `true`. Absent/false leaves workflows ON.
+   */
+  readonly workflowsDisabled?: boolean;
+  /**
+   * Output-style NAME for the SDK's FLAG tier (`Options.settings.outputStyle`).
+   *
+   * Set ONLY when `ActivationDecision.path === 'flag'`. Resolved once per
+   * session by `OutputStyleActivationResolver` and never cached across
+   * sessions, so a provider change re-resolves it (Req 5.6).
+   *
+   * This is deliberately a SEPARATE field from `outputStyleBody`, not one
+   * field carrying both meanings: the two activation paths are complements of
+   * a single boolean and must stay physically disjoint all the way to the SDK,
+   * which is what makes "applied exactly once" (Req 5.3) structural rather
+   * than a runtime check. Never set both.
+   */
+  readonly outputStyleName?: string;
+  /**
+   * Output-style BODY, appended to the assembled system prompt.
+   *
+   * Set ONLY when `ActivationDecision.path === 'inject'` — a user-tier style
+   * file on a localhost-proxy provider, where `settingSources` drops `'user'`
+   * and the SDK never scans `~/.claude/output-styles/` at all.
+   *
+   * See `outputStyleName` for why these are two fields. Never set both.
+   */
+  readonly outputStyleBody?: string;
 }
 
 /**

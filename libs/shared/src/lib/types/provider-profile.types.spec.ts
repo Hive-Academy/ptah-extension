@@ -1,7 +1,5 @@
-import {
-  ProviderProfileSchema,
-  type ProviderProfile,
-} from './provider-profile.types';
+import { ProviderProfileSchema } from './provider-profile.schemas';
+import type { ProviderProfile } from './provider-profile.types';
 
 describe('ProviderProfileSchema', () => {
   it('parses a minimal Anthropic direct profile', () => {

@@ -77,4 +77,29 @@ export const PLATFORM_TOKENS = {
    * NullSessionAttachmentGuard (vscode-core default, VS Code host).
    */
   SESSION_ATTACHMENT_GUARD: Symbol.for('PlatformSessionAttachmentGuard'),
+
+  /**
+   * IOAuthCallbackListener — optional OAuth redirect-capture override. Adapter:
+   * VscodeUriOAuthCallbackListener (platform-vscode, VS Code host only). When
+   * unregistered (Electron / CLI), McpOAuthService falls back to the loopback.
+   */
+  OAUTH_CALLBACK_LISTENER: Symbol.for('PlatformOAuthCallbackListener'),
+  /**
+   * IFileDialog — "choose file(s)" dialog. Adapters: VscodeFileDialog,
+   * ElectronFileDialog, and the TUI's overlay bridge. Unregistered on the
+   * stdio CLI, whose profile leaves the picker capabilities off.
+   */
+  FILE_DIALOG: Symbol.for('FileDialog'),
+
+  /**
+   * IPtyHost — spawn/kill pseudo-terminals for the `terminal:*` RPC methods.
+   * Registered only by hosts whose profile sets `pty: true` (Electron today).
+   */
+  PTY_HOST: Symbol.for('PlatformPtyHost'),
+
+  /**
+   * IAppUpdater — read/trigger the desktop update lifecycle for `update:*`.
+   * Registered only by hosts whose profile sets `appUpdater: true`.
+   */
+  APP_UPDATER: Symbol.for('PlatformAppUpdater'),
 } as const;

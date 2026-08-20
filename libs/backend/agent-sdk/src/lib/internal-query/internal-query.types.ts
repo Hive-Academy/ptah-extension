@@ -43,9 +43,6 @@ export interface InternalQueryConfig {
    */
   systemPromptAppend?: string;
 
-  /** Whether user has premium features (enables MCP server + enhanced prompts) */
-  isPremium: boolean;
-
   /** Whether the Ptah MCP server is currently running */
   mcpServerRunning: boolean;
 
@@ -65,9 +62,6 @@ export interface InternalQueryConfig {
 
   /** Abort controller for cancellation (created internally if not provided) */
   abortController?: AbortController;
-
-  /** Absolute paths to plugin directories (from PluginLoaderService) */
-  pluginPaths?: string[];
 
   auth?: OneShotAuthOverride;
 }

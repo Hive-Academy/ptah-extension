@@ -75,13 +75,13 @@ import type {
           >
             <lucide-angular
               [img]="summaryCollapsed() ? ChevronRightIcon : ChevronDownIcon"
-              class="w-3.5 h-3.5 text-base-content/50"
+              class="w-3.5 h-3.5 text-base-content-muted"
             />
             <lucide-angular
               [img]="FileTextIcon"
               class="w-3.5 h-3.5 text-secondary"
             />
-            <span class="text-[11px] font-medium text-base-content/70">
+            <span class="text-[11px] font-medium text-base-content-muted">
               Summary
               @if (isStreaming() && !agentInfo().summaryContent) {
                 <lucide-angular
@@ -105,12 +105,14 @@ import type {
                       [content]="agentInfo().summaryContent!"
                     />
                     @if (isStreaming()) {
-                      <ptah-typing-cursor colorClass="text-base-content/50" />
+                      <ptah-typing-cursor
+                        colorClass="text-base-content-muted"
+                      />
                     }
                   </div>
                 } @else {
                   <div
-                    class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
+                    class="flex items-center gap-2 text-[11px] text-base-content-muted italic"
                     animate.enter="ae-fade-in"
                   >
                     <lucide-angular
@@ -138,17 +140,17 @@ import type {
           >
             <lucide-angular
               [img]="executionCollapsed() ? ChevronRightIcon : ChevronDownIcon"
-              class="w-3.5 h-3.5 text-base-content/50"
+              class="w-3.5 h-3.5 text-base-content-muted"
             />
             <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5 text-info" />
-            <span class="text-[11px] font-medium text-base-content/70">
+            <span class="text-[11px] font-medium text-base-content-muted">
               Execution
               @if (isStreaming()) {
-                <span class="text-base-content/40 ml-1"
+                <span class="text-base-content-muted ml-1"
                   >({{ toolCount() }} tools running...)</span
                 >
               } @else if (toolCount() > 0) {
-                <span class="text-base-content/40 ml-1"
+                <span class="text-base-content-muted ml-1"
                   >({{ toolCount() }} tools)</span
                 >
               }
@@ -158,7 +160,7 @@ import type {
             ) {
               <lucide-angular
                 [img]="LoaderIcon"
-                class="w-3 h-3 text-base-content/40 animate-spin ml-auto"
+                class="w-3 h-3 text-base-content-muted animate-spin ml-auto"
               />
             }
           </button>
@@ -184,7 +186,7 @@ import type {
                   }
                 } @else {
                   <div
-                    class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
+                    class="flex items-center gap-2 text-[11px] text-base-content-muted italic"
                     animate.enter="ae-fade-in"
                   >
                     <lucide-angular
@@ -218,7 +220,7 @@ import type {
         } @else if (isStreaming()) {
           <!-- Streaming but no content yet -->
           <div
-            class="flex items-center gap-2 text-[11px] text-base-content/40 italic px-2 py-3"
+            class="flex items-center gap-2 text-[11px] text-base-content-muted italic px-2 py-3"
           >
             <lucide-angular
               [img]="LoaderIcon"
@@ -229,7 +231,7 @@ import type {
         } @else {
           <!-- Completed with no content (unusual) -->
           <div
-            class="flex items-center gap-2 text-[11px] text-base-content/40 italic px-2 py-3"
+            class="flex items-center gap-2 text-[11px] text-base-content-muted italic px-2 py-3"
           >
             <span>No execution data available</span>
           </div>

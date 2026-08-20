@@ -63,6 +63,14 @@ export class SubagentStateStore {
   private readonly pendingBackgroundToolCallIds = new Set<string>();
 
   /**
+   * Human-legible teammate names captured from the Agent/Task tool's `name`
+   * input by SdkMessageTransformer BEFORE the SubagentStart hook fires. Keyed
+   * by the Task tool_use id (toolCallId). Consumed at register() time and
+   * merged onto the SubagentRecord as `teammateName`.
+   */
+  private readonly pendingTeammateNames = new Map<string, string>();
+
+  /**
    * Parent session IDs currently inside endSession()/disposeAllSessions()
    * teardown. While a session is in this set, 'completed' transitions for its
    * already-interrupted records are ignored — the SDK's graceful interrupt
@@ -128,22 +136,51 @@ export class SubagentStateStore {
     this.registry.clear();
     this.clearedToolCallIds.clear();
     this.pendingBackgroundToolCallIds.clear();
+    this.pendingTeammateNames.clear();
     this.teardownSessionIds.clear();
     this.injectionAttempts.clear();
   }
 
-  /** Mark a parent session as being torn down. */
+  /**
+   * Mark a parent session as being torn down.
+   *
+   * An empty id is not a session and is ignored. The teardown set is keyed by
+   * parent session id, so admitting `''` would make one session's teardown
+   * window protect every other record that also carries `''` — those records
+   * then stay `interrupted` forever and keep being offered for resume long
+   * after they finished.
+   */
   beginTeardown(parentSessionId: string): void {
+    if (!parentSessionId) {
+      this.logger.warn(
+        '[SubagentRegistryService.beginTeardown] Ignoring teardown marker for an empty parentSessionId',
+      );
+      return;
+    }
     this.teardownSessionIds.add(parentSessionId);
   }
 
   /** Clear the teardown marker for a parent session. */
   endTeardown(parentSessionId: string): void {
+    if (!parentSessionId) {
+      return;
+    }
     this.teardownSessionIds.delete(parentSessionId);
   }
 
-  /** Whether a parent session is currently being torn down. */
-  isInTeardown(parentSessionId: string): boolean {
+  /**
+   * Whether a parent session is currently being torn down.
+   *
+   * A record with no known parent (`SubagentRecord.parentSessionId` is
+   * optional) is in nobody's teardown window: the set is keyed by a specific
+   * parent, and an unattributed record cannot be claimed by one. Answering
+   * `false` keeps the teardown protection scoped to the session that asked for
+   * it.
+   */
+  isInTeardown(parentSessionId: string | undefined): boolean {
+    if (!parentSessionId) {
+      return false;
+    }
     return this.teardownSessionIds.has(parentSessionId);
   }
 
@@ -184,6 +221,32 @@ export class SubagentStateStore {
       this.pendingBackgroundToolCallIds.delete(toolCallId);
     }
     return had;
+  }
+
+  /** Record a human-legible teammate name for a not-yet-registered toolCallId. */
+  markPendingTeammateName(toolCallId: string, teammateName: string): void {
+    this.pendingTeammateNames.set(toolCallId, teammateName);
+  }
+
+  /**
+   * Consume a pending teammate name — returns the name if one was pre-marked,
+   * and atomically removes it. Returns undefined when none was recorded.
+   */
+  consumePendingTeammateName(toolCallId: string): string | undefined {
+    const name = this.pendingTeammateNames.get(toolCallId);
+    if (name !== undefined) {
+      this.pendingTeammateNames.delete(toolCallId);
+    }
+    return name;
+  }
+
+  /**
+   * Peek at a pending teammate name WITHOUT consuming it. Used by emit sites
+   * that may fire before the SubagentStart hook has registered the record, so
+   * the name must remain available for the later consumePendingTeammateName().
+   */
+  peekPendingTeammateName(toolCallId: string): string | undefined {
+    return this.pendingTeammateNames.get(toolCallId);
   }
 
   /** Remember that a toolCallId was injected into context and removed. */

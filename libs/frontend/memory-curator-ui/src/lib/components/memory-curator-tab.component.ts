@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -77,11 +78,11 @@ const SEARCH_DEBOUNCE_MS = 300;
       >
         <lucide-angular
           [img]="BrainIcon"
-          class="size-8 text-base-content/30"
+          class="size-8 text-base-content-muted"
           aria-hidden="true"
         />
         <p class="text-sm font-medium">Memory lives in the desktop app</p>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Memory curation needs the local index and runs only in Ptah desktop.
         </p>
         <a
@@ -107,7 +108,7 @@ const SEARCH_DEBOUNCE_MS = 300;
             </span>
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Memory</h1>
-              <p class="mt-0.5 text-sm text-base-content/60">
+              <p class="mt-0.5 text-sm text-base-content-muted">
                 Facts, events, and code Thoth has learned across sessions.
               </p>
             </div>
@@ -200,7 +201,7 @@ const SEARCH_DEBOUNCE_MS = 300;
               />
 
               <section class="space-y-2">
-                <h2 class="text-sm font-medium text-base-content/80">
+                <h2 class="text-sm font-medium text-base-content-muted">
                   Advanced indexing
                 </h2>
                 <ptah-workspace-indexing />
@@ -213,7 +214,7 @@ const SEARCH_DEBOUNCE_MS = 300;
                 class="space-y-2"
                 data-testid="memory-diagnostics-details"
               >
-                <h2 class="text-sm font-medium text-base-content/80">
+                <h2 class="text-sm font-medium text-base-content-muted">
                   Diagnostics
                 </h2>
                 <ptah-memory-diagnostics-accordion />
@@ -380,16 +381,57 @@ export class MemoryCuratorTabComponent implements OnInit {
       void this.state.loadSymbols();
     });
     effect(() => {
+      // Track ONLY indexing completion. Reading workspaceInfo/config inside the
+      // tracked context would make this effect ALSO fire on a workspace switch,
+      // double-fetching alongside the dedicated switch effect below — so the
+      // rest runs untracked.
       this.indexingService.completedAt();
-      if (!this.isElectron()) return;
-      void this.state.loadStats();
-      void this.state.refresh();
-      void this.state.loadSymbols();
-      const root = this.appState.workspaceInfo()?.path;
-      if (root) {
-        void this.indexingService.loadStatus(root).catch(() => undefined);
-      }
+      untracked(() => {
+        if (!this.isElectron()) return;
+        void this.state.loadStats();
+        void this.state.refresh();
+        void this.state.loadSymbols();
+        const root = this.appState.workspaceInfo()?.path;
+        if (root) {
+          void this.indexingService.loadStatus(root).catch(() => undefined);
+        }
+      });
     });
+    // Follow the active Electron workspace. Tracks ONLY the workspace path so it
+    // composes with (rather than duplicating) the tier/scope/completedAt effects
+    // above. The baseline is seeded synchronously below with the same path
+    // `ngOnInit` loads, so a switch that lands between construction and the
+    // effect's first flush is treated as a real switch (fetch) rather than
+    // silently recorded; every subsequent switch reloads for the new root.
+    this.lastWorkspacePath = this.appState.workspaceInfo()?.path ?? null;
+    effect(() => {
+      const path = this.appState.workspaceInfo()?.path ?? null;
+      const prev = this.lastWorkspacePath;
+      this.lastWorkspacePath = path;
+      if (prev === path) return;
+      untracked(() => this.onWorkspaceSwitch(path));
+    });
+  }
+
+  /**
+   * The workspace path the switch effect last observed. Seeded synchronously at
+   * construction with the path `ngOnInit` loads, so the effect's first flush
+   * neither double-fetches (when unchanged) nor swallows a switch that raced
+   * construction (Issue 7).
+   */
+  private lastWorkspacePath: string | null = null;
+
+  private onWorkspaceSwitch(path: string | null): void {
+    if (!this.isElectron()) return;
+    // In 'all' scope the data is cross-workspace and identical before/after a
+    // switch, so there is nothing new to fetch — skip the round trips.
+    if (this.state.scopeFilter() === 'all') return;
+    void this.state.loadStats();
+    void this.state.refresh();
+    void this.state.loadSymbols();
+    if (path) {
+      void this.indexingService.loadStatus(path).catch(() => undefined);
+    }
   }
 
   public ngOnInit(): void {

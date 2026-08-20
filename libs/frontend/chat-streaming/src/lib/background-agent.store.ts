@@ -35,13 +35,30 @@ import {
   BackgroundAgentId,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
+import { agentVisibleInSession, knownSessionId } from './session-scope';
 
 export interface BackgroundAgentEntry {
   readonly toolCallId: string;
   readonly agentId: BackgroundAgentId;
+  /**
+   * True only when `agentId` is a genuine SDK-issued id. False when the
+   * `background_agent` event omitted it and `resolveKey` substituted the
+   * `toolCallId` as the storage key — in that case `agentId` cannot address
+   * a real subagent transcript, so transcript reads must be gated off it.
+   */
+  readonly hasRealAgentId: boolean;
   readonly agentType: string;
+  /** Human-legible subagent (teammate) name; preferred over `agentType` for display. */
+  readonly teammateName?: string;
   readonly agentDescription?: string;
-  readonly sessionId: ClaudeSessionId;
+  /**
+   * Owning session. Optional because the `background_agent_*` events can carry
+   * `''` while the SDK session is still resolving, and `''` is not a session —
+   * it is normalized away at ingestion so this field is either a real id or
+   * absent. An entry with no owner is visible from every session
+   * (`agentVisibleInSession`) rather than from none.
+   */
+  readonly sessionId?: ClaudeSessionId;
   status: 'running' | 'completed' | 'error' | 'stopped';
   readonly startedAt: number;
   completedAt?: number;
@@ -208,9 +225,15 @@ export class BackgroundAgentStore implements OnDestroy {
     return this._agents().get(agentId)?.sessionId ?? null;
   }
 
-  /** Get agents filtered by sessionId */
+  /**
+   * Get agents visible from a session — the same rule the monitor store's
+   * views use: a known owner must match, an entry with no resolved owner is
+   * visible everywhere so it can never become unreachable.
+   */
   agentsForSession(sessionId: string): BackgroundAgentEntry[] {
-    return this.agents().filter((a) => a.sessionId === sessionId);
+    return this.agents().filter((a) =>
+      agentVisibleInSession(a.sessionId, sessionId),
+    );
   }
 
   onStarted(event: BackgroundAgentStartedEvent): void {
@@ -225,9 +248,13 @@ export class BackgroundAgentStore implements OnDestroy {
       next.set(key, {
         toolCallId: event.toolCallId,
         agentId: key,
+        hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
         agentType: event.agentType,
+        teammateName: event.teammateName,
         agentDescription: event.agentDescription,
-        sessionId: event.sessionId as ClaudeSessionId,
+        sessionId: knownSessionId(event.sessionId) as
+          | ClaudeSessionId
+          | undefined,
         status: 'running',
         startedAt: event.timestamp,
         summary: '',
@@ -272,8 +299,11 @@ export class BackgroundAgentStore implements OnDestroy {
         next.set(key, {
           toolCallId: event.toolCallId,
           agentId: key,
+          hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
           agentType: event.agentType || 'unknown',
-          sessionId: event.sessionId as ClaudeSessionId,
+          sessionId: knownSessionId(event.sessionId) as
+            | ClaudeSessionId
+            | undefined,
           status: 'completed',
           startedAt: event.timestamp,
           completedAt: event.timestamp,
@@ -305,8 +335,11 @@ export class BackgroundAgentStore implements OnDestroy {
         next.set(key, {
           toolCallId: event.toolCallId,
           agentId: key,
+          hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
           agentType: event.agentType || 'unknown',
-          sessionId: event.sessionId as ClaudeSessionId,
+          sessionId: knownSessionId(event.sessionId) as
+            | ClaudeSessionId
+            | undefined,
           status: 'stopped',
           startedAt: event.timestamp,
           completedAt: event.timestamp,

@@ -1,21 +1,37 @@
 import type { DependencyContainer } from 'tsyringe';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type {
-  ContentDownloadService,
-  IStateStorage,
-} from '@ptah-extension/platform-core';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import {
-  AGENT_GENERATION_TOKENS,
-  type UserLayerMirrorService,
-} from '@ptah-extension/agent-generation';
 import type {
   SkillRepropagationKind,
   SkillRepropagationPort,
 } from '@ptah-extension/skill-synthesis';
-import { activateSkillJunctions } from './plugin-activation';
-import { syncCliAgentsOnActivation } from './cli-agent-sync';
+import {
+  HARNESS_SYNC_TOKENS,
+  type HarnessPropagationService,
+} from '@ptah-extension/harness-sync';
 
+/**
+ * Push a skill, command or agent the synthesis pipeline just changed out to
+ * every harness surface, in this host, now.
+ *
+ * All three kinds travel the SAME road since TASK_2026_278 Batch 2. They used
+ * to travel three: skills and commands went through `CliPluginSyncService` and
+ * then a separate Claude-side pass, while `'agent'` went through
+ * `MultiCliAgentWriterService` with its own CLI detection and its own hash
+ * gate. One reconcile now covers Claude and every rival CLI, for every artifact
+ * family, under one manifest — so this class no longer has to know which kind
+ * reaches which tool.
+ *
+ * Batch 3 moved it from a bare reconcile onto `HarnessPropagationService`,
+ * which refreshes the user layer first. That is not cosmetic, and `'agent'` is
+ * why: `{ws}/.claude/agents` is a SOURCE the mirror reads FROM, so an enhanced
+ * agent file had changed nothing the reconciler could see and the pass
+ * propagated the pre-enhancement content while reporting success. Skills have
+ * the same shape through `~/.ptah/skills/<slug>` after a promotion.
+ *
+ * The pass is idempotent: an event that changed nothing costs a directory walk
+ * and a hash compare, which is why it is safe to fire on every kind rather than
+ * trying to be clever about which surfaces a given change could possibly touch.
+ */
 export class ElectronSkillRepropagation implements SkillRepropagationPort {
   constructor(private readonly container: DependencyContainer) {}
 
@@ -26,19 +42,20 @@ export class ElectronSkillRepropagation implements SkillRepropagationPort {
   ): Promise<void> {
     const logger = this.resolveLogger();
     try {
-      switch (kind) {
-        case 'agent':
-          this.repropagateAgents(workspaceRoot);
-          break;
-        case 'command':
-          await this.repropagateClis(workspaceRoot);
-          this.refreshClaudeCommands();
-          break;
-        case 'skill':
-        default:
-          await this.repropagateClis(workspaceRoot);
-          break;
+      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) {
+        logger?.debug(
+          '[SkillRepropagation] Harness propagation not registered',
+          {
+            kind,
+            slug,
+          },
+        );
+        return;
       }
+      const propagation = this.container.resolve<HarnessPropagationService>(
+        HARNESS_SYNC_TOKENS.PROPAGATION,
+      );
+      await propagation.propagate(workspaceRoot, `skill-repropagation:${kind}`);
       logger?.debug('[SkillRepropagation] Re-propagated enhanced clone', {
         kind,
         slug,
@@ -51,51 +68,6 @@ export class ElectronSkillRepropagation implements SkillRepropagationPort {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }
-
-  private async repropagateClis(workspaceRoot: string): Promise<void> {
-    const cliPluginSync = this.container.resolve(
-      TOKENS.CLI_PLUGIN_SYNC_SERVICE,
-    ) as {
-      initialize: (globalState: IStateStorage) => void;
-      syncForce: (
-        sources: { skillsRoot: string; commandsRoot: string },
-        workspaceRoot: string | undefined,
-      ) => Promise<unknown[]>;
-    };
-
-    const globalState = this.container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.STATE_STORAGE,
-    );
-    cliPluginSync.initialize(globalState);
-
-    const mirror = this.container.resolve<UserLayerMirrorService>(
-      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
-    );
-    const roots = mirror.getUserLayerRoots();
-
-    await cliPluginSync.syncForce(
-      { skillsRoot: roots.skills, commandsRoot: roots.commands },
-      workspaceRoot,
-    );
-  }
-
-  private refreshClaudeCommands(): void {
-    const contentDownload = this.container.resolve<ContentDownloadService>(
-      PLATFORM_TOKENS.CONTENT_DOWNLOAD,
-    );
-    const mirror = this.container.resolve<UserLayerMirrorService>(
-      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
-    );
-    const roots = mirror.getUserLayerRoots();
-    activateSkillJunctions(this.container, contentDownload.getPluginsPath(), {
-      skills: roots.skills,
-      commands: roots.commands,
-    });
-  }
-
-  private repropagateAgents(workspaceRoot: string): void {
-    syncCliAgentsOnActivation(this.container, workspaceRoot);
   }
 
   private resolveLogger(): Logger | null {

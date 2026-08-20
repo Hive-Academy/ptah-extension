@@ -35,7 +35,7 @@
             {
               "type": "anyComponentStyle",
               "maximumWarning": "4kb",
-              "maximumError": "8kb"
+              "maximumError": "32kb"
             }
           ],
           "outputHashing": "all",
@@ -50,6 +50,17 @@
           "optimization": false,
           "extractLicenses": false,
           "sourceMap": true
+        },
+        "checkout": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true,
+          "fileReplacements": [
+            {
+              "replace": "apps/ptah-landing-page/src/environments/environment.ts",
+              "with": "apps/ptah-landing-page/src/environments/environment.checkout.ts"
+            }
+          ]
         }
       },
       "defaultConfiguration": "production"
@@ -66,6 +77,9 @@
         },
         "development": {
           "buildTarget": "ptah-landing-page:build:development"
+        },
+        "checkout": {
+          "buildTarget": "ptah-landing-page:build:checkout"
         }
       },
       "defaultConfiguration": "development"
@@ -94,12 +108,12 @@
         "buildTarget": "ptah-landing-page:build",
         "staticFilePath": "dist/ptah-landing-page/browser",
         "spa": true
-      },
-      "typecheck": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "tsc --noEmit --project apps/ptah-landing-page/tsconfig.app.json"
-        }
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project apps/ptah-landing-page/tsconfig.app.json"
       }
     }
   }

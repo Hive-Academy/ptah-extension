@@ -94,7 +94,7 @@ import type {
       <!-- Current question -->
       <div class="py-2 px-2">
         @if (currentQuestion(); as question) {
-          <p class="text-[11px] font-medium text-base-content/90 mb-1.5">
+          <p class="text-[11px] font-medium text-base-content-muted mb-1.5">
             {{ question.question }}
           </p>
 
@@ -126,7 +126,9 @@ import type {
                   <div class="flex-1 min-w-0">
                     <span class="font-medium">{{ option.label }}</span>
                     @if (option.description) {
-                      <p class="text-[9px] text-base-content/50 leading-tight">
+                      <p
+                        class="text-[9px] text-base-content-muted leading-tight"
+                      >
                         {{ option.description }}
                       </p>
                     }
@@ -158,7 +160,9 @@ import type {
                   <div class="flex-1 min-w-0">
                     <span class="font-medium">{{ option.label }}</span>
                     @if (option.description) {
-                      <p class="text-[9px] text-base-content/50 leading-tight">
+                      <p
+                        class="text-[9px] text-base-content-muted leading-tight"
+                      >
                         {{ option.description }}
                       </p>
                     }
@@ -186,7 +190,7 @@ import type {
                   <lucide-angular [img]="PenLineIcon" class="w-2.5 h-2.5" />
                   Other
                 </span>
-                <p class="text-[9px] text-base-content/50 leading-tight">
+                <p class="text-[9px] text-base-content-muted leading-tight">
                   Type a custom response
                 </p>
               </div>
@@ -236,7 +240,7 @@ import type {
         }
 
         <!-- Progress text -->
-        <span class="text-[9px] text-base-content/50 flex-1 text-center">
+        <span class="text-[9px] text-base-content-muted flex-1 text-center">
           {{ getAnsweredCount() }}/{{ request().questions.length }} answered
         </span>
 

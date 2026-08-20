@@ -70,6 +70,40 @@ export function deriveSmitheryServerKey(qualifiedName: string): string {
 }
 
 /**
+ * Validated shape for the `mcpDirectory:connectOAuth` RPC method.
+ *
+ * `serverUrl` is the remote MCP server the user wants to connect via OAuth. The
+ * flow itself acquires and stores the tokens backend-side — no secret crosses
+ * this boundary.
+ */
+export const ConnectOAuthSchema = z.object({
+  serverUrl: z.string().url(),
+  name: z.string().min(1).optional(),
+  serverKey: z.string().min(1).optional(),
+  scope: z.string().min(1).optional(),
+  // Pre-registered client credentials for auth servers without DCR. Secret is
+  // used only in-memory during the flow and stored in the encrypted token record.
+  clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
+});
+
+export type ConnectOAuthInput = z.infer<typeof ConnectOAuthSchema>;
+
+/** Validated shape for the `mcpDirectory:oauthStatus` RPC method. */
+export const OAuthStatusSchema = z.object({
+  serverKey: z.string().min(1),
+});
+
+export type OAuthStatusInput = z.infer<typeof OAuthStatusSchema>;
+
+/** Validated shape for the `mcpDirectory:disconnectOAuth` RPC method. */
+export const DisconnectOAuthSchema = z.object({
+  serverKey: z.string().min(1),
+});
+
+export type DisconnectOAuthInput = z.infer<typeof DisconnectOAuthSchema>;
+
+/**
  * Secret storage key for the Smithery API key. Kept in lockstep with the
  * `SMITHERY_API_KEY_DEF` descriptor in `@ptah-extension/settings-core`.
  * Routed through `IAuthSecretsService` provider-key slots (each id gets an

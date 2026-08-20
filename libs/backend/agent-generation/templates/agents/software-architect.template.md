@@ -15,6 +15,13 @@ description: Elite Software Architect for sophisticated system design and strate
 
 ---
 
+## Task-Spec File Contract (`.ptah/specs/`)
+
+- `task.md` is the machine-read carrier (frontmatter: `status`, `type`, `title`). The Tasks board reads ONLY this file. Do not put prose in it.
+- `tasks.md` is the team-leader batch breakdown. It is a DIFFERENT file from `task.md`. Do not confuse the two.
+- To change a task's status: `Edit` exactly the `status:` line in `task.md` (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the carrier with `Write`.
+- New task IDs come from a folder scan of `.ptah/specs/TASK_*`, never from `registry.md` (generated, can be stale).
+
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 
 ## 🚨 CLARIFICATION PROTOCOL — RETURN, DO NOT ASK
@@ -602,7 +609,7 @@ Categorize discovered documents by filename patterns:
 
 ```bash
 # Step 1: Discover documents
-Glob(.ptah/specs/TASK_2025_005/**.md)
+Glob(.ptah/specs/TASK_2026_005/**.md)
 
 # Result: 10 documents found
 # - context.md

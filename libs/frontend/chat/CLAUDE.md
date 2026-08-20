@@ -8,7 +8,7 @@ Chat feature library — the stateful orchestrator that composes presentational 
 
 ## Boundaries
 
-**Belongs here**: chat organisms (`message-bubble`, `agent-monitor-panel`, `execution/*`, `workspace-sidebar`), templates (`chat-view`, `app-shell`, `electron-shell`, `welcome`), the `ChatStore` facade, settings UI, chat-specific services (`MessageSenderService`, `FilePickerService`, `PanelResizeService`, `TypewriterService`, `KeyboardShortcutsService`, `WorkspaceCoordinatorService`), and the `@`/`/` trigger directives.
+**Belongs here**: chat organisms (`message-bubble`, `agent-monitor-panel`, `execution/*`, `workspace-sidebar`), templates (`chat-view`, `app-shell`, `electron-shell`), the `ChatStore` facade, settings UI, chat-specific services (`MessageSenderService`, `FilePickerService`, `PanelResizeService`, `TypewriterService`, `KeyboardShortcutsService`, `WorkspaceCoordinatorService`), and the `@`/`/` trigger directives.
 
 **Does NOT belong**: presentational atoms/molecules (→ `chat-ui`), per-tab/conversation state primitives (→ `chat-state`), SDK event ingestion or execution-tree building (→ `chat-streaming`), router resolution between events and surfaces (→ `chat-routing`), pure tree builder functions (→ `chat-execution-tree`), backend services.
 
@@ -21,7 +21,7 @@ Re-exports `./lib/components`, `./lib/settings`, `./lib/services`, `./lib/direct
 - `src/lib/components/atoms/` — only `resize-handle.component.ts` (CDK-drag horizontal-axis variant; the no-CDK Electron version lives in `chat-ui`)
 - `src/lib/components/molecules/` — stateful molecule groups: `agent-card/`, `chat-input/`, `compact-session/`, `notifications/`, `setup-plugins/`, `tool-execution/`, plus `confirmation-dialog.component.ts`
 - `src/lib/components/organisms/` — `message-bubble`, `agent-monitor-panel`, `tab-bar`, `workspace-sidebar`, `execution/` (recursive execution-tree renderer)
-- `src/lib/components/templates/` — `chat-view`, `app-shell`, `electron-shell`, `electron-welcome`, `welcome`
+- `src/lib/components/templates/` — `chat-view`, `app-shell`, `electron-shell`, `electron-welcome`
 - `src/lib/components/file-suggestions/` — `@` and `/` autocomplete dropdown components
 - `src/lib/services/` — `chat.store.ts` facade + `chat-store/` child services, plus standalone services
 - `src/lib/services/chat-store/` — `SessionLoaderService`, `ConversationService`, `CompactionLifecycleService`, `MessageDispatchService`, `SessionStatsAggregatorService`, `ChatLifecycleService`

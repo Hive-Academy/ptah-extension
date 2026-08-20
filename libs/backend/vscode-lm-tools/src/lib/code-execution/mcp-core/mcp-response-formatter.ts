@@ -427,7 +427,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
       return json2md([
         { h2: 'Available Agents' },
         {
-          p: 'No agents found. Install a CLI agent (Codex, Copilot) or configure a Ptah CLI agent.',
+          p: 'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.',
         },
       ]);
     }
@@ -444,10 +444,20 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
         };
       }
 
+      // `disabled` outranks `installed`: the binary is present but spawning it
+      // is rejected, and that is the fact the caller needs before choosing.
+      const status = agent.disabled
+        ? agent.installed
+          ? 'disabled (installed)'
+          : 'disabled'
+        : agent.installed
+          ? 'installed'
+          : 'not installed';
+
       return {
         Agent: agent.cli,
         Type: 'cli',
-        Status: agent.installed ? 'installed' : 'not installed',
+        Status: status,
         Capabilities: agent.supportsSteer ? 'steer: yes' : 'steer: no',
       };
     });

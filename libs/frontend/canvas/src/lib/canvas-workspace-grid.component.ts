@@ -109,10 +109,19 @@ export class CanvasWorkspaceGridComponent {
     this.canvasStore.tilesFor(this.workspacePath())(),
   );
 
+  /**
+   * Tile count as its own computed so the auto-layout below only re-flows when
+   * tiles are added/removed. Reading `tiles().length` directly inside `layout`
+   * would make the layout depend on the tile array itself, so every drag/resize
+   * (which writes positions back through `onGridChange`) would invalidate the
+   * layout and snap every tile back to its algorithmic slot.
+   */
+  private readonly tileCount = computed(() => this.tiles().length);
+
   private readonly layout = computed(() => {
     this.layoutService.containerWidth();
     this.layoutService.containerHeight();
-    return this.layoutService.computeLayout(this.tiles().length);
+    return this.layoutService.computeLayout(this.tileCount());
   });
 
   private _wasVisible = false;

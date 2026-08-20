@@ -25,7 +25,7 @@ import type { CodeSymbolListItem } from '@ptah-extension/shared';
           aria-label="Search indexed code symbols"
         />
         <div
-          class="ml-auto flex items-center gap-2 text-xs text-base-content/60"
+          class="ml-auto flex items-center gap-2 text-xs text-base-content-muted"
         >
           <span data-testid="symbol-total">{{ total() }} symbols</span>
           <button
@@ -68,7 +68,7 @@ import type { CodeSymbolListItem } from '@ptah-extension/shared';
       } @else if (items().length === 0) {
         <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
           <p class="text-sm font-medium">No indexed code symbols</p>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-base-content-muted">
             Run the workspace index below to populate symbol search.
           </p>
         </div>
@@ -83,14 +83,16 @@ import type { CodeSymbolListItem } from '@ptah-extension/shared';
               <span class="font-mono text-sm text-base-content">
                 {{ sym.symbolName }}
               </span>
-              <span class="text-xs text-base-content/60">{{ sym.kind }}</span>
+              <span class="text-xs text-base-content-muted">{{
+                sym.kind
+              }}</span>
               <span
-                class="min-w-0 flex-1 truncate text-xs text-base-content/60"
+                class="min-w-0 flex-1 truncate text-xs text-base-content-muted"
                 [attr.title]="sym.filePath"
               >
                 {{ relativePath(sym.filePath) }}
               </span>
-              <span class="text-xs tabular-nums text-base-content/50">
+              <span class="text-xs tabular-nums text-base-content-muted">
                 {{ sym.tokenCount }} tok
               </span>
             </li>
@@ -99,7 +101,7 @@ import type { CodeSymbolListItem } from '@ptah-extension/shared';
       }
 
       <div
-        class="flex items-center justify-between text-xs text-base-content/60"
+        class="flex items-center justify-between text-xs text-base-content-muted"
       >
         <span>
           {{ offset() + 1 }}–{{ offset() + items().length }} of {{ total() }}

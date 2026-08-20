@@ -30,7 +30,9 @@ import { TabManagerService } from '@ptah-extension/chat-state';
                bg-base-200/60 hover:bg-base-200 transition-colors cursor-pointer"
         [class.text-info]="hasRunning()"
         [class.text-warning]="!hasRunning() && hasPendingPermissions()"
-        [class.text-base-content/50]="!hasRunning() && !hasPendingPermissions()"
+        [class.text-base-content-muted]="
+          !hasRunning() && !hasPendingPermissions()
+        "
         (click)="toggleExpanded($event)"
         [attr.aria-label]="agentSummary()"
         [attr.title]="agentSummary()"

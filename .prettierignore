@@ -4,3 +4,9 @@
 /.nx/cache
 /.nx/workspace-data
 .angular
+
+# Deliberately-invalid fixtures. The community seed must abort on a malformed
+# export (MG-1.2), and the only honest way to test that is with a file that is
+# genuinely unparseable — which is also a file prettier cannot format. Without
+# this entry the pre-commit hook fails on a fixture that is doing its job.
+apps/ptah-license-server/prisma/seed/__fixtures__/malformed.json

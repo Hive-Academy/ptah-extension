@@ -17,6 +17,7 @@ import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
 
 import { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
+import { ElectronFileDialog } from './implementations/electron-file-dialog';
 import { ElectronStateStorage } from './implementations/electron-state-storage';
 import {
   ElectronSecretStorage,
@@ -34,6 +35,7 @@ import { ElectronCommandRegistry } from './implementations/electron-command-regi
 import { ElectronEditorProvider } from './implementations/electron-editor-provider';
 import { ElectronTokenCounter } from './implementations/electron-token-counter';
 import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
+import { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
 
 /**
  * Options for Electron platform registration.
@@ -95,6 +97,9 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new ElectronFileSystemProvider(),
   });
+  container.register(PLATFORM_TOKENS.FILE_DIALOG, {
+    useValue: new ElectronFileDialog(),
+  });
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new ElectronStateStorage(
       options.userDataPath,
@@ -148,6 +153,9 @@ export function registerPlatformElectronServices(
   });
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
+  });
+  container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
+    useValue: new ElectronHttpServerProvider(),
   });
 }
 

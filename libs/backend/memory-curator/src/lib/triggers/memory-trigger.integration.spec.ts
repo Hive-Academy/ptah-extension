@@ -14,6 +14,7 @@ import {
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   SessionStartCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   UserPromptSubmitCallbackRegistry,
   StopCallbackRegistry,
   ToolFailureCallbackRegistry,
@@ -143,6 +144,9 @@ function buildHarness(opts?: {
   const transcriptReader = {
     read: jest.fn().mockResolvedValue(''),
   } as unknown as ITranscriptReader;
+  const sessionIdResolvedRegistry = new SessionIdResolvedCallbackRegistry(
+    logger,
+  );
   const service = new MemoryTriggerService(
     logger,
     curator,
@@ -162,6 +166,7 @@ function buildHarness(opts?: {
     preToolUseRegistry,
     sessionStartRegistry,
     transcriptReader,
+    sessionIdResolvedRegistry,
   );
   return {
     service,

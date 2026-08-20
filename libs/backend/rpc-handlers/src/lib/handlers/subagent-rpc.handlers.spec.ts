@@ -6,13 +6,23 @@
  *   - subagent:send-message
  *   - subagent:stop
  *   - subagent:interrupt
+ *   - subagent:background
+ *   - subagent:transcript
  *
  * Behavioural contracts:
- *   - Registration: `register()` wires all four methods into the mock RpcHandler.
- *   - chat:subagent-query: three query modes (toolCallId, sessionId, all-resumable).
+ *   - Registration: `register()` wires all six methods into the mock RpcHandler.
+ *   - chat:subagent-query: three query modes (toolCallId, sessionId, all-resumable),
+ *     plus SHAPE-ONLY Zod validation. The empty-sessionId rule is the handler's,
+ *     not the schema's — see subagent-rpc.schema.ts.
  *   - subagent:send-message: delegates to dispatcher.sendToSubagent; validates params.
  *   - subagent:stop: delegates to dispatcher.stopSubagent; validates params.
  *   - subagent:interrupt: delegates to dispatcher.interruptSession; validates params.
+ *   - subagent:background: delegates to dispatcher.backgroundTask; validates params.
+ *   - subagent:transcript: validates params (INVALID_PARAMS on bad input) and
+ *     delegates to dispatcher.getSubagentTranscript, wrapping its result in
+ *     { messages }. The SDK read + normalization live in the dispatcher
+ *     (agent-sdk owns the ESM-only SDK dep) and are covered by
+ *     subagent-message-dispatcher.spec.ts.
  *   - Failure posture: registry errors return { subagents: [] } and capture to Sentry.
  *     Dispatcher errors propagate as RPC failures (not silently swallowed).
  *
@@ -67,7 +77,11 @@ function createMockSubagentRegistry(): MockSubagentRegistry {
 type MockDispatcher = jest.Mocked<
   Pick<
     SubagentMessageDispatcher,
-    'sendToSubagent' | 'stopSubagent' | 'interruptSession' | 'backgroundTask'
+    | 'sendToSubagent'
+    | 'stopSubagent'
+    | 'interruptSession'
+    | 'backgroundTask'
+    | 'getSubagentTranscript'
   >
 >;
 
@@ -77,6 +91,7 @@ function createMockDispatcher(): MockDispatcher {
     stopSubagent: jest.fn().mockResolvedValue(undefined),
     interruptSession: jest.fn().mockResolvedValue(undefined),
     backgroundTask: jest.fn().mockResolvedValue(true),
+    getSubagentTranscript: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -85,7 +100,6 @@ function makeSubagentRecord(
 ): SubagentRecord {
   return {
     toolCallId: 'toolu_abc123',
-    sessionId: 'parent-session-uuid',
     agentType: 'software-architect',
     status: 'interrupted',
     startedAt: 1_700_000_000_000,
@@ -148,7 +162,7 @@ async function call<TResult>(
 
 describe('SubagentRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all five methods', () => {
+    it('registers all six methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -158,7 +172,8 @@ describe('SubagentRpcHandlers', () => {
       expect(methods).toContain('subagent:stop');
       expect(methods).toContain('subagent:interrupt');
       expect(methods).toContain('subagent:background');
-      expect(methods).toHaveLength(5);
+      expect(methods).toContain('subagent:transcript');
+      expect(methods).toHaveLength(6);
     });
   });
 
@@ -232,6 +247,31 @@ describe('SubagentRpcHandlers', () => {
       // not fall through to the all-resumable branch.
       expect(h.registry.get).not.toHaveBeenCalled();
       expect(h.registry.getResumable).not.toHaveBeenCalled();
+    });
+
+    // TASK_2026_295 — an empty sessionId used to be falsy, so the scoped
+    // branch was skipped and the handler fell through to the UNSCOPED
+    // all-resumable branch. That offered this session the chance to resume
+    // another session's interrupted subagents.
+    it('returns no subagents for an empty sessionId instead of falling through to all-resumable', async () => {
+      const h = makeHarness();
+      h.registry.getResumable.mockReturnValue([
+        makeSubagentRecord({
+          toolCallId: 'toolu_other',
+          parentSessionId: 's2',
+        }),
+      ]);
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { sessionId: '' },
+      );
+
+      expect(result.subagents).toEqual([]);
+      expect(h.registry.getResumable).not.toHaveBeenCalled();
+      expect(h.registry.getResumableBySession).not.toHaveBeenCalled();
     });
   });
 
@@ -316,6 +356,74 @@ describe('SubagentRpcHandlers', () => {
 
       expect(result.subagents).toEqual([]);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:subagent-query — malformed params (TASK_2026_296)
+  //
+  // The schema validates SHAPE. A wrong-typed id is refused there; a
+  // present-but-empty one is not its business and reaches the handler rule
+  // above. Both must end in an empty list, never in a throw and never in the
+  // unscoped all-resumable branch.
+  // -------------------------------------------------------------------------
+
+  describe('chat:subagent-query malformed params', () => {
+    it('does not throw out of the handler when sessionId is not a string', async () => {
+      const h = makeHarness();
+      h.registry.getResumable.mockReturnValue([
+        makeSubagentRecord({
+          toolCallId: 'toolu_other',
+          parentSessionId: 's2',
+        }),
+      ]);
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { sessionId: 123 },
+      );
+
+      expect(result.subagents).toEqual([]);
+      // A malformed scope must not become an unscoped query either.
+      expect(h.registry.getResumable).not.toHaveBeenCalled();
+      expect(h.registry.getResumableBySession).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('does not throw out of the handler when toolCallId is not a string', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { toolCallId: { nope: true } },
+      );
+
+      expect(result.subagents).toEqual([]);
+      expect(h.registry.get).not.toHaveBeenCalled();
+    });
+
+    // `.passthrough()`, not `.strict()` — an outdated webview sending an extra
+    // field must still get its answer.
+    it('answers normally when an unknown extra field is present', async () => {
+      const h = makeHarness();
+      const records = [
+        makeSubagentRecord({ toolCallId: 'toolu_1', parentSessionId: 's1' }),
+      ];
+      h.registry.getResumable.mockReturnValue(records);
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { someFutureField: 'from a newer webview' },
+      );
+
+      expect(result.subagents).toEqual(records);
+      expect(h.registry.getResumable).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -504,6 +612,96 @@ describe('SubagentRpcHandlers', () => {
       await expect(
         call(h, 'subagent:background', { sessionId: 'sess-abc' }),
       ).rejects.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // subagent:transcript
+  // -------------------------------------------------------------------------
+
+  // The SDK read + transcript normalization live in
+  // SubagentMessageDispatcher.getSubagentTranscript (agent-sdk owns the ESM-only
+  // SDK dep); those behaviors are covered by subagent-message-dispatcher.spec.ts.
+  // Here we only assert the handler validates params and delegates.
+  describe('subagent:transcript', () => {
+    it('delegates to the dispatcher and wraps its messages in the result', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const canned = [
+        {
+          role: 'user' as const,
+          text: 'hello agent',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        { role: 'assistant' as const, text: 'part one\npart two' },
+      ];
+      h.dispatcher.getSubagentTranscript.mockResolvedValueOnce(canned);
+
+      const result = await call<{ messages: unknown[] }>(
+        h,
+        'subagent:transcript',
+        { sessionId: 'sess-abc', agentId: 'short-1' },
+      );
+
+      expect(result.messages).toEqual(canned);
+      expect(h.dispatcher.getSubagentTranscript).toHaveBeenCalledWith(
+        'sess-abc',
+        'short-1',
+        { limit: undefined, offset: undefined },
+      );
+    });
+
+    it('passes limit/offset through to the dispatcher', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      h.dispatcher.getSubagentTranscript.mockResolvedValueOnce([]);
+
+      await call(h, 'subagent:transcript', {
+        sessionId: 'sess-abc',
+        agentId: 'short-1',
+        limit: 50,
+        offset: 10,
+      });
+
+      expect(h.dispatcher.getSubagentTranscript).toHaveBeenCalledWith(
+        'sess-abc',
+        'short-1',
+        { limit: 50, offset: 10 },
+      );
+    });
+
+    it('rejects with INVALID_PARAMS when sessionId is missing', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'subagent:transcript', { agentId: 'short-1' }),
+      ).rejects.toThrow();
+      expect(h.dispatcher.getSubagentTranscript).not.toHaveBeenCalled();
+    });
+
+    it('rejects with INVALID_PARAMS when agentId is missing', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'subagent:transcript', { sessionId: 'sess-abc' }),
+      ).rejects.toThrow();
+      expect(h.dispatcher.getSubagentTranscript).not.toHaveBeenCalled();
+    });
+
+    it('rejects with INVALID_PARAMS when limit exceeds the 500 cap', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'subagent:transcript', {
+          sessionId: 'sess-abc',
+          agentId: 'short-1',
+          limit: 501,
+        }),
+      ).rejects.toThrow();
+      expect(h.dispatcher.getSubagentTranscript).not.toHaveBeenCalled();
     });
   });
 });

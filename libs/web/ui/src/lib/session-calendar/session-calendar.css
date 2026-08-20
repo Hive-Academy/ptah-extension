@@ -1,0 +1,100 @@
+/*
+ * FullCalendar's stylesheets, pulled in here rather than through the host app's
+ * global `styles` array (which is what the FullCalendar docs suggest).
+ *
+ * Two reasons. The calendar appears on two lazy routes of a marketing site
+ * whose initial bundle is budgeted at 1mb — routing ~20kb of calendar CSS
+ * through the global bundle put every prerendered marketing page over that
+ * line. Bundled as component styles instead, it ships inside the chunks that
+ * actually use it and is hashed and versioned along with them.
+ *
+ * That requires `ViewEncapsulation.None` on the component: FullCalendar builds
+ * its grid imperatively at runtime, so that DOM never carries the emulated
+ * `_ngcontent-*` attribute Angular stamps onto compiled templates, and
+ * encapsulated rules would not match a single cell. These styles are therefore
+ * global from first render — acceptable because every rule below is either
+ * FullCalendar's own hash-prefixed classes or scoped under `.ptah-fc`.
+ */
+@import '@fullcalendar/angular/skeleton.css';
+@import '@fullcalendar/angular/themes/breezy/theme.css';
+@import '@fullcalendar/angular/themes/breezy/palettes/amber.css';
+
+ptah-session-calendar {
+  display: block;
+}
+
+/*
+ * Retint to whichever daisyUI theme is active.
+ *
+ * Every value resolves a daisyUI custom property (`--b1`, `--bc`, `--p`, …)
+ * rather than hardcoding hex. That is what lets ONE stylesheet serve both
+ * surfaces: the admin console runs `operator-admin` and the members' area runs
+ * `operator`, and their surface ramps differ. Hardcoding the admin palette —
+ * which this file did while the calendar was admin-only — would have made the
+ * member calendar a slightly-wrong shade of the page it sits on.
+ *
+ * Only palette variables are set, never structure, so a FullCalendar upgrade
+ * cannot break layout here.
+ *
+ * The shipped palette's own dark block is bypassed: it keys off
+ * `[data-color-scheme=dark]`, which neither shell sets (both use `data-theme`).
+ */
+.ptah-fc {
+  /* Recurring-series accent — daisyUI `info`, matching the "series" badge. */
+  --ptah-fc-series: oklch(var(--in) / 1);
+  --ptah-fc-series-contrast: oklch(var(--inc) / 1);
+
+  /* brand */
+  --fc-breezy-primary: oklch(var(--p) / 1);
+  --fc-breezy-primary-over: oklch(var(--pf, var(--p)) / 1);
+  --fc-breezy-primary-foreground: oklch(var(--pc) / 1);
+
+  /* toolbar buttons */
+  --fc-breezy-secondary: oklch(var(--bc) / 0.08);
+  --fc-breezy-secondary-over: oklch(var(--bc) / 0.16);
+  --fc-breezy-secondary-border: oklch(var(--bc) / 0.1);
+  --fc-breezy-secondary-foreground: oklch(var(--bc) / 1);
+  --fc-breezy-secondary-icon: oklch(var(--bc) / 0.6);
+  --fc-breezy-secondary-icon-over: oklch(var(--bc) / 0.85);
+
+  /* calendar content */
+  --fc-breezy-event: oklch(var(--p) / 0.85);
+  --fc-breezy-event-contrast: oklch(var(--pc) / 1);
+  --fc-breezy-background-event: oklch(var(--bc) / 0.35);
+  --fc-breezy-highlight: oklch(var(--p) / 0.16);
+  --fc-breezy-now: oklch(var(--p) / 1);
+  --fc-breezy-selected: oklch(var(--bc) / 0.14);
+  --fc-breezy-ring-color: oklch(var(--p) / 1);
+
+  /* popover (the "+n more" overlay) */
+  --fc-breezy-popover: oklch(var(--b2) / 1);
+  --fc-breezy-popover-border: oklch(var(--b3) / 1);
+
+  /* surfaces — base-200 canvas, matching the card the grid sits in */
+  --fc-breezy-background: oklch(var(--b2) / 1);
+  --fc-breezy-faint: oklch(var(--bc) / 0.03);
+  --fc-breezy-muted: oklch(var(--bc) / 0.07);
+  --fc-breezy-strong: oklch(var(--bc) / 0.12);
+  --fc-breezy-stronger: oklch(var(--bc) / 0.16);
+  --fc-breezy-strongest: oklch(var(--bc) / 0.2);
+
+  /* text */
+  --fc-breezy-foreground: oklch(var(--bc) / 0.75);
+  --fc-breezy-faint-foreground: oklch(var(--bc) / 0.4);
+  --fc-breezy-muted-foreground: oklch(var(--bc) / 0.6);
+  --fc-breezy-strong-foreground: oklch(var(--bc) / 1);
+
+  /* borders */
+  --fc-breezy-border: oklch(var(--bc) / 0.12);
+  --fc-breezy-muted-border: oklch(var(--bc) / 0.07);
+  --fc-breezy-strong-border: oklch(var(--b3) / 1);
+}
+
+/*
+ * `.ptah-fc-event--series` is presentation only — it marks an event as part of
+ * a recurring series so it reads consistently with the "series" badge in the
+ * admin table. It deliberately carries NO cursor override: being in a series
+ * does not mean being immovable, and a `cursor: default` here made perfectly
+ * draggable repeats look frozen. FullCalendar sets the grab cursor from the
+ * per-event `editable` flag, which is the actual permission.
+ */

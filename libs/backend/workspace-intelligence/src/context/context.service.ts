@@ -1,14 +1,15 @@
 import { injectable, inject } from 'tsyringe';
 import * as fs from 'fs';
 import * as path from 'path';
-import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
   IEditorProvider,
   ICommandRegistry,
-  DirectoryEntry,
-  FileStat,
   IDisposable,
 } from '@ptah-extension/platform-core';
 import type {
@@ -22,6 +23,11 @@ import {
   type ParsedIgnoreFile,
 } from '../file-indexing/ignore-pattern-resolver.service';
 import { DEFAULT_WORKSPACE_EXCLUDES } from '../file-indexing/workspace-default-excludes';
+import {
+  WorkspaceFileIndexService,
+  type FileSearchResult,
+} from '../file-indexing/workspace-file-index.service';
+
 const LOGGER = Symbol.for('Logger');
 const CONFIG_MANAGER = Symbol.for('ConfigManager');
 
@@ -43,18 +49,12 @@ interface IConfigManager {
 }
 
 /**
- * File search result with metadata for @ syntax autocomplete
+ * File search result with metadata for `@` syntax autocomplete.
+ *
+ * Re-exported from the live index service so the public API path
+ * (`context.service.ts` + the lib barrel) is unchanged.
  */
-export interface FileSearchResult {
-  readonly path: string;
-  readonly relativePath: string;
-  readonly fileName: string;
-  readonly fileType: 'text' | 'image' | 'binary' | 'unknown';
-  readonly size: number;
-  readonly lastModified: number;
-  readonly isDirectory: boolean;
-  readonly relevanceScore?: number;
-}
+export type { FileSearchResult };
 
 /**
  * Search options for file queries with performance optimizations
@@ -66,41 +66,50 @@ export interface FileSearchOptions {
   readonly maxResults?: number;
   readonly sortBy?: 'name' | 'path' | 'modified' | 'relevance';
   readonly fileTypes?: string[];
+  /**
+   * Answer for this workspace root specifically. Omit for the process-global
+   * active folder (today's behaviour). See {@link WorkspaceRootMismatchError}.
+   */
+  readonly workspaceRoot?: string;
 }
 
 /**
- * File cache entry with TTL and metadata
+ * Thrown when a caller asked for a specific workspace root and the file index
+ * is not — or is no longer — holding it.
+ *
+ * This is the "loud mismatch" half of TASK_2026_200's R5 rule. The index is
+ * single-active-root by design (context.md §7.2): a request for root B
+ * supersedes root A, so two roots cannot be served at the same instant. The one
+ * outcome that is NEVER acceptable is quietly returning the other root's files
+ * — that silent wrong answer is the entire defect class this task exists to
+ * kill. When a rebuild for the requested root cannot be honoured, the caller
+ * gets this error instead of somebody else's file list.
  */
-interface FileCacheEntry {
-  readonly results: FileSearchResult[];
-  readonly timestamp: number;
-  readonly query: string;
-  readonly ttl: number;
-}
-
-/**
- * Per-query debounced search state. Keyed by cacheKey so distinct concurrent
- * queries each flush with their own options and resolve their own callers.
- */
-interface PendingSearch {
-  timerId: NodeJS.Timeout;
-  options: FileSearchOptions;
-  resolvers: Array<{
-    resolve: (results: FileSearchResult[]) => void;
-    reject: (error: Error) => void;
-  }>;
+export class WorkspaceRootMismatchError extends Error {
+  constructor(
+    readonly requestedRoot: string,
+    readonly indexedRoot: string | undefined,
+  ) {
+    super(
+      `Workspace file index is not serving the requested root. ` +
+        `Requested "${requestedRoot}", index currently holds ` +
+        `"${indexedRoot ?? '<none>'}". The index serves one workspace at a ` +
+        `time; a concurrent request for another workspace superseded this one.`,
+    );
+    this.name = 'WorkspaceRootMismatchError';
+  }
 }
 
 /**
  * ContextService - Manages file context for AI interactions
  *
- * BUSINESS LOGIC: File search, context optimization, token estimation, caching
+ * BUSINESS LOGIC: File search, context optimization, token estimation.
  *
- * Verification:
- * - Migrated from apps/ptah-extension-vscode/src/services/context-manager.ts (845 lines)
- * - Pattern: Complete business logic implementation in library (not delegation)
- * - Dependencies: Logger, ConfigManager from vscode-core (infrastructure)
- * - Integration: Will be resolved from DI in main app, methods delegated
+ * File-search (`@` autocomplete) is served entirely by the live, watcher-
+ * maintained {@link WorkspaceFileIndexService}: no per-query disk walk, no TTL
+ * caches, no redundant ignore re-filtering, no serial stat loop. New/deleted
+ * files show up immediately because the index patches itself from file-watcher
+ * events.
  */
 @injectable()
 export class ContextService {
@@ -108,14 +117,6 @@ export class ContextService {
   private excludedFiles: Set<string> = new Set();
   private readonly MAX_TOKENS = 200000;
   private readonly CHARS_PER_TOKEN = 4; // Rough estimate
-  private fileCache = new Map<string, FileCacheEntry>();
-  private allFilesCache: FileSearchResult[] = [];
-  private allFilesCacheTimestamp = 0;
-  private pendingSearches = new Map<string, PendingSearch>();
-  private readonly DEBOUNCE_MS = 300;
-  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-  private readonly ALL_FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
-  private readonly MAX_CACHE_ENTRIES = 100;
   private readonly MAX_SEARCH_RESULTS = 1000;
   private readonly IGNORE_CACHE_TTL_MS = 60 * 1000;
   private ignoreFilesCache = new Map<
@@ -138,6 +139,8 @@ export class ContextService {
     private readonly sentryService: SentryService,
     @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
+    @inject(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)
+    private readonly fileIndex: WorkspaceFileIndexService,
   ) {
     this.loadFromWorkspaceState();
   }
@@ -422,251 +425,119 @@ export class ContextService {
   }
 
   /**
-   * ENHANCED FILE SEARCH FUNCTIONALITY - For @ syntax autocomplete
+   * ENHANCED FILE SEARCH FUNCTIONALITY - For `@` syntax autocomplete
+   *
+   * All queries are served from the in-memory {@link WorkspaceFileIndexService}.
    */
 
   /**
-   * Search files with debouncing and intelligent caching
-   * Optimized for @ syntax compatibility
+   * Ask the file index to hold `workspaceRoot`, or — when it is omitted — the
+   * process-global active folder (today's behaviour, no throw).
+   *
+   * This is the REBUILD half of R5: `ensureReadyFor` supersedes whatever root
+   * the index currently holds and rebuilds for the requested one, so the normal
+   * outcome of "requested root ≠ built root" is a rebuild, not an error.
+   *
+   * ⚠️ This method AWAITS. It therefore cannot be the last word on which root
+   * the index holds — see {@link assertIndexServes}, which every caller must
+   * run again in the same synchronous block as its query.
+   */
+  private async ensureIndexFor(workspaceRoot?: string): Promise<void> {
+    if (workspaceRoot === undefined) {
+      await this.fileIndex.ensureReady();
+      return;
+    }
+    await this.fileIndex.ensureReadyFor(workspaceRoot);
+  }
+
+  /**
+   * The ERROR half of R5, and the reason it is a separate, SYNCHRONOUS method.
+   *
+   * `ensureIndexFor` awaits. Awaiting yields to the microtask queue, and the
+   * index is a process-wide singleton whose `ensureReadyFor` clears the maps
+   * SYNCHRONOUSLY before its first await. So between "our rebuild for A
+   * resolved" and "we read the maps", another in-flight request for root B can
+   * run its continuation and take the index away from us. Re-checking after the
+   * await is not paranoia — it is the only point at which the answer is true.
+   *
+   * Callers MUST invoke this immediately before their `fileIndex.*` read, with
+   * NO await in between. Every read below (`search`, `getAll`,
+   * `searchDirectories`) is synchronous, so guard + read form one atomic block
+   * and the check cannot go stale between them. If you ever introduce an await
+   * into one of those blocks, this guard stops working and the silent
+   * wrong-workspace answer comes back.
+   *
+   * We do not retry/rebuild in a loop here: under two callers contending for
+   * different roots that livelocks. Losing the race is rare, and a loud error
+   * is an acceptable outcome under context.md §7.2 — a quiet one is not.
+   */
+  private assertIndexServes(workspaceRoot?: string): void {
+    if (workspaceRoot === undefined) return;
+    const requestedKey = normalizeWorkspaceRoot(workspaceRoot);
+    if (this.fileIndex.indexedRoot === requestedKey) return;
+    throw new WorkspaceRootMismatchError(
+      workspaceRoot,
+      this.fileIndex.indexedRoot,
+    );
+  }
+
+  /**
+   * Search files by fuzzy query. Backed by the live index (synchronous scoring
+   * over the in-memory list) — instant and always fresh.
+   *
+   * `options.workspaceRoot` scopes the answer to one workspace; omitting it
+   * keeps the pre-TASK_2026_200 behaviour (process-global active folder).
    */
   async searchFiles(options: FileSearchOptions): Promise<FileSearchResult[]> {
-    const cacheKey = this.generateCacheKey(options);
-    const cached = this.getFromCache(cacheKey);
-    if (cached) {
-      this.logger.debug(`File search cache hit for query: ${options.query}`);
-      return cached;
+    await this.ensureIndexFor(options.workspaceRoot);
+
+    const {
+      query,
+      includeImages = false,
+      maxResults = 100,
+      fileTypes = [],
+    } = options;
+
+    // R5 guard + index read: one synchronous block, do not separate them.
+    this.assertIndexServes(options.workspaceRoot);
+    let results = this.fileIndex.search(
+      query,
+      Math.max(maxResults * 2, maxResults),
+    );
+
+    if (fileTypes.length > 0) {
+      const exts = fileTypes.map((ext) =>
+        ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`,
+      );
+      results = results.filter((r) =>
+        exts.some((ext) => r.fileName.toLowerCase().endsWith(ext)),
+      );
+    } else if (!includeImages) {
+      results = results.filter((r) => r.fileType !== 'image');
     }
-    return new Promise<FileSearchResult[]>((resolve, reject) => {
-      const existing = this.pendingSearches.get(cacheKey);
-      if (existing) {
-        clearTimeout(existing.timerId);
-        existing.resolvers.push({ resolve, reject });
-        existing.options = options;
-        existing.timerId = this.scheduleFlush(cacheKey);
-        return;
-      }
 
-      this.pendingSearches.set(cacheKey, {
-        timerId: this.scheduleFlush(cacheKey),
-        options,
-        resolvers: [{ resolve, reject }],
-      });
-    });
-  }
-
-  private scheduleFlush(cacheKey: string): NodeJS.Timeout {
-    return setTimeout(async () => {
-      const pending = this.pendingSearches.get(cacheKey);
-      if (!pending) {
-        return;
-      }
-      this.pendingSearches.delete(cacheKey);
-      const { options, resolvers } = pending;
-      try {
-        const results = await this.performFileSearch(options);
-        this.cacheResults(cacheKey, results);
-        resolvers.forEach(({ resolve }) => resolve(results));
-
-        this.logger.debug(
-          `File search completed: ${results.length} results for "${options.query}"`,
-        );
-      } catch (error) {
-        this.logger.error('File search failed', error);
-        const errorToReject =
-          error instanceof Error ? error : new Error('File search failed');
-        resolvers.forEach(({ reject }) => reject(errorToReject));
-      }
-    }, this.DEBOUNCE_MS);
+    return results.slice(0, maxResults);
   }
 
   /**
-   * Get all workspace files with caching for performance
-   * Supports virtual scrolling with pagination
+   * Get all workspace files (and directories) with pagination. Served from the
+   * live index; supports virtual scrolling via offset/limit.
    */
   async getAllFiles(
     includeImages = false,
     offset = 0,
     limit = this.MAX_SEARCH_RESULTS,
+    workspaceRoot?: string,
   ): Promise<FileSearchResult[]> {
-    const now = Date.now();
-    if (
-      this.allFilesCache.length > 0 &&
-      now - this.allFilesCacheTimestamp < this.ALL_FILES_CACHE_TTL
-    ) {
-      return this.paginateResults(
-        this.allFilesCache,
-        offset,
-        limit,
-        includeImages,
-      );
+    await this.ensureIndexFor(workspaceRoot);
+
+    // R5 guard + index read: one synchronous block, do not separate them.
+    this.assertIndexServes(workspaceRoot);
+    let all = this.fileIndex.getAll(this.MAX_SEARCH_RESULTS);
+    if (!includeImages) {
+      all = all.filter((f) => f.fileType !== 'image');
     }
-
-    try {
-      this.logger.debug('Refreshing all files cache');
-
-      const workspaceFolders = this.workspaceProvider.getWorkspaceFolders();
-      if (workspaceFolders.length === 0) {
-        return [];
-      }
-      const excludePatterns = await this.getEffectiveExcludes(
-        workspaceFolders[0],
-        ['**/*.log'],
-      );
-      const rawPaths = await this.fsProvider.findFiles(
-        '**/*',
-        excludePatterns,
-        this.MAX_SEARCH_RESULTS * 2,
-        workspaceFolders[0],
-      );
-      const filePaths = await this.filterIgnored(rawPaths, workspaceFolders[0]);
-
-      const results: FileSearchResult[] = [];
-      const primaryWorkspacePath = workspaceFolders[0];
-      const BATCH_SIZE = 50;
-      for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
-        const batch = filePaths.slice(i, i + BATCH_SIZE);
-        const statResults = await Promise.allSettled(
-          batch.map(async (filePath) => {
-            const stat = await this.fsProvider.stat(filePath);
-            const relativePath = path.relative(primaryWorkspacePath, filePath);
-            const fileName = path.basename(filePath);
-            const fileType = this.detectFileType(fileName);
-
-            return {
-              path: filePath,
-              relativePath,
-              fileName,
-              fileType,
-              size: stat.size,
-              lastModified: stat.mtime,
-              isDirectory: stat.type === FileType.Directory,
-            } as FileSearchResult;
-          }),
-        );
-
-        for (const result of statResults) {
-          if (result.status === 'fulfilled') {
-            results.push(result.value);
-          }
-        }
-      }
-      for (const folder of workspaceFolders) {
-        const directories = await this.discoverDirectories(
-          folder,
-          primaryWorkspacePath,
-          excludePatterns,
-        );
-        results.push(...directories);
-      }
-      results.sort((a, b) => b.lastModified - a.lastModified);
-      this.allFilesCache = results;
-      this.allFilesCacheTimestamp = now;
-
-      this.logger.info(
-        `Cached ${results.length} workspace files and directories from ${workspaceFolders.length} folder(s)`,
-      );
-
-      return this.paginateResults(results, offset, limit, includeImages);
-    } catch (error) {
-      this.logger.error('Failed to get all files', error);
-      return [];
-    }
-  }
-
-  /**
-   * Discover directories in workspace (findFiles doesn't return directories)
-   * Uses recursive directory reading with depth limit for performance
-   */
-  private async discoverDirectories(
-    rootPath: string,
-    workspacePath: string,
-    _excludePatterns: string[],
-    maxDepth = 4,
-  ): Promise<FileSearchResult[]> {
-    const directories: FileSearchResult[] = [];
-    const excludeSet = new Set([
-      'node_modules',
-      '.git',
-      '.svn',
-      '.hg',
-      '.DS_Store',
-      'dist',
-      'build',
-      'out',
-      'target',
-      'coverage',
-      '.nyc_output',
-      '.nx',
-      '.angular',
-      '.cache',
-      '.vite',
-      '.next',
-      '.nuxt',
-      '.turbo',
-      '.output',
-      '.vscode-test',
-      'tmp',
-    ]);
-    const ignoreFiles = await this.getCachedIgnoreFiles(workspacePath);
-
-    const processDirectory = async (
-      dirPath: string,
-      depth: number,
-    ): Promise<void> => {
-      if (depth > maxDepth) return;
-
-      try {
-        const entries = await this.fsProvider.readDirectory(dirPath);
-        const dirEntries = entries.filter(
-          (e) => e.type === FileType.Directory && !excludeSet.has(e.name),
-        );
-        const statResults = await Promise.allSettled(
-          dirEntries.map(async (entry) => {
-            const subPath = path.join(dirPath, entry.name);
-            const stat = await this.fsProvider.stat(subPath);
-            return { entry, subPath, stat };
-          }),
-        );
-
-        const subDirs: string[] = [];
-        for (const result of statResults) {
-          if (result.status !== 'fulfilled') continue;
-          const { entry, subPath, stat } = result.value;
-          const relativePath = path.relative(workspacePath, subPath);
-          if (ignoreFiles.length > 0) {
-            const ignoreResult = await this.ignoreResolver.isIgnored(
-              relativePath,
-              ignoreFiles,
-              workspacePath,
-            );
-            if (ignoreResult.ignored) continue;
-          }
-
-          directories.push({
-            path: subPath,
-            relativePath,
-            fileName: entry.name,
-            fileType: 'unknown',
-            size: 0,
-            lastModified: stat.mtime,
-            isDirectory: true,
-          });
-
-          subDirs.push(subPath);
-        }
-        for (const subDir of subDirs) {
-          await processDirectory(subDir, depth + 1);
-        }
-      } catch (error) {
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          { errorSource: 'ContextService.discoverDirectories' },
-        );
-      }
-    };
-
-    await processDirectory(rootPath, 0);
-    return directories;
+    return all.slice(offset, offset + limit);
   }
 
   /**
@@ -699,19 +570,24 @@ export class ContextService {
   async getFileSuggestions(
     query: string,
     limit = 20,
+    workspaceRoot?: string,
   ): Promise<FileSearchResult[]> {
+    await this.ensureIndexFor(workspaceRoot);
+
     if (!query || query.length < 2) {
-      const allFiles = await this.getAllFiles(true, 0, limit);
+      // Delegates: `getAllFiles` re-asserts the root itself in its own atomic
+      // block, so the await here is safe — we never read the index after it.
+      const allFiles = await this.getAllFiles(true, 0, limit, workspaceRoot);
       return allFiles.slice(0, limit);
     }
 
-    const searchResults = await this.searchFiles({
-      query,
-      includeImages: true,
-      maxResults: limit * 2, // Get extra to filter
-      sortBy: 'relevance',
-    });
-    const directoryMatches = await this.searchDirectories(query, limit);
+    // R5 guard + index reads: one synchronous block, do not separate them.
+    // `search`, `searchDirectories` and the `isFileIncluded` comparator below
+    // are ALL synchronous — introducing an await among them reopens the
+    // cross-workspace leak this guard closes.
+    this.assertIndexServes(workspaceRoot);
+    const searchResults = this.fileIndex.search(query, limit * 2);
+    const directoryMatches = this.searchDirectories(query, limit);
 
     const merged = [...directoryMatches, ...searchResults];
     const prioritized = merged.sort((a, b) => {
@@ -724,45 +600,19 @@ export class ContextService {
   }
 
   /**
-   * Filter cached directories by query. Warms the all-files cache if cold,
-   * because `discoverDirectories` is the only producer of directory entries
-   * and the regular file-search path skips them (`onlyFiles: true`).
+   * Filter indexed directories by query. Directory entries are tracked in the
+   * live index alongside files.
    */
-  private async searchDirectories(
-    query: string,
-    limit: number,
-  ): Promise<FileSearchResult[]> {
-    if (
-      this.allFilesCache.length === 0 ||
-      Date.now() - this.allFilesCacheTimestamp >= this.ALL_FILES_CACHE_TTL
-    ) {
-      await this.getAllFiles(true, 0, this.MAX_SEARCH_RESULTS);
-    }
-
-    const queryLower = query.toLowerCase();
-    const matches: FileSearchResult[] = [];
-
-    for (const entry of this.allFilesCache) {
-      if (!entry.isDirectory) continue;
-      const nameLower = entry.fileName.toLowerCase();
-      const pathLower = entry.relativePath.toLowerCase();
-      if (nameLower.includes(queryLower) || pathLower.includes(queryLower)) {
-        matches.push(entry);
-        if (matches.length >= limit) break;
-      }
-    }
-
-    return matches;
+  private searchDirectories(query: string, limit: number): FileSearchResult[] {
+    return this.fileIndex.searchDirectories(query, limit);
   }
 
   /**
-   * Clear all caches - useful for testing and manual refresh
+   * Clear caches - retained for API compatibility. The live index owns its own
+   * state and stays fresh via the file watcher, so there is nothing to clear.
    */
   clearFileCache(): void {
-    this.fileCache.clear();
-    this.allFilesCache = [];
-    this.allFilesCacheTimestamp = 0;
-    this.logger.info('File search cache cleared');
+    this.logger.debug('clearFileCache is a no-op (live index is watcher-fed)');
   }
 
   /**
@@ -804,11 +654,6 @@ export class ContextService {
    */
   dispose(): void {
     this.logger.info('Disposing Context Service...');
-    for (const pending of this.pendingSearches.values()) {
-      clearTimeout(pending.timerId);
-    }
-    this.pendingSearches.clear();
-    this.clearFileCache();
   }
 
   /**
@@ -923,218 +768,6 @@ export class ContextService {
       'ptah.contextFilesCount',
       this.includedFiles.size,
     );
-  }
-
-  private async performFileSearch(
-    options: FileSearchOptions,
-  ): Promise<FileSearchResult[]> {
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-    if (!workspaceRoot) {
-      return [];
-    }
-
-    const {
-      query,
-      includeImages = false,
-      maxResults = 100,
-      fileTypes = [],
-    } = options;
-    let searchPattern: string;
-    if (this.isGlobPattern(query)) {
-      searchPattern = query;
-    } else if (fileTypes.length > 0) {
-      const extensions = fileTypes.map((ext) =>
-        ext.startsWith('.') ? ext.slice(1) : ext,
-      );
-      searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
-    } else {
-      searchPattern = `**/*${query}*`;
-    }
-    const extraExcludes: string[] = [];
-    if (!includeImages && fileTypes.length === 0) {
-      const imageExts = [
-        'png',
-        'jpg',
-        'jpeg',
-        'gif',
-        'bmp',
-        'svg',
-        'webp',
-        'ico',
-      ];
-      extraExcludes.push(`**/*.{${imageExts.join(',')}}`);
-    }
-    const excludePatternList = await this.getEffectiveExcludes(
-      workspaceRoot,
-      extraExcludes,
-    );
-
-    const rawPaths = await this.fsProvider.findFiles(
-      searchPattern,
-      excludePatternList,
-      maxResults,
-      workspaceRoot,
-    );
-    const filePaths = await this.filterIgnored(rawPaths, workspaceRoot);
-
-    const results: FileSearchResult[] = [];
-
-    for (const filePath of filePaths) {
-      const stat = await this.fsProvider.stat(filePath);
-      const relativePath = path.relative(workspaceRoot, filePath);
-      const fileName = path.basename(filePath);
-      const fileType = this.detectFileType(fileName);
-      const relevanceScore = this.calculateRelevanceScore(
-        fileName,
-        relativePath,
-        query,
-      );
-
-      results.push({
-        path: filePath,
-        relativePath,
-        fileName,
-        fileType,
-        size: stat.size,
-        lastModified: stat.mtime,
-        isDirectory: stat.type === FileType.Directory,
-        relevanceScore,
-      });
-    }
-    results.sort((a, b) => {
-      const scoreA = a.relevanceScore || 0;
-      const scoreB = b.relevanceScore || 0;
-
-      if (scoreA !== scoreB) {
-        return scoreB - scoreA; // Higher relevance first
-      }
-
-      return b.lastModified - a.lastModified; // More recent first
-    });
-
-    return results;
-  }
-
-  private isGlobPattern(query: string): boolean {
-    return /[*?{}[\]/]/.test(query);
-  }
-
-  private detectFileType(fileName: string): FileSearchResult['fileType'] {
-    const ext = path.extname(fileName).toLowerCase();
-
-    const imageExts = [
-      '.png',
-      '.jpg',
-      '.jpeg',
-      '.gif',
-      '.bmp',
-      '.svg',
-      '.webp',
-      '.ico',
-    ];
-    const textExts = [
-      '.txt',
-      '.md',
-      '.json',
-      '.js',
-      '.ts',
-      '.jsx',
-      '.tsx',
-      '.css',
-      '.scss',
-      '.html',
-      '.xml',
-      '.yaml',
-      '.yml',
-    ];
-    const binaryExts = [
-      '.exe',
-      '.dll',
-      '.so',
-      '.dylib',
-      '.bin',
-      '.zip',
-      '.tar',
-      '.gz',
-    ];
-
-    if (imageExts.includes(ext)) return 'image';
-    if (textExts.includes(ext)) return 'text';
-    if (binaryExts.includes(ext)) return 'binary';
-
-    return 'unknown';
-  }
-
-  private calculateRelevanceScore(
-    fileName: string,
-    relativePath: string,
-    query: string,
-  ): number {
-    let score = 0;
-    const queryLower = query.toLowerCase();
-    const fileNameLower = fileName.toLowerCase();
-    const pathLower = relativePath.toLowerCase();
-    if (fileNameLower === queryLower) score += 100;
-    if (fileNameLower.startsWith(queryLower)) score += 50;
-    if (fileNameLower.includes(queryLower)) score += 20;
-    if (pathLower.includes(queryLower)) score += 10;
-    const pathDepth = relativePath.split(path.sep).length;
-    score += Math.max(0, 10 - pathDepth);
-
-    return score;
-  }
-
-  private generateCacheKey(options: FileSearchOptions): string {
-    return JSON.stringify({
-      query: options.query.toLowerCase(),
-      includeImages: options.includeImages || false,
-      maxResults: options.maxResults || 100,
-      fileTypes: options.fileTypes || [],
-    });
-  }
-
-  private getFromCache(cacheKey: string): FileSearchResult[] | null {
-    const entry = this.fileCache.get(cacheKey);
-    if (!entry) return null;
-
-    const now = Date.now();
-    if (now - entry.timestamp > entry.ttl) {
-      this.fileCache.delete(cacheKey);
-      return null;
-    }
-
-    return entry.results;
-  }
-
-  private cacheResults(cacheKey: string, results: FileSearchResult[]): void {
-    if (this.fileCache.size >= this.MAX_CACHE_ENTRIES) {
-      const firstKey = this.fileCache.keys().next().value;
-      if (firstKey) {
-        this.fileCache.delete(firstKey);
-      }
-    }
-
-    this.fileCache.set(cacheKey, {
-      results,
-      timestamp: Date.now(),
-      query: cacheKey,
-      ttl: this.CACHE_TTL_MS,
-    });
-  }
-
-  private paginateResults(
-    results: FileSearchResult[],
-    offset: number,
-    limit: number,
-    includeImages: boolean,
-  ): FileSearchResult[] {
-    let filteredResults = results;
-
-    if (!includeImages) {
-      filteredResults = results.filter((f) => f.fileType !== 'image');
-    }
-
-    return filteredResults.slice(offset, offset + limit);
   }
 
   private async getCachedIgnoreFiles(

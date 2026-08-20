@@ -4,20 +4,25 @@
  * Harness-specific MCP tools for the harness builder agent.
  * Provides the tools the harness builder agent uses during its multi-turn
  * execution to search skills, create skills, search the MCP registry, list
- * installed MCP servers, and propose configuration updates to the surface via
- * proposeConfig.
+ * installed MCP servers, install an MCP server, and propose configuration
+ * updates to the surface via proposeConfig.
  *
  * Pattern: namespace-builders/json-namespace.builder.ts
  */
 
 import * as path from 'path';
 import { existsSync } from 'fs';
-import { mkdir, writeFile, readFile, readdir, stat } from 'fs/promises';
+import { mkdir, writeFile, readFile } from 'fs/promises';
 import * as os from 'os';
+import { z } from 'zod';
+import { HarnessConfigUpdatesSchema } from '@ptah-extension/shared/schemas';
 import {
-  HarnessConfigUpdatesSchema,
+  HARNESS_DEFAULT_MCP_TARGETS,
   MESSAGE_TYPES,
   type HarnessConfig,
+  type McpInstallResult,
+  type McpInstallTarget,
+  type McpServerConfig,
   type SkillShEntry,
 } from '@ptah-extension/shared';
 
@@ -37,6 +42,79 @@ export interface HarnessMcpRegistrySource {
     next_cursor?: string;
   }>;
 }
+
+/**
+ * Minimal MCP install surface the harness namespace consumes.
+ *
+ * Structurally satisfied by `McpInstallService` from
+ * `@ptah-extension/cli-agent-runtime` — declared here as a narrow interface so
+ * this builder stays unit-testable and does not bind to the concrete installer
+ * (same shape rule as `HarnessMcpRegistrySource` / `HarnessSkillsDirectory`).
+ */
+export interface HarnessMcpInstaller {
+  install(
+    serverName: string,
+    serverKey: string,
+    config: McpServerConfig,
+    targets: McpInstallTarget[],
+    workspaceRoot?: string,
+  ): Promise<McpInstallResult[]>;
+}
+
+/**
+ * Outcome of installMcpServer: the resolved identity of the install, the raw
+ * per-target results, the deduped set of config files written, and any
+ * per-target failures surfaced as warnings rather than a hard throw.
+ */
+export interface HarnessMcpInstallOutcome {
+  serverName: string;
+  serverKey: string;
+  targets: McpInstallTarget[];
+  installedPaths: string[];
+  results: McpInstallResult[];
+  warnings: string[];
+}
+
+/** Environment / header maps carried on an MCP transport config. */
+const McpStringMapSchema = z.record(z.string(), z.string());
+
+/**
+ * Boundary schema for the transport config the agent hands to installMcpServer.
+ * Mirrors the `McpServerConfig` discriminated union in
+ * `libs/shared/src/lib/types/mcp-directory.types.ts`.
+ */
+const McpServerConfigSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('stdio'),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: McpStringMapSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('http'),
+    url: z.string().url(),
+    headers: McpStringMapSchema.optional(),
+    env: McpStringMapSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('sse'),
+    url: z.string().url(),
+    headers: McpStringMapSchema.optional(),
+    env: McpStringMapSchema.optional(),
+  }),
+]);
+
+/** Boundary schema for the optional install-target list. */
+const McpInstallTargetsSchema = z
+  .array(
+    z.enum(['vscode', 'claude', 'cursor', 'copilot', 'codex', 'antigravity']),
+  )
+  .nonempty();
+
+/** The same list as prose, so the error message cannot drift from the schema. */
+const MCP_INSTALL_TARGET_NAMES = McpInstallTargetsSchema.element.options
+  .map((option) => `"${option}"`)
+  .join(' | ');
 
 /**
  * A skill returned by searchSkills, tagged with its origin.
@@ -79,6 +157,11 @@ export interface HarnessNamespaceDependencies {
   skillsDirectory?: HarnessSkillsDirectory;
   smitheryRegistry?: HarnessMcpRegistrySource;
   pulseMcpRegistry?: HarnessMcpRegistrySource;
+  /**
+   * Optional — when absent, installMcpServer degrades to a clear error instead
+   * of crashing the namespace.
+   */
+  mcpInstaller?: HarnessMcpInstaller;
   getWorkspaceRoot: () => string;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
@@ -109,6 +192,12 @@ export interface HarnessNamespace {
   listInstalledMcpServers(): Promise<
     Array<{ name: string; config: Record<string, unknown>; source: string }>
   >;
+  installMcpServer(
+    serverName: string,
+    config: McpServerConfig,
+    serverKey?: string,
+    targets?: McpInstallTarget[],
+  ): Promise<HarnessMcpInstallOutcome>;
   proposeConfig(
     configUpdates: Partial<HarnessConfig>,
     isConfigComplete?: boolean,
@@ -129,45 +218,20 @@ function sanitizeName(name: string): string {
   );
 }
 
-async function discoverHarnessPluginPaths(logger: {
-  warn(msg: string): void;
-}): Promise<string[]> {
-  const pluginsBase = path.join(os.homedir(), '.ptah', 'plugins');
-  let entries: string[];
-  try {
-    entries = await readdir(pluginsBase);
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      logger.warn(
-        `[Harness] Failed to read plugins directory: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    return [];
-  }
-
-  const paths: string[] = [];
-  for (const entry of entries) {
-    if (!entry.startsWith('ptah-harness-')) continue;
-    const pluginPath = path.join(pluginsBase, entry);
-    try {
-      if ((await stat(pluginPath)).isDirectory()) {
-        paths.push(pluginPath);
-      }
-    } catch (error: unknown) {
-      logger.warn(
-        `[Harness] Skipping unreadable harness plugin dir ${pluginPath}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  return paths;
+/**
+ * Derive a config-file key from a fully qualified registry server name.
+ * "io.github.user/server-name" -> "server-name".
+ */
+function deriveServerKey(serverName: string): string {
+  const lastSegment = serverName.split('/').pop() ?? serverName;
+  return sanitizeName(lastSegment);
 }
 
 /**
- * Build the harness namespace with 4 MCP-accessible methods.
+ * Build the harness namespace with 6 MCP-accessible methods.
  *
- * @param deps - Dependencies containing plugin loader, MCP registry, workspace root, and logger
- * @returns HarnessNamespace with searchSkills, createSkill, searchMcpRegistry, listInstalledMcpServers
+ * @param deps - Dependencies containing plugin loader, MCP registry, installer, workspace root, and logger
+ * @returns HarnessNamespace with searchSkills, createSkill, searchMcpRegistry, listInstalledMcpServers, installMcpServer, proposeConfig
  */
 export function buildHarnessNamespace(
   deps: HarnessNamespaceDependencies,
@@ -178,6 +242,7 @@ export function buildHarnessNamespace(
     skillsDirectory,
     smitheryRegistry,
     pulseMcpRegistry,
+    mcpInstaller,
     getWorkspaceRoot,
     broadcast,
     logger,
@@ -185,12 +250,11 @@ export function buildHarnessNamespace(
 
   return {
     async searchSkills(query?: string): Promise<HarnessSkillResult[]> {
-      const enabledPaths = pluginLoader.resolveCurrentPluginPaths();
-      const harnessPaths = await discoverHarnessPluginPaths(logger);
-      const mergedPaths = Array.from(
-        new Set([...enabledPaths, ...harnessPaths]),
-      );
-      const allSkills = pluginLoader.discoverSkillsForPlugins(mergedPaths);
+      // resolveCurrentPluginPaths() already unions the enabled bundled plugins
+      // with every harness-authored ptah-harness-* directory, so no ad-hoc
+      // merge is needed here.
+      const pluginPaths = pluginLoader.resolveCurrentPluginPaths();
+      const allSkills = pluginLoader.discoverSkillsForPlugins(pluginPaths);
       const disabledIds = new Set(pluginLoader.getDisabledSkillIds());
 
       const localResults: HarnessSkillResult[] = allSkills.map((skill) => ({
@@ -418,6 +482,103 @@ export function buildHarnessNamespace(
       }
 
       return servers;
+    },
+
+    async installMcpServer(
+      serverName: string,
+      config: McpServerConfig,
+      serverKey?: string,
+      targets?: McpInstallTarget[],
+    ): Promise<HarnessMcpInstallOutcome> {
+      if (!mcpInstaller) {
+        throw new Error(
+          'MCP installation is unavailable: no MCP installer is wired into the harness namespace on this host. ' +
+            'Record the server on the harness config via proposeConfig instead — it is installed when the harness is applied.',
+        );
+      }
+
+      const trimmedName = serverName?.trim() ?? '';
+      if (trimmedName.length === 0) {
+        throw new Error(
+          'Invalid serverName: expected a non-empty registry server name (e.g. "io.github.owner/server").',
+        );
+      }
+
+      const parsedConfig = McpServerConfigSchema.safeParse(config);
+      if (!parsedConfig.success) {
+        const issues = parsedConfig.error.issues
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ');
+        throw new Error(
+          `Invalid config: ${issues}. Expected {type:"stdio",command,args?,env?} or {type:"http"|"sse",url,headers?,env?}.`,
+        );
+      }
+
+      const resolvedKey =
+        serverKey && serverKey.trim().length > 0
+          ? sanitizeName(serverKey)
+          : deriveServerKey(trimmedName);
+      if (resolvedKey.length === 0 || resolvedKey === 'unnamed') {
+        throw new Error(
+          `Invalid serverKey: "${serverKey ?? trimmedName}" sanitizes to an empty key. Pass an explicit serverKey.`,
+        );
+      }
+
+      // Copied — HARNESS_DEFAULT_MCP_TARGETS is a shared mutable array and this
+      // list is handed back to the caller in the outcome.
+      let resolvedTargets: McpInstallTarget[] = [
+        ...HARNESS_DEFAULT_MCP_TARGETS,
+      ];
+      if (targets !== undefined) {
+        const parsedTargets = McpInstallTargetsSchema.safeParse(targets);
+        if (!parsedTargets.success) {
+          throw new Error(
+            `Invalid targets: expected a non-empty array of ${MCP_INSTALL_TARGET_NAMES}.`,
+          );
+        }
+        resolvedTargets = [...parsedTargets.data];
+      }
+
+      const workspaceRoot = getWorkspaceRoot();
+      if (!workspaceRoot) {
+        throw new Error(
+          'No workspace folder is open. Workspace-scoped MCP configs cannot be written — open a folder and retry.',
+        );
+      }
+
+      const results = await mcpInstaller.install(
+        trimmedName,
+        resolvedKey,
+        parsedConfig.data,
+        resolvedTargets,
+        workspaceRoot,
+      );
+
+      const installedPaths: string[] = [];
+      const warnings: string[] = [];
+      for (const result of results) {
+        if (result.success) {
+          installedPaths.push(result.configPath);
+        } else {
+          warnings.push(
+            `Failed to install "${trimmedName}" to ${result.target}: ${result.error ?? 'unknown error'}`,
+          );
+        }
+      }
+
+      logger.info(
+        `[Harness] installMcpServer "${trimmedName}" as "${resolvedKey}" -> ${resolvedTargets.join(', ')} ` +
+          `(${installedPaths.length} written, ${warnings.length} failed)`,
+      );
+
+      return {
+        serverName: trimmedName,
+        serverKey: resolvedKey,
+        targets: resolvedTargets,
+        installedPaths: Array.from(new Set(installedPaths)),
+        results,
+        warnings,
+      };
     },
 
     async proposeConfig(

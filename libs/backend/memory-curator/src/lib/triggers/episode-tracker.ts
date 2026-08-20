@@ -186,6 +186,27 @@ export class EpisodeTracker {
     return Math.min(0.3, boost);
   }
 
+  /**
+   * Move a session's episode buffer from `fromId` to `toId` when the SDK
+   * resolves the canonical UUID for a buffer armed under the tabId.
+   *
+   * **Refuse-overwrite**, mirroring `SessionRegistry.bindRealSessionId`: when
+   * `toId` already holds a buffer, that buffer WINS and the `fromId` entry is
+   * discarded. A missed merge costs one un-curated episode and is recoverable;
+   * clobbering a live buffer is not.
+   *
+   * @returns true when the buffer moved, false when there was nothing to move
+   * or the destination was already occupied.
+   */
+  rekey(fromId: string, toId: string): boolean {
+    const buffer = this.sessions.get(fromId);
+    if (!buffer) return false;
+    this.sessions.delete(fromId);
+    if (this.sessions.has(toId)) return false;
+    this.sessions.set(toId, buffer);
+    return true;
+  }
+
   reset(sessionId: string): void {
     this.sessions.delete(sessionId);
   }

@@ -1,17 +1,16 @@
 /**
- * RPC Domain Handlers + RpcMethodRegistrationService factory.
+ * RPC Domain Handlers.
  *
  * Intentionally runs BEFORE the library phase in `DIContainer.setup`. Every
- * registration here is lazy — tsyringe does not resolve factory dependencies
- * at registration time — so this phase can precede the libraries that supply
- * SDK / workspace / agent-generation tokens. Those are resolved at runtime
- * when `TOKENS.RPC_METHOD_REGISTRATION_SERVICE` is finally requested.
+ * registration here is lazy — tsyringe does not resolve constructor
+ * dependencies at registration time — so this phase can precede the libraries
+ * that supply SDK / workspace / agent-generation tokens. Those are resolved at
+ * runtime when `registerRpcSurface()` runs in `activation/bootstrap.ts`.
  *
  * NOTE: `WebSearchRpcHandlers` is NOT registered explicitly. It is
- * auto-resolved by tsyringe via its `@injectable()` decorator when the
- * `RpcMethodRegistrationService` factory calls `c.resolve(...)` on it. Do not
- * add an explicit `registerSingleton` for it — that would change caching
- * behavior.
+ * auto-resolved by tsyringe via its `@injectable()` decorator when
+ * `registerRpcSurface` resolves it. Do not add an explicit `registerSingleton`
+ * for it — that would change caching behavior.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -19,6 +18,10 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  AgentRpcHandlers,
+  CommandRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -26,7 +29,6 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 import {
-  RpcMethodRegistrationService,
   ChatRpcHandlers,
   SessionRpcHandlers,
   ContextRpcHandlers,
@@ -38,10 +40,8 @@ import {
   LicenseRpcHandlers,
   ProviderRpcHandlers,
   SubagentRpcHandlers,
-  CommandRpcHandlers,
   QualityRpcHandlers,
   PluginRpcHandlers,
-  AgentRpcHandlers,
   PtahCliRpcHandlers,
   SkillsShRpcHandlers,
   McpDirectoryRpcHandlers,
@@ -73,24 +73,12 @@ export function registerPhase3Handlers(
   container.registerSingleton(QualityRpcHandlers);
   container.registerSingleton(PluginRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
+  container.registerSingleton(FilePickerRpcHandlers);
+  container.registerSingleton(ImagePickerRpcHandlers);
   container.registerSingleton(PtahCliRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(McpDirectoryRpcHandlers);
   container.registerSingleton(HarnessRpcHandlers);
   registerSharedRpcHandlers(container);
   activateSessionLifecycleNotifier(container);
-  container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
-    useFactory: (c) =>
-      new RpcMethodRegistrationService(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(TOKENS.COMMAND_MANAGER),
-        c.resolve(ChatRpcHandlers),
-        c.resolve(FileRpcHandlers),
-        c.resolve(EditorRpcHandlers),
-        c.resolve(CommandRpcHandlers),
-        c.resolve(AgentRpcHandlers),
-        c, // Pass container instance
-      ),
-  });
 }

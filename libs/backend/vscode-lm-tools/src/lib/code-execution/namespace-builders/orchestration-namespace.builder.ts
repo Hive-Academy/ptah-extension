@@ -97,36 +97,17 @@ export function buildOrchestrationNamespace(
   };
 
   /**
-   * Legacy state path (pre-`.ptah/specs` consolidation). Read-only fallback so
-   * in-flight tasks created under `task-tracking/` are not orphaned.
-   */
-  const getLegacyStatePath = (taskId: string): string => {
-    return path.join(
-      workspaceRoot,
-      'task-tracking',
-      taskId,
-      '.orchestration-state.json',
-    );
-  };
-
-  /**
    * Read orchestration state from file
    */
   const readStateFile = async (
     taskId: string,
   ): Promise<OrchestrationState | null> => {
-    for (const statePath of [
-      getStatePath(taskId),
-      getLegacyStatePath(taskId),
-    ]) {
-      try {
-        const content = await fs.promises.readFile(statePath, 'utf8');
-        return JSON.parse(content) as OrchestrationState;
-      } catch {
-        // try next location
-      }
+    try {
+      const content = await fs.promises.readFile(getStatePath(taskId), 'utf8');
+      return JSON.parse(content) as OrchestrationState;
+    } catch {
+      return null;
     }
-    return null;
   };
 
   /**
@@ -174,32 +155,51 @@ export function buildOrchestrationNamespace(
   };
 
   /**
-   * Analyze documents to determine if phase requirements are met
-   * Checks for existence of required documents in task folder
+   * Analyze documents to determine if phase requirements are met.
+   *
+   * Requirements are groups of ALTERNATIVES: every group must be satisfied by
+   * AT LEAST ONE of its filenames. That is what lets the implementation phase
+   * accept `batches.md` or its legacy name `tasks.md` — requiring both would
+   * break every task folder created under either name alone.
+   *
+   * Documents are read from `.ptah/specs/<taskId>/`, the same folder the state
+   * file lives in.
    */
   const checkPhaseRequirementsMet = async (
     taskId: string,
     phase: OrchestrationPhase,
   ): Promise<boolean> => {
-    const taskFolder = path.join(workspaceRoot, 'task-tracking', taskId);
+    const taskFolder = getTaskFolder(taskId);
 
-    const requiredDocuments: Record<OrchestrationPhase, string[]> = {
-      planning: ['task-description.md'],
-      design: ['implementation-plan.md'],
-      implementation: ['tasks.md'],
+    const requiredDocuments: Record<
+      OrchestrationPhase,
+      readonly (readonly string[])[]
+    > = {
+      planning: [['task-description.md']],
+      design: [['implementation-plan.md']],
+      implementation: [['batches.md', 'tasks.md']],
       qa: [],
       complete: [],
     };
 
-    const required = requiredDocuments[phase];
-
-    for (const doc of required) {
-      const docPath = path.join(taskFolder, doc);
+    const exists = async (doc: string): Promise<boolean> => {
       try {
-        await fs.promises.stat(docPath);
+        await fs.promises.stat(path.join(taskFolder, doc));
+        return true;
       } catch {
         return false;
       }
+    };
+
+    for (const alternatives of requiredDocuments[phase]) {
+      let satisfied = false;
+      for (const doc of alternatives) {
+        if (await exists(doc)) {
+          satisfied = true;
+          break;
+        }
+      }
+      if (!satisfied) return false;
     }
 
     return true;

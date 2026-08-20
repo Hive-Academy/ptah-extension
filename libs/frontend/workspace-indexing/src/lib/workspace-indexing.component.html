@@ -25,7 +25,7 @@
       <!-- =========================================================== -->
       @case ('loading') {
         <div class="state-block" data-testid="state-loading">
-          <p class="text-xs text-base-content/60">Loading status…</p>
+          <p class="text-xs text-base-content-muted">Loading status…</p>
         </div>
       }
 
@@ -35,7 +35,7 @@
       @case ('no-workspace') {
         <div class="state-block" data-testid="state-no-workspace">
           <h3 class="text-sm font-semibold mb-1">No workspace open</h3>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             Open a folder to manage indexing.
           </p>
         </div>
@@ -47,7 +47,7 @@
       @case ('never-indexed') {
         <div class="state-block" data-testid="state-never-indexed">
           <h3 class="text-sm font-semibold mb-1">Workspace not indexed yet</h3>
-          <p class="text-xs text-base-content/70 mb-3">
+          <p class="text-xs text-base-content-muted mb-3">
             Click <strong>Index now</strong> to build a local search index for
             this workspace. Files are read on your machine and nothing is
             uploaded. Indexing runs only when you trigger it.
@@ -78,7 +78,7 @@
               data-testid="callout-privacy-disclosure"
             >
               <p class="font-medium mb-1">What Ptah indexes</p>
-              <p class="text-base-content/70">
+              <p class="text-base-content-muted">
                 Ptah reads files in your workspace to build a local search
                 index stored at <code>~/.ptah/state/ptah.sqlite</code>. Nothing
                 is uploaded. You can disable any pipeline at any time.
@@ -94,7 +94,7 @@
       @case ('indexing') {
         <div class="state-block" data-testid="state-indexing">
           <h3 class="text-sm font-semibold mb-1">Indexing workspace…</h3>
-          <p class="text-xs text-base-content/70 mb-2">
+          <p class="text-xs text-base-content-muted mb-2">
             {{ state.percent }}% — {{ state.label || 'preparing…' }}
           </p>
 
@@ -148,7 +148,7 @@
           <h3 class="text-sm font-semibold mb-1">
             Indexing paused at {{ state.percent }}%
           </h3>
-          <p class="text-xs text-base-content/70 mb-3">
+          <p class="text-xs text-base-content-muted mb-3">
             Resume to finish, or cancel to discard progress.
           </p>
 
@@ -189,7 +189,7 @@
       @case ('indexed') {
         <div class="state-block" data-testid="state-indexed">
           <h3 class="text-sm font-semibold mb-1">Indexed</h3>
-          <p class="text-xs text-base-content/70 mb-3">
+          <p class="text-xs text-base-content-muted mb-3">
             Last updated
             {{ formatRelativeTime(state.lastIndexedAt) }}. Workspace is up
             to date.
@@ -228,7 +228,7 @@
           <h3 class="text-sm font-semibold mb-1">
             Workspace changed since last index
           </h3>
-          <p class="text-xs text-base-content/70 mb-3">
+          <p class="text-xs text-base-content-muted mb-3">
             Re-index to keep search results fresh. Last indexed at git
             <code>{{ shortSha(state.prevSha) }}</code
             >; current git is
@@ -274,7 +274,7 @@
       @case ('error') {
         <div class="state-block" data-testid="state-error">
           <h3 class="text-sm font-semibold mb-1">Indexing failed</h3>
-          <p class="text-xs text-base-content/70 mb-3">
+          <p class="text-xs text-base-content-muted mb-3">
             {{ state.message }}. Your previous index is still available.
           </p>
 
@@ -332,7 +332,7 @@
               aria-label="Toggle code symbol indexing"
             />
           </label>
-          <p class="text-[10px] text-base-content/60 mt-0.5">
+          <p class="text-[10px] text-base-content-muted mt-0.5">
             Indexes function and class symbols across your workspace for fast
             navigation. Disable if you only use chat.
           </p>
@@ -363,7 +363,7 @@
               aria-label="Toggle chat memory extraction"
             />
           </label>
-          <p class="text-[10px] text-base-content/60 mt-0.5">
+          <p class="text-[10px] text-base-content-muted mt-0.5">
             Saves useful facts from chats so Ptah remembers them later. Runs
             only when a chat compacts; never scans your files.
           </p>

@@ -2,13 +2,13 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 import { useTheme } from '../../hooks/use-theme.js';
+import { GLYPHS } from '../../lib/glyphs.js';
 import type {
   EffortLevel,
   PermissionLevel,
 } from '../../hooks/use-agent-config.js';
 
 interface AgentConfigBarProps {
-  model: string | null;
   effort: EffortLevel;
   permissionLevel: PermissionLevel;
   autopilotEnabled: boolean;
@@ -23,7 +23,6 @@ const PERMISSION_LABEL: Record<PermissionLevel, string> = {
 };
 
 export function AgentConfigBar({
-  model,
   effort,
   permissionLevel,
   autopilotEnabled,
@@ -40,20 +39,25 @@ export function AgentConfigBar({
         ? theme.status.info
         : theme.status.success;
 
+  // The model moved to the status line and the `^R effort  ^P perms` hint moved
+  // to the `?` overlay — both were duplicated here, and this row sat directly
+  // above the composer competing with the status line for the same job. What
+  // is left is the agent's current posture, which is worth a permanent row
+  // because "Full Auto" is a safety state and not a status.
   return (
-    <Box paddingX={1} gap={1}>
-      <Text color={dim ? theme.ui.dimmed : theme.ui.brand}>
-        {model ?? 'No model'}
-      </Text>
-      <Text color={theme.ui.border}>{'·'}</Text>
-      <Text color={theme.ui.dimmed}>effort:</Text>
-      <Text color={dim ? theme.ui.dimmed : theme.ui.accent}>{effort}</Text>
-      <Text color={theme.ui.border}>{'·'}</Text>
+    <Box paddingX={1} gap={1} flexShrink={0}>
+      <Text color={theme.ui.dimmed}>{'effort'}</Text>
+      <Text color={dim ? theme.ui.dimmed : theme.ui.muted}>{effort}</Text>
+      <Text color={theme.ui.borderSubtle}>{GLYPHS.separator}</Text>
       <Text color={permissionColor}>
-        {autopilotEnabled || permissionLevel !== 'ask' ? '◉' : '○'}{' '}
-        {PERMISSION_LABEL[permissionLevel]}
+        {PERMISSION_LABEL[permissionLevel].toLowerCase()}
       </Text>
-      <Text color={theme.ui.dimmed}>{'^R effort  ^P perms'}</Text>
+      {autopilotEnabled && (
+        <>
+          <Text color={theme.ui.borderSubtle}>{GLYPHS.separator}</Text>
+          <Text color={theme.status.warning}>autopilot</Text>
+        </>
+      )}
     </Box>
   );
 }

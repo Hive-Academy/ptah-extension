@@ -105,4 +105,5 @@ export const CODEX_PROVIDER_ENTRY: AnthropicProvider = {
   maskedKeyDisplay: 'Codex (connected)',
   staticModels: CODEX_STATIC_MODELS,
   defaultTiers: CODEX_DEFAULT_TIERS,
+  pricingModel: 'subscription',
 };

@@ -327,6 +327,12 @@ jobs:
       - name: Test
         run: npx nx test ptah-cli
 
+      # TASK_2026_240. platform-cli registers ContentDownloadService, so the CLI
+      # prunes ~/.ptah/plugins/ against this manifest too — a stale one deletes
+      # plugin files the user already has.
+      - name: Content manifest is current
+        run: npm run manifest:check
+
       - name: Build
         run: npx nx build ptah-cli
 

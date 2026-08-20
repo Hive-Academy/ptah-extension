@@ -26,6 +26,7 @@ import {
   Send,
   CheckCircle2,
   XCircle,
+  ScrollText,
 } from 'lucide-angular';
 import {
   TypingCursorComponent,
@@ -49,6 +50,7 @@ import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
 import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
+import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -111,7 +113,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
         <!-- Expand/Collapse chevron -->
         <lucide-angular
           [img]="isCollapsed() ? ChevronRightIcon : ChevronDownIcon"
-          class="w-3.5 h-3.5 text-base-content/50 flex-shrink-0"
+          class="w-3.5 h-3.5 text-base-content-muted flex-shrink-0"
         />
 
         <!-- Colored avatar -->
@@ -126,12 +128,12 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
 
         <!-- Agent type + description (inline only when expanded) -->
         <div class="flex-1 min-w-0 flex items-center gap-2">
-          <span class="text-[11px] font-semibold text-base-content/80">
-            {{ node().agentType }}
+          <span class="text-[11px] font-semibold text-base-content-muted">
+            {{ displayName() }}
           </span>
           @if (!isCollapsed() && node().agentDescription) {
             <span
-              class="text-[10px] text-base-content/50 truncate"
+              class="text-[10px] text-base-content-muted truncate"
               [title]="node().agentDescription"
             >
               {{ node().agentDescription }}
@@ -267,7 +269,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           <!-- Progress sub-line: italic, muted, ellipsis-truncated single line -->
           @if (progressLine(); as line) {
             <span
-              class="flex-1 min-w-0 italic text-[9px] text-base-content/50 truncate"
+              class="flex-1 min-w-0 italic text-[9px] text-base-content-muted truncate"
               data-testid="subagent-progress-line"
               [title]="line"
             >
@@ -282,7 +284,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           @if (canBackground()) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-info"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-info"
               (click)="onBackgroundClick($event)"
               [disabled]="backgroundPending()"
               data-testid="subagent-background-button"
@@ -297,7 +299,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           @if (canStop()) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-error"
               (click)="onStopClick($event)"
               [disabled]="stopPending()"
               data-testid="subagent-stop-button"
@@ -308,31 +310,47 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             </button>
           }
 
-          <!-- Nudge-orchestrator toggle (collapsed by default).
-               The Claude Agent SDK has no per-subagent input channel — input
-               always lands at the root coordinator. We surface that honestly
-               as a "nudge the orchestrator about this agent" affordance. -->
+          <!-- View full transcript: on-demand read of the agent's complete
+               saved conversation (distinct from the live inline tree). Shows
+               whenever the SDK agentId + owning session are known — including
+               after the agent has finished (historical backfill). -->
+          @if (canViewTranscript()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-primary"
+              (click)="onViewTranscript($event)"
+              data-testid="subagent-transcript-button"
+              title="View full transcript"
+              aria-label="View agent transcript"
+            >
+              <lucide-angular [img]="ScrollTextIcon" class="w-3 h-3" />
+            </button>
+          }
+
+          <!-- Message-agent toggle (collapsed by default).
+               The message is relayed to THIS specific subagent: the backend
+               dispatcher forwards it via the SDK's SendMessage tool keyed by
+               the agent's agentId (coordinator-mediated, but agent-targeted).
+               So we surface it honestly as a "message this agent" affordance. -->
           <button
             type="button"
-            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/50"
+            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted"
             (click)="toggleSendInput($event)"
             data-testid="subagent-send-toggle"
             [attr.aria-expanded]="sendInputExpanded()"
             [title]="
-              sendInputExpanded()
-                ? 'Hide nudge input'
-                : 'Nudge the orchestrator about this agent'
+              sendInputExpanded() ? 'Hide message input' : 'Message this agent'
             "
           >
             <lucide-angular
               [img]="sendInputExpanded() ? ChevronUpIcon : ChevronDownIcon"
               class="w-3 h-3"
             />
-            <span class="text-[9px]">Nudge orchestrator</span>
+            <span class="text-[9px]">Message agent</span>
           </button>
         </div>
 
-        <!-- Nudge-orchestrator input (collapsed by default). -->
+        <!-- Message-agent input (collapsed by default). -->
         @if (sendInputExpanded()) {
           <div
             class="flex items-start gap-2 px-3 py-2 border-t border-base-300/30 bg-base-100/30"
@@ -344,8 +362,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
               [class.textarea-disabled]="!canSendMessage()"
               [disabled]="!canSendMessage()"
               [title]="canSendMessage() ? '' : 'Agent is no longer running'"
-              [attr.aria-label]="'Nudge the orchestrator about this subagent'"
-              placeholder="Nudge the orchestrator about this agent…"
+              [attr.aria-label]="'Send message to this agent'"
+              placeholder="Message this agent…"
               rows="1"
               [value]="sendDraft()"
               (input)="onSendDraftInput($event)"
@@ -358,8 +376,8 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
               [disabled]="!canSubmitSend()"
               (click)="onSendSubmit()"
               data-testid="subagent-send-submit"
-              title="Send nudge (Cmd/Ctrl+Enter)"
-              aria-label="Send nudge to orchestrator"
+              title="Send message (Cmd/Ctrl+Enter)"
+              aria-label="Send message to this agent"
             >
               <lucide-angular [img]="SendIcon" class="w-3 h-3" />
             </button>
@@ -385,7 +403,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           (click)="toggleCollapse()"
         >
           <p
-            class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2"
+            class="text-[11px] text-base-content-muted leading-relaxed line-clamp-2"
           >
             {{ node().agentDescription }}
           </p>
@@ -426,31 +444,31 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
               }
               @if (isStreaming()) {
                 <div
-                  class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
+                  class="flex items-center gap-1 text-[10px] text-base-content-muted mt-2"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
                     class="w-3 h-3 animate-spin"
                   />
                   <span>Agent working</span>
-                  <ptah-typing-cursor colorClass="text-base-content/40" />
+                  <ptah-typing-cursor colorClass="text-base-content-muted" />
                 </div>
               }
             } @else {
               <!-- No children yet -->
               @if (isStreaming()) {
                 <div
-                  class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+                  class="flex items-center gap-2 text-[10px] text-base-content-muted py-2"
                 >
                   <lucide-angular
                     [img]="LoaderIcon"
                     class="w-3 h-3 animate-spin"
                   />
                   <span>Starting agent execution</span>
-                  <ptah-typing-cursor colorClass="text-base-content/40" />
+                  <ptah-typing-cursor colorClass="text-base-content-muted" />
                 </div>
               } @else {
-                <div class="text-[10px] text-base-content/40 py-2">
+                <div class="text-[10px] text-base-content-muted py-2">
                   No execution data
                 </div>
               }
@@ -469,7 +487,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
              override below: when [data-finalizing] is set on the host, the
              keyframes are no-ops. -->
         <div
-          class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
+          class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content-muted rounded-b-lg"
           [style.background-color]="footerBgColor()"
           [attr.data-finalizing]="isFinalizing() ? '' : null"
           animate.enter="agent-fade-in"
@@ -591,6 +609,7 @@ export class InlineAgentBubbleComponent {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly modelState = inject(ModelStateService);
+  private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -667,6 +686,7 @@ export class InlineAgentBubbleComponent {
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
+  readonly ScrollTextIcon = ScrollText;
   readonly isCollapsed = signal(false);
 
   constructor() {
@@ -794,6 +814,10 @@ export class InlineAgentBubbleComponent {
         node.id,
         node.toolCallId ?? undefined,
         description,
+        // Owning session, so the description lookup cannot match an agent that
+        // a DIFFERENT session resumed. Falls back to the focused tab inside the
+        // store when the record has no resolved owner.
+        this.subagentRecord()?.parentSessionId,
       );
     }
     return false;
@@ -904,6 +928,15 @@ export class InlineAgentBubbleComponent {
     return this.agentMonitorStore.subagents().get(key);
   });
 
+  /**
+   * Human-legible name for the header. Prefers the teammate name captured on
+   * `agent_start`, falling back to the raw node `agentType` (the hex/tool id)
+   * when no name is available. Plain text interpolation only — never markdown.
+   */
+  readonly displayName = computed(
+    () => this.subagentRecord()?.teammateName ?? this.node().agentType,
+  );
+
   /** Single-line progress text shown next to the status badge. */
   readonly progressLine = computed(() => {
     const rec = this.subagentRecord();
@@ -925,6 +958,32 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     return !!rec && rec.status === 'running';
   });
+
+  /**
+   * Whether the "View transcript" affordance should show. Requires both the SDK
+   * `agentId` and the owning session id on the record — the two inputs the
+   * `subagent:transcript` RPC needs. Available even after the agent finishes
+   * (records are retained), which is exactly the historical-view case.
+   */
+  readonly canViewTranscript = computed(() => {
+    const rec = this.subagentRecord();
+    return !!rec?.agentId && !!rec?.parentSessionId;
+  });
+
+  /** Open the on-demand transcript viewer for this agent. */
+  protected onViewTranscript(event: Event): void {
+    event.stopPropagation();
+    const rec = this.subagentRecord();
+    if (!rec?.agentId || !rec.parentSessionId) return;
+    void this.transcriptViewer.openFor(
+      rec.teammateName ??
+        this.node().agentType ??
+        rec.description ??
+        'Subagent',
+      rec.parentSessionId,
+      rec.agentId,
+    );
+  }
 
   /**
    * Send-to-background applies to running FOREGROUND subagents only. Gated

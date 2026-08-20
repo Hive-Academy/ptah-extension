@@ -212,4 +212,5 @@ export const COPILOT_PROVIDER_ENTRY: AnthropicProvider = {
   maskedKeyDisplay: 'GitHub Copilot (connected)',
   staticModels: COPILOT_STATIC_MODELS,
   defaultTiers: COPILOT_DEFAULT_TIERS,
+  pricingModel: 'subscription',
 };

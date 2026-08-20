@@ -45,11 +45,13 @@ type ChannelRegistry = Map<string, DiscordSendableChannelLike>;
 interface FakeThread extends DiscordThreadLike {
   send: jest.Mock;
   setArchived: jest.Mock;
+  sendTyping: jest.Mock;
 }
 
 interface FakeChannel extends DiscordSendableChannelLike {
   id: string;
   send: jest.Mock;
+  sendTyping: jest.Mock;
   threadCreate: jest.Mock;
   createdThreads: FakeThread[];
 }
@@ -61,6 +63,7 @@ function fakeThread(byId: ChannelRegistry): FakeThread {
     id: `thread-${threadSeq}`,
     send: jest.fn().mockImplementation(async () => fakeMessage()),
     setArchived: jest.fn().mockResolvedValue(undefined),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
   };
   byId.set(thread.id, thread);
   return thread;
@@ -76,6 +79,7 @@ function fakeChannel(byId: ChannelRegistry, id = 'chan-1'): FakeChannel {
   const channel: FakeChannel = {
     id,
     send: jest.fn().mockImplementation(async () => fakeMessage()),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
     threads: { create: threadCreate },
     threadCreate,
     createdThreads,
@@ -87,6 +91,8 @@ function fakeChannel(byId: ChannelRegistry, id = 'chan-1'): FakeChannel {
 interface FakeClient extends DiscordClientLike {
   emitInteraction(interaction: DiscordInteractionLike): Promise<void>;
   emitMessage(message: DiscordIncomingMessageLike): Promise<void>;
+  /** Fire a transport event (`error`, `shardDisconnect`, ...) if registered. */
+  emitTransport(event: string, ...args: unknown[]): boolean;
   channelsFetch: jest.Mock;
 }
 
@@ -125,6 +131,12 @@ function fakeClient(
       if (!handlers.messageCreate)
         throw new Error('no messageCreate handler registered');
       await handlers.messageCreate(message);
+    },
+    emitTransport(event, ...args) {
+      const h = (handlers as Record<string, unknown>)[event];
+      if (typeof h !== 'function') return false;
+      (h as (...a: unknown[]) => void)(...args);
+      return true;
     },
   };
 }
@@ -223,6 +235,70 @@ async function startAdapter(
   await adapter.start('token');
   return { adapter, client, channel, byId, inbound, logger };
 }
+
+describe('DiscordAdapter — transport lifecycle (TASK_2026_271 #3)', () => {
+  it('registers an error listener so a client error cannot crash the host', async () => {
+    const { client, logger } = await startAdapter();
+    expect(client.emitTransport('error', new Error('ws boom'))).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord client error',
+      expect.objectContaining({ error: 'ws boom' }),
+    );
+  });
+
+  it('isRunning() goes false on shardDisconnect and true again on shardResume', async () => {
+    const { adapter, client } = await startAdapter();
+    const seen: string[] = [];
+    adapter.onConnectionChange((e) => seen.push(e.state));
+    expect(adapter.isRunning()).toBe(true);
+
+    client.emitTransport('shardDisconnect', { code: 1006, reason: 'gone' });
+    expect(adapter.isRunning()).toBe(false);
+
+    client.emitTransport('shardReconnecting');
+    expect(adapter.isRunning()).toBe(false);
+
+    client.emitTransport('shardResume');
+    expect(adapter.isRunning()).toBe(true);
+    expect(seen).toEqual(['disconnected', 'reconnecting', 'connected']);
+  });
+
+  it('start() after the session was invalidated rebuilds the client instead of no-op-ing', async () => {
+    const { adapter, client } = await startAdapter();
+    client.emitTransport('invalidated');
+    expect(adapter.isRunning()).toBe(false);
+
+    await adapter.start('token');
+
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(client.login).toHaveBeenCalledTimes(2);
+    expect(adapter.isRunning()).toBe(true);
+  });
+
+  it('reports invalidated with a reason so the gateway can restart the adapter', async () => {
+    const { adapter, client } = await startAdapter();
+    const events: Array<{ state: string; reason?: string }> = [];
+    adapter.onConnectionChange((e) => events.push(e));
+
+    client.emitTransport('invalidated');
+    expect(adapter.isRunning()).toBe(false);
+    expect(events[0]?.state).toBe('invalidated');
+    expect(events[0]?.reason).toContain('invalidated');
+  });
+
+  it('shardError flips to reconnecting and carries the error text', async () => {
+    const { adapter, client } = await startAdapter();
+    const events: Array<{ state: string; reason?: string }> = [];
+    adapter.onConnectionChange((e) => events.push(e));
+
+    client.emitTransport('shardError', new Error('heartbeat timeout'));
+    expect(adapter.isRunning()).toBe(false);
+    expect(events[0]).toEqual({
+      state: 'reconnecting',
+      reason: 'heartbeat timeout',
+    });
+  });
+});
 
 describe('DiscordAdapter — inbound thread lifecycle', () => {
   beforeEach(() => {
@@ -697,6 +773,115 @@ describe('DiscordAdapter — outbound', () => {
     await expect(
       adapter.editMessage('chan-1', sent.externalMsgId, 'y'),
     ).rejects.toThrow(/no message recorded/);
+  });
+});
+
+describe('DiscordAdapter — typing indicator (TASK_2026_271)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+  });
+
+  it('routes sendTyping to the thread when a conversationId is given', async () => {
+    const { adapter, channel, byId } = await startAdapter();
+    const thread = fakeThread(byId);
+
+    await adapter.sendTyping('chan-1', { conversationId: thread.id });
+
+    expect(thread.sendTyping).toHaveBeenCalledTimes(1);
+    expect(channel.sendTyping).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the parent channel when no conversationId is given', async () => {
+    const { adapter, channel } = await startAdapter();
+
+    await adapter.sendTyping('chan-1');
+
+    expect(channel.sendTyping).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws when the channel is gone or sendTyping rejects', async () => {
+    const { adapter, channel, logger } = await startAdapter();
+    channel.sendTyping.mockRejectedValue(new Error('Missing Permissions'));
+
+    await expect(adapter.sendTyping('chan-1')).resolves.toBeUndefined();
+    await expect(adapter.sendTyping('chan-gone')).resolves.toBeUndefined();
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[gateway] discord sendTyping failed',
+      expect.objectContaining({ error: 'Missing Permissions' }),
+    );
+  });
+
+  it('is a no-op on a channel shape that does not expose sendTyping', async () => {
+    const { adapter, byId } = await startAdapter();
+    byId.set('plain-chan', {
+      send: jest.fn().mockImplementation(async () => fakeMessage()),
+    });
+
+    await expect(adapter.sendTyping('plain-chan')).resolves.toBeUndefined();
+  });
+});
+
+describe('DiscordAdapter — bounded message tracking (TASK_2026_271)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+  });
+
+  it('evicts the oldest handles past the 500-message cap but keeps the recent tail editable', async () => {
+    jest.useFakeTimers();
+    try {
+      const { adapter } = await startAdapter();
+      // Step the clock past the throttle window between sends so the burst
+      // limiter never parks on a timer — this test is about the map, not the
+      // rate limit.
+      const send = async (body: string): Promise<string> => {
+        jest.setSystemTime(Date.now() + PER_CHANNEL_WINDOW_MS + 1);
+        const res = await adapter.sendMessage('chan-1', body);
+        return res.externalMsgId;
+      };
+
+      const first = await send('oldest');
+      const ids: string[] = [];
+      for (let i = 0; i < 500; i += 1) ids.push(await send(`m${i}`));
+
+      // 501 sends, cap 500 → only the very first handle was evicted.
+      await expect(adapter.editMessage('chan-1', first, 'x')).rejects.toThrow(
+        /no message recorded/,
+      );
+      await expect(
+        adapter.editMessage('chan-1', ids[0], 'x'),
+      ).resolves.toBeUndefined();
+      await expect(
+        adapter.editMessage('chan-1', ids[ids.length - 1], 'x'),
+      ).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('prunes rate-limit windows for channels that have gone quiet', async () => {
+    jest.useFakeTimers();
+    try {
+      const { adapter, byId } = await startAdapter();
+      const quiet = fakeThread(byId);
+      const busy = fakeThread(byId);
+
+      await adapter.sendMessage('chan-1', 'a', { conversationId: quiet.id });
+      const windows = (
+        adapter as unknown as { channelEdits: Map<string, number[]> }
+      ).channelEdits;
+      expect(windows.has(quiet.id)).toBe(true);
+
+      jest.setSystemTime(Date.now() + PER_CHANNEL_WINDOW_MS + 1);
+      await adapter.sendMessage('chan-1', 'b', { conversationId: busy.id });
+
+      expect(windows.has(quiet.id)).toBe(false);
+      expect(windows.has(busy.id)).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

@@ -7,6 +7,7 @@ import {
   effect,
   ChangeDetectionStrategy,
   inject,
+  untracked,
   DestroyRef,
   ElementRef,
   NgZone,
@@ -116,7 +117,7 @@ type MonacoApi = typeof monaco;
       @if (vimModeService.enabled() && isFocused() && filePath()) {
         <div
           #vimStatusBar
-          class="h-6 bg-base-300 border-t border-base-content/10 text-xs px-2 flex items-center font-mono text-base-content/70 flex-shrink-0"
+          class="h-6 bg-base-300 border-t border-base-content/10 text-xs px-2 flex items-center font-mono text-base-content-muted flex-shrink-0"
           aria-label="Vim status"
         ></div>
       }
@@ -141,6 +142,25 @@ export class CodeEditorComponent {
    * Defaults to true for non-split (single pane) usage.
    */
   readonly isFocused = input(true);
+
+  /**
+   * Whether the incoming `content` represents the file's PERSISTED (on-disk)
+   * state. Drives the local "Modified" badge's clean baseline.
+   *
+   * - `undefined` (default) — no information. Legacy behaviour: an incoming
+   *   change to `content` is treated as a new clean baseline, which is correct
+   *   for the only shapes a non-split editor ever sees (a revert, a re-read).
+   *   Every caller outside the split-pane same-file case leaves it unset, so
+   *   that path is byte-identical to before C2.
+   * - `false` — `content` is an UNSAVED mirror of the sibling split pane. Apply
+   *   it, but keep the existing baseline: the file really is modified, and
+   *   adopting the mirror as clean would clear this pane's badge while the tab
+   *   strip still (correctly) shows a dirty dot.
+   * - `true` — `content` is the persisted state. Adopt it as the baseline even
+   *   when the model already matches it, which is how the pane that did NOT
+   *   issue the save clears its badge after the other pane saves (C2 AC4).
+   */
+  readonly contentIsPersisted = input<boolean | undefined>(undefined);
 
   readonly contentChanged = output<string>();
   readonly fileSaved = output<{ filePath: string; content: string }>();
@@ -200,11 +220,19 @@ export class CodeEditorComponent {
   private destroyed = false;
 
   /**
-   * Unique per-instance id used to namespace model URIs. The split editor
-   * mounts two component instances that can show the same file; Monaco's model
-   * registry is keyed globally by URI, so instance-namespaced URIs keep the two
-   * panes' models independent (matching the pre-existing independent-edit
-   * behaviour) and avoid "model URI already in use" collisions.
+   * Unique per-instance id used to namespace model URIs.
+   *
+   * The split editor mounts two component instances that can show the same
+   * file, and Monaco's model registry is keyed GLOBALLY by URI: two instances
+   * asking for the same URI would either collide ("model URI already in use")
+   * or silently share one model, one undo stack and one cursor. Namespacing the
+   * URI per instance gives each pane its own model identity — its own undo
+   * history, selection and view state (C2 AC6).
+   *
+   * Model identity is all this buys. It is NOT an edit-independence policy:
+   * since C2 the two panes no longer hold independent CONTENT for the same
+   * file — the tab record owns that, both panes write through to it, and the
+   * unfocused pane is mirrored from it.
    */
   private readonly instanceId = `ce-${(CodeEditorComponent.instanceCounter++).toString(36)}-${Math.random()
     .toString(36)
@@ -260,6 +288,35 @@ export class CodeEditorComponent {
       const content = this.content();
       if (!this.editor) return;
       this.syncFile(path, content);
+    });
+
+    // Clean-baseline reconciliation for the split-pane same-file case (C2 AC4).
+    //
+    // When the OTHER pane saves, this pane's model already holds the saved text
+    // (it was mirrored there) but its baseline still points at the last text it
+    // was told was persisted, so its "Modified" badge would stay lit on a file
+    // that is clean on disk. `contentIsPersisted` flipping to true is the
+    // signal that whatever the shared file's panes are showing is now the
+    // persisted state.
+    //
+    // This deliberately does NOT go through syncFile. syncFile compares the
+    // `content` INPUT against the model, and in the primary pane that input
+    // (`activeFileContent`) is intentionally stale while the user types —
+    // re-running it on a dirty-flag change would push that stale text over the
+    // user's edits. Baselines only; content is never touched here.
+    effect(() => {
+      const persisted = this.contentIsPersisted();
+      if (persisted !== true) return;
+      untracked(() => {
+        const key = this.currentModelPath;
+        const model = this.editor?.getModel();
+        if (key === null || !model) return;
+        const value = model.getValue();
+        if (this.baselines.get(key) === value) return;
+        this.baselines.set(key, value);
+        this.lastSavedContent = value;
+        this.isDirty.set(false);
+      });
     });
 
     // Vim attach/detach follows enabled + focus, using the real editor.
@@ -322,9 +379,18 @@ export class CodeEditorComponent {
         this.themeObserver = new MutationObserver(() => {
           monacoApi.editor.setTheme(this.detectMonacoTheme());
         });
+        const themeAttributes = [
+          'data-vscode-theme-kind',
+          'data-theme',
+          'data-theme-mode',
+        ];
         this.themeObserver.observe(document.body, {
           attributes: true,
-          attributeFilter: ['data-vscode-theme-kind', 'data-theme'],
+          attributeFilter: themeAttributes,
+        });
+        this.themeObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: themeAttributes,
         });
       }
     });
@@ -392,12 +458,29 @@ export class CodeEditorComponent {
       this.monacoApi.editor.setModelLanguage(model, language);
     }
 
-    // External content update for an existing model (revert / reread): the
-    // incoming `content` input never carries the user's own edits back (the
-    // EditorService updates tab content, not activeFileContent, on edit), so
-    // any divergence here is an outside change we must apply.
+    // External content update for an existing model (revert, reread, or a
+    // mirror of the sibling split pane): a full-model replacement, so it MUST
+    // NOT be reachable from this pane's own keystrokes or it would move the
+    // cursor to the end of the buffer and flatten the undo stack.
+    //
+    // What keeps it unreachable is that nothing writes this pane's own edits
+    // back into its `content` input. A user edit emits `contentChanged`, which
+    // the panel routes to the TAB RECORD; the tab record is mirrored back out
+    // only into the pane that does NOT have focus (C2). The one write into a
+    // focused pane is the reconciliation on a focus CHANGE, which carries the
+    // other pane's text and happens before the user can type.
+    //
+    // So any divergence seen here is still an outside change we must apply.
     if (!isNewModel && content !== model.getValue()) {
-      this.baselines.set(key, content);
+      // A mirror of the other pane's unsaved text is not a clean baseline.
+      // Read untracked: the surrounding effect must depend on `filePath` and
+      // `content` ONLY. Taking a dependency on the dirty-derived
+      // `contentIsPersisted` would re-run syncFile on the first keystroke in
+      // the primary pane, where `content` is the deliberately stale
+      // `activeFileContent` — and push it straight over that keystroke.
+      if (untracked(() => this.contentIsPersisted()) !== false) {
+        this.baselines.set(key, content);
+      }
       this.applyingExternalEdit = true;
       try {
         model.pushEditOperations(
@@ -553,16 +636,33 @@ export class CodeEditorComponent {
   /**
    * Detect the Monaco theme from the host environment, mirroring
    * {@link DiffViewComponent} so both surfaces stay visually consistent.
+   *
+   * Reads `<html>` as well as `<body>` for the same reason the diff view does:
+   * `ThemeService` writes daisyUI's `data-theme` / `data-theme-mode` to
+   * `document.documentElement`, so a `<body>`-only read never sees them. Kept
+   * identical to the diff view's copy deliberately — a code editor and the diff
+   * beside it disagreeing about light or dark is worse than either being wrong.
    */
   private detectMonacoTheme(): string {
     if (typeof document === 'undefined') return 'vs-dark';
+    const root = document.documentElement;
 
-    const vscodeKind = document.body.getAttribute('data-vscode-theme-kind');
+    const vscodeKind =
+      document.body.getAttribute('data-vscode-theme-kind') ??
+      root.getAttribute('data-vscode-theme-kind');
     if (vscodeKind === 'vscode-light') return 'vs';
     if (vscodeKind === 'vscode-high-contrast') return 'hc-black';
     if (vscodeKind === 'vscode-dark') return 'vs-dark';
 
-    const dataTheme = document.body.getAttribute('data-theme');
+    const mode =
+      root.getAttribute('data-theme-mode') ??
+      document.body.getAttribute('data-theme-mode');
+    if (mode === 'light') return 'vs';
+    if (mode === 'dark') return 'vs-dark';
+
+    const dataTheme =
+      root.getAttribute('data-theme') ??
+      document.body.getAttribute('data-theme');
     if (dataTheme === 'light') return 'vs';
 
     return 'vs-dark';

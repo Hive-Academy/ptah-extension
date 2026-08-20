@@ -20,6 +20,7 @@ import { DependencyAnalyzerService } from '../project-analysis/dependency-analyz
 import { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
 import { ProjectDetectorService } from '../project-analysis/project-detector.service';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
+import { WorkspaceFileIndexService } from '../file-indexing/workspace-file-index.service';
 import { WorkspaceAnalyzerService } from '../composite/workspace-analyzer.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { ContextService } from '../context/context.service';
@@ -115,6 +116,10 @@ export function registerWorkspaceIntelligenceServices(
     WorkspaceIndexerService,
   );
   container.registerSingleton(
+    TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+    WorkspaceFileIndexService,
+  );
+  container.registerSingleton(
     TOKENS.WORKSPACE_ANALYZER_SERVICE,
     WorkspaceAnalyzerService,
   );
@@ -173,6 +178,7 @@ export function registerWorkspaceIntelligenceServices(
       'FRAMEWORK_DETECTOR_SERVICE',
       'PROJECT_DETECTOR_SERVICE',
       'WORKSPACE_INDEXER_SERVICE',
+      'WORKSPACE_FILE_INDEX_SERVICE',
       'WORKSPACE_ANALYZER_SERVICE',
       'WORKSPACE_SERVICE',
       'CONTEXT_SERVICE',

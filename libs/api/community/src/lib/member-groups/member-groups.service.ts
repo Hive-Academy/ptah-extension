@@ -1,0 +1,738 @@
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
+import { AuditLogService } from '@ptah-api/audit';
+
+/**
+ * A member group enriched with its current assignment count — the shape the
+ * admin panel + stats surfaces consume.
+ */
+export interface MemberGroupWithCount {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  /**
+   * This cohort's own Google Calendar master event for the weekly live session,
+   * or null to fall back to `BUILDERS_SESSION_EVENT_ID`. Admin-only — it is not
+   * part of the member-facing {@link UserMemberGroup} projection.
+   */
+  sessionEventId: string | null;
+  isDefault: boolean;
+  memberCount: number;
+  createdAt: Date;
+}
+
+/** The compact `{ key, name }` shape surfaced to members on /me + /sessions. */
+export interface UserMemberGroup {
+  key: string;
+  name: string;
+}
+
+export interface CreateMemberGroupInput {
+  key: string;
+  name: string;
+  description?: string | null;
+  sessionEventId?: string | null;
+  isDefault?: boolean;
+}
+
+export interface UpdateMemberGroupInput {
+  name?: string;
+  description?: string | null;
+  sessionEventId?: string | null;
+  isDefault?: boolean;
+}
+
+export interface AssignManyInput {
+  userIds?: string[];
+  emails?: string[];
+}
+
+/**
+ * Result of an admin bulk-assign. `assigned` counts newly-created assignments;
+ * `skipped` counts users that were already in the group or could not be
+ * resolved (unknown id/email).
+ *
+ * TASK_2026_177 P1b removed the `syncedUsers` + forum-group hint fields with the
+ * external provisioning integration they existed to drive. Assignment now has
+ * exactly one effect — the `MemberGroupAssignment` row — so the result carries
+ * only the two counts the admin panel renders.
+ */
+export interface AssignManyResult {
+  assigned: number;
+  skipped: number;
+}
+
+/** Assignment `source` values — how a user came to be in a group. */
+export type MemberGroupAssignmentSource =
+  | 'auto_provisioning'
+  | 'admin'
+  | 'migration';
+
+/** Query for the paginated group-members drill-down (TASK_2026_169). */
+export interface ListGroupMembersQuery {
+  page?: number;
+  pageSize?: number;
+  /** Case-insensitive substring matched against the FIXED column user.email. */
+  search?: string;
+}
+
+/** One row of the group-members drill-down. */
+export interface GroupMemberResponse {
+  userId: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  assignedAt: string;
+  source: string;
+}
+
+/** Paginated envelope for the group-members drill-down. */
+export interface GroupMembersPage {
+  members: GroupMemberResponse[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** The minimal cohort identity {@link MemberGroupsService.requireGroupByKey} resolves. */
+export interface RequiredMemberGroup {
+  id: string;
+  key: string;
+  name: string;
+}
+
+/**
+ * MemberGroupsService — owns member-cohort (group) CRUD + user assignment.
+ *
+ * Design invariants:
+ *   - Exactly one group is the default at a time. Creating/updating a group
+ *     with `isDefault: true` atomically clears the previous default inside a
+ *     transaction.
+ *   - Assignments are idempotent (unique on `[userId, groupId]`). Re-assigning
+ *     an already-member is a no-op counted as `skipped`.
+ *   - `assignDefaultGroup` is the fan-out entry point (called from the Paddle
+ *     Builders provisioning path); it upserts and never audits (system action).
+ *   - Admin mutations (create/update/assign/unassign) write an AdminAuditLog
+ *     row (`group.*` actions).
+ *
+ * This service has NO external forum collaborator. It used to be the inverted
+ * end of a provisioning dependency — an external group-sync service depended on
+ * it, never the reverse, which is what kept the module graph acyclic. That whole
+ * integration was deleted by TASK_2026_177 P1b, so the inversion no longer has
+ * anything to protect against: cohorts are resolved and rendered in-product.
+ */
+@Injectable()
+export class MemberGroupsService {
+  private readonly logger = new Logger(MemberGroupsService.name);
+
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuditLogService) private readonly audit: AuditLogService,
+  ) {}
+
+  /** List every group with its current member count (default first). */
+  async listWithCounts(): Promise<MemberGroupWithCount[]> {
+    const groups = await this.prisma.memberGroup.findMany({
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      include: { _count: { select: { assignments: true } } },
+    });
+    return groups.map((g) => this.toWithCount(g, g._count.assignments));
+  }
+
+  /** The current default group, or null when none is flagged. */
+  async getDefaultGroup(): Promise<{
+    id: string;
+    key: string;
+    name: string;
+  } | null> {
+    const group = await this.prisma.memberGroup.findFirst({
+      where: { isDefault: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, key: true, name: true },
+    });
+    return group ?? null;
+  }
+
+  /**
+   * Resolve a cohort BY ITS STABLE KEY, or fail the whole request.
+   *
+   * Used by grant paths that must land members in one NAMED cohort — currently
+   * approve-to-cohort, which resolves `'founding'` once per request before it
+   * touches a single waitlist row (TASK_2026_201 R1.5).
+   *
+   * ⚠️ THERE IS DELIBERATELY NO `isDefault` FALLBACK, AND ONE MUST NEVER BE
+   * ADDED. `isDefault` is an operational convenience that moves: the Paddle
+   * fan-out uses it precisely because "whichever cohort is current" is the right
+   * answer there ({@link assignDefaultGroup}). A named grant is the opposite
+   * case. The day a second cohort is flagged default, a fallback here would
+   * silently retarget every founding approval into that cohort — no error, no
+   * log, wrong members in the wrong group. Failing loudly on a missing key is
+   * the only safe behaviour, and it is why this method exists as a sibling to
+   * {@link getDefaultGroup} rather than as an option on it.
+   *
+   * Fails CLOSED and fails EARLY: because the caller resolves the cohort before
+   * its row loop, a mis-provisioned deployment issues no licence for ANY row
+   * rather than issuing licences with no cohort assignment — the half-state R2
+   * forbids.
+   *
+   * The thrown 500 carries a stable `code` and a fixed sentence. No Prisma text
+   * and no key-existence detail reaches the client; the diagnosable cause goes
+   * to the server log only.
+   *
+   * @throws InternalServerErrorException `COHORT_NOT_CONFIGURED` when no group
+   *   has this key.
+   */
+  async requireGroupByKey(key: string): Promise<RequiredMemberGroup> {
+    const group = await this.prisma.memberGroup.findUnique({
+      where: { key },
+      select: { id: true, key: true, name: true },
+    });
+
+    if (!group) {
+      this.logger.error(
+        `Member group '${key}' is not configured — refusing to fall back to the ` +
+          `default cohort. Create the group with this exact key, then retry.`,
+      );
+      throw new InternalServerErrorException({
+        code: 'COHORT_NOT_CONFIGURED',
+        message:
+          'The member cohort for this action is not configured. Please contact support.',
+      });
+    }
+
+    return group;
+  }
+
+  /**
+   * The `{ key, name }` groups a user belongs to (assignment order). Returns an
+   * empty array for an unassigned/unknown user.
+   */
+  async getGroupsForUser(userId: string): Promise<UserMemberGroup[]> {
+    const rows = await this.prisma.memberGroupAssignment.findMany({
+      where: { userId },
+      orderBy: { assignedAt: 'asc' },
+      include: { group: { select: { key: true, name: true } } },
+    });
+    return rows.map((r) => ({ key: r.group.key, name: r.group.name }));
+  }
+
+  /**
+   * The Google Calendar master event id for the live session THIS USER should be
+   * invited to, or null when none of their cohorts configures one (the caller
+   * then falls back to `BUILDERS_SESSION_EVENT_ID`).
+   *
+   * ── MULTI-COHORT RESOLUTION RULE: MOST RECENTLY ASSIGNED COHORT WINS ────────
+   * A user can hold assignments to several cohorts at once, so "the user's
+   * event" needs a rule that is deterministic AND matches how cohorts are
+   * actually administered here. Two facts drive the choice:
+   *
+   *   1. EVERY new paid Builders member is auto-assigned to the DEFAULT cohort
+   *      by the Paddle fan-out (`assignDefaultGroup`, source 'auto_provisioning')
+   *      before an admin has any chance to place them. An Arabic-cohort member
+   *      therefore lands in the English default first, and the admin's placement
+   *      is always the LATER assignment. Under an "oldest wins" or "default
+   *      wins" rule that admin action would be inert — every member would stay
+   *      pinned to the default cohort's event and the feature would do nothing
+   *      without a manual unassign. Newest-wins lets the admin's placement take
+   *      effect by itself, which is the operation the admin actually performs.
+   *   2. Re-provisioning does NOT churn the answer: `assignDefaultGroup` upserts
+   *      with an empty `update: {}`, so an existing default-cohort row keeps its
+   *      original `assignedAt`. A member re-subscribing cannot have their seat
+   *      dragged back to the default cohort.
+   *
+   * Ties on `assignedAt` (possible when rows are written in the same
+   * millisecond) break on the cohort's stable `key` ascending, so the answer is
+   * total and stable rather than dependent on physical row order.
+   *
+   * Cohorts WITHOUT a configured event are filtered out in SQL rather than
+   * merely losing the ordering: a member of [Arabic (has an event), General (no
+   * event, assigned later)] must resolve to the Arabic event, not fall through
+   * to the env-var default. An unconfigured cohort never shadows a configured
+   * one.
+   *
+   * This method reads only; it never throws for "no answer" — an unassigned or
+   * unknown user simply yields null.
+   */
+  async getSessionEventIdForUser(userId: string): Promise<string | null> {
+    const rows = await this.prisma.memberGroupAssignment.findMany({
+      where: { userId, group: { sessionEventId: { not: null } } },
+      orderBy: [{ assignedAt: 'desc' }, { group: { key: 'asc' } }],
+      include: { group: { select: { key: true, sessionEventId: true } } },
+    });
+
+    for (const row of rows) {
+      const eventId = this.normalizeEventId(row.group.sessionEventId);
+      if (eventId) {
+        return eventId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Every distinct cohort-scoped session event id configured across all groups.
+   *
+   * Callers use this to tell "this event belongs to SOME cohort" from "this
+   * event belongs to nobody in particular". An empty result means no cohort has
+   * opted in, which is the signal that the deployment is still single-cohort and
+   * must behave exactly as it did before this column existed.
+   */
+  async listSessionEventIds(): Promise<string[]> {
+    const groups = await this.prisma.memberGroup.findMany({
+      where: { sessionEventId: { not: null } },
+      select: { sessionEventId: true },
+    });
+
+    const ids = new Set<string>();
+    for (const group of groups) {
+      const eventId = this.normalizeEventId(group.sessionEventId);
+      if (eventId) {
+        ids.add(eventId);
+      }
+    }
+    return [...ids];
+  }
+
+  /**
+   * List the members of a group, paginated and newest-assignment-first
+   * (TASK_2026_169).
+   *
+   * Closes the gap the admin frontend flagged in its own docblock: the backend
+   * previously exposed `DELETE /groups/:id/members/:userId` (remove-by-id) with
+   * no way to browse a group's members and pick one, so the remove action had
+   * no usable entry point.
+   *
+   * `search` is a FIXED field (`user.email`) — never a caller-supplied field
+   * name — so the `assertAllowedField` allowlist discipline is satisfied by
+   * construction. Throws 404 for an unknown group rather than returning an
+   * empty page, so a stale group id in the UI is visibly wrong.
+   */
+  async listMembers(
+    groupId: string,
+    query: ListGroupMembersQuery,
+  ): Promise<GroupMembersPage> {
+    const group = await this.prisma.memberGroup.findUnique({
+      where: { id: groupId },
+      select: { id: true },
+    });
+    if (!group) {
+      throw new NotFoundException(`Member group ${groupId} not found`);
+    }
+
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 25;
+    const where: Prisma.MemberGroupAssignmentWhereInput = {
+      groupId,
+      ...(query.search
+        ? { user: { email: { contains: query.search, mode: 'insensitive' } } }
+        : {}),
+    };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.memberGroupAssignment.findMany({
+        where,
+        orderBy: { assignedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: {
+            select: { id: true, email: true, firstName: true, lastName: true },
+          },
+        },
+      }),
+      this.prisma.memberGroupAssignment.count({ where }),
+    ]);
+
+    return {
+      members: rows.map((row) => ({
+        userId: row.user.id,
+        email: row.user.email,
+        firstName: row.user.firstName,
+        lastName: row.user.lastName,
+        assignedAt: row.assignedAt.toISOString(),
+        source: row.source,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  /**
+   * Idempotently assign a user to the current default group with source
+   * `auto_provisioning`. No-op when there is no default group or the user is
+   * already assigned. Called from the Builders provisioning fan-out — never
+   * audits (system action, not an admin one).
+   */
+  async assignDefaultGroup(userId: string): Promise<void> {
+    const def = await this.getDefaultGroup();
+    if (!def) {
+      this.logger.debug(
+        `No default member group configured — skipping auto-assign for user ${userId}`,
+      );
+      return;
+    }
+    await this.prisma.memberGroupAssignment.upsert({
+      where: { userId_groupId: { userId, groupId: def.id } },
+      create: { userId, groupId: def.id, source: 'auto_provisioning' },
+      update: {},
+    });
+    this.logger.log(
+      `Ensured default group '${def.key}' assignment for user ${userId}`,
+    );
+  }
+
+  /**
+   * Idempotently assign a user to a group ON THE CALLER'S TRANSACTION, and
+   * report whether THIS call created the assignment (TASK_2026_201 R5.3).
+   *
+   * `created: false` means "already in the cohort" — an expected, benign
+   * outcome that the caller records as `cohortAlreadyAssigned` in its audit
+   * metadata and NEVER treats as an error. The grant still succeeds.
+   *
+   * ⚠️ UPSERT, NOT `create` + `catch (P2002)` — AND THE DIFFERENCE IS NOT
+   * STYLISTIC. {@link assignMany} at the bottom of this file legitimately
+   * catches P2002 and counts it as skipped, because it runs OUTSIDE any
+   * transaction. Copying that shape in here would be a live defect: on
+   * PostgreSQL a statement error inside an open transaction puts the session
+   * into the aborted state (25P02), so the caught P2002 would poison the very
+   * transaction the catch was written to keep alive — the code would appear to
+   * tolerate the race while actually failing the whole grant on it.
+   *
+   * Prisma compiles a simple, non-nested upsert on a unique constraint down to
+   * `INSERT … ON CONFLICT DO UPDATE`, so a concurrent assigner raises nothing at
+   * all. If it ever degrades to find-then-create, the caller's
+   * whole-transaction retry absorbs the resulting P2002 and the outcome is
+   * unchanged either way.
+   *
+   * The `findUnique` runs first purely to report `created` — the upsert alone
+   * cannot distinguish an insert from a no-op update. A racer landing between
+   * the two makes `created` optimistic (`true` for a row it did not insert),
+   * which is an audit-metadata nuance only: the assignment exists either way,
+   * `update: {}` means the existing row keeps its original `assignedAt`, and no
+   * decision anywhere branches on `created`.
+   *
+   * Does NOT audit. The caller's own `waitlist.approve` row carries `groupKey`,
+   * so a second `group.assign` row would double-count one action — and this
+   * method has no `actorEmail` to attribute it to.
+   *
+   * @param tx - the caller's interactive-transaction client.
+   */
+  async assignInTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      groupId: string;
+      source: MemberGroupAssignmentSource;
+    },
+  ): Promise<{ created: boolean }> {
+    const { userId, groupId, source } = params;
+
+    const existing = await tx.memberGroupAssignment.findUnique({
+      where: { userId_groupId: { userId, groupId } },
+      select: { id: true },
+    });
+
+    await tx.memberGroupAssignment.upsert({
+      where: { userId_groupId: { userId, groupId } },
+      create: { userId, groupId, source },
+      update: {},
+    });
+
+    return { created: existing === null };
+  }
+
+  /**
+   * Create a group. When `isDefault` is true the previous default is cleared
+   * atomically in the same transaction. Throws 409 on duplicate key.
+   */
+  async create(
+    input: CreateMemberGroupInput,
+    actorEmail: string | null,
+  ): Promise<MemberGroupWithCount> {
+    try {
+      const group = await this.prisma.$transaction(async (tx) => {
+        if (input.isDefault) {
+          await tx.memberGroup.updateMany({
+            where: { isDefault: true },
+            data: { isDefault: false },
+          });
+        }
+        return tx.memberGroup.create({
+          data: {
+            key: input.key,
+            name: input.name,
+            description: input.description ?? null,
+            sessionEventId: this.normalizeEventId(input.sessionEventId),
+            isDefault: input.isDefault ?? false,
+          },
+        });
+      });
+
+      await this.safeAudit(actorEmail, 'group.create', group.id, {
+        key: group.key,
+        name: group.name,
+        isDefault: group.isDefault,
+        sessionEventId: group.sessionEventId,
+      });
+
+      return this.toWithCount(group, 0);
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          `A member group with key '${input.key}' already exists`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Patch a group's mutable fields. Passing `isDefault: true` atomically
+   * demotes the previous default. Only supplied keys are written; passing
+   * `null` for description clears it.
+   */
+  async update(
+    id: string,
+    input: UpdateMemberGroupInput,
+    actorEmail: string | null,
+  ): Promise<MemberGroupWithCount> {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.memberGroup.findUnique({ where: { id } });
+      if (!existing) {
+        throw new NotFoundException(`Member group ${id} not found`);
+      }
+      if (input.isDefault === true) {
+        await tx.memberGroup.updateMany({
+          where: { isDefault: true, NOT: { id } },
+          data: { isDefault: false },
+        });
+      }
+      const data: Prisma.MemberGroupUpdateInput = {};
+      if (input.name !== undefined) data.name = input.name;
+      if (input.description !== undefined) data.description = input.description;
+      // Normalized on write so a whitespace-only value clears the column rather
+      // than becoming an event id that can never match anything in Calendar.
+      if (input.sessionEventId !== undefined) {
+        data.sessionEventId = this.normalizeEventId(input.sessionEventId);
+      }
+      if (input.isDefault !== undefined) data.isDefault = input.isDefault;
+
+      const group = await tx.memberGroup.update({
+        where: { id },
+        data,
+        include: { _count: { select: { assignments: true } } },
+      });
+      return group;
+    });
+
+    await this.safeAudit(actorEmail, 'group.update', updated.id, {
+      key: updated.key,
+      fields: Object.keys(input),
+      isDefault: updated.isDefault,
+      sessionEventId: updated.sessionEventId,
+    });
+
+    return this.toWithCount(updated, updated._count.assignments);
+  }
+
+  /**
+   * Bulk-assign users (by id and/or email) to a group with source `admin`.
+   * Idempotent per user (already-member → skipped). Unknown ids/emails are
+   * skipped. Returns the per-run tallies.
+   */
+  async assignMany(
+    groupId: string,
+    input: AssignManyInput,
+    actorEmail: string | null,
+    source: MemberGroupAssignmentSource = 'admin',
+  ): Promise<AssignManyResult> {
+    const group = await this.prisma.memberGroup.findUnique({
+      where: { id: groupId },
+      select: { id: true, key: true },
+    });
+    if (!group) {
+      throw new NotFoundException(`Member group ${groupId} not found`);
+    }
+
+    const { users, unresolved } = await this.resolveUsers(input);
+    let assigned = 0;
+    let skipped = unresolved;
+
+    for (const user of users) {
+      const existing = await this.prisma.memberGroupAssignment.findUnique({
+        where: { userId_groupId: { userId: user.id, groupId } },
+        select: { id: true },
+      });
+      if (existing) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        await this.prisma.memberGroupAssignment.create({
+          data: { userId: user.id, groupId, source },
+        });
+      } catch (error: unknown) {
+        // Concurrent assign for the same user+group loses the race on the
+        // [userId, groupId] unique — count it as skipped, not a 500.
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+      assigned += 1;
+    }
+
+    await this.safeAudit(actorEmail, 'group.assign', groupId, {
+      key: group.key,
+      assigned,
+      skipped,
+      requestedUserIds: input.userIds ?? null,
+      requestedEmails: input.emails ?? null,
+      source,
+    });
+
+    return { assigned, skipped };
+  }
+
+  /**
+   * Remove a user from a group. Idempotent — a missing assignment is a no-op
+   * (returns `{ removed: false }`). Audited as `group.unassign` when a row was
+   * actually deleted.
+   */
+  async unassign(
+    groupId: string,
+    userId: string,
+    actorEmail: string | null,
+  ): Promise<{ removed: boolean }> {
+    const result = await this.prisma.memberGroupAssignment.deleteMany({
+      where: { groupId, userId },
+    });
+    const removed = result.count > 0;
+    if (removed) {
+      await this.safeAudit(actorEmail, 'group.unassign', groupId, { userId });
+    }
+    return { removed };
+  }
+
+  /**
+   * Resolve `{ userIds, emails }` to distinct existing users. Ids/emails that
+   * do not map to a user are counted as `unresolved` (skipped). Emails are
+   * matched case-insensitively (stored lowercased).
+   */
+  private async resolveUsers(input: AssignManyInput): Promise<{
+    users: Array<{ id: string; email: string }>;
+    unresolved: number;
+  }> {
+    const requestedIds = [...new Set(input.userIds ?? [])];
+    const requestedEmails = [
+      ...new Set((input.emails ?? []).map((e) => e.trim().toLowerCase())),
+    ];
+
+    const byId = requestedIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: requestedIds } },
+          select: { id: true, email: true },
+        })
+      : [];
+    const byEmail = requestedEmails.length
+      ? await this.prisma.user.findMany({
+          where: { email: { in: requestedEmails } },
+          select: { id: true, email: true },
+        })
+      : [];
+
+    const dedup = new Map<string, { id: string; email: string }>();
+    for (const u of [...byId, ...byEmail]) {
+      dedup.set(u.id, u);
+    }
+
+    const foundIds = new Set(byId.map((u) => u.id));
+    const foundEmails = new Set(byEmail.map((u) => u.email.toLowerCase()));
+    const missingIds = requestedIds.filter((id) => !foundIds.has(id)).length;
+    const missingEmails = requestedEmails.filter(
+      (e) => !foundEmails.has(e),
+    ).length;
+
+    return {
+      users: [...dedup.values()],
+      unresolved: missingIds + missingEmails,
+    };
+  }
+
+  private toWithCount(
+    group: {
+      id: string;
+      key: string;
+      name: string;
+      description: string | null;
+      sessionEventId: string | null;
+      isDefault: boolean;
+      createdAt: Date;
+    },
+    memberCount: number,
+  ): MemberGroupWithCount {
+    return {
+      id: group.id,
+      key: group.key,
+      name: group.name,
+      description: group.description,
+      sessionEventId: group.sessionEventId,
+      isDefault: group.isDefault,
+      memberCount,
+      createdAt: group.createdAt,
+    };
+  }
+
+  /**
+   * Trim a stored/submitted event id to either a usable id or null. Empty and
+   * whitespace-only are collapsed to null so "unset" has exactly ONE
+   * representation — every read path can then test truthiness alone.
+   */
+  private normalizeEventId(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  /**
+   * Best-effort AdminAuditLog write. An audit failure must never fail the
+   * originating admin mutation — it is logged and swallowed.
+   */
+  private async safeAudit(
+    actorEmail: string | null,
+    action: 'group.create' | 'group.update' | 'group.assign' | 'group.unassign',
+    targetId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.audit.write({
+        actorEmail,
+        action,
+        targetType: 'MemberGroup',
+        targetId,
+        metadata,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Failed to write ${action} audit log for group ${targetId}: ${message}`,
+      );
+    }
+  }
+}

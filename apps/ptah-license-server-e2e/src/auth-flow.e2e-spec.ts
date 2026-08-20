@@ -92,7 +92,7 @@ describe('auth-flow e2e :: magic-link request → token issue', () => {
     const url = await magicLink.createMagicLink(TEST_EMAIL);
 
     expect(url).toMatch(
-      /^https:\/\/portal\.test\/api\/auth\/verify\?token=[a-f0-9]{64}$/,
+      /^https:\/\/portal\.test\/api\/v1\/auth\/verify\?token=[a-f0-9]{64}$/,
     );
   });
 
@@ -209,7 +209,7 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
       tenantId: `user_${DB_USER_ID}`,
       roles: ['admin'],
       permissions: ['manage:users'],
-      tier: 'pro',
+      tier: 'builders',
     });
 
     expect(() => tokens.validateToken(forged)).toThrow(UnauthorizedException);
@@ -219,7 +219,7 @@ describe('auth-flow e2e :: JWT session issue → validate → refresh', () => {
     const jwt = await tokens.generateToken(DB_USER_ID, makeWorkOSUser());
     const [header, , signature] = jwt.split('.');
     const maliciousPayload = Buffer.from(
-      JSON.stringify({ sub: DB_USER_ID, email: TEST_EMAIL, tier: 'pro' }),
+      JSON.stringify({ sub: DB_USER_ID, email: TEST_EMAIL, tier: 'builders' }),
       'utf8',
     )
       .toString('base64')

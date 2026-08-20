@@ -22,13 +22,18 @@ jest.mock(
   '@ptah-extension/agent-sdk',
   () => {
     const {
-      mockAnthropicProviders,
+      mockProviderRegistryAccessors,
+      mockAllTierEnvKeys,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
       },
-      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      ...mockProviderRegistryAccessors(),
+      // Spread at module scope by auth-providers' curator-auth-resolver, which
+      // the cli-engine import chain drags in — omitting it throws
+      // "is not iterable" before any test runs.
+      ALL_TIER_ENV_KEYS: mockAllTierEnvKeys(),
     };
   },
   { virtual: true },

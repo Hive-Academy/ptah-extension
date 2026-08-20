@@ -61,8 +61,13 @@ export class StreamingHandlerService {
   /**
    * Tracks session IDs that have already been warned about missing target tab
    * to avoid repeated console.warn spam during streaming rebuilds.
+   *
+   * `undefined` is a real key here, not a gap: an event with no session is
+   * exactly the case worth warning about once, and every such event is the same
+   * unattributable case, so one shared bucket is correct. It is never evicted by
+   * `cleanupSessionDeduplication`, which only ever names a real session.
    */
-  private readonly warnedNoTargetSessions = new Set<string>();
+  private readonly warnedNoTargetSessions = new Set<string | undefined>();
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly finalization = inject(MessageFinalizationService);
@@ -116,14 +121,22 @@ export class StreamingHandlerService {
   } | null {
     const isReplay = options?.isReplay ?? false;
     try {
+      // `SessionId.from` THROWS on a non-UUID, and an event can arrive with no
+      // session at all while the SDK session is still resolving. The fan-out
+      // lookup below runs unconditionally — AFTER `processEventForTab` has
+      // already mutated state — so a throw there was swallowed by the catch and
+      // turned into `null`, silently dropping the compaction / queued-content
+      // dispatch that `chat.store.processStreamEvent` reads from the return
+      // value. Never reach for `from` here. `safeParse` takes the absent case
+      // itself (`undefined` → `null`), so every session lookup below is already
+      // skipped when there is no session.
+      const eventSession = SessionId.safeParse(event.sessionId);
       let primaryTab: TabState | undefined;
       if (tabId) {
         primaryTab = this.tabManager.tabs().find((t) => t.id === tabId);
       }
-      if (!primaryTab) {
-        const bound = this.tabManager.findTabsBySessionId(
-          SessionId.from(event.sessionId),
-        );
+      if (!primaryTab && eventSession) {
+        const bound = this.tabManager.findTabsBySessionId(eventSession);
         // `findTabsBySessionId` can resolve a tab that lives in a BACKGROUND
         // workspace (via its cross-workspace fallback). The foreground
         // `processEventForTab` path is only valid for tabs in the active
@@ -137,15 +150,18 @@ export class StreamingHandlerService {
       }
       if (!primaryTab && !tabId) {
         const activeTab = this.tabManager.activeTab();
+        // `attachSession` runs `SessionId.from` internally and throws the same
+        // way, so the hijack only fires when we actually hold a session id.
+        const realSessionId = SessionId.safeParse(sessionId) ?? eventSession;
 
         if (
           activeTab &&
+          realSessionId &&
           !activeTab.claudeSessionId &&
           (activeTab.status === 'fresh' ||
             activeTab.status === 'streaming' ||
             activeTab.status === 'draft')
         ) {
-          const realSessionId = sessionId || event.sessionId;
           this.tabManager.attachSession(activeTab.id, realSessionId);
           this.tabManager.markStreaming(activeTab.id);
 
@@ -176,9 +192,9 @@ export class StreamingHandlerService {
         sessionId,
         isReplay,
       );
-      const allBoundTabs = this.tabManager.findTabsBySessionId(
-        SessionId.from(event.sessionId),
-      );
+      const allBoundTabs = eventSession
+        ? this.tabManager.findTabsBySessionId(eventSession)
+        : [];
       if (allBoundTabs.length > 1) {
         const activeTabs = this.tabManager.tabs();
         for (const otherTab of allBoundTabs) {
@@ -348,6 +364,10 @@ export class StreamingHandlerService {
   }
 
   private routeBackgroundEvent(event: FlatStreamEventUnion): boolean {
+    // A background tab is found BY its session id. With no session on the event
+    // there is nothing to look up — report "not routed" and let the caller warn
+    // and drop, rather than picking some tab that merely happens to be handy.
+    if (!event.sessionId) return false;
     const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
       event.sessionId,
     );
@@ -424,9 +444,13 @@ export class StreamingHandlerService {
     tokens: { input: number; output: number };
     duration: number;
   }): { tabId: string; queuedContent: string | null } | null {
-    const boundTabs = this.tabManager.findTabsBySessionId(
-      SessionId.from(stats.sessionId),
-    );
+    // Same non-throwing parse as `processStreamEvent`: this method has no
+    // try/catch, so a `''` session id used to throw straight out of the
+    // handler and abandon the whole turn-end stats merge.
+    const statsSession = SessionId.safeParse(stats.sessionId);
+    const boundTabs = statsSession
+      ? this.tabManager.findTabsBySessionId(statsSession)
+      : [];
     let primaryTab: TabState | undefined = boundTabs[0];
     if (!primaryTab) {
       // Before falling back to the active tab, resolve the owner across all
@@ -472,13 +496,14 @@ export class StreamingHandlerService {
 
       if (
         activeTab &&
+        statsSession &&
         !activeTab.claudeSessionId &&
         (activeTab.status === 'fresh' ||
           activeTab.status === 'streaming' ||
           activeTab.status === 'draft')
       ) {
-        this.tabManager.attachSession(activeTab.id, stats.sessionId);
-        this.sessionManager.setSessionId(stats.sessionId);
+        this.tabManager.attachSession(activeTab.id, statsSession);
+        this.sessionManager.setSessionId(statsSession);
         primaryTab = activeTab;
       } else if (
         activeTab &&

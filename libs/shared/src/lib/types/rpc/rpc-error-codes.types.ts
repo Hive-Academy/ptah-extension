@@ -5,8 +5,6 @@
  * so the two never drift apart.
  */
 export type RpcUserErrorCode =
-  | 'LICENSE_REQUIRED'
-  | 'PRO_TIER_REQUIRED'
   | 'WORKSPACE_NOT_OPEN'
   | 'UNAUTHORIZED_WORKSPACE'
   | 'MESSAGE_ID_NOT_FOUND'

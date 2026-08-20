@@ -31,6 +31,11 @@ import { SlotAlreadyClaimedError } from './run.store';
 import type { RunId } from '@ptah-extension/shared';
 import type { IHandlerRegistry, JobHandlerResult, ScheduledJob } from './types';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  PLATFORM_TOKENS,
+  resolveMcpSessionWiring,
+  type IMcpServerStatus,
+} from '@ptah-extension/platform-core';
 import type {
   InternalQueryConfig,
   InternalQueryHandle,
@@ -82,6 +87,12 @@ export class JobRunner {
     private readonly handlers: IHandlerRegistry,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
+    /**
+     * Optional: a host with no in-process MCP server (the CLI) resolves
+     * nothing and every job runs exactly as it did before.
+     */
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {}
 
   /**
@@ -213,8 +224,10 @@ export class JobRunner {
       cwd: job.workspaceRoot ?? process.cwd(),
       model: '',
       prompt: job.prompt,
-      isPremium: false,
-      mcpServerRunning: false,
+      // A cron job used to run with MCP hard-disabled, so it could not call a
+      // single Ptah tool on a host where the server was listening the whole
+      // time (defect 13). Derived now, from the live port.
+      ...resolveMcpSessionWiring(this.mcpServerStatus),
       abortController: ctl,
     });
 

@@ -26,7 +26,11 @@ import type {
   EditorRevertFilesParams,
   EditorRevertFilesResult,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  TREE_HIDDEN_DIRS,
+  isExcludedWorkspacePath,
+} from '@ptah-extension/shared';
 import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 
 /** Extends FileOpenParams with legacy 'filePath' for backward compatibility. */
@@ -66,18 +70,18 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Hidden directory names to skip when building the file tree. */
-const HIDDEN_SKIP = new Set([
-  '.git',
-  '.hg',
-  '.svn',
-  '.DS_Store',
-  '.Trash',
-  '.cache',
-  '.tmp',
-  '.temp',
-  '.nx',
-]);
+/**
+ * Directory-exclusion glob handed to `findFiles` by `editor:searchInFiles`
+ * and `editor:listAllFiles`, derived from `TREE_HIDDEN_DIRS` instead of
+ * written out by hand.
+ *
+ * The two hand-written literals this replaces named 5 of the shared set's 11
+ * members, so search and quick-open surfaced matches from `.hg`, `.svn`,
+ * `.DS_Store`, `.Trash`, `.tmp` and `.temp` that the file tree itself hides.
+ * Deriving the pattern means a name added to `TREE_HIDDEN_DIRS` reaches both
+ * methods without a third manual edit, so the drift cannot recur.
+ */
+export const EXCLUDED_DIRS_GLOB = `**/{${[...TREE_HIDDEN_DIRS].join(',')}}/**`;
 
 /** File extensions considered binary (skip during text search). */
 const BINARY_EXTENSIONS = new Set([
@@ -210,6 +214,15 @@ export class EditorRpcHandlers {
    * Shared implementation for file:open and editor:openFile.
    * Reads file content and notifies the editor provider.
    * Accepts both 'path' (FileOpenParams standard) and 'filePath' (legacy).
+   *
+   * NOTE, and it is deliberate: no `TREE_HIDDEN_DIRS` test happens here. A
+   * path inside `node_modules` opens, even though the tree can never navigate
+   * to one. Naming an exact path is an explicit intent that a default-hiding
+   * rule does not override — opening a file from a stack frame is the case
+   * that matters. `validatePathInWorkspace` below is the ONLY containment
+   * boundary on this method. Full rationale in the header of
+   * `workspace-scan.constants.ts` (@ptah-extension/shared); both halves of the
+   * asymmetry are pinned in this file's spec (TASK_2026_208).
    */
   private async handleFileOpen(
     params: FileOpenCompatParams | undefined,
@@ -276,6 +289,17 @@ export class EditorRpcHandlers {
     );
   }
 
+  /**
+   * `rootPath` is the explicit-access half of the exclusion asymmetry.
+   *
+   * Omitted, this walks the workspace root and `buildFileTree` filters every
+   * entry against `TREE_HIDDEN_DIRS` — so navigation cannot reach an excluded
+   * directory. Supplied, the given root is enumerated as-is: `buildFileTree`
+   * filters a directory's CHILDREN, never the directory it was handed, so
+   * `{ rootPath: '<workspace>/node_modules' }` returns its contents. Intended;
+   * see `workspace-scan.constants.ts` (@ptah-extension/shared) for why, and
+   * this file's spec for the pin (TASK_2026_208).
+   */
   private registerGetFileTree(): void {
     this.rpcHandler.registerMethod(
       'editor:getFileTree',
@@ -311,6 +335,9 @@ export class EditorRpcHandlers {
   /**
    * Lazy-load children of a directory that was at the initial depth boundary.
    * Returns immediate children (1 level) for the given directory path.
+   *
+   * Same explicit-access shape as `editor:getFileTree` above: `dirPath` is
+   * enumerated as given, only its children are filtered (TASK_2026_208).
    */
   private registerGetDirectoryChildren(): void {
     this.rpcHandler.registerMethod(
@@ -493,7 +520,7 @@ export class EditorRpcHandlers {
         }
 
         try {
-          const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
+          const excludePattern = [EXCLUDED_DIRS_GLOB];
           const filePaths = await this.fs.findFiles(
             wsRoot.replace(/\\/g, '/') + '/**/*',
             excludePattern,
@@ -742,7 +769,7 @@ export class EditorRpcHandlers {
       }
 
       try {
-        const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
+        const excludePattern = [EXCLUDED_DIRS_GLOB];
         const filePaths = await this.fs.findFiles(
           wsRoot.replace(/\\/g, '/') + '/**/*',
           excludePattern,
@@ -852,10 +879,14 @@ export class EditorRpcHandlers {
       );
 
       for (const entry of sorted) {
-        if (entry.name === 'node_modules' || entry.name === 'dist') {
-          continue;
-        }
-        if (entry.name.startsWith('.') && HIDDEN_SKIP.has(entry.name)) {
+        // `TREE_HIDDEN_DIRS` (@ptah-extension/shared) is the single source of
+        // truth this shares with the workspace watcher. It is the exact union
+        // of the two checks that stood here before — the `node_modules`/`dist`
+        // test and the dot-gated `HIDDEN_SKIP` test — so tree visibility is
+        // unchanged. The dot gate is intentionally NOT reproduced: every name
+        // it guarded already begins with '.', which made it a no-op, and
+        // keeping it would let `node_modules` and `dist` back into the tree.
+        if (isExcludedWorkspacePath(entry.name, TREE_HIDDEN_DIRS)) {
           continue;
         }
 

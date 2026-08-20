@@ -1,0 +1,51 @@
+<div
+  class="ptah-fc relative rounded-lg border border-base-300 bg-base-200 p-3"
+  [class.opacity-60]="loading()"
+>
+  <full-calendar [options]="calendarOptions()" [events]="calendarEvents()">
+    <!--
+      Custom event body. The default renderer prints "title  5p" as flat text,
+      which at month density reads as an undifferentiated list. This gives each
+      event a bold time and a glyph for the fact both audiences scan for —
+      whether the session has a Meet link to join.
+    -->
+    <ng-template #eventContent let-arg>
+      <div class="flex min-w-0 items-center gap-1.5 px-1 py-0.5">
+        <span class="truncate text-[11px] font-semibold tabular-nums opacity-80">
+          {{ arg.timeText }}
+        </span>
+        <span class="truncate text-[11px] font-medium">
+          {{ arg.event.title }}
+        </span>
+        @if (arg.event.extendedProps.session?.meetLink) {
+          <span class="shrink-0 text-[10px] opacity-70" aria-hidden="true">
+            &#9679;
+          </span>
+          <span class="sr-only">has a Meet link</span>
+        }
+        <!--
+          Guest count is admin-only by construction: the member session shape
+          has no `attendees` field, so this renders nothing on that surface
+          rather than being conditionally hidden.
+        -->
+        @if (arg.event.extendedProps.session?.attendees?.length) {
+          <span class="shrink-0 text-[10px] tabular-nums opacity-70">
+            {{ arg.event.extendedProps.session.attendees.length }}
+          </span>
+          <span class="sr-only">guests invited</span>
+        }
+      </div>
+    </ng-template>
+  </full-calendar>
+
+  @if (loading()) {
+    <div
+      class="pointer-events-none absolute inset-0 flex items-start justify-center pt-24"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+      <span class="sr-only">Loading sessions</span>
+    </div>
+  }
+</div>

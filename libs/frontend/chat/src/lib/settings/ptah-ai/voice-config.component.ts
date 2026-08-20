@@ -52,7 +52,7 @@ type VoiceProviderId = 'local' | 'elevenlabs';
           </h2>
         </div>
 
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Pick the speech-to-text and text-to-speech engines used by the chat
           mic and messaging-gateway voice notes. Local engines run offline;
           cloud engines require an API key.
@@ -66,7 +66,7 @@ type VoiceProviderId = 'local' | 'elevenlabs';
 
         @if (isLoading()) {
           <div
-            class="text-xs text-base-content/50"
+            class="text-xs text-base-content-muted"
             data-testid="voice-config-loading"
           >
             Loading voice providers…
@@ -78,11 +78,11 @@ type VoiceProviderId = 'local' | 'elevenlabs';
           <div class="flex items-center gap-1 mb-1">
             <lucide-angular
               [img]="MicIcon"
-              class="w-3 h-3 text-base-content/60"
+              class="w-3 h-3 text-base-content-muted"
             />
             <label
               for="voice-stt-provider"
-              class="text-xs font-medium text-base-content/70"
+              class="text-xs font-medium text-base-content-muted"
             >
               Speech-to-Text Provider
             </label>
@@ -127,7 +127,7 @@ type VoiceProviderId = 'local' | 'elevenlabs';
           }
         }
 
-        <div class="divider my-3 text-[10px] text-base-content/40">
+        <div class="divider my-3 text-[10px] text-base-content-muted">
           Text-to-Speech
         </div>
 
@@ -136,11 +136,11 @@ type VoiceProviderId = 'local' | 'elevenlabs';
           <div class="flex items-center gap-1 mb-1">
             <lucide-angular
               [img]="Volume2Icon"
-              class="w-3 h-3 text-base-content/60"
+              class="w-3 h-3 text-base-content-muted"
             />
             <label
               for="voice-tts-provider"
-              class="text-xs font-medium text-base-content/70"
+              class="text-xs font-medium text-base-content-muted"
             >
               Text-to-Speech Provider
             </label>

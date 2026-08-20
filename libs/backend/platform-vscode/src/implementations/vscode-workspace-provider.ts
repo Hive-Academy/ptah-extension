@@ -20,6 +20,9 @@ import {
   isFileBasedSettingKey,
 } from '@ptah-extension/platform-core';
 
+/** Settle time after saving settings.json before VS Code accepts an update. */
+const SETTINGS_SAVE_MS = 200;
+
 export class VscodeWorkspaceProvider implements IWorkspaceProvider {
   public readonly onDidChangeConfiguration: IEvent<ConfigurationChangeEvent>;
   public readonly onDidChangeWorkspaceFolders: IEvent<void>;
@@ -106,7 +109,56 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
       return;
     }
     const config = vscode.workspace.getConfiguration(section);
-    await config.update(key, value, vscode.ConfigurationTarget.Global);
+    try {
+      await config.update(key, value, vscode.ConfigurationTarget.Global);
+    } catch (error: unknown) {
+      if (!this.isDirtySettingsFailure(error)) throw error;
+      await this.saveDirtySettingsDocument();
+      await new Promise((resolve) => setTimeout(resolve, SETTINGS_SAVE_MS));
+      await config.update(key, value, vscode.ConfigurationTarget.Global);
+    }
+  }
+
+  /**
+   * VS Code refuses `config.update()` while the user's settings.json has
+   * unsaved edits open in an editor. The thrown error is not always specific,
+   * so a dirty settings document is treated as corroborating evidence.
+   */
+  private isDirtySettingsFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('unsaved changes')) return true;
+    return vscode.workspace.textDocuments.some(
+      (doc) =>
+        doc.isDirty &&
+        doc.uri.scheme === 'vscode-userdata' &&
+        doc.uri.path.endsWith('settings.json'),
+    );
+  }
+
+  /**
+   * Save the user settings document so the retry can succeed. Only that
+   * document — saving everything would commit unrelated edits on the user's
+   * behalf. Falls back to the active editor when the document is not in
+   * `textDocuments` under the scheme we expect.
+   */
+  private async saveDirtySettingsDocument(): Promise<void> {
+    const settingsDoc = vscode.workspace.textDocuments.find(
+      (doc) =>
+        doc.isDirty &&
+        doc.uri.path.endsWith('settings.json') &&
+        (doc.uri.scheme === 'vscode-userdata' || doc.uri.scheme === 'file'),
+    );
+    if (settingsDoc) {
+      await settingsDoc.save();
+      return;
+    }
+    const activeEditor = vscode.window.activeTextEditor;
+    if (
+      activeEditor?.document.isDirty &&
+      activeEditor.document.uri.path.endsWith('settings.json')
+    ) {
+      await activeEditor.document.save();
+    }
   }
 
   dispose(): void {

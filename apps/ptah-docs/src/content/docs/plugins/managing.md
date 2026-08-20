@@ -1,75 +1,67 @@
 ---
 title: Managing Plugins
-description: Update, refresh, and uninstall plugins from your Ptah installation.
+description: Change your plugin selection after the fact, refresh the downloaded content, and understand what the cache does.
 ---
 
-Plugins evolve independently of the Ptah desktop app. The **Installed** tab of the Plugins panel gives you full control over what's cached on disk and which version is active.
+There is no separate "installed plugins" screen in Ptah. The modal you used to turn plugins on is the same one you use to turn them off, reorder your mind, or switch off a single skill. Managing plugins means reopening **Configure Ptah Skills**.
 
-## Updating a plugin
+## Reopening the configuration modal
 
-Ptah checks `content-manifest.json` on every app launch and surfaces updates in the Plugins panel.
+1. Click **Marketplace** in the navigation rail.
+2. Select the **Plugins** provider.
+3. The **Ptah Skills** panel shows a compact status line — `3/6 enabled`, or **Not configured** if you have never saved a selection.
+4. Click **Configure**.
 
-1. Open **Plugins → Installed**.
-2. Plugins with available updates show an **Update** badge.
-3. Click **Update** to download the new version.
+The modal loads the current catalog and your saved configuration every time it opens, so it always reflects what is actually on disk right now.
 
-:::tip
-Ptah compares the manifest's `contentHash` against your local cache, so you only re-download files that actually changed.
+## What the modal gives you
+
+| Control                | What it does                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| Search box             | Filters the list by plugin name, description, or keywords                                    |
+| Category groups        | Core Tools, Backend Tools, Frontend Tools, Creative Tools, Your Skills — in that fixed order |
+| Plugin checkbox        | Enables or disables the whole plugin for this workspace                                      |
+| Chevron (enabled only) | Expands the plugin's skill list so you can disable individual skills                         |
+| **Cancel**             | Closes without writing anything                                                              |
+| **Save Configuration** | Persists the selection and rebuilds skill junctions immediately                              |
+
+The footer counts what you have selected — `4 of 6 selected · 2 skills disabled` — so you can see the shape of your configuration without scrolling.
+
+## Turning a plugin off
+
+Unchecking is the whole uninstall story:
+
+1. Reopen the modal.
+2. Uncheck the plugin.
+3. Click **Save Configuration**.
+
+Ptah persists the new selection, invalidates the slash-command cache, and rebuilds the junctions under `<workspace>/.claude/skills/`. Junctions for skills that are no longer supplied by an enabled plugin are removed in the same pass, so the plugin's skills and commands stop being offered right away. No restart, no reload.
+
+The plugin's files **stay in `~/.ptah/plugins/`**. Nothing in the modal deletes a downloaded plugin from disk, and that is deliberate — the cache is shared by every workspace, and another project may still have the plugin enabled. Disabling is per workspace; the download is global.
+
+## Refreshing downloaded content
+
+Ptah fetches `content-manifest.json` from GitHub and compares its `contentHash` against `~/.ptah/.content-cache.json`. If the two match, nothing is downloaded. If they differ, **every file in the manifest is re-downloaded** and any local file no longer listed in the manifest is deleted.
+
+:::caution[The cache is all-or-nothing]
+There is exactly one hash, and it covers the whole manifest. Ptah cannot tell which individual file changed, so a one-character fix in one `SKILL.md` re-downloads the entire plugin and template tree. This is cheap — they are small markdown files — but it means "only changed files are downloaded" is not how it works.
 :::
 
-### Auto-update
+There is no per-plugin update button, no update badge, and no scheduled auto-update setting. Content is checked when Ptah asks for it, and the manifest hash decides.
 
-Enable automatic background updates in **Settings → Plugins**:
+## Recovering from a bad cache
 
-```json
-{
-  "plugins.autoUpdate": true,
-  "plugins.checkInterval": "24h"
-}
+If `~/.ptah/plugins/` ends up in a state you do not trust, delete the cache metadata file:
+
+```text
+~/.ptah/.content-cache.json
 ```
 
-## Refreshing the marketplace
-
-If the marketplace list looks stale (new plugin just released, or you know the manifest changed), trigger a manual refresh:
-
-- **Plugins panel → ⟳ Refresh**, or
-- Command palette → **Ptah: Refresh Plugin Marketplace**
-
-This re-fetches the manifest from GitHub and re-indexes local plugins.
-
-## Uninstalling a plugin
-
-Uninstall removes the plugin from disk entirely:
-
-1. Open **Plugins → Installed**.
-2. Click the **⋯** menu on the plugin row.
-3. Select **Uninstall**.
-
-Ptah deletes:
-
-- `~/.ptah/plugins/<plugin-name>/`
-- Any skill junctions under every workspace's `.claude/skills/`
-- The plugin entry from workspace-settings files on next load
-
-:::caution
-Uninstall is workspace-wide in scope — it removes the plugin everywhere, not just from the current workspace. Use **Disable** if you only want to turn it off for one project.
-:::
-
-## Rolling back to a previous version
-
-Ptah keeps the last two versions of each plugin under `~/.ptah/plugins/<plugin-name>/.versions/`. To roll back:
-
-1. Open the plugin detail view.
-2. Click **Version history**.
-3. Select a previous version and click **Use this version**.
-
-## Clearing the plugin cache
-
-If the plugin cache becomes corrupted (rare), clear it from the command palette:
-
-- **Ptah: Clear Plugin Cache** — deletes `~/.ptah/plugins/` and re-downloads enabled plugins on next launch.
+With no metadata to compare against, the next content check treats the manifest as new and re-downloads everything. Deleting `~/.ptah/plugins/` itself works too — the next download recreates it. Your enabled-plugin selection is not stored in either location, so it survives both.
 
 ## Next steps
 
+- [Turn off individual skills](/plugins/skill-toggles/)
 - [How plugin storage works](/plugins/plugin-storage/)
+- [Skills you authored yourself](/plugins/harness-plugins/)
 - [Create your own plugin](/plugins/creating-plugins/)

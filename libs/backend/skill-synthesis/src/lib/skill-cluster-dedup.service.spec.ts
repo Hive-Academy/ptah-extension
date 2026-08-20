@@ -13,6 +13,7 @@ import type {
   SkillCandidateRow,
   CandidateId,
 } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -67,6 +68,8 @@ function fakePromotedRow(
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    ...unjudgedVerdictFields(),
+    ...unmeasuredGateFields(),
   };
 }
 

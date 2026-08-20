@@ -47,7 +47,7 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
     label: 'Default',
     description: 'SDK default reasoning effort',
     dotColor: 'bg-base-content/40',
-    textColor: 'text-base-content/70',
+    textColor: 'text-base-content-muted',
     bars: 0,
   },
   {
@@ -149,7 +149,7 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
         <!-- Header -->
         <div class="px-2 py-1.5 border-b border-base-300">
           <span
-            class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wide"
+            class="text-[11px] font-semibold text-base-content-muted uppercase tracking-wide"
           >
             Reasoning Effort
           </span>
@@ -211,7 +211,7 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
                       }
                     </div>
                   </div>
-                  <span class="text-[11px] mt-0.5 text-base-content/60">
+                  <span class="text-[11px] mt-0.5 text-base-content-muted">
                     {{ option.description }}
                   </span>
                 </div>

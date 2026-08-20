@@ -45,7 +45,7 @@ import { VoiceProviderErrorService } from '../../../services/voice-provider-erro
               class="w-3 h-3 text-error flex-shrink-0"
               aria-hidden="true"
             />
-            <span class="font-semibold text-base-content/80">
+            <span class="font-semibold text-base-content-muted">
               {{ directionLabel() }} failed
             </span>
             <span class="badge badge-xs badge-error badge-outline px-1.5">
@@ -68,7 +68,7 @@ import { VoiceProviderErrorService } from '../../../services/voice-provider-erro
             class="px-2 pb-2 flex items-center gap-2 border-t border-base-300/30 pt-1.5"
           >
             <span
-              class="text-[10px] text-base-content/70 flex-1"
+              class="text-[10px] text-base-content-muted flex-1"
               data-testid="voice-provider-error-message"
             >
               {{ err.message }}

@@ -53,6 +53,11 @@ import { SessionQueryExecutor } from './session-lifecycle/session-query-executor
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
+import type { NoActivityWatchdog } from './no-activity-watchdog';
+import {
+  HARNESS_PREFLIGHT_TOKEN,
+  type IHarnessPreflight,
+} from '../harness/harness-preflight.port';
 export type { SDKUserMessage, ContentBlock };
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
@@ -127,13 +132,8 @@ export interface ExecuteQueryConfig {
   /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt.
-   * Passed through to SdkQueryOptionsBuilder for conditional feature enabling.
-   */
-  isPremium?: boolean;
-  /**
    * Whether the MCP server is currently running.
-   * When false, MCP config will not be included even for premium users.
+   * When false, MCP config will not be included.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
@@ -153,12 +153,6 @@ export interface ExecuteQueryConfig {
    * never passed to the SDK as `'bypassPermissions'`.
    */
   permissionLevel?: PermissionLevel;
-  /**
-   * Plugin paths to load for this session.
-   * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Passed through to SdkQueryOptionsBuilder.
-   */
-  pluginPaths?: string[];
   /**
    * Explicit path to Claude Code CLI executable (cli.js).
    * Passed through to SdkQueryOptionsBuilder to override the default
@@ -195,8 +189,7 @@ export interface ExecuteQueryConfig {
   /**
    * The user's initial message text for this turn.
    * Used by SdkQueryOptionsBuilder to drive a memory recall search so the
-   * top-K hits are prepended to the system prompt. Only used for premium users
-   * with a non-empty query.
+   * top-K hits are prepended to the system prompt. Only used when non-empty.
    */
   initialUserQuery?: string;
   /**
@@ -213,10 +206,8 @@ export interface ExecuteQueryConfig {
  */
 export interface SlashCommandConfig {
   sessionConfig?: AISessionConfig;
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
-  pluginPaths?: string[];
   onCompactionStart?: CompactionStartCallback;
   onWorktreeCreated?: WorktreeCreatedCallback;
   onWorktreeRemoved?: WorktreeRemovedCallback;
@@ -250,6 +241,14 @@ export interface ExecuteQueryResult {
   initialModel: string;
   /** Abort controller for this session */
   abortController: AbortController;
+  /**
+   * No-stream-activity watchdog for this turn. The StreamTransformer must
+   * `start()` it before consuming the stream, `kick()` it on every SDK message
+   * (any event resets the inactivity window), and `stop()` it in a `finally`
+   * so it can neither leak nor fire after the turn ends. On timeout it resolves
+   * pending permissions and aborts `abortController` with a descriptive error.
+   */
+  activityWatchdog: NoActivityWatchdog;
 }
 
 /**
@@ -288,6 +287,13 @@ export class SessionLifecycleManager {
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
     @inject(SDK_TOKENS.SDK_QUERY_RUNNER)
     private readonly queryRunner: SdkQueryRunner,
+    /**
+     * Bound by each host to `HARNESS_SYNC_TOKENS.PREFLIGHT`. Optional so a
+     * container without `harness-sync` — every unit test, and any embedder that
+     * only wants the SDK adapter — still constructs.
+     */
+    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -305,6 +311,7 @@ export class SessionLifecycleManager {
       this.messageFactory,
       this.authEnv,
       this.queryRunner,
+      this.harnessPreflight,
     );
     this._control = new SessionControl(
       this.logger,
@@ -376,6 +383,16 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Get the workspace root (projectPath) for a specific session, by tabId or
+   * realSessionId. Returns undefined when the session is unknown or carries no
+   * projectPath. Lets MCP tools resolve a call against the exact session that
+   * issued it (concurrency-safe), not the most-recently-active one.
+   */
+  getSessionWorkspace(idOrTabId: string): string | undefined {
+    return this._registry.getSessionWorkspace(idOrTabId);
+  }
+
+  /**
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
@@ -392,6 +409,16 @@ export class SessionLifecycleManager {
    */
   async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
     return this._control.interruptCurrentTurn(sessionId);
+  }
+
+  /**
+   * Release the turn claimed by the streaming pump, and wake it so a message
+   * held while the turn was generating is sent now (TASK_2026_294).
+   *
+   * Called by `SdkAgentAdapter` on every `result` message.
+   */
+  markTurnEnded(sessionId: SessionId): boolean {
+    return this._registry.markTurnEnded(sessionId as string);
   }
 
   /**
@@ -464,7 +491,7 @@ export class SessionLifecycleManager {
 
   /**
    * Execute a slash command as a new query within an existing session.
-   * Used when follow-up messages contain slash commands (e.g., /compact, /ptah-core:orchestrate).
+   * Used when follow-up messages contain slash commands (e.g., /compact, /orchestrate).
    * The SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects,
    * so we must start a new query with resume to maintain conversation context.
    */
@@ -488,10 +515,8 @@ export class SessionLifecycleManager {
       onCompactionStart: config.onCompactionStart,
       onWorktreeCreated: config.onWorktreeCreated,
       onWorktreeRemoved: config.onWorktreeRemoved,
-      isPremium: config.isPremium,
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
-      pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
       forkSession: config.forkSession,
       enableFileCheckpointing: config.enableFileCheckpointing,

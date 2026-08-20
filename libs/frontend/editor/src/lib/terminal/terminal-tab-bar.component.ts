@@ -40,7 +40,7 @@ import { TerminalService } from '../services/terminal.service';
             [class.bg-base-100]="tab.id === terminalService.activeTabId()"
             [class.text-base-content]="tab.id === terminalService.activeTabId()"
             [class.bg-base-300]="tab.id !== terminalService.activeTabId()"
-            [class.text-base-content/60]="
+            [class.text-base-content-muted]="
               tab.id !== terminalService.activeTabId()
             "
             [class.opacity-50]="tab.hasExited"

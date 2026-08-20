@@ -3,7 +3,6 @@ import {
   ChangeDetectionStrategy,
   inject,
   signal,
-  computed,
   output,
   ViewChild,
 } from '@angular/core';
@@ -24,7 +23,6 @@ import {
   ClaudeRpcService,
   CommandDiscoveryFacade,
 } from '@ptah-extension/core';
-import { ChatStore } from '../../../services/chat.store';
 
 /**
  * ChatEmptyStateComponent - Egyptian-themed empty state for chat view with tabbed navigation
@@ -104,7 +102,7 @@ import { ChatStore } from '../../../services/chat.store';
           >
             Ptah
           </h1>
-          <p class="text-xs md:text-sm text-base-content/70 max-w-xs">
+          <p class="text-xs md:text-sm text-base-content-muted max-w-xs">
             Ancient Wisdom • Master Craftsman
           </p>
         </div>
@@ -167,29 +165,17 @@ import { ChatStore } from '../../../services/chat.store';
                     class="text-sm md:text-base font-semibold text-primary mb-0.5"
                   >
                     Ptah Skills
-                    <span class="badge badge-primary badge-xs ml-1">Pro</span>
                   </h3>
-                  <p class="text-xs text-base-content/60 leading-relaxed">
+                  <p class="text-xs text-base-content-muted leading-relaxed">
                     Enhance your sessions with specialized skills for
                     orchestration, frontend patterns, backend architecture, and
                     more.
                   </p>
                 </div>
               </div>
-              @if (isPremium()) {
-                <ptah-plugin-status-widget
-                  (configureClicked)="openPluginBrowser()"
-                />
-              } @else {
-                <div
-                  class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300"
-                >
-                  <span class="text-xs text-base-content/60"
-                    >Available with Pro plan</span
-                  >
-                  <span class="badge badge-xs badge-primary">Upgrade</span>
-                </div>
-              }
+              <ptah-plugin-status-widget
+                (configureClicked)="openPluginBrowser()"
+              />
             </div>
           </div>
 
@@ -204,7 +190,7 @@ import { ChatStore } from '../../../services/chat.store';
       @if (activeTab() === 'setup') {
         <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
           <!-- Warning if skills not configured -->
-          @if (isPremium() && !hasConfiguredSkills()) {
+          @if (!hasConfiguredSkills()) {
             <div
               class="border border-warning/30 rounded-md bg-warning/5 p-3 flex items-start gap-2"
             >
@@ -217,7 +203,7 @@ import { ChatStore } from '../../../services/chat.store';
                 <h4 class="text-xs font-semibold text-warning mb-1">
                   Skills Not Configured
                 </h4>
-                <p class="text-xs text-base-content/60 leading-relaxed mb-2">
+                <p class="text-xs text-base-content-muted leading-relaxed mb-2">
                   The Intelligent Project Setup uses your configured skills to
                   provide better recommendations. It's recommended to configure
                   your Ptah Skills first for optimal results.
@@ -255,7 +241,7 @@ import { ChatStore } from '../../../services/chat.store';
                   >
                     Intelligent Project Setup
                   </h3>
-                  <p class="text-xs text-base-content/60 leading-relaxed">
+                  <p class="text-xs text-base-content-muted leading-relaxed">
                     MCP-powered scanning analyzes your workspace, detects
                     frameworks, and configures optimal AI agents automatically.
                   </p>
@@ -353,7 +339,6 @@ import { ChatStore } from '../../../services/chat.store';
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly chatStore = inject(ChatStore);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
   @ViewChild(PluginStatusWidgetComponent)
@@ -370,11 +355,6 @@ export class ChatEmptyStateComponent {
   /** Ptah icon URI - uses same method as app-shell component */
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
 
-  /** Whether the current user has a premium license */
-  protected readonly isPremium = computed(
-    () => this.chatStore.licenseStatus()?.isPremium ?? false,
-  );
-
   /** Whether the plugin browser modal is open */
   protected readonly isPluginBrowserOpen = signal(false);
 
@@ -387,7 +367,7 @@ export class ChatEmptyStateComponent {
   /** Set the active tab and check skills configuration if switching to setup */
   protected setActiveTab(tab: 'skills' | 'setup'): void {
     this.activeTab.set(tab);
-    if (tab === 'setup' && this.isPremium()) {
+    if (tab === 'setup') {
       this.checkSkillsConfiguration();
     }
   }
@@ -405,9 +385,8 @@ export class ChatEmptyStateComponent {
     }
   }
 
-  /** Open the plugin browser modal (premium only) */
+  /** Open the plugin browser modal */
   protected openPluginBrowser(): void {
-    if (!this.isPremium()) return;
     this.isPluginBrowserOpen.set(true);
   }
 

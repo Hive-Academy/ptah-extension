@@ -141,6 +141,22 @@ export interface AnthropicProviderInfo {
    * continues to work without a key.
    */
   supportsOptionalApiKey?: boolean;
+  /**
+   * Whether this provider runs on the host's AMBIENT Claude credentials
+   * (`~/.claude`) rather than any endpoint or key of its own — currently only
+   * `claude-cli` ("Claude (Subscription)").
+   *
+   * Surfaced so UIs stop mis-rendering it. `nativeAuth` providers declare
+   * `authType: 'none'` with `baseUrl: ''`, which is indistinguishable from a
+   * local provider through the rest of this payload — that is exactly how the
+   * TUI ended up offering the Claude Subscription tile as a localhost server
+   * with a fabricated endpoint. A `nativeAuth` tile must show no endpoint and
+   * collect no key.
+   *
+   * @see resolveStrategy — the same flag routes this provider to the `'cli'`
+   * strategy so the Agent SDK keeps its default credential chain.
+   */
+  nativeAuth?: boolean;
 }
 
 /**

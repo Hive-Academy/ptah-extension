@@ -82,19 +82,14 @@ async function goToSkills(page: Page, director: Director): Promise<Locator> {
     }
   }
   await page.locator('#thoth-tab-skills').waitFor({ state: 'visible' });
-  await director.dismissDialogs();
 
   await director.click(page.locator('#thoth-tab-skills'));
   const panel = page.locator('#thoth-panel-skills');
   await panel.waitFor({ state: 'visible' });
-  await director.dismissDialogs();
   return panel;
 }
 
 test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
-  // The persistent authed profile ALWAYS shows the trial modal on boot.
-  await director.dismissDialogs();
-
   // Navigate + settle BEFORE the first beat: enter the Skills tab (the subject
   // surface) so the hook lands on it instead of the stale restored surface.
   // Everything until the hook is trimmed by render-all's lead-in trim, so the
@@ -185,7 +180,6 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
       await modal
         .waitFor({ state: 'hidden', timeout: 5_000 })
         .catch(() => undefined);
-      await director.dismissDialogs();
     }
   } else {
     // Sparse profile: still narrate the value prop over the empty surface.
@@ -262,7 +256,6 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
       ]);
       if (empty) await director.spotlight(empty, 1500);
     }
-    await director.dismissDialogs();
   }
 
   // 6) Payoff.

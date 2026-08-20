@@ -79,10 +79,18 @@ interface RenderField {
                   (change)="onSelect(field, $event)"
                 >
                   @if (!field.required) {
-                    <option value=""></option>
+                    <option
+                      value=""
+                      [selected]="stringValue(field.key) === ''"
+                    ></option>
                   }
                   @for (opt of field.options; track opt) {
-                    <option [value]="opt">{{ opt }}</option>
+                    <option
+                      [value]="opt"
+                      [selected]="opt === stringValue(field.key)"
+                    >
+                      {{ opt }}
+                    </option>
                   }
                 </select>
               }

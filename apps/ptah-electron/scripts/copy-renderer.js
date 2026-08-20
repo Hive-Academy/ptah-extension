@@ -9,6 +9,11 @@
  * script/style paths resolve correctly when loaded via file:// protocol.
  * In VS Code webviews, the base href is rewritten by the webview host,
  * but in Electron's loadFile() it must be relative.
+ *
+ * Run as a script (`node copy-renderer.js`) it does a clean copy — the
+ * behaviour `nx copy-renderer` and `nx package` depend on. Required as a
+ * module it exposes `syncRenderer({ clean })` so `watch-renderer.js` can do
+ * additive syncs against a running dev window.
  */
 
 const fs = require('fs');
@@ -22,19 +27,6 @@ const DEST = path.resolve(
   __dirname,
   '../../../dist/apps/ptah-electron/renderer',
 );
-
-// 1. Clean destination
-if (fs.existsSync(DEST)) {
-  fs.rmSync(DEST, { recursive: true, force: true });
-  console.log('[copy-renderer] Cleaned old renderer directory');
-}
-
-// 2. Copy webview build output
-if (!fs.existsSync(SOURCE)) {
-  console.error(`[copy-renderer] Source not found: ${SOURCE}`);
-  console.error('[copy-renderer] Run "nx build ptah-extension-webview" first');
-  process.exit(1);
-}
 
 // Walk SOURCE manually so broken symlinks (occasionally produced by npm's
 // _cacache for monaco-editor's min/vs/basic-languages on Linux runners) are
@@ -78,24 +70,56 @@ function copyRecursive(src, dst) {
   }
 }
 
-copyRecursive(SOURCE, DEST);
-console.log(`[copy-renderer] Copied ${SOURCE} -> ${DEST}`);
+function patchIndexHtml(logPrefix) {
+  const indexPath = path.join(DEST, 'index.html');
+  const html = fs.readFileSync(indexPath, 'utf8');
 
-// 3. Patch index.html for file:// protocol
-const indexPath = path.join(DEST, 'index.html');
-const html = fs.readFileSync(indexPath, 'utf8');
+  // Replace <base href="/"> or <base href="/"/> with <base href="./"> for Electron file:// loading
+  // Angular CLI may output self-closing tags or standard tags depending on build config
+  const patched = html.replace(/<base href="\/"\s*\/?>/i, '<base href="./">');
 
-// Replace <base href="/"> or <base href="/"/> with <base href="./"> for Electron file:// loading
-// Angular CLI may output self-closing tags or standard tags depending on build config
-const patched = html.replace(/<base href="\/"\s*\/?>/i, '<base href="./">');
-
-if (patched !== html) {
-  fs.writeFileSync(indexPath, patched, 'utf8');
-  console.log('[copy-renderer] Patched index.html: base href="/" -> "./"');
-} else {
-  console.log(
-    '[copy-renderer] index.html base href already correct or not found',
-  );
+  if (patched !== html) {
+    fs.writeFileSync(indexPath, patched, 'utf8');
+    console.log(`${logPrefix} Patched index.html: base href="/" -> "./"`);
+  } else {
+    console.log(
+      `${logPrefix} index.html base href already correct or not found`,
+    );
+  }
 }
 
-console.log('[copy-renderer] Done');
+/**
+ * @param {{ clean?: boolean, logPrefix?: string }} [options]
+ *   clean — remove DEST first. Always true for packaging. The watcher passes
+ *   false so a running window keeps finding the lazy chunks it already
+ *   resolved; the next clean copy prunes them.
+ */
+function syncRenderer({ clean = true, logPrefix = '[copy-renderer]' } = {}) {
+  if (!fs.existsSync(SOURCE)) {
+    throw new Error(
+      `Source not found: ${SOURCE}\nRun "nx build ptah-extension-webview" first`,
+    );
+  }
+
+  if (clean && fs.existsSync(DEST)) {
+    fs.rmSync(DEST, { recursive: true, force: true });
+    console.log(`${logPrefix} Cleaned old renderer directory`);
+  }
+
+  copyRecursive(SOURCE, DEST);
+  console.log(`${logPrefix} Copied ${SOURCE} -> ${DEST}`);
+
+  patchIndexHtml(logPrefix);
+}
+
+module.exports = { syncRenderer, SOURCE, DEST };
+
+if (require.main === module) {
+  try {
+    syncRenderer({ clean: true });
+  } catch (err) {
+    console.error(`[copy-renderer] ${err.message}`);
+    process.exit(1);
+  }
+  console.log('[copy-renderer] Done');
+}

@@ -130,7 +130,6 @@ Return ONLY the JSON object matching the schema.`;
           prompt,
           systemPromptAppend:
             "You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
-          isPremium: true,
           mcpServerRunning: true,
           maxTurns: 6,
           outputFormat: { type: 'json_schema', schema: outputSchema },

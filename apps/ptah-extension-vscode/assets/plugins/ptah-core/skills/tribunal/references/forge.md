@@ -36,7 +36,7 @@ for panelist Pk:
   })
 ```
 
-Poll and read each (vendor-panel.md §3). On timeout: resume where supported (ptah-cli / copilot), respawn for codex. A panelist that fails twice is dropped with a note.
+Poll and read each (vendor-panel.md §3). On timeout: resume where `ptah_agent_status` reports a `CLI Session ID`, respawn where it does not. A panelist that fails twice is dropped with a note.
 
 ### Step 3 — Round-robin cross-vendor review
 

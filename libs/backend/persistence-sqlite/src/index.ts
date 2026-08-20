@@ -41,6 +41,8 @@ export type { MigrationRunResult } from './lib/migration-runner';
 export { MIGRATIONS } from './lib/migrations';
 export type { Migration } from './lib/migrations';
 
+export { isUniqueConstraintError } from './lib/sqlite-errors';
+
 export type { IEmbedder } from './lib/embedder/embedder.interface';
 
 export { PERSISTENCE_TOKENS } from './lib/di/tokens';

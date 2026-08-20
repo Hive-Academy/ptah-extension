@@ -13,7 +13,7 @@
  *     (license_required, fatal crash) flags a regression in the wire
  *     surface.
  *   - The CI sandbox cannot reach the real `@anthropic-ai/claude-agent-sdk`.
- *     The Pro `session_submit` test asserts ROUTING (the gate let it
+ *     The Builders `session_submit` test asserts ROUTING (the gate let it
  *     through; the handler accepted it) not a real chat completion. We
  *     match either a structured response shape OR a clean MCP `isError`
  *     envelope — either proves the wire passed the gate.
@@ -225,15 +225,15 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     }
   });
 
-  it('mcp_agent_spawn_ptah_cli_denied', async () => {
+  it('mcp_agent_spawn_ptah_cli_community_allowed', async () => {
     const host = scope.register(
       await spawnPtahMcp({ home: tmp, licenseStatus: 'community' }),
     );
 
     const resp = await host.send<{
       content: Array<{ type: string; text: string }>;
-      isError: boolean;
-      structuredContent: { ptah_code?: string; mcpCode?: string };
+      isError?: boolean;
+      structuredContent?: { ptah_code?: string; mcpCode?: string };
     }>(
       'tools/call',
       {
@@ -245,41 +245,70 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
     expect(resp.error).toBeUndefined();
     expect(resp.result).toBeDefined();
-    expect(resp.result!.isError).toBe(true);
-    expect(resp.result!.structuredContent.ptah_code).toBe('license_required');
+    // Goal: prove the (removed) premium gate does NOT block this Ptah-CLI
+    // path for the Community tier. The sandbox likely lacks an OpenRouter
+    // provider key configured, so we accept either clean success or a
+    // clean non-license error code (provider_unavailable, cli_agent_unavailable,
+    // etc.). Anything with ptah_code === 'license_required' is a regression.
+    if (resp.result!.isError === true) {
+      const code = resp.result!.structuredContent?.ptah_code;
+      expect(code).not.toBe('license_required');
+    }
   });
 
-  it('mcp_session_submit_denied_community', async () => {
+  it('mcp_session_submit_community_streams', async () => {
     const host = scope.register(
       await spawnPtahMcp({ home: tmp, licenseStatus: 'community' }),
     );
 
-    const resp = await host.send<{
-      content: Array<{ type: string; text: string }>;
-      isError: boolean;
-      structuredContent: { ptah_code?: string };
-    }>(
-      'tools/call',
-      {
-        name: 'session_submit',
-        arguments: { task: 'do something', cwd: tmp.path },
-      },
-      30_000,
-    );
-
-    expect(resp.error).toBeUndefined();
-    expect(resp.result).toBeDefined();
-    expect(resp.result!.isError).toBe(true);
-    expect(resp.result!.structuredContent.ptah_code).toBe('license_required');
+    // Mirrors mcp_session_submit_pro_streams: the CI sandbox cannot reach the
+    // real Claude SDK, so this asserts ROUTING (the removed premium gate did
+    // NOT block the Community tier), not a real completion.
+    let resp: Awaited<ReturnType<FakeMcpHost['send']>>;
+    try {
+      resp = await host.send<{
+        content?: Array<{ type: string; text: string }>;
+        isError?: boolean;
+        structuredContent?: Record<string, unknown>;
+      }>(
+        'tools/call',
+        {
+          name: 'session_submit',
+          arguments: { task: 'do something', cwd: tmp.path },
+        },
+        30_000,
+      );
+    } catch (err) {
+      // A wire-level send timeout proves the call was ROUTED (accepted) but
+      // the SDK hung waiting for a real completion — still a routing-passed
+      // signal, which is all this smoke test cares about.
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toMatch(/timed out/);
+      return;
+    }
+    if (resp.result !== undefined) {
+      const structured =
+        (resp.result as { structuredContent?: Record<string, unknown> })
+          .structuredContent ?? undefined;
+      if (
+        (resp.result as { isError?: boolean }).isError === true &&
+        structured !== undefined
+      ) {
+        expect(structured['ptah_code']).not.toBe('license_required');
+      }
+    } else if (resp.error !== undefined) {
+      const data = resp.error.data as { ptah_code?: string } | undefined;
+      expect(data?.ptah_code).not.toBe('license_required');
+    }
   });
 
   it('mcp_session_submit_pro_streams', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // The CI sandbox cannot reach the real Claude SDK; this test asserts
-    // ROUTING (the Pro gate accepted the call) not a real completion. We
+    // ROUTING (the Builders gate accepted the call) not a real completion. We
     // accept any of:
     //   - structured success result
     //   - clean MCP isError envelope with a non-license ptah_code
@@ -331,7 +360,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_cancel_in_flight', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // Pick a unique request id we can match in `notifications/cancelled`.
@@ -437,7 +466,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_sigterm_drains', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // Start a long-lived tool call but DO NOT await it — we want to SIGTERM
@@ -929,7 +958,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_drain_aborts_outstanding_session_submit', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // Fire-and-await: start session_submit. In the sandbox the SDK leg
@@ -1021,7 +1050,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_session_submit_emits_cost_notifications', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // The CI sandbox cannot reach the real Claude SDK, so a real
@@ -1052,7 +1081,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     // Fire the call but tolerate any settle path: a real completion in
     // the unlikely event the SDK answered, a clean error envelope, OR a
     // wire-level timeout (the SDK hung in the sandbox, which is the
-    // routinely-observed case for Pro `session_submit` tests). Use a
+    // routinely-observed case for Builders `session_submit` tests). Use a
     // tight wire timeout so the test exits quickly when the sandboxed
     // SDK never produces a summary.
     let settled = false;

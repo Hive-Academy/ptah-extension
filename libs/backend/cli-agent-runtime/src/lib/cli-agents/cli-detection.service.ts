@@ -17,6 +17,9 @@ import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
 import { CursorCliAdapter } from './cli-adapters/cursor-cli.adapter';
+import { AntigravityCliAdapter } from './cli-adapters/antigravity-cli.adapter';
+import { OpencodeCliAdapter } from './cli-adapters/opencode-cli.adapter';
+import { PiCliAdapter } from './cli-adapters/pi-cli.adapter';
 
 @injectable()
 export class CliDetectionService {
@@ -37,9 +40,12 @@ export class CliDetectionService {
     this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
 
     this.adapters.set('cursor', new CursorCliAdapter());
+    this.adapters.set('antigravity', new AntigravityCliAdapter());
+    this.adapters.set('opencode', new OpencodeCliAdapter());
+    this.adapters.set('pi', new PiCliAdapter());
 
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: codex, copilot, cursor',
+      '[CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi',
     );
   }
 
@@ -194,7 +200,7 @@ export class CliDetectionService {
    * Call during extension startup to avoid stale-credential fallbacks on first use.
    */
   async refreshCliTokens(): Promise<void> {
-    for (const cli of ['codex', 'cursor'] as const) {
+    for (const cli of ['codex', 'cursor', 'opencode', 'pi'] as const) {
       const adapter = this.adapters.get(cli);
       if (adapter?.ensureTokensFresh) {
         const fresh = await adapter.ensureTokensFresh();

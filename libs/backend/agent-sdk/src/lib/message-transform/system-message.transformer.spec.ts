@@ -14,6 +14,9 @@ function makeState(): jest.Mocked<TransformerState> {
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
     snapshotActiveSkillToolUseIds: jest.fn().mockReturnValue([]),
+    getWorkflowRun: jest.fn().mockReturnValue(undefined),
+    registerWorkflowRunRoot: jest.fn(),
+    associateWorkflowRunChild: jest.fn(),
     setMessageId: jest.fn(),
     clearMessageId: jest.fn(),
     setCurrentModel: jest.fn(),
@@ -46,6 +49,7 @@ function makeHelpers(
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),
       get: jest.fn().mockReturnValue(null),
+      peekPendingTeammateName: jest.fn().mockReturnValue(undefined),
       update: jest.fn(),
     },
     modelResolver: { resolveForPricing: jest.fn() },
@@ -85,6 +89,54 @@ describe('SystemMessageTransformer', () => {
       expect(
         helpers.usageTracker.clearSessionTokenSnapshot,
       ).toHaveBeenCalledWith('active-sess');
+    });
+
+    // TASK_2026_295: `sessionId || activeIds[0] || sdkMessage.session_id` put
+    // the most-recently-active session AHEAD of the id the SDK stamped on this
+    // very message. With two live sessions, pruneSession and
+    // clearSessionTokenSnapshot ran against the wrong one and the
+    // compaction_complete event was addressed to it too.
+    it('prefers the SDK message session_id over the most-recently-active session', () => {
+      const helpers = makeHelpers(['some-other-active-sess']);
+      const msg = {
+        compact_metadata: { trigger: 'auto' as const, pre_tokens: 100 },
+        session_id: 'authoritative-sess',
+      } as never;
+
+      const events = transformer.transformCompactBoundary(msg, state, helpers);
+
+      expect(events).toHaveLength(1);
+      expect((events[0] as { sessionId: string }).sessionId).toBe(
+        'authoritative-sess',
+      );
+      expect(helpers.subagentRegistry.pruneSession).toHaveBeenCalledWith(
+        'authoritative-sess',
+      );
+      expect(
+        helpers.usageTracker.clearSessionTokenSnapshot,
+      ).toHaveBeenCalledWith('authoritative-sess');
+      expect(helpers.subagentRegistry.pruneSession).not.toHaveBeenCalledWith(
+        'some-other-active-sess',
+      );
+    });
+
+    it('still lets the caller id win — it is the routing key for harness and wizard streams', () => {
+      const helpers = makeHelpers(['some-other-active-sess']);
+      const msg = {
+        compact_metadata: { trigger: 'auto' as const, pre_tokens: 100 },
+        session_id: 'authoritative-sess',
+      } as never;
+
+      const events = transformer.transformCompactBoundary(
+        msg,
+        state,
+        helpers,
+        'harness-stream-1' as never,
+      );
+
+      expect((events[0] as { sessionId: string }).sessionId).toBe(
+        'harness-stream-1',
+      );
     });
 
     it('skips emission and warns when no sessionId can be resolved', () => {
@@ -158,6 +210,137 @@ describe('SystemMessageTransformer', () => {
       const events = transformer.transformTaskStarted(msg, state, helpers);
       expect(events).toEqual([]);
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
+    });
+
+    it('populates teammateName from a registered record', () => {
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        teammateName: 'backend-developer',
+      });
+      const msg = {
+        task_id: 'task-4',
+        tool_use_id: 'tool-4',
+        skip_transcript: false,
+        task_type: 'Task',
+      } as never;
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(event).toMatchObject({
+        eventType: 'agent_start',
+        teammateName: 'backend-developer',
+      });
+    });
+
+    it('registers a workflow run root and stamps workflowRunId/workflowName for task_type=local_workflow', () => {
+      const helpers = makeHelpers();
+      // Simulate registerWorkflowRunRoot populating the run lookup.
+      state.getWorkflowRun.mockReturnValue({ runId: 'wf-tool', name: 'spec' });
+      const msg = {
+        task_id: 'task-wf',
+        tool_use_id: 'wf-tool',
+        skip_transcript: false,
+        task_type: 'local_workflow',
+        workflow_name: 'spec',
+      } as never;
+
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(state.registerWorkflowRunRoot).toHaveBeenCalledWith(
+        'wf-tool',
+        'spec',
+      );
+      expect(event).toMatchObject({
+        eventType: 'agent_start',
+        workflowRunId: 'wf-tool',
+        workflowName: 'spec',
+      });
+    });
+
+    it('a descendant task_started inherits the workflowRunId already registered for its tool_use id', () => {
+      const helpers = makeHelpers();
+      state.getWorkflowRun.mockReturnValue({ runId: 'wf-tool', name: 'spec' });
+      const msg = {
+        task_id: 'task-sub',
+        tool_use_id: 'sub-tool',
+        skip_transcript: false,
+        task_type: 'Task',
+      } as never;
+
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      // Not a local_workflow root — must NOT re-register a root.
+      expect(state.registerWorkflowRunRoot).not.toHaveBeenCalled();
+      expect(event).toMatchObject({
+        eventType: 'agent_start',
+        workflowRunId: 'wf-tool',
+        workflowName: 'spec',
+      });
+    });
+
+    it('leaves workflow fields undefined for a non-workflow task', () => {
+      const helpers = makeHelpers();
+      state.getWorkflowRun.mockReturnValue(undefined);
+      const msg = {
+        task_id: 'task-plain',
+        tool_use_id: 'plain-tool',
+        skip_transcript: false,
+        task_type: 'Task',
+      } as never;
+
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(
+        (event as { workflowRunId?: string }).workflowRunId,
+      ).toBeUndefined();
+      expect((event as { workflowName?: string }).workflowName).toBeUndefined();
+    });
+
+    it('falls back to the non-consuming pending peek when the record is not yet registered', () => {
+      const helpers = makeHelpers();
+      // record does not exist yet (get → null), but the tool_use `name` was
+      // pre-marked before the SubagentStart hook fired.
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue(null);
+      (
+        helpers.subagentRegistry.peekPendingTeammateName as jest.Mock
+      ).mockReturnValue('reviewer');
+      const msg = {
+        task_id: 'task-5',
+        tool_use_id: 'tool-5',
+        skip_transcript: false,
+        task_type: 'Task',
+      } as never;
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(event).toMatchObject({
+        eventType: 'agent_start',
+        teammateName: 'reviewer',
+      });
+      expect(
+        helpers.subagentRegistry.peekPendingTeammateName,
+      ).toHaveBeenCalledWith('tool-5');
     });
   });
 

@@ -21,6 +21,12 @@ import {
   promoDurationInFrames,
   type PromoReelProps,
 } from './PromoReel';
+import { TalkingHead } from './selfshot/TalkingHead';
+import { ScreenDemo } from './selfshot/ScreenDemo';
+import { Hybrid } from './selfshot/Hybrid';
+import { Outro, type OutroProps } from './selfshot/Outro';
+import { totalSelfShotFrames } from './selfshot/metadata';
+import type { ResolvedSelfShotProps } from './selfshot/resolved';
 
 // Fallback metadata used only when the composition is opened in the studio
 // without props (e.g. picking it from the sidebar before render-all wires
@@ -111,6 +117,64 @@ const calculatePromoMetadata: CalculateMetadataFunction<PromoReelProps> = ({
   };
 };
 
+// ── Self-shot compositions (TalkingHead / ScreenDemo / Hybrid) ──────────────
+// These render the FOUNDER's own recording amplified with captions/overlays/
+// virtual-camera + a branded waitlist end card. Real props come from
+// scripts/selfshot-render.mjs (resolved from a beats manifest + words.json).
+// This fallback (no media) lets the studio open them showing just the backdrop
+// + end card — cameraSrc/screenSrc are optional and guarded in the components.
+// NO `endCard` here. Remotion MERGES defaultProps into the props passed on the
+// command line, so a key present only in this fallback survives its absence in
+// render-props.json — a manifest with `endCard.enabled: false` would silently
+// still get a 6s end card (and 346 extra frames) appended. Omission has to mean
+// omission for the disable to work at all.
+const FALLBACK_SELFSHOT: ResolvedSelfShotProps = {
+  slug: 'preview',
+  mode: 'talking-head',
+  fps: 30,
+  res: { width: 1920, height: 1080 },
+  bodyMs: 4000,
+  durationMs: 4000,
+  captions: [],
+  shots: [{ fromMs: 0 }],
+  overlays: [],
+  layouts: [],
+};
+
+const calculateSelfShotMetadata: CalculateMetadataFunction<ResolvedSelfShotProps> = ({
+  props,
+}) => {
+  const p = props ?? FALLBACK_SELFSHOT;
+  return {
+    width: p.res.width,
+    height: p.res.height,
+    fps: p.fps || 30,
+    durationInFrames: totalSelfShotFrames(p),
+  };
+};
+
+// Standalone end card. `whoosh`/`ring` are deliberately absent here: Remotion
+// merges defaultProps into the CLI props, so listing an SFX name the render
+// script chose NOT to stage would resolve to a 404 at play time.
+const FALLBACK_OUTRO: OutroProps = {
+  res: { width: 1920, height: 1080 },
+  fps: 30,
+  durationMs: 8000,
+};
+
+const outroFrames = (p: OutroProps): number =>
+  Math.max(1, Math.round((p.durationMs / 1000) * (p.fps || 30)));
+
+const calculateOutroMetadata: CalculateMetadataFunction<OutroProps> = ({ props }) => {
+  const p = props ?? FALLBACK_OUTRO;
+  return {
+    width: p.res.width,
+    height: p.res.height,
+    fps: p.fps || 30,
+    durationInFrames: outroFrames(p),
+  };
+};
+
 const RemotionRoot: React.FC = () => {
   return (
     <>
@@ -177,6 +241,56 @@ const RemotionRoot: React.FC = () => {
       calculateMetadata={calculatePromoMetadata}
       defaultProps={PTAH_SAAS_STORY_PROMO}
     />
+    {/* Self-shot: founder camera footage full-frame + captions/overlays. */}
+    <Composition
+      id="TalkingHead"
+      component={TalkingHead}
+      width={FALLBACK_SELFSHOT.res.width}
+      height={FALLBACK_SELFSHOT.res.height}
+      fps={FALLBACK_SELFSHOT.fps}
+      durationInFrames={totalSelfShotFrames(FALLBACK_SELFSHOT)}
+      schema={undefined}
+      calculateMetadata={calculateSelfShotMetadata}
+      defaultProps={FALLBACK_SELFSHOT}
+    />
+    {/* Self-shot: founder screen recording + virtual camera + camera bubble. */}
+    <Composition
+      id="ScreenDemo"
+      component={ScreenDemo}
+      width={FALLBACK_SELFSHOT.res.width}
+      height={FALLBACK_SELFSHOT.res.height}
+      fps={FALLBACK_SELFSHOT.fps}
+      durationInFrames={totalSelfShotFrames(FALLBACK_SELFSHOT)}
+      schema={undefined}
+      calculateMetadata={calculateSelfShotMetadata}
+      defaultProps={{ ...FALLBACK_SELFSHOT, mode: 'screen-demo' }}
+    />
+    {/* Self-shot: camera + screen layout state machine. */}
+    <Composition
+      id="Hybrid"
+      component={Hybrid}
+      width={FALLBACK_SELFSHOT.res.width}
+      height={FALLBACK_SELFSHOT.res.height}
+      fps={FALLBACK_SELFSHOT.fps}
+      durationInFrames={totalSelfShotFrames(FALLBACK_SELFSHOT)}
+      schema={undefined}
+      calculateMetadata={calculateSelfShotMetadata}
+      defaultProps={{ ...FALLBACK_SELFSHOT, mode: 'hybrid', layouts: [{ atMs: 0, layout: 'camera-full' }] }}
+    />
+    {/* The branded end card on its own, for cutting onto the tail of a video
+        edited elsewhere. Real props come from scripts/render-outro.mjs. */}
+    <Composition
+      id="Outro"
+      component={Outro}
+      width={FALLBACK_OUTRO.res.width}
+      height={FALLBACK_OUTRO.res.height}
+      fps={FALLBACK_OUTRO.fps}
+      durationInFrames={outroFrames(FALLBACK_OUTRO)}
+      schema={undefined}
+      calculateMetadata={calculateOutroMetadata}
+      defaultProps={FALLBACK_OUTRO}
+    />
+
     <Composition
       id="ShowcaseVideo"
       component={ShowcaseVideo}

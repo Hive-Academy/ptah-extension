@@ -48,7 +48,7 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
         <div class="relative flex items-center">
           <button
             type="button"
-            class="flex items-center gap-1.5 text-base-content/80
+            class="flex items-center gap-1.5 text-base-content-muted
                    hover:text-base-content hover:bg-base-content/5
                    px-1.5 py-0.5 rounded transition-colors"
             [class.text-primary]="branchPickerOpen() || detailsPopoverOpen()"
@@ -74,7 +74,7 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
               @if (
                 gitStatus.branch().ahead > 0 || gitStatus.branch().behind > 0
               ) {
-                <span class="text-base-content/40">
+                <span class="text-base-content-muted">
                   @if (gitStatus.branch().ahead > 0) {
                     <span class="text-info"
                       >↑{{ gitStatus.branch().ahead }}</span
@@ -107,7 +107,7 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
         <!-- Stash count -->
         @if (gitBranches.stashCount() > 0) {
           <span
-            class="text-[11px] text-base-content/50 px-1 ml-0.5"
+            class="text-[11px] text-base-content-muted px-1 ml-0.5"
             [title]="gitBranches.stashCount() + ' stash entries'"
           >
             stash {{ gitBranches.stashCount() }}
@@ -124,7 +124,7 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
             data-testid="git-push-button"
             class="flex items-center gap-1.5 h-5 px-2 ml-1 rounded
                    border border-base-content/20 bg-base-100
-                   text-[11px] font-medium text-base-content/70
+                   text-[11px] font-medium text-base-content-muted
                    hover:bg-base-content/5 hover:text-base-content
                    active:translate-y-px transition-all disabled:opacity-50"
             [disabled]="isPushing()"

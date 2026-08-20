@@ -21,7 +21,11 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22
+  # 24, not 22: node 22 ships npm 10, which cannot resolve our lockfile
+  # (see package.json engines.npm >= 11) and silently degrades `npm ci` into
+  # an unpinned `npm install` fallback. The publish-* and deploy-* workflows
+  # stay on 22 deliberately -- they match release and DO buildpack targets.
+  NODE_VERSION: 24
   NX_TUI: false
 
 jobs:
@@ -70,6 +74,13 @@ jobs:
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
+
+      # Scenarios that set `test.use({ useAppBuild: true })` — currently the
+      # Thoth ones — assert against the REAL Angular bundle, which the harness
+      # fixture server reads from dist/apps/ptah-extension-webview/browser.
+      # Everything else runs on the inline placeholder and ignores this build.
+      - name: Build webview bundle
+        run: npx nx build ptah-extension-webview
 
       # P3 webview E2E gate (TASK_2026_100). Runs the Playwright scenarios
       # under libs/frontend/webview-e2e-harness/. Runtime budget < 90s.

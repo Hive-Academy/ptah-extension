@@ -3,31 +3,49 @@ import { Box, Text } from 'ink';
 
 import { useSessionContext } from '../../context/SessionContext.js';
 import { useModeContext } from '../../context/ModeContext.js';
-import { useTheme } from '../../hooks/use-theme.js';
-import { KeyHint, ProgressBar } from '../atoms/index.js';
+import { useTheme, type TuiTheme } from '../../hooks/use-theme.js';
+import { GLYPHS } from '../../lib/glyphs.js';
+import { deriveStatusLine, type Tone } from '../../lib/status-line.js';
+import { getFooterHints, type FooterView } from '../../lib/keymap.js';
 
 interface StatusBarProps {
   isStreaming: boolean;
+  hasConversation: boolean;
   fallbackModel?: string | null;
+  view: FooterView;
+  panelOpen?: boolean;
+  overlayOpen?: boolean;
 }
 
-function formatTokens(count: number): string {
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}k`;
+function toneColor(theme: TuiTheme, tone: Tone): string {
+  switch (tone) {
+    case 'error':
+      return theme.status.error;
+    case 'warn':
+      return theme.status.warning;
+    case 'ok':
+      return theme.status.success;
+    default:
+      return theme.ui.dimmed;
   }
-  return String(count);
 }
 
-function formatCost(cost: number): string {
-  if (cost === 0) return '--';
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  if (cost < 1) return `$${cost.toFixed(3)}`;
-  return `$${cost.toFixed(2)}`;
-}
-
+/**
+ * The one status line.
+ *
+ * Every field is derived by `deriveStatusLine` from a single input, which is
+ * what makes the old contradiction — "No session" rendered beside the accrued
+ * cost of the conversation you are having — unrepresentable. The footer hints
+ * come from the keymap registry and are chosen for the current context rather
+ * than being six hard-coded chords that overflowed an 80-column terminal.
+ */
 export function StatusBar({
   isStreaming,
+  hasConversation,
   fallbackModel = null,
+  view,
+  panelOpen = false,
+  overlayOpen = false,
 }: StatusBarProps): React.JSX.Element {
   const theme = useTheme();
   const { sessions, activeSessionId, stats } = useSessionContext();
@@ -35,123 +53,104 @@ export function StatusBar({
 
   const activeSession = activeSessionId
     ? sessions.find((s) => s.id === activeSessionId)
-    : null;
-  const sessionName = activeSession?.name ?? null;
-  const modelName =
-    stats?.model ?? activeSession?.model ?? fallbackModel ?? null;
-  const tokenCount =
-    stats && (stats.inputTokens > 0 || stats.outputTokens > 0)
-      ? { input: stats.inputTokens, output: stats.outputTokens }
-      : null;
+    : undefined;
 
-  const contextPercent = stats?.contextUsagePercent ?? 0;
-  const contextColor =
-    contextPercent > 80
-      ? theme.status.error
-      : contextPercent >= 60
-        ? theme.status.warning
-        : theme.status.success;
+  const line = deriveStatusLine({
+    activeSessionId,
+    sessionName: activeSession?.name ?? null,
+    hasConversation,
+    isStreaming,
+    fallbackModel: activeSession?.model ?? fallbackModel,
+    stats,
+    mode,
+  });
 
-  const costValue = stats?.costUSD ?? 0;
-  const costColor =
-    costValue > 5
-      ? theme.status.error
-      : costValue >= 1
-        ? theme.status.warning
-        : theme.ui.dimmed;
+  const hints = getFooterHints({
+    view,
+    isStreaming,
+    overlayOpen,
+    panelOpen,
+  });
 
-  const modeLabel = mode === 'plan' ? '[Plan]' : '[Build]';
-  const modeColor = mode === 'plan' ? theme.status.info : theme.status.success; 
+  const separator = (
+    <Text color={theme.ui.borderSubtle}>{` ${GLYPHS.separator} `}</Text>
+  );
 
   return (
-    <Box
-      borderStyle="bold"
-      borderColor={theme.ui.border}
-      borderTop
-      borderBottom={false}
-      borderLeft={false}
-      borderRight={false}
-      paddingX={1}
-      justifyContent="space-between"
-    >
-      <Box gap={1}>
-        {sessionName ? (
-          <>
-            <Text color={theme.ui.accent} bold>
-              {sessionName}
-            </Text>
-          </>
-        ) : (
-          <Text color={theme.ui.dimmed}>No session</Text>
-        )}
+    <Box paddingX={1} justifyContent="space-between" flexShrink={0}>
+      <Box>
+        <Text
+          color={line.session.active ? theme.ui.accent : theme.ui.dimmed}
+          bold={line.session.active}
+          wrap="truncate"
+        >
+          {line.session.label}
+        </Text>
 
-        {modelName && (
+        {line.model !== null && (
           <>
-            <Text color={theme.ui.border}>{'│'}</Text>
-            <Text color={theme.ui.brand}>{modelName}</Text>
+            {separator}
+            <Text color={theme.ui.muted} wrap="truncate">
+              {line.model}
+            </Text>
           </>
         )}
 
-        {tokenCount && (
+        {line.tokens !== null && (
           <>
-            <Text color={theme.ui.border}>{'│'}</Text>
-            <Text color={theme.status.success}>
-              {formatTokens(tokenCount.input)}
-            </Text>
-            <Text color={theme.ui.dimmed}>{'/'}</Text>
-            <Text color={theme.status.warning}>
-              {formatTokens(tokenCount.output)}
-            </Text>
-            <Text color={theme.ui.dimmed}> tokens</Text>
+            {separator}
+            <Text color={theme.ui.dimmed}>{`${line.tokens} tok`}</Text>
           </>
         )}
 
-        {isStreaming && (
+        {line.context !== null && (
           <>
-            <Text color={theme.ui.border}>{'│'}</Text>
+            {separator}
+            <Text color={toneColor(theme, line.context.tone)}>
+              {`ctx ${line.context.percent}%`}
+            </Text>
+          </>
+        )}
+
+        {line.cost !== null && (
+          <>
+            {separator}
+            <Text color={toneColor(theme, line.cost.tone)}>
+              {line.cost.label}
+            </Text>
+          </>
+        )}
+
+        {line.activity !== null && (
+          <>
+            {separator}
             <Text color={theme.status.warning} bold>
-              {'◉ Streaming'}
+              {line.activity.label}
             </Text>
           </>
         )}
 
-        {contextPercent > 0 && (
-          <>
-            <Text color={theme.ui.border}>{'│'}</Text>
-            <ProgressBar
-              percent={contextPercent}
-              width={8}
-              color={contextColor}
-            />
-            <Text color={contextColor}>{contextPercent}%</Text>
-            {contextPercent > 90 && (
-              <Text color={theme.status.error} bold>
-                {' full!'}
-              </Text>
-            )}
-          </>
-        )}
-
-        {activeSessionId && (
-          <>
-            <Text color={theme.ui.border}>{'│'}</Text>
-            <Text color={costColor}>{formatCost(costValue)}</Text>
-          </>
-        )}
-
-        <Text color={theme.ui.border}>{'│'}</Text>
-        <Text color={modeColor} bold>
-          {modeLabel}
+        {separator}
+        <Text
+          color={line.mode.plan ? theme.status.info : theme.ui.dimmed}
+          bold={line.mode.plan}
+        >
+          {line.mode.label}
         </Text>
       </Box>
 
       <Box>
-        <KeyHint keys="^K" label="palette" />
-        <KeyHint keys="^N" label="new" separator />
-        <KeyHint keys="^B" label="agents" separator />
-        <KeyHint keys="^E" label="sessions" separator />
-        <KeyHint keys="^S" label="settings" separator />
-        <KeyHint keys="^Q" label="quit" separator />
+        {hints.map((hint, index) => (
+          <Box key={hint.id}>
+            {index > 0 && (
+              <Text color={theme.ui.borderSubtle}>{`  ${GLYPHS.separator}  `}</Text>
+            )}
+            <Text color={theme.ui.muted}>{hint.hint}</Text>
+            <Text color={theme.ui.dimmed}>
+              {` ${hint.footerLabel ?? ''}`}
+            </Text>
+          </Box>
+        ))}
       </Box>
     </Box>
   );

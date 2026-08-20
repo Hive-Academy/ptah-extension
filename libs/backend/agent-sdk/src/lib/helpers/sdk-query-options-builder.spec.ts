@@ -21,7 +21,7 @@ import {
   SdkQueryOptionsBuilder,
   type SdkQueryOptions,
 } from './sdk-query-options-builder';
-import { ModelNotAvailableError } from '../errors';
+import { ModelNotAvailableError, SdkError } from '../errors';
 import type {
   McpHttpServerConfig,
   HookEvent,
@@ -253,6 +253,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -260,12 +261,16 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     overrides: {
       enableFileCheckpointing?: boolean;
       permissionMode?: SdkQueryOptions['permissionMode'];
+      forwardSubagentText?: boolean;
     } = {},
   ) {
     const builder = makeFullBuilder();
     const sessionConfig: AISessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
+      // Every real interactive session carries a tabId; it is the routing id
+      // the MCP `/session/{id}` segment is built from (TASK_2026_295).
+      tabId: 'tab-fixture',
     } as AISessionConfig;
     // Empty async iterable — `build()` does not iterate it, just attaches.
     const userMessageStream = (async function* () {
@@ -306,6 +311,16 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
     expect(optsOff.agentProgressSummaries).toBeUndefined();
+  });
+
+  it('defaults forwardSubagentText to true when the caller does not specify it', async () => {
+    const opts = await buildWith();
+    expect(opts.forwardSubagentText).toBe(true);
+  });
+
+  it('honors forwardSubagentText: false (the chatty-subagent killswitch)', async () => {
+    const opts = await buildWith({ forwardSubagentText: false });
+    expect(opts.forwardSubagentText).toBe(false);
   });
 
   it('pairs allowDangerouslySkipPermissions with bypassPermissions (YOLO) so MCP tool calls do not self-deny', async () => {
@@ -373,6 +388,7 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
       noopHooks,
       noopHooks,
       noopHooks,
+      noopHooks,
     );
   }
 
@@ -386,7 +402,11 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
     const cfg = await makeBuilder(baseUrl).build({
       userMessageStream,
       abortController: new AbortController(),
-      sessionConfig: { model, projectPath: 'D:/tmp/ws' } as AISessionConfig,
+      sessionConfig: {
+        model,
+        projectPath: 'D:/tmp/ws',
+        tabId: 'tab-fixture',
+      } as AISessionConfig,
     });
     return cfg.options.env as Record<string, string | undefined>;
   }
@@ -498,10 +518,11 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
-  async function buildPremiumWith(
+  async function buildSystemPromptWith(
     injector: InjectorStub,
     initialQuery: string,
     extra: { corpusName?: string } = {},
@@ -510,6 +531,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
     const sessionConfig: AISessionConfig = {
       model: 'claude-sonnet-4',
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
       ...(extra.corpusName ? { corpusName: extra.corpusName } : {}),
     } as AISessionConfig;
     const userMessageStream = (async function* () {
@@ -519,7 +541,6 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       userMessageStream,
       abortController: new AbortController(),
       sessionConfig,
-      isPremium: true,
       initialUserQuery: initialQuery,
     });
     return cfg.options.systemPrompt;
@@ -533,9 +554,13 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string', {
-      corpusName: 'corpus-A',
-    });
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+      {
+        corpusName: 'corpus-A',
+      },
+    );
     expect(sp).toBeDefined();
     const append = (sp as { append?: string }).append ?? '';
     const startIdx = append.indexOf('SESSION_START_TOKEN');
@@ -554,7 +579,10 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+    );
     const append = (sp as { append?: string }).append ?? '';
     expect(append).not.toContain('CORPUS_PRIME_TOKEN');
     expect(injector.buildCorpusBlock).not.toHaveBeenCalled();
@@ -566,7 +594,10 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+    );
     const append = (sp as { append?: string }).append ?? '';
     expect(append).toContain('MEMORY_RECALL_TOKEN');
   });
@@ -577,7 +608,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
-    await buildPremiumWith(injector, 'a long enough query string');
+    await buildSystemPromptWith(injector, 'a long enough query string');
     expect(injector.buildSessionStartBlock).toHaveBeenCalledWith('D:/tmp/ws');
   });
 
@@ -587,7 +618,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
-    await buildPremiumWith(injector, 'a long enough query string', {
+    await buildSystemPromptWith(injector, 'a long enough query string', {
       corpusName: 'corpus-XYZ',
     });
     expect(injector.buildCorpusBlock).toHaveBeenCalledWith('corpus-XYZ');
@@ -692,6 +723,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -702,6 +734,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
     const sessionConfig = {
       model,
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
     } as AISessionConfig;
     const userMessageStream = (async function* () {
       // Intentionally empty.
@@ -849,11 +882,13 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
 
     const sessionConfig = {
       model: 'claude-3-opus-20240229',
       projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
     } as AISessionConfig;
     const userMessageStream = (async function* (): AsyncGenerator<
       never,
@@ -984,6 +1019,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
     return { builder, logger, permissionHandler };
   }
@@ -1024,6 +1060,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       undefined,
       VALID_TAB_UUID,
       undefined,
+      VALID_TAB_UUID,
     );
   });
 
@@ -1040,12 +1077,14 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     // fix it must resolve cleanly.
     await expect(runBuild(builder, sessionConfig)).resolves.not.toThrow();
 
-    // Both routing args degrade to undefined when the id is malformed.
+    // Both routing args degrade to undefined when the id is malformed; the raw
+    // id still travels as the routing hint for out-of-band prompt observers.
     expect(permissionHandler.createCallback).toHaveBeenCalledWith(
       undefined,
       undefined,
       undefined,
       undefined,
+      LEGACY_TAB_ID,
     );
 
     // The malformed id is logged at warn-level for observability.
@@ -1058,6 +1097,108 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     );
     expect(warnedAboutRouting).toBe(true);
     expect(warnedAboutTabId).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// build() — workflows.disabled kill switch → CLAUDE_CODE_DISABLE_WORKFLOWS env
+//
+// The persisted `workflows.disabled` ptah config is resolved at the session
+// origination point (chat-session.service) and threaded onto AISessionConfig as
+// `workflowsDisabled`. build() injects `CLAUDE_CODE_DISABLE_WORKFLOWS=1` into the
+// query env ONLY when that flag is true; absent/false leaves the env untouched so
+// the SDK's built-in workflows (ultracode/workflow keyword) stay ON.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — workflows.disabled env injection', () => {
+  function makeBuilder(): SdkQueryOptionsBuilder {
+    const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      noopHooks,
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+      },
+      noopHooks,
+      noopHooks,
+      {} as AuthEnv, // empty → Anthropic-direct, no model validation
+      { resolveModelId: jest.fn().mockImplementation((m: string) => m) },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+    );
+  }
+
+  async function buildEnv(
+    workflowsDisabled?: boolean,
+  ): Promise<Record<string, string | undefined>> {
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    const sessionConfig = {
+      model: 'claude-sonnet-4',
+      projectPath: 'D:/tmp/ws',
+      tabId: 'tab-fixture',
+      ...(workflowsDisabled === undefined ? {} : { workflowsDisabled }),
+    } as AISessionConfig;
+    const cfg = await makeBuilder().build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig,
+    });
+    return cfg.options.env as Record<string, string | undefined>;
+  }
+
+  // The builder spreads `...process.env`; isolate from any ambient
+  // CLAUDE_CODE_DISABLE_WORKFLOWS so the injection is the only source.
+  const savedFlag = process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+  beforeEach(() => {
+    delete process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+  });
+  afterEach(() => {
+    if (savedFlag === undefined) {
+      delete process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+    } else {
+      process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'] = savedFlag;
+    }
+  });
+
+  it('injects CLAUDE_CODE_DISABLE_WORKFLOWS=1 when workflowsDisabled is true', async () => {
+    const env = await buildEnv(true);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBe('1');
+  });
+
+  it('leaves the env untouched when workflowsDisabled is false', async () => {
+    const env = await buildEnv(false);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBeUndefined();
+  });
+
+  it('leaves the env untouched when workflowsDisabled is absent (default ON)', async () => {
+    const env = await buildEnv(undefined);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBeUndefined();
   });
 });
 
@@ -1166,6 +1307,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
     return {
       builder: builder as unknown as BuilderWithCreateHooks,
@@ -1212,17 +1354,95 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
     expect(merged.UserPromptSubmit).toHaveLength(1);
   });
 
-  it('defaults sessionId to empty string when undefined is passed', () => {
+  it('passes an absent sessionId through untouched — it does not invent an empty string', () => {
     const { builder, postToolUseHookHandler, userPromptSubmitHookHandler } =
       makeBuilderWithSpies();
     builder.createHooks('D:/tmp/ws');
+    // Every handler resolves its id through `resolveHookSessionId`, which
+    // treats `undefined` and `''` identically, so the old `sessionId ?? ''`
+    // coercion protected nothing and only disguised "not known" as a value.
     expect(postToolUseHookHandler.createHooks).toHaveBeenCalledWith(
-      '',
+      undefined,
       'D:/tmp/ws',
     );
     expect(userPromptSubmitHookHandler.createHooks).toHaveBeenCalledWith(
-      '',
+      undefined,
       'D:/tmp/ws',
     );
+  });
+});
+
+/**
+ * TASK_2026_295 — the `/session/{id}` segment is the ONLY thing that tells an
+ * MCP tool call which session made it. `extractCallerSessionId`
+ * (vscode-lm-tools `http-server.handler.ts:145`) parses it back off the URL
+ * onto `request._callerSessionId`; `protocol-dispatcher.ts:654` forwards that
+ * as `ptah_agent_spawn`'s `parentSessionId`; and when it is absent
+ * `agent-namespace.builder.ts:138` falls back to `getActiveSessionId()` —
+ * `getActiveSessionIds()[0]`, the most-recently-active session.
+ *
+ * So dropping the segment did not disable attribution, it MIS-attributed it:
+ * with two sessions open, session B's spawn was recorded under session A's
+ * parentSessionId, and A's `markAllInterrupted` could later mis-handle B's
+ * agent. The consumer-side fallback is deliberate (stdio/CLI/internal callers
+ * legitimately have no caller id), so the producer is the place to fix.
+ */
+describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TASK_2026_295)', () => {
+  interface BuilderWithMcp {
+    buildMcpServers(
+      mcpServerRunning?: boolean,
+      routingSessionId?: string,
+    ): Record<string, McpHttpServerConfig>;
+  }
+
+  function makeMcpBuilder(): BuilderWithMcp {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(logger) as unknown as BuilderWithMcp;
+  }
+
+  it('encodes the routing id as a /session/{id} segment', () => {
+    const config = makeMcpBuilder().buildMcpServers(true, 'tab-abc');
+    expect(config['ptah'].url).toMatch(/\/session\/tab-abc$/);
+  });
+
+  it('percent-encodes an id that is not URL-safe so the consumer decodes it back intact', () => {
+    const config = makeMcpBuilder().buildMcpServers(true, 'tab one/two');
+    expect(config['ptah'].url).toMatch(/\/session\/tab%20one%2Ftwo$/);
+    // Round-trips through the consumer's decodeURIComponent.
+    const segment = config['ptah'].url.split('/session/')[1];
+    expect(decodeURIComponent(segment)).toBe('tab one/two');
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['empty', ''],
+    ['whitespace-only', '   '],
+  ])(
+    'throws rather than silently emitting a session-less URL for an %s routing id',
+    (_label, id) => {
+      // The old behaviour returned `http://localhost:{port}` with no segment —
+      // a perfectly working endpoint whose calls arrive anonymous. Nothing
+      // downstream can tell that apart from a legitimate stdio caller, which
+      // is why this has to fail here instead.
+      expect(() => makeMcpBuilder().buildMcpServers(true, id)).toThrow(
+        SdkError,
+      );
+      expect(() => makeMcpBuilder().buildMcpServers(true, id)).toThrow(
+        /session routing id/i,
+      );
+    },
+  );
+
+  it('still returns {} without throwing when the MCP server is not running', () => {
+    // No server means no URL to build, so a missing id is not a defect here.
+    expect(makeMcpBuilder().buildMcpServers(false, undefined)).toEqual({});
   });
 });

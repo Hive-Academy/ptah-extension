@@ -7,8 +7,6 @@ description: Aggregate cost, tokens, messages, and duration per session.
 
 Every session in Ptah has a live cost summary — tokens consumed, dollars spent, messages exchanged, and wall-clock duration. It's visible per session in the header, and aggregated across sessions in [Analytics](/sessions/analytics/).
 
-![Cost summary card](/screenshots/sessions-cost-summary.png)
-
 ## What's tracked
 
 | Metric                 | Description                                               |

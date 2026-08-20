@@ -13,10 +13,8 @@ import type { AnalysisPhase } from '@ptah-extension/shared';
 
 /**
  * Wizard step identifiers matching the 7-step setup flow
- * Includes premium-check step for license verification before wizard access
  */
 export type WizardStep =
-  | 'premium-check'
   | 'welcome'
   | 'scan'
   | 'analysis'

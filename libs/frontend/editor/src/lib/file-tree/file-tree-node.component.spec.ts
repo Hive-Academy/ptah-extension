@@ -43,6 +43,7 @@ describe('FileTreeNodeComponent', () => {
   let gitStatusMock: {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
     fileStatusMap: ReturnType<typeof signal<Map<string, unknown[]>>>;
+    changedDirPrefixes: ReturnType<typeof signal<ReadonlySet<string>>>;
   };
 
   beforeEach(async () => {
@@ -56,6 +57,7 @@ describe('FileTreeNodeComponent', () => {
     gitStatusMock = {
       activeWorkspacePath: signal<string | null>(null),
       fileStatusMap: signal<Map<string, unknown[]>>(new Map()),
+      changedDirPrefixes: signal<ReadonlySet<string>>(new Set<string>()),
     };
 
     await TestBed.configureTestingModule({
@@ -217,5 +219,112 @@ describe('FileTreeNodeComponent', () => {
     expect(editorMock.createFolder).toHaveBeenCalledTimes(1);
     expect(editorMock.createFolder).toHaveBeenCalledWith('/ws/pkg/subdir');
     expect(editorMock.createFile).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // hasChangedChildren — O(1) directory indicator (B3, TASK_2026_173)
+  //
+  // This used to scan every key of `fileStatusMap` per directory node, so a
+  // status update cost O(changed files × directory nodes). It is now a single
+  // `Set.has` against GitStatusService.changedDirPrefixes.
+  // -------------------------------------------------------------------------
+
+  describe('hasChangedChildren (B3)', () => {
+    const WS = 'C:/ws';
+
+    beforeEach(() => {
+      gitStatusMock.activeWorkspacePath.set(WS);
+    });
+
+    it('marks a directory whose relative path is in the prefix set (AC3)', () => {
+      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      const { component } = createFixture(
+        dirNode({ name: 'app', path: `${WS}/src/app` }),
+      );
+
+      expect(component.hasChangedChildren()).toBe(true);
+    });
+
+    it('does NOT mark a directory that is absent from the set (AC3, negative)', () => {
+      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      const { component } = createFixture(
+        dirNode({ name: 'vendor', path: `${WS}/vendor` }),
+      );
+
+      expect(component.hasChangedChildren()).toBe(false);
+    });
+
+    it('does not mark a sibling that merely shares a name prefix (AC3, negative)', () => {
+      // `src/app` in the set must not light up `src/app-legacy`.
+      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      const { component } = createFixture(
+        dirNode({ name: 'app-legacy', path: `${WS}/src/app-legacy` }),
+      );
+
+      expect(component.hasChangedChildren()).toBe(false);
+    });
+
+    it('never marks a file node', () => {
+      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      const fixture = TestBed.createComponent(FileTreeNodeComponent);
+      fixture.componentRef.setInput('node', {
+        name: 'app',
+        path: `${WS}/src/app`,
+        type: 'file',
+      } as FileTreeNode);
+      fixture.componentRef.setInput('depth', 0);
+
+      expect(fixture.componentInstance.hasChangedChildren()).toBe(false);
+    });
+
+    it('resolves a Windows-separator node path against the normalized set (AC5)', () => {
+      gitStatusMock.changedDirPrefixes.set(new Set(['src', 'src/app']));
+      const { component } = createFixture(
+        dirNode({ name: 'app', path: 'C:\\ws\\src\\app' }),
+      );
+
+      expect(component.hasChangedChildren()).toBe(true);
+    });
+
+    it('returns false when there is no active workspace', () => {
+      gitStatusMock.activeWorkspacePath.set(null);
+      gitStatusMock.changedDirPrefixes.set(new Set(['src']));
+      const { component } = createFixture(
+        dirNode({ name: 'src', path: `${WS}/src` }),
+      );
+
+      expect(component.hasChangedChildren()).toBe(false);
+    });
+
+    it('evaluates in constant time: one Set.has, zero fileStatusMap iteration (AC2)', () => {
+      // 50k changed directories and 50k status entries. The old implementation
+      // walked every map key for THIS one node; the new one asks the set once.
+      const prefixes = new Set<string>();
+      const statusMap = new Map<string, unknown[]>();
+      for (let i = 0; i < 50_000; i++) {
+        prefixes.add(`noise${i}`);
+        statusMap.set(`noise${i}/file.ts`, []);
+      }
+      prefixes.add('src');
+      prefixes.add('src/app');
+
+      const hasSpy = jest.spyOn(prefixes, 'has');
+      const keysSpy = jest.spyOn(statusMap, 'keys');
+
+      gitStatusMock.changedDirPrefixes.set(prefixes);
+      gitStatusMock.fileStatusMap.set(statusMap);
+
+      const { component } = createFixture(
+        dirNode({ name: 'app', path: `${WS}/src/app` }),
+      );
+
+      expect(component.hasChangedChildren()).toBe(true);
+      expect(hasSpy).toHaveBeenCalledTimes(1);
+      expect(hasSpy).toHaveBeenCalledWith('src/app');
+      expect(keysSpy).not.toHaveBeenCalled();
+
+      hasSpy.mockRestore();
+      keysSpy.mockRestore();
+    });
   });
 });

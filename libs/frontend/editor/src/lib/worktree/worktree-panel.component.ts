@@ -168,7 +168,7 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
                 </span>
                 @if (wt.isMain) {
                   <span
-                    class="text-[9px] px-1 py-0.5 rounded bg-base-content/10 text-base-content/50 flex-shrink-0"
+                    class="text-[9px] px-1 py-0.5 rounded bg-base-content/10 text-base-content-muted flex-shrink-0"
                     >main</span
                   >
                 }

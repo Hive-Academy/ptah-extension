@@ -6,16 +6,47 @@
  * are always exempt from all Curator actions.
  *
  * Reports are written to ~/.ptah/curator-reports/<ISO-timestamp>.md.
+ *
+ * ## The overlap pass runs on the `synthesis` lane
+ *
+ * `CURATOR_TIMEOUT_MS` is gone — the lane's `timeoutMs` and `maxInputChars`
+ * bound the pass, as they do for every other LLM call in this library.
+ *
+ * The pass deliberately requests NO `outputSchema`. Its answer is a JSON
+ * ARRAY of findings, and the runner's structured-output ladder resolves objects
+ * only; asking for a schema it cannot read back would turn every successful
+ * array answer into a `structured-output-unsupported` failure. `parseFindings`
+ * reads the array out of the assistant text, which is what it has always done.
+ *
+ * ## The suggestion pass RESERVES the replay gate's hold-out (B3.6)
+ *
+ * `runSuggestionPass` is this library's cluster-synthesis path, and it is the
+ * only place a hold-out can be reserved — once the body is written, every
+ * session in the cluster has already influenced it. {@link planClusterDraft}
+ * decides which member the synthesizer may NOT see, using the replay gate's own
+ * `selectHoldoutSessionId` so the two sides cannot drift, and declines to
+ * reserve one when the remaining draft would fall below
+ * `suggestionMinClusterSize`.
+ *
+ * The two persisted lists then mean DIFFERENT things, and the difference is the
+ * hold-out:
+ *
+ *  - `memberSessionIds` — only the sessions the draft CONSUMED. This is the
+ *    `used` half of the gate's subtraction and the value that must become the
+ *    graded candidate's `sourceSessionIds`.
+ *  - `memberCandidateIds` — EVERY cluster member, held out or not. It is the
+ *    only carrier of the full cluster, and re-reading those candidates' own
+ *    `sourceSessionIds` is how the gate's `clusterSessionIds` is recovered.
+ *
+ * `clusterSize` also stays the FULL cluster size, so a suggestion drafted from
+ * two of three sessions reads "cluster size 3, member sessions 2" rather than
+ * quietly reporting itself as smaller than the evidence behind it.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import {
-  PLATFORM_TOKENS,
-  type IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
   type CuratorRateLimitService,
@@ -41,20 +72,14 @@ import {
   type ClusterMemberInput,
 } from './skill-synthesizer.service';
 import { SkillJudgeService } from './skill-judge.service';
-import type { IInternalQuery } from './internal-query.interface';
+import { planClusterDraft } from './gates/cluster-holdout';
+import type { LaneRunnerService } from './lanes/lane-runner.service';
 import type {
   SkillCandidateRow,
   SkillSuggestionRow,
   SkillSynthesisSettings,
 } from './types';
-import {
-  INTERNAL_QUERY_SERVICE_TOKEN,
-  SKILL_SYNTHESIS_TOKENS,
-} from './di/tokens';
-import { resolveJudgeModel } from './model-resolver';
-
-/** Timeout for a single Curator LLM pass (60s — lists all promoted skills). */
-const CURATOR_TIMEOUT_MS = 60_000;
+import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 
 /** Rate-limit bucket key + cap for auto-enhancement passes. */
 const ENHANCE_RATE_LIMIT_KEY = 'skill.enhance';
@@ -117,10 +142,8 @@ export class SkillCuratorService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SkillCandidateStore)
     private readonly store: SkillCandidateStore,
-    @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
-    private readonly internalQuery: IInternalQuery | null,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE)
+    private readonly laneRunner: LaneRunnerService,
     @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
     private readonly rateLimiter: CuratorRateLimitService,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
@@ -195,13 +218,6 @@ export class SkillCuratorService {
   ): Promise<CuratorReport> {
     this.onEvent?.({ kind: 'curator-pass-start', timestamp: Date.now() });
 
-    if (!this.internalQuery) {
-      this.logger.warn(
-        '[skill-curator] InternalQueryService not available; skipping pass',
-      );
-      return this.emptyReport();
-    }
-
     const promoted = this.store.listByStatus('promoted');
     if (promoted.length === 0) {
       this.logger.info(
@@ -243,46 +259,31 @@ export class SkillCuratorService {
       `If there are no issues, reply with: []`,
     ].join('\n');
 
-    const abortController = new AbortController();
-    const timeoutHandle = setTimeout(
-      () => abortController.abort(),
-      CURATOR_TIMEOUT_MS,
-    );
-
-    let findings: CuratorFinding[] = [];
+    let result;
     try {
-      const model = this.resolveModel(settings);
-      const handle = await this.internalQuery.execute({
-        cwd: os.homedir(),
-        model,
-        prompt,
-        isPremium: false,
-        mcpServerRunning: false,
-        maxTurns: 1,
-        abortController,
-      });
-
-      let collected = '';
-      for await (const msg of handle.stream) {
-        if (msg.type === 'assistant') {
-          for (const block of msg.message?.content ?? []) {
-            if (block.type === 'text' && typeof block.text === 'string') {
-              collected += block.text;
-            }
-          }
-        }
-        if (msg.type === 'result') break;
-      }
-
-      findings = this.parseFindings(collected);
+      result = await this.laneRunner.run({ laneId: 'synthesis', prompt });
     } catch (err: unknown) {
-      this.logger.warn('[skill-curator] LLM call failed', {
+      this.logger.warn('[skill-curator] lane call threw', {
         error: err instanceof Error ? err.message : String(err),
       });
       return this.emptyReport();
-    } finally {
-      clearTimeout(timeoutHandle);
     }
+    if (result.status === 'unavailable') {
+      this.logger.warn(
+        '[skill-curator] no synthesis lane in this host; skipping pass',
+        { reason: result.reason },
+      );
+      return this.emptyReport();
+    }
+    if (result.status === 'failed') {
+      this.logger.warn('[skill-curator] lane failed', {
+        kind: result.failure.kind,
+        reason: result.failure.reason,
+      });
+      return this.emptyReport();
+    }
+
+    const findings = this.parseFindings(result.run.text);
     const pinnedIds = new Set(
       promoted.filter((s) => s.pinned).map((s) => s.id as string),
     );
@@ -393,12 +394,21 @@ export class SkillCuratorService {
       ) {
         continue;
       }
+      // Reserve the replay gate's hold-out BEFORE anything reads the cluster,
+      // so every downstream read is explicit about whether it wants the whole
+      // cluster or only what the draft is allowed to see. See
+      // `gates/cluster-holdout.ts`.
+      const draft = planClusterDraft(
+        cluster.members,
+        settings.suggestionMinClusterSize,
+      );
       if (authoredSlugs.size > 0) {
-        const clusterSessionIds = [
-          ...new Set(cluster.members.flatMap((m) => m.sourceSessionIds)),
-        ];
-        const dominant =
-          this.store.getDominantSkillSlugForSessions(clusterSessionIds);
+        // The authored-skill guard is a fact about the CLUSTER, not about the
+        // draft: a hold-out does not make an authored skill's territory any
+        // less its own.
+        const dominant = this.store.getDominantSkillSlugForSessions([
+          ...draft.clusterSessionIds,
+        ]);
         if (dominant && authoredSlugs.has(dominant)) {
           this.logger.info(
             '[skill-curator] skipping cluster — dominated by an authored skill',
@@ -419,7 +429,10 @@ export class SkillCuratorService {
       }
       processed += 1;
       try {
-        const members: ClusterMemberInput[] = cluster.members.map((m) => ({
+        // `draft.drafted`, NOT `cluster.members`: the held-out member's body
+        // must never reach the synthesizer, or the replay gate scores the draft
+        // against a session it was written from and measures recall.
+        const members: ClusterMemberInput[] = draft.drafted.map((m) => ({
           description: m.description,
           body: this.readCandidateBody(m),
         }));
@@ -430,28 +443,42 @@ export class SkillCuratorService {
         if (!synthesized) continue;
         const verdict = await this.judge.judge(
           {
-            ...cluster.members[0],
+            ...draft.drafted[0],
             name: synthesized.name,
             description: synthesized.description,
           },
           synthesized.body,
           settings,
         );
-        if (!verdict.passed) {
+        // A suggestion row carries a NUMBER in `judge_score`, so only a genuine
+        // `scored` verdict may create one. Before phase 1 an unparseable or
+        // failed judge call fabricated a 10 here and the suggestion was filed
+        // with a perfect score nobody had awarded it; `unscored` and `disabled`
+        // now skip the cluster instead, and the next pass re-clusters it.
+        if (verdict.status !== 'scored' || verdict.score === null) {
+          this.logger.info(
+            '[skill-curator] suggestion skipped — no trustworthy judge score',
+            { status: verdict.status, reason: verdict.reason },
+          );
+          continue;
+        }
+        if (verdict.score < settings.minJudgeScore) {
           this.logger.info('[skill-curator] suggestion judged below score', {
             score: verdict.score,
             minScore: settings.minJudgeScore,
           });
           continue;
         }
-        const memberSessionIds = [
-          ...new Set(cluster.members.flatMap((m) => m.sourceSessionIds)),
-        ];
+        // `memberSessionIds` is what the draft CONSUMED — the `used` half of
+        // `selectHoldoutSessionId`. `memberCandidateIds` stays the FULL cluster
+        // and is the only carrier of the held-out member, so the replay gate can
+        // recover the hold-out as the difference between the two. Narrowing both
+        // would erase the hold-out; narrowing neither is the defect B3.6 fixes.
         this.suggestionStore.insertPending({
           name: synthesized.name,
           description: synthesized.description,
           body: synthesized.body,
-          memberSessionIds,
+          memberSessionIds: [...draft.draftedSessionIds],
           memberCandidateIds: candidateIds,
           clusterSize: cluster.members.length,
           technologyFingerprint: fingerprint,
@@ -461,6 +488,9 @@ export class SkillCuratorService {
         this.logger.info('[skill-curator] suggestion proposed', {
           name: synthesized.name,
           clusterSize: cluster.members.length,
+          draftedFrom: draft.drafted.length,
+          holdoutSessionId: draft.holdoutSessionId,
+          holdoutReason: draft.reason,
           judgeScore: verdict.score,
         });
       } catch (err: unknown) {
@@ -749,18 +779,6 @@ export class SkillCuratorService {
       });
       return '';
     }
-  }
-
-  /**
-   * Resolve the model to use for the Curator LLM pass.
-   *
-   * Uses `settings.judgeModel` so the Curator respects the same model
-   * preference as the Judge. When `judgeModel` is `'inherit'` (the default),
-   * falls back to the workspace `llm.vscode.model` setting, and further to
-   * the built-in default.
-   */
-  private resolveModel(settings: SkillSynthesisSettings): string {
-    return resolveJudgeModel(settings.judgeModel, this.workspaceProvider);
   }
 
   private emptyReport(): CuratorReport {

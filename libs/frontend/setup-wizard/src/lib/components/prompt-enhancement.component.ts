@@ -47,7 +47,7 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
       <!-- Header -->
       <div class="mb-2 text-center">
         <h2 class="text-lg font-semibold mb-1">Enhance Your Prompts</h2>
-        <p class="text-xs text-base-content/70">
+        <p class="text-xs text-base-content-muted">
           Generate project-specific guidance to improve AI responses for your
           codebase.
         </p>
@@ -62,7 +62,7 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
                 <span
                   class="loading loading-spinner loading-sm text-warning"
                 ></span>
-                <p class="text-xs text-base-content/70 text-center">
+                <p class="text-xs text-base-content-muted text-center">
                   Preparing to generate project-specific guidance...
                 </p>
               </div>
@@ -72,11 +72,11 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
                 <span
                   class="loading loading-spinner loading-sm text-warning"
                 ></span>
-                <p class="text-sm text-base-content/70 text-center">
+                <p class="text-sm text-base-content-muted text-center">
                   Generating project-specific prompt guidance from analysis
                   data...
                 </p>
-                <p class="text-sm text-base-content/50">
+                <p class="text-sm text-base-content-muted">
                   This may take a minute while the AI crafts tailored
                   instructions.
                 </p>
@@ -94,7 +94,7 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
                     Enhanced prompts generated successfully!
                   </p>
                   @if (detectedStack().length > 0) {
-                    <p class="text-sm text-base-content/70 mb-2">
+                    <p class="text-sm text-base-content-muted mb-2">
                       Detected stack:
                     </p>
                     <div class="flex flex-wrap justify-center gap-1">
@@ -148,10 +148,10 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
               <div class="flex flex-col items-center gap-2 py-3">
                 <lucide-angular
                   [img]="SkipForwardIcon"
-                  class="h-8 w-8 text-base-content/40"
+                  class="h-8 w-8 text-base-content-muted"
                   aria-hidden="true"
                 />
-                <p class="text-sm text-base-content/60">
+                <p class="text-sm text-base-content-muted">
                   Enhanced prompts generation skipped.
                 </p>
               </div>
@@ -300,19 +300,10 @@ export class PromptEnhancementComponent {
           this.wizardState.setEnhancedPromptsSummary(result.summary);
         }
       } else {
-        const isPremiumError =
-          result.error?.toLowerCase().includes('premium') ||
-          result.error?.toLowerCase().includes('upgrade');
-
-        if (isPremiumError) {
-          this.wizardState.setEnhancedPromptsStatus('skipped');
-          this.wizardState.setEnhancedPromptsError(null);
-        } else {
-          this.wizardState.setEnhancedPromptsStatus('error');
-          this.wizardState.setEnhancedPromptsError(
-            result.error ?? 'Failed to generate Enhanced Prompts',
-          );
-        }
+        this.wizardState.setEnhancedPromptsStatus('error');
+        this.wizardState.setEnhancedPromptsError(
+          result.error ?? 'Failed to generate Enhanced Prompts',
+        );
       }
     } catch (error) {
       this.wizardState.setEnhancedPromptsStatus('error');

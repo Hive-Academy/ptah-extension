@@ -11,12 +11,31 @@
  * Targets where MCP server configs can be installed.
  *
  * Config file locations:
- *  - vscode:  .vscode/mcp.json           (workspace, root key: "servers")
- *  - claude:  .mcp.json                   (workspace, root key: "mcpServers") — shared with codex/ptah-cli
- *  - cursor:  .cursor/mcp.json            (workspace, root key: "mcpServers")
- *  - copilot: ~/.copilot/mcp-config.json  (user-global, root key: "mcpServers")
+ *  - vscode:      .vscode/mcp.json              (workspace, root key: "servers")
+ *  - claude:      .mcp.json                      (workspace, root key: "mcpServers") — shared with ptah-cli
+ *  - cursor:      .cursor/mcp.json               (workspace, root key: "mcpServers")
+ *  - copilot:     ~/.copilot/mcp-config.json     (user-global, root key: "mcpServers")
+ *  - codex:       ~/.codex/config.toml           (user-global, TOML `[mcp_servers.<name>]`)
+ *  - antigravity: ~/.gemini/config/mcp_config.json (user-global, root key: "mcpServers",
+ *                 remote servers keyed `serverUrl` rather than `url`)
+ *
+ * Codex joined in TASK_2026_278 Batch 2. It was the one CLI Ptah could spawn
+ * but never configure: `.mcp.json` is not a file Codex reads, so every server
+ * "installed for codex" landed in a config Codex ignores.
+ *
+ * Antigravity joined in TASK_2026_285. Its absence was circular: the install
+ * surface offered no `agy` option because this union could not express one, and
+ * the missing option was then cited as the reason no facet was needed. `agy`
+ * reads a real MCP config file that Ptah already writes at spawn time, so the
+ * only thing missing was the ability to say so.
  */
-export type McpInstallTarget = 'vscode' | 'claude' | 'cursor' | 'copilot';
+export type McpInstallTarget =
+  | 'vscode'
+  | 'claude'
+  | 'cursor'
+  | 'copilot'
+  | 'codex'
+  | 'antigravity';
 
 /** Base fields shared by all transport types */
 interface McpServerConfigBase {
@@ -320,6 +339,113 @@ export type McpDirectoryListSmitheryInstalledParams = Record<string, never>;
  */
 export interface McpDirectoryListSmitheryInstalledResult {
   servers: SmitheryInstalledRecord[];
+}
+
+/**
+ * A remote MCP server connected via in-app OAuth, persisted (non-secret
+ * metadata only) to `~/.ptah/mcp-oauth-installed.json`.
+ *
+ * SECURITY: this record holds ONLY non-secret metadata. The OAuth tokens
+ * (access/refresh) and client credentials live in the encrypted secret store
+ * and are rebuilt into an `Authorization: Bearer` header at query time. No token
+ * is ever persisted to disk config.
+ */
+export interface McpOAuthConnectedRecord {
+  /** Stable key used in the session `mcpServersOverride` map. */
+  serverKey: string;
+  /** Friendly display name. */
+  name: string;
+  /** The MCP server URL the agent connects to (non-secret). */
+  serverUrl: string;
+  /** ISO timestamp of the connection. */
+  connectedAt: string;
+}
+
+/**
+ * On-disk manifest of OAuth-connected MCP servers
+ * (`~/.ptah/mcp-oauth-installed.json`). Contains no secrets.
+ */
+export interface McpOAuthInstalledManifest {
+  /** Schema version for forward compat. */
+  version: 1;
+  /** Map of serverKey → connection record. */
+  servers: Record<string, McpOAuthConnectedRecord>;
+}
+
+/** Connection state for an OAuth MCP server (never carries a token). */
+export type McpOAuthConnectionState = 'connected' | 'expired' | 'disconnected';
+
+/**
+ * Params for mcpDirectory:connectOAuth.
+ *
+ * Kicks off the interactive OAuth 2.0 authorization-code + PKCE flow: opens the
+ * system browser, catches the loopback redirect, exchanges the code, and stores
+ * the tokens encrypted. Returns once the token is stored (or on failure).
+ */
+export interface McpDirectoryConnectOAuthParams {
+  /** The remote MCP server URL to connect to. */
+  serverUrl: string;
+  /** Optional friendly name (defaults to the server host). */
+  name?: string;
+  /** Optional stable key for the override map (defaults to a slug of the URL). */
+  serverKey?: string;
+  /** Optional space-delimited scope string requested from the auth server. */
+  scope?: string;
+  /**
+   * Pre-registered OAuth client credentials, used when the authorization server
+   * does not support dynamic client registration (no `registration_endpoint`).
+   *
+   * SECURITY: `clientSecret` is a secret supplied by the user for confidential
+   * pre-registered clients; it is used only in-memory during the flow and stored
+   * in the encrypted token record — never in the plaintext manifest.
+   */
+  clientId?: string;
+  /** Pre-registered client secret (confidential clients only). See `clientId`. */
+  clientSecret?: string;
+}
+
+/** Result for mcpDirectory:connectOAuth. */
+export interface McpDirectoryConnectOAuthResult {
+  success: boolean;
+  /** The serverKey the connection was stored under (echoed for the caller). */
+  serverKey?: string;
+  /** Sanitized error message on failure (never carries a token). */
+  error?: string;
+}
+
+/** Params for mcpDirectory:oauthStatus. */
+export interface McpDirectoryOAuthStatusParams {
+  /** The serverKey to report status for. */
+  serverKey: string;
+}
+
+/** Result for mcpDirectory:oauthStatus (boolean-ish state only, no token). */
+export interface McpDirectoryOAuthStatusResult {
+  state: McpOAuthConnectionState;
+}
+
+/** Params for mcpDirectory:disconnectOAuth. */
+export interface McpDirectoryDisconnectOAuthParams {
+  /** The serverKey to disconnect (deletes tokens + manifest record). */
+  serverKey: string;
+}
+
+/** Result for mcpDirectory:disconnectOAuth. */
+export interface McpDirectoryDisconnectOAuthResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Params for mcpDirectory:listOAuthConnected (no params needed). */
+export type McpDirectoryListOAuthConnectedParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:listOAuthConnected.
+ *
+ * SECURITY: returns non-secret metadata only (never tokens).
+ */
+export interface McpDirectoryListOAuthConnectedResult {
+  servers: McpOAuthConnectedRecord[];
 }
 
 /** Params for mcpDirectory:search */

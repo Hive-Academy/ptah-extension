@@ -16,6 +16,7 @@ export {
   TaskFrontmatterSchema,
   type TaskFrontmatter,
   type ParseTaskFileResult,
+  type UpdateFrontmatterOptions,
 } from './lib/task-frontmatter';
 
 // Pure helpers.
@@ -33,7 +34,29 @@ export {
   type CreateTaskInput,
   type CreateTaskResult,
   type UpdateStatusResult,
+  type UpdateMetadataInput,
+  type UpdateMetadataResult,
+  type AdoptFolderInput,
+  type AdoptFolderResult,
 } from './lib/task-writer.service';
+export {
+  TaskSweepService,
+  type ISweepGitProbe,
+} from './lib/task-sweep.service';
+export {
+  TaskDoctorService,
+  type AdoptAction,
+  type RenameBatchesAction,
+  type DoctorAction,
+  type DoctorWarning,
+  type DoctorPlan,
+  type DoctorPlanResult,
+  type DoctorApplyResult,
+  type DoctorUndoResult,
+  type DoctorErrorCode,
+  type DoctorJournal,
+  type DoctorJournalEntry,
+} from './lib/task-doctor.service';
 export {
   RegistryGeneratorService,
   type GenerateRegistryResult,
@@ -66,3 +89,4 @@ export {
 // DI.
 export { TASK_SPECS_TOKENS, type TaskSpecsDIToken } from './lib/di/tokens';
 export { registerTaskSpecsServices } from './lib/di/register';
+export { startTaskSpecsIndex } from './lib/di/start-index';

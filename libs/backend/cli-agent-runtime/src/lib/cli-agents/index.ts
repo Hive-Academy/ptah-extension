@@ -13,5 +13,7 @@ export {
 } from './agent-process-manager.service';
 export type { AgentContinueErrorCode } from './agent-process-manager.service';
 export * from './cli-adapters';
-export { CliPluginSyncService } from './cli-skill-sync';
-export type { ICliSkillInstaller } from './cli-skill-sync';
+export {
+  createHarnessCliDetector,
+  type HarnessCliDetectionReader,
+} from './harness-cli-detector';

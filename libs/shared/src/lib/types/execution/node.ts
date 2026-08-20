@@ -180,6 +180,19 @@ export interface ChatSessionSummary {
   readonly tokenUsage?: MessageTokenUsage;
   /** Whether this session is currently active */
   readonly isActive: boolean;
+  /**
+   * Whether the SDK transcript (`~/.claude/projects/<workspace>/<id>.jsonl`)
+   * still exists on disk.
+   *
+   * Session metadata is stored by Ptah and never pruned, but the Claude CLI
+   * deletes transcripts older than `cleanupPeriodDays` (default 30). A row
+   * with `false` therefore opens with no history — the UI dims it and labels
+   * it rather than presenting it as a normal, loadable session.
+   *
+   * `undefined` means "not determined" (e.g. the projects directory could not
+   * be resolved). Consumers must treat only an explicit `false` as expired.
+   */
+  readonly hasTranscript?: boolean;
 }
 
 /**

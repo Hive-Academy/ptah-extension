@@ -36,7 +36,7 @@ class AgentMonitorPanelStubComponent {
 })
 class TestHostComponent {
   lane!: VendorLane;
-  sessionId = '';
+  sessionId: string | null = null;
 }
 
 function makeLane(overrides: Partial<VendorLane> = {}): VendorLane {
@@ -119,6 +119,25 @@ describe('VendorCardComponent', () => {
     const fixture = TestBed.createComponent(TestHostComponent);
     fixture.componentInstance.lane = makeLane();
     fixture.componentInstance.sessionId = '';
+
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(
+      fixture.debugElement.query(By.css('[data-testid="agent-monitor-stub"]')),
+    ).toBeNull();
+  });
+
+  // The absence the parent actually sends. `TribunalStateService.tribunalSessionId`
+  // is `string | null`, and the page used to coerce that null to `''` to satisfy
+  // an `input.required<string>()`. Now that the input models absence, `null` must
+  // reach the guard and be handled identically to the `''` above (TASK_2026_296).
+  it('renders the Awaiting placeholder when the session id is null', () => {
+    configure();
+    const fixture = TestBed.createComponent(TestHostComponent);
+    fixture.componentInstance.lane = makeLane();
+    fixture.componentInstance.sessionId = null;
+    laneBindingsSig.set(
+      new Map([['lane-1', makeAgent({ status: 'running' })]]),
+    );
 
     expect(() => fixture.detectChanges()).not.toThrow();
     expect(
