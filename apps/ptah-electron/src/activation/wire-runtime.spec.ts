@@ -23,6 +23,7 @@ import {
   CuratorRateLimitService,
   PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import {
@@ -198,6 +199,13 @@ function buildTestContainer(): DependencyContainer {
     SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
     {
       useClass: SessionStartCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  c.register(
+    SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    {
+      useClass: SessionIdResolvedCallbackRegistry,
     },
     { lifecycle: Lifecycle.Singleton },
   );
