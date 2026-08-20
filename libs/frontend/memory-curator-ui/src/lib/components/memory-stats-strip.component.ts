@@ -36,7 +36,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content/60">Core</div>
+          <div class="stat-title text-base-content-muted">Core</div>
           <div
             class="stat-value text-2xl text-primary tabular-nums"
             data-testid="memory-stat-core"
@@ -55,7 +55,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content/60">Recall</div>
+          <div class="stat-title text-base-content-muted">Recall</div>
           <div
             class="stat-value text-2xl text-info tabular-nums"
             data-testid="memory-stat-recall"
@@ -67,16 +67,16 @@ export interface MemoryStatCounts {
 
       <div class="stats bg-base-200/40 border border-base-content/10 shadow-sm">
         <div class="stat p-4">
-          <div class="stat-figure text-base-content/50">
+          <div class="stat-figure text-base-content-muted">
             <lucide-angular
               [img]="ArchiveIcon"
               class="w-6 h-6"
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content/60">Archival</div>
+          <div class="stat-title text-base-content-muted">Archival</div>
           <div
-            class="stat-value text-2xl text-base-content/70 tabular-nums"
+            class="stat-value text-2xl text-base-content-muted tabular-nums"
             data-testid="memory-stat-archival"
           >
             {{ c.archival }}
@@ -96,7 +96,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content/60">Code index</div>
+          <div class="stat-title text-base-content-muted">Code index</div>
           <div
             class="stat-value text-2xl text-secondary tabular-nums"
             data-testid="memory-stat-code-index"
@@ -108,15 +108,15 @@ export interface MemoryStatCounts {
 
       <div class="stats bg-base-200/40 border border-base-content/10 shadow-sm">
         <div class="stat p-4">
-          <div class="stat-figure text-base-content/40">
+          <div class="stat-figure text-base-content-muted">
             <lucide-angular
               [img]="ClockIcon"
               class="w-6 h-6"
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content/60">Last curated</div>
-          <div class="stat-value text-sm font-medium text-base-content/70">
+          <div class="stat-title text-base-content-muted">Last curated</div>
+          <div class="stat-value text-sm font-medium text-base-content-muted">
             {{ lastCuratedLabel() }}
           </div>
         </div>

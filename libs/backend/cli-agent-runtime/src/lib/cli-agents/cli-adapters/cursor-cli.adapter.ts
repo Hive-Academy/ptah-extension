@@ -25,9 +25,14 @@ import type {
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
+  ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
-import { stripAnsiCodes, buildTaskPrompt } from './cli-adapter.utils';
+import {
+  stripAnsiCodes,
+  buildTaskPrompt,
+  createBufferedEmitter,
+} from './cli-adapter.utils';
 
 /**
  * Minimal local types for the dynamically imported `@cursor/sdk` package.
@@ -257,52 +262,10 @@ export class CursorCliAdapter implements CliAdapter {
     const abortController = new AbortController();
     let capturedAgentId: string | undefined;
     let activeRun: CursorRun | undefined;
+    let agent: CursorSdkAgent | undefined;
 
-    const outputBuffer: string[] = [];
-    const outputCallbacks: Array<(data: string) => void> = [];
-
-    const onOutput = (callback: (data: string) => void): void => {
-      outputCallbacks.push(callback);
-      if (outputBuffer.length > 0) {
-        for (const buffered of outputBuffer) {
-          callback(buffered);
-        }
-        outputBuffer.length = 0;
-      }
-    };
-
-    const emitOutput = (data: string): void => {
-      if (outputCallbacks.length === 0) {
-        outputBuffer.push(data);
-      } else {
-        for (const cb of outputCallbacks) {
-          cb(data);
-        }
-      }
-    };
-
-    const segmentBuffer: CliOutputSegment[] = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-
-    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
-      segmentCallbacks.push(callback);
-      if (segmentBuffer.length > 0) {
-        for (const buffered of segmentBuffer) {
-          callback(buffered);
-        }
-        segmentBuffer.length = 0;
-      }
-    };
-
-    const emitSegment = (segment: CliOutputSegment): void => {
-      if (segmentCallbacks.length === 0) {
-        segmentBuffer.push(segment);
-      } else {
-        for (const cb of segmentCallbacks) {
-          cb(segment);
-        }
-      }
-    };
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
 
     const onAbort = (): void => {
       if (activeRun) {
@@ -310,46 +273,50 @@ export class CursorCliAdapter implements CliAdapter {
           /* non-fatal */
         });
       }
+      if (agent) {
+        agent.close();
+      }
     };
     abortController.signal.addEventListener('abort', onAbort);
 
-    const done = (async (): Promise<number> => {
+    const runTurn = async (prompt: string): Promise<number> => {
       const apiKey = resolveCursorApiKey();
       if (!apiKey) {
         const msg =
           'Cursor API key not found. Set CURSOR_API_KEY or provider.cursor.apiKey in ~/.ptah/settings.json.';
-        emitOutput(`\n[Cursor SDK Error] ${msg}\n`);
-        emitSegment({ type: 'error', content: msg });
+        output.emit(`\n[Cursor SDK Error] ${msg}\n`);
+        segment.emit({ type: 'error', content: msg });
         return 1;
       }
 
       try {
-        const sdk = await getCursorSdk();
-        const agentOptions: CursorAgentOptions = {
-          apiKey,
-          model: { id: options.model ?? DEFAULT_CURSOR_MODEL },
-          local: { cwd: options.workingDirectory },
-        };
-        if (options.mcpPort) {
-          agentOptions.mcpServers = {
-            ptah: {
-              type: 'http',
-              url: `http://localhost:${options.mcpPort}`,
-            },
+        if (!agent) {
+          const sdk = await getCursorSdk();
+          const agentOptions: CursorAgentOptions = {
+            apiKey,
+            model: { id: options.model ?? DEFAULT_CURSOR_MODEL },
+            local: { cwd: options.workingDirectory },
           };
+          if (options.mcpPort) {
+            agentOptions.mcpServers = {
+              ptah: {
+                type: 'http',
+                url: `http://localhost:${options.mcpPort}`,
+              },
+            };
+          }
+
+          agent = options.resumeSessionId
+            ? await sdk.Agent.resume(options.resumeSessionId, agentOptions)
+            : await sdk.Agent.create(agentOptions);
+          capturedAgentId = agent.agentId;
         }
 
-        const agent = options.resumeSessionId
-          ? await sdk.Agent.resume(options.resumeSessionId, agentOptions)
-          : await sdk.Agent.create(agentOptions);
-        capturedAgentId = agent.agentId;
-
         if (abortController.signal.aborted) {
-          agent.close();
           return 1;
         }
 
-        const run = await agent.send(taskPrompt);
+        const run = await agent.send(prompt);
         activeRun = run;
 
         const textTracker = { last: '' };
@@ -357,19 +324,17 @@ export class CursorCliAdapter implements CliAdapter {
 
         for await (const message of run.stream()) {
           if (abortController.signal.aborted) {
-            agent.close();
             return 1;
           }
           this.handleMessage(
             message,
-            emitOutput,
-            emitSegment,
+            output.emit,
+            segment.emit,
             textTracker,
             seenToolCalls,
           );
         }
 
-        agent.close();
         return abortController.signal.aborted ? 1 : 0;
       } catch (error: unknown) {
         if (abortController.signal.aborted) {
@@ -377,24 +342,27 @@ export class CursorCliAdapter implements CliAdapter {
         }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        emitOutput(`\n[Cursor SDK Error] ${errorMessage}\n`);
-        emitSegment({
+        output.emit(`\n[Cursor SDK Error] ${errorMessage}\n`);
+        segment.emit({
           type: 'error',
           content: `Cursor SDK Error: ${errorMessage}`,
         });
         return 1;
-      } finally {
-        abortController.signal.removeEventListener('abort', onAbort);
       }
-    })();
+    };
+
+    const done = runTurn(taskPrompt);
 
     return {
       abort: abortController,
       done,
-      onOutput,
-      onSegment,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
       getSessionId: () => capturedAgentId,
       setAgentId: () => {},
+      supportsContinuation: () => true,
+      continue: (message: string): Promise<ContinuationOutcome> =>
+        Promise.resolve({ done: runTurn(message) }),
     };
   }
 

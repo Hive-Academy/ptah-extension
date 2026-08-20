@@ -1,7 +1,7 @@
 /**
  * Specs for buildHarnessNamespace.
  *
- * ptah.harness.* exposes four MCP-accessible methods used by the harness
+ * ptah.harness.* exposes six MCP-accessible methods used by the harness
  * builder agent. Tests cover:
  *   - shape
  *   - searchSkills — query filter across skillId/displayName/description and
@@ -11,6 +11,9 @@
  *   - searchMcpRegistry — delegation with default limit
  *   - listInstalledMcpServers — reads .vscode/mcp.json and .mcp.json with
  *     tolerance for IO errors
+ *   - installMcpServer — target/key defaulting, zod config validation, missing
+ *     installer degradation, per-target failure warnings
+ *   - proposeConfig — zod validation before broadcast
  */
 
 // ---------------------------------------------------------------------------
@@ -42,6 +45,7 @@ import {
   type HarnessNamespaceDependencies,
   type HarnessSkillsDirectory,
   type HarnessMcpRegistrySource,
+  type HarnessMcpInstaller,
 } from './harness-namespace.builder';
 import type { SkillShEntry } from '@ptah-extension/shared';
 
@@ -74,6 +78,14 @@ interface SmitheryRegistryMock extends HarnessMcpRegistrySource {
   listServers: jest.Mock;
 }
 
+interface PulseMcpRegistryMock extends HarnessMcpRegistrySource {
+  listServers: jest.Mock;
+}
+
+interface McpInstallerMock extends HarnessMcpInstaller {
+  install: jest.Mock;
+}
+
 function makeDeps(
   overrides: {
     skills?: DiscoveredSkill[];
@@ -82,6 +94,8 @@ function makeDeps(
     workspaceRoot?: string;
     skillsDirectory?: SkillsDirectoryMock;
     smitheryRegistry?: SmitheryRegistryMock;
+    pulseMcpRegistry?: PulseMcpRegistryMock;
+    mcpInstaller?: McpInstallerMock;
   } = {},
 ): {
   deps: HarnessNamespaceDependencies;
@@ -89,6 +103,8 @@ function makeDeps(
   mcpRegistry: McpRegistryMock;
   skillsDirectory?: SkillsDirectoryMock;
   smitheryRegistry?: SmitheryRegistryMock;
+  pulseMcpRegistry?: PulseMcpRegistryMock;
+  mcpInstaller?: McpInstallerMock;
   broadcast: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
 } {
@@ -115,7 +131,10 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
-    getWorkspaceRoot: () => overrides.workspaceRoot ?? 'D:/ws',
+    pulseMcpRegistry: overrides.pulseMcpRegistry,
+    mcpInstaller: overrides.mcpInstaller,
+    getWorkspaceRoot: () =>
+      overrides.workspaceRoot === undefined ? 'D:/ws' : overrides.workspaceRoot,
     broadcast,
     logger,
   };
@@ -125,9 +144,25 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
+    pulseMcpRegistry: overrides.pulseMcpRegistry,
+    mcpInstaller: overrides.mcpInstaller,
     broadcast,
     logger,
   };
+}
+
+function makeInstaller(
+  results: Array<{
+    target: string;
+    success: boolean;
+    configPath: string;
+    error?: string;
+  }> = [
+    { target: 'claude', success: true, configPath: 'D:/ws/.mcp.json' },
+    { target: 'vscode', success: true, configPath: 'D:/ws/.vscode/mcp.json' },
+  ],
+): McpInstallerMock {
+  return { install: jest.fn().mockResolvedValue(results) };
 }
 
 function makeSkillShEntry(
@@ -163,14 +198,176 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('buildHarnessNamespace — shape', () => {
-  it('exposes searchSkills/createSkill/searchMcpRegistry/listInstalledMcpServers/proposeConfig', () => {
+  it('exposes searchSkills/createSkill/searchMcpRegistry/listInstalledMcpServers/installMcpServer/proposeConfig', () => {
     const { deps } = makeDeps();
     const ns = buildHarnessNamespace(deps);
     expect(typeof ns.searchSkills).toBe('function');
     expect(typeof ns.createSkill).toBe('function');
     expect(typeof ns.searchMcpRegistry).toBe('function');
     expect(typeof ns.listInstalledMcpServers).toBe('function');
+    expect(typeof ns.installMcpServer).toBe('function');
     expect(typeof ns.proposeConfig).toBe('function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// installMcpServer
+// ---------------------------------------------------------------------------
+
+describe('buildHarnessNamespace — installMcpServer', () => {
+  const stdio = {
+    type: 'stdio' as const,
+    command: 'npx',
+    args: ['-y', 'server-github'],
+  };
+
+  it('defaults to claude+vscode targets and derives the server key from the registry name', async () => {
+    const mcpInstaller = makeInstaller();
+    const { deps } = makeDeps({ mcpInstaller });
+
+    const out = await buildHarnessNamespace(deps).installMcpServer(
+      'io.github.owner/Server-Name',
+      stdio,
+    );
+
+    expect(mcpInstaller.install).toHaveBeenCalledWith(
+      'io.github.owner/Server-Name',
+      'server-name',
+      stdio,
+      ['claude', 'vscode'],
+      'D:/ws',
+    );
+    expect(out.serverKey).toBe('server-name');
+    expect(out.targets).toEqual(['claude', 'vscode']);
+    expect(out.installedPaths).toEqual([
+      'D:/ws/.mcp.json',
+      'D:/ws/.vscode/mcp.json',
+    ]);
+    expect(out.warnings).toEqual([]);
+  });
+
+  it('honours an explicit serverKey and target list', async () => {
+    const mcpInstaller = makeInstaller([
+      { target: 'cursor', success: true, configPath: 'D:/ws/.cursor/mcp.json' },
+    ]);
+    const { deps } = makeDeps({ mcpInstaller });
+
+    const out = await buildHarnessNamespace(deps).installMcpServer(
+      'io.github.owner/server',
+      { type: 'http', url: 'https://example.com/mcp' },
+      'GitHub',
+      ['cursor'],
+    );
+
+    expect(mcpInstaller.install).toHaveBeenCalledWith(
+      'io.github.owner/server',
+      'github',
+      { type: 'http', url: 'https://example.com/mcp' },
+      ['cursor'],
+      'D:/ws',
+    );
+    expect(out.targets).toEqual(['cursor']);
+  });
+
+  it('reports failed targets as warnings without throwing', async () => {
+    const mcpInstaller = makeInstaller([
+      { target: 'claude', success: true, configPath: 'D:/ws/.mcp.json' },
+      {
+        target: 'vscode',
+        success: false,
+        configPath: '',
+        error: 'permission denied',
+      },
+    ]);
+    const { deps } = makeDeps({ mcpInstaller });
+
+    const out = await buildHarnessNamespace(deps).installMcpServer(
+      'owner/srv',
+      stdio,
+    );
+
+    expect(out.installedPaths).toEqual(['D:/ws/.mcp.json']);
+    expect(out.warnings).toEqual([
+      'Failed to install "owner/srv" to vscode: permission denied',
+    ]);
+  });
+
+  it('dedupes repeated config paths', async () => {
+    const mcpInstaller = makeInstaller([
+      { target: 'claude', success: true, configPath: 'D:/ws/.mcp.json' },
+      { target: 'cursor', success: true, configPath: 'D:/ws/.mcp.json' },
+    ]);
+    const { deps } = makeDeps({ mcpInstaller });
+
+    const out = await buildHarnessNamespace(deps).installMcpServer(
+      'owner/srv',
+      stdio,
+      undefined,
+      ['claude', 'cursor'],
+    );
+
+    expect(out.installedPaths).toEqual(['D:/ws/.mcp.json']);
+  });
+
+  it('degrades with a clear error when no installer is wired', async () => {
+    const { deps } = makeDeps();
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer('owner/srv', stdio),
+    ).rejects.toThrow(/no MCP installer is wired/);
+  });
+
+  it('rejects an empty serverName', async () => {
+    const mcpInstaller = makeInstaller();
+    const { deps } = makeDeps({ mcpInstaller });
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer('   ', stdio),
+    ).rejects.toThrow(/Invalid serverName/);
+    expect(mcpInstaller.install).not.toHaveBeenCalled();
+  });
+
+  it('rejects a transport config that fails zod validation', async () => {
+    const mcpInstaller = makeInstaller();
+    const { deps } = makeDeps({ mcpInstaller });
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer('owner/srv', {
+        type: 'stdio',
+      } as never),
+    ).rejects.toThrow(/Invalid config/);
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer('owner/srv', {
+        type: 'ftp',
+        url: 'ftp://x',
+      } as never),
+    ).rejects.toThrow(/Invalid config/);
+    expect(mcpInstaller.install).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown or empty target list', async () => {
+    const mcpInstaller = makeInstaller();
+    const { deps } = makeDeps({ mcpInstaller });
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer('owner/srv', stdio, 'srv', [
+        'zed',
+      ] as never),
+    ).rejects.toThrow(/Invalid targets/);
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer(
+        'owner/srv',
+        stdio,
+        'srv',
+        [],
+      ),
+    ).rejects.toThrow(/Invalid targets/);
+    expect(mcpInstaller.install).not.toHaveBeenCalled();
+  });
+
+  it('refuses to install when no workspace folder is open', async () => {
+    const mcpInstaller = makeInstaller();
+    const { deps } = makeDeps({ mcpInstaller, workspaceRoot: '' });
+    await expect(
+      buildHarnessNamespace(deps).installMcpServer('owner/srv', stdio),
+    ).rejects.toThrow(/No workspace folder is open/);
+    expect(mcpInstaller.install).not.toHaveBeenCalled();
   });
 });
 
@@ -266,25 +463,25 @@ describe('buildHarnessNamespace — searchSkills', () => {
     expect(out.every((s) => s.source === 'local')).toBe(true);
   });
 
-  it('merges harness-authored ptah-harness-* plugin dirs with enabled paths', async () => {
-    fsp.readdir.mockResolvedValueOnce([
-      'ptah-harness-foo',
-      'some-other-plugin',
-      'ptah-harness-bar',
-    ] as never);
+  it('discovers skills from resolveCurrentPluginPaths without rescanning the plugins dir', async () => {
+    // resolveCurrentPluginPaths() already unions enabled bundled plugins with
+    // the harness-authored ptah-harness-* dirs, so the namespace must pass it
+    // through verbatim rather than re-deriving harness paths from the fs.
     const { deps, pluginLoader } = makeDeps({ skills: sample });
+    pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
+      '/p/one',
+      '/home/.ptah/plugins/ptah-harness-foo',
+    ]);
 
     await buildHarnessNamespace(deps).searchSkills();
 
     const passedPaths = pluginLoader.discoverSkillsForPlugins.mock
       .calls[0][0] as string[];
-    expect(passedPaths).toContain('/p/one');
-    expect(passedPaths.some((p) => p.includes('ptah-harness-foo'))).toBe(true);
-    expect(passedPaths.some((p) => p.includes('ptah-harness-bar'))).toBe(true);
-    expect(passedPaths.some((p) => p.includes('some-other-plugin'))).toBe(
-      false,
-    );
-    expect(new Set(passedPaths).size).toBe(passedPaths.length);
+    expect(passedPaths).toEqual([
+      '/p/one',
+      '/home/.ptah/plugins/ptah-harness-foo',
+    ]);
+    expect(fsp.readdir).not.toHaveBeenCalled();
   });
 
   it('merges skills.sh results tagged source="skills.sh" with install metadata', async () => {
@@ -450,6 +647,73 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
     const { deps, logger } = makeDeps({
       servers: { servers: [{ name: 'official/srv' }] },
       smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.source)).toEqual(['official']);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('merges PulseMCP results tagged source="pulsemcp" when configured', async () => {
+    const pulseMcpRegistry: PulseMcpRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'autodesk-mcp' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      pulseMcpRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry(
+      'autodesk',
+      5,
+    );
+
+    expect(pulseMcpRegistry.listServers).toHaveBeenCalledWith({
+      query: 'autodesk',
+      limit: 5,
+    });
+    expect(out.servers).toEqual([
+      { name: 'official/srv', description: undefined, source: 'official' },
+      { name: 'autodesk-mcp', description: undefined, source: 'pulsemcp' },
+    ]);
+  });
+
+  it('merges official + smithery + pulsemcp results in order', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
+    };
+    const pulseMcpRegistry: PulseMcpRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'pulse/srv' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+      pulseMcpRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.source)).toEqual([
+      'official',
+      'smithery',
+      'pulsemcp',
+    ]);
+  });
+
+  it('still returns official results when PulseMCP search fails', async () => {
+    const pulseMcpRegistry: PulseMcpRegistryMock = {
+      listServers: jest.fn().mockRejectedValue(new Error('pulse down')),
+    };
+    const { deps, logger } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      pulseMcpRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');

@@ -91,6 +91,20 @@ describe('SessionMetadataStore', () => {
       expect(md.name).toBe('User renamed');
     });
 
+    // TASK_2026_295: SdkAgentAdapter passes the raw `realSessionId` straight
+    // from the SDK init message. SessionRegistry.bindRealSessionId rejects a
+    // blank one three lines away; this store took it and wrote a record keyed
+    // by '' that nothing can address.
+    it.each([
+      ['empty', ''],
+      ['whitespace-only', '   '],
+    ])('refuses to create metadata for an %s sessionId', async (_label, id) => {
+      await expect(store.create(id, WORKSPACE, 'Poisoned')).rejects.toThrow(
+        SdkError,
+      );
+      await expect(store.get(id)).resolves.toBeNull();
+    });
+
     it('marks child sessions with isChildSession=true', async () => {
       const md = await store.createChild(
         'sess-child',
@@ -98,6 +112,45 @@ describe('SessionMetadataStore', () => {
         'Child session',
       );
       expect(md.isChildSession).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // markChildSession — non-destructive child flagging
+  // -------------------------------------------------------------------------
+
+  describe('markChildSession', () => {
+    it('creates a minimal hidden child record when none exists', async () => {
+      await store.markChildSession('child-x', WORKSPACE);
+      const md = await store.get('child-x');
+      expect(md?.isChildSession).toBe(true);
+      expect(md?.totalCost).toBe(0);
+      const visible = await store.getForWorkspace(WORKSPACE);
+      expect(visible.map((m) => m.sessionId)).not.toContain('child-x');
+    });
+
+    it('flags an already-imported top-level session WITHOUT clobbering name/cost', async () => {
+      await store.create('leaked-1', WORKSPACE, 'Real name');
+      await store.addStats('leaked-1', {
+        cost: 4.2,
+        tokens: { input: 10, output: 5 },
+      });
+
+      await store.markChildSession('leaked-1', WORKSPACE);
+
+      const md = await store.get('leaked-1');
+      expect(md?.isChildSession).toBe(true);
+      expect(md?.name).toBe('Real name');
+      expect(md?.totalCost).toBe(4.2);
+      const visible = await store.getForWorkspace(WORKSPACE);
+      expect(visible.map((m) => m.sessionId)).not.toContain('leaked-1');
+    });
+
+    it('is idempotent (no throw, stays hidden) on repeat calls', async () => {
+      await store.markChildSession('child-x', WORKSPACE);
+      await store.markChildSession('child-x', WORKSPACE);
+      const md = await store.get('child-x');
+      expect(md?.isChildSession).toBe(true);
     });
   });
 

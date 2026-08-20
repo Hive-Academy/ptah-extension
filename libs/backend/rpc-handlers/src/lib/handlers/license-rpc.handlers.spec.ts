@@ -11,15 +11,15 @@
  *   - getStatus: successful verify path maps tier/premium/community flags from
  *     `LicenseStatus` correctly. On verify error, the fallback MUST consult
  *     cached status: Community (or missing cache) → Community response,
- *     previously-Pro → expired response. This prevents transient 500s from
- *     locking free-tier users out.
+ *     previously-Builders → expired response. This prevents transient 500s
+ *     from locking free-tier users out.
  *   - setKey: rejects missing/non-string keys, rejects bad format, rejects
  *     server verify=false, and on success schedules a delayed reloadWindow()
  *     via `IPlatformCommands`.
  *   - clearKey: calls `licenseService.clearLicenseKey()` and also schedules
  *     reloadWindow().
  *   - reason mapping: backend 'revoked' → frontend 'expired', 'not_found' →
- *     'no_license', 'trial_ended' → 'trial_ended'.
+ *     'no_license'.
  *
  * Mocking posture:
  *   - Direct constructor injection (no tsyringe container).
@@ -181,25 +181,23 @@ describe('LicenseRpcHandlers', () => {
         tier: string;
         isPremium: boolean;
         isCommunity: boolean;
-        trialActive: boolean;
       }>(h, 'license:getStatus');
 
       expect(result.tier).toBe('community');
       expect(result.isPremium).toBe(false);
       expect(result.isCommunity).toBe(true);
-      expect(result.trialActive).toBe(false);
     });
 
-    it('maps Pro tier to isPremium=true and forwards plan details', async () => {
+    it('maps Builders tier to isPremium=true and forwards plan details', async () => {
       const h = makeHarness();
       h.licenseService.verifyLicense.mockResolvedValue(
         makeLicenseStatus({
           valid: true,
-          tier: 'pro',
+          tier: 'builders',
           daysRemaining: 42,
           plan: {
-            name: 'Pro',
-            description: 'Pro plan',
+            name: 'Builders',
+            description: 'Ptah Builders plan',
             features: ['enhanced_prompts'],
             expiresAfterDays: 365,
             isPremium: true,
@@ -218,35 +216,13 @@ describe('LicenseRpcHandlers', () => {
       expect(result.isPremium).toBe(true);
       expect(result.isCommunity).toBe(false);
       expect(result.daysRemaining).toBe(42);
-      expect(result.plan?.name).toBe('Pro');
+      expect(result.plan?.name).toBe('Builders');
       expect(result.plan?.features).toEqual(['enhanced_prompts']);
-    });
-
-    it('maps trial_pro to isPremium=true and trialActive=true', async () => {
-      const h = makeHarness();
-      h.licenseService.verifyLicense.mockResolvedValue(
-        makeLicenseStatus({
-          tier: 'trial_pro',
-          trialDaysRemaining: 5,
-        }),
-      );
-      h.handlers.register();
-
-      const result = await call<{
-        isPremium: boolean;
-        trialActive: boolean;
-        trialDaysRemaining: number | null;
-      }>(h, 'license:getStatus');
-
-      expect(result.isPremium).toBe(true);
-      expect(result.trialActive).toBe(true);
-      expect(result.trialDaysRemaining).toBe(5);
     });
 
     it.each([
       ['expired', 'expired'],
       ['revoked', 'expired'],
-      ['trial_ended', 'trial_ended'],
       ['not_found', 'no_license'],
     ] as const)(
       'maps backend reason "%s" to frontend "%s"',
@@ -262,7 +238,7 @@ describe('LicenseRpcHandlers', () => {
         h.handlers.register();
 
         const result = await call<{
-          reason?: 'expired' | 'trial_ended' | 'no_license';
+          reason?: 'expired' | 'no_license';
         }>(h, 'license:getStatus');
 
         expect(result.reason).toBe(frontendReason);
@@ -332,11 +308,11 @@ describe('LicenseRpcHandlers', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('falls back to expired on verify error when cached status was Pro', async () => {
+    it('falls back to expired on verify error when cached status was Builders', async () => {
       const h = makeHarness();
       h.licenseService.verifyLicense.mockRejectedValue(new Error('network'));
       h.licenseService.getCachedStatus.mockReturnValue(
-        makeLicenseStatus({ tier: 'pro' }),
+        makeLicenseStatus({ tier: 'builders' }),
       );
       h.handlers.register();
 
@@ -415,10 +391,10 @@ describe('LicenseRpcHandlers', () => {
         h.licenseService.verifyLicense.mockResolvedValue(
           makeLicenseStatus({
             valid: true,
-            tier: 'pro',
+            tier: 'builders',
             plan: {
-              name: 'Pro',
-              description: 'Pro plan',
+              name: 'Builders',
+              description: 'Ptah Builders plan',
               features: [],
               expiresAfterDays: 365,
               isPremium: true,
@@ -434,8 +410,8 @@ describe('LicenseRpcHandlers', () => {
         }>(h, 'license:setKey', { licenseKey: VALID_KEY });
 
         expect(result.success).toBe(true);
-        expect(result.tier).toBe('pro');
-        expect(result.plan?.name).toBe('Pro');
+        expect(result.tier).toBe('builders');
+        expect(result.plan?.name).toBe('Builders');
         expect(h.licenseService.setLicenseKey).toHaveBeenCalledWith(VALID_KEY);
 
         // reloadWindow is deferred 1500ms so the RPC response reaches the UI first
@@ -471,7 +447,7 @@ describe('LicenseRpcHandlers', () => {
       expect(h.platformCommands.reloadWindow).not.toHaveBeenCalled();
     });
 
-    it.each(['not_found', 'expired', 'revoked', 'trial_ended'] as const)(
+    it.each(['not_found', 'expired', 'revoked'] as const)(
       'returns failure when a rejected key (%s) is laundered into a community fallback',
       async (reason) => {
         const h = makeHarness();

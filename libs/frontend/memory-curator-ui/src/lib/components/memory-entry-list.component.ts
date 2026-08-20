@@ -42,11 +42,11 @@ import type { MemoryWire } from '@ptah-extension/shared';
         <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
           <lucide-angular
             [img]="BrainIcon"
-            class="size-8 text-base-content/30"
+            class="size-8 text-base-content-muted"
             aria-hidden="true"
           />
           <p class="text-sm font-medium">No memories yet</p>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-base-content-muted">
             Thoth captures facts and decisions as you chat. Keep working and
             they'll appear here.
           </p>
@@ -69,7 +69,7 @@ import type { MemoryWire } from '@ptah-extension/shared';
                     [class.bg-base-content/30]="entry.tier === 'archival'"
                     aria-hidden="true"
                   ></span>
-                  <span class="text-xs text-base-content/60">
+                  <span class="text-xs text-base-content-muted">
                     {{ entry.tier }} · {{ entry.kind }} ·
                     {{ entry.salience.toFixed(2) }}
                   </span>
@@ -89,7 +89,9 @@ import type { MemoryWire } from '@ptah-extension/shared';
                     {{ entry.subject }}
                   </div>
                 }
-                <div class="mt-0.5 line-clamp-2 text-sm text-base-content/70">
+                <div
+                  class="mt-0.5 line-clamp-2 text-sm text-base-content-muted"
+                >
                   {{ entry.content }}
                 </div>
               </div>
@@ -100,7 +102,7 @@ import type { MemoryWire } from '@ptah-extension/shared';
                   <button
                     type="button"
                     data-testid="memory-entry-unpin"
-                    class="btn btn-ghost btn-xs btn-square text-base-content/50"
+                    class="btn btn-ghost btn-xs btn-square text-base-content-muted"
                     (click)="unpin.emit(entry.id)"
                     [attr.aria-label]="'Unpin entry ' + entry.id"
                   >
@@ -114,7 +116,7 @@ import type { MemoryWire } from '@ptah-extension/shared';
                   <button
                     type="button"
                     data-testid="memory-entry-pin"
-                    class="btn btn-ghost btn-xs btn-square text-base-content/50"
+                    class="btn btn-ghost btn-xs btn-square text-base-content-muted"
                     (click)="pin.emit(entry.id)"
                     [attr.aria-label]="'Pin entry ' + entry.id"
                   >
@@ -128,7 +130,7 @@ import type { MemoryWire } from '@ptah-extension/shared';
                 <button
                   type="button"
                   data-testid="memory-entry-forget"
-                  class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-error"
+                  class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-error"
                   (click)="forget.emit(entry.id)"
                   [attr.aria-label]="'Forget entry ' + entry.id"
                 >

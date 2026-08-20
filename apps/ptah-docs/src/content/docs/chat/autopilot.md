@@ -40,7 +40,7 @@ When Autopilot picks a CLI agent to run a subtask, it uses this priority:
 
 `ptah-cli > codex > copilot`
 
-You can disable specific CLIs from the agent orchestration settings (`agentOrchestration.disabledClis` in `~/.ptah/settings.json`), which removes them from Autopilot's candidate pool.
+You can disable specific CLIs from the agent orchestration settings (`agentOrchestration.disabledClis` in `~/.ptah/settings.json`). This is a **hard disable**, not just an Autopilot filter: a disabled CLI is dropped from the candidate pool _and_ an explicit `ptah_agent_spawn { cli: "codex" }` for it is rejected with `CLI agent 'codex' is disabled`. Disabled CLIs still appear in `ptah_agent_list` with a `disabled` status so the restriction is visible before a spawn fails.
 
 :::tip
 The [Execution Tree](/chat/execution-tree/) is the single best way to understand what Autopilot actually did. Open it for any turn to see every spawn, the prompt it was given, and the tokens it consumed.

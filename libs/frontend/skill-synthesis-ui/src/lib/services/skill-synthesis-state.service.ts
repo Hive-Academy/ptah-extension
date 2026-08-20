@@ -1,15 +1,60 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
+  SkillSuggestionDetail,
+  SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisPromoteResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
+  SkillSynthesisSpecSummary,
+  SkillSynthesisCandidateDetail,
+  SkillSynthesisDrainRun,
+  SkillSynthesisQueueItem,
+  SkillSynthesisStageSpend,
+  SkillDigestItem,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
 
+/**
+ * Coalesce a raw suggestion summary to safe defaults so a missing field
+ * from a stale or partial RPC payload can never throw inside a computed
+ * (a thrown computed poisons the entire Skills tab).
+ */
+function normalizeSuggestion(
+  raw: Partial<SkillSuggestionSummary> | null | undefined,
+): SkillSuggestionSummary {
+  return {
+    id: raw?.id ?? '',
+    name: raw?.name ?? '(unnamed skill)',
+    description: raw?.description ?? '',
+    clusterSize: raw?.clusterSize ?? 0,
+    technologyFingerprint: raw?.technologyFingerprint ?? '',
+    judgeScore: raw?.judgeScore ?? 0,
+    memberSessionIds: raw?.memberSessionIds ?? [],
+    status: raw?.status ?? 'pending',
+    createdAt: raw?.createdAt ?? 0,
+  };
+}
+
 /** Status filter values for the candidates table. */
 export type SkillStatusFilter = 'all' | 'pending' | 'promoted' | 'rejected';
+
+/**
+ * What one {@link SkillSynthesisStateService.refreshDigest} call is scoped to.
+ *
+ * `allowRewrite` is the money flag, and it is `?: boolean` rather than
+ * `: boolean` on purpose: an automatic caller should be able to be safe by
+ * saying nothing, exactly as it is on the wire. Only a control the user pressed
+ * may pass `true`.
+ */
+export interface RefreshDigestOptions {
+  readonly limit?: number;
+  readonly allowRewrite?: boolean;
+}
 
 /**
  * Map a UI-facing status filter to the backend `status` parameter
@@ -47,11 +92,65 @@ export class SkillSynthesisStateService {
   public readonly loading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
 
+  public readonly suggestions = signal<SkillSuggestionSummary[]>([]);
+  public readonly suggestionsLoading = signal<boolean>(false);
+  public readonly suggestionDetail = signal<SkillSuggestionDetail | null>(null);
+  public readonly suggestionDetailLoading = signal<boolean>(false);
+
+  public readonly candidateDetail =
+    signal<SkillSynthesisCandidateDetail | null>(null);
+  public readonly candidateDetailLoading = signal<boolean>(false);
+
+  public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
+  public readonly specsLoading = signal<boolean>(false);
+
+  /**
+   * The three parts of `skillSynthesis:queue`, kept as separate signals but
+   * only ever written together by {@link refreshQueue} — reading one without
+   * the others cannot distinguish "the drain never fired" from "the queue is
+   * up to date", and a partial write would make that ambiguity permanent.
+   *
+   * `stageSpend` is today's UTC token ledger. It is a sibling of `queueItems`
+   * rather than a field on one, because tokens are recorded per `(day, stage)`
+   * and never per row: a stage can have spent and have no rows left.
+   */
+  public readonly queueItems = signal<SkillSynthesisQueueItem[]>([]);
+  public readonly drainRuns = signal<SkillSynthesisDrainRun[]>([]);
+  public readonly stageSpend = signal<SkillSynthesisStageSpend[]>([]);
+  public readonly queueLoading = signal<boolean>(false);
+
+  /**
+   * The weekly gap digest, ALREADY ranked by `score` descending.
+   *
+   * Held in the order the backend returned it and never re-sorted here — the
+   * curator's tie-break is what makes two identical sweeps produce identical
+   * digests, and a sort on the way through would drop it.
+   */
+  public readonly digestItems = signal<SkillDigestItem[]>([]);
+  public readonly digestLoading = signal<boolean>(false);
+
+  /**
+   * Total queued attempts across every stage — the headline figure behind the
+   * per-stage cost strip. An attempt is one dispatch of one stage, so this
+   * grows with retries as well as with new work.
+   */
+  public readonly queuedAttemptTotal = computed(() =>
+    this.queueItems().reduce((sum, item) => sum + item.attemptCount, 0),
+  );
+
+  public readonly staleSpecCount = computed(
+    () => this.specs().filter((s) => s.status === 'harvested').length,
+  );
+
   public readonly selectedCandidate = computed(() => {
     const id = this.selectedCandidateId();
     if (!id) return null;
     return this.candidates().find((c) => c.id === id) ?? null;
   });
+
+  public readonly pendingSuggestionCount = computed(
+    () => this.suggestions().filter((s) => s.status === 'pending').length,
+  );
 
   /** Refresh the candidate list using the current `statusFilter()`. */
   public async refreshCandidates(): Promise<void> {
@@ -93,20 +192,49 @@ export class SkillSynthesisStateService {
   }
 
   /**
+   * Load a single candidate's full detail (including the SKILL.md body) into
+   * `candidateDetail` for the preview modal. Pass `null` to clear it.
+   */
+  public async loadCandidateDetail(id: string | null): Promise<void> {
+    if (!id) {
+      this.candidateDetail.set(null);
+      return;
+    }
+    this.candidateDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const detail = await this.rpc.getCandidate(id);
+      this.candidateDetail.set(detail);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.candidateDetailLoading.set(false);
+    }
+  }
+
+  /**
    * Promote a candidate. The optional `reason` is currently advisory —
    * the backend `skillSynthesis:promote` shape stores its own reason on
    * the result, but we accept one here to keep the modal UX symmetric
    * with reject. Refreshes the list on success.
+   *
+   * Returns the backend decision so the caller can surface why a candidate
+   * was NOT promoted (e.g. below-threshold), or `null` on error.
    */
-  public async promote(id: string, reason?: string): Promise<void> {
+  public async promote(
+    id: string,
+    reason?: string,
+  ): Promise<SkillSynthesisPromoteResult | null> {
     this.loading.set(true);
     this.error.set(null);
     try {
-      await this.rpc.promote(id);
+      const result = await this.rpc.promote(id);
       void reason;
       await this.refreshCandidates();
+      return result;
     } catch (err) {
       this.error.set(this.toMessage(err));
+      return null;
     } finally {
       this.loading.set(false);
     }
@@ -121,6 +249,69 @@ export class SkillSynthesisStateService {
       await this.refreshCandidates();
     } catch (err) {
       this.error.set(this.toMessage(err));
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Reject many candidates by id in one pass. Returns the number actually
+   * rejected (0 on error). Refreshes the list on success.
+   */
+  public async rejectBulk(ids: string[], reason?: string): Promise<number> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const rejected = await this.rpc.rejectBulk(ids, reason);
+      await this.refreshCandidates();
+      return rejected;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return 0;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Promote many candidates by id. Returns the per-id decision result, or
+   * `null` on error. Refreshes the list on success.
+   */
+  public async promoteBulk(
+    ids: string[],
+  ): Promise<SkillSynthesisPromoteBulkResult | null> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.promoteBulk(ids);
+      await this.refreshCandidates();
+      return result;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return null;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Reject every pending candidate whose name matches the given pattern
+   * (supports `*`). Returns the match/reject counts, or `null` on error.
+   * Refreshes the list on success.
+   */
+  public async rejectByPattern(
+    pattern: string,
+    reason?: string,
+  ): Promise<SkillSynthesisRejectByPatternResult | null> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.rejectByPattern(pattern, reason);
+      await this.refreshCandidates();
+      return result;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return null;
     } finally {
       this.loading.set(false);
     }
@@ -150,6 +341,220 @@ export class SkillSynthesisStateService {
   public async setStatusFilter(filter: SkillStatusFilter): Promise<void> {
     this.statusFilter.set(filter);
     await this.refreshCandidates();
+  }
+
+  /** Refresh the cluster-derived suggestion list. */
+  public async refreshSuggestions(): Promise<void> {
+    this.suggestionsLoading.set(true);
+    this.error.set(null);
+    try {
+      const list = await this.rpc.listSuggestions();
+      this.suggestions.set(list.map(normalizeSuggestion));
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionsLoading.set(false);
+    }
+  }
+
+  /**
+   * Load a single suggestion's full detail (including the SKILL.md body) into
+   * `suggestionDetail`. Pass `null` to clear the current detail.
+   */
+  public async loadSuggestionDetail(id: string | null): Promise<void> {
+    if (!id) {
+      this.suggestionDetail.set(null);
+      return;
+    }
+    this.suggestionDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const detail = await this.rpc.getSuggestion(id);
+      this.suggestionDetail.set(detail);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionDetailLoading.set(false);
+    }
+  }
+
+  /** Clear the currently loaded suggestion detail. */
+  public clearSuggestionDetail(): void {
+    this.suggestionDetail.set(null);
+  }
+
+  /**
+   * Persist edits to a pending suggestion's name/description/body, update the
+   * loaded detail, and refresh the list so the card reflects the new title.
+   */
+  public async updateSuggestion(
+    id: string,
+    fields: { name?: string; description?: string; body?: string },
+  ): Promise<boolean> {
+    this.suggestionDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const res = await this.rpc.updateSuggestion(id, fields);
+      if (res.suggestion) this.suggestionDetail.set(res.suggestion);
+      if (!res.updated) {
+        this.error.set(
+          'This suggestion is no longer pending — your edits were not saved.',
+        );
+        return false;
+      }
+      await this.refreshSuggestions();
+      return true;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return false;
+    } finally {
+      this.suggestionDetailLoading.set(false);
+    }
+  }
+
+  /** Accept a suggestion (materializes a skill), then refresh the list. */
+  public async accept(id: string): Promise<void> {
+    this.suggestionsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.acceptSuggestion(id);
+      await this.refreshSuggestions();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionsLoading.set(false);
+    }
+  }
+
+  /** Dismiss a suggestion (optionally with a reason), then refresh. */
+  public async dismiss(id: string, reason?: string): Promise<void> {
+    this.suggestionsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.dismissSuggestion(id, reason);
+      await this.refreshSuggestions();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionsLoading.set(false);
+    }
+  }
+
+  /** Refresh the orchestration-specs list under `.ptah/specs`. */
+  public async refreshSpecs(): Promise<void> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      const list = await this.rpc.listSpecs();
+      this.specs.set(list);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /** Reconcile completed specs into telemetry now, then refresh the list. */
+  public async harvestSpecs(): Promise<void> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.harvestSpecs();
+      await this.refreshSpecs();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /**
+   * Archive (or delete) completed + harvested specs older than the retention
+   * window, then refresh the list. Returns the number cleared (0 on error).
+   */
+  public async clearStaleSpecs(
+    options: {
+      retentionDays?: number;
+      mode?: 'archive' | 'delete';
+    } = {},
+  ): Promise<number> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.clearStaleSpecs(options);
+      await this.refreshSpecs();
+      return result.cleared;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return 0;
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /**
+   * Refresh the synthesis queue, the drain's recent run history and today's
+   * per-stage token ledger.
+   *
+   * All three signals are written from the one response so the Activity
+   * surface never renders a queue snapshot against a stale run feed or a stale
+   * cost strip. On failure all three are left untouched: showing the last good
+   * snapshot beside the error is more useful than blanking the panel.
+   */
+  public async refreshQueue(
+    options: { limit?: number; runLimit?: number } = {},
+  ): Promise<void> {
+    this.queueLoading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.queue(options);
+      this.queueItems.set(result.items ?? []);
+      this.drainRuns.set(result.recentRuns ?? []);
+      this.stageSpend.set(result.stageSpend ?? []);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.queueLoading.set(false);
+    }
+  }
+
+  /**
+   * Refresh the weekly gap digest.
+   *
+   * On failure the last good digest is LEFT IN PLACE rather than blanked: an
+   * empty panel would read as "swept, nothing to look at", which is a false
+   * statement when the sweep never completed. The error surfaces beside it.
+   *
+   * ### `allowRewrite` is RESOLVED here, and defaults to not spending
+   *
+   * The backend's sweep may author its description rewrite on an LLM lane, and
+   * nothing budgets that call — the `digest` queue stage has no handler, so the
+   * drain's daily token gate never sees one. This method is reached from two
+   * automatic paths (the tab's `ngOnInit` and `SkillSynthesisLiveService`'s
+   * debounced event refresh) and both must be reads.
+   *
+   * So the flag is resolved with `=== true` and always sent, rather than spread
+   * through from `options`. Spreading would forward `undefined` and leave the
+   * decision to the wire — which is safe today only because the RPC omits
+   * undefined fields and `runDigest` defaults to `false`. Sending the resolved
+   * boolean makes the automatic paths' intent assertable at THIS seam instead of
+   * three libs away, which is what the spec pins.
+   */
+  public async refreshDigest(
+    options: RefreshDigestOptions = {},
+  ): Promise<void> {
+    this.digestLoading.set(true);
+    try {
+      const result = await this.rpc.digest({
+        limit: options.limit,
+        allowRewrite: options.allowRewrite === true,
+      });
+      this.digestItems.set(result.items ?? []);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.digestLoading.set(false);
+    }
   }
 
   private toMessage(err: unknown): string {

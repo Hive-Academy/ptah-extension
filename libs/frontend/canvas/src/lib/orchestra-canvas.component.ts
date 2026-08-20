@@ -5,19 +5,12 @@ import {
   inject,
   effect,
   signal,
-  computed,
   viewChild,
   ElementRef,
   untracked,
   afterNextRender,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { GridStackOptions } from 'gridstack';
-import {
-  GridstackComponent,
-  GridstackItemComponent,
-  nodesCB,
-} from 'gridstack/dist/angular';
 import {
   LucideAngularModule,
   Plus,
@@ -32,7 +25,7 @@ import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
-import { CanvasTileComponent } from './canvas-tile.component';
+import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 
 /**
@@ -59,9 +52,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
   providers: [CanvasStore, CanvasLayoutService],
   imports: [
     FormsModule,
-    GridstackComponent,
-    GridstackItemComponent,
-    CanvasTileComponent,
+    CanvasWorkspaceGridComponent,
     CanvasEmptyStateComponent,
     LucideAngularModule,
     NativePopoverComponent,
@@ -72,15 +63,30 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
       class="flex flex-col h-full bg-base-100 relative"
       data-testid="canvas-grid"
     >
+      <!-- One Gridstack container per retained workspace; only the active
+           workspace's grid is visible (the grid drives its own display from the
+           [visible] input), the rest stay mounted (keep-alive). Rendered
+           unconditionally so switching through an empty workspace never tears
+           down another workspace's tiles. -->
+      @for (path of canvasStore.workspacePaths(); track path) {
+        <ptah-canvas-workspace-grid
+          class="flex-1 overflow-auto w-[97%]"
+          [workspacePath]="path"
+          [visible]="path === canvasStore.activeWorkspacePath()"
+          [locked]="locked()"
+        />
+      }
+
       @if (canvasStore.tiles().length === 0) {
-        <!-- Empty state: no tiles yet -->
-        <ptah-canvas-empty-state (createSession)="openNewSessionPopover()" />
+        <!-- Empty state overlay: the active workspace has no tiles -->
+        <ptah-canvas-empty-state
+          class="absolute inset-0 z-10"
+          (createSession)="openNewSessionPopover()"
+        />
       } @else {
         <!-- Lock toggle: freezes the layout and disables drag/resize -->
         <button
-          class="absolute top-3 right-3 z-20 btn btn-circle btn-sm shadow-lg"
-          [class.btn-primary]="locked()"
-          [class.btn-ghost]="!locked()"
+          class="absolute bottom-20 right-4 z-20 btn btn-circle shadow-lg"
           [title]="
             locked()
               ? 'Unlock tiles (enable drag & resize)'
@@ -92,34 +98,9 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
         >
           <lucide-angular
             [img]="locked() ? LockIcon : UnlockIcon"
-            class="w-4 h-4"
+            class="w-5 h-5"
           />
         </button>
-
-        <!-- Gridstack drag-and-resize grid -->
-        <div class="flex-1 overflow-auto">
-          <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
-            @for (tile of canvasStore.tiles(); track tile.tabId) {
-              <gridstack-item
-                [options]="{
-                  x: tile.position.x,
-                  y: tile.position.y,
-                  w: tile.position.w,
-                  h: tile.position.h,
-                  id: tile.tabId,
-                }"
-              >
-                <ptah-canvas-tile
-                  data-testid="canvas-tile"
-                  [tabId]="tile.tabId"
-                  [focused]="canvasStore.focusedTabId() === tile.tabId"
-                  (focusRequested)="canvasStore.focusTile($event)"
-                  (closeRequested)="canvasStore.removeTile($event)"
-                />
-              </gridstack-item>
-            }
-          </gridstack>
-        </div>
 
         <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
         @if (canvasStore.canAddTile()) {
@@ -145,7 +126,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
               content
               class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
             >
-              <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+              <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
                 New Session
               </h3>
               <input
@@ -163,7 +144,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
               />
               <div class="flex gap-2">
                 <button
-                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
                   (click)="handleCancelSession()"
                 >
                   <lucide-angular [img]="XIcon" class="w-3 h-3" />
@@ -190,7 +171,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
           <div
             class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
           >
-            <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+            <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
               New Session
             </h3>
             <input
@@ -208,7 +189,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
             />
             <div class="flex gap-2">
               <button
-                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
                 (click)="handleCancelSession()"
               >
                 <lucide-angular [img]="XIcon" class="w-3 h-3" />
@@ -261,6 +242,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
   /** When locked, drag/resize is disabled and the auto-layout is frozen. */
   protected readonly locked = signal(false);
 
+  /** Last workspace-removal `seq` this component has processed (see
+   *  `removedWorkspace$`). Guarantees each removal is handled exactly once
+   *  without depending on effect-flush order across independent consumers. */
+  private _lastRemovedWorkspaceSeq = 0;
+
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionNameInput = signal('');
   private readonly sessionNameInputRef = viewChild<
@@ -271,23 +257,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
   >('emptyStateNameInputRef');
   private readonly canvasContainer =
     viewChild<ElementRef<HTMLElement>>('canvasContainer');
-  private readonly gridComp = viewChild(GridstackComponent);
-
-  readonly gsOptions: GridStackOptions = {
-    column: 12,
-    cellHeight: 120,
-    float: true,
-    margin: 8,
-    draggable: { handle: '.tile-header' },
-    resizable: { handles: 'e, se, s, sw, w' },
-    animate: true,
-  };
-
-  protected readonly layout = computed(() => {
-    this.layoutService.containerWidth();
-    this.layoutService.containerHeight();
-    return this.layoutService.computeLayout(this.canvasStore.tileCount());
-  });
 
   constructor() {
     afterNextRender(() => {
@@ -295,28 +264,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
       if (el) {
         this.layoutService.observe(el);
       }
-    });
-    effect(() => {
-      const { cellHeight, tiles: tileLayouts } = this.layout();
-      const gridComp = this.gridComp();
-      if (!gridComp?.grid || tileLayouts.length === 0) return;
-      // Locked: keep the user's arrangement; don't re-flow on container resize.
-      if (this.locked()) return;
-
-      const grid = gridComp.grid;
-      const tiles = untracked(() => this.canvasStore.tiles());
-
-      grid.batchUpdate(true);
-      grid.cellHeight(cellHeight);
-
-      for (const node of grid.engine.nodes) {
-        const idx = tiles.findIndex((t) => t.tabId === node.id);
-        if (idx >= 0 && tileLayouts[idx] && node.el) {
-          grid.update(node.el, tileLayouts[idx]);
-        }
-      }
-
-      grid.batchUpdate(false);
     });
     effect(() => {
       if (this.sessionPopoverOpen()) {
@@ -352,6 +299,23 @@ export class OrchestraCanvasComponent implements OnDestroy {
         this.appState.clearNewCanvasSessionRequest();
       }
     });
+    // Adopt an already-existing tab as a tile (F-D3). The Tasks-board launch
+    // creates a tab then navigates to chat; when the canvas is ALREADY mounted
+    // (no remount / no workspace switch), `restoreCanvasTilesFromTabs` — which
+    // only runs on mount — never sees that new tab, so it would linger as a bare
+    // tab. This closes exactly that gap. `adoptTab` dedups (safe if a fresh
+    // mount already tiled it) and returns null at the 9-tile cap, in which case
+    // the tab simply stays in the tab list as the graceful fallback.
+    effect(() => {
+      const req = this.appState.canvasTabRequest();
+      if (req) {
+        const adopted = this.canvasStore.adoptTab(req.tabId);
+        if (adopted) {
+          this.canvasStore.focusTile(req.tabId);
+        }
+        this.appState.clearCanvasTabRequest();
+      }
+    });
     effect(() => {
       const newPath = this.tabManager.activeWorkspacePath$();
       if (!newPath) return;
@@ -360,10 +324,15 @@ export class OrchestraCanvasComponent implements OnDestroy {
     });
     effect(() => {
       const removed = this.tabManager.removedWorkspace$();
-      if (!removed) return;
-      this.canvasStore.removeWorkspaceTileState(removed);
-      this.tabManager.clearRemovedWorkspace();
+      if (!removed || removed.seq <= this._lastRemovedWorkspaceSeq) return;
+      this._lastRemovedWorkspaceSeq = removed.seq;
+      this.canvasStore.removeWorkspaceTileState(removed.path);
     });
+    // Active-workspace prune: drop tiles whose tab was removed from the active
+    // workspace externally (e.g. session deleted from the sidebar). Both
+    // `tabs()` and `tiles()` are active-workspace-scoped, so this never touches
+    // background workspaces' tiles — the workspace-swap effect (created above)
+    // flips the active path first, keeping the two sides consistent on switch.
     effect(() => {
       const tabs = this.tabManager.tabs();
       const tabIds = new Set<string>(tabs.map((t) => t.id));
@@ -373,6 +342,20 @@ export class OrchestraCanvasComponent implements OnDestroy {
           this.canvasStore.removeTileOnly(tile.tabId);
         }
       }
+    });
+
+    // Cross-workspace prune: a tab closed in a BACKGROUND workspace never
+    // appears in the active `tabs()` signal, so the effect above can't see it.
+    // React to the structured close event and drop the tile from whichever
+    // workspace partition holds it.
+    effect(() => {
+      const closed = this.tabManager.closedTab();
+      // `reset` (/clear) re-empties the tab in place — it survives, so its tile
+      // must stay. Only real removals (`close`, pop-out `forceClose`) drop it.
+      if (!closed || closed.kind === 'reset') return;
+      untracked(() =>
+        this.canvasStore.removeTileFromAnyWorkspace(closed.tabId),
+      );
     });
   }
 
@@ -442,9 +425,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
    * across container resizes. Unlocking restores managed drag/resize behaviour.
    */
   protected toggleLock(): void {
-    const next = !this.locked();
-    this.locked.set(next);
-    this.gridComp()?.grid?.setStatic(next);
+    this.locked.set(!this.locked());
   }
 
   /**
@@ -456,28 +437,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
    * The async removeTile() would show spurious confirmation dialogs during teardown.
    */
   ngOnDestroy(): void {
-    const tiles = this.canvasStore.tiles();
-    for (const tile of tiles) {
-      this.tabManager.forceCloseTab(tile.tabId);
-    }
-  }
-
-  /**
-   * Called by Gridstack whenever tiles are moved or resized.
-   * Persists the new position into CanvasStore so positions survive re-renders.
-   *
-   * GridStackNode.id is set to tile.tabId in the item options above, so we can
-   * correlate each changed node back to the correct CanvasTile.
-   */
-  onGridChange(data: nodesCB): void {
-    for (const node of data.nodes) {
-      if (typeof node.id !== 'string') continue;
-      this.canvasStore.updateTilePosition(node.id, {
-        x: node.x ?? 0,
-        y: node.y ?? 0,
-        w: node.w ?? 4,
-        h: node.h ?? 6,
-      });
+    // Iterate every retained workspace's tiles, not just the active one —
+    // background workspaces keep their tabs open (keep-alive) and would leak
+    // into the root TabManagerService otherwise.
+    for (const tabId of this.canvasStore.allTabIds()) {
+      this.tabManager.forceCloseTab(tabId);
     }
   }
 }

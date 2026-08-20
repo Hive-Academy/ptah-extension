@@ -19,11 +19,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { GatewayService } from './gateway.service';
+import { AdapterLifecycleService } from './adapter-lifecycle.service';
+import { OutboundDeliveryService } from './outbound-delivery.service';
+import { AttachedSessionRegistry } from './attached-session-registry';
 import type { GrammyTelegramAdapter } from './adapters/telegram/grammy.adapter';
 import type { DiscordAdapter } from './adapters/discord/discord.adapter';
 import type { BoltSlackAdapter } from './adapters/slack/bolt.adapter';
-import type { FfmpegDecoder } from './voice/ffmpeg-decoder';
-import type { WhisperTranscriber } from './voice/whisper-transcriber';
+import type { IVoiceProviderSelector } from '@ptah-extension/voice-contracts';
 import type { BindingStore } from './binding.store';
 import type { ConversationStore } from './conversation.store';
 import type { MessageStore } from './message.store';
@@ -205,19 +207,51 @@ function buildServiceWithRealStore(
   const store = makeSecretsStore(secretsFileStore, masterKeyProvider);
   const gatewaySettings = new GatewaySettings(store);
 
-  const service = new GatewayService(
-    createLogger(),
-    createWorkspace(),
+  const logger = createLogger();
+  const workspace = createWorkspace();
+  const bindings = createBindingStore();
+  const messages = createMessageStore();
+
+  const lifecycle = new AdapterLifecycleService(
+    logger,
+    workspace,
     vault,
-    createBindingStore(),
-    createConversationStore(),
-    createMessageStore(),
+    gatewaySettings,
     {} as unknown as GrammyTelegramAdapter,
     {} as unknown as DiscordAdapter,
     {} as unknown as BoltSlackAdapter,
-    {} as unknown as FfmpegDecoder,
-    { configure: jest.fn() } as unknown as WhisperTranscriber,
+    {
+      handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'ok' }),
+      handleAutocomplete: jest.fn().mockResolvedValue([]),
+    },
+  );
+  const outbound = new OutboundDeliveryService(
+    logger,
+    bindings,
+    messages,
+    lifecycle,
+  );
+
+  const service = new GatewayService(
+    logger,
+    workspace,
+    vault,
+    bindings,
+    createConversationStore(),
+    messages,
+    {
+      activeStt: jest.fn().mockReturnValue({
+        transcribe: jest.fn().mockResolvedValue({ text: '' }),
+      }),
+      downloadEvents: {
+        onDownload: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+      },
+    } as unknown as IVoiceProviderSelector,
     gatewaySettings,
+    new AttachedSessionRegistry(),
+    { isResumable: jest.fn().mockResolvedValue(true) },
+    lifecycle,
+    outbound,
   );
 
   return { service, gatewaySettings };

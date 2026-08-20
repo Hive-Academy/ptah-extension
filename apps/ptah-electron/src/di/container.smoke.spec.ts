@@ -22,8 +22,9 @@ import 'reflect-metadata';
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -31,8 +32,12 @@ import {
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import { ELECTRON_TOKENS } from './electron-tokens';
+import { registerPhase4Handlers } from './phase-4-handlers';
+import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -58,7 +63,7 @@ function buildMinimalContainer(): DependencyContainer {
     useValue: { captureException: jest.fn(), captureMessage: jest.fn() },
   });
   c.register(TOKENS.LICENSE_SERVICE, {
-    useValue: { getStatus: jest.fn(), isPremium: jest.fn(() => false) },
+    useValue: { getStatus: jest.fn() },
   });
   c.register(TOKENS.SAVE_DIALOG_PROVIDER, {
     useValue: { showSaveDialog: jest.fn() },
@@ -125,6 +130,13 @@ function buildMinimalContainer(): DependencyContainer {
   };
   c.register(SETTINGS_TOKENS.MODEL_SETTINGS, { useValue: fakeModelSettings });
 
+  c.register(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
+    useValue: {
+      resolveActiveAuth: jest.fn(() => ({ authMethod: 'claudeCli' })),
+      resolveThirdPartyProviderId: jest.fn(() => 'anthropic'),
+    },
+  });
+
   registerSharedRpcHandlers(c);
   return c;
 }
@@ -157,5 +169,102 @@ describe('Electron DI — shared RPC handler resolution', () => {
       ).modelSettings;
       expect(typeof ms.selectedModel.get).toBe('function');
     }
+  });
+});
+
+/**
+ * Both aliasing describes below call `registerPhase4Handlers` on its own, so
+ * they have to satisfy phase 4's phase-2 precondition themselves.
+ *
+ * `registerPhase4Handlers` calls `registerChatServices`, which THROWS at
+ * registration time — not at resolve time — unless
+ * `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION` is already bound
+ * (`rpc-handlers/src/lib/chat/di.ts`). `ChatSessionService` injects it and
+ * `output-styles` owns it, so the precondition is cross-lib and cross-phase.
+ *
+ * The shipped Electron boot satisfies it three phases earlier —
+ * `phase-2-libraries.ts:188` via `container.ts:43`, before
+ * `phase-4-handlers.ts:85` via `container.ts:45` — so the ordering fault was
+ * only ever in this harness. Calls the REAL `registerOutputStyleServices`
+ * rather than stubbing the token, so the harness keeps tracking phase 2 if that
+ * contract moves.
+ */
+function buildPhase4Container(): { c: DependencyContainer; logger: Logger } {
+  const c = rootContainer.createChildContainer();
+  const logger = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+  } as unknown as Logger;
+
+  registerOutputStyleServices(c, logger);
+
+  return { c, logger };
+}
+
+/**
+ * Risk R2 — duplicate `PtyManagerService` instance.
+ *
+ * `PLATFORM_TOKENS.PTY_HOST` must be an ALIAS of
+ * `ELECTRON_TOKENS.PTY_MANAGER_SERVICE`, never a second registration. IpcBridge
+ * holds the concrete instance and owns the `sessions` Map
+ * (`activation/bootstrap.ts` -> `ipc/ipc-bridge.ts`), while `terminal:create`
+ * resolves the port. A second instance would hand back session ids that the
+ * binary write/resize channel cannot find — terminals open and silently accept
+ * no input — and `disposeAll` would leak the real PTYs on quit.
+ *
+ * This asserts against the REAL wiring in `registerPhase4Handlers`, not a copy
+ * of it, and it asserts reference identity (`toBe`): a `registerSingleton`
+ * would still satisfy a structural comparison.
+ */
+describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
+  it('resolves PTY_HOST to the very same instance as PTY_MANAGER_SERVICE', () => {
+    const { c, logger } = buildPhase4Container();
+
+    registerPhase4Handlers(c, logger);
+
+    const viaPort = c.resolve(PLATFORM_TOKENS.PTY_HOST);
+    const viaConcreteToken = c.resolve(ELECTRON_TOKENS.PTY_MANAGER_SERVICE);
+
+    expect(viaPort).toBeDefined();
+    expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * Risk R1 — duplicate `UpdateManager` instance.
+ *
+ * `PLATFORM_TOKENS.APP_UPDATER` must be an ALIAS of `UPDATE_MANAGER_TOKEN`,
+ * never a second registration. `activation/post-window.ts` resolves
+ * `UPDATE_MANAGER_TOKEN` and calls `start()`, which performs the GitHub
+ * Releases check and mutates the manager's private `_currentState`; `main.ts`
+ * disposes that same instance on will-quit. A second `UpdateManager` would be
+ * the one `update:get-state` reads, so it would answer `{state:'idle'}` forever
+ * — the update banner would never appear and nothing would throw.
+ *
+ * This asserts against the REAL wiring in `registerPhase4Handlers`, not a copy
+ * of it, and it asserts reference identity (`toBe`): the two unions are
+ * structurally identical, so `toEqual` would pass under a duplicate-instance
+ * wiring and prove nothing.
+ */
+describe('Electron DI — app updater token aliasing (Risk R1)', () => {
+  it('resolves APP_UPDATER to the very same instance as UPDATE_MANAGER_TOKEN', () => {
+    const { c, logger } = buildPhase4Container();
+    // UpdateManager is @injectable and injects these two; they are its
+    // constructor dependencies, not part of the wiring under test.
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    c.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: { broadcastMessage: jest.fn(async () => undefined) },
+    });
+
+    registerPhase4Handlers(c, logger);
+
+    const viaPort = c.resolve(PLATFORM_TOKENS.APP_UPDATER);
+    const viaConcreteToken = c.resolve(UPDATE_MANAGER_TOKEN);
+
+    expect(viaPort).toBeDefined();
+    expect(viaPort).toBe(viaConcreteToken);
   });
 });

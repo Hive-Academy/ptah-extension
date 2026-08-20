@@ -23,6 +23,12 @@ import { homedir } from 'node:os';
 export interface CopilotHostsFile {
   [host: string]: {
     oauth_token?: string;
+    /**
+     * GitHub login recorded alongside the token by the official Copilot
+     * integrations (`hosts.json`) and the Copilot CLI (`apps.json`). Optional:
+     * the device-code flow Ptah runs writes only `oauth_token`.
+     */
+    user?: string;
     [key: string]: unknown;
   };
 }
@@ -102,6 +108,52 @@ export async function readCopilotToken(): Promise<string | null> {
     return hostsToken;
   }
   return readTokenFromFile(getCopilotAppsPath());
+}
+
+/**
+ * Read the GitHub login recorded next to the OAuth token in a Copilot config
+ * file. Mirrors {@link readTokenFromFile}'s lookup order: the `github.com`
+ * entry first, then any entry carrying a `user` (the Copilot CLI keys
+ * `apps.json` as `"github.com:<app_id>"`).
+ */
+async function readUserFromFile(filePath: string): Promise<string | null> {
+  try {
+    const raw = await readFile(filePath, 'utf-8');
+    const data = JSON.parse(raw) as CopilotHostsFile;
+
+    const githubHost = data['github.com'];
+    if (typeof githubHost?.user === 'string' && githubHost.user.length > 0) {
+      return githubHost.user;
+    }
+    for (const entry of Object.values(data)) {
+      if (typeof entry?.user === 'string' && entry.user.length > 0) {
+        return entry.user;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the GitHub username associated with the stored Copilot credentials.
+ *
+ * Checks `hosts.json` then `apps.json`, exactly like {@link readCopilotToken}.
+ * Returns `null` when neither file exists or neither records a `user` — which
+ * is the normal case after Ptah's own device-code login, since that flow
+ * persists only `oauth_token`. Callers that need a name in that situation must
+ * fall back to the GitHub API (see `CliPlatformAuth`).
+ *
+ * Purely local: never performs I/O beyond reading the two config files.
+ */
+export async function readCopilotUsername(): Promise<string | null> {
+  const hostsUser = await readUserFromFile(getCopilotHostsPath());
+  if (hostsUser) {
+    return hostsUser;
+  }
+  return readUserFromFile(getCopilotAppsPath());
 }
 
 /**

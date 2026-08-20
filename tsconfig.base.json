@@ -16,6 +16,9 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "paths": {
+      "@ptah-extension/showcase-manifest": [
+        "./libs/showcase-manifest/src/index.ts"
+      ],
       "@ptah-extension/agent-generation": [
         "./libs/backend/agent-generation/src/index.ts"
       ],
@@ -27,6 +30,9 @@
         "./libs/backend/auth-providers-tokens/src/index.ts"
       ],
       "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
+      "@ptah-extension/tribunal-panel": [
+        "./libs/frontend/tribunal-panel/src/index.ts"
+      ],
       "@ptah-extension/chat": ["./libs/frontend/chat/src/index.ts"],
       "@ptah-extension/chat-types": ["./libs/frontend/chat-types/src/index.ts"],
       "@ptah-extension/chat-state": ["./libs/frontend/chat-state/src/index.ts"],
@@ -54,17 +60,33 @@
       "@ptah-extension/cron-scheduler-ui": [
         "./libs/frontend/cron-scheduler-ui/src/index.ts"
       ],
+      "@ptah-extension/cron-scheduler-ui/services": [
+        "./libs/frontend/cron-scheduler-ui/src/services.ts"
+      ],
       "@ptah-extension/thoth-shell": [
         "./libs/frontend/thoth-shell/src/index.ts"
       ],
       "@ptah-extension/memory-curator-ui": [
         "./libs/frontend/memory-curator-ui/src/index.ts"
       ],
+      "@ptah-extension/memory-curator-ui/services": [
+        "./libs/frontend/memory-curator-ui/src/services.ts"
+      ],
       "@ptah-extension/messaging-gateway-ui": [
         "./libs/frontend/messaging-gateway-ui/src/index.ts"
       ],
+      "@ptah-extension/messaging-gateway-ui/services": [
+        "./libs/frontend/messaging-gateway-ui/src/services.ts"
+      ],
       "@ptah-extension/skill-synthesis-ui": [
         "./libs/frontend/skill-synthesis-ui/src/index.ts"
+      ],
+      "@ptah-extension/skill-synthesis-ui/services": [
+        "./libs/frontend/skill-synthesis-ui/src/services.ts"
+      ],
+      "@ptah-extension/tasks-ui": ["./libs/frontend/tasks-ui/src/index.ts"],
+      "@ptah-extension/tasks-ui/services": [
+        "./libs/frontend/tasks-ui/src/services.ts"
       ],
       "@ptah-extension/core/testing": [
         "./libs/frontend/core/src/testing/index.ts"
@@ -92,6 +114,12 @@
       "@ptah-extension/memory-contracts": [
         "./libs/backend/memory-contracts/src/index.ts"
       ],
+      "@ptah-extension/voice-contracts": [
+        "./libs/backend/voice-contracts/src/index.ts"
+      ],
+      "@ptah-extension/voice-providers": [
+        "./libs/backend/voice-providers/src/index.ts"
+      ],
       "@ptah-extension/settings-core": [
         "./libs/backend/settings-core/src/index.ts"
       ],
@@ -104,6 +132,19 @@
       "@ptah-extension/skill-synthesis": [
         "./libs/backend/skill-synthesis/src/index.ts"
       ],
+      "@ptah-extension/output-styles": [
+        "./libs/backend/output-styles/src/index.ts"
+      ],
+      "@ptah-extension/plugin-marketplace": [
+        "./libs/backend/plugin-marketplace/src/index.ts"
+      ],
+      "@ptah-extension/harness-sync": [
+        "./libs/backend/harness-sync/src/index.ts"
+      ],
+      "@ptah-extension/task-specs": ["./libs/backend/task-specs/src/index.ts"],
+      "@ptah-extension/thoth-runtime": [
+        "./libs/backend/thoth-runtime/src/index.ts"
+      ],
       "@ptah-extension/platform-vscode": [
         "./libs/backend/platform-vscode/src/index.ts"
       ],
@@ -113,8 +154,14 @@
       "@ptah-extension/harness-builder": [
         "./libs/frontend/harness-builder/src/index.ts"
       ],
+      "@ptah-extension/harness-builder/services": [
+        "./libs/frontend/harness-builder/src/services.ts"
+      ],
       "@ptah-extension/marketplace": [
         "./libs/frontend/marketplace/src/index.ts"
+      ],
+      "@ptah-extension/marketplace/services": [
+        "./libs/frontend/marketplace/src/services.ts"
       ],
       "@ptah-extension/markdown": ["./libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [
@@ -122,6 +169,7 @@
       ],
       "@ptah-extension/shared": ["./libs/shared/src/index.ts"],
       "@ptah-extension/shared/testing": ["./libs/shared/src/testing/index.ts"],
+      "@ptah-extension/shared/schemas": ["./libs/shared/src/schemas.ts"],
       "@ptah-extension/ui": ["./libs/frontend/ui/src/index.ts"],
       "@ptah-extension/workspace-indexing": [
         "./libs/frontend/workspace-indexing/src/index.ts"
@@ -143,6 +191,36 @@
       ],
       "@ptah-extension/workspace-intelligence": [
         "./libs/backend/workspace-intelligence/src/index.ts"
+      ],
+      "@ptah-web/core": ["./libs/web/core/src/index.ts"],
+      "@ptah-web/ui": ["./libs/web/ui/src/index.ts"],
+      "@ptah-web/legal": ["./libs/web/legal/src/index.ts"],
+      "@ptah-web/pricing": ["./libs/web/pricing/src/index.ts"],
+      "@ptah-web/auth": ["./libs/web/auth/src/index.ts"],
+      "@ptah-web/account": ["./libs/web/account/src/index.ts"],
+      "@ptah-web/landing": ["./libs/web/landing/src/index.ts"],
+      "@ptah-web/admin": ["./libs/web/admin/src/index.ts"],
+      "@ptah-web/panel-ui": ["./libs/web/panel-ui/src/index.ts"],
+      "@ptah-web/members": ["./libs/web/members/src/index.ts"],
+      "@ptah-api/core": ["./libs/api/core/src/index.ts"],
+      "@ptah-api/core/testing": ["./libs/api/core/src/testing/index.ts"],
+      "@ptah-api/audit": ["./libs/api/audit/src/index.ts"],
+      "@ptah-api/email": ["./libs/api/email/src/index.ts"],
+      "@ptah-api/identity": ["./libs/api/identity/src/index.ts"],
+      "@ptah-api/membership": ["./libs/api/membership/src/index.ts"],
+      "@ptah-api/youtube": ["./libs/api/youtube/src/index.ts"],
+      "@ptah-api/member-hub": ["./libs/api/member-hub/src/index.ts"],
+      "@ptah-api/notifications": ["./libs/api/notifications/src/index.ts"],
+      "@ptah-api/forum": ["./libs/api/forum/src/index.ts"],
+      "@ptah-api/learning": ["./libs/api/learning/src/index.ts"],
+      "@ptah-api/community": ["./libs/api/community/src/index.ts"],
+      "@ptah-api/marketing": ["./libs/api/marketing/src/index.ts"],
+      "@ptah-api/licensing": ["./libs/api/licensing/src/index.ts"],
+      "@ptah-api/billing": ["./libs/api/billing/src/index.ts"],
+      "@ptah-api/billing/testing": ["./libs/api/billing/src/testing/index.ts"],
+      "@ptah-api/admin": ["./libs/api/admin/src/index.ts"],
+      "@ptah-contracts/community": [
+        "./libs/api-contracts/community/src/index.ts"
       ]
     }
   },

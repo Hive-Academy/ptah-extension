@@ -1,0 +1,25 @@
+{
+  "name": "@ptah-extension/voice-contracts",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/voice-contracts/src",
+  "tags": ["scope:extension", "type:core"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/voice-contracts",
+        "main": "libs/backend/voice-contracts/src/index.ts",
+        "tsConfig": "libs/backend/voice-contracts/tsconfig.lib.json",
+        "format": ["cjs"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/voice-contracts/tsconfig.lib.json"
+      }
+    }
+  }
+}

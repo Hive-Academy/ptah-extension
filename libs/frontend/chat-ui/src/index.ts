@@ -29,11 +29,16 @@ export type {
   StderrSegment,
 } from './lib/molecules/agent-card/agent-card.types';
 export { AgentSummaryComponent } from './lib/molecules/agent-summary.component';
-export { CommunityUpgradeBannerComponent } from './lib/molecules/community-upgrade-banner.component';
+export {
+  BackgroundAgentStripComponent,
+  type BackgroundAgentStripEntry,
+  type BackgroundAgentStripStatus,
+  type BackgroundAgentSteerRequest,
+} from './lib/molecules/background-agent-strip.component';
+export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
+export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
-export { TrialBannerComponent } from './lib/molecules/trial-banner.component';
-export { TrialEndedModalComponent } from './lib/molecules/trial-ended-modal.component';
 export { AgentSelectorComponent } from './lib/molecules/chat-input/agent-selector.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
@@ -41,9 +46,12 @@ export { CompactSessionHeaderComponent } from './lib/molecules/compact-session/c
 export { CompactSessionInputComponent } from './lib/molecules/compact-session/compact-session-input.component';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export { CompactSessionTextComponent } from './lib/molecules/compact-session/compact-session-text.component';
+export {
+  CompactToolRowComponent,
+  type CompactToolRow,
+} from './lib/molecules/compact-session/compact-tool-row.component';
 export { CompactionMarkerComponent } from './lib/molecules/notifications/compaction-marker.component';
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
-export { NotificationBellComponent } from './lib/molecules/notifications/notification-bell.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';
 export { PermissionBadgeComponent } from './lib/molecules/permissions/permission-badge.component';
 export { PermissionRequestCardComponent } from './lib/molecules/permissions/permission-request-card.component';

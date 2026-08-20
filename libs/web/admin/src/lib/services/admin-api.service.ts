@@ -1,0 +1,709 @@
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable, map } from 'rxjs';
+import { z } from 'zod';
+
+import { validate } from '@ptah-web/core';
+
+/**
+ * URL slug for every admin-addressable Prisma model.
+ *
+ * MUST stay in sync with the backend `AdminModelKey` union at
+ * `apps/ptah-license-server/src/admin/admin-models.config.ts`.
+ * Any drift here manifests as a 400 "Unknown admin model" from the API.
+ */
+export type AdminModelKey =
+  | 'users'
+  | 'licenses'
+  | 'subscriptions'
+  | 'failed-webhooks'
+  | 'session-requests'
+  | 'admin-audit-log'
+  | 'marketing-campaigns'
+  | 'marketing-campaign-templates'
+  | 'waitlist';
+
+// --- Request shapes (outbound — not validated) ---
+
+export interface AdminListQuery {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  search?: string;
+  /**
+   * Server-side `field:value` filter (e.g. `notified:false`). Backend applies
+   * a per-model allowlist; a non-allowlisted field/value yields HTTP 400, so
+   * callers MUST only pass values documented for the target model. Additive —
+   * omitting it preserves the previous unfiltered behavior.
+   */
+  filter?: string;
+}
+
+export interface AdminBulkEmailRequest {
+  userIds: string[];
+  subject: string;
+  html: string;
+}
+
+/**
+ * Body for `POST /api/v1/admin/licenses/complimentary`.
+ *
+ * Target the recipient by EITHER `userId` OR `email`. Both are optional at the
+ * type level; the server enforces that exactly one is supplied and
+ * resolves/creates the user from the email when needed.
+ *
+ * ⚠️ THE ADMIN UI ONLY EVER SENDS `userId`. `email` remains on the wire
+ * contract because the server accepts it, but the waitlist path that used it
+ * was retired in TASK_2026_201 — approving a waitlist row goes through
+ * `approveWaitlist` below, which grants the cohort placement too. A comp
+ * licence by email alone leaves the half-approved state that flow prevents.
+ */
+export interface IssueComplimentaryLicenseRequest {
+  userId?: string;
+  email?: string;
+  durationPreset: '30d' | '1y' | '5y' | 'custom' | 'never';
+  customExpiresAt?: string;
+  plan: 'builders';
+  reason: string;
+  sendEmail?: boolean;
+  stackOnTopOfPaid?: boolean;
+}
+
+export type MarketingSegmentKey =
+  | 'all'
+  | 'buildersActive'
+  | 'communityActive'
+  | 'subscriptionPastDue';
+
+export interface SaveTemplateRequest {
+  name: string;
+  subject: string;
+  htmlBody: string;
+  variables?: string[];
+}
+
+export interface SendCampaignRequest {
+  name: string;
+  templateId?: string;
+  subject?: string;
+  htmlBody?: string;
+  segment?: MarketingSegmentKey;
+  userIds?: string[];
+}
+
+/**
+ * Hard cap on one approve request, mirroring `@ArrayMaxSize(50)` on the server
+ * DTO (`libs/api/admin/src/lib/admin.dto.ts` `ApproveWaitlistDto.ids`). Each id
+ * becomes a free licence, a cohort placement and one outbound email, so the
+ * cap is the only bound on both — the UI enforces it up front rather than
+ * letting a 60-row selection come back as an opaque 400.
+ */
+export const ADMIN_APPROVE_WAITLIST_MAX_IDS = 50;
+
+/**
+ * POST /api/v1/admin/waitlist/approve — approve N waitlist rows to the
+ * founding cohort. 1..{@link ADMIN_APPROVE_WAITLIST_MAX_IDS} waitlist row ids;
+ * there is no "oldest N" mode — every approval is an explicit list of rows.
+ */
+export interface AdminApproveWaitlistRequest {
+  ids: string[];
+}
+
+/**
+ * Lowercase slug regex for `MemberGroup.key` — MUST mirror the backend
+ * `GROUP_KEY_REGEX` at
+ * `apps/ptah-license-server/src/member-groups/dto/member-group.dto.ts`.
+ */
+export const MEMBER_GROUP_KEY_REGEX = /^[a-z0-9-]{2,40}$/;
+
+/** Body for POST /api/v1/admin/groups. `key` is immutable after create. */
+export interface CreateMemberGroupRequest {
+  key: string;
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Body for PATCH /api/v1/admin/groups/:id. `null` clears `description`;
+ * `key` is not patchable.
+ */
+export interface UpdateMemberGroupRequest {
+  name?: string;
+  description?: string | null;
+  isDefault?: boolean;
+}
+
+/**
+ * Body for POST /api/v1/admin/groups/:id/assign. Either or both of
+ * `userIds`/`emails` may be supplied; the server resolves + dedupes them.
+ */
+export interface AssignGroupMembersRequest {
+  userIds?: string[];
+  emails?: string[];
+}
+
+// --- Response schemas (inbound — runtime boundary validation) ---
+//
+// These Zod schemas are the single source of truth for every server response
+// shape; the exported response *types* are inferred from them via z.infer. A
+// server contract change now surfaces as a located parse error at the HTTP
+// boundary (see `validate`) instead of an `undefined` crash deep in a template.
+// Unknown server-side keys are stripped (default z.object behaviour), so a
+// server response that is a superset of the client contract still validates.
+
+const adminRecordSchema = z.record(z.string(), z.unknown());
+
+const adminListEnvelopeSchema = z.object({
+  data: z.array(adminRecordSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+});
+
+export interface AdminListResponse<T = Record<string, unknown>> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+const adminBulkEmailResponseSchema = z.object({
+  sent: z.number(),
+  failed: z.array(z.object({ userId: z.string(), error: z.string() })),
+});
+export type AdminBulkEmailResponse = z.infer<
+  typeof adminBulkEmailResponseSchema
+>;
+
+const userCascadedCountsSchema = z.object({
+  subscriptions: z.number(),
+  licenses: z.number(),
+  sessionRequests: z.number(),
+});
+
+const deletionPreviewResponseSchema = z.object({
+  userId: z.string(),
+  email: z.string(),
+  cascaded: userCascadedCountsSchema,
+  hasActivePaidSubscription: z.boolean(),
+  activePaddleSubscriptionId: z.string().optional(),
+  isAdminSelf: z.boolean(),
+});
+export type DeletionPreviewResponse = z.infer<
+  typeof deletionPreviewResponseSchema
+>;
+
+const deleteUserResponseSchema = z.object({
+  deleted: z.boolean(),
+  user: z.object({ id: z.string(), email: z.string() }),
+  cascaded: userCascadedCountsSchema,
+  auditLogId: z.string(),
+});
+export type DeleteUserResponse = z.infer<typeof deleteUserResponseSchema>;
+
+const issueComplimentaryLicenseResponseSchema = z.object({
+  license: z.object({
+    id: z.string(),
+    userId: z.string(),
+    licenseKey: z.string(),
+    plan: z.literal('builders'),
+    status: z.literal('active'),
+    source: z.literal('complimentary'),
+    expiresAt: z.string().nullable(),
+    createdAt: z.string(),
+    createdBy: z.string().nullable(),
+  }),
+  warning: z
+    .object({ code: z.literal('LICENSE_EMAIL_FAILED'), error: z.string() })
+    .optional(),
+});
+export type IssueComplimentaryLicenseResponse = z.infer<
+  typeof issueComplimentaryLicenseResponseSchema
+>;
+
+const marketingSegmentCountsSchema = z.object({
+  total: z.number(),
+  optedIn: z.number(),
+});
+export type MarketingSegmentCounts = z.infer<
+  typeof marketingSegmentCountsSchema
+>;
+
+const marketingSegmentsResponseSchema = z.object({
+  all: marketingSegmentCountsSchema,
+  buildersActive: marketingSegmentCountsSchema,
+  communityActive: marketingSegmentCountsSchema,
+  subscriptionPastDue: marketingSegmentCountsSchema,
+});
+export type MarketingSegmentsResponse = z.infer<
+  typeof marketingSegmentsResponseSchema
+>;
+
+const marketingSegmentsEnvelopeSchema = z.object({
+  segments: marketingSegmentsResponseSchema,
+});
+
+const marketingTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  subject: z.string(),
+  htmlBody: z.string(),
+  variables: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type MarketingTemplate = z.infer<typeof marketingTemplateSchema>;
+
+const sendCampaignResponseSchema = z.object({
+  campaignId: z.string(),
+  recipientCount: z.number(),
+  skippedCount: z.number(),
+  status: z.literal('in_progress'),
+});
+export type SendCampaignResponse = z.infer<typeof sendCampaignResponseSchema>;
+
+/**
+ * Every outcome one waitlist row can reach — the client mirror of
+ * `WAITLIST_APPROVAL_OUTCOMES` in `libs/api/admin/.../waitlist-approval.types.ts`.
+ *
+ * The enum is CLOSED on purpose: a new server-side outcome fails this schema
+ * loudly at the boundary instead of silently vanishing from the admin's tally.
+ */
+export const ADMIN_APPROVE_WAITLIST_OUTCOMES = [
+  'approved',
+  'already_approved',
+  'already_paid',
+  'not_found',
+  'failed',
+] as const;
+
+const adminApproveWaitlistOutcomeSchema = z.enum(
+  ADMIN_APPROVE_WAITLIST_OUTCOMES,
+);
+export type AdminApproveWaitlistOutcome = z.infer<
+  typeof adminApproveWaitlistOutcomeSchema
+>;
+
+/**
+ * One requested id's result. `email` is null ONLY for `not_found`; `licenseId`
+ * is present iff `outcome === 'approved'`.
+ *
+ * ⚠️ NO LICENCE KEY IS EVER PRESENT HERE — `licenseId` is the row's primary
+ * key. The member's credential travels only in the welcome email, so nothing
+ * in this schema may be widened to carry it.
+ */
+const adminApproveWaitlistRowSchema = z.object({
+  id: z.string(),
+  email: z.string().nullable(),
+  outcome: adminApproveWaitlistOutcomeSchema,
+  licenseId: z.string().optional(),
+  /** Whether the row had been sent the withdrawn paid invite. Reported only. */
+  wasNotified: z.boolean().optional(),
+  /** The grant COMMITTED but the welcome mail did not go out. Code only. */
+  warning: z.object({ code: z.literal('APPROVAL_EMAIL_FAILED') }).optional(),
+  /** The row rolled back. Code only — never a raw provider message. */
+  error: z.object({ code: z.literal('GRANT_FAILED') }).optional(),
+});
+export type AdminApproveWaitlistRow = z.infer<
+  typeof adminApproveWaitlistRowSchema
+>;
+
+/**
+ * Response for `POST /api/v1/admin/waitlist/approve`.
+ *
+ * Always HTTP 200 once the body validated and the cohort resolved — per-row
+ * failures live in `results`, not in the status. `tally` always carries all
+ * five keys (zeros included), so the UI renders a fixed summary without
+ * null-checking each outcome.
+ */
+/**
+ * One count per outcome. Every key is REQUIRED — the server documents that it
+ * always emits all five with zeros present, so a missing key means the
+ * contract drifted and the boundary should say so rather than render a blank.
+ */
+const adminApproveWaitlistTallySchema = z.object({
+  approved: z.number(),
+  already_approved: z.number(),
+  already_paid: z.number(),
+  not_found: z.number(),
+  failed: z.number(),
+});
+export type AdminApproveWaitlistTally = z.infer<
+  typeof adminApproveWaitlistTallySchema
+>;
+
+const adminApproveWaitlistResponseSchema = z.object({
+  requested: z.number(),
+  tally: adminApproveWaitlistTallySchema,
+  results: z.array(adminApproveWaitlistRowSchema),
+});
+export type AdminApproveWaitlistResponse = z.infer<
+  typeof adminApproveWaitlistResponseSchema
+>;
+
+const adminStatsWaitlistSchema = z.object({
+  total: z.number(),
+  notified: z.number(),
+  converted: z.number(),
+  last7Days: z.number(),
+  /**
+   * Rows with `approvedAt` set. OPTIONAL following the `attention` precedent
+   * below: a brief server/client deploy skew must not break the whole stats
+   * call and blank the Overview.
+   */
+  approved: z.number().optional(),
+});
+
+const adminStatsMembersSchema = z.object({
+  builders: z.number(),
+  community: z.number(),
+});
+
+const adminStatsGroupSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  memberCount: z.number(),
+});
+
+/**
+ * "Needs attention" aggregate counts (design spec §3.1). OPTIONAL on the
+ * response so older server builds that predate this block still validate;
+ * when present, the Overview's action queue "lights up" rows 2–4 instead of
+ * rendering them in the muted "not wired" state.
+ */
+const adminStatsAttentionSchema = z.object({
+  waitlistUninvited: z.number(),
+  failedWebhooksUnresolved: z.number(),
+  subscriptionsPastDue: z.number(),
+  sessionRequestsPending: z.number(),
+});
+export type AdminStatsAttention = z.infer<typeof adminStatsAttentionSchema>;
+
+/** Response for `GET /api/v1/admin/stats` — drives the Overview dashboard. */
+const adminStatsResponseSchema = z.object({
+  waitlist: adminStatsWaitlistSchema,
+  members: adminStatsMembersSchema,
+  groups: z.array(adminStatsGroupSchema),
+  attention: adminStatsAttentionSchema.optional(),
+  updatedAt: z.string(),
+});
+export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;
+
+/**
+ * A member cohort ("group") as surfaced by `/api/v1/admin/groups`. Mirrors
+ * backend `MemberGroupResponse` at
+ * `apps/ptah-license-server/src/member-groups/member-groups.controller.ts`.
+ */
+const memberGroupSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  /**
+   * This cohort's own Google Calendar master series (null = it falls back to
+   * `BUILDERS_SESSION_EVENT_ID`). The server has always sent this; the client
+   * started reading it when the sessions calendar began deriving its drag-and-
+   * drop templates from cohorts.
+   */
+  sessionEventId: z.string().nullable(),
+  isDefault: z.boolean(),
+  memberCount: z.number(),
+  createdAt: z.string(),
+});
+export type MemberGroup = z.infer<typeof memberGroupSchema>;
+
+const memberGroupsEnvelopeSchema = z.object({
+  groups: z.array(memberGroupSchema),
+});
+
+/** Response for `POST /api/v1/admin/groups/:id/assign`. */
+const assignGroupMembersResponseSchema = z.object({
+  assigned: z.number(),
+  skipped: z.number(),
+});
+export type AssignGroupMembersResponse = z.infer<
+  typeof assignGroupMembersResponseSchema
+>;
+
+/** Response for `DELETE /api/v1/admin/groups/:id/members/:userId`. */
+const unassignGroupMemberResponseSchema = z.object({
+  removed: z.boolean(),
+});
+export type UnassignGroupMemberResponse = z.infer<
+  typeof unassignGroupMemberResponseSchema
+>;
+
+/**
+ * AdminApiService - Thin HTTP client for `/api/v1/admin/*`
+ *
+ * All URLs are kept relative — `apiInterceptor` prepends
+ * `environment.apiBaseUrl` and sets `withCredentials: true` so the
+ * `ptah_auth` cookie is attached cross-origin.
+ *
+ * ⚠️ GENERIC RECORD CRUD LIVES UNDER `/records` (TASK_2026_170 R2).
+ * `list()` / `get()` / `update()` hit `${base}/records/${model}[/${id}]`, served
+ * by `AdminRecordsController`. Every other method here targets a named
+ * sub-resource (`users/*`, `licenses/complimentary`, `marketing/*`,
+ * `waitlist/invite`, `stats`, `groups/*`) whose path did NOT change — those are
+ * separate controllers with behaviour the generic table view cannot express.
+ * Note the consequence: `records/users` (generic user table) and `users/:id`
+ * (cascade delete, deletion preview, bulk mail) are deliberately different
+ * resources.
+ *
+ * Angular 21 patterns:
+ * - `inject()` DI
+ * - `providedIn: 'root'` singleton
+ * - All methods return `Observable<T>` (no Promises)
+ * - Stateless — no signals, no BehaviorSubject
+ */
+@Injectable({ providedIn: 'root' })
+export class AdminApiService {
+  private readonly http = inject(HttpClient);
+  private readonly base = '/api/v1/admin';
+
+  /**
+   * List records for a model with pagination, sort, and full-text search.
+   *
+   * HttpParams are only set when the query value is non-nullish; omitting
+   * keeps the URL clean and lets the backend apply its `ListQueryDto`
+   * defaults (page=1, pageSize=25, sortOrder=desc).
+   */
+  public list<T = Record<string, unknown>>(
+    model: AdminModelKey,
+    q: AdminListQuery = {},
+  ): Observable<AdminListResponse<T>> {
+    let params = new HttpParams();
+    if (q.page != null) params = params.set('page', String(q.page));
+    if (q.pageSize != null) params = params.set('pageSize', String(q.pageSize));
+    if (q.sortBy) params = params.set('sortBy', q.sortBy);
+    if (q.sortOrder) params = params.set('sortOrder', q.sortOrder);
+    if (q.search) params = params.set('search', q.search);
+    if (q.filter) params = params.set('filter', q.filter);
+    return this.http
+      .get<unknown>(`${this.base}/records/${model}`, { params })
+      .pipe(
+        map(validate(adminListEnvelopeSchema, `GET /records/${model}`)),
+        map(
+          (res): AdminListResponse<T> => ({
+            ...res,
+            data: res.data as unknown as T[],
+          }),
+        ),
+      );
+  }
+
+  /**
+   * Fetch a single record by ID. Backend returns 404 if missing.
+   */
+  public get<T = Record<string, unknown>>(
+    model: AdminModelKey,
+    id: string,
+  ): Observable<T> {
+    return this.http.get<unknown>(`${this.base}/records/${model}/${id}`).pipe(
+      map(validate(adminRecordSchema, `GET /records/${model}/${id}`)),
+      map((rec) => rec as unknown as T),
+    );
+  }
+
+  /**
+   * Patch a record. Body keys not in the backend editable-field allowlist
+   * are silently dropped server-side; a body with zero editable keys
+   * yields a 400. Read-only models respond with 405.
+   */
+  public update<T = Record<string, unknown>>(
+    model: AdminModelKey,
+    id: string,
+    patch: Record<string, unknown>,
+  ): Observable<T> {
+    return this.http
+      .patch<unknown>(`${this.base}/records/${model}/${id}`, patch)
+      .pipe(
+        map(validate(adminRecordSchema, `PATCH /records/${model}/${id}`)),
+        map((rec) => rec as unknown as T),
+      );
+  }
+
+  /**
+   * Bulk marketing email to a set of user IDs. Backend caps at 500 IDs per
+   * request and runs `sendCustomEmail` in parallel via `Promise.allSettled`,
+   * returning per-user success/failure details.
+   */
+  public bulkEmail(
+    payload: AdminBulkEmailRequest,
+  ): Observable<AdminBulkEmailResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/users/bulk-email`, payload)
+      .pipe(
+        map(validate(adminBulkEmailResponseSchema, 'POST /users/bulk-email')),
+      );
+  }
+
+  public getUserDeletionPreview(
+    userId: string,
+  ): Observable<DeletionPreviewResponse> {
+    return this.http
+      .get<unknown>(`${this.base}/users/${userId}/deletion-preview`)
+      .pipe(
+        map(
+          validate(
+            deletionPreviewResponseSchema,
+            `GET /users/${userId}/deletion-preview`,
+          ),
+        ),
+      );
+  }
+
+  public deleteUser(
+    userId: string,
+    body: { confirmEmail: string; acknowledgePaidSubscription?: boolean },
+  ): Observable<DeleteUserResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/users/${userId}`, { body })
+      .pipe(map(validate(deleteUserResponseSchema, `DELETE /users/${userId}`)));
+  }
+
+  /**
+   * Issues a complimentary Builders license to a user.
+   * POST /api/v1/admin/licenses/complimentary
+   */
+  public issueComplimentaryLicense(
+    body: IssueComplimentaryLicenseRequest,
+  ): Observable<IssueComplimentaryLicenseResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/licenses/complimentary`, body)
+      .pipe(
+        map(
+          validate(
+            issueComplimentaryLicenseResponseSchema,
+            'POST /licenses/complimentary',
+          ),
+        ),
+      );
+  }
+
+  public getMarketingSegments(): Observable<MarketingSegmentsResponse> {
+    return this.http.get<unknown>(`${this.base}/marketing/segments`).pipe(
+      map(validate(marketingSegmentsEnvelopeSchema, 'GET /marketing/segments')),
+      map((res) => res.segments),
+    );
+  }
+
+  public saveTemplate(
+    body: SaveTemplateRequest,
+  ): Observable<MarketingTemplate> {
+    return this.http
+      .post<unknown>(`${this.base}/marketing/templates`, body)
+      .pipe(
+        map(validate(marketingTemplateSchema, 'POST /marketing/templates')),
+      );
+  }
+
+  public sendCampaign(
+    body: SendCampaignRequest,
+  ): Observable<SendCampaignResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/marketing/send`, body)
+      .pipe(map(validate(sendCampaignResponseSchema, 'POST /marketing/send')));
+  }
+
+  /**
+   * Approves waitlist rows into the founding cohort: per row, a free 1-year
+   * complimentary `builders` licence, placement in the `Founding Members`
+   * cohort, an `approvedAt` stamp and one welcome email.
+   *
+   * Answers 200 with a per-row outcome list even when individual rows fail —
+   * callers MUST read `tally`/`results` rather than treating a resolved
+   * observable as "all approved".
+   */
+  public approveWaitlist(
+    body: AdminApproveWaitlistRequest,
+  ): Observable<AdminApproveWaitlistResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/waitlist/approve`, body)
+      .pipe(
+        map(
+          validate(
+            adminApproveWaitlistResponseSchema,
+            'POST /waitlist/approve',
+          ),
+        ),
+      );
+  }
+
+  /** Overview dashboard stat tiles — waitlist funnel + member counts by tier. */
+  public getStats(): Observable<AdminStatsResponse> {
+    return this.http
+      .get<unknown>(`${this.base}/stats`)
+      .pipe(map(validate(adminStatsResponseSchema, 'GET /stats')));
+  }
+
+  /** Lists every member cohort (group) with its current member count. */
+  public listGroups(): Observable<MemberGroup[]> {
+    return this.http.get<unknown>(`${this.base}/groups`).pipe(
+      map(validate(memberGroupsEnvelopeSchema, 'GET /groups')),
+      map((res) => res.groups),
+    );
+  }
+
+  /**
+   * Creates a member cohort. `isDefault: true` atomically clears the
+   * previous default group server-side.
+   */
+  public createGroup(body: CreateMemberGroupRequest): Observable<MemberGroup> {
+    return this.http
+      .post<unknown>(`${this.base}/groups`, body)
+      .pipe(map(validate(memberGroupSchema, 'POST /groups')));
+  }
+
+  /** Patches a member cohort's mutable fields (`key` is immutable). */
+  public updateGroup(
+    id: string,
+    body: UpdateMemberGroupRequest,
+  ): Observable<MemberGroup> {
+    return this.http
+      .patch<unknown>(`${this.base}/groups/${id}`, body)
+      .pipe(map(validate(memberGroupSchema, `PATCH /groups/${id}`)));
+  }
+
+  /**
+   * Bulk-assigns users (by id and/or pasted email) to a cohort. Skipped
+   * counts already-assigned or unresolved ids/emails — the server does not
+   * return per-item reasons.
+   */
+  public assignGroupMembers(
+    id: string,
+    body: AssignGroupMembersRequest,
+  ): Observable<AssignGroupMembersResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/groups/${id}/assign`, body)
+      .pipe(
+        map(
+          validate(
+            assignGroupMembersResponseSchema,
+            `POST /groups/${id}/assign`,
+          ),
+        ),
+      );
+  }
+
+  /** Removes a single user from a cohort. Idempotent — a missing assignment is a no-op. */
+  public unassignGroupMember(
+    id: string,
+    userId: string,
+  ): Observable<UnassignGroupMemberResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/groups/${id}/members/${userId}`)
+      .pipe(
+        map(
+          validate(
+            unassignGroupMemberResponseSchema,
+            `DELETE /groups/${id}/members/${userId}`,
+          ),
+        ),
+      );
+  }
+}

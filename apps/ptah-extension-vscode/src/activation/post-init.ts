@@ -4,19 +4,20 @@ import {
   type LicenseService,
   type LicenseStatus,
   TOKENS,
-  bindLicenseReactivity,
+  bringUpSubsystems,
 } from '@ptah-extension/vscode-core';
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import { DIContainer } from '../di/container';
 import { PtahExtension } from '../core/ptah-extension';
-import { syncCliSkillsOnActivation } from './cli-skill-sync';
-import { syncCliAgentsOnActivation } from './cli-agent-sync';
 
 /**
- * Final activation stage: constructs the PtahExtension controller, wires
- * the license reactivity binder (license:verified / license:expired ->
- * MCP server + CLI sync lifecycle), schedules background revalidation,
- * and shows the first-time welcome message.
+ * Final activation stage: constructs the PtahExtension controller, brings up
+ * the local MCP subsystem unconditionally, schedules background membership
+ * revalidation, and shows the first-time welcome message.
+ *
+ * Harness propagation used to happen here too, through two CLI sync callbacks.
+ * It moved to `reconcileHarness` in `wire-runtime.ts`, which runs earlier and
+ * covers Claude and every rival CLI in one pass (TASK_2026_278 Batch 2).
  *
  * @returns The constructed PtahExtension so the caller can assign it to the
  *   module-level `ptahExtension` variable used by `deactivate()`.
@@ -33,47 +34,23 @@ export async function registerPostInit(
   await ptahExtension.registerAll();
   try {
     const container = DIContainer.getContainer();
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-    const binderDisposable = bindLicenseReactivity({
+    await bringUpSubsystems({
       container,
       logger,
       onMcpPortChange: (port) => {
         setPtahMcpPort(port ?? 0);
       },
-      notify: (kind) => {
-        if (kind === 'verified') {
-          vscode.window.showInformationMessage(
-            'Ptah premium features activated.',
-          );
-        } else {
-          vscode.window.showWarningMessage(
-            'Your Ptah license has expired. Please renew your subscription to continue using premium features.',
-          );
-        }
-      },
-      syncCliSkills: () => {
-        syncCliSkillsOnActivation(workspaceRoot, logger);
-      },
-      syncCliAgents: () => {
-        if (workspaceRoot) {
-          syncCliAgentsOnActivation(workspaceRoot, logger);
-        }
-      },
     });
-    context.subscriptions.push(binderDisposable);
 
-    logger.info('[post-init] License reactivity binder initialized');
-  } catch (binderError: unknown) {
-    logger.warn(
-      '[post-init] License reactivity binder setup failed (non-fatal)',
-      {
-        error:
-          binderError instanceof Error
-            ? binderError.message
-            : String(binderError),
-      },
-    );
+    logger.info('[post-init] Subsystems brought up');
+  } catch (bringUpError: unknown) {
+    logger.warn('[post-init] Subsystem bring-up failed (non-fatal)', {
+      error:
+        bringUpError instanceof Error
+          ? bringUpError.message
+          : String(bringUpError),
+    });
   }
   try {
     const licenseService = DIContainer.resolve<LicenseService>(

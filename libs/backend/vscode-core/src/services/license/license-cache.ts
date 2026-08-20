@@ -7,7 +7,7 @@
  * - In-memory 1-hour TTL cache
  * - Persisted cache in VS Code globalState (offline grace period)
  * - 7-day grace period logic for network failures
- * - Persistence of previousUserContext (expired/trial-ended user memory)
+ * - Persistence of previousUserContext (expired user memory)
  *
  * This helper is **library-internal** — it is not `@injectable()` and is not
  * exported from the public barrel. {@link LicenseService} owns a single
@@ -279,8 +279,7 @@ export class LicenseCache {
     }
 
     const isValidContext =
-      (previousContext.reason === 'expired' ||
-        previousContext.reason === 'trial_ended') &&
+      previousContext.reason === 'expired' &&
       typeof previousContext.persistedAt === 'number' &&
       Date.now() - previousContext.persistedAt < PREVIOUS_CONTEXT_MAX_AGE_MS;
 

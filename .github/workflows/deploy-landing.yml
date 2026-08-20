@@ -54,6 +54,31 @@ jobs:
       - name: Build landing page
         run: npx nx run-many -t build --projects=ptah-landing-page
 
+      # Fail loudly if the SSG build silently degraded to an empty CSR shell.
+      # Asserts the prerendered routes shipped real content instead of an empty
+      # <app-root>. Copy-specific greps are structural for now (old design) and
+      # get tightened to the repositioned headlines when Batch F copy lands.
+      - name: Assert prerendered content
+        run: |
+          set -euo pipefail
+          DIST="dist/ptah-landing-page/browser"
+          fail() { echo "::error::prerender assertion failed: $1"; exit 1; }
+
+          for route in "index.html" "download/index.html" "pricing/index.html" \
+            "terms-and-conditions/index.html" "privacy/index.html" "refund/index.html"; do
+            [ -f "$DIST/$route" ] || fail "$route missing from build output"
+            grep -qi "<h1" "$DIST/$route" || fail "$route has no <h1> (empty prerender?)"
+            grep -q "<app-root></app-root>" "$DIST/$route" && fail "$route is an empty CSR shell"
+          done
+
+          # index.csr.html is the client-bootstrap fallback the catchall points to.
+          [ -f "$DIST/index.csr.html" ] || fail "index.csr.html (catchall document) missing"
+
+          # Home route must carry structured data for SEO/GEO.
+          grep -q 'application/ld+json' "$DIST/index.html" || fail "index.html missing JSON-LD"
+
+          echo "Prerender content assertion passed for 6 routes + catchall shell."
+
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:

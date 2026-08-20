@@ -1,0 +1,22 @@
+{
+  "_note": "Respellings MUST be lowercase unless you actually want the letters spoken one at a time. TTS front-ends treat an all-caps token as an acronym: 'Pih-TAH' came out as 'Pih T A H', which is why Ptah was being spelled in narration. Keep acronym entries (RPC, LLM, ...) spaced-and-capitalised on purpose; keep phonetic respellings lowercase.",
+  "RPC": "R P C",
+  "LLM": "L L M",
+  "Monaco": "Monaco",
+  "xterm": "x-term",
+  "Nx": "N X",
+  "e2e": "end to end",
+  "TTS": "T T S",
+  "UI": "U I",
+  "API": "A P I",
+  "CLI": "C L I",
+  "MCP": "M C P",
+  "AST": "A S T",
+  "SDK": "S D K",
+  "VS Code": "V S Code",
+  "JSON": "Jason",
+  "Kokoro": "Koh-koh-roh",
+  "Ptah": "puh-tah",
+  "SaaS": "Sass",
+  "Thoth": "tote"
+}

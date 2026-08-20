@@ -86,10 +86,10 @@ Comprehensive catalog of all 14 specialist agents with capabilities, triggers, a
 ```typescript
 Task({
   subagent_type: 'project-manager',
-  description: 'Create requirements for TASK_2025_042',
-  prompt: `You are project-manager for TASK_2025_042.
+  description: 'Create requirements for TASK_2026_042',
+  prompt: `You are project-manager for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **User Request**: "Add WebSocket support for real-time updates"
 
 Analyze the request and create comprehensive requirements.
@@ -129,10 +129,10 @@ See project-manager.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'software-architect',
-  description: 'Design implementation for TASK_2025_042',
-  prompt: `You are software-architect for TASK_2025_042.
+  description: 'Design implementation for TASK_2026_042',
+  prompt: `You are software-architect for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Requirements**: Read task-description.md in task folder
 
 Design the technical implementation plan.
@@ -174,11 +174,11 @@ See software-architect.md for detailed instructions.`,
 // MODE 1: DECOMPOSITION
 Task({
   subagent_type: 'team-leader',
-  description: 'Decompose tasks for TASK_2025_042',
-  prompt: `You are team-leader for TASK_2025_042.
+  description: 'Decompose tasks for TASK_2026_042',
+  prompt: `You are team-leader for TASK_2026_042.
 
 **MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Implementation Plan**: Read implementation-plan.md in task folder
 
 Break down the implementation into atomic, batchable tasks.
@@ -221,10 +221,10 @@ See team-leader.md for MODE 1 instructions.`,
 ```typescript
 Task({
   subagent_type: 'backend-developer',
-  description: 'Implement Batch 1 for TASK_2025_042',
-  prompt: `You are backend-developer for TASK_2025_042.
+  description: 'Implement Batch 1 for TASK_2026_042',
+  prompt: `You are backend-developer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 **Plan**: Read implementation-plan.md for context
 
@@ -266,10 +266,10 @@ See backend-developer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'frontend-developer',
-  description: 'Implement Batch 2 for TASK_2025_042',
-  prompt: `You are frontend-developer for TASK_2025_042.
+  description: 'Implement Batch 2 for TASK_2026_042',
+  prompt: `You are frontend-developer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Tasks**: Read tasks.md, find Batch 2 (IN PROGRESS)
 **Plan**: Read implementation-plan.md for context
 
@@ -313,10 +313,10 @@ See frontend-developer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'devops-engineer',
-  description: 'Implement infrastructure for TASK_2025_042',
-  prompt: `You are devops-engineer for TASK_2025_042.
+  description: 'Implement infrastructure for TASK_2026_042',
+  prompt: `You are devops-engineer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Plan**: Read implementation-plan.md for infrastructure design
 
 Implement the infrastructure changes.
@@ -359,10 +359,10 @@ See devops-engineer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'senior-tester',
-  description: 'Test implementation for TASK_2025_042',
-  prompt: `You are senior-tester for TASK_2025_042.
+  description: 'Test implementation for TASK_2026_042',
+  prompt: `You are senior-tester for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Changes**: Review tasks.md for implemented changes
 **Plan**: Read implementation-plan.md for expected behavior
 
@@ -391,7 +391,7 @@ See senior-tester.md for detailed instructions.`,
 
 **Outputs**:
 
-- `.ptah/specs/TASK_[ID]/code-review.md` (style section)
+- `.ptah/specs/TASK_[ID]/code-style-review.md`
 
 **Dependencies**: Implementation complete (all batches)
 
@@ -402,10 +402,10 @@ See senior-tester.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'code-style-reviewer',
-  description: 'Review code style for TASK_2025_042',
-  prompt: `You are code-style-reviewer for TASK_2025_042.
+  description: 'Review code style for TASK_2026_042',
+  prompt: `You are code-style-reviewer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Changes**: Review tasks.md for modified files
 
 Review code for style, patterns, and consistency.
@@ -434,7 +434,7 @@ See code-style-reviewer.md for detailed instructions.`,
 
 **Outputs**:
 
-- `.ptah/specs/TASK_[ID]/code-review.md` (logic section)
+- `.ptah/specs/TASK_[ID]/code-logic-review.md`
 
 **Dependencies**: Implementation complete (all batches)
 
@@ -445,10 +445,10 @@ See code-style-reviewer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'code-logic-reviewer',
-  description: 'Review code logic for TASK_2025_042',
-  prompt: `You are code-logic-reviewer for TASK_2025_042.
+  description: 'Review code logic for TASK_2026_042',
+  prompt: `You are code-logic-reviewer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Changes**: Review tasks.md for modified files
 **Plan**: Read implementation-plan.md for expected behavior
 
@@ -503,10 +503,10 @@ See code-logic-reviewer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'visual-reviewer',
-  description: 'Visual review for TASK_2025_042',
-  prompt: `You are visual-reviewer for TASK_2025_042.
+  description: 'Visual review for TASK_2026_042',
+  prompt: `You are visual-reviewer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Changes**: Review tasks.md for modified frontend files
 **Base URL**: http://localhost:4200
 
@@ -557,10 +557,10 @@ See visual-reviewer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'researcher-expert',
-  description: 'Research WebSocket options for TASK_2025_042',
-  prompt: `You are researcher-expert for TASK_2025_042.
+  description: 'Research WebSocket options for TASK_2026_042',
+  prompt: `You are researcher-expert for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Research Question**: "Best WebSocket library for VS Code extension"
 
 Investigate options, create comparison matrix, recommend approach.
@@ -600,10 +600,10 @@ See researcher-expert.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'modernization-detector',
-  description: 'Analyze future improvements for TASK_2025_042',
-  prompt: `You are modernization-detector for TASK_2025_042.
+  description: 'Analyze future improvements for TASK_2026_042',
+  prompt: `You are modernization-detector for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Changes**: Review tasks.md for what was implemented
 
 Identify opportunities for future improvements and tech debt.
@@ -635,7 +635,8 @@ See modernization-detector.md for detailed instructions.`,
 
 **Outputs**:
 
-- `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
+- `DESIGN-SYSTEM.md`, written into the `technical-content-writer` skill's own
+  directory (locate it via the Skill tool / plugin root, not a workspace path)
 - `.ptah/specs/TASK_[ID]/visual-design-specification.md`
 
 **Dependencies**: project-manager (optional context)
@@ -647,10 +648,10 @@ See modernization-detector.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'ui-ux-designer',
-  description: 'Create design system for TASK_2025_042',
-  prompt: `You are ui-ux-designer for TASK_2025_042.
+  description: 'Create design system for TASK_2026_042',
+  prompt: `You are ui-ux-designer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
 **Goal**: Create brand design system for the project
 
 Guide through niche discovery, create design system.
@@ -674,7 +675,8 @@ See ui-ux-designer.md for detailed instructions.`,
 
 **Inputs**:
 
-- `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
+- `DESIGN-SYSTEM.md`, a sibling of the `technical-content-writer` SKILL.md
+  (resolve against that skill's own directory, not a workspace path)
 - Content brief/requirements
 - Codebase features for technical accuracy
 
@@ -692,11 +694,11 @@ See ui-ux-designer.md for detailed instructions.`,
 ```typescript
 Task({
   subagent_type: 'technical-content-writer',
-  description: 'Create landing page content for TASK_2025_042',
-  prompt: `You are technical-content-writer for TASK_2025_042.
+  description: 'Create landing page content for TASK_2026_042',
+  prompt: `You are technical-content-writer for TASK_2026_042.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_042
-**Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_042
+**Design System**: Read DESIGN-SYSTEM.md from your own skill directory
 **Goal**: Create landing page content for the VS Code extension
 
 Create design-integrated content specification.

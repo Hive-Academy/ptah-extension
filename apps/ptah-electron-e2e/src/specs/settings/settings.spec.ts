@@ -3,8 +3,7 @@ import type { UiDriver } from '../../support/ui-driver';
 
 async function openWebSearchSection(ui: UiDriver): Promise<void> {
   const page = ui.page;
-  await page.getByRole('button', { name: 'Ptah AI' }).click();
-  await page.getByRole('button', { name: 'Pro Features' }).click();
+  await page.getByRole('button', { name: 'Search & Voice' }).click();
   await expect(page.locator('ptah-web-search-config')).toBeVisible();
 }
 

@@ -1,0 +1,10 @@
+<span [class]="badgeClass()">
+  @if (showIcon()) {
+    <lucide-angular
+      [img]="icon()"
+      class="h-3.5 w-3.5 shrink-0"
+      aria-hidden="true"
+    />
+  }
+  {{ displayText() }}
+</span>

@@ -1,0 +1,1512 @@
+/**
+ * EditorDiffSplitHelper specs — the A1-A4 acceptance matrix (TASK_2026_173,
+ * Task 2.14).
+ *
+ * Coverage map (plan implementation-plan.md SS2, SS3; tasks.md Batch 2):
+ *   A1 AC4 - re-click activates AND revalidates (no early return)
+ *   A1 AC6 - refresh never clears original/modified while in flight (no flicker)
+ *   A1 AC7 - a failed side surfaces a persistent error and retains prior content
+ *   A1     - transport failure on refresh -> 'stale', content retained
+ *   A1     - transport failure on initial open -> 'error' (nothing to retain)
+ *   NFR-7  - bounded queueing: a refresh already in flight is not duplicated
+ *   A1     - stale-response protection: a superseded request's answer is dropped
+ *   A1 SS2.4 - git:status-update revalidates every diff tab in the pushed
+ *            workspace, debounced 250ms; a push for a different (background)
+ *            workspace is ignored
+ *   A1 SS2.4 - file:content-changed only revalidates matching WORKTREE diff tabs
+ *   A2 AC3 - the same path open as 'staged' AND 'worktree' produces two
+ *            independent tabs (comparison is part of the key)
+ *   A2 AC4/N3 - originalPath is sent on the wire only when it differs from path
+ *   A2 AC4 - tab label reflects new/deleted/staged/working-tree chrome
+ *   A3     - an empty snapshotToken is never trusted as 'fresh' even when both
+ *            sides read as content (defence in depth against a malformed answer)
+ *   A4     - a deleted file (modifiedRef absent) resolves cleanly to 'fresh',
+ *            never throws
+ *   A1 AC3 - a diff that resolves to "no changes" (e.g. after discard) stays
+ *            open and fresh; the helper never closes a tab out from under the user
+ *
+ * `rpcCall` is mocked at the module boundary, matching the pattern already
+ * used by editor-workspace.spec.ts and editor.service.spec.ts.
+ */
+
+import { signal } from '@angular/core';
+import { EditorDiffSplitHelper } from './editor-diff-split';
+import { EditorTabsHelper } from './editor-tabs';
+import type {
+  EditorInternalState,
+  EditorWorkspaceState,
+} from './editor-internal-state';
+import type { EditorTab, OpenDiffRequest } from './editor-tab.types';
+import { diffTabKey } from './editor-tab.types';
+import type {
+  DiffSideRef,
+  GitApplyHunksResult,
+  GitBlobRead,
+  GitDiffFileResult,
+  GitHunkRef,
+  GitReadErrorCode,
+} from '@ptah-extension/shared';
+import { GIT_READ_TRANSPORT_MESSAGE } from './git-read-error-messages';
+
+// ----------------------------------------------------------------------------
+// Mock @ptah-extension/core's rpcCall — controlled per test via mockRpcCall.
+// ----------------------------------------------------------------------------
+const mockRpcCall = jest.fn();
+jest.mock('@ptah-extension/core', () => ({
+  rpcCall: (...args: unknown[]) => mockRpcCall(...args),
+}));
+
+// ----------------------------------------------------------------------------
+// Fixtures
+// ----------------------------------------------------------------------------
+function content(text: string): GitBlobRead {
+  return { outcome: 'content', content: text };
+}
+function absentBlob(): GitBlobRead {
+  return { outcome: 'absent' };
+}
+function errorBlob(
+  code: GitReadErrorCode = 'unknown',
+  message = 'boom',
+): GitBlobRead {
+  return { outcome: 'error', code, message };
+}
+const INDEX_REF: DiffSideRef = { kind: 'index' };
+const WORKTREE_REF: DiffSideRef = { kind: 'worktree' };
+const ABSENT_REF: DiffSideRef = { kind: 'absent' };
+
+function makeResult(
+  overrides: Partial<GitDiffFileResult> = {},
+): GitDiffFileResult {
+  return {
+    path: 'a.ts',
+    originalPath: 'a.ts',
+    comparison: 'worktree',
+    original: content('old'),
+    modified: content('new'),
+    originalRef: INDEX_REF,
+    modifiedRef: WORKTREE_REF,
+    snapshotToken: 'tok-1',
+    // Batch 8A §7.6: this helper claimed to return a GitDiffFileResult while
+    // omitting `patch` and `hunks`, and nothing caught it — `tsconfig.lib.json`
+    // excludes `**/*.spec.ts` from typecheck and `tsconfig.spec.json` sets
+    // `isolatedModules: true`, so ts-jest transpiles specs without checking
+    // them. Every hunk assertion below would have received `undefined`.
+    patch: null,
+    hunks: [],
+    ...overrides,
+  };
+}
+
+/** A `@@` header ref, positions only — exactly what the backend now returns. */
+function hunk(
+  index: number,
+  modifiedStart: number,
+  modifiedLines = 1,
+): GitHunkRef {
+  return {
+    index,
+    originalStart: modifiedStart,
+    originalLines: modifiedLines,
+    modifiedStart,
+    modifiedLines,
+    header: `@@ -${modifiedStart},${modifiedLines} +${modifiedStart},${modifiedLines} @@`,
+  };
+}
+
+function ok(data: GitDiffFileResult): {
+  success: true;
+  data: GitDiffFileResult;
+} {
+  return { success: true, data };
+}
+function fail(error = 'transport down'): { success: false; error: string } {
+  return { success: false, error };
+}
+
+function makeState(): {
+  state: EditorInternalState;
+  openTabs: ReturnType<typeof signal<EditorTab[]>>;
+  active: { path: string | null };
+  workspaceMap: Map<string, EditorWorkspaceState>;
+} {
+  const fileTree = signal<EditorWorkspaceState['fileTree']>([]);
+  const activeFilePath = signal<string | undefined>(undefined);
+  const activeFileContent = signal<string>('');
+  const openTabs = signal<EditorTab[]>([]);
+  const isLoading = signal<boolean>(false);
+  const targetLine = signal<number | undefined>(undefined);
+  const splitActive = signal<boolean>(false);
+  const splitFilePath = signal<string | undefined>(undefined);
+  const splitFileContent = signal<string>('');
+  const focusedPane = signal<'left' | 'right'>('left');
+  const workspaceMap = new Map<string, EditorWorkspaceState>();
+  const active: { path: string | null } = { path: '/ws' };
+
+  const state: EditorInternalState = {
+    vscodeService: {} as never,
+    fileTree,
+    activeFilePath,
+    activeFileContent,
+    openTabs,
+    isLoading,
+    targetLine,
+    splitActive,
+    splitFilePath,
+    splitFileContent,
+    focusedPane,
+    workspaceEditorState: workspaceMap,
+    getActiveWorkspacePath: () => active.path,
+    setActiveWorkspacePath: (p) => {
+      active.path = p;
+    },
+    showError: jest.fn(),
+    clearError: jest.fn(),
+  };
+
+  return { state, openTabs, active, workspaceMap };
+}
+
+function makeHelper(): {
+  helper: EditorDiffSplitHelper;
+  ctx: ReturnType<typeof makeState>;
+} {
+  const ctx = makeState();
+  const tabs = new EditorTabsHelper(ctx.state, {
+    clearActiveFile: jest.fn(),
+    closeSplit: jest.fn(),
+  });
+  const helper = new EditorDiffSplitHelper(ctx.state, tabs);
+  return { helper, ctx };
+}
+
+async function openDiff(
+  helper: EditorDiffSplitHelper,
+  request: Partial<OpenDiffRequest> & { path: string },
+): Promise<void> {
+  await helper.openDiff({ comparison: 'worktree', ...request });
+}
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  mockRpcCall.mockReset();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+// ============================================================================
+
+describe('EditorDiffSplitHelper.openDiff', () => {
+  it('creates a diff tab keyed by comparison + path, seeded from the RPC result', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'src/a.ts' })));
+
+    await openDiff(helper, { path: 'src/a.ts', comparison: 'worktree' });
+
+    const key = diffTabKey('worktree', 'src/a.ts');
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab).toBeDefined();
+    expect(tab?.diff?.status).toBe('fresh');
+    expect(tab?.content).toBe('new');
+    expect(ctx.active.path && ctx.state.activeFilePath()).toBe(key);
+  });
+
+  it('(A2 AC3) the same path open as staged AND worktree produces two independent tabs', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockImplementation(
+      (
+        _svc: unknown,
+        _method: string,
+        params: { comparison: 'staged' | 'worktree' },
+      ) =>
+        Promise.resolve(
+          ok(makeResult({ path: 'a.ts', comparison: params.comparison })),
+        ),
+    );
+
+    await openDiff(helper, { path: 'a.ts', comparison: 'staged' });
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    expect(ctx.openTabs()).toHaveLength(2);
+    expect(ctx.openTabs().map((t) => t.filePath)).toEqual([
+      diffTabKey('staged', 'a.ts'),
+      diffTabKey('worktree', 'a.ts'),
+    ]);
+  });
+
+  it('(A2 AC4/N3) sends originalPath on the wire only when it differs from path', async () => {
+    const { helper } = makeHelper();
+    // Two DISTINCT keys (different paths) — reusing one key would hit the
+    // existing-tab/revalidate branch, which reads originalPath off the
+    // already-open tab rather than the new request.
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'unrenamed.ts' })));
+    await openDiff(helper, { path: 'unrenamed.ts', comparison: 'staged' });
+    expect(mockRpcCall.mock.calls[0][2]).not.toHaveProperty('originalPath');
+
+    mockRpcCall.mockClear();
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'new-name.ts' })));
+    await openDiff(helper, {
+      path: 'new-name.ts',
+      comparison: 'staged',
+      origPath: 'old-name.ts',
+    });
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({
+      originalPath: 'old-name.ts',
+    });
+  });
+
+  it('(A2 AC4) labels a staged addition as "(new, staged)" and a deletion as "(deleted, working tree)"', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValueOnce(
+      ok(
+        makeResult({
+          path: 'added.ts',
+          comparison: 'staged',
+          originalRef: ABSENT_REF,
+          original: absentBlob(),
+        }),
+      ),
+    );
+    await openDiff(helper, { path: 'added.ts', comparison: 'staged' });
+    expect(
+      ctx
+        .openTabs()
+        .find((t) => t.filePath === diffTabKey('staged', 'added.ts'))?.fileName,
+    ).toBe('added.ts (new, staged)');
+
+    mockRpcCall.mockResolvedValueOnce(
+      ok(
+        makeResult({
+          path: 'gone.ts',
+          comparison: 'worktree',
+          modifiedRef: ABSENT_REF,
+          modified: absentBlob(),
+        }),
+      ),
+    );
+    await openDiff(helper, { path: 'gone.ts', comparison: 'worktree' });
+    expect(
+      ctx
+        .openTabs()
+        .find((t) => t.filePath === diffTabKey('worktree', 'gone.ts'))
+        ?.fileName,
+    ).toBe('gone.ts (deleted, working tree)');
+  });
+
+  it('(A1) a transport failure on the FIRST open produces a persistent error, not a crash', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(fail());
+
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    const tab = ctx.openTabs()[0];
+    expect(tab.diff?.status).toBe('error');
+    expect(tab.diff?.errorMessage).toBe(GIT_READ_TRANSPORT_MESSAGE);
+  });
+
+  it('(A1 AC4) re-clicking an already-open tab does NOT early-return: it activates AND revalidates', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ path: 'a.ts', modified: content('v1') })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ path: 'a.ts', modified: content('v2') })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    // A literal count, per A1 AC5's own framing: exactly one extra RPC per
+    // re-click, never zero (that would be the early-return bug) and never
+    // more than one (that would be a duplicate-request leak).
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+    const tab = ctx
+      .openTabs()
+      .find((t) => t.filePath === diffTabKey('worktree', 'a.ts'));
+    expect(tab?.content).toBe('v2');
+  });
+});
+
+describe('EditorDiffSplitHelper.refreshDiffTab', () => {
+  async function openFresh(
+    helper: EditorDiffSplitHelper,
+    path = 'a.ts',
+  ): Promise<void> {
+    mockRpcCall.mockResolvedValueOnce(ok(makeResult({ path })));
+    await openDiff(helper, { path, comparison: 'worktree' });
+    mockRpcCall.mockReset();
+  }
+
+  it('is a no-op for a path with no open diff tab', async () => {
+    const { helper } = makeHelper();
+    await helper.refreshDiffTab(diffTabKey('worktree', 'never-opened.ts'));
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('(A1 AC6) does not clear original/modified while the request is in flight', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    let resolveRpc!: (v: unknown) => void;
+    mockRpcCall.mockReturnValue(new Promise((res) => (resolveRpc = res)));
+
+    const pending = helper.refreshDiffTab(key);
+    const midFlight = ctx.openTabs().find((t) => t.filePath === key);
+    expect(midFlight?.diff?.status).toBe('refreshing');
+    expect(midFlight?.diff?.original).toBe('old');
+    expect(midFlight?.diff?.modified).toBe('new');
+
+    resolveRpc(ok(makeResult({ path: 'a.ts', modified: content('newer') })));
+    await pending;
+
+    const settled = ctx.openTabs().find((t) => t.filePath === key);
+    expect(settled?.diff?.status).toBe('fresh');
+    expect(settled?.diff?.modified).toBe('newer');
+  });
+
+  it('(A1 AC7 / A3) a failed side surfaces a persistent error and RETAINS the previous content', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    mockRpcCall.mockResolvedValue(
+      ok(
+        makeResult({
+          path: 'a.ts',
+          modified: errorBlob('permission-denied', 'EACCES'),
+        }),
+      ),
+    );
+    await helper.refreshDiffTab(key);
+
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab?.diff?.status).toBe('error');
+    expect(tab?.diff?.errorMessage).toMatch(/permission/i);
+    // Previous content untouched — never rendered as an empty file.
+    expect(tab?.diff?.original).toBe('old');
+    expect(tab?.diff?.modified).toBe('new');
+    expect(tab?.content).toBe('new');
+  });
+
+  it('(A1) a transport failure on refresh -> stale, retaining previous content', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    mockRpcCall.mockResolvedValue(fail());
+    await helper.refreshDiffTab(key);
+
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab?.diff?.status).toBe('stale');
+    expect(tab?.diff?.original).toBe('old');
+    expect(tab?.diff?.modified).toBe('new');
+  });
+
+  it('(NFR-7) a refresh already in flight for the same key is not duplicated', async () => {
+    const { helper } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    mockRpcCall.mockReturnValue(new Promise(() => undefined)); // never resolves
+    void helper.refreshDiffTab(key);
+    void helper.refreshDiffTab(key);
+    void helper.refreshDiffTab(key);
+
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the response if the active workspace changed while the request was in flight', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    let resolveRpc!: (v: unknown) => void;
+    mockRpcCall.mockReturnValueOnce(new Promise((res) => (resolveRpc = res)));
+    const pending = helper.refreshDiffTab(key);
+
+    // The user switches workspace before the read comes back.
+    ctx.active.path = '/some/other/workspace';
+    resolveRpc(
+      ok(
+        makeResult({
+          path: 'a.ts',
+          modified: content('leaked-across-workspaces'),
+        }),
+      ),
+    );
+    await pending;
+
+    // The response belongs to the ORIGIN workspace and must never be applied
+    // once the user has navigated elsewhere — applying it would leak one
+    // workspace's git content into another's tab.
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab?.diff?.modified).toBe('new');
+    expect(tab?.diff?.status).toBe('refreshing');
+  });
+
+  it('drops the response if the tab was closed while the request was in flight', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    let resolveRpc!: (v: unknown) => void;
+    mockRpcCall.mockReturnValueOnce(new Promise((res) => (resolveRpc = res)));
+    const pending = helper.refreshDiffTab(key);
+
+    // The tab is closed mid-flight.
+    ctx.openTabs.set(ctx.openTabs().filter((t) => t.filePath !== key));
+
+    await expect(
+      (async () => {
+        resolveRpc(
+          ok(
+            makeResult({
+              path: 'a.ts',
+              modified: content('should-not-resurrect'),
+            }),
+          ),
+        );
+        await pending;
+      })(),
+    ).resolves.not.toThrow();
+
+    // The tab must not be resurrected by a response that outlived it.
+    expect(ctx.openTabs().find((t) => t.filePath === key)).toBeUndefined();
+  });
+
+  it('(A4) a deleted file (modifiedRef absent) resolves to fresh without throwing', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    mockRpcCall.mockResolvedValue(
+      ok(
+        makeResult({
+          path: 'a.ts',
+          modified: absentBlob(),
+          modifiedRef: ABSENT_REF,
+        }),
+      ),
+    );
+    await expect(helper.refreshDiffTab(key)).resolves.not.toThrow();
+
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab?.diff?.status).toBe('fresh');
+    expect(tab?.diff?.modifiedRef).toEqual(ABSENT_REF);
+    expect(tab?.diff?.modified).toBe('');
+  });
+
+  it('(A3) an empty snapshotToken is never trusted as fresh even when both sides read as content', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ path: 'a.ts', snapshotToken: '' })),
+    );
+    await helper.refreshDiffTab(key);
+
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab?.diff?.status).toBe('error');
+  });
+
+  it('(A1 AC3) a diff that resolves to "no changes" (discard) stays open, fresh, and is never auto-closed', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    mockRpcCall.mockResolvedValue(
+      ok(
+        makeResult({
+          path: 'a.ts',
+          original: content('same'),
+          modified: content('same'),
+        }),
+      ),
+    );
+    await helper.refreshDiffTab(key);
+
+    const tab = ctx.openTabs().find((t) => t.filePath === key);
+    expect(tab).toBeDefined();
+    expect(tab?.diff?.status).toBe('fresh');
+    expect(tab?.diff?.original).toBe(tab?.diff?.modified);
+  });
+});
+
+describe('EditorDiffSplitHelper.onGitStatusUpdate', () => {
+  async function openFresh(
+    helper: EditorDiffSplitHelper,
+    path = 'a.ts',
+  ): Promise<void> {
+    mockRpcCall.mockResolvedValueOnce(ok(makeResult({ path })));
+    await openDiff(helper, { path, comparison: 'worktree' });
+    mockRpcCall.mockReset();
+  }
+
+  it('debounces at 250ms and revalidates every open diff tab in the active workspace', async () => {
+    const { helper, ctx } = makeHelper();
+    await openFresh(helper, 'a.ts');
+    await openFresh(helper, 'b.ts');
+
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ path: 'a.ts', modified: content('refreshed') })),
+    );
+
+    helper.onGitStatusUpdate('/ws');
+    helper.onGitStatusUpdate('/ws');
+    helper.onGitStatusUpdate('/ws');
+
+    jest.advanceTimersByTime(249);
+    expect(mockRpcCall).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+    void ctx;
+  });
+
+  it('ignores a push for a different (background) workspace', async () => {
+    const { helper } = makeHelper();
+    await openFresh(helper, 'a.ts');
+
+    helper.onGitStatusUpdate('/some/other/workspace');
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+});
+
+describe('EditorDiffSplitHelper.onFileContentChanged', () => {
+  async function openFresh(
+    helper: EditorDiffSplitHelper,
+    request: Partial<OpenDiffRequest> & { path: string },
+  ): Promise<void> {
+    mockRpcCall.mockResolvedValueOnce(
+      ok(
+        makeResult({
+          path: request.path,
+          comparison: request.comparison ?? 'worktree',
+        }),
+      ),
+    );
+    await openDiff(helper, request);
+    mockRpcCall.mockReset();
+  }
+
+  it('revalidates only a matching WORKTREE diff tab, never a staged one', async () => {
+    const { helper } = makeHelper();
+    await openFresh(helper, { path: 'a.ts', comparison: 'worktree' });
+    await openFresh(helper, { path: 'a.ts', comparison: 'staged' });
+    await openFresh(helper, { path: 'b.ts', comparison: 'worktree' });
+
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'a.ts' })));
+    helper.onFileContentChanged('/ws/a.ts');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({
+      path: 'a.ts',
+      comparison: 'worktree',
+    });
+  });
+
+  it('is a no-op for a path outside the active workspace', async () => {
+    const { helper } = makeHelper();
+    await openFresh(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    helper.onFileContentChanged('/outside/a.ts');
+    await Promise.resolve();
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// C2 — split-pane content ownership.
+//
+// The tab record owns the content of a file open in both panes. These assert
+// the ownership rules directly (which store holds the text, which pane is
+// written to, and when), because the failure they replace was silent: a split
+// edit lived only in `splitFileContent`, so activating the same file in the
+// left pane, or saving from it, discarded the edit with no indication at all.
+// ============================================================================
+
+const MIRROR_MS = 150;
+
+function makeTab(
+  filePath: string,
+  content: string,
+  isDirty = false,
+): EditorTab {
+  return {
+    filePath,
+    fileName: filePath.split('/').pop() ?? filePath,
+    content,
+    isDirty,
+  };
+}
+
+/** Split open on `path`, same file active in the left pane, one tab record. */
+function shareFileInBothPanes(
+  ctx: ReturnType<typeof makeState>,
+  path = '/ws/a.ts',
+  content = 'v0',
+): void {
+  ctx.openTabs.set([makeTab(path, content)]);
+  ctx.state.activeFilePath.set(path);
+  ctx.state.activeFileContent.set(content);
+  ctx.state.splitActive.set(true);
+  ctx.state.splitFilePath.set(path);
+  ctx.state.splitFileContent.set(content);
+  ctx.state.focusedPane.set('left');
+}
+
+describe('EditorDiffSplitHelper — split content ownership (C2 AC1/AC2)', () => {
+  it('writes a split-pane edit through to the tab record and marks it dirty', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+
+    helper.updateSplitContent('edited in the split pane');
+
+    const tab = ctx.openTabs()[0];
+    expect(tab.content).toBe('edited in the split pane');
+    expect(tab.isDirty).toBe(true);
+    // ...and NOT back into the pane signal that feeds this pane's own
+    // `[content]` input (TASK_2026_213). The right pane is deliberately stale,
+    // exactly as the primary pane already was.
+    expect(ctx.state.splitFileContent()).toBe('v0');
+  });
+
+  it('writes through even when the split file is NOT the active file, so activating its tab cannot show pre-edit text', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'A'), makeTab('/ws/b.ts', 'B')]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/b.ts');
+
+    helper.updateSplitContent('B edited');
+
+    expect(ctx.openTabs().find((t) => t.filePath === '/ws/b.ts')?.content).toBe(
+      'B edited',
+    );
+    // The ACTIVE file's tab is untouched — the write is addressed by path.
+    expect(ctx.openTabs().find((t) => t.filePath === '/ws/a.ts')?.content).toBe(
+      'A',
+    );
+  });
+
+  it('(§1.4) leaves the no-tab split file exactly as it was: no tab is created, no throw', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/untabbed.ts');
+    ctx.state.activeFilePath.set('/ws/other.ts');
+
+    expect(() => helper.updateSplitContent('typed')).not.toThrow();
+
+    // The split pane is the ONLY editing surface for this file; giving it a tab
+    // would add a strip entry the user never asked for.
+    expect(ctx.openTabs()).toHaveLength(0);
+    expect(ctx.state.splitFileContent()).toBe('typed');
+    // ...and nothing to reconcile means nothing to prompt about at save time.
+    expect(helper.hasUnabsorbedPeerEdit('/ws/untabbed.ts', 'anything')).toBe(
+      false,
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_213 — the right pane stops echoing its own keystrokes.
+  //
+  // `updateSplitContent` opened with `splitFileContent.set(content)`, and
+  // `splitFileContent` is the right pane's own `[content]` input. That is the
+  // loop `code-editor.component.ts` names in its syncFile external-update
+  // branch as the thing that must not exist: "nothing writes this pane's own
+  // edits back into its `content` input", because that branch is a full-model
+  // replacement and would move the cursor to the end of the buffer and flatten
+  // the undo stack. It survived only because the same branch is skipped when
+  // the incoming content already equals the model.
+  //
+  // The register called this "not a one-liner" and asked for the right pane's
+  // `[content]` to be re-pointed at the tab record. It must NOT be: the right
+  // pane would then take a full-model replacement on every LEFT-pane keystroke
+  // instead of one debounced mirror, which is what the debounce exists to
+  // prevent. What was actually needed is the write, split by case.
+  // -------------------------------------------------------------------------
+
+  it('(213-1) does NOT echo a split-pane keystroke back into the pane it came from', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('typed by the user');
+
+    // The owner has it...
+    expect(ctx.openTabs()[0].content).toBe('typed by the user');
+    // ...and the pane's own input is untouched, so no full-model replacement
+    // can ever be aimed at the buffer the user is typing in.
+    expect(ctx.state.splitFileContent()).toBe('v0');
+  });
+
+  it('(213-2) still keeps the §1.4 no-tab pane signal current — it is the only owner there', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/untabbed.ts');
+    ctx.state.splitFileContent.set('original');
+    ctx.state.activeFilePath.set('/ws/other.ts');
+
+    helper.updateSplitContent('typed');
+
+    // Dropping this write unconditionally, as the register's wording implies,
+    // loses the edit: EditorWorkspaceHelper caches `splitFileContent` on a
+    // workspace switch and there is no tab record to fall back to.
+    expect(ctx.state.splitFileContent()).toBe('typed');
+    expect(ctx.openTabs()).toHaveLength(0);
+  });
+
+  it('(213-3) the debounced mirror is still the only thing that writes the right pane', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('left');
+
+    // A LEFT-pane keystroke, the way EditorService routes one.
+    const tabs = new EditorTabsHelper(ctx.state, {
+      clearActiveFile: jest.fn(),
+      closeSplit: jest.fn(),
+    });
+    tabs.updateTabContent('/ws/a.ts', 'v1');
+    helper.scheduleSplitMirror('/ws/a.ts');
+
+    // Not immediately — this is the assertion that would break if the right
+    // pane were re-pointed at the tab record.
+    expect(ctx.state.splitFileContent()).toBe('v0');
+
+    jest.advanceTimersByTime(MIRROR_MS);
+    expect(ctx.state.splitFileContent()).toBe('v1');
+  });
+
+  it('(213-4) a split-pane edit still survives a close, which absorbs through the tab record', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('unmirrored edit');
+    // Close before the mirror debounce fires: the pane signal never held this
+    // text, so absorbing from it would have lost the edit.
+    helper.closeSplit();
+
+    expect(ctx.state.activeFileContent()).toBe('unmirrored edit');
+    expect(ctx.openTabs()[0].content).toBe('unmirrored edit');
+  });
+});
+
+describe('EditorDiffSplitHelper — unfocused-pane mirroring (C2 AC1)', () => {
+  it('mirrors a split-pane edit into the LEFT pane after the debounce, never before', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    expect(ctx.state.activeFileContent()).toBe('v0');
+
+    jest.advanceTimersByTime(MIRROR_MS - 1);
+    expect(ctx.state.activeFileContent()).toBe('v0');
+
+    jest.advanceTimersByTime(1);
+    expect(ctx.state.activeFileContent()).toBe('v1');
+  });
+
+  it('mirrors a primary-pane edit into the RIGHT pane', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('left');
+
+    // What EditorService.updateTabContent does on a left-pane keystroke.
+    const tabs = new EditorTabsHelper(ctx.state, {
+      clearActiveFile: jest.fn(),
+      closeSplit: jest.fn(),
+    });
+    tabs.updateTabContent('/ws/a.ts', 'v1');
+    helper.scheduleSplitMirror('/ws/a.ts');
+
+    jest.advanceTimersByTime(MIRROR_MS);
+    expect(ctx.state.splitFileContent()).toBe('v1');
+  });
+
+  it('NEVER writes into the pane that has focus — the mirror re-reads focus at flush time', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    // `activeFileContent` is the FOCUSED pane's input once focus moves left, so
+    // a flush that trusted the focus captured at edit time would replace the
+    // buffer under the user's cursor.
+    ctx.state.focusedPane.set('left');
+    jest.advanceTimersByTime(MIRROR_MS);
+
+    expect(ctx.state.activeFileContent()).toBe('v0');
+  });
+
+  it('coalesces a burst of keystrokes into ONE mirror carrying the latest text', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    jest.advanceTimersByTime(100);
+    helper.updateSplitContent('v2');
+    jest.advanceTimersByTime(100);
+    helper.updateSplitContent('v3');
+    expect(ctx.state.activeFileContent()).toBe('v0');
+
+    jest.advanceTimersByTime(MIRROR_MS);
+    expect(ctx.state.activeFileContent()).toBe('v3');
+  });
+
+  it('(AC5) does nothing at all when the two panes hold DIFFERENT files', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'A'), makeTab('/ws/b.ts', 'B')]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    ctx.state.activeFileContent.set('A');
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/b.ts');
+    ctx.state.splitFileContent.set('B');
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('B edited');
+    jest.advanceTimersByTime(1000);
+
+    // The left pane's read surface is untouched: no mirror, no reconciliation.
+    expect(ctx.state.activeFileContent()).toBe('A');
+    // The right pane's read surface is untouched too — its own keystrokes do
+    // not echo back into it (TASK_2026_213). The edit went to /ws/b.ts's tab.
+    expect(ctx.state.splitFileContent()).toBe('B');
+    expect(ctx.openTabs().find((t) => t.filePath === '/ws/b.ts')?.content).toBe(
+      'B edited',
+    );
+  });
+
+  it('(AC5) setFocusedPane touches nothing when the panes hold different files', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'A'), makeTab('/ws/b.ts', 'B')]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    ctx.state.activeFileContent.set('A-stale');
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/b.ts');
+    ctx.state.splitFileContent.set('B-stale');
+
+    helper.setFocusedPane('right');
+
+    expect(ctx.state.activeFileContent()).toBe('A-stale');
+    expect(ctx.state.splitFileContent()).toBe('B-stale');
+    expect(ctx.state.focusedPane()).toBe('right');
+  });
+
+  it('reconciles BOTH panes immediately on a focus change, without waiting for the debounce', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    // The user clicks into the left pane mid-debounce. It must not be possible
+    // to type — or save — in a pane that is still showing pre-edit text.
+    helper.setFocusedPane('left');
+
+    expect(ctx.state.activeFileContent()).toBe('v1');
+    expect(ctx.state.splitFileContent()).toBe('v1');
+  });
+
+  it('cancels the pending mirror on a focus change so no stale flush lands afterwards', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    helper.setFocusedPane('left');
+    // A later left-pane edit that has NOT been written through must not be
+    // clobbered by the earlier timer firing.
+    ctx.state.activeFileContent.set('v1 + more typing');
+    jest.advanceTimersByTime(1000);
+
+    expect(ctx.state.activeFileContent()).toBe('v1 + more typing');
+  });
+
+  it('absorbs an unmirrored split edit into the left pane before closeSplit tears the gate down', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    helper.closeSplit();
+
+    expect(ctx.state.activeFileContent()).toBe('v1');
+    expect(ctx.state.splitActive()).toBe(false);
+    // And the cancelled timer cannot fire into the closed split.
+    jest.advanceTimersByTime(1000);
+    expect(ctx.state.activeFileContent()).toBe('v1');
+  });
+
+  it('(C1 AC3) dispose clears a pending mirror', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    helper.dispose();
+    jest.advanceTimersByTime(1000);
+
+    expect(ctx.state.activeFileContent()).toBe('v0');
+  });
+});
+
+describe('EditorDiffSplitHelper.hasUnabsorbedPeerEdit (C2 AC2/AC3)', () => {
+  it('(R-10) is FALSE for an ordinary save from the focused pane — no prompt on the common path', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+
+    // The focused pane writes through on every keystroke, so what it is about
+    // to save IS the tab record.
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'v1')).toBe(false);
+  });
+
+  it('is TRUE when the saving pane has not absorbed the other pane’s edit', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    // The left pane's model still holds v0 — the mirror has not flushed.
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'v0')).toBe(true);
+  });
+
+  it('(AC5) is FALSE when the panes hold different files, whatever the tab records say', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.openTabs.set([
+      makeTab('/ws/a.ts', 'A-tab', true),
+      makeTab('/ws/b.ts', 'B-tab', true),
+    ]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    ctx.state.splitActive.set(true);
+    ctx.state.splitFilePath.set('/ws/b.ts');
+
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'anything else')).toBe(
+      false,
+    );
+    expect(helper.hasUnabsorbedPeerEdit('/ws/b.ts', 'anything else')).toBe(
+      false,
+    );
+  });
+
+  it('is FALSE with no split open at all', () => {
+    const { helper, ctx } = makeHelper();
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'A-tab', true)]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'unsaved buffer')).toBe(
+      false,
+    );
+  });
+
+  it('is FALSE against a CLEAN tab record — a difference there is this pane’s own unsaved work', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+
+    expect(
+      helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'my own unsaved text'),
+    ).toBe(false);
+  });
+
+  it('is FALSE once the focus change has reconciled the panes', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx);
+    ctx.state.focusedPane.set('right');
+
+    helper.updateSplitContent('v1');
+    helper.setFocusedPane('left');
+
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'v1')).toBe(false);
+  });
+});
+
+// ============================================================================
+// TASK_2026_214 — "Diverged", and the four ways it has to stop being true.
+//
+// The chip started life in the panel component as a `{ filePath, content }`
+// record of the declined save, tested against `hasUnabsorbedPeerEdit(filePath,
+// frozenContent)`. `frozenContent` was the saving pane's text AT THE MOMENT OF
+// CANCEL and nothing ever invalidated it, so:
+//
+//   - a focus change reconciled both panes onto the tab record — the save path
+//     would no longer prompt from either pane — and the chip stayed lit, now
+//     claiming an absorption failure that had already been absorbed;
+//   - closing and re-opening the split lit it on the FIRST FRAME, over two
+//     panes `openFileInSplit` had just seeded from the same tab record.
+//
+// After one Cancel it therefore degenerated into a permanent second dirty
+// indicator: precisely the ambiguity it was added to remove.
+//
+// The latch lives here now because reconciliation is decided here, and because
+// two of the four routes that resolve a divergence (a tab close, a workspace
+// switch) never reach the panel component at all. Every test below drives the
+// REAL predicate against real tab records — the panel-level spec can only ever
+// assert that the component renders this signal.
+// ============================================================================
+describe('EditorDiffSplitHelper — knowingly diverged panes (TASK_2026_214)', () => {
+  /**
+   * The state a Cancel leaves behind: the left pane's edit is in the tab
+   * record and dirty, the right pane still shows the pre-edit text it tried to
+   * save, and the save path says so.
+   */
+  function cancelledConflict(
+    ctx: ReturnType<typeof makeState>,
+    helper: EditorDiffSplitHelper,
+  ): void {
+    shareFileInBothPanes(ctx, '/ws/a.ts', 'orig');
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L', true)]);
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'orig')).toBe(true);
+    helper.markSplitDiverged('/ws/a.ts');
+  }
+
+  it('(214-h1) says nothing until a Cancel actually records one', () => {
+    const { helper, ctx } = makeHelper();
+    shareFileInBothPanes(ctx, '/ws/a.ts', 'orig');
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L', true)]);
+
+    // The raw predicate is TRUE here — it is true for the whole mirror-debounce
+    // window after any keystroke in the other pane, which is most of the time
+    // somebody is typing. The chip must not be.
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'orig')).toBe(true);
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h2) is TRUE after a Cancel, while the record is still dirty', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    expect(helper.splitPanesDiverged()).toBe(true);
+  });
+
+  it('(214-h3) a focus change clears it — the panes now hold the SAME text', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // Scenario A. Clicking into either pane runs the reconcile, which is the
+    // whole of what a focus change does about a divergence.
+    helper.setFocusedPane('right');
+
+    // Both panes are on the tab record now, so a save from EITHER of them
+    // carries the record and would not prompt...
+    expect(ctx.state.activeFileContent()).toBe('L');
+    expect(ctx.state.splitFileContent()).toBe('L');
+    expect(helper.hasUnabsorbedPeerEdit('/ws/a.ts', 'L')).toBe(false);
+    // ...so there is nothing left for the chip to be describing.
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h4) a re-opened split does not inherit the old disagreement', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // Scenario B, isolated to the re-open leg: no closeSplit in between, so
+    // this is `openFileInSplit`'s clear and nothing else.
+    return helper.openFileInSplit('/ws/a.ts').then(() => {
+      // Seeded straight from the tab record, so the two panes are byte-
+      // identical on the very first frame.
+      expect(ctx.state.splitFileContent()).toBe('L');
+      expect(helper.splitPanesDiverged()).toBe(false);
+    });
+  });
+
+  it('(214-h5) Scenario B end to end: close the split, keep editing, re-open', async () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // Closing hides the chip because there is no split — but the record of the
+    // Cancel used to survive it.
+    helper.closeSplit();
+    expect(helper.splitPanesDiverged()).toBe(false);
+
+    // The user keeps typing in the left pane; the file is still dirty.
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L2', true)]);
+    ctx.state.activeFilePath.set('/ws/a.ts');
+    await helper.openFileInSplit('/ws/a.ts');
+
+    expect(ctx.state.splitFileContent()).toBe('L2');
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h6) a workspace round trip clears it — the restore rebuilds both panes', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // `EditorWorkspaceHelper.switchWorkspace` derives BOTH pane surfaces from
+    // the tab record on the way back in, and calls this on the way through.
+    // It reaches neither closeSplit nor openFileInSplit, which is why the
+    // clear cannot live only in those two.
+    helper.clearSplitDiverged();
+
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h7) falls false on its own once the file goes clean', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    // A clean record holds the persisted text, so there is no unabsorbed peer
+    // edit left to disagree about.
+    ctx.openTabs.set([makeTab('/ws/a.ts', 'L', false)]);
+
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h8) does not follow the split pane to a different file', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+
+    ctx.state.splitFilePath.set('/ws/other.ts');
+
+    expect(helper.splitPanesDiverged()).toBe(false);
+  });
+
+  it('(214-h9) the debounced mirror does NOT clear it — only one pane moved', () => {
+    const { helper, ctx } = makeHelper();
+    cancelledConflict(ctx, helper);
+    // Right pane focused: it is the one that tried to save and was refused.
+    ctx.state.focusedPane.set('right');
+
+    helper.scheduleSplitMirror('/ws/a.ts');
+    jest.advanceTimersByTime(MIRROR_MS);
+
+    // The mirror wrote the record into the LEFT (unfocused) pane. The right
+    // pane still holds the text the user declined to overwrite, so the panes
+    // still disagree and the chip has to keep saying so.
+    expect(ctx.state.activeFileContent()).toBe('L');
+    expect(ctx.state.splitFileContent()).toBe('orig');
+    expect(helper.splitPanesDiverged()).toBe(true);
+  });
+});
+
+// ============================================================================
+// D2 — hunk stage / unstage / revert (Batch 8, task 8.6)
+//
+// The property under test throughout is the CLIENT-SIDE half of AC6. The
+// backend refuses a write whose token no longer describes the repository, but
+// it cannot see this failure mode: a revalidation landing between the user's
+// click and the RPC re-points the tab record at a NEW diff with a NEW,
+// perfectly fresh token and a renumbered `hunks` array. Forwarding the old
+// ordinal with that fresh token would sail through the server's check and
+// apply a hunk the user never looked at.
+//
+// Every refusal below asserts that NO apply RPC was made. "The write path was
+// not entered" is the claim; a test that only checked the returned code would
+// pass just as happily while git ran.
+// ============================================================================
+
+/** The one call site that matters — every git:applyHunks invocation. */
+function applyCalls(): unknown[][] {
+  return mockRpcCall.mock.calls.filter((c) => c[1] === 'git:applyHunks');
+}
+
+function diffCalls(): unknown[][] {
+  return mockRpcCall.mock.calls.filter((c) => c[1] === 'git:diffFile');
+}
+
+function applyOk(snapshotToken = 'tok-after'): {
+  success: true;
+  data: GitApplyHunksResult;
+} {
+  return { success: true, data: { success: true, snapshotToken } };
+}
+
+function applyRefused(
+  code: GitApplyHunksResult['code'] = 'APPLY_FAILED',
+  message = 'git refused the patch. Nothing was written.',
+): { success: true; data: GitApplyHunksResult } {
+  return { success: true, data: { success: false, code, message } };
+}
+
+/**
+ * Open a worktree diff carrying three hunks and return its tab key.
+ *
+ * The call log is cleared afterwards, so a later "no apply happened" assertion
+ * is about the test and not about the fixture.
+ */
+async function openHunkedDiff(
+  helper: EditorDiffSplitHelper,
+  overrides: Partial<GitDiffFileResult> = {},
+): Promise<string> {
+  mockRpcCall.mockResolvedValue(
+    ok(
+      makeResult({
+        path: 'a.ts',
+        patch: 'diff --git a/a.ts b/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b\n',
+        hunks: [hunk(0, 5), hunk(1, 25), hunk(2, 45)],
+        ...overrides,
+      }),
+    ),
+  );
+  await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+  mockRpcCall.mockClear();
+  return diffTabKey('worktree', 'a.ts');
+}
+
+describe('EditorDiffSplitHelper — hunk ordinals reach the tab record', () => {
+  it('carries git hunk positions onto the diff tab, untouched', async () => {
+    const { helper, ctx } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    const diff = ctx.openTabs().find((t) => t.filePath === key)?.diff;
+    expect(diff?.hunks.map((h) => h.index)).toEqual([0, 1, 2]);
+    expect(diff?.hunks.map((h) => h.modifiedStart)).toEqual([5, 25, 45]);
+  });
+
+  it('does NOT mirror the patch text onto the tab record', async () => {
+    const { helper, ctx } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    // Holding patch bytes across a state change is the staleness hazard the
+    // always-regenerate backend design removes (batch-8a-report.md §7.2).
+    const diff = ctx.openTabs().find((t) => t.filePath === key)?.diff;
+    expect(diff).not.toHaveProperty('patch');
+    expect(JSON.stringify(diff)).not.toContain('diff --git');
+  });
+
+  it('drops hunks from a response that never reached a real read', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ snapshotToken: '', hunks: [hunk(0, 5)] })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    const diff = ctx
+      .openTabs()
+      .find((t) => t.filePath === diffTabKey('worktree', 'a.ts'))?.diff;
+    expect(diff?.status).toBe('error');
+    expect(diff?.hunks).toEqual([]);
+  });
+
+  it('drops hunks when a side could not be read', async () => {
+    const { helper, ctx } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ original: errorBlob('timeout'), hunks: [hunk(0, 5)] })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+
+    const diff = ctx
+      .openTabs()
+      .find((t) => t.filePath === diffTabKey('worktree', 'a.ts'))?.diff;
+    expect(diff?.status).toBe('error');
+    expect(diff?.hunks).toEqual([]);
+  });
+});
+
+describe('EditorDiffSplitHelper.applyHunks — AC6, the client-side half', () => {
+  it('refuses a selection made against a SUPERSEDED snapshot, without calling git', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [1],
+      // What the user selected against, before a revalidation moved the tab on.
+      snapshotToken: 'tok-the-user-saw',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(result.snapshotToken).toBeUndefined();
+    // THE assertion: the write path was never entered.
+    expect(applyCalls()).toHaveLength(0);
+  });
+
+  it('re-reads the diff after refusing, so the next selection is made on the truth', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+
+    await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [1],
+      snapshotToken: 'stale',
+    });
+
+    expect(diffCalls()).toHaveLength(1);
+  });
+
+  it('refuses when the tab carries no token at all, without calling git', async () => {
+    const { helper } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ snapshotToken: '', hunks: [hunk(0, 5)] })),
+    );
+    await openDiff(helper, { path: 'a.ts', comparison: 'worktree' });
+    mockRpcCall.mockClear();
+
+    const result = await helper.applyHunks({
+      key: diffTabKey('worktree', 'a.ts'),
+      operation: 'stage',
+      hunkIndices: [0],
+      // A caller echoing the empty token back must not be read as a match.
+      snapshotToken: '',
+    });
+
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(applyCalls()).toHaveLength(0);
+  });
+
+  it('refuses for a tab that is not open, without calling git', async () => {
+    const { helper } = makeHelper();
+    await openHunkedDiff(helper);
+
+    const result = await helper.applyHunks({
+      key: diffTabKey('worktree', 'gone.ts'),
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(applyCalls()).toHaveLength(0);
+  });
+});
+
+describe('EditorDiffSplitHelper.applyHunks — the wire', () => {
+  it('sends the ordinal, the operation and the token the user acted on', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(applyOk());
+
+    await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [1],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(applyCalls()).toHaveLength(1);
+    expect(applyCalls()[0][2]).toEqual({
+      path: 'a.ts',
+      comparison: 'worktree',
+      operation: 'stage',
+      hunkIndices: [1],
+      snapshotToken: 'tok-1',
+      workspaceRoot: '/ws',
+    });
+  });
+
+  it('sends originalPath only for a staged rename', async () => {
+    const { helper } = makeHelper();
+    mockRpcCall.mockResolvedValue(
+      ok(
+        makeResult({
+          path: 'new.ts',
+          originalPath: 'old.ts',
+          comparison: 'staged',
+          hunks: [hunk(0, 3)],
+        }),
+      ),
+    );
+    await helper.openDiff({
+      path: 'new.ts',
+      comparison: 'staged',
+      origPath: 'old.ts',
+    });
+    mockRpcCall.mockClear();
+    mockRpcCall.mockResolvedValue(applyOk());
+
+    await helper.applyHunks({
+      key: diffTabKey('staged', 'new.ts'),
+      operation: 'unstage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(applyCalls()[0][2]).toMatchObject({
+      path: 'new.ts',
+      originalPath: 'old.ts',
+      operation: 'unstage',
+      comparison: 'staged',
+    });
+  });
+
+  it('(AC8) re-reads the diff after a SUCCESSFUL apply, in every host', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(applyOk());
+
+    await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    // Only Electron watches `.git/index`; VS Code and the CLI have no watcher,
+    // so the refresh must hang off the RPC response rather than off a push.
+    expect(diffCalls()).toHaveLength(1);
+  });
+
+  it('(AC8) re-reads the diff after a FAILED apply too', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(applyRefused());
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result.success).toBe(false);
+    expect(diffCalls()).toHaveLength(1);
+  });
+
+  it('passes the backend refusal through verbatim — the frontend never paraphrases it', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(
+      applyRefused(
+        'STALE_SNAPSHOT',
+        'The file changed since this diff was read.',
+      ),
+    );
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result.code).toBe('STALE_SNAPSHOT');
+    expect(result.message).toBe('The file changed since this diff was read.');
+  });
+
+  it('maps a transport failure to UNKNOWN, with no snapshot token to retry with', async () => {
+    const { helper } = makeHelper();
+    const key = await openHunkedDiff(helper);
+    mockRpcCall.mockResolvedValue(fail());
+
+    const result = await helper.applyHunks({
+      key,
+      operation: 'revert',
+      hunkIndices: [2],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result).toMatchObject({ success: false, code: 'UNKNOWN' });
+    expect(result.snapshotToken).toBeUndefined();
+    expect(result.message).toContain('Nothing was applied');
+  });
+});

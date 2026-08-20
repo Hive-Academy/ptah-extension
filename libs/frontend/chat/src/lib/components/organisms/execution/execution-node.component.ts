@@ -13,12 +13,36 @@ import {
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
+import { WorkflowCardComponent } from './workflow-card.component';
+import { TaskCardComponent } from './task-card.component';
+import { MonitorCardComponent } from './monitor-card.component';
+import { SendMessageChipComponent } from './send-message-chip.component';
+import { ScheduleWakeupChipComponent } from './schedule-wakeup-chip.component';
 import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
+import {
+  isWorkflowTool,
+  isTaskManagementTool,
+  isMonitorTool,
+  isSendMessageTool,
+  isScheduleWakeupTool,
+} from '@ptah-extension/shared';
 import type {
   ExecutionNode,
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
+
+/**
+ * Which dedicated SDK-tool card a `tool` node should render instead of the
+ * generic tool-call item. `null` means "fall through to the tool card".
+ */
+type SdkCardKind =
+  | 'workflow'
+  | 'task'
+  | 'monitor'
+  | 'sendMessage'
+  | 'scheduleWakeup'
+  | null;
 
 /**
  * ExecutionNodeComponent - THE KEY RECURSIVE COMPONENT
@@ -48,6 +72,11 @@ import type {
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
+    WorkflowCardComponent,
+    TaskCardComponent,
+    MonitorCardComponent,
+    SendMessageChipComponent,
+    ScheduleWakeupChipComponent,
     AutoAnimateDirective,
   ],
   template: `
@@ -79,26 +108,62 @@ import type {
         <ptah-thinking-block [node]="node()" />
       }
       @case ('tool') {
-        <ptah-tool-call-item
-          [node]="node()"
-          [permission]="
-            getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined
-          "
-          (permissionResponded)="permissionResponded.emit($event)"
-        >
-          <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
-          <div [auto-animate] class="exec-children">
-            @for (child of node().children; track child.id) {
-              <ptah-execution-node
-                [node]="child"
-                [isStreaming]="isStreaming()"
-                [isFinalizing]="isFinalizing()"
-                [getPermissionForTool]="getPermissionForTool()"
-                (permissionResponded)="permissionResponded.emit($event)"
-              />
-            }
-          </div>
-        </ptah-tool-call-item>
+        @switch (sdkCardKind()) {
+          @case ('workflow') {
+            <!-- Workflow tool_use: render a compact "Workflow launched" chip
+                 that opens the Agents monitor panel. Progress is watched there,
+                 never inline in the transcript. -->
+            <div [class.exec-fade-in]="!isFinalizing()">
+              <ptah-workflow-card [node]="node()" />
+            </div>
+          }
+          @case ('task') {
+            <!-- Task-management tool (TaskCreate/Update/List/…): compact card. -->
+            <div [class.exec-fade-in]="!isFinalizing()">
+              <ptah-task-card [node]="node()" />
+            </div>
+          }
+          @case ('monitor') {
+            <!-- Monitor tool: background event-watch card. -->
+            <div [class.exec-fade-in]="!isFinalizing()">
+              <ptah-monitor-card [node]="node()" />
+            </div>
+          }
+          @case ('sendMessage') {
+            <!-- SendMessage tool: agent-to-agent message chip. -->
+            <div [class.exec-fade-in]="!isFinalizing()">
+              <ptah-send-message-chip [node]="node()" />
+            </div>
+          }
+          @case ('scheduleWakeup') {
+            <!-- ScheduleWakeup tool: loop-pacing wakeup chip. -->
+            <div [class.exec-fade-in]="!isFinalizing()">
+              <ptah-schedule-wakeup-chip [node]="node()" />
+            </div>
+          }
+          @default {
+            <ptah-tool-call-item
+              [node]="node()"
+              [permission]="
+                getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined
+              "
+              (permissionResponded)="permissionResponded.emit($event)"
+            >
+              <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
+              <div [auto-animate] class="exec-children">
+                @for (child of node().children; track child.id) {
+                  <ptah-execution-node
+                    [node]="child"
+                    [isStreaming]="isStreaming()"
+                    [isFinalizing]="isFinalizing()"
+                    [getPermissionForTool]="getPermissionForTool()"
+                    (permissionResponded)="permissionResponded.emit($event)"
+                  />
+                }
+              </div>
+            </ptah-tool-call-item>
+          }
+        }
       }
       @case ('agent') {
         <!--
@@ -234,7 +299,14 @@ export class ExecutionNodeComponent {
     const tailStart = Math.max(0, len - 64);
     for (let i = tailStart; i < len; i++) {
       hash ^= s.charCodeAt(i);
-      hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
+      hash =
+        (hash +
+          ((hash << 1) +
+            (hash << 4) +
+            (hash << 7) +
+            (hash << 8) +
+            (hash << 24))) >>>
+        0;
     }
     return `${len}:${hash.toString(16)}`;
   }
@@ -269,5 +341,24 @@ export class ExecutionNodeComponent {
       content.includes('<thinking>') ||
       content.includes('<invoke name=')
     );
+  });
+
+  /**
+   * Which dedicated SDK-tool card this `tool` node should render, if any.
+   *
+   * Newer Claude Agent SDK tools each get a purpose-built compact card/chip
+   * instead of the generic tool-call item. `null` (the common case) falls
+   * through to {@link ToolCallItemComponent} — preserving the recursive
+   * tool-result rendering for every ordinary tool.
+   */
+  protected sdkCardKind = computed<SdkCardKind>(() => {
+    const name = this.node().toolName;
+    if (!name) return null;
+    if (isWorkflowTool(name)) return 'workflow';
+    if (isTaskManagementTool(name)) return 'task';
+    if (isMonitorTool(name)) return 'monitor';
+    if (isSendMessageTool(name)) return 'sendMessage';
+    if (isScheduleWakeupTool(name)) return 'scheduleWakeup';
+    return null;
   });
 }

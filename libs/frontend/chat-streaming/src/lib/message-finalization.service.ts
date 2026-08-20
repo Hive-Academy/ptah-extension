@@ -41,13 +41,22 @@ export class MessageFinalizationService {
    *
    * @param tabId - Optional tab ID to finalize. Falls back to active tab if not provided.
    * @param isAborted - If true, marks nodes as 'interrupted' instead of 'complete'
+   *
+   * Workspace-aware: when a `tabId` is supplied it is resolved via
+   * `findTabByIdAcrossWorkspaces`, NOT the active-only `tabs()` signal, so a
+   * turn that ends while its tab is backgrounded still promotes its reply into
+   * the persisted `messages` array (via the workspace-aware `applyFinalizedTurn`
+   * / `clearStreamingForLoaded` write paths). Resolving against `tabs()` here
+   * silently no-op'd for background tabs, stranding the reply in
+   * `streamingState`, which the reload sanitize then nulled — a silent data loss
+   * (TASK_2026_154 Wave 2 revision).
    */
   finalizeCurrentMessage(tabId?: string, isAborted = false): void {
     this.batchedUpdate.flushSync();
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
     const targetTab = tabId
-      ? this.tabManager.tabs().find((t) => t.id === tabId)
+      ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
       : this.tabManager.activeTab();
 
     const streamingState = targetTab?.streamingState;
@@ -143,7 +152,12 @@ export class MessageFinalizationService {
       ...existingMessages,
       ...newMessages,
     ]);
-    this.sessionManager.setStatus('loaded');
+    // `SessionManager` status is a global singleton scoped to the active
+    // conversation. Only reflect 'loaded' when finalizing the ACTIVE tab —
+    // finalizing a background tab must not flip the foreground UI's status.
+    if (this.tabManager.activeTabId() === targetTabId) {
+      this.sessionManager.setStatus('loaded');
+    }
   }
 
   /**

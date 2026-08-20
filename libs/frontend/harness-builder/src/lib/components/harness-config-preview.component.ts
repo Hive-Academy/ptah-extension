@@ -49,19 +49,19 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
               {{ p.label }}
             </p>
             @if (p.description) {
-              <p class="text-xs text-base-content/60 mt-1 line-clamp-3">
+              <p class="text-xs text-base-content-muted mt-1 line-clamp-3">
                 {{ p.description }}
               </p>
             }
             @if (p.goals && p.goals.length > 0) {
               <ul
-                class="mt-1.5 space-y-1 text-xs text-base-content/60 list-disc list-inside"
+                class="mt-1.5 space-y-1 text-xs text-base-content-muted list-disc list-inside"
               >
                 @for (goal of p.goals.slice(0, 3); track goal) {
                   <li class="leading-tight">{{ goal }}</li>
                 }
                 @if (p.goals.length > 3) {
-                  <li class="text-base-content/40">
+                  <li class="text-base-content-muted">
                     +{{ p.goals.length - 3 }} more
                   </li>
                 }
@@ -145,7 +145,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
           </div>
           <div class="collapse-content px-4 pb-3">
             <p
-              class="text-xs text-base-content/70 whitespace-pre-wrap line-clamp-6"
+              class="text-xs text-base-content-muted whitespace-pre-wrap line-clamp-6"
             >
               {{ promptPreview() }}
             </p>
@@ -179,7 +179,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
 
       <!-- Empty state -->
       @if (!hasAnyConfig()) {
-        <div class="text-center py-6 text-base-content/40 text-xs">
+        <div class="text-center py-6 text-base-content-muted text-xs">
           No configuration yet. Start chatting to build your AI team.
         </div>
       }

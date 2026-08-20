@@ -23,6 +23,7 @@ import {
   CuratorRateLimitService,
   PreToolUseCallbackRegistry,
   SessionStartCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import {
@@ -201,6 +202,13 @@ function buildTestContainer(): DependencyContainer {
     },
     { lifecycle: Lifecycle.Singleton },
   );
+  c.register(
+    SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    {
+      useClass: SessionIdResolvedCallbackRegistry,
+    },
+    { lifecycle: Lifecycle.Singleton },
+  );
   c.register(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER, {
     useValue: {
       read: jest.fn().mockResolvedValue(''),
@@ -252,6 +260,27 @@ function buildTestContainer(): DependencyContainer {
   c.register(SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER, {
     useValue: {
       recordSkillEvent: jest.fn(),
+    },
+  });
+  c.register(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, {
+    useValue: {
+      harvest: jest.fn().mockResolvedValue(undefined),
+    },
+  });
+  c.register(SKILL_SYNTHESIS_TOKENS.SUBAGENT_METRICS_EXTRACTOR, {
+    useValue: {
+      extract: jest.fn().mockResolvedValue({
+        metrics: {
+          inputTokens: null,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheCreationTokens: null,
+          costUsd: null,
+          durationMs: null,
+          toolCount: null,
+        },
+        taskId: null,
+      }),
     },
   });
   c.register(

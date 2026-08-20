@@ -10,6 +10,31 @@ export interface LaunchOptions {
   args?: string[];
   /** Override launch timeout in ms (default 30_000). */
   timeout?: number;
+  /**
+   * Profile directory to launch against. Defaults to a fresh `mkdtemp` dir that
+   * is removed when the app exits. The docs-screenshot harness passes a
+   * pre-seeded copy of the real profile so surfaces paint real data.
+   */
+  userDataDir?: string;
+}
+
+/**
+ * Where the launched app's SQLite database lives.
+ *
+ * `--user-data-dir` moves Electron's userData, NOT `os.homedir()`, and the DB
+ * path is resolved from the home directory — so without this every launch that
+ * did not also override HOME opened the developer's real
+ * `~/.ptah/state/*.sqlite` and migrated it forward from the working tree. That
+ * is how a capture run left an installed build unable to open its own data
+ * (TASK_2026_291). `PTAH_DB_PATH` is honoured ahead of any profile by
+ * `persistence-sqlite/src/lib/db-path.ts`, so pointing it at a temp file makes
+ * the isolation explicit instead of a side effect of `NODE_ENV`.
+ */
+function isolatedDbPath(): string {
+  return path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-db-')),
+    'ptah-e2e.sqlite',
+  );
 }
 
 /**
@@ -52,14 +77,24 @@ export async function launchPtah(
     ...process.env,
     NODE_ENV: 'test',
     PTAH_E2E: '1',
+    // Inherited PTAH_DB_PATH is dropped, not merged: a stale value from the
+    // shell would silently re-point every spec. A caller that wants a specific
+    // database passes it through `opts.env` below.
+    PTAH_DB_PATH: isolatedDbPath(),
     ...(opts.env ?? {}),
   };
+  // Publish the effective database back to the Playwright process so a spec
+  // can read the rows the app just wrote (`skill-telemetry-db.ts`) without
+  // re-deriving a path the launcher chose.
+  process.env['PTAH_E2E_DB_PATH'] = env['PTAH_DB_PATH'];
   delete env['ELECTRON_RUN_AS_NODE'];
   const ciArgs = process.env['CI']
     ? ['--no-sandbox', '--disable-dev-shm-usage']
     : [];
 
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-udd-'));
+  const userDataDir =
+    opts.userDataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-e2e-udd-'));
+  const ownsUserDataDir = opts.userDataDir === undefined;
 
   const app = await _electron.launch({
     args: [
@@ -71,9 +106,11 @@ export async function launchPtah(
     env: env as Record<string, string>,
     timeout: opts.timeout ?? 30_000,
   });
-  app.process().on('exit', () => {
-    fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
-  });
+  if (ownsUserDataDir) {
+    app.process().on('exit', () => {
+      fs.rm(userDataDir, { recursive: true, force: true }, () => undefined);
+    });
+  }
   app.process().stdout?.on('data', (chunk: Buffer) => {
     process.stderr.write(`[ptah-electron stdout] ${chunk.toString('utf8')}`);
   });

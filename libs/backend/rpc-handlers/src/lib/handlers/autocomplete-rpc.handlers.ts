@@ -13,11 +13,17 @@ import {
   AutocompleteCommandsParams,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import {
+  parseAutocompleteAgentsParams,
+  parseAutocompleteCommandsParams,
+} from './autocomplete-rpc.schema';
 
 interface AgentDiscoveryService {
   searchAgents(request: {
     query: string;
     maxResults?: number;
+    /** Explicit workspace; omitted → process-global active folder. */
+    workspaceRoot?: string;
   }): Promise<unknown>;
 }
 
@@ -25,6 +31,8 @@ interface CommandDiscoveryService {
   searchCommands(request: {
     query: string;
     maxResults?: number;
+    /** Explicit workspace; omitted → process-global active folder. */
+    workspaceRoot?: string;
   }): Promise<unknown>;
 }
 
@@ -68,15 +76,28 @@ export class AutocompleteRpcHandlers {
     this.rpcHandler.registerMethod<AutocompleteAgentsParams, unknown>(
       'autocomplete:agents',
       async (params) => {
+        // Validate BEFORE the try: a malformed payload is a caller fault, not
+        // a discovery failure, so it must not be wrapped as one or reported to
+        // Sentry as a backend error.
+        const parsed = parseAutocompleteAgentsParams(params);
+        if (!parsed) {
+          throw new Error(
+            'Invalid autocomplete:agents parameters: expected optional ' +
+              'query (string), maxResults (non-negative integer) and ' +
+              'workspaceRoot (non-empty absolute path).',
+          );
+        }
         try {
-          const { query, maxResults } = params;
+          const { query, maxResults, workspaceRoot } = parsed;
           this.logger.debug('RPC: autocomplete:agents called', {
             query,
             maxResults,
+            workspaceRoot,
           });
           const result = await this.agentDiscovery.searchAgents({
             query: query || '',
             maxResults,
+            workspaceRoot,
           });
           return result;
         } catch (error) {
@@ -105,15 +126,26 @@ export class AutocompleteRpcHandlers {
     this.rpcHandler.registerMethod<AutocompleteCommandsParams, unknown>(
       'autocomplete:commands',
       async (params) => {
+        // Validate BEFORE the try — see registerAgents.
+        const parsed = parseAutocompleteCommandsParams(params);
+        if (!parsed) {
+          throw new Error(
+            'Invalid autocomplete:commands parameters: expected optional ' +
+              'query (string), maxResults (non-negative integer) and ' +
+              'workspaceRoot (non-empty absolute path).',
+          );
+        }
         try {
-          const { query, maxResults } = params;
+          const { query, maxResults, workspaceRoot } = parsed;
           this.logger.debug('RPC: autocomplete:commands called', {
             query,
             maxResults,
+            workspaceRoot,
           });
           const result = await this.commandDiscovery.searchCommands({
             query: query || '',
             maxResults,
+            workspaceRoot,
           });
           return result;
         } catch (error) {

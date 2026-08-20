@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, screen } from 'electron';
+import { BrowserWindow, Menu, screen, shell } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
@@ -28,6 +28,69 @@ function isOnScreen(bounds: WindowBounds): boolean {
       bounds.y < y + height &&
       bounds.y + bounds.height > y
     );
+  });
+}
+
+/**
+ * Schemes that are safe to hand to the system browser when a link tries to
+ * navigate the app away from its own document.
+ */
+const EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+/**
+ * Decide whether a navigation target is internal to the app shell.
+ *
+ * The renderer is loaded via `loadFile`, so its document lives on the
+ * `file:` origin. Anything else (an `http(s)` link in rendered agent
+ * markdown, a `mailto:`, etc.) must NOT replace the top-level window.
+ */
+function isInternalNavigation(targetUrl: string): boolean {
+  try {
+    return new URL(targetUrl).protocol === 'file:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Open an external URL in the system browser, but only for known-safe
+ * schemes. Prevents arbitrary-scheme handoff (e.g. `file:`, custom
+ * protocol handlers) from `shell.openExternal`.
+ */
+function openExternalSafely(targetUrl: string): void {
+  let protocol: string;
+  try {
+    protocol = new URL(targetUrl).protocol;
+  } catch {
+    return;
+  }
+  if (EXTERNAL_SCHEMES.has(protocol)) {
+    void shell.openExternal(targetUrl);
+  }
+}
+
+/**
+ * Stop external links from hijacking the main window.
+ *
+ * Without this guard, a normal `<a href="https://…">` in rendered agent
+ * markdown triggers a top-level `will-navigate`, replacing the Angular
+ * shell with the target page — the whole app turns into a blank browser.
+ *
+ * - `will-navigate`: cancel any non-`file:` navigation and open it externally.
+ * - `setWindowOpenHandler`: deny `window.open` / `target="_blank"`, open externally.
+ */
+function installNavigationGuard(window: BrowserWindow): void {
+  window.webContents.on('will-navigate', (event, targetUrl) => {
+    if (isInternalNavigation(targetUrl)) {
+      return;
+    }
+    event.preventDefault();
+    openExternalSafely(targetUrl);
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalSafely(url);
+    return { action: 'deny' };
   });
 }
 
@@ -71,6 +134,8 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 15, y: 15 },
   });
+
+  installNavigationGuard(mainWindow);
 
   const windowSession = mainWindow.webContents.session;
   windowSession.setPermissionRequestHandler(

@@ -11,6 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
   ReactiveSettingsStore,
@@ -23,12 +24,18 @@ import {
   MemorySettings,
   SkillSynthesisSettings,
   CronSettings,
+  TasksSettings,
+  CustomProviderStore,
   MigrationRunner,
   SecretsFileStore,
+  WorkspaceScopeResolver,
+  appScopePrefixFor,
   runV1Migration,
   runV2Migration,
   runV3Migration,
+  runV4Migration,
 } from '@ptah-extension/settings-core';
+import type { IActiveWorkspaceSource } from '@ptah-extension/settings-core';
 
 import { FileSettingsStore } from './file-settings-store';
 import { ElectronMasterKeyProvider } from './electron-master-key-provider';
@@ -74,14 +81,31 @@ export function registerElectronSettings(container: DependencyContainer): void {
   container.register(SETTINGS_TOKENS.SETTINGS_STORE, {
     useValue: reactiveStore,
   });
+  const appPrefix = resolveAppPrefix(container);
+  const scopeResolver = container.isRegistered(
+    SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
+  )
+    ? new WorkspaceScopeResolver(
+        reactiveStore,
+        container.resolve<IActiveWorkspaceSource>(
+          SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
+        ),
+        appPrefix,
+      )
+    : undefined;
+  if (scopeResolver) {
+    container.register(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {
+      useValue: scopeResolver,
+    });
+  }
   container.register(SETTINGS_TOKENS.AUTH_SETTINGS, {
     useValue: new AuthSettings(reactiveStore),
   });
   container.register(SETTINGS_TOKENS.REASONING_SETTINGS, {
-    useValue: new ReasoningSettings(reactiveStore),
+    useValue: new ReasoningSettings(reactiveStore, scopeResolver),
   });
   container.register(SETTINGS_TOKENS.MODEL_SETTINGS, {
-    useValue: new ModelSettings(reactiveStore),
+    useValue: new ModelSettings(reactiveStore, scopeResolver),
   });
   container.register(SETTINGS_TOKENS.CLI_SUBAGENT_SETTINGS, {
     useValue: new CliSubagentSettings(reactiveStore),
@@ -101,12 +125,35 @@ export function registerElectronSettings(container: DependencyContainer): void {
   container.register(SETTINGS_TOKENS.CRON_SETTINGS, {
     useValue: new CronSettings(reactiveStore),
   });
+  container.register(SETTINGS_TOKENS.TASKS_SETTINGS, {
+    useValue: new TasksSettings(reactiveStore),
+  });
+  // User-defined provider entries (TASK_2026_236). Registering the token is NOT
+  // enough on its own — an app host must also call `load()` once at bootstrap,
+  // or `getAnthropicProvider()` never resolves a custom id.
+  container.register(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE, {
+    useValue: new CustomProviderStore(reactiveStore),
+  });
   const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
+  const boundV4 = (dir: string) => runV4Migration(dir, appPrefix);
   container.register(SETTINGS_TOKENS.MIGRATION_RUNNER, {
     useValue: new MigrationRunner(ptahDir, [
       runV1Migration,
       runV2Migration,
       boundV3,
+      boundV4,
     ]),
   });
+}
+
+function resolveAppPrefix(container: DependencyContainer): string | undefined {
+  if (!container.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    return undefined;
+  }
+  const info = container.resolve<IPlatformInfo>(PLATFORM_TOKENS.PLATFORM_INFO);
+  const type = info.type;
+  if (typeof type !== 'string' || type.trim() === '' || type === 'web') {
+    return undefined;
+  }
+  return appScopePrefixFor(type);
 }

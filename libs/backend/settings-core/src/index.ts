@@ -23,7 +23,10 @@ export {
   providerSelectedModelDef,
   providerReasoningEffortDef,
 } from './schema/provider-schema';
-export type { KnownProviderAuthKey } from './schema/provider-schema';
+export type {
+  KnownProviderAuthKey,
+  ProviderAuthKey,
+} from './schema/provider-schema';
 export { PTAH_CLI_AGENTS_DEF } from './schema/cli-subagent-schema';
 export type { PtahCliAgentEntry } from './schema/cli-subagent-schema';
 export {
@@ -32,14 +35,25 @@ export {
   GATEWAY_SLACK_TOKEN_DEF,
 } from './schema/gateway-schema';
 export { SMITHERY_API_KEY_DEF } from './schema/smithery-schema';
+export { OUTPUT_STYLE_SELECTED_NAME_DEF } from './schema/output-style-schema';
 export { MEMORY_SETTING_DEFS } from './schema/memory-schema';
 export { SKILL_SYNTHESIS_SETTING_DEFS } from './schema/skill-synthesis-schema';
 export { CRON_SETTING_DEFS } from './schema/cron-schema';
+export {
+  TASKS_SAVED_VIEWS_DEF,
+  TASKS_ACTIVE_VIEW_ID_DEF,
+} from './schema/tasks-schema';
 export { SETTINGS_SCHEMA } from './schema/index';
 export { ReactiveSettingsStore } from './reactive/reactive-settings-store';
 export type { SettingHandle } from './repositories/setting-handle';
 export type { SecretHandle } from './repositories/secret-handle';
 export { ComputedSettingHandle } from './repositories/computed-setting-handle';
+export type { IActiveWorkspaceSource } from './scope/active-workspace-source';
+export {
+  WorkspaceScopeResolver,
+  appScopePrefixFor,
+} from './scope/workspace-scope-resolver';
+export type { WorkspaceWriteTarget } from './scope/workspace-scope-resolver';
 export { BaseSettingsRepository } from './repositories/base-repository';
 export { AuthSettings } from './repositories/auth-settings';
 export { ReasoningSettings } from './repositories/reasoning-settings';
@@ -50,8 +64,19 @@ export { GatewaySettings } from './repositories/gateway-settings';
 export { MemorySettings } from './repositories/memory-settings';
 export { SkillSynthesisSettings } from './repositories/skill-synthesis-settings';
 export { CronSettings } from './repositories/cron-settings';
+export { TasksSettings } from './repositories/tasks-settings';
+export {
+  CustomProviderStore,
+  CustomProviderStoreError,
+  CUSTOM_PROVIDER_ENTRIES_KEY,
+} from './repositories/custom-provider-store';
+export type {
+  CustomProviderLoadResult,
+  CustomProviderStoreLogger,
+} from './repositories/custom-provider-store';
 export { MigrationRunner } from './migrations/runner';
 export type { MigrationFn } from './migrations/runner';
 export { runV1Migration } from './migrations/v1-migration';
 export { runV2Migration } from './migrations/v2-migration';
 export { runV3Migration } from './migrations/v3-migration';
+export { runV4Migration } from './migrations/v4-migration';

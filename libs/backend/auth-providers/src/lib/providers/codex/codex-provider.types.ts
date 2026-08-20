@@ -6,6 +6,8 @@
  * by the Codex CLI (~/.codex/auth.json).
  */
 
+import type { ProviderModelInfo } from '@ptah-extension/shared';
+
 /** Placeholder API key used when the translation proxy manages auth internally */
 export const CODEX_PROXY_TOKEN_PLACEHOLDER = 'codex-proxy-managed';
 
@@ -59,6 +61,8 @@ export interface ICodexAuthService {
   getHeaders(): Promise<Record<string, string>>;
   /** Get the Codex API base endpoint URL (API key mode or user-configured OAuth endpoint) */
   getApiEndpoint(): string;
+  /** List models available to the authenticated Codex account */
+  listModels(): Promise<ProviderModelInfo[]>;
   /** Check if credentials are available and not stale. Returns false if OAuth token needs re-login. */
   ensureTokensFresh(): Promise<boolean>;
   /** Invalidate the in-memory auth file cache, forcing next read from disk */

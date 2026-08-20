@@ -36,6 +36,7 @@ import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
 import * as skillSynthesisCmd from './commands/skill-synthesis.js';
+import * as specCmd from './commands/ptah-spec.js';
 import * as tuiCmd from './commands/tui.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as wizardCmd from './commands/wizard.js';
@@ -562,6 +563,38 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `doctor` EXITS 1 on drift, unlike `ptah spec doctor` — it is meant to be
+  // usable as a CI gate. The rule lives in `commands/harness-doctor.ts`.
+  harness
+    .command('doctor')
+    .description(
+      'report harness drift via harness:health and emit harness.doctor (exit 1 when a detected target is missing entries or sources are unavailable)',
+    )
+    .option('--fix', 'run a full reconcile before reporting', false)
+    .option('--json', 'force machine output (overrides an earlier --human)')
+    .action(async (opts: { fix?: boolean; json?: boolean }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'doctor', fix: opts.fix === true, json: opts.json },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  harness
+    .command('remove')
+    .description(
+      'delete every Ptah-managed harness file via harness:remove (requires --yes)',
+    )
+    .option('--yes', 'confirm removal — required, there is no prompt', false)
+    .option('--json', 'force machine output (overrides an earlier --human)')
+    .action(async (opts: { yes?: boolean; json?: boolean }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'remove', yes: opts.yes === true, json: opts.json },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
   // -- ptah agent ------------------------------------------------------------
   // Replaces the deprecated `profile` surface (deletion shim removed).
   const agent = program
@@ -682,9 +715,12 @@ export function buildRouter(): Command {
   agentCliModels
     .command('list')
     .description(
-      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm accepted)',
+      'emit agent_cli.models via agent:listCliModels (--cli optional; any known CLI target)',
     )
-    .option('--cli <id>', 'scope to a single allowlisted CLI (glm)')
+    .option(
+      '--cli <id>',
+      'scope to one CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (ptah-cli answers supported:false)',
+    )
     .action(async (opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'models-list', cli: opts.cli },
@@ -693,13 +729,17 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `--cli` is OPTIONAL on stop: `agent:stop` takes `{ agentId }` only, so the
+  // flag never reaches the wire. It stays accepted (and still resolved, so a
+  // typo is reported) as a client-side check for scripts that already pass it.
+  // See runStop().
   agentCli
     .command('stop <id>')
     .description(
-      'stop a running CLI agent via agent:stop (--cli required; only glm accepted)',
+      'stop a running CLI agent via agent:stop (--cli optional, client-side check only)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
-    .action(async (id: string, opts: { cli: string }) => {
+    .option('--cli <id>', 'CLI target id — resolved, never sent on the wire')
+    .action(async (id: string, opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'stop', agentId: id, cli: opts.cli },
         resolveGlobals(program),
@@ -707,25 +747,44 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `--task` is REQUIRED: agent:resumeCliSession resumes a session AND gives it
+  // work, and its boundary schema rejects an empty task. `--ptah-cli-id` is
+  // optional — omitting it lets the backend resolve the default provider.
   agentCli
     .command('resume <id>')
     .description(
-      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm accepted)',
+      'resume a CLI agent session via agent:resumeCliSession (--cli + --task required)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
-    .option('--task <text>', 'free-form task prompt for the resumed session')
-    .action(async (id: string, opts: { cli: string; task?: string }) => {
-      const exit = await agentCliCmd.execute(
-        {
-          subcommand: 'resume',
-          cliSessionId: id,
-          cli: opts.cli,
-          task: opts.task,
-        },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .requiredOption(
+      '--cli <id>',
+      'CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (glm is a deprecated alias for ptah-cli)',
+    )
+    .requiredOption(
+      '--task <text>',
+      'work to hand the resumed session (required, non-empty)',
+    )
+    .option(
+      '--ptah-cli-id <id>',
+      'pin a specific configured Ptah CLI provider (default: first enabled provider with a key)',
+    )
+    .action(
+      async (
+        id: string,
+        opts: { cli: string; task: string; ptahCliId?: string },
+      ) => {
+        const exit = await agentCliCmd.execute(
+          {
+            subcommand: 'resume',
+            cliSessionId: id,
+            cli: opts.cli,
+            task: opts.task,
+            ptahCliId: opts.ptahCliId,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   // -- ptah run --------------------------------------------------------------
   // `ptah run` is a thin deprecation alias for
@@ -759,6 +818,194 @@ export function buildRouter(): Command {
       );
       process.exitCode = exit;
     });
+
+  // -- ptah spec -------------------------------------------------------------
+  // Task specs under .ptah/specs/ (TASK_2026_179, step 16). Backed by the
+  // shared `tasks:*` RPC namespace, except `doctor`, which resolves
+  // TaskDoctorService directly — applying and rolling back a repair is a CLI-
+  // only capability by design.
+  //
+  // Every subcommand declares its own `--json`. The root program's `--json` is
+  // declared on the PROGRAM, so `ptah spec list --json` would otherwise fail to
+  // parse; the local flag makes that documented form work and forces machine
+  // output even after an earlier `--human`. Each subcommand emits exactly ONE
+  // notification, so `--json` yields a single parseable JSON document.
+  const spec = program
+    .command('spec')
+    .description(
+      'manage task specs in .ptah/specs (new / status / show / list / check / doctor)',
+    );
+
+  spec
+    .command('new')
+    .description('create a task folder + carrier via tasks:create')
+    .requiredOption('--title <text>', 'short imperative title')
+    .requiredOption(
+      '--type <type>',
+      'task type (FEATURE|BUGFIX|REFACTORING|DOCUMENTATION|RESEARCH|DEVOPS|SAAS_INIT|CREATIVE)',
+    )
+    .option(
+      '--description <text>',
+      'one-line summary (prose belongs elsewhere)',
+    )
+    .option('--depends-on <list>', 'comma-separated task ids', collectCsv)
+    .option('--executor <name>', 'agent expected to execute it')
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(
+      async (opts: {
+        title: string;
+        type: string;
+        description?: string;
+        dependsOn?: string[];
+        executor?: string;
+        json?: boolean;
+      }) => {
+        const exit = await specCmd.execute(
+          {
+            subcommand: 'new',
+            title: opts.title,
+            type: opts.type,
+            description: opts.description,
+            dependsOn: opts.dependsOn,
+            executor: opts.executor,
+            json: opts.json === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  spec
+    .command('status <id>')
+    .description('move a task to a new status via tasks:updateStatus')
+    .requiredOption(
+      '--to <status>',
+      'target status (backlog|in_progress|in_review|blocked|done|cancelled)',
+    )
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(async (id: string, opts: { to: string; json?: boolean }) => {
+      const exit = await specCmd.execute(
+        {
+          subcommand: 'status',
+          id,
+          to: opts.to,
+          json: opts.json === true,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  spec
+    .command('show <id>')
+    .description('emit spec.detail for one task via tasks:get')
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const exit = await specCmd.execute(
+        { subcommand: 'show', id, json: opts.json === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // `--label` / `--estimate` fold into a TaskFilterSpec that the SERVER applies
+  // through the shared `filterTasks` (FR-C1.5). Nothing is filtered in-process.
+  spec
+    .command('list')
+    .description('emit spec.list via tasks:list')
+    .option(
+      '--status <list>',
+      'comma-separated statuses to include',
+      collectCsv,
+    )
+    .option('--type <list>', 'comma-separated types to include', collectCsv)
+    .option(
+      '--label <list>',
+      'comma-separated labels; a task matching ANY of them is included',
+      collectCsv,
+    )
+    .option(
+      '--estimate <list>',
+      'comma-separated sizes (XS|S|M|L|XL) and/or "unestimated"',
+      collectCsv,
+    )
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(
+      async (opts: {
+        status?: string[];
+        type?: string[];
+        label?: string[];
+        estimate?: string[];
+        json?: boolean;
+      }) => {
+        const exit = await specCmd.execute(
+          {
+            subcommand: 'list',
+            status: opts.status,
+            filterType: opts.type,
+            label: opts.label,
+            estimate: opts.estimate,
+            json: opts.json === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  spec
+    .command('check')
+    .description(
+      'health-check the spec tree — names every skipped folder with its reason',
+    )
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(async (opts: { json?: boolean }) => {
+      const exit = await specCmd.execute(
+        { subcommand: 'check', json: opts.json === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  spec
+    .command('doctor')
+    .description(
+      'diagnose and (only when asked) repair .ptah/specs. --plan is read-only and is the default.',
+    )
+    .option(
+      '--plan',
+      'compute the repair plan and write NOTHING (default)',
+      false,
+    )
+    .option('--fix', 'apply the plan (journals every effect first)', false)
+    .option('--undo', 'reverse the last --fix using the journal', false)
+    .option('--json', 'emit a single JSON document on stdout', false)
+    .action(
+      async (opts: {
+        plan?: boolean;
+        fix?: boolean;
+        undo?: boolean;
+        json?: boolean;
+      }) => {
+        // `--plan` is the default and the only non-mutating mode. When more
+        // than one is passed the SAFEST wins rather than the last one parsed:
+        // guessing wrong here mutates a gitignored tree.
+        const mode =
+          opts.plan === true
+            ? 'plan'
+            : opts.undo === true
+              ? 'undo'
+              : opts.fix === true
+                ? 'fix'
+                : 'plan';
+        const exit = await specCmd.execute(
+          { subcommand: 'doctor', doctorMode: mode, json: opts.json === true },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   // -- ptah auth -------------------------------------------------------------
   // Sub-dispatcher: status / login / logout / test.
@@ -1117,6 +1364,147 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // -- ptah provider custom --------------------------------------------------
+  // CRUD over the user-defined entries in `provider.custom.entries`
+  // (~/.ptah/settings.json). Metadata only — the API key travels in `--key`
+  // and is stored backend-side in SecretStorage, never written to settings and
+  // never echoed back.
+  //
+  // `--lane` is a REQUIRED, constrained flag rather than something inferred
+  // from the URL: it decides whether the OpenAI→Anthropic translation proxy
+  // runs, and a wrong guess would only surface at the first tool call.
+  const providerCustom = provider
+    .command('custom')
+    .description('manage user-defined providers (list/add/update/remove/test)');
+
+  /** Field flags shared by `custom add` and `custom update`. */
+  interface CustomEntryFlags {
+    name?: string;
+    baseUrl?: string;
+    lane?: string;
+    key?: string;
+    modelsEndpoint?: string;
+    keyPrefix?: string;
+    helpUrl?: string;
+    authEnvVar?: string;
+    tierSonnet?: string;
+    tierOpus?: string;
+    tierHaiku?: string;
+    inputPrice?: string;
+    outputPrice?: string;
+  }
+
+  const withCustomEntryFlags = (cmd: Command): Command =>
+    cmd
+      .option('--name <name>', 'display name shown in every provider picker')
+      .option('--base-url <url>', 'endpoint base URL (http:// or https://)')
+      .option(
+        '--lane <lane>',
+        'wire protocol the endpoint speaks: anthropic|openai',
+      )
+      .option('--key <key>', 'API key (stored in secret storage, never echoed)')
+      .option('--models-endpoint <url>', 'optional model-discovery URL')
+      .option('--key-prefix <prefix>', 'optional expected key prefix')
+      .option('--help-url <url>', 'optional "where do I get a key" URL')
+      .option(
+        '--auth-env-var <name>',
+        'ANTHROPIC_AUTH_TOKEN (default) or ANTHROPIC_API_KEY',
+      )
+      .option('--tier-sonnet <model>', 'model id for the sonnet tier')
+      .option('--tier-opus <model>', 'model id for the opus tier')
+      .option('--tier-haiku <model>', 'model id for the haiku tier')
+      .option('--input-price <usd>', 'optional USD per 1M input tokens')
+      .option('--output-price <usd>', 'optional USD per 1M output tokens');
+
+  const customEntryOptions = (
+    subcommand: 'custom',
+    action: 'add' | 'update',
+    id: string,
+    flags: CustomEntryFlags,
+  ): providerCmd.ProviderOptions => ({
+    subcommand,
+    action,
+    provider: id,
+    name: flags.name,
+    baseUrl: flags.baseUrl,
+    lane: flags.lane,
+    key: flags.key,
+    modelsEndpoint: flags.modelsEndpoint,
+    keyPrefix: flags.keyPrefix,
+    helpUrl: flags.helpUrl,
+    authEnvVar: flags.authEnvVar,
+    tierSonnet: flags.tierSonnet,
+    tierOpus: flags.tierOpus,
+    tierHaiku: flags.tierHaiku,
+    inputPrice: flags.inputPrice,
+    outputPrice: flags.outputPrice,
+  });
+
+  providerCustom
+    .command('list')
+    .description('emit provider.custom.entries with every user-defined entry')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'custom', action: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  withCustomEntryFlags(
+    providerCustom
+      .command('add <id>')
+      .description(
+        'add a user-defined provider and emit provider.custom.added (prompts for missing required fields on a TTY; in machine mode a missing flag is a usage error)',
+      ),
+  ).action(async (id: string, flags: CustomEntryFlags) => {
+    const exit = await providerCmd.execute(
+      customEntryOptions('custom', 'add', id, flags),
+      resolveGlobals(program),
+    );
+    process.exitCode = exit;
+  });
+
+  withCustomEntryFlags(
+    providerCustom
+      .command('update <id>')
+      .description(
+        'change supplied fields of a user-defined provider and emit provider.custom.updated (never prompts)',
+      ),
+  ).action(async (id: string, flags: CustomEntryFlags) => {
+    const exit = await providerCmd.execute(
+      customEntryOptions('custom', 'update', id, flags),
+      resolveGlobals(program),
+    );
+    process.exitCode = exit;
+  });
+
+  providerCustom
+    .command('remove <id>')
+    .description(
+      'delete a user-defined provider and emit provider.custom.removed',
+    )
+    .action(async (id: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'custom', action: 'remove', provider: id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerCustom
+    .command('test <id>')
+    .description(
+      'probe a user-defined provider end-to-end and emit provider.custom.test (exit 1 when the probe fails)',
+    )
+    .action(async (id: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'custom', action: 'test', provider: id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
   // -- ptah workspace --------------------------------------------------------
   // Backed by shared WorkspaceRpcHandlers.
   const workspace = program
@@ -1210,31 +1598,22 @@ export function buildRouter(): Command {
       'install a skill via skillsSh:install (idempotent — second run reports changed:false)',
     )
     .option('--skill-id <id>', 'optional skill id inside the source repo')
-    .option('--scope <scope>', 'installation scope (project|global)', 'project')
-    .action(
-      async (source: string, opts: { skillId?: string; scope?: string }) => {
-        const exit = await skillCmd.execute(
-          {
-            subcommand: 'install',
-            source,
-            skillId: opts.skillId,
-            scope: opts.scope,
-          },
-          resolveGlobals(program),
-        );
-        process.exitCode = exit;
-      },
-    );
+    .action(async (source: string, opts: { skillId?: string }) => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'install', source, skillId: opts.skillId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
 
   skill
     .command('remove <name>')
     .description(
       'uninstall a skill via skillsSh:uninstall (idempotent — emits changed:false when absent)',
     )
-    .option('--scope <scope>', 'installation scope (project|global)', 'project')
-    .action(async (name: string, opts: { scope?: string }) => {
+    .action(async (name: string) => {
       const exit = await skillCmd.execute(
-        { subcommand: 'remove', name, scope: opts.scope },
+        { subcommand: 'remove', name },
         resolveGlobals(program),
       );
       process.exitCode = exit;
@@ -1321,7 +1700,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|copilot)',
+      'install target (vscode|claude|cursor|copilot|codex|antigravity)',
     )
     .action(async (name: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(
@@ -1338,7 +1717,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|copilot)',
+      'install target (vscode|claude|cursor|copilot|codex|antigravity)',
     )
     .action(async (key: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(
@@ -1484,13 +1863,11 @@ export function buildRouter(): Command {
     });
 
   // -- ptah prompts ----------------------------------------------------------
-  // Backed by shared EnhancedPromptsRpcHandlers. The `regenerate`
-  // sub-subcommand is premium-gated (license_required is surfaced by the
-  // backend and converted to a task.error).
+  // Backed by shared EnhancedPromptsRpcHandlers.
   const prompts = program
     .command('prompts')
     .description(
-      'manage Enhanced Prompts (status / enable / disable / regenerate / show / download) — premium-gated',
+      'manage Enhanced Prompts (status / enable / disable / regenerate / show / download)',
     );
 
   prompts
@@ -1529,7 +1906,7 @@ export function buildRouter(): Command {
   prompts
     .command('regenerate')
     .description(
-      'regenerate the project prompt via enhancedPrompts:regenerate (premium-gated; streams via setup-wizard:enhance-stream)',
+      'regenerate the project prompt via enhancedPrompts:regenerate (streams via setup-wizard:enhance-stream)',
     )
     .option(
       '--no-force',
@@ -2183,7 +2560,7 @@ export function buildRouter(): Command {
 
   // -- ptah analyze ----------------------------------------------------------
   // Top-level command — drives wizard:deep-analyze and streams analyze.*
-  // notifications. Premium licence gated by the backend.
+  // notifications. MCP server required by the backend.
   program
     .command('analyze')
     .description('run a multi-phase workspace analysis via wizard:deep-analyze')

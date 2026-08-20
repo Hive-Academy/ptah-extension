@@ -1,13 +1,33 @@
 /**
- * SubagentMessageDispatcher specs — Fix 3 error path coverage.
+ * SubagentMessageDispatcher specs.
  *
  * Verifies that:
  *   - stopSubagent wraps Query.stopTask failures in RpcUserError('TASK_NOT_FOUND')
  *   - sendToSubagent wraps streamInput failures in RpcUserError('SESSION_ENDED')
+ *     and shapes the coordinator-nudge payload (SendMessage instruction when
+ *     the registry record has an agentId, generic nudge otherwise)
  *   - interruptSession wraps Query.interrupt failures in RpcUserError('SESSION_ENDED')
+ *   - backgroundTask delegates to Query.backgroundTasks and surfaces
+ *     SESSION_NOT_FOUND / SESSION_ENDED
+ *   - getSubagentTranscript dynamic-imports the SDK, normalizes raw
+ *     SessionMessage[] to {role,text,timestamp?} (user/assistant only, text
+ *     blocks concatenated, empty-text turns dropped), and defensively returns
+ *     [] — never throws — when the SDK export is missing or the call rejects
  */
 
 import 'reflect-metadata';
+
+// getSubagentTranscript dynamic-imports the SDK; mock it so the transcript read
+// can be swapped per test (missing export / resolves / rejects) without the
+// real ESM SDK. Matches session-fork.service.spec.ts's mocking of forkSession.
+jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  getSubagentMessages: jest.fn(),
+}));
+
+const sdkModuleMock = require('@anthropic-ai/claude-agent-sdk') as {
+  getSubagentMessages: jest.Mock;
+};
+
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import { SubagentMessageDispatcher } from './subagent-message-dispatcher';
 import type { SessionLifecycleManager } from './session-lifecycle-manager';
@@ -28,7 +48,9 @@ function makeLogger(): Logger {
 }
 
 function makeRegistry(
-  record: { agentType: string } | null = { agentType: 'Explore' },
+  record: { agentType: string; status?: string; agentId?: string } | null = {
+    agentType: 'Explore',
+  },
 ): SubagentRegistryService {
   return {
     get: jest.fn().mockReturnValue(record),
@@ -114,6 +136,12 @@ describe('SubagentMessageDispatcher.sendToSubagent — Fix 3', () => {
 
 // ---------------------------------------------------------------------------
 // sendToSubagent — coordinator-nudge payload shape
+//
+// There is NO direct parent→subagent input channel: the CLI ignores
+// `parent_tool_use_id` on incoming streamInput messages (verified against
+// claude.exe 2.1.150). Every message is always enqueued to the root
+// coordinator with `parent_tool_use_id: null`; the nudge text instructs the
+// coordinator to relay via the SendMessage tool keyed by agentId.
 // ---------------------------------------------------------------------------
 
 describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () => {
@@ -139,9 +167,9 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     return captured;
   }
 
-  it('routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
+  it('always routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect' }),
+      makeRegistry({ agentType: 'software-architect', agentId: 'a1b2c3d' }),
       'toolu_abc',
       'please pause and check the README',
     );
@@ -152,9 +180,13 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     expect(msg['session_id']).toBe('sess-1');
   });
 
-  it('prefixes the user text with the agent type and toolUseId from the registry', async () => {
+  it('emits a SendMessage instruction keyed by agentId when a live record has an agentId', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect' }),
+      makeRegistry({
+        agentType: 'software-architect',
+        status: 'running',
+        agentId: 'a1b2c3d',
+      }),
       'toolu_abc',
       'please pause and check the README',
     );
@@ -162,11 +194,29 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.role).toBe('user');
     expect(wireMessage.content).toBe(
-      "Regarding the running 'software-architect' subagent (toolUseId=toolu_abc): please pause and check the README",
+      "The user wants to steer the running 'software-architect' subagent (id: a1b2c3d). Use the SendMessage tool with to: 'a1b2c3d' to deliver this to it verbatim: please pause and check the README",
     );
   });
 
-  it("falls back to agentType='unknown' when the registry has no record", async () => {
+  it('routes a background subagent with an agentId via the SendMessage instruction too', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({
+        agentType: 'Explore',
+        status: 'background',
+        agentId: 'bg99999',
+      }),
+      'toolu_bg',
+      'keep going',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      "The user wants to steer the running 'Explore' subagent (id: bg99999). Use the SendMessage tool with to: 'bg99999' to deliver this to it verbatim: keep going",
+    );
+  });
+
+  it('falls back to a generic nudge when the registry has no record', async () => {
     const msg = await captureStreamedMessage(
       makeRegistry(null),
       'toolu_missing',
@@ -175,8 +225,92 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
 
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.content).toBe(
-      "Regarding the running 'unknown' subagent (toolUseId=toolu_missing): check on this",
+      'Regarding the running subagent (toolUseId=toolu_missing): check on this',
     );
+  });
+
+  it('falls back to a generic nudge when the record has no agentId', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'Explore', status: 'running' }),
+      'toolu_noid',
+      'still there?',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      'Regarding the running subagent (toolUseId=toolu_noid): still there?',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backgroundTask — Query.backgroundTasks delegation + error paths
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.backgroundTask', () => {
+  it('returns the result of Query.backgroundTasks and forwards the toolUseId', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(true);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(dispatcher.backgroundTask('sess-1', 'toolu_fg')).resolves.toBe(
+      true,
+    );
+    expect(backgroundTasks).toHaveBeenCalledWith('toolu_fg');
+  });
+
+  it('backgrounds all foreground tasks when no toolUseId is given', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(true);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(dispatcher.backgroundTask('sess-1')).resolves.toBe(true);
+    expect(backgroundTasks).toHaveBeenCalledWith(undefined);
+  });
+
+  it('returns false when the toolUseId matched no foreground task', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(false);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(
+      dispatcher.backgroundTask('sess-1', 'toolu_none'),
+    ).resolves.toBe(false);
+  });
+
+  it('throws RpcUserError(SESSION_NOT_FOUND) when the session is not active', async () => {
+    const lifecycle = {
+      find: jest.fn().mockReturnValue(undefined),
+    } as unknown as SessionLifecycleManager;
+    const dispatcher = buildDispatcher(lifecycle);
+
+    const err = await dispatcher
+      .backgroundTask('sess-missing')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_NOT_FOUND');
+  });
+
+  it('throws RpcUserError(SESSION_ENDED) when backgroundTasks rejects', async () => {
+    const backgroundTasks = jest
+      .fn()
+      .mockRejectedValue(new Error('session already done'));
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    const err = await dispatcher
+      .backgroundTask('sess-1', 'toolu_fg')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
+    expect((err as RpcUserError).message).toContain('session already done');
   });
 });
 
@@ -198,5 +332,142 @@ describe('SubagentMessageDispatcher.interruptSession — Fix 3', () => {
     expect(err).toBeInstanceOf(RpcUserError);
     expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
     expect((err as RpcUserError).message).toContain('session already done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSubagentTranscript — SDK read + normalization
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.getSubagentTranscript', () => {
+  beforeEach(() => {
+    // Fresh mock per test — avoids bleed-through of resolved/rejected/deleted
+    // states between tests in this block.
+    sdkModuleMock.getSubagentMessages = jest.fn();
+  });
+
+  // The transcript read ignores the session/query, so any lifecycle mock works.
+  const dispatcher = (): SubagentMessageDispatcher =>
+    buildDispatcher(makeLifecycleWithQuery({}));
+
+  it('maps SDK SessionMessage[] to normalized {role,text,timestamp?} messages', async () => {
+    sdkModuleMock.getSubagentMessages.mockResolvedValueOnce([
+      {
+        type: 'user',
+        message: { role: 'user', content: 'hello agent' },
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'part one' },
+            { type: 'text', text: 'part two' },
+          ],
+        },
+        // no timestamp on this line
+      },
+    ]);
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([
+      {
+        role: 'user',
+        text: 'hello agent',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      { role: 'assistant', text: 'part one\npart two' },
+    ]);
+    expect(sdkModuleMock.getSubagentMessages).toHaveBeenCalledWith(
+      'sess-abc',
+      'short-1',
+      { limit: undefined, offset: undefined },
+    );
+  });
+
+  it('passes limit/offset through to the SDK call', async () => {
+    sdkModuleMock.getSubagentMessages.mockResolvedValueOnce([]);
+
+    await dispatcher().getSubagentTranscript('sess-abc', 'short-1', {
+      limit: 50,
+      offset: 10,
+    });
+
+    expect(sdkModuleMock.getSubagentMessages).toHaveBeenCalledWith(
+      'sess-abc',
+      'short-1',
+      { limit: 50, offset: 10 },
+    );
+  });
+
+  it('returns [] when the SDK getSubagentMessages export is unavailable', async () => {
+    // Simulate an SDK build that doesn't export this function.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sdkModuleMock as any).getSubagentMessages = undefined;
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it('returns [] (never throws) when the SDK call rejects', async () => {
+    sdkModuleMock.getSubagentMessages.mockRejectedValueOnce(
+      new Error('transcript file not found'),
+    );
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it('drops system turns, tool/thinking-only turns, and empty-text turns while concatenating surviving text blocks', async () => {
+    sdkModuleMock.getSubagentMessages.mockResolvedValueOnce([
+      // System turn — filtered out entirely (not user/assistant).
+      { type: 'system', message: { content: 'system init' } },
+      // Assistant turn with ONLY a tool_use block — renders to '' and is dropped.
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'toolu_1', name: 'Read', input: {} },
+          ],
+        },
+      },
+      // Assistant turn with ONLY a thinking block — renders to '' and is dropped.
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'thinking', thinking: 'pondering' }] },
+      },
+      // User turn with empty string content — dropped (empty after trim).
+      { type: 'user', message: { content: '' } },
+      // Assistant turn mixing tool_use + text — only the text block survives.
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'toolu_2', name: 'Grep', input: {} },
+            { type: 'text', text: 'final answer' },
+          ],
+        },
+      },
+    ]);
+
+    const messages = await dispatcher().getSubagentTranscript(
+      'sess-abc',
+      'short-1',
+    );
+
+    expect(messages).toEqual([{ role: 'assistant', text: 'final answer' }]);
   });
 });

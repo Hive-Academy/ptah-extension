@@ -10,6 +10,7 @@ import type {
   DiscordThreadLike,
 } from './discord.adapter';
 import type { InboundMessage } from '../adapter.interface';
+import type { IGatewayCommandHandler } from '../../commands/gateway-command.types';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 const PER_CHANNEL_WINDOW_MS = 5_000;
@@ -44,11 +45,13 @@ type ChannelRegistry = Map<string, DiscordSendableChannelLike>;
 interface FakeThread extends DiscordThreadLike {
   send: jest.Mock;
   setArchived: jest.Mock;
+  sendTyping: jest.Mock;
 }
 
 interface FakeChannel extends DiscordSendableChannelLike {
   id: string;
   send: jest.Mock;
+  sendTyping: jest.Mock;
   threadCreate: jest.Mock;
   createdThreads: FakeThread[];
 }
@@ -60,6 +63,7 @@ function fakeThread(byId: ChannelRegistry): FakeThread {
     id: `thread-${threadSeq}`,
     send: jest.fn().mockImplementation(async () => fakeMessage()),
     setArchived: jest.fn().mockResolvedValue(undefined),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
   };
   byId.set(thread.id, thread);
   return thread;
@@ -75,6 +79,7 @@ function fakeChannel(byId: ChannelRegistry, id = 'chan-1'): FakeChannel {
   const channel: FakeChannel = {
     id,
     send: jest.fn().mockImplementation(async () => fakeMessage()),
+    sendTyping: jest.fn().mockResolvedValue(undefined),
     threads: { create: threadCreate },
     threadCreate,
     createdThreads,
@@ -86,6 +91,8 @@ function fakeChannel(byId: ChannelRegistry, id = 'chan-1'): FakeChannel {
 interface FakeClient extends DiscordClientLike {
   emitInteraction(interaction: DiscordInteractionLike): Promise<void>;
   emitMessage(message: DiscordIncomingMessageLike): Promise<void>;
+  /** Fire a transport event (`error`, `shardDisconnect`, ...) if registered. */
+  emitTransport(event: string, ...args: unknown[]): boolean;
   channelsFetch: jest.Mock;
 }
 
@@ -125,6 +132,12 @@ function fakeClient(
         throw new Error('no messageCreate handler registered');
       await handlers.messageCreate(message);
     },
+    emitTransport(event, ...args) {
+      const h = (handlers as Record<string, unknown>)[event];
+      if (typeof h !== 'function') return false;
+      (h as (...a: unknown[]) => void)(...args);
+      return true;
+    },
   };
 }
 
@@ -140,6 +153,7 @@ function fakeIncomingMessage(
     bot: boolean;
     isThread: boolean;
     parentId: string | null;
+    ownerId: string | null;
     mentionsBot: boolean;
   }> = {},
 ): DiscordIncomingMessageLike {
@@ -159,6 +173,7 @@ function fakeIncomingMessage(
     channel: {
       isThread: () => overrides.isThread ?? false,
       parentId: overrides.parentId ?? null,
+      ownerId: overrides.ownerId ?? null,
     },
   };
 }
@@ -220,6 +235,70 @@ async function startAdapter(
   await adapter.start('token');
   return { adapter, client, channel, byId, inbound, logger };
 }
+
+describe('DiscordAdapter — transport lifecycle (TASK_2026_271 #3)', () => {
+  it('registers an error listener so a client error cannot crash the host', async () => {
+    const { client, logger } = await startAdapter();
+    expect(client.emitTransport('error', new Error('ws boom'))).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord client error',
+      expect.objectContaining({ error: 'ws boom' }),
+    );
+  });
+
+  it('isRunning() goes false on shardDisconnect and true again on shardResume', async () => {
+    const { adapter, client } = await startAdapter();
+    const seen: string[] = [];
+    adapter.onConnectionChange((e) => seen.push(e.state));
+    expect(adapter.isRunning()).toBe(true);
+
+    client.emitTransport('shardDisconnect', { code: 1006, reason: 'gone' });
+    expect(adapter.isRunning()).toBe(false);
+
+    client.emitTransport('shardReconnecting');
+    expect(adapter.isRunning()).toBe(false);
+
+    client.emitTransport('shardResume');
+    expect(adapter.isRunning()).toBe(true);
+    expect(seen).toEqual(['disconnected', 'reconnecting', 'connected']);
+  });
+
+  it('start() after the session was invalidated rebuilds the client instead of no-op-ing', async () => {
+    const { adapter, client } = await startAdapter();
+    client.emitTransport('invalidated');
+    expect(adapter.isRunning()).toBe(false);
+
+    await adapter.start('token');
+
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(client.login).toHaveBeenCalledTimes(2);
+    expect(adapter.isRunning()).toBe(true);
+  });
+
+  it('reports invalidated with a reason so the gateway can restart the adapter', async () => {
+    const { adapter, client } = await startAdapter();
+    const events: Array<{ state: string; reason?: string }> = [];
+    adapter.onConnectionChange((e) => events.push(e));
+
+    client.emitTransport('invalidated');
+    expect(adapter.isRunning()).toBe(false);
+    expect(events[0]?.state).toBe('invalidated');
+    expect(events[0]?.reason).toContain('invalidated');
+  });
+
+  it('shardError flips to reconnecting and carries the error text', async () => {
+    const { adapter, client } = await startAdapter();
+    const events: Array<{ state: string; reason?: string }> = [];
+    adapter.onConnectionChange((e) => events.push(e));
+
+    client.emitTransport('shardError', new Error('heartbeat timeout'));
+    expect(adapter.isRunning()).toBe(false);
+    expect(events[0]).toEqual({
+      state: 'reconnecting',
+      reason: 'heartbeat timeout',
+    });
+  });
+});
 
 describe('DiscordAdapter — inbound thread lifecycle', () => {
   beforeEach(() => {
@@ -399,7 +478,7 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
     );
   });
 
-  it('plain message in a never-seen thread on a fresh adapter emits attach with zero map dependency', async () => {
+  it('plain message in a Ptah-owned thread on a fresh adapter emits attach with zero map dependency', async () => {
     const { client, inbound } = await startAdapter();
 
     await client.emitMessage(
@@ -409,6 +488,7 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
         channelId: 'thread-resumed',
         isThread: true,
         parentId: 'chan-9',
+        ownerId: 'bot-1',
       }),
     );
 
@@ -422,6 +502,52 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
         conversationId: 'thread-resumed',
         conversationMode: 'attach',
         conversationKey: 'discord:chan-9:thread-resumed',
+      }),
+    );
+  });
+
+  it('ignores a plain message in a human-created thread that does not mention the bot', async () => {
+    const { client, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        id: 'in-human-thread',
+        content: 'just chatting in an unrelated thread',
+        channelId: 'thread-human',
+        isThread: true,
+        parentId: 'chan-1',
+        ownerId: 'human-99',
+      }),
+    );
+
+    expect(inbound).toHaveLength(0);
+    expect(client.channelsFetch).not.toHaveBeenCalled();
+  });
+
+  it('engages in a human-created thread only when the bot is mentioned', async () => {
+    const { client, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        id: 'in-human-mention',
+        content: '<@bot-1> help me here',
+        channelId: 'thread-human',
+        isThread: true,
+        parentId: 'chan-1',
+        ownerId: 'human-99',
+        mentionsBot: true,
+      }),
+    );
+
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0]).toEqual(
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        externalMsgId: 'in-human-mention',
+        body: 'help me here',
+        conversationId: 'thread-human',
+        conversationMode: 'attach',
+        conversationKey: 'discord:chan-1:thread-human',
       }),
     );
   });
@@ -647,6 +773,576 @@ describe('DiscordAdapter — outbound', () => {
     await expect(
       adapter.editMessage('chan-1', sent.externalMsgId, 'y'),
     ).rejects.toThrow(/no message recorded/);
+  });
+});
+
+describe('DiscordAdapter — typing indicator (TASK_2026_271)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+  });
+
+  it('routes sendTyping to the thread when a conversationId is given', async () => {
+    const { adapter, channel, byId } = await startAdapter();
+    const thread = fakeThread(byId);
+
+    await adapter.sendTyping('chan-1', { conversationId: thread.id });
+
+    expect(thread.sendTyping).toHaveBeenCalledTimes(1);
+    expect(channel.sendTyping).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the parent channel when no conversationId is given', async () => {
+    const { adapter, channel } = await startAdapter();
+
+    await adapter.sendTyping('chan-1');
+
+    expect(channel.sendTyping).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws when the channel is gone or sendTyping rejects', async () => {
+    const { adapter, channel, logger } = await startAdapter();
+    channel.sendTyping.mockRejectedValue(new Error('Missing Permissions'));
+
+    await expect(adapter.sendTyping('chan-1')).resolves.toBeUndefined();
+    await expect(adapter.sendTyping('chan-gone')).resolves.toBeUndefined();
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[gateway] discord sendTyping failed',
+      expect.objectContaining({ error: 'Missing Permissions' }),
+    );
+  });
+
+  it('is a no-op on a channel shape that does not expose sendTyping', async () => {
+    const { adapter, byId } = await startAdapter();
+    byId.set('plain-chan', {
+      send: jest.fn().mockImplementation(async () => fakeMessage()),
+    });
+
+    await expect(adapter.sendTyping('plain-chan')).resolves.toBeUndefined();
+  });
+});
+
+describe('DiscordAdapter — bounded message tracking (TASK_2026_271)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+  });
+
+  it('evicts the oldest handles past the 500-message cap but keeps the recent tail editable', async () => {
+    jest.useFakeTimers();
+    try {
+      const { adapter } = await startAdapter();
+      // Step the clock past the throttle window between sends so the burst
+      // limiter never parks on a timer — this test is about the map, not the
+      // rate limit.
+      const send = async (body: string): Promise<string> => {
+        jest.setSystemTime(Date.now() + PER_CHANNEL_WINDOW_MS + 1);
+        const res = await adapter.sendMessage('chan-1', body);
+        return res.externalMsgId;
+      };
+
+      const first = await send('oldest');
+      const ids: string[] = [];
+      for (let i = 0; i < 500; i += 1) ids.push(await send(`m${i}`));
+
+      // 501 sends, cap 500 → only the very first handle was evicted.
+      await expect(adapter.editMessage('chan-1', first, 'x')).rejects.toThrow(
+        /no message recorded/,
+      );
+      await expect(
+        adapter.editMessage('chan-1', ids[0], 'x'),
+      ).resolves.toBeUndefined();
+      await expect(
+        adapter.editMessage('chan-1', ids[ids.length - 1], 'x'),
+      ).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('prunes rate-limit windows for channels that have gone quiet', async () => {
+    jest.useFakeTimers();
+    try {
+      const { adapter, byId } = await startAdapter();
+      const quiet = fakeThread(byId);
+      const busy = fakeThread(byId);
+
+      await adapter.sendMessage('chan-1', 'a', { conversationId: quiet.id });
+      const windows = (
+        adapter as unknown as { channelEdits: Map<string, number[]> }
+      ).channelEdits;
+      expect(windows.has(quiet.id)).toBe(true);
+
+      jest.setSystemTime(Date.now() + PER_CHANNEL_WINDOW_MS + 1);
+      await adapter.sendMessage('chan-1', 'b', { conversationId: busy.id });
+
+      expect(windows.has(quiet.id)).toBe(false);
+      expect(windows.has(busy.id)).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+type FakeCommandHandler = jest.Mocked<IGatewayCommandHandler>;
+
+function createCommandHandler(): FakeCommandHandler {
+  return {
+    handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'done' }),
+    handleAutocomplete: jest.fn().mockResolvedValue([]),
+  } as unknown as FakeCommandHandler;
+}
+
+interface FakeControlInteraction extends DiscordInteractionLike {
+  deferReply: jest.Mock;
+  editReply: jest.Mock;
+  respond: jest.Mock;
+}
+
+function fakeControlInteraction(overrides: {
+  commandName: string;
+  subcommand?: string | null;
+  pick?: string | null;
+  guildId?: string | null;
+  channelId?: string;
+  isThread?: boolean;
+  parentId?: string | null;
+  focused?: string;
+  autocomplete?: boolean;
+}): FakeControlInteraction {
+  return {
+    commandName: overrides.commandName,
+    id: 'control-interaction-1',
+    channelId: overrides.channelId ?? 'chan-1',
+    guildId: overrides.guildId === undefined ? 'guild-1' : overrides.guildId,
+    user: { id: 'u1', username: 'alice' },
+    options: {
+      getString: (name: string) =>
+        name === 'pick' ? (overrides.pick ?? null) : null,
+      getSubcommand: () => overrides.subcommand ?? null,
+      getFocused: () => overrides.focused ?? '',
+    },
+    channel: {
+      isThread: () => overrides.isThread ?? false,
+      parentId: overrides.parentId ?? null,
+    },
+    isAutocomplete: () => overrides.autocomplete ?? false,
+    deferReply: jest.fn().mockResolvedValue(undefined),
+    editReply: jest.fn().mockResolvedValue(undefined),
+    respond: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+describe('DiscordAdapter — control-plane commands (TASK_2026_156)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+    inMsgSeq = 0;
+  });
+
+  it('/sessions in a thread defers ephemerally and routes to the command handler, never the inbound listener', async () => {
+    const { adapter, client, channel, byId, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockResolvedValue({ ephemeralText: 'the list' });
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'sessions',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(handler.handleCommand).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: thread.id,
+      allowListId: 'guild-1',
+      command: { kind: 'sessions' },
+    });
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'the list',
+    });
+    expect(inbound).toHaveLength(0);
+    expect(channel.threadCreate).not.toHaveBeenCalled();
+    expect(thread.send).not.toHaveBeenCalled();
+  });
+
+  it('/sessions in a parent channel propagates the channel id with no threadId', async () => {
+    const { adapter, client } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'sessions',
+      channelId: 'chan-1',
+      isThread: false,
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleCommand).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: undefined,
+      allowListId: 'guild-1',
+      command: { kind: 'sessions' },
+    });
+  });
+
+  it('/session use routes the untrusted pick and posts the public audit line into the thread', async () => {
+    const { adapter, client, channel, byId, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockResolvedValue({
+      ephemeralText: 'attached',
+      publicText: 'audit line',
+    });
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'session',
+      subcommand: 'use',
+      pick: 'a1b2c3d4-0000-0000-0000-000000000000',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleCommand).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: thread.id,
+      allowListId: 'guild-1',
+      command: {
+        kind: 'session-use',
+        pick: 'a1b2c3d4-0000-0000-0000-000000000000',
+      },
+    });
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'attached',
+    });
+    expect(thread.send).toHaveBeenCalledWith({ content: 'audit line' });
+    expect(channel.send).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+  });
+
+  it('/new maps to the new command and skips the public send when no publicText is returned', async () => {
+    const { adapter, client, byId } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockResolvedValue({
+      ephemeralText: 'already fresh',
+    });
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'new',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: { kind: 'new' } }),
+    );
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'already fresh',
+    });
+    expect(thread.send).not.toHaveBeenCalled();
+  });
+
+  it('/workspace list and /workspace use map to their commands', async () => {
+    const { adapter, client, byId } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+
+    await client.emitInteraction(
+      fakeControlInteraction({
+        commandName: 'workspace',
+        subcommand: 'list',
+        channelId: 'chan-1',
+      }),
+    );
+    await client.emitInteraction(
+      fakeControlInteraction({
+        commandName: 'workspace',
+        subcommand: 'use',
+        pick: 'ptah-extension',
+        channelId: thread.id,
+        isThread: true,
+        parentId: 'chan-1',
+      }),
+    );
+
+    expect(handler.handleCommand).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        threadId: undefined,
+        command: { kind: 'workspace-list' },
+      }),
+    );
+    expect(handler.handleCommand).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        threadId: thread.id,
+        command: { kind: 'workspace-use', pick: 'ptah-extension' },
+      }),
+    );
+  });
+
+  it('rejects control commands from a guild not on the allow-list before deferring (SEC-6)', async () => {
+    const { adapter, client } = await startAdapter({
+      allowedGuildIds: ['guild-allowed'],
+    });
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'sessions',
+      guildId: 'guild-other',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it('replies a fixed ephemeral error and never calls the handler when the payload fails Zod validation (SEC-8)', async () => {
+    const { adapter, client, byId } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const emptyPick = fakeControlInteraction({
+      commandName: 'session',
+      subcommand: 'use',
+      pick: '   ',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+    const badSubcommand = fakeControlInteraction({
+      commandName: 'workspace',
+      subcommand: 'nuke',
+      channelId: 'chan-1',
+    });
+    const orphanThread = fakeControlInteraction({
+      commandName: 'new',
+      channelId: 'thread-orphan',
+      isThread: true,
+      parentId: null,
+    });
+
+    for (const interaction of [emptyPick, badSubcommand, orphanThread]) {
+      await client.emitInteraction(interaction);
+      expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+      expect(interaction.editReply).toHaveBeenCalledWith({
+        content: 'Ptah could not process that command.',
+      });
+    }
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it('replies the fixed ephemeral error when the handler throws', async () => {
+    const { adapter, client, logger } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockRejectedValue(new Error('boom'));
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({ commandName: 'sessions' });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'Ptah could not process that command.',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord control command failed',
+      expect.objectContaining({ error: 'boom' }),
+    );
+  });
+
+  it('ignores control commands entirely when no command handler is wired', async () => {
+    const { client, inbound } = await startAdapter();
+    const interaction = fakeControlInteraction({ commandName: 'sessions' });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(interaction.editReply).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+  });
+
+  it('leaves non-command interactions and the /ptah defer untouched (AC-1.4)', async () => {
+    const { adapter, client, channel, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+
+    const unrelated = fakeControlInteraction({ commandName: 'other-bot' });
+    await client.emitInteraction(unrelated);
+    expect(unrelated.deferReply).not.toHaveBeenCalled();
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+
+    const prompt = fakeInteraction({ prompt: 'hello world' });
+    await client.emitInteraction(prompt);
+    expect(prompt.deferReply).toHaveBeenCalledTimes(1);
+    expect(prompt.deferReply).toHaveBeenCalledWith();
+    expect(channel.threadCreate).toHaveBeenCalledTimes(1);
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0].body).toBe('hello world');
+  });
+});
+
+describe('DiscordAdapter — autocomplete (TASK_2026_156)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+    inMsgSeq = 0;
+  });
+
+  it('session autocomplete in a thread routes to the handler and responds with its choices', async () => {
+    const { adapter, client, byId, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    const choices = [
+      { name: 'fix build · a1b2c3d4 · 5m ago', value: 'a1b2c3d4-uuid' },
+    ];
+    handler.handleAutocomplete.mockResolvedValue(choices);
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'session',
+      subcommand: 'use',
+      autocomplete: true,
+      focused: 'fix',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleAutocomplete).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: thread.id,
+      allowListId: 'guild-1',
+      target: 'session-pick',
+      query: 'fix',
+    });
+    expect(interaction.respond).toHaveBeenCalledWith(choices);
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+  });
+
+  it('workspace autocomplete maps to the workspace-pick target', async () => {
+    const { adapter, client } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'workspace',
+      subcommand: 'use',
+      autocomplete: true,
+      focused: 'pta',
+      channelId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleAutocomplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'workspace-pick',
+        externalChatId: 'chan-1',
+        threadId: undefined,
+        query: 'pta',
+      }),
+    );
+  });
+
+  it('caps the responded choices at 25 even if the handler returns more', async () => {
+    const { adapter, client } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleAutocomplete.mockResolvedValue(
+      Array.from({ length: 30 }, (_, i) => ({
+        name: `choice-${i}`,
+        value: `value-${i}`,
+      })),
+    );
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'workspace',
+      autocomplete: true,
+    });
+
+    await client.emitInteraction(interaction);
+
+    const responded = interaction.respond.mock.calls[0][0] as unknown[];
+    expect(responded).toHaveLength(25);
+  });
+
+  it('responds an empty choice list for a guild not on the allow-list (SEC-6)', async () => {
+    const { adapter, client } = await startAdapter({
+      allowedGuildIds: ['guild-allowed'],
+    });
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'session',
+      autocomplete: true,
+      guildId: 'guild-other',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+    expect(handler.handleAutocomplete).not.toHaveBeenCalled();
+  });
+
+  it('responds an empty choice list when no handler is wired or the payload fails validation', async () => {
+    const { adapter, client } = await startAdapter();
+    const unwired = fakeControlInteraction({
+      commandName: 'session',
+      autocomplete: true,
+    });
+    await client.emitInteraction(unwired);
+    expect(unwired.respond).toHaveBeenCalledWith([]);
+
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const wrongCommand = fakeControlInteraction({
+      commandName: 'sessions',
+      autocomplete: true,
+    });
+    await client.emitInteraction(wrongCommand);
+    expect(wrongCommand.respond).toHaveBeenCalledWith([]);
+    expect(handler.handleAutocomplete).not.toHaveBeenCalled();
+  });
+
+  it('responds an empty choice list when the handler throws', async () => {
+    const { adapter, client, logger } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleAutocomplete.mockRejectedValue(new Error('probe down'));
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'workspace',
+      autocomplete: true,
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord autocomplete failed',
+      expect.objectContaining({ error: 'probe down' }),
+    );
   });
 });
 

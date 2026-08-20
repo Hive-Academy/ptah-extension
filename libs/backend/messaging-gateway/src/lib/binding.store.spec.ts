@@ -99,4 +99,28 @@ maybe('BindingStore', () => {
     expect(second.allowListId).toBe('guild-7');
     expect(store.findById(first.id)?.allowListId).toBe('guild-7');
   });
+
+  describe('setWorkspaceRoot', () => {
+    it('updates only workspace_root and last_active_at, leaving status/session/code intact', () => {
+      const id = seed('telegram', 'chat-ws');
+      const approved = store.approve(id, 'session-abc', '/old/root');
+      expect(approved.approvalStatus).toBe('approved');
+      expect(approved.pairingCode).toBeNull();
+
+      const updated = store.setWorkspaceRoot(id, '/new/root');
+
+      expect(updated.workspaceRoot).toBe('/new/root');
+      // status, session id, and pairing code must be untouched
+      expect(updated.approvalStatus).toBe('approved');
+      expect(updated.ptahSessionId).toBe('session-abc');
+      expect(updated.pairingCode).toBeNull();
+      expect(store.findById(id)?.workspaceRoot).toBe('/new/root');
+    });
+
+    it('throws when the binding id is unknown', () => {
+      expect(() =>
+        store.setWorkspaceRoot('missing' as BindingId, '/x'),
+      ).toThrow(/not found/);
+    });
+  });
 });

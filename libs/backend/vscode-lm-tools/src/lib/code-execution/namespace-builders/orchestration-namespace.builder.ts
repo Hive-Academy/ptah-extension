@@ -82,15 +82,18 @@ export function buildOrchestrationNamespace(
   const { workspaceRoot } = deps;
 
   /**
+   * Get the task folder for a given taskId. State co-locates with the spec
+   * artifacts the orchestration skill writes under `.ptah/specs/<taskId>/`.
+   */
+  const getTaskFolder = (taskId: string): string => {
+    return path.join(workspaceRoot, '.ptah', 'specs', taskId);
+  };
+
+  /**
    * Get the file path for orchestration state
    */
   const getStatePath = (taskId: string): string => {
-    return path.join(
-      workspaceRoot,
-      'task-tracking',
-      taskId,
-      '.orchestration-state.json',
-    );
+    return path.join(getTaskFolder(taskId), '.orchestration-state.json');
   };
 
   /**
@@ -99,10 +102,8 @@ export function buildOrchestrationNamespace(
   const readStateFile = async (
     taskId: string,
   ): Promise<OrchestrationState | null> => {
-    const statePath = getStatePath(taskId);
-
     try {
-      const content = await fs.promises.readFile(statePath, 'utf8');
+      const content = await fs.promises.readFile(getStatePath(taskId), 'utf8');
       return JSON.parse(content) as OrchestrationState;
     } catch {
       return null;
@@ -114,7 +115,7 @@ export function buildOrchestrationNamespace(
    */
   const writeStateFile = async (state: OrchestrationState): Promise<void> => {
     const statePath = getStatePath(state.taskId);
-    const taskFolder = path.join(workspaceRoot, 'task-tracking', state.taskId);
+    const taskFolder = getTaskFolder(state.taskId);
 
     await fs.promises.mkdir(taskFolder, { recursive: true });
 
@@ -154,32 +155,51 @@ export function buildOrchestrationNamespace(
   };
 
   /**
-   * Analyze documents to determine if phase requirements are met
-   * Checks for existence of required documents in task folder
+   * Analyze documents to determine if phase requirements are met.
+   *
+   * Requirements are groups of ALTERNATIVES: every group must be satisfied by
+   * AT LEAST ONE of its filenames. That is what lets the implementation phase
+   * accept `batches.md` or its legacy name `tasks.md` — requiring both would
+   * break every task folder created under either name alone.
+   *
+   * Documents are read from `.ptah/specs/<taskId>/`, the same folder the state
+   * file lives in.
    */
   const checkPhaseRequirementsMet = async (
     taskId: string,
     phase: OrchestrationPhase,
   ): Promise<boolean> => {
-    const taskFolder = path.join(workspaceRoot, 'task-tracking', taskId);
+    const taskFolder = getTaskFolder(taskId);
 
-    const requiredDocuments: Record<OrchestrationPhase, string[]> = {
-      planning: ['task-description.md'],
-      design: ['implementation-plan.md'],
-      implementation: ['tasks.md'],
+    const requiredDocuments: Record<
+      OrchestrationPhase,
+      readonly (readonly string[])[]
+    > = {
+      planning: [['task-description.md']],
+      design: [['implementation-plan.md']],
+      implementation: [['batches.md', 'tasks.md']],
       qa: [],
       complete: [],
     };
 
-    const required = requiredDocuments[phase];
-
-    for (const doc of required) {
-      const docPath = path.join(taskFolder, doc);
+    const exists = async (doc: string): Promise<boolean> => {
       try {
-        await fs.promises.stat(docPath);
+        await fs.promises.stat(path.join(taskFolder, doc));
+        return true;
       } catch {
         return false;
       }
+    };
+
+    for (const alternatives of requiredDocuments[phase]) {
+      let satisfied = false;
+      for (const doc of alternatives) {
+        if (await exists(doc)) {
+          satisfied = true;
+          break;
+        }
+      }
+      if (!satisfied) return false;
     }
 
     return true;

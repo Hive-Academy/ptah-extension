@@ -1,0 +1,28 @@
+name: Authorize Workstation SSH Key
+
+# One-shot utility: appends the founder workstation's public key to the
+# droplet's authorized_keys so local tooling can SSH directly (idempotent —
+# skips if the key is already present). Manually triggered only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Append workstation key on droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG95RBlLAyHrvVpcRNOcmOu2Gt+PA4UmlhllE/b2wLvf abdallah-ptah-workstation'
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+            grep -qF "$KEY" ~/.ssh/authorized_keys || echo "$KEY" >> ~/.ssh/authorized_keys
+            echo "authorized keys now: $(wc -l < ~/.ssh/authorized_keys) lines"

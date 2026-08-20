@@ -6,6 +6,8 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
+import type { MessageHandler } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GitInfoResult,
   GitBranchInfo,
@@ -21,7 +23,14 @@ interface GitWorkspaceState {
   branch: GitBranchInfo;
   files: GitFileStatus[];
   isGitRepo: boolean;
+  /** When this cache entry was last written (data applied or state saved). */
   lastUpdated: number;
+  /**
+   * When git data was last actually fetched from (or pushed by) the backend.
+   * Distinct from `lastUpdated`, which also advances on plain save-on-switch.
+   * Used to decide whether an eager fetch is redundant on workspace switch.
+   */
+  fetchedAt?: number;
 }
 
 /** Default empty branch info for reset scenarios. */
@@ -56,14 +65,30 @@ function filesEqual(a: GitFileStatus[], b: GitFileStatus[]): boolean {
 }
 
 @Injectable({ providedIn: 'root' })
-export class GitStatusService {
+export class GitStatusService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly _workspaceGitState = new Map<string, GitWorkspaceState>();
 
+  /**
+   * How long a restored cache entry is considered fresh on workspace switch.
+   * Within this window the eager `git:info` fetch is skipped so rapid A↔B↔A
+   * switching does not re-hit `git:info` every time.
+   *
+   * Trade-off (do NOT restore the old 30s value without re-reading this): the
+   * Electron git watcher only watches ONE workspace at a time
+   * (`git-watcher.service.ts` re-arms a single target on switch), so NO
+   * `git:status-update` push is generated for a workspace while it is in the
+   * background. A background change (e.g. a background agent session
+   * committing in workspace A while the user views B) therefore leaves A's
+   * cache stale until the next fetch. 5s bounds that staleness while still
+   * collapsing the rapid-thrash fetches this optimization targets; missing or
+   * older entries still fetch on switch, as does an explicit refresh.
+   */
+  private static readonly CACHE_TTL_MS = 5_000;
+
   private _isListening = false;
-  private _messageHandler: ((event: MessageEvent) => void) | null = null;
 
   private readonly _activeWorkspacePath = signal<string | null>(null);
   private readonly _branch = signal<GitBranchInfo>(EMPTY_BRANCH, {
@@ -127,6 +152,47 @@ export class GitStatusService {
     return map;
   });
 
+  /**
+   * Every directory (relative to the workspace root) that transitively
+   * contains a changed entry, as a `Set` for O(1) membership tests.
+   *
+   * `FileTreeNodeComponent.hasChangedChildren` used to answer that question by
+   * scanning every key of {@link fileStatusMap} per directory node, which made
+   * a `git:status-update` cost O(changed files × visible directory nodes).
+   * Building the ancestor set once per status update is O(total path segments)
+   * and turns every node's evaluation into a single `Set.has` (B3 AC1, AC2).
+   *
+   * Contract:
+   * - Paths are stored **without** a trailing slash and always with `/`
+   *   separators, so a lookup must normalize the same way (B3 AC5). Windows is
+   *   the primary development platform, so `\`-separated payloads must land in
+   *   the same buckets as `/`-separated ones.
+   * - An entry that is itself a directory (an untracked directory, which git
+   *   reports as a single entry instead of listing its files) is added in its
+   *   own right, not only as an ancestor — it does transitively contain
+   *   changed files (B3 AC3).
+   * - Derived from `_files()`, which is already the ACTIVE workspace's slice,
+   *   so other workspaces cannot leak in (B3 AC4) and a reverted change clears
+   *   the parent entries on the next update (B3 AC6). Never cache this in a
+   *   mutable field; `_files` carries `equal: filesEqual`, so the `computed`
+   *   already recomputes only on a genuine change.
+   */
+  readonly changedDirPrefixes = computed<ReadonlySet<string>>(() => {
+    const prefixes = new Set<string>();
+    for (const file of this._files()) {
+      let path = file.path.replace(/\\/g, '/');
+      while (path.endsWith('/')) path = path.slice(0, -1);
+      if (!path) continue;
+
+      if (file.isDirectory) prefixes.add(path);
+
+      for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) {
+        if (i > 0) prefixes.add(path.slice(0, i));
+      }
+    }
+    return prefixes;
+  });
+
   /** The currently active workspace path (for path normalization in components). */
   readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
 
@@ -153,7 +219,20 @@ export class GitStatusService {
       this._files.set([]);
       this._isGitRepo.set(false);
     }
-    this.fetchGitInfo();
+
+    // Skip the eager fetch when the restored cache entry is still fresh —
+    // repeated A↔B switching otherwise re-hits `git:info` every time. The
+    // freshness window is deliberately short (see CACHE_TTL_MS) because the
+    // single-workspace Electron watcher does NOT keep background workspaces
+    // current. A missing or stale entry still fetches so first-visit and
+    // idle-past-the-window workspaces refresh as before.
+    const fetchedAt = cached?.fetchedAt;
+    const isFresh =
+      fetchedAt !== undefined &&
+      Date.now() - fetchedAt < GitStatusService.CACHE_TTL_MS;
+    if (!isFresh) {
+      this.fetchGitInfo();
+    }
   }
 
   /**
@@ -171,34 +250,54 @@ export class GitStatusService {
   }
 
   /**
-   * Start listening for git:status-update push events from the backend.
-   * Also performs an initial RPC fetch to populate state immediately.
+   * Message types dispatched to {@link handleMessage} by
+   * `MessageRouterService`. Registered via the `MESSAGE_HANDLERS`
+   * multi-provider in the composition root — this service holds no raw
+   * `window` listener of its own (C1 AC1).
+   */
+  readonly handledMessageTypes = [MESSAGE_TYPES.GIT_STATUS_UPDATE] as const;
+
+  /**
+   * Apply a `git:status-update` push routed by `MessageRouterService`.
+   *
+   * Gated on {@link startListening} / {@link stopListening} so the
+   * observable behaviour is identical to the raw listener this replaced:
+   * pushes arriving before the editor panel starts listening, or after it
+   * stops, are ignored (C1 AC2).
+   */
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    if (!this._isListening) return;
+    if (message.type !== MESSAGE_TYPES.GIT_STATUS_UPDATE) return;
+    if (!message.payload) return;
+
+    const payload = message.payload as GitStatusUpdatePayload;
+    this.applyGitInfo(payload, payload.workspaceRoot ?? null);
+  }
+
+  /**
+   * Begin accepting `git:status-update` pushes and perform an initial RPC
+   * fetch to populate state immediately.
+   *
+   * No longer registers a listener — dispatch is owned by
+   * `MessageRouterService`. This flips the gate {@link handleMessage}
+   * reads and keeps the eager fetch, which is the only side effect callers
+   * ever depended on.
    */
   startListening(): void {
     if (this._isListening) return;
     this._isListening = true;
-    this._messageHandler = (event: MessageEvent) => {
-      const data = event.data;
-      if (data?.type === 'git:status-update' && data.payload) {
-        const payload = data.payload as GitStatusUpdatePayload;
-        this.applyGitInfo(payload, payload.workspaceRoot ?? null);
-      }
-    };
-    window.addEventListener('message', this._messageHandler);
     this.fetchGitInfo();
   }
 
   /**
-   * Stop listening for push events.
-   * Called when editor panel is hidden or service is destroyed.
+   * Stop accepting push events.
+   * Called when the editor panel is hidden or the service is destroyed.
+   *
+   * There is no listener to tear down and no timer to clear; closing the
+   * gate is the whole of it (C1 AC3).
    */
   stopListening(): void {
     this._isListening = false;
-
-    if (this._messageHandler) {
-      window.removeEventListener('message', this._messageHandler);
-      this._messageHandler = null;
-    }
   }
 
   /**
@@ -225,13 +324,15 @@ export class GitStatusService {
       this._branch.set(data.branch);
       this._files.set(data.files);
       this._isGitRepo.set(data.isGitRepo);
-      this.saveCurrentState();
+      // Fresh data just arrived for the active workspace — stamp fetchedAt.
+      this.saveCurrentState(Date.now());
     } else {
       this._workspaceGitState.set(target, {
         branch: data.branch,
         files: data.files,
         isGitRepo: data.isGitRepo,
         lastUpdated: Date.now(),
+        fetchedAt: Date.now(),
       });
     }
   }
@@ -265,15 +366,23 @@ export class GitStatusService {
 
   /**
    * Save current signal values into the workspace state map.
+   *
+   * @param fetchedAt When supplied, stamps the entry's data-freshness marker
+   *   (fresh backend data just arrived). When omitted, the previous
+   *   `fetchedAt` is preserved so a plain save-on-switch does not make stale
+   *   data look freshly fetched.
    */
-  private saveCurrentState(): void {
-    if (!this._activeWorkspacePath()) return;
+  private saveCurrentState(fetchedAt?: number): void {
+    const activePath = this._activeWorkspacePath();
+    if (!activePath) return;
 
-    this._workspaceGitState.set(this._activeWorkspacePath()!, {
+    const existing = this._workspaceGitState.get(activePath);
+    this._workspaceGitState.set(activePath, {
       branch: this._branch(),
       files: this._files(),
       isGitRepo: this._isGitRepo(),
       lastUpdated: Date.now(),
+      fetchedAt: fetchedAt ?? existing?.fetchedAt,
     });
   }
 }

@@ -51,7 +51,7 @@ When you close a chat (or click **Session summary** in the chat header), you get
 - Sub-agent spawn count and total sub-agent cost.
 - Longest running tool call and slowest turn.
 
-This is the same data exported to the usage logs for license reporting if you have a Pro subscription.
+This is the same data written to your local usage logs for cost tracking and analytics.
 
 :::tip
 If costs look wrong, open the Execution Tree for the suspect turn. Every node carries its own token and USD numbers — usually the culprit is a sub-agent that pulled in a large folder attachment.

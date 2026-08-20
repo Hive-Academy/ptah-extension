@@ -7,6 +7,8 @@
  * Backward-compatible re-exports ensure existing consumers continue to work.
  */
 
+import type { ProviderModelInfo } from '@ptah-extension/shared';
+
 export type {
   ITranslationProxy as ICopilotTranslationProxy,
   OpenAIChatMessage,
@@ -103,12 +105,33 @@ export interface CopilotPollLoginOptions {
 }
 
 /**
+ * Options accepted by {@link ICopilotAuthService.login}.
+ *
+ * `onDeviceCode` is invoked as soon as the device-code metadata is available
+ * and BEFORE `login()` blocks for up to five minutes inside `pollLogin`. It is
+ * the only way a headless caller can learn the code, because the built-in
+ * surfacing path (`IUserInteraction.showInformationMessage`) is a plain
+ * `console.log` under the CLI runtime and is swallowed by the TUI's console
+ * capture.
+ *
+ * The callback must never throw — implementations invoke it defensively, but a
+ * rejected promise from it is ignored, not awaited.
+ */
+export interface CopilotLoginOptions {
+  onDeviceCode?: (info: CopilotDeviceLoginInfo) => void;
+}
+
+/**
  * Copilot authentication service interface.
  * Handles GitHub OAuth login and Copilot bearer token lifecycle.
  */
 export interface ICopilotAuthService {
-  /** Initiate GitHub OAuth login and exchange for Copilot bearer token */
-  login(): Promise<boolean>;
+  /**
+   * Initiate GitHub OAuth login and exchange for Copilot bearer token.
+   *
+   * @param opts - optional observer hooks; see {@link CopilotLoginOptions}.
+   */
+  login(opts?: CopilotLoginOptions): Promise<boolean>;
   /**
    * Attempt to restore authentication silently from persisted tokens.
    * Tries file-based token reading and VS Code auth (if available) but
@@ -122,6 +145,8 @@ export interface ICopilotAuthService {
   getAuthState(): Promise<CopilotAuthState | null>;
   /** Get HTTP headers required for Copilot API requests */
   getHeaders(): Promise<Record<string, string>>;
+  /** List models available to the authenticated Copilot account */
+  listModels(): Promise<ProviderModelInfo[]>;
   /** Clear cached auth state (logout) */
   logout(): Promise<void>;
 

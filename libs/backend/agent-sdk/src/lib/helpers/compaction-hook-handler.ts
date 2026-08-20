@@ -32,6 +32,7 @@ import type {
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import type { LiveUsageTracker } from './live-usage-tracker';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
@@ -123,7 +124,7 @@ export class CompactionHookHandler {
    * @returns Hooks configuration for SDK query options
    */
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string | null,
     onCompactionStart?: CompactionStartCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
@@ -173,10 +174,26 @@ export class CompactionHookHandler {
                   );
                   return { continue: true };
                 }
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                const resolvedCwd = resolveHookCwd(input.cwd, cwd);
+                if (!resolvedSessionId) {
+                  // Publishing '' here is worse than publishing nothing: it
+                  // reaches the memory curator's transcript reader, which
+                  // rejects it as a path-traversal attempt and curates a
+                  // placeholder instead of the conversation.
+                  this.logger.warn(
+                    '[CompactionHookHandler] PreCompact missing sessionId, skipping callback',
+                    { trigger, hasCwd: Boolean(resolvedCwd) },
+                  );
+                  return { continue: true };
+                }
                 this.logger.info(
                   '[CompactionHookHandler] PreCompact hook triggered',
                   {
-                    sessionId,
+                    sessionId: resolvedSessionId,
                     trigger,
                     hasCustomInstructions: !!input.custom_instructions,
                   },
@@ -185,29 +202,29 @@ export class CompactionHookHandler {
                 const ensurePreTokens = () => {
                   if (preTokensSampled === null) {
                     preTokensSampled =
-                      this.usageTracker.getCumulativeTokens(sessionId);
+                      this.usageTracker.getCumulativeTokens(resolvedSessionId);
                   }
                   return preTokensSampled;
                 };
 
                 if (this.callbackRegistry && this.callbackRegistry.size > 0) {
                   this.callbackRegistry.notifyAll({
-                    sessionId,
+                    sessionId: resolvedSessionId,
                     trigger,
                     timestamp: Date.now(),
                     preTokens: ensurePreTokens(),
-                    cwd,
+                    cwd: resolvedCwd,
                   });
                 }
                 if (capturedCallback) {
                   const preTokens = ensurePreTokens();
 
                   const compactionData = {
-                    sessionId,
+                    sessionId: resolvedSessionId,
                     trigger,
                     timestamp: Date.now(),
                     preTokens,
-                    cwd,
+                    cwd: resolvedCwd,
                   };
 
                   this.logger.debug(
@@ -228,7 +245,7 @@ export class CompactionHookHandler {
 
                 this.logger.debug(
                   '[CompactionHookHandler] PreCompact processed successfully',
-                  { sessionId },
+                  { sessionId: resolvedSessionId },
                 );
               } catch (error) {
                 this.logger.error(
@@ -281,8 +298,11 @@ export class CompactionHookHandler {
                 }
 
                 if (sdkAdapterEvents) {
-                  const resolvedSessionId = input.session_id ?? sessionId;
-                  const resolvedCwd = input.cwd ?? cwd;
+                  const resolvedSessionId = resolveHookSessionId(
+                    input.session_id,
+                    sessionId,
+                  );
+                  const resolvedCwd = resolveHookCwd(input.cwd, cwd);
                   if (!resolvedSessionId || !resolvedCwd) {
                     this.logger.warn(
                       '[CompactionHookHandler] PostCompact missing sessionId or cwd, skipping emit',

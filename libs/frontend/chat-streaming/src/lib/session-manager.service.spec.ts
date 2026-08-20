@@ -16,7 +16,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionManager } from './session-manager.service';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, type ExecutionNode } from '@ptah-extension/shared';
 
 describe('SessionManager - Session State Machine', () => {
   let service: SessionManager;
@@ -391,5 +391,47 @@ describe('SessionManager - Session State Machine', () => {
     );
 
     consoleLogSpy.mockRestore();
+  });
+
+  // ============================================================================
+  // NODE-MAP SESSION SCOPING (TASK_2026_154 Wave 2 revision)
+  // ============================================================================
+
+  describe('clearNodeMaps session scoping', () => {
+    const node = (id: string) =>
+      ({
+        id,
+        type: 'agent',
+        status: 'streaming',
+        content: '',
+        children: [],
+      }) as unknown as ExecutionNode;
+
+    it('scoped clear removes ONLY the target session and preserves a concurrent background session', () => {
+      // Background workspace session A has an in-flight agent/tool node.
+      service.registerAgent('toolu_A', node('a'), 'sess-A');
+      service.registerTool('toolu_TA', node('ta'), 'sess-A');
+      // Active workspace session B also has nodes.
+      service.registerAgent('toolu_B', node('b'), 'sess-B');
+
+      // Starting a new conversation in workspace B clears ONLY session B.
+      service.clearNodeMaps('sess-B');
+
+      // A's node tracking is intact (no cross-workspace wipe).
+      expect(service.getAgent('toolu_A')).toBeDefined();
+      expect(service.getTool('toolu_TA')).toBeDefined();
+      // B's node tracking is cleared.
+      expect(service.getAgent('toolu_B')).toBeUndefined();
+    });
+
+    it('argument-less clear wipes every session (full reset)', () => {
+      service.registerAgent('toolu_A', node('a'), 'sess-A');
+      service.registerAgent('toolu_B', node('b'), 'sess-B');
+
+      service.clearNodeMaps();
+
+      expect(service.getAgent('toolu_A')).toBeUndefined();
+      expect(service.getAgent('toolu_B')).toBeUndefined();
+    });
   });
 });

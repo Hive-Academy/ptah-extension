@@ -9,6 +9,7 @@ import { type MessageHandler } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
   type GatewayBindingDto,
+  type GatewayBindingsChangedPayload,
   type GatewayDiscordGuildDto,
   type GatewayPlatformId,
   type GatewayRegisterDiscordCommandsResult,
@@ -92,6 +93,7 @@ export class GatewayStateService implements MessageHandler {
   /** Message types this service handles via MessageRouterService. */
   public readonly handledMessageTypes = [
     MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+    MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED,
   ] as const;
 
   /**
@@ -265,6 +267,11 @@ export class GatewayStateService implements MessageHandler {
    * was triggered externally (boot, crash recovery) and must be applied.
    */
   public handleMessage(msg: { type: string; payload?: unknown }): void {
+    if (msg.type === MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED) {
+      const payload = msg.payload as GatewayBindingsChangedPayload | undefined;
+      if (payload?.bindings) this.bindings.set(payload.bindings);
+      return;
+    }
     const payload = msg.payload as GatewayStatusChangedPayload | undefined;
     if (!payload) return;
     if (payload.origin !== null && this._pendingOrigins.has(payload.origin)) {

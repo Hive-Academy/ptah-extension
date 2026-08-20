@@ -93,6 +93,11 @@ export type {
   PipelineProgressInfo,
   PipelineProgressListener,
 } from './lib/embedder/embedder-worker-client';
+export type {
+  IEmbedderWorkerProcess,
+  IEmbedderWorkerProcessFactory,
+} from './lib/embedder/worker-process.port';
+export type { EmbedderWorkerInitMessage } from './lib/embedder/embedder-worker-protocol';
 export { EmbedderStatusService } from './lib/embedder/embedder-status.service';
 export type {
   EmbedderStatusSnapshot,
@@ -129,6 +134,11 @@ export type {
   CorpusChangeEvent,
   CorpusChangeListener,
 } from './lib/knowledge-agents/corpus.store';
+export { CorpusSuggestionService } from './lib/knowledge-agents/corpus-suggestion.service';
+export type {
+  CorpusSuggestion,
+  SuggestOptions,
+} from './lib/knowledge-agents/corpus-suggestion.service';
 export type {
   BuildCorpusParams,
   CorpusRef,

@@ -16,8 +16,8 @@
  * - When `--out <path>` is provided, the bundle is written verbatim to
  *   `<path>` (atomic write); `--save` is implied.
  *
- * Premium licence + MCP server are required by the backend; the CLI surfaces
- * the backend's structured error verbatim if either gate fails.
+ * The MCP server is required by the backend; the CLI surfaces the backend's
+ * structured error verbatim if that check fails.
  *
  * No DI mocking in production; tests inject hooks via {@link AnalyzeExecuteHooks}.
  */

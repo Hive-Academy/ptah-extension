@@ -49,7 +49,6 @@ import type {
   Logger,
   ConfigManager,
   SentryService,
-  LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -76,6 +75,7 @@ const TAB_ID = '22222222-2222-4222-8222-222222222222';
 function makeService(params: {
   isSessionActive?: jest.Mock;
   resumeSession?: jest.Mock;
+  isStreaming?: jest.Mock;
 }): ChatSessionService {
   const noop = jest.fn();
   const stub = { then: undefined } as unknown;
@@ -103,10 +103,7 @@ function makeService(params: {
   const sessionMetadataStore = {
     get: jest.fn().mockResolvedValue(null),
   };
-  const licenseService = {
-    verifyLicense: jest.fn().mockResolvedValue({ valid: false, tier: 'free' }),
-  } as unknown as LicenseService;
-  const premiumContext = {
+  const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     resolvePluginPaths: jest.fn().mockReturnValue([]),
@@ -114,8 +111,14 @@ function makeService(params: {
   const codeExecutionMcp = {
     getPort: jest.fn().mockReturnValue(0),
   };
+  // `isStreaming` is load-bearing, not filler: `hasLiveSessionStream` treats a
+  // session as live only when the adapter reports it active AND the broadcaster
+  // reports an attached stream (5cff0927a). Omitting it makes the call
+  // `undefined` and the resulting TypeError surfaces as `success:false` from the
+  // outer catch — which is exactly how this spec broke.
   const streamBroadcaster = {
     streamEventsToWebview: jest.fn(),
+    isStreaming: params.isStreaming ?? jest.fn().mockReturnValue(false),
   };
 
   return new ChatSessionService(
@@ -130,7 +133,6 @@ function makeService(params: {
     codeExecutionMcp as never,
     historyReader as never,
     subagentRegistry,
-    licenseService,
     {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
@@ -142,7 +144,7 @@ function makeService(params: {
       globalStoragePath: '/tmp/ptah-storage',
       workspaceStoragePath: '/tmp/ptah-workspace-storage',
     } as never,
-    premiumContext as never,
+    sdkContext as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),
       registerResumedSession: jest.fn(),
@@ -156,6 +158,13 @@ function makeService(params: {
       setProviderKey: jest.fn().mockResolvedValue(undefined),
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
     } as never,
+    {
+      resolveProviderProfileForWorkspace: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as never,
+    // OutputStyleSessionActivationService — no style selected in these specs.
+    { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
   );
 }
 
@@ -189,8 +198,12 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
   });
 
   it('reports activated:true when the session is already live (no autoResume needed)', async () => {
+    // "Already live" means registered AND streaming. Active-but-not-streaming is
+    // a different case with its own behaviour — the record is treated as a
+    // corpse, torn down, and resumed for real — so both mocks are set here.
     const svc = makeService({
       isSessionActive: jest.fn().mockReturnValue(true),
+      isStreaming: jest.fn().mockReturnValue(true),
     });
 
     const params: ChatResumeParams = {

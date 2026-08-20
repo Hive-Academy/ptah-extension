@@ -13,11 +13,12 @@
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import {
+  isUniqueConstraintError,
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { JobId, RunId } from '@ptah-extension/shared';
+import { RunId, type JobId } from '@ptah-extension/shared';
 import type { JobRun, JobRunStatus } from './types';
 
 interface JobRunRow {
@@ -39,17 +40,6 @@ export class SlotAlreadyClaimedError extends Error {
     );
     this.name = 'SlotAlreadyClaimedError';
   }
-}
-
-/**
- * better-sqlite3 surfaces UNIQUE constraint violations with
- * `err.code === 'SQLITE_CONSTRAINT_UNIQUE'`. We deliberately catch *only*
- * that code — every other error must propagate.
- */
-export function isUniqueConstraintError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as { code?: unknown }).code;
-  return code === 'SQLITE_CONSTRAINT_UNIQUE';
 }
 
 export interface IRunStore {
@@ -190,8 +180,14 @@ export class RunStore implements IRunStore {
 
 function mapRunRow(row: JobRunRow): JobRun {
   return {
+    // `id` is always minted by `tryClaim` via `ulid()`, so it is validated.
+    // `job_id` is NOT: system jobs are upserted with deterministic handles
+    // (`@ptah/skills-drain-frequent`, `@ptah/daily-backup`) that are not
+    // ULIDs, exactly as `IJobStore.upsert` documents and `JobStore.mapRow`
+    // reads them back. Validating here made every read of a system job's run
+    // history throw instead of returning rows.
     id: RunId.from(row.id),
-    jobId: JobId.from(row.job_id),
+    jobId: row.job_id as unknown as JobId,
     scheduledFor: row.scheduled_for,
     startedAt: row.started_at,
     endedAt: row.ended_at,

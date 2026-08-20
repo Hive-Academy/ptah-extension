@@ -88,6 +88,16 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     await fs.mkdir(dirPath, { recursive: true });
   }
 
+  /**
+   * Non-recursive `mkdir(2)`. Omitting `recursive` is the entire point:
+   * `{ recursive: true }` resolves silently on an existing path, whereas the
+   * bare call fails with `EEXIST`, giving us a real compare-and-swap in one
+   * syscall. Never stat first — that would reopen the TOCTOU window.
+   */
+  async createDirectoryExclusive(dirPath: string): Promise<void> {
+    await fs.mkdir(dirPath);
+  }
+
   async copy(
     source: string,
     destination: string,
@@ -120,20 +130,30 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     return maxResults ? results.slice(0, maxResults) : results;
   }
 
-  createFileWatcher(pattern: string): IFileWatcher {
+  createFileWatcher(
+    pattern: string,
+    options?: { exclude?: string[]; cwd?: string },
+  ): IFileWatcher {
     const chokidar = require('chokidar');
+    const hasExcludes = !!options?.exclude && options.exclude.length > 0;
+    const cwd = options?.cwd;
     const watcher = chokidar.watch(pattern, {
       ignoreInitial: true,
       persistent: true,
+      ...(cwd ? { cwd } : {}),
+      ...(hasExcludes ? { ignored: options?.exclude } : {}),
     });
 
     const [onDidChange, fireChange] = createEvent<string>();
     const [onDidCreate, fireCreate] = createEvent<string>();
     const [onDidDelete, fireDelete] = createEvent<string>();
 
-    watcher.on('change', (filePath: string) => fireChange(filePath));
-    watcher.on('add', (filePath: string) => fireCreate(filePath));
-    watcher.on('unlink', (filePath: string) => fireDelete(filePath));
+    // With `cwd`, chokidar emits paths relative to it — resolve to absolute so
+    // consumers get the same absolute paths the VS Code adapter emits.
+    const toAbs = (p: string): string => (cwd ? path.resolve(cwd, p) : p);
+    watcher.on('change', (filePath: string) => fireChange(toAbs(filePath)));
+    watcher.on('add', (filePath: string) => fireCreate(toAbs(filePath)));
+    watcher.on('unlink', (filePath: string) => fireDelete(toAbs(filePath)));
 
     return {
       onDidChange,

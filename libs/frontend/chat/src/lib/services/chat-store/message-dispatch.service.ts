@@ -16,8 +16,10 @@ import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
  *   user's content as `deny_with_message` reason
  * - Blocks SDK-native slash commands (`/compact`, `/context`, `/cost`, `/review`) for
  *   non-Anthropic providers â€” those commands require Claude-specific model behaviour
- * - sendQueuedMessage: post-streaming queue flush via ConversationService.continueConversation
- *   (NOT MessageSender.send, which would refuse during streaming)
+ * - sendQueuedMessage: post-streaming queue flush via
+ *   MessageSenderService.continueExistingSessionForQueueFlush, forwarding the
+ *   stored queuedOptions (files + images + effort) so queued attachments reach
+ *   the backend without aborting the previous stream's controller
  */
 @Injectable({ providedIn: 'root' })
 export class MessageDispatchService {
@@ -60,8 +62,19 @@ export class MessageDispatchService {
     const targetTab = targetTabId
       ? this.tabManager.tabs().find((t) => t.id === targetTabId)
       : null;
+    const resolvedTabId = targetTabId ?? this.tabManager.activeTabId();
     const status = targetTab?.status ?? this.tabManager.activeTabStatus();
-    const isStreaming = status === 'streaming' || status === 'resuming';
+    // Treat a tab as busy when it is actively generating — including the
+    // self-heal case where the SDK paused/resumed and `status` reverted to
+    // `loaded`/`awaiting-background` while `_streamingTabIds` (isTabStreaming)
+    // stays set. Routing a follow-up to `send()` in that window would spin up a
+    // fresh AbortController and KILL the in-flight stream. Queue instead — the
+    // queue drains on the real turn-end (when the controller is already
+    // cleared, so no abort).
+    const isStreaming =
+      status === 'streaming' ||
+      status === 'resuming' ||
+      (resolvedTabId != null && this.tabManager.isTabStreaming(resolvedTabId));
 
     if (isStreaming) {
       const activePermissions = this.permissionHandler.permissionRequests();
@@ -88,18 +101,35 @@ export class MessageDispatchService {
    * The SDK handles message queueing natively - agents continue running
    * while the new user message is processed in order.
    *
+   * Routes through `MessageSenderService.continueExistingSessionForQueueFlush`
+   * so the flush reuses the existing AbortController (if any) instead of
+   * installing a fresh one — see the dedicated method for the rationale.
+   *
    * @param tabId - Tab to send the queued message for
    * @param content - Message content to send
    */
   async sendQueuedMessage(tabId: string, content: string): Promise<void> {
     try {
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+      const sessionId = tab?.claudeSessionId;
+      if (!sessionId) {
+        // A queue flush only fires on turn-end, and a completed turn must have
+        // a bound session. Reaching here means that invariant broke — rather
+        // than silently starting a NEW conversation the user didn't ask for,
+        // warn and leave the message queued so it survives for retry/restore.
+        console.warn(
+          '[ChatStore] sendQueuedMessage: no session bound at queue flush — keeping message queued',
+          { tabId },
+        );
+        this.tabManager.setQueuedContent(tabId, content);
+        return;
+      }
       const queuedOptions = tab?.queuedOptions ?? undefined;
       this.tabManager.clearQueuedContentAndOptions(tabId);
-      await this.conversation.continueConversation(
+      await this.messageSender.continueExistingSessionForQueueFlush(
         content,
-        queuedOptions?.files,
-        tabId,
+        sessionId,
+        { ...queuedOptions, tabId },
       );
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);

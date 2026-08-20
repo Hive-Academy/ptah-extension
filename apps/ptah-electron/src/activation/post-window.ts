@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
+import { BrowserWindow, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { DependencyContainer } from 'tsyringe';
@@ -25,8 +25,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export interface PostWindowOptions {
   container: DependencyContainer;
   resolvedStateStorage: IStateStorage | undefined;
-  startupIsLicensed: boolean;
-  startupInitialView: string | null;
   /** Mutates caller's mainWindow slot; returned window is for ergonomic chaining. */
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
@@ -70,41 +68,16 @@ export interface PostWindowResult {
 export async function registerPostWindow(
   options: PostWindowOptions,
 ): Promise<PostWindowResult> {
-  const {
-    container,
-    resolvedStateStorage,
-    startupIsLicensed,
-    startupInitialView,
-    setMainWindow,
-    getMainWindow,
-    scheduleWarmup,
-  } = options;
+  const { container, resolvedStateStorage, setMainWindow, scheduleWarmup } =
+    options;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
   let updateManager: UpdateManager | null = null;
   let messagingGateway: GatewayService | null = null;
   let chatBridge: GatewayChatBridge | null = null;
-  const baseStartupConfig = {
-    initialView: startupInitialView,
-    isLicensed: startupIsLicensed,
-  };
 
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
-    let isLicensed = baseStartupConfig.isLicensed;
-    let initialView = baseStartupConfig.initialView;
-
-    const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
-      getCachedStatus: () => {
-        valid: boolean;
-        tier?: string;
-      } | null;
-    };
-    const cached = licenseService.getCachedStatus();
-    if (cached) {
-      isLicensed = cached.valid;
-      initialView = cached.valid ? null : 'welcome';
-    }
     let workspaceRoot = '';
     let workspaceName = '';
 
@@ -118,9 +91,7 @@ export async function registerPostWindow(
     }
 
     event.returnValue = {
-      ...baseStartupConfig,
-      isLicensed,
-      initialView,
+      initialView: null,
       workspaceRoot,
       workspaceName,
     };
@@ -133,11 +104,7 @@ export async function registerPostWindow(
     },
   );
 
-  console.log(
-    `[Ptah Electron] Startup config registered: initialView=${
-      baseStartupConfig.initialView
-    }, isLicensed=${baseStartupConfig.isLicensed}`,
-  );
+  console.log('[Ptah Electron] Startup config registered');
   const mainWindow = createMainWindow(resolvedStateStorage);
   setMainWindow(mainWindow);
 
@@ -148,34 +115,19 @@ export async function registerPostWindow(
       scheduleWarmup();
     });
   }
-  if (process.env['NODE_ENV'] === 'development') {
+  if (
+    process.env['NODE_ENV'] === 'development' &&
+    process.env['PTAH_NO_DEVTOOLS'] !== '1'
+  ) {
     mainWindow.webContents.openDevTools();
   }
   try {
     messagingGateway = container.resolve<GatewayService>(
       GATEWAY_TOKENS.GATEWAY_SERVICE,
     );
-    await messagingGateway.start();
-    console.log('[Ptah Electron] Messaging gateway started');
-
-    const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
-      broadcastMessage(type: string, payload: unknown): Promise<void>;
-    };
-    const status = messagingGateway.status();
-    void webviewManager.broadcastMessage(MESSAGE_TYPES.GATEWAY_STATUS_CHANGED, {
-      status: {
-        enabled: status.enabled,
-        adapters: status.adapters.map((a) => ({
-          platform: a.platform,
-          running: a.running,
-          ...(a.lastError ? { lastError: a.lastError } : {}),
-        })),
-      },
-      origin: null,
-    });
   } catch (error) {
     console.warn(
-      '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+      '[Ptah Electron] Messaging gateway resolve skipped (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
     messagingGateway = null;
@@ -185,15 +137,61 @@ export async function registerPostWindow(
       chatBridge = container.resolve<GatewayChatBridge>(
         GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE,
       );
-      chatBridge.start();
-      console.log('[Ptah Electron] Gateway chat bridge started');
     } catch (error) {
       console.warn(
-        '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
+        '[Ptah Electron] Gateway chat bridge resolve skipped (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
       chatBridge = null;
     }
+  }
+  // Started non-blocking: gateway I/O must not delay the updater or window.
+  if (messagingGateway) {
+    const gateway = messagingGateway;
+    const bridge = chatBridge;
+    void (async () => {
+      try {
+        await gateway.start();
+        console.log('[Ptah Electron] Messaging gateway started');
+
+        const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+          broadcastMessage(type: string, payload: unknown): Promise<void>;
+        };
+        const status = gateway.status();
+        void webviewManager.broadcastMessage(
+          MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+          {
+            status: {
+              enabled: status.enabled,
+              adapters: status.adapters.map((a) => ({
+                platform: a.platform,
+                running: a.running,
+                ...(a.lastError ? { lastError: a.lastError } : {}),
+              })),
+            },
+            origin: null,
+          },
+        );
+      } catch (error) {
+        console.warn(
+          '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
+
+      if (bridge) {
+        try {
+          bridge.start();
+          console.log('[Ptah Electron] Gateway chat bridge started');
+        } catch (error) {
+          console.warn(
+            '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    })();
   }
   try {
     updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
@@ -208,38 +206,9 @@ export async function registerPostWindow(
   }
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
-      on: (event: string, handler: (...args: unknown[]) => void) => void;
       revalidate: () => Promise<void>;
     };
 
-    licenseService.on('license:verified', () => {
-      console.log('[Ptah Electron] License status changed: verified');
-      const win = getMainWindow();
-      if (win) {
-        dialog.showMessageBox(win, {
-          type: 'info',
-          title: 'License Activated',
-          message: 'Ptah premium features activated. No restart required.',
-          buttons: ['OK'],
-        });
-      }
-    });
-
-    licenseService.on('license:expired', () => {
-      console.warn(
-        '[Ptah Electron] License expired — premium features deactivated',
-      );
-      const win = getMainWindow();
-      if (win) {
-        dialog.showMessageBox(win, {
-          type: 'warning',
-          title: 'License Expired',
-          message:
-            'Your Ptah license has expired. Please renew your subscription to continue using premium features.',
-          buttons: ['OK'],
-        });
-      }
-    });
     revalidationInterval = setInterval(
       () => {
         licenseService.revalidate().catch((err) => {
@@ -252,10 +221,10 @@ export async function registerPostWindow(
       24 * 60 * 60 * 1000,
     );
 
-    console.log('[Ptah Electron] License status watcher initialized');
+    console.log('[Ptah Electron] Membership revalidation scheduled');
   } catch (error) {
     console.warn(
-      '[Ptah Electron] License status watcher setup failed (non-fatal):',
+      '[Ptah Electron] Membership revalidation setup failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }

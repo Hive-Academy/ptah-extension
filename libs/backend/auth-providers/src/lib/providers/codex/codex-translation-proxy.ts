@@ -82,6 +82,15 @@ export class CodexTranslationProxy extends TranslationProxyBase {
    * static model list as a final validation.
    */
   protected override normalizeModelId(modelId: string): string {
+    if (modelId === 'default' || modelId === 'sonnet') {
+      return CODEX_DEFAULT_TIERS.sonnet;
+    }
+    if (modelId === 'opus') {
+      return CODEX_DEFAULT_TIERS.opus;
+    }
+    if (modelId === 'haiku') {
+      return CODEX_DEFAULT_TIERS.haiku;
+    }
     if (!modelId.startsWith('claude-')) {
       return modelId;
     }

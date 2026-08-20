@@ -20,6 +20,7 @@ import type { LiveUsageTracker } from './live-usage-tracker';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 
 import { CompactionHookHandler } from './compaction-hook-handler';
+import type { CompactionCallbackRegistry } from './compaction-callback-registry';
 import type {
   SdkAdapterEvents,
   SdkAdapterCompactionCompleteEvent,
@@ -91,6 +92,154 @@ describe('CompactionHookHandler — PreCompact callback (TASK_2026_109 A2)', () 
       }),
     );
     expect(typeof received[0].timestamp).toBe('number');
+  });
+});
+
+/**
+ * TASK_2026_293 — the closure id is captured when the query options are built,
+ * which for a NEW session is before the SDK has told us the canonical id
+ * (`SdkQueryOptionsBuilder` passes `sessionId ?? ''` there). The hook payload
+ * always carries the real one, so it must win.
+ */
+describe('CompactionHookHandler — PreCompact sessionId resolution (TASK_2026_293)', () => {
+  function makeRegistryStub(): {
+    stub: CompactionCallbackRegistry;
+    notified: Array<{ sessionId: string; cwd?: string | null }>;
+  } {
+    const notified: Array<{ sessionId: string; cwd?: string | null }> = [];
+    const stub = {
+      size: 1,
+      notifyAll: jest.fn((data: { sessionId: string; cwd?: string | null }) => {
+        notified.push(data);
+      }),
+    } as unknown as CompactionCallbackRegistry;
+    return { stub, notified };
+  }
+
+  function preCompactInput(over: Record<string, unknown> = {}): HookInput {
+    return {
+      hook_event_name: 'PreCompact',
+      trigger: 'auto',
+      custom_instructions: null,
+      ...over,
+    } as unknown as HookInput;
+  }
+
+  it('prefers input.session_id over an empty closure id', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(999);
+    const { stub, notified } = makeRegistryStub();
+    const received: Array<{ sessionId: string; cwd?: string | null }> = [];
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      stub,
+    );
+
+    const hooks = handler.createHooks('', null, (data) => {
+      received.push(data);
+    });
+    const fn = hooks.PreCompact?.[0]?.hooks?.[0];
+
+    const result = await fn?.(
+      preCompactInput({ session_id: 'sdk-real-id', cwd: '/repo' }),
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({ continue: true });
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toEqual(
+      expect.objectContaining({ sessionId: 'sdk-real-id', cwd: '/repo' }),
+    );
+    expect(received[0]).toEqual(
+      expect.objectContaining({ sessionId: 'sdk-real-id', cwd: '/repo' }),
+    );
+    // preTokens must be sampled under the REAL id — '' tracks nothing, so a
+    // wrong id here silently reports 0 as the pre-compaction total.
+    expect(usageTracker.getCumulativeTokens).toHaveBeenCalledWith(
+      'sdk-real-id',
+    );
+    expect(usageTracker.getCumulativeTokens).not.toHaveBeenCalledWith('');
+  });
+
+  it('falls back to the closure id when the payload carries none', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(7);
+    const { stub, notified } = makeRegistryStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      stub,
+    );
+
+    const hooks = handler.createHooks('closure-id', '/fallback-cwd');
+    const fn = hooks.PreCompact?.[0]?.hooks?.[0];
+
+    await fn?.(preCompactInput(), undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toEqual(
+      expect.objectContaining({
+        sessionId: 'closure-id',
+        cwd: '/fallback-cwd',
+      }),
+    );
+  });
+
+  it('treats an empty payload session_id as absent, not as a valid id', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(7);
+    const { stub, notified } = makeRegistryStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      stub,
+    );
+
+    const hooks = handler.createHooks('closure-id', null);
+    const fn = hooks.PreCompact?.[0]?.hooks?.[0];
+
+    await fn?.(preCompactInput({ session_id: '', cwd: '' }), undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(notified[0]).toEqual(
+      expect.objectContaining({ sessionId: 'closure-id', cwd: null }),
+    );
+  });
+
+  it('skips the fan-out entirely when neither source has an id', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(7);
+    const { stub, notified } = makeRegistryStub();
+    const received: unknown[] = [];
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      stub,
+    );
+
+    const hooks = handler.createHooks('', null, (data) => {
+      received.push(data);
+    });
+    const fn = hooks.PreCompact?.[0]?.hooks?.[0];
+
+    const result = await fn?.(preCompactInput(), undefined, {
+      signal: new AbortController().signal,
+    });
+
+    // Never block the SDK, but publish nothing — '' reaches the curator's
+    // transcript reader as a path-traversal rejection and curates a placeholder.
+    expect(result).toEqual({ continue: true });
+    expect(notified).toHaveLength(0);
+    expect(received).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('missing sessionId'),
+      expect.objectContaining({ trigger: 'auto', hasCwd: false }),
+    );
   });
 });
 
@@ -296,6 +445,37 @@ describe('CompactionHookHandler — PostCompact hook (TASK_2026_137 Phase 1)', (
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('missing sessionId or cwd'),
       expect.objectContaining({ hasSessionId: false, hasCwd: true }),
+    );
+  });
+
+  it('treats an empty payload session_id as absent rather than letting it beat the closure id (TASK_2026_293)', async () => {
+    const logger = makeLogger();
+    const usageTracker = makeUsageTracker(0);
+    const { stub, emitted } = makeAdapterEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      usageTracker as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+    );
+
+    const hooks = handler.createHooks('closure-id', '/repo');
+    const fn = hooks.PostCompact?.[0]?.hooks?.[0];
+
+    const hookInput: HookInput = {
+      hook_event_name: 'PostCompact',
+      session_id: '',
+      cwd: '',
+      trigger: 'manual',
+      compact_summary: 's',
+      transcript_path: '/tmp/tx',
+    } as unknown as HookInput;
+
+    await fn?.(hookInput, undefined, { signal: new AbortController().signal });
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toEqual(
+      expect.objectContaining({ sessionId: 'closure-id', cwd: '/repo' }),
     );
   });
 

@@ -1,0 +1,51 @@
+{
+  "title": "The Ptah MCP Server — Code Execution as the Interface",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "speed": 1,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "mcp-roundtrips",
+      "captions": [
+        "Every tool call is a round trip",
+        "One tool at a time — ask, wait, repeat",
+        "Schemas bloat the context window"
+      ],
+      "vo": "Every MCP tool call is a round trip. The agent asks, waits, reads, and asks again — one tool at a time. And every tool schema rides along in the context window, burning tokens before any real work begins."
+    },
+    {
+      "kind": "scene",
+      "scene": "mcp-one-tool",
+      "captions": [
+        "Twenty-five tools become one",
+        "execute_code",
+        "Your agent writes code"
+      ],
+      "vo": "Ptah collapses the entire toolbox into a single tool. Instead of calling tools one by one, your agent writes code."
+    },
+    {
+      "kind": "scene",
+      "scene": "mcp-sandbox",
+      "captions": [
+        "A sandboxed execution engine",
+        "The ptah API — 21 namespaces",
+        "Chained calls, one pass",
+        "Machine speed — results stay inside"
+      ],
+      "vo": "That code runs inside Ptah's sandboxed execution engine, against a live API with twenty-one namespaces. Workspace analysis, AST parsing, semantic search, browser automation, persistent memory, even spawning other agents — chained in a single pass, at machine speed. Intermediate results never touch the context window."
+    },
+    {
+      "kind": "scene",
+      "scene": "mcp-result",
+      "captions": [
+        "One call in, one result out",
+        "The context stays lean",
+        "Code execution as the interface"
+      ],
+      "vo": "One call goes in. One result comes out. The context stays lean, and the agent stays sharp. The Ptah MCP server — code execution as the interface."
+    }
+  ]
+}

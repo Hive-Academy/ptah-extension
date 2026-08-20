@@ -15,6 +15,7 @@ import type {
 } from '@ptah-extension/shared';
 
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { QualityHistoryService } from './quality-history.service';
 import { QualityExportService } from './quality-export.service';
 
@@ -168,7 +169,7 @@ describe('QualityHistoryService', () => {
     mockGlobalState = createMockGlobalState();
     service = new QualityHistoryService(
       mockLogger,
-      mockGlobalState as unknown as import('@ptah-extension/platform-core').IStateStorage,
+      mockGlobalState as unknown as IStateStorage,
     );
   });
 

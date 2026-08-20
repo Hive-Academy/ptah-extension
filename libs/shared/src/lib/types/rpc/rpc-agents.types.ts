@@ -33,25 +33,41 @@ export interface SkillShEntry {
   installUrl?: string;
 }
 
-/** Supported agent targets for skills.sh installation */
-export type SkillAgentTarget =
-  | 'Claude Code'
-  | 'GitHub Copilot'
-  | 'OpenAI Codex';
-
-/** An installed skill detected on disk */
+/**
+ * An installed skills.sh skill, as reported from its Ptah-owned source root.
+ *
+ * `SkillAgentTarget` used to live here as the element type of a
+ * `skillsSh:install` parameter that nothing ever read. It is deleted rather
+ * than wired: see the `skillsSh:install` contract in `rpc.types.ts`.
+ */
 export interface InstalledSkill {
-  /** Display name from SKILL.md frontmatter */
+  /** Directory slug under the source root's `skills/`. */
   name: string;
   /** Skill description from SKILL.md frontmatter */
   description: string;
   /** Repository source (owner/repo) or "local" */
   source: string;
-  /** Absolute path to the skill directory */
+  /** Absolute path to the skill directory INSIDE the source root. */
   path: string;
-  /** Installation scope */
-  scope: 'project' | 'global';
-  /** Agent names this skill is installed for */
+  /**
+   * Always `'global'`, and typed as the literal rather than the old
+   * `'project' | 'global'` union.
+   *
+   * A source root lives in `~/.ptah/plugins`, which is user-global; there is no
+   * project-scoped source root in the reconciler's model. The field is kept on
+   * the wire because it describes where the skill LIVES, which is a real fact,
+   * unlike the install parameter it replaced — but a union whose second member
+   * can never be produced is a lie that every consumer has to branch on. The
+   * literal is what makes a leftover `scope === 'project'` filter a compile
+   * error instead of a section that silently never renders.
+   */
+  scope: 'global';
+  /**
+   * Always empty. Which CLIs currently hold a copy is a question about
+   * PROPAGATION, and `harness:health` / `ptah harness doctor` is the one
+   * surface that answers it — re-deriving the target × facet matrix here would
+   * be a second copy of a rule `harness-sync` owns.
+   */
   agents: string[];
 }
 
@@ -81,12 +97,20 @@ export interface AgentOrchestrationConfig {
   copilotModel: string;
   /** Per-CLI model: Cursor model (empty string = SDK default) */
   cursorModel: string;
+  /** Per-CLI model: Antigravity model (empty string = SDK default). No reasoning-effort control — effort is baked into agy's model labels. */
+  antigravityModel?: string;
+  /** Per-CLI model: opencode model (empty string = CLI default). Format is `provider/model`, e.g. `anthropic/claude-sonnet-4-5`. */
+  opencodeModel?: string;
+  /** Per-CLI model: Pi model (empty string = CLI default). Format is `provider/model`, e.g. `openai/gpt-4o`. */
+  piModel?: string;
   /** Whether a Cursor API key is configured (CURSOR_API_KEY or provider.cursor.apiKey). The raw key is never returned to the UI. */
   cursorApiKeyConfigured: boolean;
   /** Codex reasoning effort (empty string = SDK default) */
   codexReasoningEffort: string;
   /** Copilot reasoning effort (empty string = SDK default) */
   copilotReasoningEffort: string;
+  /** Pi reasoning effort mapped to `--thinking` (empty string = CLI default). Scale: off|minimal|low|medium|high|xhigh|max. */
+  piReasoningEffort?: string;
   /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
   codexAutoApprove: boolean;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
@@ -99,6 +123,8 @@ export interface AgentOrchestrationConfig {
   disabledMcpNamespaces: string[];
   /** Whether the browser automation tools can navigate to localhost URLs (default: false) */
   browserAllowLocalhost: boolean;
+  /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
+  workflowsDisabled: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -114,6 +140,9 @@ export interface AgentListCliModelsResult {
   codex: CliModelOption[];
   copilot: CliModelOption[];
   cursor: CliModelOption[];
+  antigravity: CliModelOption[];
+  opencode: CliModelOption[];
+  pi: CliModelOption[];
 }
 
 /** Parameters for agent:setConfig RPC method */
@@ -128,6 +157,12 @@ export interface AgentSetConfigParams {
   copilotModel?: string;
   /** Cursor model override (empty string = SDK default) */
   cursorModel?: string;
+  /** Antigravity model override (empty string = SDK default). No reasoning-effort control — effort is baked into agy's model labels. */
+  antigravityModel?: string;
+  /** opencode model override (empty string = CLI default). Format is `provider/model`. */
+  opencodeModel?: string;
+  /** Pi model override (empty string = CLI default). Format is `provider/model`. */
+  piModel?: string;
   /** Cursor API key. Written to provider.cursor.apiKey in ~/.ptah/settings.json. Empty string clears it. */
   cursorApiKey?: string;
   /** @deprecated Codex always runs in full-auto headless mode. No-op, kept for backward compat. */
@@ -138,6 +173,8 @@ export interface AgentSetConfigParams {
   codexReasoningEffort?: string;
   /** Copilot reasoning effort override */
   copilotReasoningEffort?: string;
+  /** Pi reasoning effort override, mapped to `--thinking` (off|minimal|low|medium|high|xhigh|max) */
+  piReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
   /** CLI types to disable (e.g., ['copilot']). Empty array enables all. */
@@ -146,7 +183,15 @@ export interface AgentSetConfigParams {
   disabledMcpNamespaces?: string[];
   /** Whether the browser automation tools can navigate to localhost URLs */
   browserAllowLocalhost?: boolean;
+  /** Kill switch for built-in SDK workflows. true disables workflows; false (default) leaves them ON. */
+  workflowsDisabled?: boolean;
 }
+
+export type AgentContinueErrorCode =
+  | 'not_found'
+  | 'unsupported'
+  | 'busy'
+  | 'unknown';
 
 /** Parameters for ptahCli:list RPC method */
 export type PtahCliListParams = Record<string, never>;

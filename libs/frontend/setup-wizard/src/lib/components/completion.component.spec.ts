@@ -160,7 +160,7 @@ describe('CompletionComponent', () => {
 
     it('should reference the orchestrate command', () => {
       const text = fixture.nativeElement.textContent;
-      expect(text).toContain('/ptah-core:orchestrate');
+      expect(text).toContain('/orchestrate');
     });
 
     it('should mention @agent-name usage tip', () => {

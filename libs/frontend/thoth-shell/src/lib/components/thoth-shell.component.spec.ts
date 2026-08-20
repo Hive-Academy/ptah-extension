@@ -26,12 +26,46 @@ const skillStateStub = {
   selectedCandidate: signal(null),
   loading: signal(false),
   error: signal(null),
+  suggestions: signal([]),
+  suggestionsLoading: signal(false),
+  suggestionDetail: signal(null),
+  suggestionDetailLoading: signal(false),
+  candidateDetail: signal(null),
+  candidateDetailLoading: signal(false),
+  pendingSuggestionCount: signal(0),
+  specs: signal([]),
+  specsLoading: signal(false),
+  staleSpecCount: signal(0),
+  settings: signal(null),
+  queueItems: signal([]),
+  drainRuns: signal([]),
+  stageSpend: signal([]),
+  queueLoading: signal(false),
+  queuedAttemptTotal: signal(0),
+  digestItems: signal([]),
+  digestLoading: signal(false),
   refreshCandidates: () => Promise.resolve(),
+  refreshSuggestions: () => Promise.resolve(),
+  refreshSpecs: () => Promise.resolve(),
+  refreshQueue: () => Promise.resolve(),
+  refreshDigest: () => Promise.resolve(),
+  harvestSpecs: () => Promise.resolve(),
+  clearStaleSpecs: () => Promise.resolve(),
   loadStats: () => Promise.resolve(),
+  loadSettings: () => Promise.resolve(),
+  loadCandidateDetail: () => Promise.resolve(),
+  loadSuggestionDetail: () => Promise.resolve(),
+  clearSuggestionDetail: () => undefined,
+  updateSuggestion: () => Promise.resolve(),
   setStatusFilter: () => Promise.resolve(),
   selectCandidate: () => Promise.resolve(),
   promote: () => Promise.resolve(),
+  promoteBulk: () => Promise.resolve(0),
   reject: () => Promise.resolve(),
+  rejectBulk: () => Promise.resolve(0),
+  rejectByPattern: () => Promise.resolve(0),
+  accept: () => Promise.resolve(),
+  dismiss: () => Promise.resolve(),
 } as unknown as SkillSynthesisStateService;
 
 /**
@@ -123,13 +157,15 @@ describe('ThothShellComponent', () => {
       ':scope > [role="tab"]',
     ) as NodeListOf<HTMLButtonElement>;
     expect(tabs.length).toBe(4);
-    const labels = Array.from(tabs).map((t) => t.textContent?.trim());
+    const labelOf = (t: HTMLElement) =>
+      t.querySelector('[data-testid="thoth-tab-label"]')?.textContent?.trim();
+    const labels = Array.from(tabs).map(labelOf);
     expect(labels).toEqual(['Memory', 'Skills', 'Schedules', 'Messaging']);
 
     const active = Array.from(tabs).find(
       (t) => t.getAttribute('aria-selected') === 'true',
     );
-    expect(active?.textContent?.trim()).toBe('Memory');
+    expect(active ? labelOf(active) : undefined).toBe('Memory');
   });
 
   it('switches active tab via setThothActiveTab when a tab is clicked', () => {
@@ -185,6 +221,7 @@ describe('ThothShellComponent', () => {
     const stateMock = {
       thothActiveTab: activeTabSignal.asReadonly(),
       setThothActiveTab: jest.fn(),
+      workspaceInfo: signal(null),
     };
 
     TestBed.configureTestingModule({

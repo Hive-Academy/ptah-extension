@@ -28,6 +28,7 @@ import type {
   AnthropicProviderInfo,
   AuthGetAuthStatusResponse,
   AuthMethod,
+  CustomProviderEntry,
   EffortLevel,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
@@ -323,6 +324,7 @@ describe('AuthStateService', () => {
       expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
         authMethod: 'thirdParty',
         providerApiKey: 'sk-test',
+        applyTo: 'global',
       });
       expect(rpc.call).toHaveBeenCalledWith('auth:testConnection', {});
       expect(service.connectionStatus()).toBe('success');
@@ -412,6 +414,405 @@ describe('AuthStateService', () => {
 
       expect(service.connectionStatus()).toBe('success');
       expect(service.successMessage()).toContain('Connection successful');
+    });
+  });
+
+  describe('workspace scope (auth:getScope)', () => {
+    it('populates authScope/providerScope/activeScopePath from auth:getScope', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'workspace',
+            providerScope: 'global',
+            activePath: 'D:/repo/foo',
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('workspace');
+      expect(service.providerScope()).toBe('global');
+      expect(service.activeScopePath()).toBe('D:/repo/foo');
+      expect(service.hasWorkspaceOverride()).toBe(true);
+    });
+
+    it('leaves scope signals at defaults when auth:getScope returns no data', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('global');
+      expect(service.providerScope()).toBe('global');
+      expect(service.activeScopePath()).toBeNull();
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+
+    it('sets hasAppOverride when authMethodScope is "app"', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'app',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('app');
+      expect(service.providerScope()).toBe('global');
+      expect(service.hasAppOverride()).toBe(true);
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+
+    it('sets hasAppOverride when providerScope is "app"', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'app',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.providerScope()).toBe('app');
+      expect(service.hasAppOverride()).toBe(true);
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+
+    it('hasAppOverride is false when both scopes are global', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.hasAppOverride()).toBe(false);
+    });
+  });
+
+  describe('activeScope computed precedence', () => {
+    function mockScopeLoad(
+      authMethodScope: string,
+      providerScope: string,
+    ): void {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope,
+            providerScope,
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+    }
+
+    it('returns "workspace" when authMethodScope is workspace (most specific wins)', async () => {
+      mockScopeLoad('workspace', 'app');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('workspace');
+    });
+
+    it('returns "workspace" when providerScope is workspace regardless of authMethodScope', async () => {
+      mockScopeLoad('global', 'workspace');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('workspace');
+    });
+
+    it('returns "app" when authMethodScope is app and no workspace override', async () => {
+      mockScopeLoad('app', 'global');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('returns "app" when providerScope is app and no workspace override', async () => {
+      mockScopeLoad('global', 'app');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('returns "global" when both scopes are global', async () => {
+      mockScopeLoad('global', 'global');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('global');
+    });
+  });
+
+  describe('fetchAndPopulateScope with app scope', () => {
+    it('updates authScope/activeScope to "app" when authMethodScope is "app"', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'app',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('app');
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('updates both scopes to "global" when getScope returns all-global', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('global');
+      expect(service.providerScope()).toBe('global');
+      expect(service.activeScope()).toBe('global');
+      expect(service.hasAppOverride()).toBe(false);
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+  });
+
+  describe('applyTo forwarding', () => {
+    function mockSaveTestRefresh(): void {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:saveSettings')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:testConnection')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+    }
+
+    it('defaults applyTo to global when not provided', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: 'k' });
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'global',
+      });
+    });
+
+    it('forwards applyTo=workspace into auth:saveSettings', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k' },
+        'workspace',
+      );
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'workspace',
+      });
+    });
+
+    it('forwards applyTo=app into auth:saveSettings', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k' },
+        'app',
+      );
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'app',
+      });
+    });
+
+    it('prefers an explicit applyTo on the params object over the argument', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k', applyTo: 'workspace' },
+        'global',
+      );
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'workspace',
+      });
+    });
+  });
+
+  describe('scope re-fetch after write operations', () => {
+    it('saveAndTest success triggers auth:getScope re-query so badge reflects new state', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:saveSettings')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:testConnection')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        if (method === 'auth:getScope')
+          return rpcSuccess({
+            authMethodScope: 'app',
+            providerScope: 'global',
+            activePath: null,
+          });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k' },
+        'app',
+      );
+
+      const scopeCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getScope',
+      );
+      expect(scopeCalls.length).toBeGreaterThanOrEqual(1);
+      expect(service.authScope()).toBe('app');
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('saveAndTest failure does not re-query auth:getScope', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:saveSettings')
+          return rpcSuccess({ success: false, error: 'rejected' });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: 'k' });
+
+      const scopeCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getScope',
+      );
+      expect(scopeCalls).toHaveLength(0);
+    });
+
+    it('clearWorkspaceOverride success triggers auth:getScope re-query so badge reflects new state', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:clearWorkspaceOverride')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        if (method === 'auth:getScope')
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.clearWorkspaceOverride();
+
+      const scopeCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getScope',
+      );
+      expect(scopeCalls.length).toBeGreaterThanOrEqual(1);
+      expect(service.activeScope()).toBe('global');
+    });
+  });
+
+  describe('clearWorkspaceOverride()', () => {
+    it('calls auth:clearWorkspaceOverride then refreshes auth status', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:clearWorkspaceOverride')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.clearWorkspaceOverride();
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:clearWorkspaceOverride', {});
+      const statusCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getAuthStatus',
+      );
+      expect(statusCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('records an error and does not refresh when the clear fails', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:clearWorkspaceOverride')
+          return rpcSuccess({ success: false });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.clearWorkspaceOverride();
+
+      expect(service.errorMessage()).toBe('Failed to reset to global default');
+      const statusCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getAuthStatus',
+      );
+      expect(statusCalls).toHaveLength(0);
     });
   });
 
@@ -776,12 +1177,29 @@ describe('AuthStateService', () => {
     it('selectedProvider returns the matching provider info or null', async () => {
       const openrouter = makeProvider({ id: 'openrouter' });
       const service = await loadedWith(
-        makeAuthStatusResponse({ availableProviders: [openrouter] }),
+        makeAuthStatusResponse({
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+          availableProviders: [openrouter],
+        }),
       );
 
       expect(service.selectedProvider()?.id).toBe('openrouter');
 
       service.setSelectedProviderId('nonexistent');
+      expect(service.selectedProvider()).toBeNull();
+    });
+
+    it('selectedProvider returns null for anthropic-implicit auth methods', async () => {
+      const openrouter = makeProvider({ id: 'openrouter' });
+      const service = await loadedWith(
+        makeAuthStatusResponse({
+          authMethod: 'apiKey',
+          anthropicProviderId: 'openrouter',
+          availableProviders: [openrouter],
+        }),
+      );
+
       expect(service.selectedProvider()).toBeNull();
     });
 
@@ -931,6 +1349,321 @@ describe('AuthStateService', () => {
         }),
       );
       expect(local.hasProviderCredential()).toBe(true);
+    });
+  });
+
+  describe('custom provider entries (TASK_2026_236)', () => {
+    function makeCustomEntry(
+      overrides: Partial<CustomProviderEntry> = {},
+    ): CustomProviderEntry {
+      return {
+        id: 'my-gateway',
+        name: 'My Gateway',
+        baseUrl: 'https://gateway.example.com',
+        lane: 'openai',
+        authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+        keyPrefix: '',
+        helpUrl: '',
+        modelsEndpoint: null,
+        defaultTiers: null,
+        pricing: null,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        ...overrides,
+      };
+    }
+
+    /**
+     * Route responses by RPC method: every mutation triggers a follow-up
+     * `provider:listCustomEntries` + `auth:getAuthStatus`, so a queue of
+     * `mockResolvedValueOnce` would go out of order.
+     */
+    function routeRpc(
+      handlers: Record<string, unknown>,
+      entries: readonly CustomProviderEntry[] = [],
+    ): void {
+      rpc.call.mockImplementation(async (method: string) => {
+        if (method in handlers) {
+          return handlers[method];
+        }
+        if (method === 'provider:listCustomEntries') {
+          return rpcSuccess({ entries: [...entries] });
+        }
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      });
+    }
+
+    it('loadCustomEntries populates the entry list', async () => {
+      const entry = makeCustomEntry();
+      routeRpc({}, [entry]);
+      const service = createService();
+
+      await service.loadCustomEntries();
+
+      expect(rpc.call).toHaveBeenCalledWith('provider:listCustomEntries', {});
+      expect(service.customEntries()).toEqual([entry]);
+      expect(service.isCustomProvider('my-gateway')).toBe(true);
+      expect(service.isCustomProvider('openrouter')).toBe(false);
+      expect(service.customEntryError()).toBe('');
+    });
+
+    it('loadCustomEntries surfaces a backend failure', async () => {
+      routeRpc({ 'provider:listCustomEntries': rpcError('settings locked') });
+      const service = createService();
+
+      await service.loadCustomEntries();
+
+      expect(service.customEntries()).toEqual([]);
+      expect(service.customEntryError()).toBe('settings locked');
+    });
+
+    it('addCustomEntry forwards the key as a sibling param, never inside the entry', async () => {
+      const stored = makeCustomEntry();
+      routeRpc({ 'provider:addCustomEntry': rpcSuccess({ entry: stored }) }, [
+        stored,
+      ]);
+      const service = createService();
+
+      const result = await service.addCustomEntry(
+        {
+          id: 'my-gateway',
+          name: 'My Gateway',
+          baseUrl: 'https://gateway.example.com',
+          lane: 'openai',
+        },
+        'sk-secret-value',
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.entry).toEqual(stored);
+
+      const addCall = rpc.call.mock.calls.find(
+        (c: unknown[]) => c[0] === 'provider:addCustomEntry',
+      );
+      expect(addCall).toBeDefined();
+      const params = addCall?.[1] as {
+        entry: Record<string, unknown>;
+        apiKey?: string;
+      };
+      expect(params.apiKey).toBe('sk-secret-value');
+      expect(params.entry).not.toHaveProperty('apiKey');
+      expect(JSON.stringify(params.entry)).not.toContain('sk-secret-value');
+    });
+
+    it('addCustomEntry re-reads entries and auth status after a successful write', async () => {
+      const stored = makeCustomEntry();
+      routeRpc({ 'provider:addCustomEntry': rpcSuccess({ entry: stored }) }, [
+        stored,
+      ]);
+      const service = createService();
+
+      await service.addCustomEntry({
+        id: 'my-gateway',
+        name: 'My Gateway',
+        baseUrl: 'https://gateway.example.com',
+        lane: 'openai',
+      });
+
+      expect(service.customEntries()).toEqual([stored]);
+      const methods = rpc.call.mock.calls.map((c: unknown[]) => c[0]);
+      expect(methods).toContain('provider:listCustomEntries');
+      expect(methods).toContain('auth:getAuthStatus');
+    });
+
+    it('addCustomEntry returns the backend rejection verbatim instead of assuming success', async () => {
+      routeRpc({
+        'provider:addCustomEntry': rpcError(
+          'Provider id "my-gateway" is already in use',
+        ),
+      });
+      const service = createService();
+
+      const result = await service.addCustomEntry({
+        id: 'my-gateway',
+        name: 'My Gateway',
+        baseUrl: 'https://gateway.example.com',
+        lane: 'openai',
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Provider id "my-gateway" is already in use');
+      expect(service.customEntryError()).toBe(
+        'Provider id "my-gateway" is already in use',
+      );
+      expect(service.customEntries()).toEqual([]);
+    });
+
+    it('updateCustomEntry sends the id and the change patch', async () => {
+      const updated = makeCustomEntry({ name: 'Renamed' });
+      routeRpc(
+        { 'provider:updateCustomEntry': rpcSuccess({ entry: updated }) },
+        [updated],
+      );
+      const service = createService();
+
+      const result = await service.updateCustomEntry(
+        'my-gateway',
+        { name: 'Renamed' },
+        'sk-rotated',
+      );
+
+      expect(result.ok).toBe(true);
+      expect(rpc.call).toHaveBeenCalledWith('provider:updateCustomEntry', {
+        id: 'my-gateway',
+        changes: { name: 'Renamed' },
+        apiKey: 'sk-rotated',
+      });
+      expect(service.customEntries()).toEqual([updated]);
+    });
+
+    it('removeCustomEntry reports the backend removal flag and refreshes', async () => {
+      routeRpc(
+        { 'provider:removeCustomEntry': rpcSuccess({ removed: true }) },
+        [],
+      );
+      const service = createService();
+
+      const removed = await service.removeCustomEntry('my-gateway');
+
+      expect(removed).toBe(true);
+      expect(rpc.call).toHaveBeenCalledWith('provider:removeCustomEntry', {
+        id: 'my-gateway',
+      });
+      expect(service.customEntries()).toEqual([]);
+    });
+
+    it('removeCustomEntry surfaces a failure without claiming the entry is gone', async () => {
+      routeRpc({ 'provider:removeCustomEntry': rpcError('write failed') });
+      const service = createService();
+
+      const removed = await service.removeCustomEntry('my-gateway');
+
+      expect(removed).toBe(false);
+      expect(service.customEntryError()).toBe('write failed');
+    });
+
+    it('testCustomEntry stores the backend message verbatim and clears the pending flag', async () => {
+      routeRpc({
+        'provider:testCustomEntry': rpcSuccess({
+          ok: false,
+          message:
+            'Endpoint answered but rejected the tool definition — this gateway may not support tool calling.',
+          latencyMs: 812,
+        }),
+      });
+      const service = createService();
+
+      const result = await service.testCustomEntry('my-gateway');
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe(
+        'Endpoint answered but rejected the tool definition — this gateway may not support tool calling.',
+      );
+      expect(result.latencyMs).toBe(812);
+      expect(service.customTestState()).toEqual({
+        id: 'my-gateway',
+        ok: false,
+        message:
+          'Endpoint answered but rejected the tool definition — this gateway may not support tool calling.',
+        latencyMs: 812,
+      });
+      expect(service.customTestingId()).toBeNull();
+    });
+
+    it('testCustomEntry marks the entry as pending while the probe runs', async () => {
+      let release: ((value: unknown) => void) | undefined;
+      rpc.call.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const service = createService();
+
+      const pending = service.testCustomEntry('my-gateway');
+      await Promise.resolve();
+      expect(service.customTestingId()).toBe('my-gateway');
+
+      release?.(rpcSuccess({ ok: true, message: 'Connected.', latencyMs: 40 }));
+      await pending;
+      expect(service.customTestingId()).toBeNull();
+    });
+
+    it('testCustomEntry refuses a second concurrent probe', async () => {
+      let release: ((value: unknown) => void) | undefined;
+      rpc.call.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const service = createService();
+
+      const first = service.testCustomEntry('my-gateway');
+      await Promise.resolve();
+      const second = await service.testCustomEntry('other-gateway');
+
+      expect(second.ok).toBe(false);
+      expect(second.message).toContain('already running');
+
+      release?.(rpcSuccess({ ok: true, message: 'Connected.' }));
+      await first;
+    });
+
+    it('derives the selected custom entry, its host, and its missing pricing', async () => {
+      const entry = makeCustomEntry({
+        id: 'lan-box',
+        baseUrl: 'http://192.168.1.50:8000',
+        pricing: null,
+      });
+      routeRpc({}, [entry]);
+      const service = createService();
+      await service.loadCustomEntries();
+
+      service.setAuthMethod('thirdParty');
+      service.setSelectedProviderId('lan-box');
+
+      expect(service.isCustomProviderSelected()).toBe(true);
+      expect(service.selectedCustomEntry()).toEqual(entry);
+      expect(service.selectedCustomHost()).toBe('192.168.1.50:8000');
+      expect(service.selectedCustomPricingMissing()).toBe(true);
+    });
+
+    it('reports pricing as available once rates are stored', async () => {
+      const entry = makeCustomEntry({
+        id: 'priced',
+        pricing: { inputPerMillion: 3, outputPerMillion: 15 },
+      });
+      routeRpc({}, [entry]);
+      const service = createService();
+      await service.loadCustomEntries();
+
+      service.setAuthMethod('thirdParty');
+      service.setSelectedProviderId('priced');
+
+      expect(service.selectedCustomPricingMissing()).toBe(false);
+    });
+
+    it('reports no custom selection for a built-in provider', async () => {
+      routeRpc({}, [makeCustomEntry()]);
+      const service = createService();
+      await service.loadCustomEntries();
+
+      service.setAuthMethod('thirdParty');
+      service.setSelectedProviderId('openrouter');
+
+      expect(service.isCustomProviderSelected()).toBe(false);
+      expect(service.selectedCustomHost()).toBeNull();
+      expect(service.selectedCustomPricingMissing()).toBe(false);
     });
   });
 });

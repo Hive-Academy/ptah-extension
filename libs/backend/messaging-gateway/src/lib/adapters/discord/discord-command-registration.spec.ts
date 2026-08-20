@@ -3,17 +3,38 @@ import {
   type FetchLike,
 } from './discord-command-registration';
 
-function okFetch(): { impl: FetchLike; calls: string[] } {
-  const calls: string[] = [];
-  const impl: FetchLike = async (url) => {
-    calls.push(url);
+function okFetch(): {
+  impl: FetchLike;
+  calls: { url: string; method: string; body: string }[];
+} {
+  const calls: { url: string; method: string; body: string }[] = [];
+  const impl: FetchLike = async (url, init) => {
+    calls.push({ url, method: init.method, body: init.body });
     return { ok: true, status: 200, text: async () => '{}' };
   };
   return { impl, calls };
 }
 
+type CommandJson = {
+  name: string;
+  type: number;
+  description: string;
+  options?: Array<{
+    type: number;
+    name: string;
+    required?: boolean;
+    autocomplete?: boolean;
+    options?: Array<{
+      type: number;
+      name: string;
+      required?: boolean;
+      autocomplete?: boolean;
+    }>;
+  }>;
+};
+
 describe('registerDiscordSlashCommands', () => {
-  it('registers one guild command per guild id (instant scope)', async () => {
+  it('bulk-overwrites via one PUT per guild id (instant scope)', async () => {
     const { impl, calls } = okFetch();
 
     const res = await registerDiscordSlashCommands({
@@ -23,14 +44,22 @@ describe('registerDiscordSlashCommands', () => {
       fetchImpl: impl,
     });
 
-    expect(res).toEqual({ registered: 2, scope: 'guild' });
-    expect(calls).toEqual([
+    expect(res).toEqual({
+      registered: 2,
+      scope: 'guild',
+      results: [
+        { guildId: 'g1', ok: true },
+        { guildId: 'g2', ok: true },
+      ],
+    });
+    expect(calls.map((c) => c.url)).toEqual([
       'https://discord.com/api/v10/applications/app-1/guilds/g1/commands',
       'https://discord.com/api/v10/applications/app-1/guilds/g2/commands',
     ]);
+    expect(calls.map((c) => c.method)).toEqual(['PUT', 'PUT']);
   });
 
-  it('falls back to a single global registration when no guilds are set', async () => {
+  it('falls back to a single global PUT when no guilds are set', async () => {
     const { impl, calls } = okFetch();
 
     const res = await registerDiscordSlashCommands({
@@ -40,13 +69,19 @@ describe('registerDiscordSlashCommands', () => {
       fetchImpl: impl,
     });
 
-    expect(res).toEqual({ registered: 1, scope: 'global' });
-    expect(calls).toEqual([
+    expect(res).toEqual({
+      registered: 1,
+      scope: 'global',
+      results: [{ guildId: 'global', ok: true }],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(
       'https://discord.com/api/v10/applications/app-1/commands',
-    ]);
+    );
+    expect(calls[0].method).toBe('PUT');
   });
 
-  it('sends the Bot authorization header and the ptah command body', async () => {
+  it('sends the Bot authorization header and the full command tree in one array body', async () => {
     const captured: { headers: Record<string, string>; body: string }[] = [];
     const impl: FetchLike = async (_url, init) => {
       captured.push({ headers: init.headers, body: init.body });
@@ -63,10 +98,92 @@ describe('registerDiscordSlashCommands', () => {
     expect(captured).toHaveLength(1);
     const call = captured[0];
     expect(call.headers['Authorization']).toBe('Bot super-secret');
-    const parsed = JSON.parse(call.body);
-    expect(parsed.name).toBe('ptah');
-    expect(parsed.options[0]).toEqual(
-      expect.objectContaining({ name: 'prompt', type: 3, required: true }),
+    const parsed = JSON.parse(call.body) as CommandJson[];
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.map((c) => c.name)).toEqual([
+      'ptah',
+      'sessions',
+      'session',
+      'new',
+      'workspace',
+    ]);
+    expect(parsed.every((c) => c.type === 1)).toBe(true);
+  });
+
+  it('keeps the /ptah prompt command shape byte-identical (AC-1.4)', async () => {
+    const { impl, calls } = okFetch();
+
+    await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: ['g1'],
+      fetchImpl: impl,
+    });
+
+    const parsed = JSON.parse(calls[0].body) as CommandJson[];
+    const ptah = parsed.find((c) => c.name === 'ptah');
+    expect(ptah).toEqual({
+      name: 'ptah',
+      description: 'Ask Ptah a question',
+      type: 1,
+      options: [
+        {
+          name: 'prompt',
+          description: 'What you want Ptah to do',
+          type: 3,
+          required: true,
+        },
+      ],
+    });
+  });
+
+  it('registers the control-plane subcommand tree with autocomplete picks', async () => {
+    const { impl, calls } = okFetch();
+
+    await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: ['g1'],
+      fetchImpl: impl,
+    });
+
+    const parsed = JSON.parse(calls[0].body) as CommandJson[];
+
+    const sessions = parsed.find((c) => c.name === 'sessions');
+    expect(sessions?.options).toBeUndefined();
+
+    const session = parsed.find((c) => c.name === 'session');
+    expect(session?.options).toHaveLength(1);
+    const sessionUse = session?.options?.[0];
+    expect(sessionUse).toEqual(
+      expect.objectContaining({ type: 1, name: 'use' }),
+    );
+    expect(sessionUse?.options?.[0]).toEqual(
+      expect.objectContaining({
+        type: 3,
+        name: 'pick',
+        required: true,
+        autocomplete: true,
+      }),
+    );
+
+    const fresh = parsed.find((c) => c.name === 'new');
+    expect(fresh?.options).toBeUndefined();
+
+    const workspace = parsed.find((c) => c.name === 'workspace');
+    expect(workspace?.options?.map((o) => o.name)).toEqual(['list', 'use']);
+    const workspaceList = workspace?.options?.[0];
+    expect(workspaceList?.type).toBe(1);
+    expect(workspaceList?.options).toBeUndefined();
+    const workspaceUse = workspace?.options?.[1];
+    expect(workspaceUse?.type).toBe(1);
+    expect(workspaceUse?.options?.[0]).toEqual(
+      expect.objectContaining({
+        type: 3,
+        name: 'pick',
+        required: true,
+        autocomplete: true,
+      }),
     );
   });
 
@@ -85,6 +202,207 @@ describe('registerDiscordSlashCommands', () => {
         fetchImpl: impl,
       }),
     ).rejects.toThrow(/401 Unauthorized/);
+  });
+
+  it('waits out a 429 Retry-After header (seconds) and retries the same guild', async () => {
+    const slept: number[] = [];
+    const responses: Array<{
+      ok: boolean;
+      status: number;
+      headers?: { get(name: string): string | null };
+      text(): Promise<string>;
+    }> = [
+      {
+        ok: false,
+        status: 429,
+        headers: { get: (n) => (n === 'Retry-After' ? '2' : null) },
+        text: async () => '{"retry_after":2}',
+      },
+      { ok: true, status: 200, text: async () => '{}' },
+    ];
+    let call = 0;
+    const impl: FetchLike = async () => responses[call++];
+
+    const res = await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: ['g1'],
+      fetchImpl: impl,
+      sleepImpl: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    expect(call).toBe(2);
+    expect(slept).toEqual([2_000]);
+    expect(res).toEqual({
+      registered: 1,
+      scope: 'guild',
+      results: [{ guildId: 'g1', ok: true }],
+    });
+  });
+
+  it('falls back to the JSON body retry_after when no header is present', async () => {
+    const slept: number[] = [];
+    let call = 0;
+    const impl: FetchLike = async () => {
+      call += 1;
+      if (call === 1) {
+        return {
+          ok: false,
+          status: 429,
+          text: async () =>
+            '{"message":"You are being rate limited.","retry_after":0.75}',
+        };
+      }
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+
+    const res = await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: [],
+      fetchImpl: impl,
+      sleepImpl: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    expect(slept).toEqual([750]);
+    expect(res.registered).toBe(1);
+  });
+
+  it('gives up after 3 retries on a permanent 429 and reports only that guild as failed', async () => {
+    const slept: number[] = [];
+    const attempts: string[] = [];
+    const impl: FetchLike = async (url) => {
+      attempts.push(url);
+      if (url.includes('/guilds/g1/')) {
+        return {
+          ok: false,
+          status: 429,
+          headers: { get: () => '1' },
+          text: async () => 'rate limited',
+        };
+      }
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+
+    const res = await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: ['g1', 'g2'],
+      fetchImpl: impl,
+      sleepImpl: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    // g1: initial attempt + 3 retries, then it stops trying — and g2 still
+    // gets its registration.
+    expect(attempts.filter((u) => u.includes('/guilds/g1/'))).toHaveLength(4);
+    expect(slept).toEqual([1_000, 1_000, 1_000]);
+    expect(res.registered).toBe(1);
+    expect(res.results).toEqual([
+      { guildId: 'g1', ok: false, error: '429 rate limited' },
+      { guildId: 'g2', ok: true },
+    ]);
+  });
+
+  it('does not sleep on a 429 whose Retry-After exceeds the cap', async () => {
+    const slept: number[] = [];
+    let call = 0;
+    const impl: FetchLike = async () => {
+      call += 1;
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: () => '3600' },
+        text: async () => 'daily limit',
+      };
+    };
+
+    await expect(
+      registerDiscordSlashCommands({
+        token: 'tok',
+        applicationId: 'app-1',
+        guildIds: ['g1'],
+        fetchImpl: impl,
+        sleepImpl: async (ms) => {
+          slept.push(ms);
+        },
+      }),
+    ).rejects.toThrow(/daily limit/);
+
+    expect(call).toBe(1);
+    expect(slept).toEqual([]);
+  });
+
+  it('keeps registering the remaining guilds when one fails and reports per guild', async () => {
+    const seen: string[] = [];
+    const impl: FetchLike = async (url) => {
+      seen.push(url);
+      if (url.includes('/guilds/g2/')) {
+        return { ok: false, status: 403, text: async () => 'Missing Access' };
+      }
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+
+    const res = await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: ['g1', 'g2', 'g3'],
+      fetchImpl: impl,
+    });
+
+    expect(seen).toHaveLength(3);
+    expect(res.registered).toBe(2);
+    expect(res.scope).toBe('guild');
+    expect(res.results).toEqual([
+      { guildId: 'g1', ok: true },
+      { guildId: 'g2', ok: false, error: '403 Missing Access' },
+      { guildId: 'g3', ok: true },
+    ]);
+  });
+
+  it('throws only when every guild fails, naming each one', async () => {
+    const impl: FetchLike = async () => ({
+      ok: false,
+      status: 403,
+      text: async () => 'Missing Access',
+    });
+
+    await expect(
+      registerDiscordSlashCommands({
+        token: 'tok',
+        applicationId: 'app-1',
+        guildIds: ['g1', 'g2'],
+        fetchImpl: impl,
+      }),
+    ).rejects.toThrow(
+      /guild g1: 403 Missing Access; guild g2: 403 Missing Access/,
+    );
+  });
+
+  it('reports a thrown fetch (network down) as the guild error instead of escaping', async () => {
+    const impl: FetchLike = async (url) => {
+      if (url.includes('/guilds/g1/')) throw new Error('ECONNREFUSED');
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+
+    const res = await registerDiscordSlashCommands({
+      token: 'tok',
+      applicationId: 'app-1',
+      guildIds: ['g1', 'g2'],
+      fetchImpl: impl,
+    });
+
+    expect(res.registered).toBe(1);
+    expect(res.results[0]).toEqual({
+      guildId: 'g1',
+      ok: false,
+      error: 'ECONNREFUSED',
+    });
   });
 
   it('rejects when token or applicationId is missing', async () => {

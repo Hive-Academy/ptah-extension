@@ -6,9 +6,9 @@ import type { DependencyContainer } from 'tsyringe';
 import { type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-  type IMemoryLister,
-  type ISymbolSink,
+  NullMemoryLister,
+  NullMemoryReader,
+  NullSymbolSink,
 } from '@ptah-extension/memory-contracts';
 import { registerCuratorAuthServices } from '@ptah-extension/auth-providers';
 import {
@@ -17,11 +17,19 @@ import {
   resolvePtahDbPath,
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
-import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
+import {
+  registerMemoryCuratorServices,
+  MEMORY_TOKENS,
+} from '@ptah-extension/memory-curator';
 import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
+import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
   registerCronSchedulerServices,
   CRON_TOKENS,
@@ -31,11 +39,13 @@ import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
 } from '@ptah-extension/messaging-gateway';
+import { registerVoiceProviderServices } from '@ptah-extension/voice-providers';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 
 import { createCliVecPathResolver } from './cli-vec-path-resolver';
 import { CliTokenVault } from './cli-token-vault';
 import { CliSkillRepropagation } from './cli-skill-repropagation';
+import { CliEmbedderWorkerFactory } from './cli-embedder-worker-factory';
 
 export function registerThothLibraries(
   container: DependencyContainer,
@@ -46,9 +56,6 @@ export function registerThothLibraries(
     container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, { useValue: dbPath });
 
     const workerEntry = path.join(__dirname, 'embedder-worker.mjs');
-    container.register(PERSISTENCE_TOKENS.EMBEDDER_WORKER_PATH, {
-      useValue: workerEntry,
-    });
 
     const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
     try {
@@ -59,8 +66,16 @@ export function registerThothLibraries(
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
-    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
-      useValue: modelCacheDir,
+
+    // Embedder worker runs in a node:worker_threads Worker behind the
+    // host-implemented factory port (the CLI has no Electron utilityProcess).
+    // The bundled `embedder-worker.mjs` auto-detects the transport; this
+    // factory owns Worker construction + init config, while EmbedderWorkerClient
+    // owns respawn / idle-teardown / crash-loop. Without this factory the
+    // embedder would degrade to unavailable and search would fall back to
+    // BM25-only (the regression this restores).
+    container.register(MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY, {
+      useValue: new CliEmbedderWorkerFactory(workerEntry, modelCacheDir),
     });
 
     registerPersistenceSqliteServices(container, logger);
@@ -105,6 +120,21 @@ export function registerThothLibraries(
     });
   }
 
+  // task-specs registered independently (G1): the shared TasksRpcHandlers is
+  // fanned to all hosts via registerAllRpcHandlers, so its backing services
+  // must resolve even if the skill-synthesis block above degraded.
+  registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even in a headless run that never touches the Tasks RPCs.
+  // Non-blocking and failure-swallowing by contract — see startTaskSpecsIndex.
+  startTaskSpecsIndex(container, logger);
+
+  // output-styles registered independently for the same reason as task-specs:
+  // OutputStyleRpcHandlers is a `requires: []` manifest entry fanned to every
+  // host, so its backing services must resolve here too. They depend only on
+  // the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER, WORKSPACE_PROVIDER).
+  registerOutputStyleServices(container, logger);
+
   try {
     container.register(CRON_TOKENS.CRON_POWER_MONITOR, {
       useValue: new NoopPowerMonitor(),
@@ -121,6 +151,10 @@ export function registerThothLibraries(
     container.register(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT, {
       useValue: new CliTokenVault(),
     });
+    // No worker factory / vault twin on CLI → local voice degrades to
+    // unavailable (assets-unavailable at call time); GatewayService still
+    // resolves its selector dependency.
+    registerVoiceProviderServices(container, logger);
     registerMessagingGatewayServices(container, logger);
     registerGatewayChatBridge(container, logger);
     logger.info('[CLI DI] Messaging gateway services registered (Track 4)');
@@ -138,32 +172,22 @@ function ensureMemoryContractFallbacks(
   const missing: string[] = [];
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
-    const noopMemoryReader: IMemoryReader = {
-      search: async () => ({ hits: [], bm25Only: true }),
-    };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-      useValue: noopMemoryReader,
+      useValue: NullMemoryReader,
     });
     missing.push('MEMORY_READER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)) {
-    const noopMemoryLister: IMemoryLister = {
-      listAll: () => ({ memories: [], total: 0 }),
-    };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
-      useValue: noopMemoryLister,
+      useValue: NullMemoryLister,
     });
     missing.push('MEMORY_LISTER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)) {
-    const noopSymbolSink: ISymbolSink = {
-      deleteSymbolsForFile: () => 0,
-      insertSymbols: async () => undefined,
-    };
     container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
-      useValue: noopSymbolSink,
+      useValue: NullSymbolSink,
     });
     missing.push('SYMBOL_SINK');
   }

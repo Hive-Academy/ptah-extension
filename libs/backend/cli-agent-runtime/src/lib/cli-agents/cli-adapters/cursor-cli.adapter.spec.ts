@@ -211,7 +211,7 @@ describe('CursorCliAdapter', () => {
       expect(output.join('')).toContain('[Model: composer-2.5]');
       expect(output.join('')).toContain('Done.');
       expect(handle.getSessionId?.()).toBe('agent-abc');
-      expect(mockClose).toHaveBeenCalled();
+      expect(mockClose).not.toHaveBeenCalled();
     });
 
     it('emits incremental text deltas for growing assistant messages', async () => {
@@ -383,6 +383,128 @@ describe('CursorCliAdapter', () => {
       expect(code).toBe(1);
       expect(output.join('')).toContain('[Cursor SDK Error]');
       expect(output.join('')).toContain('agent boom');
+    });
+  });
+
+  describe('continue() — multi-turn continuation', () => {
+    const defaultOptions = {
+      task: 'Refactor module',
+      workingDirectory: '/proj',
+    };
+
+    it('does NOT close the agent after the first run completes', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      currentRun?.end();
+      await handle.done;
+
+      expect(handle.supportsContinuation?.()).toBe(true);
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+
+    it('sends the next turn on the SAME agent without recreating it', async () => {
+      const runs: FakeRunControls[] = [];
+      mockCreate.mockImplementation(async () => {
+        return {
+          agentId: 'agent-abc',
+          send: (...args: unknown[]) => {
+            mockSend(...args);
+            const next = createFakeRun('agent-abc');
+            runs.push(next);
+            currentRun = next;
+            return Promise.resolve(next.run);
+          },
+          close: mockClose,
+        };
+      });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      runs[0]?.end();
+      await handle.done;
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockSend).toHaveBeenCalledTimes(1);
+
+      expect(handle.continue).toBeDefined();
+      const outcomePromise = handle.continue?.('Follow-up');
+      await Promise.resolve();
+      await Promise.resolve();
+      runs[1]?.end();
+      const outcome = await outcomePromise;
+      const code = await outcome?.done;
+
+      expect(code).toBe(0);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      expect(mockSend.mock.calls[1][0]).toBe('Follow-up');
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+
+    it('streams the continued turn through the same onOutput callbacks', async () => {
+      const runs: FakeRunControls[] = [];
+      mockCreate.mockImplementation(async () => {
+        return {
+          agentId: 'agent-abc',
+          send: (...args: unknown[]) => {
+            mockSend(...args);
+            const next = createFakeRun('agent-abc');
+            runs.push(next);
+            currentRun = next;
+            return Promise.resolve(next.run);
+          },
+          close: mockClose,
+        };
+      });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data) => output.push(data));
+      await Promise.resolve();
+      await Promise.resolve();
+      runs[0]?.end();
+      await handle.done;
+
+      const outcomePromise = handle.continue?.('again');
+      await Promise.resolve();
+      await Promise.resolve();
+      runs[1]?.push({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Second turn' }],
+        },
+      });
+      runs[1]?.end();
+      const outcome = await outcomePromise;
+      await outcome?.done;
+
+      expect(output.join('')).toContain('Second turn');
+    });
+
+    it('closes the agent on abort and cancels the in-flight run', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      handle.abort.abort();
+      const code = await handle.done;
+
+      expect(currentRun?.cancel).toHaveBeenCalled();
+      expect(mockClose).toHaveBeenCalled();
+      expect(code).toBe(1);
     });
   });
 

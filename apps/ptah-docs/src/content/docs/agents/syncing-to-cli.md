@@ -7,11 +7,7 @@ description: Distribute your Ptah agent roster to Copilot, Codex, and Cursor.
 
 Once you've tuned a roster of agents in Ptah, you can push them to the external CLIs and editors you already use. The same prompts, tools, and personalities become available in Copilot CLI, Codex CLI, and Cursor — so your team gets consistent behavior everywhere.
 
-:::note[Pro-tier feature]
-Agent sync is available on **Ptah Pro**. The free tier supports using built-in and custom agents inside Ptah; sync to external CLIs requires an active Pro license. See [Signing in](/getting-started/signing-in/) to upgrade.
-:::
-
-![Sync targets](/screenshots/agents-sync-targets.png)
+Agent sync is a standard Ptah feature — use built-in and custom agents inside Ptah and sync them to external CLIs, all included at no cost.
 
 ## Supported targets
 
@@ -42,8 +38,6 @@ What is **not** synced:
 3. Pick which targets to include.
 4. Review the diff — Ptah shows added, changed, and removed agents per target.
 5. Click **Apply**.
-
-![Sync diff view](/screenshots/agents-sync-diff.png)
 
 ### Sync modes
 

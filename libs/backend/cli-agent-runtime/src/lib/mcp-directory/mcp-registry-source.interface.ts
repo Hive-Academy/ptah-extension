@@ -16,7 +16,7 @@ import type {
 } from '@ptah-extension/shared';
 
 /** Stable identifier for a registry source. */
-export type McpRegistrySourceId = 'official' | 'smithery';
+export type McpRegistrySourceId = 'official' | 'smithery' | 'pulsemcp';
 
 export interface IMcpRegistrySource {
   /** Stable identifier used to select this source at the RPC boundary. */

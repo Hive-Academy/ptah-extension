@@ -23,6 +23,8 @@ export interface MediaRecorderFactory {
 
 const MAX_RECORDING_MS = 120_000;
 
+const TRANSCRIBE_TIMEOUT_MS = 300_000;
+
 const PREFERRED_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm'];
 
 export const MEDIA_RECORDER_FACTORY = new InjectionToken<MediaRecorderFactory>(
@@ -169,10 +171,14 @@ export class VoiceInputService {
 
   private async transcribe(blob: Blob): Promise<VoiceTranscriptionResult> {
     const audioBase64 = await this.blobToBase64(blob);
-    const result = await this.rpcService.call('voice:transcribe', {
-      audioBase64,
-      mimeType: this.mimeType,
-    });
+    const result = await this.rpcService.call(
+      'voice:transcribe',
+      {
+        audioBase64,
+        mimeType: this.mimeType,
+      },
+      { timeout: TRANSCRIBE_TIMEOUT_MS },
+    );
 
     if (!result.success || !result.data) {
       return {

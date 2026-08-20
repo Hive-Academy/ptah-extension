@@ -7,7 +7,12 @@ export type ElectronView =
   | 'editor'
   | 'settings'
   | 'setup-wizard'
-  | 'thoth';
+  | 'thoth'
+  | 'marketplace'
+  | 'tribunal'
+  | 'tasks'
+  | 'harness-builder'
+  | 'setup-hub';
 
 export type ThothTab = 'memory' | 'skills' | 'cron' | 'gateway';
 
@@ -22,7 +27,6 @@ interface RendererMessage {
 
 export interface StartupConfigSeed {
   initialView: string;
-  isLicensed: boolean;
   workspaceRoot: string;
   workspaceName: string;
 }
@@ -37,7 +41,6 @@ const NAMESPACE_EMPTY_DEFAULTS: Record<string, unknown> = {
 
 const DEFAULT_STARTUP_CONFIG: StartupConfigSeed = {
   initialView: 'chat',
-  isLicensed: true,
   workspaceRoot: 'C:\\ptah-e2e-ws',
   workspaceName: 'ptah-e2e-ws',
 };
@@ -55,16 +58,33 @@ export class UiDriver {
         __uiMockFns?: Record<string, string>;
         __uiNamespaceDefaults?: Record<string, unknown>;
         __uiObservedCalls?: { method: string; params: unknown }[];
+        __uiObservedMessages?: { type: string; payload: unknown }[];
       };
       g.__uiMockStatics = g.__uiMockStatics ?? {};
       g.__uiMockFns = g.__uiMockFns ?? {};
       g.__uiNamespaceDefaults = namespaceDefaults;
       g.__uiObservedCalls = [];
+      g.__uiObservedMessages = [];
 
       ipcMain.removeAllListeners('rpc');
       ipcMain.on('rpc', (event: Electron.IpcMainEvent, message: unknown) => {
         if (!message || typeof message !== 'object') return;
         const msg = message as Record<string, unknown>;
+        // Every renderer -> main postMessage() lands on this one 'rpc'
+        // channel (preload.ts), whether it's a correlated RPC call
+        // ({type:'rpc:call', payload:{method,params,correlationId}}) or a
+        // fire-and-forget protocol message like
+        // ask-user-question:response ({type, payload}, no `method`).
+        // Record the raw {type, payload} shape for the latter — the method
+        // branch below only ever sees/pushes messages that DO carry a
+        // `method`.
+        const msgType = msg['type'] as string | undefined;
+        if (msgType) {
+          (g.__uiObservedMessages ?? []).push({
+            type: msgType,
+            payload: msg['payload'],
+          });
+        }
         const rpcData = (msg['payload'] || msg) as Record<string, unknown>;
         const method = rpcData['method'] as string | undefined;
         const params = rpcData['params'] as unknown;
@@ -115,7 +135,6 @@ export class UiDriver {
       ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
         event.returnValue = {
           initialView: cfg.initialView,
-          isLicensed: cfg.isLicensed,
           workspaceRoot: cfg.workspaceRoot,
           workspaceName: cfg.workspaceName,
         };
@@ -199,6 +218,42 @@ export class UiDriver {
     }
   }
 
+  /**
+   * Sibling of {@link getObservedCalls} for fire-and-forget renderer -> main
+   * messages (no `method`/`correlationId`, e.g. `ask-user-question:response`)
+   * — see the recording added in {@link installFakeRpcListener}.
+   */
+  public async getObservedMessages(
+    type: string,
+  ): Promise<{ type: string; payload: unknown }[]> {
+    return this.app.evaluate((_electron, target) => {
+      const g = globalThis as unknown as {
+        __uiObservedMessages?: { type: string; payload: unknown }[];
+      };
+      return (g.__uiObservedMessages ?? []).filter((m) => m.type === target);
+    }, type);
+  }
+
+  /** Sibling of {@link waitForObservedCall} for {@link getObservedMessages}. */
+  public async waitForObservedMessage(
+    type: string,
+    timeoutMs = 10_000,
+  ): Promise<{ type: string; payload: unknown }> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const messages = await this.getObservedMessages(type);
+      if (messages.length > 0) {
+        return messages[messages.length - 1];
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          `[UiDriver] waitForObservedMessage timed out after ${timeoutMs}ms (type="${type}")`,
+        );
+      }
+      await this.page.waitForTimeout(50);
+    }
+  }
+
   public async forceVisible(): Promise<void> {
     await this.page.evaluate(() => {
       const doc = document as unknown as {
@@ -235,14 +290,23 @@ export class UiDriver {
   public async goto(view: ElectronView): Promise<void> {
     await this.syncWorkspace();
     if (view === 'chat' || view === 'canvas') {
+      // Electron has a single chat surface: the Orchestra Canvas. The old
+      // single-chat "Chat" tab was removed, so both 'chat' and 'canvas' land on
+      // the canvas grid. For 'chat' we additionally ensure one tile is open with
+      // a visible chat input (a tile hosts the full chat surface).
       await this.pushEvent({ type: 'switchView', payload: { view: 'chat' } });
-      const tabName = view === 'canvas' ? 'Canvas' : 'Chat';
       const tab = this.page
-        .getByRole('tab', { name: tabName })
-        .or(this.page.locator(`[title="${tabName}"]`))
+        .getByRole('tab', { name: 'Canvas' })
+        .or(this.page.locator('[title="Orchestra Canvas"]'))
         .first();
       await tab.waitFor({ state: 'visible' });
       await tab.click({ force: true });
+      await this.page
+        .locator('[data-testid="canvas-grid"]')
+        .waitFor({ state: 'visible' });
+      if (view === 'chat') {
+        await this.ensureCanvasChatTile();
+      }
       return;
     }
     if (view === 'editor') {
@@ -256,10 +320,47 @@ export class UiDriver {
         await editorTab.click();
       }
       await editorPanel.first().waitFor({ state: 'visible' });
+      // Force a deterministic file-tree reload from the registered mock — the
+      // lazily-mounted panel's one-shot fetch can race the mock under xvfb.
+      await this.pushEvent({ type: 'file:tree-changed', payload: {} });
       return;
     }
     const viewName = view === 'dashboard' ? 'analytics' : view;
     await this.pushEvent({ type: 'switchView', payload: { view: viewName } });
+  }
+
+  /**
+   * Ensure the canvas has a single open tile with a visible chat input. Reuses
+   * an existing tile when one is already present (so this never inflates the
+   * tile count); otherwise creates one from the empty-state CTA (or the FAB when
+   * tiles exist). Assumes the canvas grid is already visible.
+   */
+  private async ensureCanvasChatTile(): Promise<void> {
+    const input = this.page.locator(
+      'ptah-chat-input textarea[role="combobox"]',
+    );
+    if (
+      await input
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    const fab = this.page.locator('[title="Add new session tile"]').first();
+    if (await fab.isVisible().catch(() => false)) {
+      await fab.click();
+    } else {
+      await this.page
+        .getByRole('button', { name: 'Create new session' })
+        .first()
+        .click();
+    }
+    await this.page
+      .getByRole('button', { name: 'Create', exact: true })
+      .click();
+    await input.first().waitFor({ state: 'visible' });
   }
 
   public async openTab(tab: ThothTab): Promise<void> {

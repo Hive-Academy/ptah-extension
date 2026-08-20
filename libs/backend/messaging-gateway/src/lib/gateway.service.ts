@@ -1,25 +1,24 @@
 /**
- * GatewayService — top-level orchestrator for the messaging gateway.
+ * GatewayService — the messaging gateway's façade.
  *
- * Responsibilities (architecture §9 Track 4):
+ * It owns the decisions that turn a platform message into (or away from) an
+ * agent turn, and delegates the two concerns that are not that:
  *
- *   - Hold three IMessagingAdapter instances (Telegram, Discord, Slack).
- *   - Read enable flags + tokens from `~/.ptah/settings.json` via
- *     `IWorkspaceProvider`, decrypt tokens via `ITokenVault`, and start
- *     each enabled adapter on `start()`.
- *   - Pairing flow: route every inbound through `BindingStore.upsertPending`.
- *     If `pending`, reply with the binding's 6-digit pairing code and DROP
- *     the message (do not forward to the agent).
- *   - On approved bindings: persist inbound, then emit a typed event so the
- *     RPC handler / orchestrator layer can hand it off to the chat session.
- *   - Stream coalescing: callers push outbound assistant chunks through
- *     `appendOutboundChunk()`. The coalescer batches them into 1–3 edits
- *     per ~250ms window and the flush callback pushes them through the
- *     adapter's `sendMessage` / `editMessage`.
- *   - Voice retention: on `start()`, delete `voice_path` files older than
- *     7 days (architecture §11 default 5).
- *   - Inbound abuse guard: drop silently when a single allow-list id sends
- *     >60 messages/min (architecture §9.9).
+ *   - {@link AdapterLifecycleService} — which transports are up, token
+ *     decryption, enable flags, reconnect backoff, `lastError` / `status()`.
+ *   - {@link OutboundDeliveryService} — coalescing the assistant reply and
+ *     getting it delivered (or failing loudly).
+ *
+ * What stays here IS the façade's own concern: the inbound admission path
+ * (abuse cap → transcription → pairing gate → persist → `inbound` event),
+ * binding administration (approve / attach / detach / revoke, allow-lists,
+ * token storage, the Discord application id and slash-command registration),
+ * the out-of-band speech that must NOT travel through the coalescer
+ * (`sendNotice`, `sendTyping`), and voice housekeeping.
+ *
+ * Every public method here is called by `GatewayRpcHandlers`,
+ * `gateway-chat-bridge` or `apps/ptah-electron` — the signatures are the
+ * contract, not an implementation detail.
  */
 import { EventEmitter } from 'node:events';
 import { timingSafeEqual } from 'node:crypto';
@@ -41,106 +40,90 @@ import { GATEWAY_TOKENS } from './di/tokens';
 import type { ITokenVault } from './token-vault.interface';
 import { BindingStore } from './binding.store';
 import { ConversationStore } from './conversation.store';
-import { MessageStore } from './message.store';
+import { MessageStore, type UnfinishedInboundTurn } from './message.store';
+import { AttachedSessionRegistry } from './attached-session-registry';
+import type { ISessionResumabilityChecker } from './session-resumability';
+import type { FlushPayload, OutboundRoute } from './stream-coalescer';
 import {
-  StreamCoalescer,
-  type FlushPayload,
-  type OutboundRoute,
-} from './stream-coalescer';
-import { FfmpegDecoder } from './voice/ffmpeg-decoder';
+  SETTINGS_KEYS,
+  allowedKeyFor,
+  readBool,
+  readStringArray,
+} from './gateway-settings-access';
 import {
-  WhisperTranscriber,
-  type WhisperDownloadEvent,
-} from './voice/whisper-transcriber';
-import { resolveWhisperModel } from './voice/resolve-whisper-model';
+  AdapterLifecycleService,
+  type AdapterFactoryOverrides,
+  type AdapterTestOverrides,
+  type GatewayStatus,
+} from './adapter-lifecycle.service';
+import { OutboundDeliveryService } from './outbound-delivery.service';
 import {
-  GrammyTelegramAdapter,
-  type TelegramBotFactory,
-} from './adapters/telegram/grammy.adapter';
-import {
-  DiscordAdapter,
-  type DiscordClientFactory,
-} from './adapters/discord/discord.adapter';
+  VOICE_CONTRACT_TOKENS,
+  type IVoiceProviderSelector,
+  type VoiceDownloadEvent,
+} from '@ptah-extension/voice-contracts';
 import { registerDiscordSlashCommands } from './adapters/discord/discord-command-registration';
-import {
-  BoltSlackAdapter,
-  type SlackAppFactory,
-} from './adapters/slack/bolt.adapter';
-import type {
-  IMessagingAdapter,
-  InboundMessage,
-} from './adapters/adapter.interface';
+import type { InboundMessage } from './adapters/adapter.interface';
 import {
   ApprovalStatus,
   BindingId,
   ConversationKey,
   GatewayBinding,
   GatewayConversation,
+  GatewayMessageId,
   GatewayPlatform,
+  GatewayTurnState,
 } from './types';
 
-const SETTINGS_KEYS = {
-  enabled: 'gateway.enabled',
-  coalesceMs: 'gateway.coalesceMs',
-  voiceEnabled: 'gateway.voice.enabled',
-  rateLimitMinTimeMs: 'gateway.rateLimit.minTimeMs',
-  rateLimitMaxConcurrent: 'gateway.rateLimit.maxConcurrent',
-  telegram: {
-    enabled: 'gateway.telegram.enabled',
-    token: 'gateway.telegram.tokenCipher',
-    allowed: 'gateway.telegram.allowedUserIds',
-  },
-  discord: {
-    enabled: 'gateway.discord.enabled',
-    token: 'gateway.discord.tokenCipher',
-    allowed: 'gateway.discord.allowedGuildIds',
-    applicationId: 'gateway.discord.applicationId',
-  },
-  slack: {
-    enabled: 'gateway.slack.enabled',
-    botToken: 'gateway.slack.botTokenCipher',
-    appToken: 'gateway.slack.appTokenCipher',
-    allowed: 'gateway.slack.allowedTeamIds',
-  },
-} as const;
+export { OutboundDeliveryError } from './outbound-delivery.service';
+export type { GatewayStatus } from './adapter-lifecycle.service';
 
 const VOICE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
+/** Sliding window for both the abuse counter and the abuse-notice throttle. */
+const INBOUND_ABUSE_WINDOW_MS = 60_000;
+
+/**
+ * Sent once per allow-list id per {@link INBOUND_ABUSE_WINDOW_MS} when the
+ * inbound cap starts dropping messages (TASK_2026_271). Before this the drop
+ * was completely silent, which from the chat side is indistinguishable from a
+ * crashed bot.
+ */
+export const ABUSE_CAP_NOTICE =
+  "You're sending messages faster than Ptah can take them — please slow down.";
 
 export interface GatewayInboundEvent {
   binding: GatewayBinding;
   conversation: GatewayConversation;
+  /**
+   * Id of the persisted `gateway_messages` row this event came from. The bridge
+   * stamps the turn's lifecycle onto it (TASK_2026_277), which is what lets a
+   * restart notice reach the sender of a turn that never finished.
+   */
+  messageId: GatewayMessageId;
   message: InboundMessage;
 }
 
-export interface GatewayStatus {
-  enabled: boolean;
-  adapters: Array<{
-    platform: GatewayPlatform;
-    running: boolean;
-    lastError?: string;
-  }>;
+/**
+ * One conversation with at least one inbound turn the previous process left
+ * unfinished — the unit the restart notice is batched by.
+ */
+export interface InterruptedInboundConversation {
+  route: OutboundRoute;
+  /** How many of this conversation's messages were caught mid-flight. */
+  messageCount: number;
 }
 
-/** Test seam: lets tests inject fake adapter instances. */
-export interface GatewayTestOverrides {
-  telegram?: IMessagingAdapter;
-  discord?: IMessagingAdapter;
-  slack?: IMessagingAdapter;
+/** Test seam: lets tests inject fake adapters, timers and a flush path. */
+export interface GatewayTestOverrides extends AdapterTestOverrides {
   flushCallback?: (payload: FlushPayload) => Promise<void> | void;
 }
 
 @injectable()
 export class GatewayService extends EventEmitter {
-  private adapters = new Map<GatewayPlatform, IMessagingAdapter>();
-  private lastErrors = new Map<GatewayPlatform, string>();
-  private coalescer: StreamCoalescer | null = null;
   private inboundCounters = new Map<string, number[]>();
-  /** Map conversationKey → first outbound externalMsgId (for editMessage). */
-  private streamHandles = new Map<ConversationKey, { externalMsgId: string }>();
-
-  /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
-  private decryptFailures = new Set<GatewayPlatform>();
+  /** allowListId → timestamp of the last "you're too fast" reply we sent. */
+  private abuseNotified = new Map<string, number>();
 
   /**
    * Bindings that have already received the one-shot pairing prompt this
@@ -149,6 +132,8 @@ export class GatewayService extends EventEmitter {
    * approval (the binding leaves the pending state) or on process restart.
    */
   private pairingPromptSent = new Set<string>();
+
+  private voiceEventsBridged = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -162,61 +147,41 @@ export class GatewayService extends EventEmitter {
     private readonly conversations: ConversationStore,
     @inject(GATEWAY_TOKENS.GATEWAY_MESSAGE_STORE)
     private readonly messages: MessageStore,
-    @inject(GrammyTelegramAdapter)
-    private readonly telegram: GrammyTelegramAdapter,
-    @inject(DiscordAdapter) private readonly discord: DiscordAdapter,
-    @inject(BoltSlackAdapter) private readonly slack: BoltSlackAdapter,
-    @inject(FfmpegDecoder) private readonly ffmpeg: FfmpegDecoder,
-    @inject(WhisperTranscriber) private readonly whisper: WhisperTranscriber,
+    @inject(VOICE_CONTRACT_TOKENS.VOICE_PROVIDER_SELECTOR)
+    private readonly voiceSelector: IVoiceProviderSelector,
     @inject(SETTINGS_TOKENS.GATEWAY_SETTINGS)
     private readonly gatewaySettings: GatewaySettings,
+    @inject(GATEWAY_TOKENS.GATEWAY_ATTACHED_SESSION_REGISTRY)
+    private readonly attachedSessionRegistry: AttachedSessionRegistry,
+    @inject(GATEWAY_TOKENS.GATEWAY_SESSION_RESUMABILITY_CHECKER)
+    private readonly resumability: ISessionResumabilityChecker,
+    @inject(GATEWAY_TOKENS.GATEWAY_ADAPTER_LIFECYCLE)
+    private readonly lifecycle: AdapterLifecycleService,
+    @inject(GATEWAY_TOKENS.GATEWAY_OUTBOUND_DELIVERY)
+    private readonly outbound: OutboundDeliveryService,
   ) {
     super();
+    this.lifecycle.setInboundHandler((msg) => this.handleInbound(msg));
+    this.lifecycle.on('status-changed', (payload) =>
+      this.emit('status-changed', payload),
+    );
   }
 
   /** Test/integration seam — production callers do not invoke this. */
   configureForTest(overrides: GatewayTestOverrides): void {
-    if (overrides.telegram) this.adapters.set('telegram', overrides.telegram);
-    if (overrides.discord) this.adapters.set('discord', overrides.discord);
-    if (overrides.slack) this.adapters.set('slack', overrides.slack);
+    this.lifecycle.configureForTest(overrides);
     if (overrides.flushCallback) {
-      this.coalescer = new StreamCoalescer(overrides.flushCallback);
+      this.outbound.useFlushCallback(overrides.flushCallback);
     }
   }
 
-  /** Inject grammy bot factory before start. */
-  configureFactories(opts: {
-    telegramBotFactory?: TelegramBotFactory;
-    discordClientFactory?: DiscordClientFactory;
-    slackAppFactory?: SlackAppFactory;
-  }): void {
-    if (opts.telegramBotFactory)
-      this.telegram.configure({ factory: opts.telegramBotFactory });
-    if (opts.discordClientFactory)
-      this.discord.configure({ factory: opts.discordClientFactory });
-    if (opts.slackAppFactory)
-      this.slack.configure({ factory: opts.slackAppFactory });
+  /** Inject client-library factories before start. */
+  configureFactories(opts: AdapterFactoryOverrides): void {
+    this.lifecycle.configureFactories(opts);
   }
 
   status(): GatewayStatus {
-    const enabled =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        SETTINGS_KEYS.enabled,
-        false,
-      ) ?? false;
-    const platforms: GatewayPlatform[] = ['telegram', 'discord', 'slack'];
-    return {
-      enabled,
-      adapters: platforms.map((platform) => {
-        const adapter = this.adapters.get(platform);
-        return {
-          platform,
-          running: adapter?.isRunning() ?? false,
-          lastError: this.lastErrors.get(platform),
-        };
-      }),
-    };
+    return this.lifecycle.status();
   }
 
   /**
@@ -229,94 +194,24 @@ export class GatewayService extends EventEmitter {
         error: err instanceof Error ? err.message : String(err),
       }),
     );
-
-    if (!this.coalescer) {
-      this.coalescer = new StreamCoalescer((payload) =>
-        this.flushOutbound(payload),
-      );
-    }
-    this.bridgeWhisperEvents();
-
-    const masterEnabled =
-      this.workspace.getConfiguration<boolean>(
-        'ptah',
-        SETTINGS_KEYS.enabled,
-        false,
-      ) ?? false;
-    if (!masterEnabled) {
-      this.logger.info('[gateway] master switch off; not starting adapters');
-      return;
-    }
-
-    await this.maybeStartTelegram();
-    await this.maybeStartDiscord();
-    await this.maybeStartSlack();
+    this.outbound.ensureCoalescer();
+    this.bridgeVoiceDownloadEvents();
+    await this.lifecycle.startEnabled();
   }
 
   async startPlatform(platform: GatewayPlatform): Promise<void> {
-    if (platform === 'telegram') await this.maybeStartTelegram(true);
-    else if (platform === 'discord') await this.maybeStartDiscord(true);
-    else await this.maybeStartSlack(true);
-
-    if (this.adapters.get(platform)?.isRunning() === true) {
-      await this.workspace.setConfiguration(
-        'ptah',
-        this.enabledKeyFor(platform),
-        true,
-      );
-      await this.workspace.setConfiguration(
-        'ptah',
-        SETTINGS_KEYS.enabled,
-        true,
-      );
-    }
+    await this.lifecycle.startPlatform(platform);
   }
 
   async stopPlatform(platform: GatewayPlatform): Promise<void> {
-    const adapter = this.adapters.get(platform);
-    if (adapter) {
-      try {
-        await adapter.stop();
-      } catch (error: unknown) {
-        this.lastErrors.set(
-          platform,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-    await this.workspace.setConfiguration(
-      'ptah',
-      this.enabledKeyFor(platform),
-      false,
-    );
-    const siblings = (
-      ['telegram', 'discord', 'slack'] as GatewayPlatform[]
-    ).filter((p) => p !== platform);
-    const anyEnabled = siblings.some((p) =>
-      this.cfgBool(this.enabledKeyFor(p), false),
-    );
-    if (!anyEnabled) {
-      await this.workspace.setConfiguration(
-        'ptah',
-        SETTINGS_KEYS.enabled,
-        false,
-      );
-    }
+    await this.lifecycle.stopPlatform(platform);
   }
 
   /** LIFO cleanup hook called by `main.ts` `will-quit`. */
   async stop(): Promise<void> {
-    await this.coalescer?.drainAll();
-    for (const [platform, adapter] of this.adapters) {
-      try {
-        await adapter.stop();
-      } catch (err) {
-        this.logger.warn('[gateway] adapter stop failed', {
-          platform,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    this.lifecycle.cancelAllReconnects();
+    await this.outbound.drainAll();
+    await this.lifecycle.stopAdapters();
   }
 
   /**
@@ -345,7 +240,7 @@ export class GatewayService extends EventEmitter {
         );
       }
     }
-    this.decryptFailures.delete(args.platform);
+    this.lifecycle.clearDecryptFailure(args.platform);
   }
 
   /**
@@ -381,7 +276,149 @@ export class GatewayService extends EventEmitter {
     }
     const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
     this.pairingPromptSent.delete(id);
+    this.emit('bindings-changed');
     return { ok: true, binding };
+  }
+
+  /**
+   * Attach an existing Ptah SDK session (webview-supplied `sessionUuid` +
+   * `workspaceRoot`) to an approved binding so subsequent inbound platform
+   * messages resume that exact conversation.
+   *
+   * Mirrors {@link approveBinding}'s discriminated-union contract. "Resumable"
+   * means the JSONL plausibly exists — NOT "currently active" — so a session
+   * opened earlier but now inactive can still be attached.
+   *
+   * Because the webview carries the session's authoritative `workspaceRoot`,
+   * the attach stamps it at BOTH levels: the binding (default for new
+   * conversations, Data-4) and the target conversation row — atomically with
+   * the session link — so `isResumable(ptahSessionId,
+   * effectiveWorkspace(conversation))` holds under conversation-first
+   * resolution even if the binding root is later repointed (AC-7.4, Data-3).
+   *
+   * The binding's transport must be RUNNING (TASK_2026_272 #2). Attaching is
+   * not a passive bookmark — it makes the webview tab read-only and hands the
+   * conversation to the platform. Against a stopped or disconnected adapter
+   * that produces a tab nobody can type into and a channel nothing arrives
+   * from, so the attach is refused rather than silently accepted. `isRunning()`
+   * means "started AND transport usable", so a bot that died since boot is
+   * caught too, not just one that was never started.
+   */
+  async attachSession(
+    bindingId: BindingId,
+    sessionUuid: string,
+    workspaceRoot: string,
+    externalConversationId = 'default',
+  ): Promise<
+    | { ok: true; binding: GatewayBinding }
+    | {
+        ok: false;
+        error:
+          | 'binding-not-found'
+          | 'binding-not-approved'
+          | 'adapter-not-running'
+          | 'session-not-resumable';
+      }
+  > {
+    const existing = this.bindings.findById(bindingId);
+    if (!existing) {
+      return { ok: false, error: 'binding-not-found' };
+    }
+    if (existing.approvalStatus !== 'approved') {
+      return { ok: false, error: 'binding-not-approved' };
+    }
+    // Checked before the (I/O-bound) resumability probe: it is the cheaper
+    // gate, and the same error code `sendTest` already returns for this exact
+    // condition.
+    if (!this.lifecycle.adapterFor(existing.platform)?.isRunning()) {
+      this.logger.warn(
+        '[gateway] attachSession rejected — adapter not running',
+        {
+          bindingId: String(bindingId),
+          platform: existing.platform,
+        },
+      );
+      return { ok: false, error: 'adapter-not-running' };
+    }
+
+    const resumable = await this.resumability.isResumable(
+      sessionUuid,
+      workspaceRoot,
+    );
+    if (!resumable) {
+      this.logger.warn('[gateway] attachSession rejected — not resumable', {
+        bindingId: String(bindingId),
+        platform: existing.platform,
+      });
+      return { ok: false, error: 'session-not-resumable' };
+    }
+
+    const binding = this.bindings.setWorkspaceRoot(bindingId, workspaceRoot);
+    const conversation = this.conversations.resolveOrCreate(
+      bindingId,
+      externalConversationId,
+    );
+    this.conversations.setPtahSessionIdAndWorkspaceRoot(
+      conversation.id,
+      sessionUuid,
+      workspaceRoot,
+    );
+    this.attachedSessionRegistry.attach(sessionUuid, String(bindingId));
+
+    this.logger.info('[gateway] session attached to binding', {
+      bindingId: String(bindingId),
+      platform: binding.platform,
+    });
+    this.emit('bindings-changed');
+    this.emit('session-attached', {
+      bindingId: String(bindingId),
+      sessionUuid,
+      platform: binding.platform,
+    });
+    return { ok: true, binding };
+  }
+
+  /**
+   * Detach a binding — CLEAR the session link on all its conversation(s)
+   * (sets `ptah_session_id` to NULL). No continuity flag, no "stop resuming"
+   * branch. Idempotent: detaching a binding with no linked session still
+   * succeeds and emits with an empty `sessionUuid`.
+   */
+  detachSession(
+    bindingId: BindingId,
+  ):
+    | { ok: true; binding: GatewayBinding }
+    | { ok: false; error: 'binding-not-found' } {
+    const existing = this.bindings.findById(bindingId);
+    if (!existing) {
+      return { ok: false, error: 'binding-not-found' };
+    }
+
+    const conversations = this.conversations.listByBinding(bindingId);
+    let clearedUuid = '';
+    for (const conversation of conversations) {
+      if (conversation.ptahSessionId && !clearedUuid) {
+        clearedUuid = conversation.ptahSessionId;
+      }
+      if (conversation.ptahSessionId) {
+        this.conversations.clearPtahSessionId(conversation.id);
+      }
+    }
+    if (clearedUuid) {
+      this.attachedSessionRegistry.detach(clearedUuid);
+    }
+
+    this.logger.info('[gateway] session detached from binding', {
+      bindingId: String(bindingId),
+      platform: existing.platform,
+      hadSession: clearedUuid.length > 0,
+    });
+    this.emit('bindings-changed');
+    this.emit('session-detached', {
+      bindingId: String(bindingId),
+      sessionUuid: clearedUuid,
+    });
+    return { ok: true, binding: existing };
   }
 
   setBindingStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
@@ -402,11 +439,11 @@ export class GatewayService extends EventEmitter {
         );
       }
       for (const key of keys) {
-        this.streamHandles.delete(key);
-        this.coalescer?.discard(key);
+        this.outbound.discard(key);
       }
       this.conversations.deleteByBinding(id);
     }
+    this.emit('bindings-changed');
     return binding;
   }
 
@@ -425,12 +462,7 @@ export class GatewayService extends EventEmitter {
     return this.messages.list(args);
   }
 
-  /**
-   * Fire a single canned test message at an approved binding for the given
-   * platform. Powers the "Send test" button in the gateway UI. Returns a
-   * structured result so the UI can surface a precise reason on failure
-   * (no-approved-binding, adapter-not-running, etc.) without throwing.
-   */
+  /** See {@link OutboundDeliveryService.sendTest} — powers "Send test". */
   async sendTest(args: {
     platform: GatewayPlatform;
     bindingId?: BindingId;
@@ -438,56 +470,12 @@ export class GatewayService extends EventEmitter {
     | { ok: true; bindingId: string; externalMsgId: string | null }
     | { ok: false; error: string }
   > {
-    const adapter = this.adapters.get(args.platform);
-    if (!adapter) {
-      return { ok: false, error: 'adapter-not-running' };
-    }
-
-    let binding: GatewayBinding | undefined;
-    if (args.bindingId) {
-      binding = this.bindings
-        .list({ platform: args.platform, status: 'approved' })
-        .find((b) => String(b.id) === String(args.bindingId));
-      if (!binding) {
-        return { ok: false, error: 'binding-not-approved' };
-      }
-    } else {
-      binding = this.bindings
-        .list({ platform: args.platform, status: 'approved' })
-        .at(0);
-      if (!binding) {
-        return { ok: false, error: 'no-approved-binding' };
-      }
-    }
-
-    const body = 'Ptah test message — gateway is wired up correctly.';
-    try {
-      const res = await adapter.sendMessage(binding.externalChatId, body);
-      this.messages.insert({
-        bindingId: binding.id,
-        direction: 'outbound',
-        externalMsgId: res.externalMsgId,
-        body,
-      });
-      this.bindings.touch(binding.id);
-      return {
-        ok: true,
-        bindingId: String(binding.id),
-        externalMsgId: res.externalMsgId,
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn('[gateway] sendTest failed', {
-        platform: args.platform,
-        error: message,
-      });
-      return { ok: false, error: message };
-    }
+    return this.outbound.sendTest(args);
   }
 
   /** Read the current allow-list for a platform from settings. */
   getAllowList(platform: GatewayPlatform): string[] {
-    return this.cfgArray(this.allowedKeyFor(platform));
+    return readStringArray(this.workspace, allowedKeyFor(platform));
   }
 
   /**
@@ -504,21 +492,15 @@ export class GatewayService extends EventEmitter {
     );
     await this.workspace.setConfiguration(
       'ptah',
-      this.allowedKeyFor(platform),
+      allowedKeyFor(platform),
       cleaned,
     );
-    if (platform === 'telegram') {
-      this.telegram.configure({ allowedUserIds: cleaned });
-    } else if (platform === 'discord') {
-      this.discord.configure({ allowedGuildIds: cleaned });
-    } else {
-      this.slack.configure({ allowedTeamIds: cleaned });
-    }
+    this.lifecycle.applyAllowList(platform, cleaned);
   }
 
   /** Servers the Discord bot is currently in — empty until connected. */
   listDiscordGuilds(): Array<{ id: string; name: string }> {
-    return this.discord.listGuilds();
+    return this.lifecycle.listDiscordGuilds();
   }
 
   /** Read the persisted Discord application (client) id, or null if unset. */
@@ -547,29 +529,52 @@ export class GatewayService extends EventEmitter {
    * surface a precise reason without throwing.
    */
   async registerDiscordCommands(): Promise<
-    | { ok: true; registered: number; scope: 'guild' | 'global' }
+    | {
+        ok: true;
+        registered: number;
+        scope: 'guild' | 'global';
+        failed?: ReadonlyArray<{ guildId: string; error: string }>;
+      }
     | { ok: false; error: string }
   > {
     const applicationId = this.getDiscordAppId();
     if (!applicationId) {
       return { ok: false, error: 'missing-application-id' };
     }
-    const token = await this.decryptToken('discord');
+    const token = await this.lifecycle.decryptToken('discord');
     if (!token) {
       return { ok: false, error: 'missing-token' };
     }
-    const guildIds = this.cfgArray(SETTINGS_KEYS.discord.allowed);
+    const guildIds = readStringArray(
+      this.workspace,
+      SETTINGS_KEYS.discord.allowed,
+    );
     try {
       const result = await registerDiscordSlashCommands({
         token,
         applicationId,
         guildIds,
       });
-      this.logger.info('[gateway] discord slash commands registered', {
+      const failed = result.results
+        .filter((r) => !r.ok)
+        .map((r) => ({ guildId: r.guildId, error: r.error ?? 'unknown' }));
+      if (failed.length > 0) {
+        this.logger.warn(
+          '[gateway] discord slash commands registered for some guilds only',
+          { registered: result.registered, failed },
+        );
+      } else {
+        this.logger.info('[gateway] discord slash commands registered', {
+          registered: result.registered,
+          scope: result.scope,
+        });
+      }
+      return {
+        ok: true,
         registered: result.registered,
         scope: result.scope,
-      });
-      return { ok: true, registered: result.registered, scope: result.scope };
+        ...(failed.length > 0 ? { failed } : {}),
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn('[gateway] discord command registration failed', {
@@ -579,191 +584,198 @@ export class GatewayService extends EventEmitter {
     }
   }
 
-  private allowedKeyFor(platform: GatewayPlatform): string {
-    if (platform === 'telegram') return SETTINGS_KEYS.telegram.allowed;
-    if (platform === 'discord') return SETTINGS_KEYS.discord.allowed;
-    return SETTINGS_KEYS.slack.allowed;
+  /**
+   * Append assistant text for a given conversation. Accumulates in the
+   * coalescer; nothing reaches the platform until the turn is sealed.
+   */
+  appendOutboundChunk(route: OutboundRoute, chunk: string): void {
+    this.outbound.append(route, chunk);
   }
 
-  private enabledKeyFor(platform: GatewayPlatform): string {
-    if (platform === 'telegram') return SETTINGS_KEYS.telegram.enabled;
-    if (platform === 'discord') return SETTINGS_KEYS.discord.enabled;
-    return SETTINGS_KEYS.slack.enabled;
+  /** See {@link AdapterLifecycleService.recordTurnOutcome}. */
+  recordTurnOutcome(
+    platform: GatewayPlatform,
+    outcome: { ok: true } | { ok: false; reason: string },
+  ): void {
+    this.lifecycle.recordTurnOutcome(platform, outcome);
+  }
+
+  /** Drop a turn's accumulated text without sending it (TASK_2026_271 #6). */
+  discardOutbound(conversationKey: ConversationKey): void {
+    this.outbound.discard(conversationKey);
+  }
+
+  /** Mid-turn flush primitive — does NOT seal the turn. */
+  async drainOutbound(conversationKey: ConversationKey): Promise<void> {
+    await this.outbound.drain(conversationKey);
+  }
+
+  /** Seal a turn: flush what is pending, then reset buffer + message handle. */
+  async completeOutboundTurn(conversationKey: ConversationKey): Promise<void> {
+    await this.outbound.completeTurn(conversationKey);
   }
 
   /**
-   * Append assistant text for a given conversation. The coalescer will
-   * flush via {@link flushOutbound} which sends/edits via the adapter.
+   * Send a short out-of-band notice ("waiting for approval…") straight to
+   * the platform, bypassing the coalescer so the turn's accumulating reply
+   * is neither flushed early nor polluted. Not persisted as an outbound
+   * message row. Throws on delivery failure so the caller can decide.
    */
-  appendOutboundChunk(route: OutboundRoute, chunk: string): void {
-    if (!this.coalescer) {
-      this.coalescer = new StreamCoalescer((payload) =>
-        this.flushOutbound(payload),
+  async sendNotice(route: OutboundRoute, text: string): Promise<void> {
+    const adapter = this.lifecycle.adapterFor(route.platform);
+    if (!adapter) {
+      throw new Error(`gateway: no adapter for platform ${route.platform}`);
+    }
+    await adapter.sendMessage(
+      route.externalChatId,
+      text,
+      route.conversationId !== undefined
+        ? { conversationId: route.conversationId }
+        : undefined,
+    );
+  }
+
+  /**
+   * Show the platform's "bot is typing" affordance for a route (TASK_2026_271).
+   * Purely cosmetic and strictly best-effort: platforms without the capability
+   * omit `sendTyping` entirely, and a failure must never disturb the turn — a
+   * gateway reply is already slow, it should not also be fragile. The indicator
+   * decays on its own (Discord ≈10 s), so the bridge re-arms it while a turn
+   * runs rather than this method holding any state.
+   */
+  async sendTyping(route: OutboundRoute): Promise<void> {
+    const adapter = this.lifecycle.adapterFor(route.platform);
+    if (!adapter) return;
+    try {
+      await adapter.sendTyping?.(
+        route.externalChatId,
+        route.conversationId !== undefined
+          ? { conversationId: route.conversationId }
+          : undefined,
       );
+    } catch (error: unknown) {
+      this.logger.debug('[gateway] typing indicator failed', {
+        platform: route.platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    this.coalescer.append(route, chunk);
   }
 
-  async drainOutbound(conversationKey: ConversationKey): Promise<void> {
-    await this.coalescer?.drain(conversationKey);
-    this.streamHandles.delete(conversationKey);
+  /**
+   * Sliding-window inbound cap, per allow-list id (architecture §9.9).
+   *
+   * A drop is logged at `debug` — one line per dropped message is noise, not
+   * signal — while the *onset* of throttling gets a single `warn` and a single
+   * reply to the sender per window (TASK_2026_271). Both are throttled by the
+   * same {@link abuseNotified} stamp, so a sender hammering the bot sees one
+   * explanation a minute rather than 500 or, as before, none at all.
+   *
+   * @returns `true` when the caller must drop the message.
+   */
+  private async isRateLimited(msg: InboundMessage): Promise<boolean> {
+    const allowListId = msg.allowListId;
+    if (!allowListId) return false;
+    const now = Date.now();
+    const recent = (this.inboundCounters.get(allowListId) ?? []).filter(
+      (ts) => ts > now - INBOUND_ABUSE_WINDOW_MS,
+    );
+    this.inboundCounters.set(allowListId, recent);
+    if (recent.length < INBOUND_ABUSE_LIMIT_PER_MIN) {
+      recent.push(now);
+      return false;
+    }
+    this.logger.debug('[gateway] dropping inbound — abuse cap', {
+      allowListId,
+      platform: msg.platform,
+    });
+    await this.notifyAbuseCap(msg, allowListId, now);
+    return true;
   }
 
-  private wireAdapter(
-    platform: GatewayPlatform,
-    adapter: IMessagingAdapter,
+  /**
+   * One-per-window "slow down" reply. Best-effort: the sender is already over
+   * the cap, so a failed notice is worth a warn and nothing more.
+   */
+  private async notifyAbuseCap(
+    msg: InboundMessage,
+    allowListId: string,
+    now: number,
+  ): Promise<void> {
+    const lastNotified = this.abuseNotified.get(allowListId);
+    if (
+      lastNotified !== undefined &&
+      now - lastNotified < INBOUND_ABUSE_WINDOW_MS
+    ) {
+      return;
+    }
+    this.abuseNotified.set(allowListId, now);
+    this.logger.warn(
+      '[gateway] inbound abuse cap reached — throttling sender',
+      {
+        allowListId,
+        platform: msg.platform,
+        limitPerMin: INBOUND_ABUSE_LIMIT_PER_MIN,
+      },
+    );
+    const adapter = this.lifecycle.adapterFor(msg.platform);
+    if (!adapter) {
+      this.restoreAbuseStamp(allowListId, lastNotified);
+      return;
+    }
+    try {
+      await adapter.sendMessage(
+        msg.externalChatId,
+        ABUSE_CAP_NOTICE,
+        msg.conversationId !== undefined
+          ? { conversationId: msg.conversationId }
+          : undefined,
+      );
+    } catch (error: unknown) {
+      // The stamp is set BEFORE the send so a burst cannot fire N concurrent
+      // notices, but a notice that never landed must not cost the sender the
+      // whole window in silence — roll back so the next drop tries again.
+      this.restoreAbuseStamp(allowListId, lastNotified);
+      this.logger.warn('[gateway] abuse-cap notice not delivered', {
+        platform: msg.platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Undo an optimistic {@link abuseNotified} stamp after a failed notice. */
+  private restoreAbuseStamp(
+    allowListId: string,
+    previous: number | undefined,
   ): void {
-    this.adapters.set(platform, adapter);
-    adapter.on('inbound', (msg) => this.handleInbound(msg));
-  }
-
-  private async maybeStartTelegram(force = false): Promise<void> {
-    const enabled = this.cfgBool(SETTINGS_KEYS.telegram.enabled, false);
-    if (!enabled && !force) return;
-    const existing = this.adapters.get('telegram') ?? this.telegram;
-    this.wireAdapter('telegram', existing);
-    const allowed = this.cfgArray(SETTINGS_KEYS.telegram.allowed);
-    if (existing === this.telegram) {
-      this.telegram.configure({ allowedUserIds: allowed });
-    }
-    const token = await this.decryptToken('telegram');
-    if (!token) return;
-    try {
-      await existing.start(token);
-      this.lastErrors.delete('telegram');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.lastErrors.set('telegram', msg);
-      this.logger.warn('[gateway] telegram start failed', { error: msg });
-    }
-  }
-
-  private async maybeStartDiscord(force = false): Promise<void> {
-    const enabled = this.cfgBool(SETTINGS_KEYS.discord.enabled, false);
-    if (!enabled && !force) return;
-    const existing = this.adapters.get('discord') ?? this.discord;
-    this.wireAdapter('discord', existing);
-    const allowed = this.cfgArray(SETTINGS_KEYS.discord.allowed);
-    if (existing === this.discord) {
-      this.discord.configure({ allowedGuildIds: allowed });
-    }
-    const token = await this.decryptToken('discord');
-    if (!token) return;
-    try {
-      await existing.start(token);
-      this.lastErrors.delete('discord');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.lastErrors.set('discord', msg);
-      this.logger.warn('[gateway] discord start failed', { error: msg });
-    }
-  }
-
-  private async maybeStartSlack(force = false): Promise<void> {
-    const enabled = this.cfgBool(SETTINGS_KEYS.slack.enabled, false);
-    if (!enabled && !force) return;
-    const existing = this.adapters.get('slack') ?? this.slack;
-    this.wireAdapter('slack', existing);
-    const allowed = this.cfgArray(SETTINGS_KEYS.slack.allowed);
-    if (existing === this.slack) {
-      this.slack.configure({ allowedTeamIds: allowed });
-    }
-    const botToken = await this.decryptToken('slack');
-    const appToken = await this.decryptSlackAppToken();
-    if (!botToken || !appToken) return;
-    try {
-      await existing.start(botToken, { appToken });
-      this.lastErrors.delete('slack');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.lastErrors.set('slack', msg);
-      this.logger.warn('[gateway] slack start failed', { error: msg });
-    }
+    if (previous === undefined) this.abuseNotified.delete(allowListId);
+    else this.abuseNotified.set(allowListId, previous);
   }
 
   private async handleInbound(msg: InboundMessage): Promise<void> {
-    if (msg.allowListId) {
-      const now = Date.now();
-      const recent = (this.inboundCounters.get(msg.allowListId) ?? []).filter(
-        (ts) => ts > now - 60_000,
-      );
-      if (recent.length >= INBOUND_ABUSE_LIMIT_PER_MIN) {
-        this.logger.warn('[gateway] dropping inbound — abuse cap', {
-          allowListId: msg.allowListId,
-          platform: msg.platform,
-        });
-        return;
-      }
-      recent.push(now);
-      this.inboundCounters.set(msg.allowListId, recent);
-    }
-    let body = msg.body;
-    if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
-      try {
-        const wav = await this.ffmpeg.decodeToPcm16Wav(msg.voicePath);
-        const transcript = await this.whisper.transcribe(wav);
-        if (transcript) body = body ? `${body}\n${transcript}` : transcript;
-      } catch (err) {
-        this.logger.warn('[gateway] voice transcription failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    let binding: GatewayBinding;
-    if (msg.conversationMode === 'attach') {
-      const existing = this.bindings.findByExternal(
-        msg.platform,
-        msg.externalChatId,
-      );
-      if (!existing || existing.approvalStatus !== 'approved') {
-        this.logger.debug(
-          '[gateway] dropping attach inbound — no approved binding',
-          {
-            platform: msg.platform,
-            externalChatId: msg.externalChatId,
-            status: existing?.approvalStatus ?? 'none',
-          },
-        );
-        return;
-      }
-      binding = existing;
-    } else {
-      binding = this.bindings.upsertPending({
-        platform: msg.platform,
-        externalChatId: msg.externalChatId,
-        displayName: msg.displayName,
-        ...(msg.allowListId ? { allowListId: msg.allowListId } : {}),
-      });
+    if (await this.isRateLimited(msg)) return;
+    const body = await this.withTranscript(msg);
 
-      if (binding.approvalStatus === 'pending') {
-        if (!this.pairingPromptSent.has(binding.id)) {
-          const code = binding.pairingCode ?? '------';
-          const reply =
-            `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
-            `(I will not respond to messages until approved.)`;
-          try {
-            const adapter = this.adapters.get(msg.platform);
-            if (adapter) {
-              await adapter.sendMessage(msg.externalChatId, reply);
-            }
-            this.pairingPromptSent.add(binding.id);
-          } catch (error: unknown) {
-            this.logger.warn('[gateway] failed to send pairing prompt', {
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-        return;
-      }
+    const binding =
+      msg.conversationMode === 'attach'
+        ? this.resolveAttachBinding(msg)
+        : await this.resolvePairedBinding(msg);
+    if (!binding) return;
 
-      if (binding.approvalStatus !== 'approved') {
-        this.logger.debug('[gateway] dropping inbound — binding not approved', {
-          bindingId: binding.id,
-          status: binding.approvalStatus,
-        });
-        return;
-      }
-    }
+    // The conversation is resolved BEFORE the row is written so the row can
+    // carry `conversation_id` (TASK_2026_277) — the restart notice is batched
+    // per conversation, and a binding may serve many Discord threads. Both
+    // resolvers are idempotent, so the duplicate that the insert below drops
+    // costs at most one redundant lookup of a row that already exists.
+    const externalConversationId = msg.conversationId
+      ? msg.conversationId
+      : 'default';
+    const conversation =
+      msg.conversationMode === 'attach' && msg.platform === 'discord'
+        ? this.conversations.resolveOrAdopt(binding.id, externalConversationId)
+        : this.conversations.resolveOrCreate(
+            binding.id,
+            externalConversationId,
+          );
 
     const persisted = this.messages.insert({
       bindingId: binding.id,
@@ -771,146 +783,233 @@ export class GatewayService extends EventEmitter {
       externalMsgId: msg.externalMsgId,
       body,
       voicePath: msg.voicePath ?? null,
+      conversationId: conversation.id,
+      turnState: 'queued',
     });
     if (!persisted) return; // duplicate
 
-    const conversationId = msg.conversationId ? msg.conversationId : 'default';
-    const conversation =
-      msg.conversationMode === 'attach' && msg.platform === 'discord'
-        ? this.conversations.resolveOrAdopt(binding.id, conversationId)
-        : this.conversations.resolveOrCreate(binding.id, conversationId);
     this.conversations.touch(conversation.id);
-
     this.bindings.touch(binding.id);
     const event: GatewayInboundEvent = {
       binding,
       conversation,
+      messageId: persisted.id,
       message: { ...msg, body },
     };
     this.emit('inbound', event);
   }
 
-  private async flushOutbound(payload: FlushPayload): Promise<void> {
-    const handle = this.streamHandles.get(payload.conversationKey);
-    const adapter = this.adapters.get(payload.platform);
-    if (!adapter) {
-      this.logger.warn('[gateway] flushOutbound: no adapter for platform', {
-        platform: payload.platform,
-      });
-      return;
-    }
+  /**
+   * Record where an inbound message's agent turn has got to (TASK_2026_277).
+   * Called by `gateway-chat-bridge` at turn start and in the turn's `finally`;
+   * persistence belongs here rather than in the bridge, which owns no stores.
+   *
+   * Best-effort by design: a SQLite hiccup while bookkeeping must not fail a
+   * turn that is otherwise fine. The cost of a lost write is one spurious
+   * "please resend" notice after a restart, which is the safe direction.
+   */
+  markInboundTurnState(
+    messageId: GatewayMessageId,
+    state: GatewayTurnState,
+  ): void {
     try {
-      if (payload.isFirstFlush || !handle) {
-        const res = await adapter.sendMessage(
-          payload.externalChatId,
-          payload.body,
-          payload.conversationId !== undefined
-            ? { conversationId: payload.conversationId }
-            : undefined,
-        );
-        this.streamHandles.set(payload.conversationKey, {
-          externalMsgId: res.externalMsgId,
-        });
-        const binding = this.bindings.findByExternal(
-          payload.platform,
-          payload.externalChatId,
-        );
-        if (binding) {
-          this.messages.insert({
-            bindingId: binding.id,
-            direction: 'outbound',
-            externalMsgId: res.externalMsgId,
-            body: payload.body,
-          });
-        }
-      } else {
-        await adapter.editMessage(
-          payload.externalChatId,
-          handle.externalMsgId,
-          payload.body,
-        );
-      }
+      this.messages.markTurnState([messageId], state);
     } catch (error: unknown) {
-      this.logger.warn('[gateway] flushOutbound failed', {
-        platform: payload.platform,
+      this.logger.warn('[gateway] failed to record inbound turn state', {
+        messageId: String(messageId),
+        state,
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  private async decryptToken(
-    platform: GatewayPlatform,
-  ): Promise<string | null> {
-    let cipher: string | undefined;
-    try {
-      if (platform === 'telegram') {
-        cipher = await this.gatewaySettings.telegramTokenCipher.get();
-      } else if (platform === 'discord') {
-        cipher = await this.gatewaySettings.discordTokenCipher.get();
+  /**
+   * Claim every inbound turn the previous process left in flight
+   * (TASK_2026_277) and return one entry per conversation for the bridge to
+   * notify.
+   *
+   * The rows are moved to `'interrupted'` BEFORE the caller sends anything.
+   * That ordering is the whole point: a platform that rejects the notice
+   * (deleted channel, revoked permission, offline transport) must not leave the
+   * rows claimable, or every subsequent boot would sweep and re-notify the same
+   * messages forever.
+   *
+   * NO turn is started for these rows, here or in the caller. A turn that died
+   * at `auto-edit`/`yolo` may already have run `Write`/`Bash`; replaying it
+   * would repeat side effects with no idempotency guarantee.
+   */
+  claimInterruptedInboundTurns(): InterruptedInboundConversation[] {
+    const unfinished = this.messages.listUnfinishedInboundTurns();
+    if (unfinished.length === 0) return [];
+
+    this.messages.markTurnState(
+      unfinished.map((row) => row.id),
+      'interrupted',
+    );
+
+    // Group first, resolve second: one notice per conversation, however many
+    // messages of theirs were caught mid-flight. Rows from before migration
+    // 0038 carry no conversation id — they fall back to one notice per binding
+    // (the parent chat) rather than being dropped silently.
+    const groups = new Map<string, UnfinishedInboundTurn[]>();
+    for (const row of unfinished) {
+      const groupKey = row.conversationId
+        ? `conversation:${row.conversationId}`
+        : `binding:${row.bindingId}`;
+      const bucket = groups.get(groupKey);
+      if (bucket) {
+        bucket.push(row);
       } else {
-        cipher = await this.gatewaySettings.slackBotTokenCipher.get();
+        groups.set(groupKey, [row]);
       }
-    } catch (err) {
-      this.logger.warn(
-        '[gateway] failed to read secret — secrets file may be corrupt',
-        {
-          platform,
-          error: err instanceof Error ? err.message : String(err),
-        },
+    }
+
+    const claimed: InterruptedInboundConversation[] = [];
+    for (const rows of groups.values()) {
+      const route = this.routeForInterrupted(rows[0]);
+      if (!route) continue;
+      claimed.push({ route, messageCount: rows.length });
+    }
+    if (claimed.length > 0) {
+      this.logger.info('[gateway] claimed interrupted inbound turns', {
+        messages: unfinished.length,
+        conversations: claimed.length,
+      });
+    }
+    return claimed;
+  }
+
+  /**
+   * Rebuild the outbound route for an interrupted row. Returns null when the
+   * binding is gone (revoked mid-turn, then restarted) — the row is already
+   * marked `'interrupted'`, so there is nothing left to do but skip it.
+   */
+  private routeForInterrupted(
+    row: UnfinishedInboundTurn,
+  ): OutboundRoute | null {
+    const binding = this.bindings.findById(row.bindingId);
+    if (!binding) {
+      this.logger.debug(
+        '[gateway] interrupted inbound has no binding — no notice',
+        { bindingId: String(row.bindingId) },
       );
       return null;
     }
-
-    if (!cipher) return null;
-
-    const plain = this.vault.decrypt(cipher);
-    if (plain === null) {
-      if (!this.decryptFailures.has(platform)) {
-        this.decryptFailures.add(platform);
-        this.logger.warn(
-          `[gateway] failed to decrypt ${platform} token — user must re-enter via gateway:setToken`,
-        );
-        this.lastErrors.set(
-          platform,
-          `decrypt failed — re-enter token via gateway:setToken`,
-        );
-      }
-      return null;
-    }
-    return plain;
+    const conversation = row.conversationId
+      ? this.conversations.findById(row.conversationId)
+      : null;
+    // `'default'` is the non-threaded sentinel: it must stay OUT of both the
+    // conversation key and the route, exactly as `ConversationKey.for` and the
+    // bridge's own `resolveRoute` treat it.
+    const externalConversationId =
+      conversation && conversation.externalConversationId !== 'default'
+        ? conversation.externalConversationId
+        : undefined;
+    return {
+      conversationKey: ConversationKey.for(
+        binding.platform,
+        binding.externalChatId,
+        externalConversationId,
+      ),
+      platform: binding.platform,
+      externalChatId: binding.externalChatId,
+      ...(externalConversationId !== undefined
+        ? { conversationId: externalConversationId }
+        : {}),
+    };
   }
 
-  /** Read the Slack app token cipher from the secrets store. */
-  private async decryptSlackAppToken(): Promise<string | null> {
-    let cipher: string | undefined;
+  /**
+   * Substitute the transcript for a voice note. A failed transcription is a
+   * warn and nothing more — the message still flows with whatever text it
+   * carried, because dropping it would look like the bot ignored the user.
+   */
+  private async withTranscript(msg: InboundMessage): Promise<string> {
+    if (
+      !msg.voicePath ||
+      !readBool(this.workspace, SETTINGS_KEYS.voiceEnabled, true)
+    ) {
+      return msg.body;
+    }
     try {
-      cipher = await this.gatewaySettings.slackAppTokenCipher.get();
+      const { text: transcript } = await this.voiceSelector
+        .activeStt()
+        .transcribe({ audioPath: msg.voicePath, mimeType: 'audio/ogg' });
+      if (!transcript) return msg.body;
+      return msg.body ? `${msg.body}\n${transcript}` : transcript;
     } catch (err) {
-      this.logger.warn('[gateway] failed to read slack app token secret', {
+      this.logger.warn('[gateway] voice transcription failed', {
         error: err instanceof Error ? err.message : String(err),
+      });
+      return msg.body;
+    }
+  }
+
+  /**
+   * `'attach'` mode (a Discord thread already owned by a session) dispatches
+   * ONLY into an existing approved binding: never `upsertPending`, never a
+   * pairing prompt (AC 1.11).
+   */
+  private resolveAttachBinding(msg: InboundMessage): GatewayBinding | null {
+    const existing = this.bindings.findByExternal(
+      msg.platform,
+      msg.externalChatId,
+    );
+    if (existing && existing.approvalStatus === 'approved') return existing;
+    this.logger.debug(
+      '[gateway] dropping attach inbound — no approved binding',
+      {
+        platform: msg.platform,
+        externalChatId: msg.externalChatId,
+        status: existing?.approvalStatus ?? 'none',
+      },
+    );
+    return null;
+  }
+
+  /**
+   * `'open'` mode: upsert the binding and gate on approval. A pending binding
+   * gets the 6-digit pairing code exactly ONCE per process, then silence until
+   * a human approves it in Ptah.
+   */
+  private async resolvePairedBinding(
+    msg: InboundMessage,
+  ): Promise<GatewayBinding | null> {
+    const binding = this.bindings.upsertPending({
+      platform: msg.platform,
+      externalChatId: msg.externalChatId,
+      displayName: msg.displayName,
+      ...(msg.allowListId ? { allowListId: msg.allowListId } : {}),
+    });
+
+    if (binding.approvalStatus === 'approved') return binding;
+
+    if (binding.approvalStatus !== 'pending') {
+      this.logger.debug('[gateway] dropping inbound — binding not approved', {
+        bindingId: binding.id,
+        status: binding.approvalStatus,
       });
       return null;
     }
-    if (!cipher) return null;
-    return this.vault.decrypt(cipher);
-  }
 
-  private cfgBool(key: string, defaultValue: boolean): boolean {
-    return (
-      this.workspace.getConfiguration<boolean>('ptah', key, defaultValue) ??
-      defaultValue
-    );
-  }
-
-  private cfgArray(key: string): string[] {
-    const raw = this.workspace.getConfiguration<unknown>('ptah', key, []);
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .filter(
-        (v): v is string | number =>
-          typeof v === 'string' || typeof v === 'number',
-      )
-      .map(String);
+    this.emit('bindings-changed');
+    if (this.pairingPromptSent.has(binding.id)) return null;
+    const code = binding.pairingCode ?? '------';
+    const reply =
+      `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
+      `(I will not respond to messages until approved.)`;
+    try {
+      const adapter = this.lifecycle.adapterFor(msg.platform);
+      if (adapter) {
+        await adapter.sendMessage(msg.externalChatId, reply);
+      }
+      this.pairingPromptSent.add(binding.id);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] failed to send pairing prompt', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return null;
   }
 
   private async gcOldVoiceFiles(): Promise<void> {
@@ -934,18 +1033,16 @@ export class GatewayService extends EventEmitter {
   }
 
   /**
-   * Subscribe transcriber download events and re-emit them on `gateway:event`
-   * so the renderer's voice-model-download toast lights up. Public so the
-   * activation layer can wire this once after DI registration completes.
+   * Subscribe the voice provider's STT download events and re-emit them on
+   * `gateway:event` so the renderer's voice-model-download toast lights up.
+   * Public so the activation layer can wire this once after DI registration
+   * completes. (Renamed from `bridgeWhisperEvents` — same wire payloads.)
    */
-  bridgeWhisperEvents(): void {
-    if (this.whisperEventsBridged) return;
-    this.whisperEventsBridged = true;
-    const modelName = resolveWhisperModel(this.workspace);
-    if (modelName.length > 0) {
-      this.whisper.configure({ modelName });
-    }
-    this.whisper.on('download', (evt: WhisperDownloadEvent) => {
+  bridgeVoiceDownloadEvents(): void {
+    if (this.voiceEventsBridged) return;
+    this.voiceEventsBridged = true;
+    this.voiceSelector.downloadEvents.onDownload((evt: VoiceDownloadEvent) => {
+      if (evt.direction !== 'stt') return;
       switch (evt.kind) {
         case 'download:start':
           this.emit('event', {
@@ -978,8 +1075,6 @@ export class GatewayService extends EventEmitter {
       }
     });
   }
-
-  private whisperEventsBridged = false;
 }
 
 /**

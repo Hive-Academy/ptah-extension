@@ -80,6 +80,22 @@ describe('MarkdownBlockComponent', () => {
     expect(stub?.textContent?.trim()).toBe('# Hello world');
   });
 
+  it("defaults variant to 'invert' so no existing consumer moves", () => {
+    expect(component.variant()).toBe('invert');
+  });
+
+  it("emits dark:prose-invert (not prose-invert) for variant 'auto'", () => {
+    fixture.componentRef.setInput('variant', 'auto');
+    fixture.detectChanges();
+
+    const markdownEl = fixture.nativeElement.querySelector('markdown');
+    // The hardcoded `prose-invert` is what breaks `operator-member-light`:
+    // near-white body text on a near-white card (NFR-U5). `auto` must drop it.
+    expect(markdownEl.classList.contains('prose-invert')).toBe(false);
+    expect(markdownEl.classList.contains('dark:prose-invert')).toBe(true);
+    expect(markdownEl.classList.contains('prose')).toBe(true);
+  });
+
   it('updates when the content input changes', () => {
     fixture.componentRef.setInput('content', '## Updated');
     fixture.detectChanges();

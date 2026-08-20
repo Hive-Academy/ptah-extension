@@ -16,7 +16,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
   template: `
     <form class="flex flex-col gap-3" (submit)="onSubmit($event)">
       <label class="flex flex-col gap-1">
-        <span class="text-xs text-base-content/60">Bot token</span>
+        <span class="text-xs text-base-content-muted">Bot token</span>
         <input
           type="password"
           autocomplete="new-password"
@@ -34,7 +34,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
 
       @if (hasAppToken()) {
         <label class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/60">
+          <span class="text-xs text-base-content-muted">
             App-level token (xapp-...)
           </span>
           <input
@@ -54,7 +54,7 @@ import { GatewayStateService } from '../services/gateway-state.service';
       }
 
       <div class="flex items-center justify-between gap-2">
-        <span class="text-xs text-base-content/50">
+        <span class="text-xs text-base-content-muted">
           Tokens are encrypted by the OS keychain and never persisted in the
           renderer.
         </span>

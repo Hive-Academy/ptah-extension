@@ -457,3 +457,68 @@ describe('GatewayStateService — error attribution (no smear)', () => {
     expect(service.globalError()).toBeNull();
   });
 });
+
+describe('GatewayStateService — registerDiscordCommands passthrough', () => {
+  let service: GatewayStateService;
+  let mockRpc: ReturnType<typeof buildMockRpc>;
+
+  beforeEach(() => {
+    mockRpc = buildMockRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        GatewayStateService,
+        { provide: GatewayRpcService, useValue: mockRpc },
+      ],
+    });
+
+    service = TestBed.inject(GatewayStateService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('returns a full-success result untouched', async () => {
+    mockRpc.registerDiscordCommands.mockResolvedValue({
+      ok: true,
+      registered: 3,
+      scope: 'guild',
+    });
+
+    await expect(service.registerDiscordCommands()).resolves.toEqual({
+      ok: true,
+      registered: 3,
+      scope: 'guild',
+    });
+  });
+
+  it('preserves the failed guild list on a partial success', async () => {
+    const failed = [
+      { guildId: 'g2', error: 'Missing Access' },
+      { guildId: 'g9', error: 'rate limited (429)' },
+    ];
+    mockRpc.registerDiscordCommands.mockResolvedValue({
+      ok: true,
+      registered: 2,
+      scope: 'guild',
+      failed,
+    });
+
+    const result = await service.registerDiscordCommands();
+
+    expect(result).toEqual({ ok: true, registered: 2, scope: 'guild', failed });
+    expect(service.lastError().discord).toBeNull();
+  });
+
+  it('maps a thrown RPC error to an ok:false result', async () => {
+    mockRpc.registerDiscordCommands.mockRejectedValue(
+      new Error('register-fail'),
+    );
+
+    await expect(service.registerDiscordCommands()).resolves.toEqual({
+      ok: false,
+      error: 'register-fail',
+    });
+  });
+});

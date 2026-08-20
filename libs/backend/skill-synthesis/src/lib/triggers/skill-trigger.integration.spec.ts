@@ -12,6 +12,7 @@ import {
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
   StopCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   SubagentStopCallbackRegistry,
   UserPromptExpansionCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
@@ -30,13 +31,18 @@ function makeLogger(): Logger {
 
 function makeSynthesis(): SkillSynthesisService {
   return {
-    analyzeSession: jest.fn().mockResolvedValue(null),
+    /** B0.9 — rejects, so an inline regression fails loudly. See the unit spec. */
+    analyzeSession: jest
+      .fn()
+      .mockRejectedValue(
+        new Error('B0.9 violated: a trigger reached analyzeSession inline'),
+      ),
+    enqueueAnalyze: jest.fn().mockResolvedValue('created'),
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
-      tooFewTurns: 0,
-      lowFidelity: 0,
-      insufficientAbstraction: 0,
+      prefilterTooThin: 0,
+      prefilterRejected: 0,
       accepted: 0,
     })),
     lastRunSummary: jest.fn(() => ({
@@ -101,6 +107,7 @@ interface IntegrationHarness {
   sessionEndRegistry: SessionEndCallbackRegistry;
   activityRegistry: SessionActivityRegistry;
   stopRegistry: StopCallbackRegistry;
+  sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry;
 }
 
 function buildHarness(opts?: {
@@ -121,6 +128,9 @@ function buildHarness(opts?: {
     makeLogger(),
   );
   const stopRegistry = new StopCallbackRegistry(makeLogger());
+  const sessionIdResolvedRegistry = new SessionIdResolvedCallbackRegistry(
+    makeLogger(),
+  );
   const recorder = {
     recordSkillEvent: jest.fn(),
   } as unknown as SkillInvocationRecorder;
@@ -139,6 +149,22 @@ function buildHarness(opts?: {
     userPromptExpansionRegistry,
     recorder,
     stopRegistry,
+    { harvest: jest.fn().mockResolvedValue(undefined) } as never,
+    {
+      extract: jest.fn().mockResolvedValue({
+        metrics: {
+          inputTokens: null,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheCreationTokens: null,
+          costUsd: null,
+          durationMs: null,
+          toolCount: null,
+        },
+        taskId: null,
+      }),
+    } as never,
+    sessionIdResolvedRegistry,
   );
   return {
     service,
@@ -149,6 +175,7 @@ function buildHarness(opts?: {
     sessionEndRegistry,
     activityRegistry,
     stopRegistry,
+    sessionIdResolvedRegistry,
   };
 }
 
@@ -202,14 +229,15 @@ describe('SkillTriggerService integration — full event-loop', () => {
     });
     await Promise.resolve();
 
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith(
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith(
       '12345678-1234-5678-1234-567812345678',
       '/ws',
       {
-        force: false,
+        signal: undefined,
         transcriptPath:
           '/tmp/agents/12345678-1234-5678-1234-567812345678.jsonl',
+        source: 'subagent-stop',
       },
     );
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
@@ -232,10 +260,11 @@ describe('SkillTriggerService integration — full event-loop', () => {
     postToolUseRegistry.notifyAll(postToolUseBashTest('s1', 2000));
     await Promise.resolve();
 
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
-      force: false,
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledWith('s1', '/ws', {
+      signal: undefined,
       transcriptPath: undefined,
+      source: 'edit-then-test',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -248,7 +277,7 @@ describe('SkillTriggerService integration — full event-loop', () => {
     postToolUseRegistry.notifyAll(postToolUseBashTest('s1', 2100));
     await Promise.resolve();
 
-    expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
+    expect(synthesis.enqueueAnalyze).toHaveBeenCalledTimes(1);
 
     service.stop();
   });
@@ -265,7 +294,7 @@ describe('SkillTriggerService integration — full event-loop', () => {
     postToolUseRegistry.notifyAll(postToolUseBashTest('A', 2000));
     await Promise.resolve();
 
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
 
     service.stop();
   });

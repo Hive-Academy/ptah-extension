@@ -29,8 +29,6 @@ export {
 } from './lib/services/setup-status.service';
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
-export { MultiCliAgentWriterService } from './lib/services/cli-agent-transforms';
-export type { ICliAgentTransformer } from './lib/services/cli-agent-transforms';
 export {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
@@ -120,8 +118,17 @@ export type {
   RevertCloneArgs,
   RevertResult,
   HistoryEntry,
+  OrphanedClone,
+  ReapResult,
+  UpstreamLiveness,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,
   OriginKind,
 } from './lib/services/user-layer/origin-sidecar.types';
+export { HARNESS_PLUGIN_ID_PREFIX } from './lib/services/user-layer/origin-sidecar.types';
+export {
+  classifyUpstream,
+  collectUpstreamLiveness,
+} from './lib/services/user-layer/user-layer-orphan-reaper';
+export { UserLayerFsOps } from './lib/services/user-layer/user-layer-fs-ops';

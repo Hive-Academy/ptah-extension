@@ -29,14 +29,19 @@ import type {
   LlmGetProviderStatusResponse,
   LlmProviderAuthMode,
 } from '@ptah-extension/shared';
+import { validateProviderBaseUrl } from '@ptah-extension/shared';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
   getProviderBaseUrl as getRegistryProviderBaseUrl,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   type AnthropicProvider,
 } from '@ptah-extension/agent-sdk';
+import {
+  ActiveProviderResolver,
+  AUTH_PROVIDERS_TOKENS,
+} from '@ptah-extension/auth-providers';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';
@@ -108,7 +113,8 @@ function validateApiKeyFormat(
 /**
  * Build the per-provider status entry list.
  *
- * Iterates the full ANTHROPIC_PROVIDERS registry plus the virtual
+ * Iterates the full merged provider registry (built-ins plus user-defined
+ * entries, via `getAllAnthropicProviders()`) plus the virtual
  * `anthropic` direct provider so callers see every available provider, not
  * just the legacy `['anthropic', 'openrouter']` pair. Each entry surfaces:
  *   - authType: derived from registry (`apiKey` is the default when undefined)
@@ -146,7 +152,7 @@ function buildStatusProviderList(): Array<{
       defaultBaseUrl: null,
     },
   ];
-  const registry: readonly AnthropicProvider[] = ANTHROPIC_PROVIDERS;
+  const registry: readonly AnthropicProvider[] = getAllAnthropicProviders();
   for (const p of registry) {
     entries.push({
       id: p.id,
@@ -199,6 +205,8 @@ export class LlmRpcHandlers {
     },
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecrets: IAuthSecretsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private readonly activeProviderResolver: ActiveProviderResolver,
   ) {}
 
   /**
@@ -269,9 +277,9 @@ export class LlmRpcHandlers {
           const configManager = this.getConfigManager();
           const defaultProvider =
             configManager.get<string>('llm.defaultProvider') ?? 'anthropic';
-          const rawAuthMethod = configManager.get<string>('authMethod');
           const isClaudeCli =
-            rawAuthMethod === 'claudeCli' || rawAuthMethod === 'claude-cli';
+            this.activeProviderResolver.resolveActiveAuth().authMethod ===
+            'claudeCli';
 
           const catalogue = buildStatusProviderList();
 
@@ -690,32 +698,19 @@ export class LlmRpcHandlers {
           };
         }
 
-        const trimmed = params.baseUrl.trim();
-        if (trimmed.length === 0) {
-          return {
-            success: false,
-            error: 'baseUrl must not be empty',
-          };
+        // The scheme check moved to `validateProviderBaseUrl` in
+        // `@ptah-extension/shared` so the user-defined-provider path
+        // (TASK_2026_236) applies the identical rule instead of a second copy.
+        const validation = validateProviderBaseUrl(params.baseUrl);
+        if (!validation.ok) {
+          return { success: false, error: validation.error };
         }
-        try {
-          const parsed = new URL(trimmed);
-          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return {
-              success: false,
-              error: `baseUrl must use http(s) scheme (got '${parsed.protocol}')`,
-            };
-          }
-        } catch {
-          return {
-            success: false,
-            error: `baseUrl is not a valid URL: ${trimmed}`,
-          };
-        }
+        const trimmed = validation.normalized;
 
         try {
           this.logger.debug('RPC: llm:setProviderBaseUrl called', {
             provider: params.provider,
-            host: new URL(trimmed).host,
+            host: validation.url.host,
           });
           const configManager = this.getConfigManager();
           await configManager.set(

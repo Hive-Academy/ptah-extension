@@ -24,14 +24,14 @@ From `src/index.ts` — barrel is the ONLY allowed entry point ("spec authors sh
 
 - `src/lib/postmessage-bridge.ts` — installs `acquireVsCodeApi()` stub, captures outbound messages on `window.__ptahE2EBridge__`, exposes `outbound() / waitForOutbound() / inject() / reset()`.
 - `src/lib/csp-stub.ts` — installs CSP-permissive routing so the SPA loads under Playwright.
-- `src/lib/fixture-server.ts` — Node `http` server serving `dist/apps/ptah-extension-webview/browser` (or `…/ptah-extension-webview`), with inline `index.html` fallback. Default port = 0 (ephemeral).
+- `src/lib/fixture-server.ts` — Node `http` server serving an inline placeholder `index.html` by default, or `dist/apps/ptah-extension-webview/browser` (or `…/ptah-extension-webview`) when asked for it with `appBuild: true`. Default port = 0 (ephemeral).
 - `src/lib/test-fixtures.ts` — extends `@playwright/test` with worker + test fixtures wiring the above together.
 - `src/lib/scenarios/` — spec authors' E2E suites grouped by surface: `chat/`, `command-palette/`, `monitor/`, `sessions/`, `settings/`.
 
 ## Key Files
 
 - `src/lib/postmessage-bridge.ts:30` — `PostMessageBridge` interface; bridge global is `__ptahE2EBridge__`.
-- `src/lib/fixture-server.ts:14` — `FixtureServerOptions`; probes two dist locations before falling back to inline HTML.
+- `src/lib/fixture-server.ts:14` — `FixtureServerOptions`; serves inline HTML unless `rootDir` or `appBuild` asks otherwise. **The app build is opt-in on purpose**: most specs mount their own scaffold into `#ptah-e2e-fixture-root` and break when a live Angular app owns the document, so a stray `dist/` must never change what a spec sees. A spec needing the real bundle sets a top-level `test.use({ useAppBuild: true })`, and `webview-e2e.yml` builds the webview before running Playwright.
 - `src/lib/scenarios/chat/` — example scenarios (`streaming-response.e2e.spec.ts`, `tool-call.e2e.spec.ts`, `permission-prompt.e2e.spec.ts`, `prompt-input.e2e.spec.ts`, `response-render.e2e.spec.ts`, `error-recovery.e2e.spec.ts`).
 
 ## Dependencies

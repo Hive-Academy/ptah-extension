@@ -9,10 +9,7 @@ import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type {
-  IFileSystemProvider,
-  IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
+import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
@@ -35,7 +32,19 @@ export interface WorkspaceIndexOptions {
   maxFileSize?: number;
   /** Whether to estimate token counts for files */
   estimateTokens?: boolean;
-  /** Workspace folder to index - defaults to first workspace folder */
+  /**
+   * Workspace folder to index.
+   *
+   * TASK_2026_200 task 3.5 — there is deliberately NO fallback to the
+   * process-global `IWorkspaceProvider` any more. The private
+   * `getDefaultWorkspaceFolder()` helper that used to supply one was reachable
+   * from `ptah_context_optimize`, `ptah_relevance_score_file` and
+   * `ptah_relevance_rank_files`, all of which had a session-aware provider in
+   * hand and still silently indexed the IDE's folder instead of the calling
+   * session's root. Callers must state the root; omitting it now yields an
+   * explicit "No workspace folder available for indexing" error rather than a
+   * quietly wrong workspace.
+   */
   workspaceFolder?: string;
 }
 
@@ -80,8 +89,6 @@ export class WorkspaceIndexerService {
     private readonly tokenCounter: TokenCounterService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fsProvider: IFileSystemProvider,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -95,8 +102,7 @@ export class WorkspaceIndexerService {
     options: WorkspaceIndexOptions = {},
     onProgress?: (progress: IndexingProgress) => void,
   ): Promise<FileIndex> {
-    const workspaceFolder =
-      options.workspaceFolder ?? this.getDefaultWorkspaceFolder();
+    const workspaceFolder = options.workspaceFolder;
 
     if (!workspaceFolder) {
       throw new Error('No workspace folder available for indexing');
@@ -202,8 +208,7 @@ export class WorkspaceIndexerService {
   public async *indexWorkspaceStream(
     options: WorkspaceIndexOptions = {},
   ): AsyncGenerator<IndexedFile, void, undefined> {
-    const workspaceFolder =
-      options.workspaceFolder ?? this.getDefaultWorkspaceFolder();
+    const workspaceFolder = options.workspaceFolder;
 
     if (!workspaceFolder) {
       throw new Error('No workspace folder available for indexing');
@@ -280,8 +285,7 @@ export class WorkspaceIndexerService {
   public async getFileCount(
     options: WorkspaceIndexOptions = {},
   ): Promise<number> {
-    const workspaceFolder =
-      options.workspaceFolder ?? this.getDefaultWorkspaceFolder();
+    const workspaceFolder = options.workspaceFolder;
 
     if (!workspaceFolder) {
       return 0;
@@ -318,14 +322,5 @@ export class WorkspaceIndexerService {
     );
 
     return files;
-  }
-
-  /**
-   * Get the default workspace folder
-   *
-   * @returns First workspace folder path or undefined
-   */
-  private getDefaultWorkspaceFolder(): string | undefined {
-    return this.workspaceProvider.getWorkspaceRoot();
   }
 }

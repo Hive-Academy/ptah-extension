@@ -533,6 +533,29 @@ export class PermissionHandlerService {
   }
 
   /**
+   * Question twin of `hasSurfaceTargets`. Returns `true` when the question
+   * has attached targets AND none of them is a live tab id — i.e. every
+   * target is a non-tab surface (harness workflow, tribunal conductor,
+   * wizard phase).
+   *
+   * Questions live in `_questionTargetTabs`, a different map from the
+   * permission `_promptTargetTabs`, so `hasSurfaceTargets` always returns
+   * false for a question id. Surface hosts that filtered questions with the
+   * permission predicate silently dropped every question card — and because
+   * the backend's `awaitQuestionResponse` runs with `timeoutAt: 0`, the
+   * agent then blocked until the 5-minute idle auto-pick. Surface hosts must
+   * use this method; the chat view uses it to suppress question cards that
+   * belong to a surface workflow.
+   */
+  hasSurfaceQuestionTargets(questionId: string): boolean {
+    const targets = this._questionTargetTabs.get(questionId);
+    if (!targets || targets.length === 0) return false;
+    return targets.every(
+      (id) => !this.tabManager.tabs().some((t) => t.id === id),
+    );
+  }
+
+  /**
    * Drop the per-question target tab list without removing the question
    * itself. Used by the router's compaction-complete / SESSION_ID_RESOLVED
    * re-route paths so a fresh `attachQuestionTargets` call is not blocked

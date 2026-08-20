@@ -101,7 +101,7 @@ Deny any of these and the corresponding feature will be disabled until you grant
 
 Open Ptah and check:
 
-1. The title bar shows **Ptah — The Coding Orchestra**.
+1. The title bar shows **Ptah — Coding Orchestra**.
 2. **Help → About** displays a version number that matches the release you downloaded.
 3. The status bar at the bottom shows **Ready** with no error badges.
 

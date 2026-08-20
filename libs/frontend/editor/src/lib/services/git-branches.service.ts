@@ -13,6 +13,7 @@ import type {
   GitCheckoutParams,
   GitCheckoutResult,
   GitLastCommitResult,
+  GitPushResult,
   GitRemotesResult,
   GitStashListResult,
   GitStatusUpdatePayload,
@@ -356,6 +357,35 @@ export class GitBranchesService {
       };
     } catch (err) {
       console.error('[GitBranchesService] checkout failed', err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Push the current branch to its upstream remote. Refreshes branch state
+   * (ahead/behind counts) on success so the push button hides itself once
+   * there are no more unpushed commits.
+   */
+  async push(): Promise<GitPushResult> {
+    try {
+      const response = await rpcCall<GitPushResult>(
+        this.vscodeService,
+        'git:push',
+        this.scopeParams(),
+      );
+      if (response.success && response.data) {
+        if (response.data.success) void this.refreshBranchList();
+        return response.data;
+      }
+      return {
+        success: false,
+        error: response.error ?? 'git:push RPC failed',
+      };
+    } catch (err) {
+      console.error('[GitBranchesService] push failed', err);
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),

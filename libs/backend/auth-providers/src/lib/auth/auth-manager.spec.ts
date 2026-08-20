@@ -23,18 +23,16 @@
 
 import 'reflect-metadata';
 
-import type { Logger, ConfigManager } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import {
-  createMockConfigManager,
-  type MockConfigManager,
-} from '@ptah-extension/vscode-core/testing';
 
 import { AuthManager } from './auth-manager';
+import { ActiveProviderResolver } from './active-provider-resolver';
 import type {
   IAuthStrategy,
   AuthConfigureContext,
@@ -47,14 +45,25 @@ import type { ProviderModelsService } from '../provider-models.service';
 // ---------------------------------------------------------------------------
 
 /**
- * `ConfigManager` is a concrete class with private fields, so a duck-type
- * mock is structurally incompatible. `createMockConfigManager()` returns a
- * `jest.Mocked<ConfigManager>` surface that satisfies the subset actually
- * used by AuthManager (`getWithDefault`). Bridge the private-field gap via
- * `unknown` — same idiom as the reference copilot spec.
+ * `WorkspaceScopeResolver` is the single source AuthManager reads
+ * `anthropicProviderId` from. Only `read` is exercised here; the stub returns
+ * whatever provider id the test seeds (undefined → AuthManager falls back to
+ * DEFAULT_PROVIDER_ID).
  */
-function asConfig(mock: MockConfigManager): ConfigManager {
-  return mock as unknown as ConfigManager;
+type MockScopeResolver = {
+  read: jest.Mock<unknown, [string]>;
+};
+
+function createMockScopeResolver(
+  values: Record<string, unknown> = {},
+): MockScopeResolver {
+  return {
+    read: jest.fn((key: string) => values[key]),
+  };
+}
+
+function asResolver(mock: MockScopeResolver): WorkspaceScopeResolver {
+  return mock as unknown as WorkspaceScopeResolver;
 }
 
 function asLogger(mock: MockLogger): Logger {
@@ -87,7 +96,7 @@ function createMockProviderModels(): jest.Mocked<
 interface ManagerHarness {
   manager: AuthManager;
   logger: MockLogger;
-  config: MockConfigManager;
+  scopeResolver: MockScopeResolver;
   providerModels: jest.Mocked<
     Pick<ProviderModelsService, 'clearAllTierEnvVars'>
   >;
@@ -105,7 +114,7 @@ function makeManager(
   options: { config?: Record<string, unknown> } = {},
 ): ManagerHarness {
   const logger = createMockLogger();
-  const config = createMockConfigManager({ values: options.config });
+  const scopeResolver = createMockScopeResolver(options.config);
   const providerModels = createMockProviderModels();
   const authEnv: AuthEnv = {};
 
@@ -117,9 +126,12 @@ function makeManager(
     cli: createMockStrategy('CliStrategy'),
   };
 
+  const activeProviderResolver = new ActiveProviderResolver(
+    asResolver(scopeResolver),
+  );
+
   const manager = new AuthManager(
     asLogger(logger),
-    asConfig(config),
     providerModels as unknown as ProviderModelsService,
     authEnv,
     strategies.apiKey,
@@ -127,9 +139,17 @@ function makeManager(
     strategies.localNative,
     strategies.localProxy,
     strategies.cli,
+    activeProviderResolver,
   );
 
-  return { manager, logger, config, providerModels, authEnv, strategies };
+  return {
+    manager,
+    logger,
+    scopeResolver,
+    providerModels,
+    authEnv,
+    strategies,
+  };
 }
 
 /** Resolve with a delay so two concurrent calls can be observed overlapping. */
@@ -214,7 +234,8 @@ describe('AuthManager', () => {
 
     it("routes 'thirdParty' with configured openrouter provider to api-key strategy", async () => {
       // OpenRouter is registered in ANTHROPIC_PROVIDERS; resolveStrategy
-      // returns 'api-key' for it (authType=apiKey, requiresProxy=false).
+      // returns 'api-key' for it (authType=apiKey + requiresProxy:true falls
+      // through to the api-key route; ApiKeyStrategy runs the proxy internally).
       const { manager, strategies } = makeManager({
         config: { anthropicProviderId: 'openrouter' },
       });
@@ -231,8 +252,177 @@ describe('AuthManager', () => {
       );
     });
 
+    it("routes 'thirdParty' with configured sakana provider to api-key strategy", async () => {
+      // Sakana is apiKey + requiresProxy:true; resolveStrategy still returns
+      // 'api-key' (the fallback covers apiKey+proxy) — the ApiKeyStrategy
+      // starts the translation proxy internally, no separate route needed.
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'sakana' },
+      });
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Sakana (Fugu) API key'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
+        'sakana',
+      );
+      // Proxy strategies must NOT be engaged for Sakana — it routes api-key.
+      expect(strategies.oauthProxy.configure).not.toHaveBeenCalled();
+      expect(strategies.localProxy.configure).not.toHaveBeenCalled();
+    });
+
+    /**
+     * TASK_2026_172 Issue 1 — the Claude Subscription tile.
+     *
+     * The tile persists `authMethod: 'thirdParty'` + `anthropicProviderId:
+     * 'claude-cli'`. Its registry entry is `authType: 'none'` with no proxy,
+     * which is byte-identical to Ollama's — so before the `nativeAuth`
+     * short-circuit it landed on LocalNativeStrategy, which probes an Ollama
+     * daemon on 127.0.0.1:11434 and then overwrites `ANTHROPIC_BASE_URL` with
+     * `''` plus an Ollama placeholder token, destroying the ambient `~/.claude`
+     * login the tile exists to use.
+     */
+    it("routes 'thirdParty' + claude-cli to the CLI strategy — never local-native", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'claude-cli' },
+      });
+      strategies.cli.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Claude CLI v2.0.0 (credentials managed by CLI)'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.cli.configure.mock.calls[0][0].providerId).toBe(
+        'claude-cli',
+      );
+      // The regression: no Ollama probe, no proxy, no API key lookup.
+      expect(strategies.localNative.configure).not.toHaveBeenCalled();
+      expect(strategies.localProxy.configure).not.toHaveBeenCalled();
+      expect(strategies.oauthProxy.configure).not.toHaveBeenCalled();
+      expect(strategies.apiKey.configure).not.toHaveBeenCalled();
+    });
+
+    it('leaves ANTHROPIC_BASE_URL and the auth token untouched for the claude-cli tile', async () => {
+      const { manager, strategies, authEnv } = makeManager({
+        config: { anthropicProviderId: 'claude-cli' },
+      });
+      // CliStrategy writes nothing to authEnv — assert the orchestrator does
+      // not inject anything either, so the SDK keeps its default credential
+      // chain (`~/.claude`).
+      strategies.cli.configure.mockImplementationOnce(async () => ({
+        configured: true,
+        details: [],
+      }));
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(authEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(authEnv.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(process.env['ANTHROPIC_BASE_URL']).toBeUndefined();
+      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+    });
+
+    it("routes 'thirdParty' + ollama to local-native — the claude-cli fix must not move local providers", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'ollama' },
+      });
+      strategies.localNative.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Ollama (Anthropic-native at http://127.0.0.1:11434)'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.localNative.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.localNative.configure.mock.calls[0][0].providerId).toBe(
+        'ollama',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it("routes 'thirdParty' + ollama-cloud to local-native (keyless signin path preserved)", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'ollama-cloud' },
+      });
+      strategies.localNative.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Ollama Cloud'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.localNative.configure.mock.calls[0][0].providerId).toBe(
+        'ollama-cloud',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it("routes 'thirdParty' + lm-studio to local-proxy", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'lm-studio' },
+      });
+      strategies.localProxy.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['LM Studio via translation proxy'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.localProxy.configure.mock.calls[0][0].providerId).toBe(
+        'lm-studio',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it.each(['github-copilot', 'openai-codex'])(
+      "routes 'thirdParty' + %s to oauth-proxy",
+      async (providerId) => {
+        const { manager, strategies } = makeManager({
+          config: { anthropicProviderId: providerId },
+        });
+        strategies.oauthProxy.configure.mockResolvedValueOnce({
+          configured: true,
+          details: [],
+        });
+
+        await manager.configureAuthentication('thirdParty');
+
+        expect(
+          strategies.oauthProxy.configure.mock.calls[0][0].providerId,
+        ).toBe(providerId);
+        expect(strategies.cli.configure).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['moonshot', 'z-ai'])(
+      "routes 'thirdParty' + %s to api-key",
+      async (providerId) => {
+        const { manager, strategies } = makeManager({
+          config: { anthropicProviderId: providerId },
+        });
+        strategies.apiKey.configure.mockResolvedValueOnce({
+          configured: true,
+          details: [],
+        });
+
+        await manager.configureAuthentication('thirdParty');
+
+        expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
+          providerId,
+        );
+        expect(strategies.cli.configure).not.toHaveBeenCalled();
+      },
+    );
+
     it("defaults to the registry default provider when 'thirdParty' has no configured id", async () => {
-      const { manager, strategies, config } = makeManager();
+      const { manager, strategies, scopeResolver } = makeManager();
       strategies.apiKey.configure.mockResolvedValueOnce({
         configured: true,
         details: [],
@@ -245,9 +435,31 @@ describe('AuthManager', () => {
       expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
         'openrouter',
       );
-      // Lookup went through getWithDefault, not raw get.
-      expect(config.getWithDefault).toHaveBeenCalledWith(
+      // Lookup went through the workspace scope resolver, not ConfigManager.
+      expect(scopeResolver.read).toHaveBeenCalledWith(
         'anthropicProviderId',
+        true,
+      );
+    });
+
+    it('resolves the folder-scoped provider id from the workspace scope resolver', async () => {
+      // The resolver returns the active folder's override; AuthManager must
+      // route 'thirdParty' to that provider, not the global default.
+      const { manager, strategies, scopeResolver } = makeManager({
+        config: { anthropicProviderId: 'openrouter' },
+      });
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(scopeResolver.read).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        true,
+      );
+      expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
         'openrouter',
       );
     });
@@ -267,6 +479,39 @@ describe('AuthManager', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining("Normalized auth method 'openrouter'"),
       );
+    });
+
+    it('self-resolves the scoped authMethod when called with no argument', async () => {
+      const { manager, strategies } = makeManager({
+        config: { authMethod: 'thirdParty', anthropicProviderId: 'openrouter' },
+      });
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+
+      await manager.configureAuthentication();
+
+      expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
+        'openrouter',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it('self-resolves a scoped claudeCli authMethod when called with no argument', async () => {
+      const { manager, strategies } = makeManager({
+        config: { authMethod: 'claudeCli' },
+      });
+      strategies.cli.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+
+      await manager.configureAuthentication();
+
+      expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.apiKey.configure).not.toHaveBeenCalled();
     });
 
     it('falls back to apiKey when the raw method is unknown', async () => {

@@ -1,10 +1,10 @@
 /**
  * AppStateManager specs — global webview state (view, workspace, connection,
- * license, layout mode, canvas-session signal bridge).
+ * layout mode, canvas-session signal bridge).
  *
  * Coverage:
- *   - Constructor `initializeState` reads `window.ptahConfig` (license,
- *     workspace, initialView) and `localStorage` (layout mode).
+ *   - Constructor `initializeState` reads `window.ptahConfig` (workspace,
+ *     initialView) and `localStorage` (layout mode).
  *   - `normalizeView` maps legacy 'orchestra-canvas' → 'chat' + grid layout.
  *   - `setCurrentView` / `openView` / `closeView` mutate `openViews` set and
  *     respect the `canSwitchViews` guard.
@@ -15,6 +15,13 @@
  *   - `handleInitialData` / `handleError` aggregated updates.
  *   - `getStateSnapshot` returns a synchronous snapshot.
  *   - Layout mode persistence (setLayoutMode writes localStorage; toggle flips).
+ *   - Per-workspace view partitioning: `switchWorkspace` /
+ *     `removeWorkspaceState` swap and drop `currentView` + `openViews` slices,
+ *     and the bootstrap sentinel slice migrates onto the first real workspace
+ *     (TASK_2026_195).
+ *   - The same slice also carries the in-surface pointers `thothActiveTab` and
+ *     `marketplaceActiveProvider`, so neither survives a workspace switch
+ *     (TASK_2026_228).
  *   - Canvas session request signal-bridge methods.
  *
  * Note: `initializeState` runs in the constructor, so each spec sets up
@@ -40,7 +47,6 @@ interface AppStoreState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
-  isLicensed: boolean;
   openViews: readonly ViewType[];
   layoutMode: LayoutMode;
   canvasSessionRequest: CanvasSessionRequest | null;
@@ -51,7 +57,6 @@ interface AppStoreState {
 
 interface PtahTestWindow {
   ptahConfig?: {
-    isLicensed?: boolean;
     initialView?: string;
     workspaceRoot?: string;
     workspaceName?: string;
@@ -97,22 +102,20 @@ describe('AppStateManager', () => {
   });
 
   describe('initializeState from window.ptahConfig', () => {
-    it('defaults to view="chat", licensed=true, layoutMode="grid" when no globals are injected', () => {
+    it('defaults to view="chat", layoutMode="grid" when no globals are injected', () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
 
       expect(harness.read()).toMatchObject({
         currentView: 'chat',
-        isLicensed: true,
         layoutMode: 'grid',
         workspaceInfo: null,
       });
     });
 
-    it('reads license status and workspace info from window.ptahConfig', () => {
+    it('reads workspace info from window.ptahConfig', () => {
       setupGlobals({
         ptahConfig: {
-          isLicensed: false,
           workspaceRoot: '/tmp/demo',
           workspaceName: 'demo',
           initialView: 'analytics',
@@ -122,7 +125,6 @@ describe('AppStateManager', () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
 
-      expect(harness.signal('isLicensed')).toBe(false);
       expect(harness.signal('workspaceInfo')).toEqual({
         name: 'demo',
         path: '/tmp/demo',
@@ -197,15 +199,6 @@ describe('AppStateManager', () => {
       expect(service.openViews()).toContain('chat');
     });
 
-    it('blocks view switches when on "welcome" (license-gate enforcement)', () => {
-      setupGlobals({ ptahConfig: { initialView: 'welcome' } });
-      const service = createService();
-      expect(service.canSwitchViews()).toBe(false);
-
-      service.setCurrentView('settings');
-      expect(service.currentView()).toBe('welcome');
-    });
-
     it('blocks view switches while loading', () => {
       const service = createService();
       service.setLoading(true);
@@ -220,12 +213,6 @@ describe('AppStateManager', () => {
       expect(service.canSwitchViews()).toBe(false);
       service.setCurrentView('settings');
       expect(service.currentView()).toBe('chat');
-    });
-
-    it('openViews computed excludes the "welcome" view', () => {
-      setupGlobals({ ptahConfig: { initialView: 'welcome' } });
-      const service = createService();
-      expect(service.openViews()).not.toContain('welcome');
     });
   });
 
@@ -350,7 +337,6 @@ describe('AppStateManager', () => {
         statusMessage: 'hello',
         workspaceInfo: null,
         isConnected: true,
-        isLicensed: true,
       });
     });
   });
@@ -370,6 +356,229 @@ describe('AppStateManager', () => {
       expect(service.layoutMode()).toBe('single');
       service.toggleLayoutMode();
       expect(service.layoutMode()).toBe('grid');
+    });
+  });
+
+  describe('per-workspace view partitioning (TASK_2026_195)', () => {
+    it('migrates the bootstrap slice onto the first real workspace so initialView survives', () => {
+      setupGlobals({ ptahConfig: { initialView: 'tribunal' } });
+      const service = createService();
+      expect(service.currentView()).toBe('tribunal');
+
+      // The initial workspace:switch RPC settles after the shell has rendered.
+      service.switchWorkspace('/ws/a');
+
+      expect(service.currentView()).toBe('tribunal');
+      expect(service.openViews()).toEqual(
+        expect.arrayContaining(['chat', 'tribunal']),
+      );
+    });
+
+    it('does NOT carry the previous workspace view onto a never-visited workspace', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tribunal');
+      expect(service.currentView()).toBe('tribunal');
+
+      service.switchWorkspace('/ws/b');
+
+      expect(service.currentView()).toBe('chat');
+      expect(service.openViews()).toEqual(['chat']);
+    });
+
+    it('restores each workspace view on return (A→B→A)', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tribunal');
+      service.switchWorkspace('/ws/b');
+      service.setCurrentView('tasks');
+
+      expect(service.currentView()).toBe('tasks');
+
+      service.switchWorkspace('/ws/a');
+      expect(service.currentView()).toBe('tribunal');
+
+      service.switchWorkspace('/ws/b');
+      expect(service.currentView()).toBe('tasks');
+    });
+
+    it('partitions openViews, so a view opened in A is not open in B', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('settings');
+      service.setCurrentView('analytics');
+      expect(service.openViews()).toEqual(
+        expect.arrayContaining(['chat', 'settings', 'analytics']),
+      );
+
+      service.switchWorkspace('/ws/b');
+      expect(service.openViews()).toEqual(['chat']);
+
+      service.switchWorkspace('/ws/a');
+      expect(service.openViews()).toEqual(
+        expect.arrayContaining(['chat', 'settings', 'analytics']),
+      );
+    });
+
+    it('closeView only affects the active workspace slice', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('analytics');
+      service.switchWorkspace('/ws/b');
+      service.setCurrentView('analytics');
+
+      service.closeView('analytics');
+      expect(service.currentView()).toBe('chat');
+      expect(service.openViews()).not.toContain('analytics');
+
+      service.switchWorkspace('/ws/a');
+      expect(service.currentView()).toBe('analytics');
+    });
+
+    it('removeWorkspaceState drops the slice so a re-added workspace opens on chat', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tasks');
+      service.switchWorkspace('/ws/b');
+
+      service.removeWorkspaceState('/ws/a');
+      service.switchWorkspace('/ws/a');
+
+      expect(service.currentView()).toBe('chat');
+      expect(service.openViews()).toEqual(['chat']);
+    });
+
+    it('switching to the already-active workspace is a no-op', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setCurrentView('tasks');
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.currentView()).toBe('tasks');
+    });
+
+    it('a blocked view switch does not seed a slice for the active workspace', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setLoading(true);
+      service.setCurrentView('tasks');
+
+      expect(service.currentView()).toBe('chat');
+      service.setLoading(false);
+      service.switchWorkspace('/ws/b');
+      expect(service.currentView()).toBe('chat');
+    });
+
+    it('leaves layoutMode global — Electron pins it to grid and VS Code never switches workspaces', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setLayoutMode('single');
+
+      service.switchWorkspace('/ws/b');
+
+      expect(service.layoutMode()).toBe('single');
+    });
+  });
+
+  describe('per-workspace in-surface pointers (TASK_2026_228)', () => {
+    it("does NOT carry the previous workspace's Thoth tab onto a never-visited workspace", () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('gateway');
+      expect(service.thothActiveTab()).toBe('gateway');
+
+      service.switchWorkspace('/ws/b');
+
+      // B has its own cron jobs / gateway adapters; landing on A's tab shows
+      // the wrong pillar against B's state.
+      expect(service.thothActiveTab()).toBe('memory');
+    });
+
+    it("does NOT carry the previous workspace's marketplace provider onto a never-visited workspace", () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setMarketplaceActiveProvider('skills-sh');
+      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
+
+      service.switchWorkspace('/ws/b');
+
+      expect(service.marketplaceActiveProvider()).toBeNull();
+    });
+
+    it('restores each workspace Thoth tab and provider on return (A→B→A)', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('skills');
+      service.setMarketplaceActiveProvider('official-mcp');
+
+      service.switchWorkspace('/ws/b');
+      service.setThothActiveTab('cron');
+      service.setMarketplaceActiveProvider('skills-sh');
+
+      service.switchWorkspace('/ws/a');
+      expect(service.thothActiveTab()).toBe('skills');
+      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
+
+      service.switchWorkspace('/ws/b');
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
+    });
+
+    it('keeps the in-surface pointers independent of the view pointer in the same slice', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('cron');
+      service.setMarketplaceActiveProvider('official-mcp');
+
+      // Widening ViewSlice means every view mutation rewrites the slice — the
+      // in-surface pointers must survive that, not be reset by it.
+      service.setCurrentView('thoth');
+      service.setCurrentView('marketplace');
+      service.closeView('thoth');
+
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
+      expect(service.currentView()).toBe('marketplace');
+    });
+
+    it('carries a pointer set before the first workspace arrives onto that workspace', () => {
+      const service = createService();
+      // Electron's initial workspace:switch lands after the shell renders, so
+      // a tab picked in that window is written to the bootstrap sentinel slice.
+      service.setThothActiveTab('skills');
+      service.setMarketplaceActiveProvider('official-mcp');
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.thothActiveTab()).toBe('skills');
+      expect(service.marketplaceActiveProvider()).toBe('official-mcp');
+    });
+
+    it('removeWorkspaceState drops the pointers so a re-added workspace gets defaults', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('gateway');
+      service.setMarketplaceActiveProvider('skills-sh');
+      service.switchWorkspace('/ws/b');
+
+      service.removeWorkspaceState('/ws/a');
+      service.switchWorkspace('/ws/a');
+
+      expect(service.thothActiveTab()).toBe('memory');
+      expect(service.marketplaceActiveProvider()).toBeNull();
+    });
+
+    it('switching to the already-active workspace leaves the pointers alone', () => {
+      const service = createService();
+      service.switchWorkspace('/ws/a');
+      service.setThothActiveTab('cron');
+      service.setMarketplaceActiveProvider('skills-sh');
+
+      service.switchWorkspace('/ws/a');
+
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.marketplaceActiveProvider()).toBe('skills-sh');
     });
   });
 
@@ -407,6 +616,42 @@ describe('AppStateManager', () => {
 
       service.clearNewCanvasSessionRequest();
       expect(service.newCanvasSessionRequest()).toBeNull();
+    });
+
+    it('requestCanvasTab sets the tab-adoption request and clearCanvasTabRequest nulls it (F-D3)', () => {
+      const service = createService();
+      service.requestCanvasTab('tab-7', 'TASK_2026_200');
+      expect(service.canvasTabRequest()).toEqual({
+        tabId: 'tab-7',
+        name: 'TASK_2026_200',
+      });
+
+      service.clearCanvasTabRequest();
+      expect(service.canvasTabRequest()).toBeNull();
+    });
+
+    it('requestCanvasTab omits name when not supplied', () => {
+      const service = createService();
+      service.requestCanvasTab('tab-8');
+      expect(service.canvasTabRequest()).toEqual({ tabId: 'tab-8' });
+    });
+
+    it('requestChatPrompt sets the request and clearChatPromptRequest nulls it (D.1)', () => {
+      const service = createService();
+      const resolve = jest.fn();
+      service.requestChatPrompt({
+        prompt: '/orchestrate TASK_2026_200',
+        sessionName: 'TASK_2026_200',
+        resolve,
+      });
+
+      const req = service.chatPromptRequest();
+      expect(req?.prompt).toBe('/orchestrate TASK_2026_200');
+      expect(req?.sessionName).toBe('TASK_2026_200');
+      expect(req?.resolve).toBe(resolve);
+
+      service.clearChatPromptRequest();
+      expect(service.chatPromptRequest()).toBeNull();
     });
   });
 

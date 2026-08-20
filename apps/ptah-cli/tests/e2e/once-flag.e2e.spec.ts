@@ -12,9 +12,20 @@
 
 import { CliRunner, createTmpHome, type TmpHome } from './_harness';
 
-jest.setTimeout(60_000);
+jest.setTimeout(300_000);
 
 const FAKE_API_KEY = 'sk-ant-e2e-fake-key-not-real-do-not-call-upstream';
+
+/**
+ * `--once` blocks until the terminal notification, so this budget is the turn's
+ * budget. 45s was ample while the deleted `isFatalUpstreamProviderError` stderr
+ * heuristic aborted an auth-failed query in ~2.5s; TASK_2026_190 replaced that
+ * with `NoActivityWatchdog` (`NO_ACTIVITY_TIMEOUT_MS` = 180s), and the bundled
+ * CLI's own retry envelope for an invalid key measures ~183s. The budget must
+ * clear both, or the harness kills the child and `exitCode` reads `null` —
+ * which is indistinguishable from `--once` failing to block.
+ */
+const TURN_SETTLE_BUDGET_MS = 240_000;
 
 describe('--once flag (Bug 5)', () => {
   let tmp: TmpHome;
@@ -40,7 +51,7 @@ describe('--once flag (Bug 5)', () => {
         '--once',
       ],
       env: { ANTHROPIC_API_KEY: FAKE_API_KEY },
-      timeoutMs: 45_000,
+      timeoutMs: TURN_SETTLE_BUDGET_MS,
     });
 
     // Block-then-exit: process must have terminated (exitCode set), not been

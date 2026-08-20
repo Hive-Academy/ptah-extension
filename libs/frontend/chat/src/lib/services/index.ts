@@ -37,11 +37,14 @@ export {
   type ConfirmationDialogOptions,
 } from '@ptah-extension/chat-state';
 export { MessageSenderService } from './message-sender.service';
+export { UltracodeStateService } from './ultracode-state.service';
 export {
   MessageValidationService,
   type ValidationResult,
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
+export { VoiceDownloadProgressService } from './voice-download-progress.service';
+export { VoiceProviderErrorService } from './voice-provider-error.service';
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export {
   AgentMonitorStore,
@@ -66,6 +69,10 @@ export {
   type PreloadedStatsPayload,
 } from '@ptah-extension/chat-state';
 export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
+export {
+  TranscriptRetentionService,
+  RETAINED_TRANSCRIPT_CAP,
+} from './transcript-retention.service';
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   TabWorkspacePartitionService,
@@ -73,5 +80,9 @@ export {
   type TabLookupResult,
 } from '@ptah-extension/chat-state';
 export { SessionDisplayUtils } from './session-display-utils.service';
-export { SESSION_CONTEXT } from '../tokens/session-context.token';
+export {
+  SESSION_CONTEXT,
+  HIDE_AGENT_SIDEBAR,
+  SESSION_VISIBLE,
+} from '../tokens/session-context.token';
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';

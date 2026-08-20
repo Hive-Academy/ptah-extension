@@ -36,4 +36,33 @@ describe('CostBadgeComponent', () => {
     const span = fixture.nativeElement.querySelector('span');
     expect(span.getAttribute('title')).toBe('$0.5000 USD');
   });
+
+  it('says "cost unavailable" when cost is null (no pricing known)', () => {
+    fixture.componentRef.setInput('cost', null);
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(fixture.nativeElement.textContent).toContain('cost unavailable');
+    expect(fixture.nativeElement.textContent).not.toContain('$0.00');
+  });
+
+  it('says "cost unavailable" when cost is undefined', () => {
+    fixture.componentRef.setInput('cost', undefined);
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(fixture.nativeElement.textContent).toContain('cost unavailable');
+  });
+
+  it('says "cost unavailable" when cost is NaN', () => {
+    fixture.componentRef.setInput('cost', Number.NaN);
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(fixture.nativeElement.textContent).toContain('cost unavailable');
+    expect(fixture.nativeElement.textContent).not.toContain('NaN');
+  });
+
+  it('still renders a genuine $0.00 turn as zero, not as unavailable', () => {
+    // Copilot and local Ollama really are free — "unavailable" would be as
+    // wrong for them as "$0.00" is for an unpriced custom provider.
+    fixture.componentRef.setInput('cost', 0);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('$0.0000');
+    expect(fixture.nativeElement.textContent).not.toContain('unavailable');
+  });
 });

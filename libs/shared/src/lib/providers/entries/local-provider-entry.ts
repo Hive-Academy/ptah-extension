@@ -9,10 +9,21 @@
 import type { AnthropicProvider } from '../provider-registry';
 
 /**
+ * Hosted ollama.com endpoint used for DIRECT Ollama Cloud inference when the
+ * user has stored an API key. Speaks the Anthropic Messages API
+ * (`/v1/messages`) with `Authorization: Bearer <key>` — no local daemon
+ * involved.
+ */
+export const OLLAMA_CLOUD_DIRECT_BASE_URL = 'https://ollama.com';
+
+/**
  * Ollama provider entry — LOCAL models via Anthropic-native API.
  *
  * Key characteristics:
- * - `baseUrl`: Default Ollama endpoint (http://localhost:11434) — NOT /v1
+ * - `baseUrl`: Default Ollama endpoint (http://127.0.0.1:11434) — NOT /v1.
+ *   Deliberately IPv4-literal, not `localhost`: Ollama binds 127.0.0.1 only,
+ *   and `localhost` resolves to `::1` first on Windows, where an unrelated
+ *   listener (WSL relay / Docker port-forward) can shadow the real daemon.
  * - `authType: 'none'` -- no authentication required
  * - `requiresProxy: false` -- Ollama v0.14.0+ speaks Anthropic Messages API natively
  * - `isLocal: true` -- runs on localhost, uses HTTP not HTTPS
@@ -23,7 +34,7 @@ import type { AnthropicProvider } from '../provider-registry';
 export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
   id: 'ollama',
   name: 'Ollama',
-  baseUrl: 'http://localhost:11434',
+  baseUrl: 'http://127.0.0.1:11434',
   authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
   authType: 'none',
   requiresProxy: false,
@@ -78,27 +89,32 @@ export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
 };
 
 /**
- * Ollama Cloud provider entry — CLOUD models via Ollama's cloud proxy.
+ * Ollama Cloud provider entry — CLOUD models.
+ *
+ * Two inference routes, selected by whether an API key is stored:
+ * - API key present → DIRECT mode: `ANTHROPIC_BASE_URL` points at
+ *   {@link OLLAMA_CLOUD_DIRECT_BASE_URL} with the key as the auth token.
+ *   No local daemon involved (nothing needs to own port 11434).
+ * - No key → LOCAL-PROXY mode: cloud requests proxy through the local
+ *   daemon at `baseUrl`, authenticated by the daemon's `ollama signin`
+ *   credentials.
  *
  * Key characteristics:
- * - `baseUrl`: Same localhost endpoint (cloud requests proxied by local Ollama)
- * - `authType: 'none'` -- inference auth still handled by `ollama signin`
- *   (stored locally). Strategy routing stays on `local-native`.
- * - `supportsOptionalApiKey: true` -- the user MAY paste an ollama.com API
- *   key to unlock metadata-only enhancements:
- *     • Live cloud model list from ollama.com/api/tags (filters `:cloud`)
- *     • Per-request usage + pricing from ollama.com/api/usage, seeding
- *       DEFAULT_MODEL_PRICING so the stats panel shows real per-token costs.
- *   The key is metadata-only — inference always proxies through localhost:11434.
- *   When no key is set, the static catalog and `ollama signin` flow still work.
- * - `requiresProxy: false` -- Anthropic-native API
+ * - `baseUrl`: Local daemon endpoint used only in local-proxy mode
+ *   (127.0.0.1, not localhost — see OLLAMA_PROVIDER_ENTRY note)
+ * - `authType: 'none'` -- signin-only setups need no key; strategy routing
+ *   stays on `local-native`.
+ * - `supportsOptionalApiKey: true` -- pasting an ollama.com API key enables
+ *   direct mode plus live model discovery and per-token pricing from
+ *   ollama.com/api/tags + /api/usage.
+ * - `requiresProxy: false` -- Anthropic-native API on both routes
  * - `isLocal: false` -- inference runs in the cloud (free tier ~30K req/mo)
  * - Cloud models use `:cloud` suffix (e.g., `kimi-k2.5:cloud`, `glm-5:cloud`)
  */
 export const OLLAMA_CLOUD_PROVIDER_ENTRY: AnthropicProvider = {
   id: 'ollama-cloud',
   name: 'Ollama Cloud',
-  baseUrl: 'http://localhost:11434',
+  baseUrl: 'http://127.0.0.1:11434',
   authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
   authType: 'none',
   supportsOptionalApiKey: true,
@@ -108,10 +124,12 @@ export const OLLAMA_CLOUD_PROVIDER_ENTRY: AnthropicProvider = {
   helpUrl: 'https://ollama.com/blog/ollama-cloud',
   description:
     'Run cloud GPU models via Ollama Cloud (free tier available). ' +
-    'Optionally paste an ollama.com API key to enable live model discovery and pricing.',
+    'Paste an ollama.com API key to connect directly to ollama.com (no local Ollama needed) ' +
+    'with live model discovery and pricing; without a key, requests proxy through your ' +
+    'signed-in local Ollama.',
   keyPlaceholder:
-    'Optional — paste ollama.com API key to enable live models & pricing',
-  maskedKeyDisplay: 'Cloud (ollama signin or optional API key)',
+    'Optional — paste ollama.com API key for direct cloud access, live models & pricing',
+  maskedKeyDisplay: 'Cloud (direct API key or ollama signin)',
   defaultTiers: {
     haiku: 'ministral-3:cloud',
     sonnet: 'kimi-k2.5:cloud',

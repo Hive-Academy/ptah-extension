@@ -8,9 +8,11 @@ import { defineConfig } from '@playwright/test';
  * @playwright/test ^1.50). Each test gets its own ElectronApplication
  * instance via the fixtures in `src/support/fixtures.ts`.
  *
- * Pre-build chain: `nx build-dev ptah-electron` + `nx copy-renderer ptah-electron`
+ * Pre-build chain: `nx build-dev ptah-electron` + `nx copy-renderer-dev ptah-electron`
  * is wired through `dependsOn` in project.json, so spec authors can run
- * `nx run ptah-electron-e2e:e2e` without manual prep.
+ * `nx run ptah-electron-e2e:e2e` without manual prep. `copy-renderer-dev` is
+ * distinct from `copy-renderer` (production only, used by `package`) --
+ * Nx cannot pin a configuration on a `dependsOn` edge (TASK_2026_229).
  */
 const isCI = !!process.env['CI'];
 

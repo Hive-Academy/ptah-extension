@@ -23,20 +23,27 @@
  * - `workspace:addFolder`       — Open native picker, register the chosen folder
  * - `workspace:registerFolder`  — Register a known path (used by frontend tests + CLI)
  * - `workspace:removeFolder`    — Remove a folder + dispose its storage
- * - `workspace:switch`          — Switch active workspace + import sessions
+ * - `workspace:switch`          — Switch active workspace, then fire-and-forget
+ *                                 a session import and a file-index rebuild for
+ *                                 the new root (both off the critical path)
  *
  * VS Code Note: VS Code's `VsCodeWorkspaceProvider` does not implement
- * `IWorkspaceLifecycleProvider`; the VS Code app excludes this handler via
- * `registerAllRpcHandlers(container, { exclude: [WorkspaceRpcHandlers] })`
- * and lists the `workspace:*` methods in its `ELECTRON_ONLY_METHODS` array
- * so verifier output stays clean.
+ * `IWorkspaceLifecycleProvider`, so its host profile leaves the
+ * `workspaceLifecycle` capability off. `registerRpcSurface` then skips this
+ * handler and derives the `workspace:*` exclusions for the verifier.
  */
 
 import { injectable, inject } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, WorkspaceContextManager } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type { WorkspaceFileIndexService } from '@ptah-extension/workspace-intelligence';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SessionImporterService } from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ProviderProxyPool,
+} from '@ptah-extension/auth-providers';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -59,6 +66,43 @@ export class WorkspaceRpcHandlers {
     'workspace:switch',
   ] as const satisfies readonly RpcMethodName[];
 
+  /**
+   * Skip a deferred session import when the same workspace path was imported
+   * within this window. Guards rapid A↔B↔A switching from rescanning on every
+   * switch. In-memory only.
+   */
+  private static readonly IMPORT_RECENCY_MS = 60_000;
+
+  /**
+   * Backoff window after a deferred import FAILS for a path. A persistently
+   * failing path (permissions error, corrupt JSONL) would otherwise be
+   * rescanned on every switch because the success-recency guard never engages.
+   * Shorter than the success window so a transient failure self-heals soon.
+   */
+  private static readonly IMPORT_FAILURE_BACKOFF_MS = 15_000;
+
+  /**
+   * Completion timestamps of the most recent deferred session import per
+   * normalized workspace path. Feeds the recency guard in
+   * {@link deferSessionImport}.
+   */
+  private readonly lastImportCompletedAt = new Map<string, number>();
+
+  /**
+   * Timestamps of the most recent deferred import FAILURE per normalized
+   * workspace path. Feeds the failure-backoff guard in
+   * {@link deferSessionImport} so a broken path is not rescanned on every
+   * switch. Cleared on a subsequent successful import.
+   */
+  private readonly lastImportFailedAt = new Map<string, number>();
+
+  /**
+   * Normalized workspace paths whose deferred import is currently running.
+   * Prevents a second concurrent scan for the same path before the first
+   * finishes (rapid re-switches during a slow scan).
+   */
+  private readonly importsInFlight = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -72,6 +116,10 @@ export class WorkspaceRpcHandlers {
     private readonly workspaceContextManager: WorkspaceContextManager,
     @inject(SDK_TOKENS.SDK_SESSION_IMPORTER)
     private readonly sessionImporter: SessionImporterService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
+    private readonly providerProxyPool: ProviderProxyPool,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly container: DependencyContainer,
   ) {}
 
   register(): void {
@@ -219,6 +267,11 @@ export class WorkspaceRpcHandlers {
           this.workspaceContextManager.removeWorkspace(params.path);
           this.workspaceLifecycle.removeFolder(params.path);
 
+          // Phase 3: tear down any per-workspace isolated provider proxies so a
+          // removed/closed workspace does not leak its translation/OAuth proxy
+          // servers. Never throws (disposeForScope swallows per-entry errors).
+          await this.providerProxyPool.disposeForScope(params.path);
+
           this.logger.info('[RPC] workspace:removeFolder', {
             path: params.path,
           });
@@ -255,21 +308,53 @@ export class WorkspaceRpcHandlers {
           }
 
           this.workspaceLifecycle.setActiveFolder(params.path);
+
+          // Session import is intentionally OFF the switch critical path: the
+          // RPC responds immediately and the scan runs fire-and-forget. When
+          // the import saves/prunes anything the SessionMetadataStore emits
+          // `metadataChanged`, which is pushed to the webview as
+          // SESSION_METADATA_CHANGED and refreshes the session list — so a
+          // list fetched before the import finished self-heals without the
+          // switch ever blocking on file I/O + SQLite.
+          //
+          // Defensive isolation: deferSessionImport is fire-and-forget and
+          // must never turn a successful switch into `success:false`.
+          // `scanAndImport` is async so a synchronous throw is not possible
+          // today, but a future refactor could introduce one — wrap the call
+          // so any synchronous throw stays non-fatal to the switch response,
+          // matching the async failure path's non-fatal contract.
           try {
-            const importCount = await this.sessionImporter.scanAndImport(
-              params.path,
-              50,
-            );
-            if (importCount > 0) {
-              this.logger.info(
-                `[RPC] workspace:switch imported ${importCount} session(s)`,
-                { path: params.path },
-              );
-            }
-          } catch (err: unknown) {
+            this.deferSessionImport(params.path);
+          } catch (importErr: unknown) {
             this.logger.warn(
-              '[RPC] workspace:switch session import failed (non-fatal)',
-              { error: err instanceof Error ? err.message : String(err) },
+              '[RPC] workspace:switch deferSessionImport threw synchronously (non-fatal)',
+              {
+                error:
+                  importErr instanceof Error
+                    ? importErr.message
+                    : String(importErr),
+              },
+            );
+          }
+
+          // Same deferral contract as the session import above: the `@` file
+          // picker's backing index is pinned to whichever root it last built
+          // for, so without this the picker keeps serving the PREVIOUS
+          // workspace's files for the rest of the process lifetime
+          // (TASK_2026_200). Indexing a large repo is seconds of file I/O, so
+          // it must stay off the switch critical path and must never turn a
+          // successful switch into `success:false`.
+          try {
+            this.deferFileIndexRebuild(params.path);
+          } catch (indexErr: unknown) {
+            this.logger.warn(
+              '[RPC] workspace:switch deferFileIndexRebuild threw synchronously (non-fatal)',
+              {
+                error:
+                  indexErr instanceof Error
+                    ? indexErr.message
+                    : String(indexErr),
+              },
             );
           }
 
@@ -295,5 +380,146 @@ export class WorkspaceRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Import Claude sessions for a workspace OFF the `workspace:switch` critical
+   * path.
+   *
+   * `SessionImporterService.scanAndImport` does blocking file I/O + SQLite
+   * work (directory scan, up to 50 JSONL reads, title-only prune). Awaiting it
+   * inside the RPC made every switch wait on that work. Here it runs
+   * fire-and-forget; the resulting `metadataChanged` push refreshes the
+   * renderer's session list when anything actually changed.
+   *
+   * Three in-memory guards keep repeated switching cheap:
+   * - **recency** — skip the scan when this path was imported within
+   *   {@link WorkspaceRpcHandlers.IMPORT_RECENCY_MS}.
+   * - **failure-backoff** — skip when this path's last import FAILED within
+   *   {@link WorkspaceRpcHandlers.IMPORT_FAILURE_BACKOFF_MS}, so a broken path
+   *   is not rescanned on every switch.
+   * - **in-flight** — skip when a previous scan for this path has not resolved
+   *   yet, so rapid re-switches during a slow scan do not stack.
+   *
+   * Both are per-process only: a fresh process re-imports on the first switch,
+   * and the separate boot-time import (app activation) is unaffected because
+   * it calls `scanAndImport` directly, not through this handler.
+   */
+  /**
+   * Rebuild the `@`-mention file index for the newly-activated workspace, OFF
+   * the `workspace:switch` critical path.
+   *
+   * `WorkspaceFileIndexService` holds single-active-root state: it is built
+   * once at boot for the startup workspace and, before TASK_2026_200, was never
+   * rebuilt — so after any switch the picker listed the boot workspace's files
+   * forever. `ensureReadyFor(root)` is the service's explicit-root entry point;
+   * it is a cheap no-op when the requested root is already the indexed one
+   * (roots compare by `normalizeWorkspaceRoot`, so separator/drive-case
+   * variants do not force a redundant rebuild) and supersedes any in-flight
+   * build otherwise.
+   *
+   * Resolution is OPTIONAL by design. The CLI host has no picker surface and
+   * does not register the index (`research-report.md` §3, §4.D); VS Code does
+   * not serve `workspace:switch` at all. On any host where the token is absent
+   * this degrades silently — it must never break the switch.
+   */
+  private deferFileIndexRebuild(workspacePath: string): void {
+    if (!this.container.isRegistered(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)) {
+      this.logger.debug(
+        '[RPC] workspace:switch file index not registered on this host (skipping re-index)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    const fileIndex = this.container.resolve<WorkspaceFileIndexService>(
+      TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+    );
+
+    this.logger.info('[RPC] workspace:switch re-indexing files for workspace', {
+      path: workspacePath,
+    });
+    const startedAt = Date.now();
+    void fileIndex
+      .ensureReadyFor(workspacePath)
+      .then(() => {
+        this.logger.info('[RPC] workspace:switch file re-index complete', {
+          path: workspacePath,
+          durationMs: Date.now() - startedAt,
+          fileCount: fileIndex.fileCount,
+        });
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(
+          '[RPC] workspace:switch file re-index failed (non-fatal)',
+          {
+            path: workspacePath,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
+  }
+
+  private deferSessionImport(workspacePath: string): void {
+    const key = workspacePath.replace(/\\/g, '/').toLowerCase();
+
+    const lastCompleted = this.lastImportCompletedAt.get(key);
+    if (
+      lastCompleted !== undefined &&
+      Date.now() - lastCompleted < WorkspaceRpcHandlers.IMPORT_RECENCY_MS
+    ) {
+      this.logger.debug(
+        '[RPC] workspace:switch skipping session import (imported recently)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    const lastFailed = this.lastImportFailedAt.get(key);
+    if (
+      lastFailed !== undefined &&
+      Date.now() - lastFailed < WorkspaceRpcHandlers.IMPORT_FAILURE_BACKOFF_MS
+    ) {
+      this.logger.debug(
+        '[RPC] workspace:switch skipping session import (failed recently)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    if (this.importsInFlight.has(key)) {
+      this.logger.debug(
+        '[RPC] workspace:switch skipping session import (already in flight)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    this.importsInFlight.add(key);
+    void this.sessionImporter
+      .scanAndImport(workspacePath, 50)
+      .then((importCount) => {
+        this.lastImportCompletedAt.set(key, Date.now());
+        this.lastImportFailedAt.delete(key);
+        if (importCount > 0) {
+          this.logger.info(
+            `[RPC] workspace:switch imported ${importCount} session(s)`,
+            { path: workspacePath },
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        // Stamp the failure so a persistently-broken path backs off instead of
+        // rescanning on every switch (the success-recency guard never engages
+        // for a path that never completes).
+        this.lastImportFailedAt.set(key, Date.now());
+        this.logger.warn(
+          '[RPC] workspace:switch session import failed (non-fatal)',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      })
+      .finally(() => {
+        this.importsInFlight.delete(key);
+      });
   }
 }

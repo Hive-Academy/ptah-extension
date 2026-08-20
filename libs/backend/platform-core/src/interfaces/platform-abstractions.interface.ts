@@ -34,6 +34,22 @@ export interface IPlatformCommands {
    * CLI: no-op (no UI to focus).
    */
   focusChat(): Promise<void>;
+  /**
+   * Run a host command by id.
+   *
+   * Hosts differ in what a "command" even is: VS Code forwards to its command
+   * registry, Electron implements each id itself, and headless hosts have no
+   * command surface at all. `handled: false` means "this host has no
+   * implementation for that id" — distinct from a command that ran and failed,
+   * which rejects.
+   *
+   * Callers are responsible for authorizing the id before calling; this does
+   * not gate.
+   */
+  executeCommand(
+    command: string,
+    args?: readonly unknown[],
+  ): Promise<{ handled: boolean; error?: string }>;
 }
 
 /**
@@ -64,6 +80,26 @@ export interface ISaveDialogProvider {
     title: string;
     content: Buffer;
   }): Promise<string | null>;
+}
+
+/**
+ * IFileDialog — platform-specific "choose file(s)" dialog.
+ *
+ * The three hosts open very different things (a VS Code quick-open dialog, an
+ * OS-native Electron dialog, a terminal selection list) but the callers only
+ * ever need paths back, so that is the whole port. Cancellation is an empty
+ * array, never a throw — every caller treats "user changed their mind" as a
+ * normal outcome.
+ */
+export interface IFileDialog {
+  openFiles(options: {
+    /** Allow selecting more than one file. */
+    multiple: boolean;
+    /** Dialog title, where the host has one. */
+    title: string;
+    /** Extension filters keyed by group label, e.g. `{ Images: ['png'] }`. */
+    filters?: Record<string, string[]>;
+  }): Promise<readonly string[]>;
 }
 
 /**

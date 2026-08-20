@@ -55,4 +55,10 @@ static_sites:
     build_command: bash scripts/do-build.sh
     output_dir: dist/ptah-landing-page/browser
     environment_slug: node-js
-    catchall_document: index.html
+    # SSG (outputMode: static): the 6 marketing routes are prerendered to their
+    # own index.html files (/, /download/, /pricing/, /terms-and-conditions/,
+    # /privacy/, /refund/). index.csr.html is the empty client-bootstrap shell
+    # the builder emits for client-rendered routes. Point the catchall at it so
+    # CSR deep-links (/login, /signup, /profile, /trial-ended, /admin/**) boot
+    # the SPA cleanly instead of flashing the prerendered home page.
+    catchall_document: index.csr.html

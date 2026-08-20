@@ -1,23 +1,30 @@
 ﻿/**
  * ApiKeyStrategy â€” unit specs.
  *
- * The API-key strategy multiplexes three flows:
+ * The API-key strategy multiplexes these flows:
  *   1. Direct Anthropic ('anthropic' / legacy 'apiKey'): read key from
  *      SecretStorage (primary) or the pre-wipe env snapshot (fallback).
  *      Also stops the OpenRouter proxy if it was left running.
- *   2. OpenRouter: start a local translation proxy, point the SDK at its
- *      URL, and leave ANTHROPIC_API_KEY unset.
+ *   2. OpenRouter / Sakana: start the DI-singleton translation proxy, point
+ *      the SDK at its URL, and leave ANTHROPIC_API_KEY unset.
  *   3. Other Anthropic-compatible providers (Moonshot, Z.AI): read the
  *      per-provider key, set base URL + provider-specific auth env var.
+ *   4. User-defined entries, OpenAI lane (requiresProxy: true): build a
+ *      CustomOpenAiTranslationProxy for that id at runtime, cache it, and
+ *      include it in the mutual-exclusion teardown set.
+ *   5. User-defined entries, Anthropic lane (requiresProxy: false): flow 3
+ *      unchanged — no proxy, no custom-entry-specific code.
  *
  * Tests cover each path's happy path, each path's "no credentials" negative
  * path, the OpenRouter proxy restart-hint branch, and the OpenRouter proxy
- * start failure. Teardown always stops the OpenRouter proxy if running.
+ * start failure. Exactly one apiKey proxy may listen at a time, so every
+ * switch-away case asserts the previous proxy was stopped. Teardown stops
+ * whichever proxies are running.
  *
  * No retry / expiry logic exists in source (keys are either present or not).
  *
  * Source-under-test:
- *   `libs/backend/agent-sdk/src/lib/auth/strategies/api-key.strategy.ts`
+ *   `libs/backend/auth-providers/src/lib/auth/strategies/api-key.strategy.ts`
  */
 
 import 'reflect-metadata';
@@ -28,7 +35,15 @@ import type {
   SentryService,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type {
+  AuthEnv,
+  AnthropicProvider,
+  CustomProviderEntry,
+} from '@ptah-extension/shared';
+import {
+  setCustomProviderEntries,
+  clearCustomProviderEntries,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -46,6 +61,81 @@ import type { AuthConfigureContext } from '../auth-strategy.types';
 import type { ITranslationProxy } from '../../translation';
 import type { ProviderModelsService } from '../../provider-models.service';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
+import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../../providers/sakana';
+import { CUSTOM_PROXY_TOKEN_PLACEHOLDER } from '../../providers/custom';
+
+// ---------------------------------------------------------------------------
+// User-defined provider entries
+//
+// These go through the REAL registry merge (`setCustomProviderEntries`), not a
+// module mock, so these tests exercise the actual lane -> requiresProxy
+// projection the strategy branches on rather than a hand-built stand-in.
+// ---------------------------------------------------------------------------
+
+/** Entries registered so far in the current test; re-set on every addition. */
+const definedCustomEntries: CustomProviderEntry[] = [];
+
+/** Register a user-defined entry for the duration of a test. */
+function defineCustomProvider(
+  entry: Omit<CustomProviderEntry, 'authEnvVar' | 'keyPrefix' | 'helpUrl'> &
+    Partial<Pick<CustomProviderEntry, 'authEnvVar' | 'keyPrefix' | 'helpUrl'>>,
+): void {
+  definedCustomEntries.push({
+    authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+    keyPrefix: '',
+    helpUrl: '',
+    ...entry,
+  });
+  const { rejected } = setCustomProviderEntries(definedCustomEntries);
+  if (rejected.length > 0) {
+    throw new Error(
+      `Test fixture rejected by the registry: ${rejected
+        .map((r) => `${r.id} (${r.reason})`)
+        .join(', ')}`,
+    );
+  }
+}
+
+/**
+ * Stand-in for `createCustomOpenAiProxy`. The real factory is covered by
+ * custom-openai-translation-proxy.spec.ts; here we only care that the strategy
+ * builds ONE proxy per custom id, with the right base URL, and manages its
+ * lifecycle — so we hand back a mock proxy instead of binding a real socket.
+ */
+const mockCreatedCustomProxies: Array<{
+  providerId: string;
+  baseUrl: string;
+  proxy: jest.Mocked<ITranslationProxy>;
+}> = [];
+
+const mockCustomProxyFactory = jest.fn<
+  jest.Mocked<ITranslationProxy>,
+  [{ provider: AnthropicProvider; baseUrl: string }]
+>();
+
+jest.mock('../../providers/custom', () => {
+  const actual = jest.requireActual<typeof import('../../providers/custom')>(
+    '../../providers/custom',
+  );
+  return {
+    ...actual,
+    createCustomOpenAiProxy: (params: {
+      provider: AnthropicProvider;
+      baseUrl: string;
+    }) => mockCustomProxyFactory(params),
+  };
+});
+
+/** The mock proxy the strategy built for a custom id (fails loudly if none). */
+function customProxyFor(providerId: string): jest.Mocked<ITranslationProxy> {
+  const created = mockCreatedCustomProxies.filter(
+    (p) => p.providerId === providerId,
+  );
+  if (created.length === 0) {
+    throw new Error(`No custom proxy was created for "${providerId}"`);
+  }
+  return created[created.length - 1].proxy;
+}
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -58,7 +148,7 @@ function asConfig(mock: MockConfigManager): ConfigManager {
   return mock as unknown as ConfigManager;
 }
 
-function createMockOpenRouterProxy(): jest.Mocked<ITranslationProxy> {
+function createMockProxy(): jest.Mocked<ITranslationProxy> {
   return {
     start: jest
       .fn<Promise<{ port: number; url: string }>, []>()
@@ -76,7 +166,10 @@ type ProviderModelsSurface = Pick<
 
 function createMockProviderModels(): jest.Mocked<ProviderModelsSurface> {
   return {
-    switchActiveProvider: jest.fn<void, [string]>(),
+    switchActiveProvider: jest.fn<
+      void,
+      [string, { apiKey?: string | null }?]
+    >(),
     clearAllTierEnvVars: jest.fn<void, []>(),
   };
 }
@@ -100,6 +193,7 @@ interface Harness {
   authSecrets: MockAuthSecretsService;
   providerModels: jest.Mocked<ProviderModelsSurface>;
   openRouterProxy: jest.Mocked<ITranslationProxy>;
+  sakanaProxy: jest.Mocked<ITranslationProxy>;
   authEnv: AuthEnv;
 }
 
@@ -117,7 +211,8 @@ function makeStrategy(
     providerKeys: options.providerKeys,
   });
   const providerModels = createMockProviderModels();
-  const openRouterProxy = createMockOpenRouterProxy();
+  const openRouterProxy = createMockProxy();
+  const sakanaProxy = createMockProxy();
   const sentry = createMockSentryService();
   const authEnv: AuthEnv = {};
 
@@ -128,6 +223,7 @@ function makeStrategy(
     providerModels as unknown as ProviderModelsService,
     authEnv,
     openRouterProxy,
+    sakanaProxy,
     sentry as unknown as SentryService,
   );
 
@@ -138,15 +234,34 @@ function makeStrategy(
     authSecrets,
     providerModels,
     openRouterProxy,
+    sakanaProxy,
     authEnv,
   };
 }
 
 describe('ApiKeyStrategy', () => {
+  beforeEach(() => {
+    // mockReset (not clear) so a queued mockImplementationOnce can never leak
+    // from a test that did not consume it into the next one.
+    mockCustomProxyFactory.mockReset();
+    mockCustomProxyFactory.mockImplementation(({ provider, baseUrl }) => {
+      const proxy = createMockProxy();
+      mockCreatedCustomProxies.push({
+        providerId: provider.id,
+        baseUrl,
+        proxy,
+      });
+      return proxy;
+    });
+  });
+
   afterEach(() => {
     delete process.env['ANTHROPIC_API_KEY'];
     delete process.env['ANTHROPIC_BASE_URL'];
     delete process.env['ANTHROPIC_AUTH_TOKEN'];
+    definedCustomEntries.length = 0;
+    clearCustomProviderEntries();
+    mockCreatedCustomProxies.length = 0;
     jest.clearAllMocks();
   });
 
@@ -265,8 +380,12 @@ describe('ApiKeyStrategy', () => {
       expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('');
       expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
 
+      // The REAL key travels with the switch, not the proxy placeholder that
+      // just went into authEnv: a provider whose tiers can only come from its
+      // live catalogue needs an authenticated /v1/models call (TASK_2026_262).
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'openrouter',
+        { apiKey: 'sk-or-v1-valid' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('OpenRouter API key');
@@ -354,6 +473,67 @@ describe('ApiKeyStrategy', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Sakana flow (apiKey + requiresProxy) — the generalized proxy path
+  // -------------------------------------------------------------------------
+
+  describe('Sakana flow (providerId = "sakana", apiKey + requiresProxy)', () => {
+    it('happy path: starts the Sakana proxy, points SDK at proxy URL, uses the Sakana placeholder', async () => {
+      const harness = makeStrategy({
+        providerKeys: { sakana: 'sakana-key-valid' },
+      });
+      harness.sakanaProxy.isRunning.mockReturnValue(false);
+      harness.sakanaProxy.start.mockResolvedValueOnce({
+        port: 9600,
+        url: 'http://127.0.0.1:9600',
+      });
+
+      const ctx = makeContext('sakana');
+      const result = await harness.strategy.configure(ctx);
+
+      expect(harness.sakanaProxy.start).toHaveBeenCalledTimes(1);
+      // The OpenRouter proxy must NOT be touched for a Sakana configure.
+      expect(harness.openRouterProxy.start).not.toHaveBeenCalled();
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9600');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+        SAKANA_PROXY_TOKEN_PLACEHOLDER,
+      );
+      expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('');
+      expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        'sakana',
+        { apiKey: 'sakana-key-valid' },
+      );
+      expect(result.configured).toBe(true);
+      expect(result.details[0]).toContain('Sakana');
+    });
+
+    it('auth-required: no Sakana key in SecretStorage → configured=false, proxy not started', async () => {
+      const harness = makeStrategy({ providerKeys: {} });
+
+      const result = await harness.strategy.configure(makeContext('sakana'));
+
+      expect(result.configured).toBe(false);
+      expect(harness.sakanaProxy.start).not.toHaveBeenCalled();
+    });
+
+    it('stops the OpenRouter proxy when switching from OpenRouter to Sakana', async () => {
+      const harness = makeStrategy({
+        providerKeys: { sakana: 'sakana-key' },
+      });
+      harness.openRouterProxy.isRunning.mockReturnValue(true);
+      harness.sakanaProxy.isRunning.mockReturnValue(false);
+      harness.sakanaProxy.start.mockResolvedValueOnce({
+        port: 1,
+        url: 'http://127.0.0.1:1',
+      });
+
+      await harness.strategy.configure(makeContext('sakana'));
+
+      expect(harness.openRouterProxy.stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Other Anthropic-compatible provider flow (Moonshot)
   // -------------------------------------------------------------------------
 
@@ -377,6 +557,7 @@ describe('ApiKeyStrategy', () => {
 
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'moonshot',
+        { apiKey: 'moonshot-key-xyz' },
       );
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('Moonshot');
@@ -442,6 +623,7 @@ describe('ApiKeyStrategy', () => {
       );
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
         'moonshot',
+        { apiKey: 'env-moonshot-token' },
       );
     });
 
@@ -495,6 +677,344 @@ describe('ApiKeyStrategy', () => {
       expect(
         harness.providerModels.switchActiveProvider,
       ).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // User-defined entries, OpenAI lane (requiresProxy: true)
+  //
+  // These get a CustomOpenAiTranslationProxy built per id at runtime, rather
+  // than one of the two DI singletons.
+  // -------------------------------------------------------------------------
+
+  describe('custom provider, OpenAI lane (requiresProxy: true)', () => {
+    const VLLM_ID = 'my-vllm-box';
+
+    function defineVllm(overrides: Partial<CustomProviderEntry> = {}): void {
+      defineCustomProvider({
+        id: VLLM_ID,
+        name: 'My vLLM Box',
+        baseUrl: 'http://192.168.1.50:8000',
+        lane: 'openai',
+        ...overrides,
+      });
+    }
+
+    it('builds a proxy for the entry id and points the SDK at it', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key' },
+      });
+
+      const ctx = makeContext(VLLM_ID);
+      // The proxy is created during configure(); arm start() via the factory.
+      mockCustomProxyFactory.mockImplementationOnce(({ provider, baseUrl }) => {
+        const proxy = createMockProxy();
+        proxy.start.mockResolvedValue({
+          port: 9700,
+          url: 'http://127.0.0.1:9700',
+        });
+        mockCreatedCustomProxies.push({
+          providerId: provider.id,
+          baseUrl,
+          proxy,
+        });
+        return proxy;
+      });
+
+      const result = await harness.strategy.configure(ctx);
+
+      expect(mockCustomProxyFactory).toHaveBeenCalledTimes(1);
+      expect(mockCustomProxyFactory).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: 'http://192.168.1.50:8000' }),
+      );
+      expect(customProxyFor(VLLM_ID).start).toHaveBeenCalledTimes(1);
+
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9700');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+        CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+      );
+      expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('');
+      expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+
+      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        VLLM_ID,
+        { apiKey: 'vllm-key' },
+      );
+      expect(result.configured).toBe(true);
+      expect(result.details[0]).toContain('My vLLM Box');
+      // Neither built-in singleton may be touched for a custom provider.
+      expect(harness.openRouterProxy.start).not.toHaveBeenCalled();
+      expect(harness.sakanaProxy.start).not.toHaveBeenCalled();
+    });
+
+    it('reuses the cached instance when the same entry is configured again', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+      customProxyFor(VLLM_ID).isRunning.mockReturnValue(true);
+      customProxyFor(VLLM_ID).getUrl.mockReturnValue('http://127.0.0.1:9700');
+
+      const result = await harness.strategy.configure(makeContext(VLLM_ID));
+
+      // One instance per id for the lifetime of the strategy — no leak.
+      expect(mockCustomProxyFactory).toHaveBeenCalledTimes(1);
+      expect(customProxyFor(VLLM_ID).start).toHaveBeenCalledTimes(1);
+      expect(result.configured).toBe(true);
+    });
+
+    it('prefers a provider.<id>.baseUrl override over the entry base URL', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key' },
+        config: { [`provider.${VLLM_ID}.baseUrl`]: 'http://10.0.0.9:1234' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+
+      expect(mockCustomProxyFactory).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: 'http://10.0.0.9:1234' }),
+      );
+    });
+
+    it('rebuilds the proxy when the resolved base URL changes', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+      const first = customProxyFor(VLLM_ID);
+      first.isRunning.mockReturnValue(true);
+
+      // The user edits the entry (or sets a base-URL override).
+      harness.config.__seed({
+        [`provider.${VLLM_ID}.baseUrl`]: 'http://10.0.0.9:1234',
+      });
+      await harness.strategy.configure(makeContext(VLLM_ID));
+
+      expect(mockCustomProxyFactory).toHaveBeenCalledTimes(2);
+      // The stale instance must be stopped, never left listening on the old URL.
+      expect(first.stop).toHaveBeenCalledTimes(1);
+      expect(customProxyFor(VLLM_ID)).not.toBe(first);
+      expect(customProxyFor(VLLM_ID).start).toHaveBeenCalledTimes(1);
+    });
+
+    it('tears the custom proxy down when switching to another provider', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key', moonshot: 'moonshot-key' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+      const customProxy = customProxyFor(VLLM_ID);
+      customProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.configure(makeContext('moonshot'));
+
+      expect(customProxy.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('tears the custom proxy down when switching to a built-in proxy provider', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key', openrouter: 'sk-or-v1-abc' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+      const customProxy = customProxyFor(VLLM_ID);
+      customProxy.isRunning.mockReturnValue(true);
+      harness.openRouterProxy.start.mockResolvedValueOnce({
+        port: 9800,
+        url: 'http://127.0.0.1:9800',
+      });
+
+      await harness.strategy.configure(makeContext('openrouter'));
+
+      expect(customProxy.stop).toHaveBeenCalledTimes(1);
+      expect(harness.openRouterProxy.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('tears down one custom proxy when switching to a different custom provider', async () => {
+      defineVllm();
+      defineCustomProvider({
+        id: 'my-litellm',
+        name: 'My LiteLLM',
+        baseUrl: 'https://litellm.example.com',
+        lane: 'openai',
+      });
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key', 'my-litellm': 'litellm-key' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+      const vllmProxy = customProxyFor(VLLM_ID);
+      vllmProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.configure(makeContext('my-litellm'));
+
+      expect(vllmProxy.stop).toHaveBeenCalledTimes(1);
+      expect(customProxyFor('my-litellm').start).toHaveBeenCalledTimes(1);
+    });
+
+    it('teardown() stops a running custom proxy', async () => {
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key' },
+      });
+
+      await harness.strategy.configure(makeContext(VLLM_ID));
+      const customProxy = customProxyFor(VLLM_ID);
+      customProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.teardown();
+
+      expect(customProxy.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('auth-required: no key for the entry → configured=false, proxy not started', async () => {
+      defineVllm();
+      const harness = makeStrategy({ providerKeys: {} });
+
+      const result = await harness.strategy.configure(makeContext(VLLM_ID));
+
+      expect(result.configured).toBe(false);
+      expect(customProxyFor(VLLM_ID).start).not.toHaveBeenCalled();
+    });
+
+    it('fails loudly when the proxy cannot be built, never silently downgrading to passthrough', async () => {
+      // The entry schema rejects a malformed baseUrl at the registry boundary,
+      // so the surviving way to reach an unbuildable proxy is a hand-edited
+      // `provider.<id>.baseUrl` override, which bypasses that schema.
+      defineVllm();
+      const harness = makeStrategy({
+        providerKeys: { [VLLM_ID]: 'vllm-key' },
+        config: { [`provider.${VLLM_ID}.baseUrl`]: 'not-a-url' },
+      });
+      mockCustomProxyFactory.mockImplementationOnce(() => {
+        throw new Error('Custom provider base URL is not a valid URL');
+      });
+
+      const ctx = makeContext(VLLM_ID);
+      const result = await harness.strategy.configure(ctx);
+
+      expect(result.configured).toBe(false);
+      expect(result.errorMessage).toContain('My vLLM Box');
+      // The OpenAI-lane entry must NOT be handed to the Anthropic passthrough.
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(
+        harness.providerModels.switchActiveProvider,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('does not hijack a built-in proxy provider owned by another strategy', async () => {
+      // github-copilot is requiresProxy: true but is configured by
+      // OAuthProxyStrategy. ApiKeyStrategy must not build a custom proxy for it.
+      const harness = makeStrategy({ providerKeys: {} });
+
+      await harness.strategy.configure(makeContext('github-copilot'));
+
+      expect(mockCustomProxyFactory).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // User-defined entries, Anthropic lane (requiresProxy: false)
+  //
+  // These need no proxy at all — they ride the same direct-passthrough path as
+  // Moonshot/Z.AI, with no code specific to custom entries involved.
+  // -------------------------------------------------------------------------
+
+  describe('custom provider, Anthropic lane (requiresProxy: false)', () => {
+    const REQUESTY_ID = 'custom-requesty-eu';
+
+    it('takes the passthrough path: entry base URL + entry auth env var, no proxy', async () => {
+      defineCustomProvider({
+        id: REQUESTY_ID,
+        name: 'Requesty (EU)',
+        baseUrl: 'https://router.eu.requesty.ai',
+        lane: 'anthropic',
+      });
+      const harness = makeStrategy({
+        providerKeys: { [REQUESTY_ID]: 'requesty-key' },
+      });
+
+      const ctx = makeContext(REQUESTY_ID);
+      const result = await harness.strategy.configure(ctx);
+
+      expect(mockCustomProxyFactory).not.toHaveBeenCalled();
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe(
+        'https://router.eu.requesty.ai',
+      );
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('requesty-key');
+      expect(process.env['ANTHROPIC_BASE_URL']).toBe(
+        'https://router.eu.requesty.ai',
+      );
+      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        REQUESTY_ID,
+        { apiKey: 'requesty-key' },
+      );
+      expect(result.configured).toBe(true);
+      expect(result.details[0]).toContain('Requesty (EU)');
+    });
+
+    it('honours ANTHROPIC_API_KEY as the entry auth env var', async () => {
+      defineCustomProvider({
+        id: 'x-api-key-gateway',
+        name: 'Header Gateway',
+        baseUrl: 'https://gw.example.com',
+        lane: 'anthropic',
+        authEnvVar: 'ANTHROPIC_API_KEY',
+      });
+      const harness = makeStrategy({
+        providerKeys: { 'x-api-key-gateway': 'gw-key' },
+      });
+
+      const ctx = makeContext('x-api-key-gateway');
+      await harness.strategy.configure(ctx);
+
+      expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('gw-key');
+      expect(process.env['ANTHROPIC_API_KEY']).toBe('gw-key');
+    });
+
+    it('prefers a provider.<id>.baseUrl override over the entry base URL', async () => {
+      defineCustomProvider({
+        id: REQUESTY_ID,
+        name: 'Requesty (EU)',
+        baseUrl: 'https://router.eu.requesty.ai',
+        lane: 'anthropic',
+      });
+      const harness = makeStrategy({
+        providerKeys: { [REQUESTY_ID]: 'requesty-key' },
+        config: {
+          [`provider.${REQUESTY_ID}.baseUrl`]: 'https://router.requesty.ai',
+        },
+      });
+
+      const ctx = makeContext(REQUESTY_ID);
+      await harness.strategy.configure(ctx);
+
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('https://router.requesty.ai');
+    });
+
+    it('stops a running built-in proxy when switching to a custom passthrough entry', async () => {
+      defineCustomProvider({
+        id: REQUESTY_ID,
+        name: 'Requesty (EU)',
+        baseUrl: 'https://router.eu.requesty.ai',
+        lane: 'anthropic',
+      });
+      const harness = makeStrategy({
+        providerKeys: { [REQUESTY_ID]: 'requesty-key' },
+      });
+      harness.openRouterProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.configure(makeContext(REQUESTY_ID));
+
+      expect(harness.openRouterProxy.stop).toHaveBeenCalledTimes(1);
     });
   });
 

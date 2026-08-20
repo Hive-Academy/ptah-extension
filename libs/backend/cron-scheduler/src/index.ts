@@ -12,9 +12,12 @@ export {
   RunStore,
   type IRunStore,
   SlotAlreadyClaimedError,
-  isUniqueConstraintError,
 } from './lib/run.store';
+// `isUniqueConstraintError` moved to `@ptah-extension/persistence-sqlite` — it
+// is a driver concern, and re-exporting it here would leave a second import
+// path for one function. Import it from there.
 export { HandlerRegistry } from './lib/handler-registry';
+export { normalizeWorkspaceRoot } from './lib/normalize-workspace-root';
 export {
   CronSchedulerError,
   JobNotFoundError,

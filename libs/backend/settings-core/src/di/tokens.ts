@@ -35,9 +35,21 @@ export const SETTINGS_TOKENS = {
   /** CronSettings repository. */
   CRON_SETTINGS: Symbol.for('CronSettings'),
 
+  /** TasksSettings repository (saved board views). */
+  TASKS_SETTINGS: Symbol.for('TasksSettings'),
+
+  /** CustomProviderStore — user-defined provider entries (TASK_2026_236). */
+  CUSTOM_PROVIDER_STORE: Symbol.for('CustomProviderStore'),
+
   /** MigrationRunner (ISettingsMigrator implementation). */
   MIGRATION_RUNNER: Symbol.for('MigrationRunner'),
 
   /** IMasterKeyProvider — platform-specific secure key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('MasterKeyProvider'),
+
+  /** IActiveWorkspaceSource — active-folder path + change notifications (bound per app). */
+  ACTIVE_WORKSPACE_SOURCE: Symbol.for('ActiveWorkspaceSource'),
+
+  /** WorkspaceScopeResolver — workspace-prefixed key override/fallback helper. */
+  WORKSPACE_SCOPE_RESOLVER: Symbol.for('WorkspaceScopeResolver'),
 } as const;

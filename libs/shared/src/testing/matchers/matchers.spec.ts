@@ -76,9 +76,9 @@ describe('toMatchRpcError', () => {
   it('matches expected error regex', () => {
     expect({
       success: false,
-      error: 'LICENSE_REQUIRED: renew now',
+      error: 'WORKSPACE_NOT_OPEN: open a folder first',
       correlationId: 'corr-6',
-    }).toMatchRpcError(/LICENSE_REQUIRED/);
+    }).toMatchRpcError(/WORKSPACE_NOT_OPEN/);
   });
 
   it('fails when success is true', () => {

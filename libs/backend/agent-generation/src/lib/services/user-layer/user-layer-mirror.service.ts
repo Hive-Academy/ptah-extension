@@ -1,19 +1,13 @@
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
-import { join, resolve, sep, basename, dirname } from 'path';
-import {
-  mkdir,
-  readdir,
-  readFile,
-  writeFile,
-  rename,
-  rm,
-  stat,
-  lstat,
-  unlink,
-} from 'fs/promises';
+import { join, basename } from 'path';
+import { mkdir, readdir, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
-import type { OriginKind, OriginSidecar } from './origin-sidecar.types';
+import type {
+  OriginKind,
+  OriginSidecar,
+  UserLayerRoots,
+} from './origin-sidecar.types';
 import {
   DEFAULT_HISTORY_DIR,
   ORIGIN_SIDECAR_FILENAME,
@@ -24,22 +18,54 @@ import {
   writeSidecarAtomicAt,
   readSidecar,
   readSidecarAt,
-  isErrnoCode,
 } from './source-hash';
 import type { CollectFilesResult } from './source-hash';
+import { UserLayerFsOps } from './user-layer-fs-ops';
+import {
+  UserLayerOrphanReaper,
+  collectUpstreamLiveness,
+  emptyReapResult,
+} from './user-layer-orphan-reaper';
+import type { OrphanedClone, ReapResult } from './user-layer-orphan-reaper';
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
 
-export interface UserLayerRoots {
-  skills: string;
-  agents: string;
-  commands: string;
-}
+export type { UserLayerRoots } from './origin-sidecar.types';
+export type {
+  OrphanedClone,
+  ReapResult,
+  UpstreamLiveness,
+} from './user-layer-orphan-reaper';
 
 export interface MirrorSources {
   pluginPaths: string[];
-  synthesizedSkillsRoot: string;
+  /**
+   * `~/.ptah/plugins/ptah-harness-*` roots — the skill plugins the harness
+   * builder writes.
+   *
+   * They are SEPARATE from `pluginPaths` because they come from a different
+   * producer (`PluginLoaderService.discoverHarnessPluginPaths()`, not
+   * `resolvePluginPaths(enabledIds)`) and were therefore missing from every
+   * mirror call while being present in every junction call — defect 6. Once
+   * inside this service they are treated identically to a bundled plugin: same
+   * `skills/` + `commands/` layout, same sidecar, same `pluginId`
+   * (`ptah-harness-<slug>`), same divergence tracking.
+   */
+  harnessPluginRoots?: string[];
+  /**
+   * Optional so a caller that only wants a single plugin mirrored (the harness
+   * builder, right after it writes one) does not have to name a synth root it
+   * has no opinion about. Absent means "not scanned", which also means synth
+   * clones are never reaped on that pass.
+   */
+  synthesizedSkillsRoot?: string;
   agentSourceDir?: string;
+  /**
+   * `~/.ptah/plugins`. Only the reap path needs it — to tell a DISABLED plugin
+   * (dir still present, clones kept) from an UNINSTALLED one (dir gone, clones
+   * reaped). Defaults to the parent of the first supplied plugin path.
+   */
+  pluginsBasePath?: string;
 }
 
 export interface MirrorResult {
@@ -59,6 +85,8 @@ export interface CloneEntry {
   diverged: boolean;
   lastEnhancedAt: number | null;
   pendingSourceHash: string | null;
+  /** Upstream is gone but the clone carried local work, so it was kept. */
+  orphaned: boolean;
 }
 
 export interface DivergedClone {
@@ -74,6 +102,17 @@ export interface ReconcileResult {
   missingSidecar: number;
   errors: number;
   divergedSlugs: DivergedClone[];
+  /**
+   * Clones whose upstream vanished and which carried no local work: snapshotted
+   * to `.history/` and deleted. Always `0` from {@link
+   * UserLayerMirrorService.reconcile}; only {@link
+   * UserLayerMirrorService.reconcileAll} sweeps.
+   */
+  reaped: number;
+  /** Clones whose upstream vanished but which were KEPT and flagged. */
+  orphaned: number;
+  reapedClones: OrphanedClone[];
+  orphanedClones: OrphanedClone[];
 }
 
 export interface RebaseCloneArgs {
@@ -139,14 +178,24 @@ export interface HistoryEntry {
   hasSkillMd: boolean;
 }
 
-const MAX_COPY_RECURSION_DEPTH = 20;
 const SYNTH_CANDIDATES_DIR = '_candidates';
 
 @injectable()
 export class UserLayerMirrorService {
   private readonly inflight = new Map<string, Promise<void>>();
+  /**
+   * The two extracted collaborators (TASK_2026_278). They are constructed here
+   * rather than injected because both are pure internal machinery with a single
+   * owner — the DI token, class name and every public signature on this facade
+   * are unchanged, which is the whole point of the split.
+   */
+  private readonly fsOps: UserLayerFsOps;
+  private readonly reaper: UserLayerOrphanReaper;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
+    this.fsOps = new UserLayerFsOps(logger);
+    this.reaper = new UserLayerOrphanReaper(logger, this.fsOps);
+  }
 
   getUserLayerRoots(): UserLayerRoots {
     const base = join(homedir(), '.ptah', 'user');
@@ -169,7 +218,7 @@ export class UserLayerMirrorService {
     const roots = this.getUserLayerRoots();
     const seenSkillSlugs = new Map<string, string>();
 
-    for (const pluginPath of sources.pluginPaths) {
+    for (const pluginPath of allPluginRoots(sources)) {
       const pluginId = basename(pluginPath);
       await this.mirrorPluginSkills(
         pluginPath,
@@ -181,12 +230,14 @@ export class UserLayerMirrorService {
       await this.mirrorPluginCommands(pluginPath, roots.commands, result);
     }
 
-    await this.mirrorSynthesizedSkills(
-      sources.synthesizedSkillsRoot,
-      roots.skills,
-      seenSkillSlugs,
-      result,
-    );
+    if (sources.synthesizedSkillsRoot) {
+      await this.mirrorSynthesizedSkills(
+        sources.synthesizedSkillsRoot,
+        roots.skills,
+        seenSkillSlugs,
+        result,
+      );
+    }
 
     if (sources.agentSourceDir) {
       await this.mirrorAgents(sources.agentSourceDir, roots.agents, result);
@@ -236,38 +287,61 @@ export class UserLayerMirrorService {
         if (!sidecar) {
           continue;
         }
-        entries.push({
-          slug: sidecar.slug,
-          kind: sidecar.kind,
-          pluginId: sidecar.pluginId,
-          sourceHash: sidecar.sourceHash,
-          diverged: sidecar.diverged,
-          lastEnhancedAt: sidecar.lastEnhancedAt,
-          pendingSourceHash: sidecar.pendingSourceHash ?? null,
-        });
+        entries.push(toCloneEntry(sidecar));
       }
     }
     return entries;
   }
 
+  /**
+   * The origin record of ONE clone, or `null` when the clone has no sidecar
+   * (user-authored) or does not exist.
+   *
+   * `listClones()` walks all three roots; a single-clone UI read (`getClone`)
+   * should not pay for that, and asking the mirror keeps the sidecar format
+   * behind this class exactly as `listClones` does.
+   */
+  async readCloneOrigin(
+    kind: OriginKind,
+    slug: string,
+  ): Promise<CloneEntry | null> {
+    const roots = this.getUserLayerRoots();
+    const sidecar =
+      kind === 'skill'
+        ? await readSidecar(join(roots.skills, slug))
+        : await readSidecarAt(
+            join(
+              kind === 'agent' ? roots.agents : roots.commands,
+              `${slug}${ORIGIN_SIDECAR_SUFFIX}`,
+            ),
+          );
+    return sidecar ? toCloneEntry(sidecar) : null;
+  }
+
   async reconcile(sources: MirrorSources): Promise<ReconcileResult> {
-    const result: ReconcileResult = {
-      noop: 0,
-      fastForwarded: 0,
-      diverged: 0,
-      missingSidecar: 0,
-      errors: 0,
-      divergedSlugs: [],
-    };
+    const result = emptyReconcileResult();
     const roots = this.getUserLayerRoots();
 
-    for (const pluginPath of sources.pluginPaths) {
+    for (const pluginPath of allPluginRoots(sources)) {
       const pluginId = basename(pluginPath);
-      await this.reconcilePluginSkills(pluginPath, roots.skills, result);
+      await this.reconcilePluginSkills(
+        pluginPath,
+        pluginId,
+        roots.skills,
+        result,
+      );
       await this.reconcilePluginCommands(
         pluginPath,
         pluginId,
         roots.commands,
+        result,
+      );
+    }
+
+    if (sources.synthesizedSkillsRoot) {
+      await this.reconcileSynthesizedSkills(
+        sources.synthesizedSkillsRoot,
+        roots.skills,
         result,
       );
     }
@@ -284,6 +358,62 @@ export class UserLayerMirrorService {
       errors: result.errors,
     });
     return result;
+  }
+
+  /**
+   * The call every host activation should make, unconditionally.
+   *
+   * `reconcile()` alone was gated on `!result.fromCache` — a divergence check
+   * that only ran when a download happened, which is defect 8: a clone the user
+   * edited between two cached activations was never noticed, and a slug deleted
+   * upstream was never reaped at all. This is the full source-side sweep:
+   * three-way reconcile, then the deleted-upstream pass.
+   *
+   * It is cheap by construction — both halves are a directory walk plus a
+   * content hash per artifact, with no network and no LLM — so running it on
+   * every activation is the intended usage, not a fallback.
+   */
+  async reconcileAll(sources: MirrorSources): Promise<ReconcileResult> {
+    const result = await this.reconcile(sources);
+    const reap = await this.reapDeletedUpstream(sources);
+    result.reaped = reap.reaped;
+    result.orphaned = reap.orphaned;
+    result.reapedClones = reap.reapedClones;
+    result.orphanedClones = reap.orphanedClones;
+    result.errors += reap.errors;
+    return result;
+  }
+
+  /**
+   * Visit every clone whose sidecar names an upstream that no longer exists.
+   * Exposed on its own so a caller that already reconciled (or that only wants
+   * the sweep after an uninstall) does not have to re-run the three-way pass.
+   */
+  async reapDeletedUpstream(sources: MirrorSources): Promise<ReapResult> {
+    try {
+      const live = await collectUpstreamLiveness({
+        pluginPaths: allPluginRoots(sources),
+        ...(sources.synthesizedSkillsRoot
+          ? { synthesizedSkillsRoot: sources.synthesizedSkillsRoot }
+          : {}),
+        ...(sources.agentSourceDir
+          ? { agentSourceDir: sources.agentSourceDir }
+          : {}),
+        ...(sources.pluginsBasePath
+          ? { pluginsBasePath: sources.pluginsBasePath }
+          : {}),
+        synthCandidatesDirName: SYNTH_CANDIDATES_DIR,
+        fs: this.fsOps,
+      });
+      return await this.reaper.reap(this.getUserLayerRoots(), live);
+    } catch (error: unknown) {
+      this.logger.warn('[UserLayerMirror] deleted-upstream sweep failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const failed = emptyReapResult();
+      failed.errors = 1;
+      return failed;
+    }
   }
 
   async rebaseClone(args: RebaseCloneArgs): Promise<RebaseResult> {
@@ -558,24 +688,7 @@ export class UserLayerMirrorService {
     targetFile: string,
     content: string,
   ): Promise<void> {
-    this.assertUnderUserLayer(targetFile);
-    const tempPath = `${targetFile}.${process.pid}.${Date.now()}.tmp`;
-    if (dirname(tempPath) !== dirname(targetFile)) {
-      throw new Error(
-        `[UserLayerMirror] temp path must share the target parent dir: ${tempPath}`,
-      );
-    }
-    await mkdir(dirname(targetFile), { recursive: true });
-    let renamed = false;
-    try {
-      await writeFile(tempPath, content, 'utf8');
-      await rename(tempPath, targetFile);
-      renamed = true;
-    } finally {
-      if (!renamed) {
-        await unlink(tempPath).catch(() => undefined);
-      }
-    }
+    await this.fsOps.writeTextAtomic(targetFile, content);
   }
 
   private async rebaseDirClone(
@@ -738,6 +851,7 @@ export class UserLayerMirrorService {
 
   private async reconcilePluginSkills(
     pluginPath: string,
+    pluginId: string,
     skillsRoot: string,
     result: ReconcileResult,
   ): Promise<void> {
@@ -766,6 +880,61 @@ export class UserLayerMirrorService {
         await this.reconcileDirClone(
           'skill',
           slug,
+          pluginId,
+          sourceDir,
+          cloneDir,
+          result,
+        );
+      });
+    }
+  }
+
+  /**
+   * The pass that did not exist.
+   *
+   * `reconcile` walked plugin skills, plugin commands and workspace agents —
+   * never `<skillsRoot>/<slug>`. A promoted synthesized skill therefore had a
+   * clone that was created once and then frozen: an upstream re-promotion never
+   * fast-forwarded it, and a user edit was never flagged diverged, which is why
+   * "rebase a synth clone" looked like a missing RPC resolution when the
+   * divergence it would act on was never detected either.
+   *
+   * `_candidates` is skipped for the same reason `mirrorSynthesizedSkills`
+   * skips it: it is a staging area, not a skill.
+   */
+  private async reconcileSynthesizedSkills(
+    synthesizedSkillsRoot: string,
+    skillsRoot: string,
+    result: ReconcileResult,
+  ): Promise<void> {
+    let slugs: string[];
+    try {
+      slugs = await this.listSubdirectories(synthesizedSkillsRoot);
+    } catch (error: unknown) {
+      if (!this.isEnoent(error)) {
+        result.errors += 1;
+        this.logger.warn(
+          '[UserLayerMirror] reconcile failed to read synth skills',
+          {
+            synthesizedSkillsRoot,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      return;
+    }
+
+    for (const slug of slugs) {
+      if (slug === SYNTH_CANDIDATES_DIR || slug === DEFAULT_HISTORY_DIR) {
+        continue;
+      }
+      const sourceDir = join(synthesizedSkillsRoot, slug);
+      const cloneDir = join(skillsRoot, slug);
+      await this.withSlugLock('skill', slug, async () => {
+        await this.reconcileDirClone(
+          'skill',
+          slug,
+          null,
           sourceDir,
           cloneDir,
           result,
@@ -863,6 +1032,7 @@ export class UserLayerMirrorService {
   private async reconcileDirClone(
     kind: OriginKind,
     slug: string,
+    expectedPluginId: string | null,
     sourceDir: string,
     cloneDir: string,
     result: ReconcileResult,
@@ -878,9 +1048,12 @@ export class UserLayerMirrorService {
         await this.reconcileMissingSidecar(cloneDir, sourceDir, {
           kind,
           slug,
-          pluginId: null,
+          pluginId: expectedPluginId,
         });
         result.missingSidecar += 1;
+        return;
+      }
+      if (!ownsClone(sidecar, expectedPluginId)) {
         return;
       }
 
@@ -940,6 +1113,9 @@ export class UserLayerMirrorService {
           pluginId,
         });
         result.missingSidecar += 1;
+        return;
+      }
+      if (!ownsClone(sidecar, pluginId)) {
         return;
       }
 
@@ -1038,69 +1214,14 @@ export class UserLayerMirrorService {
   }
 
   private async snapshotDirToHistory(cloneDir: string): Promise<string> {
-    const historyTsDir = await this.makeUniqueHistoryDir(
-      join(cloneDir, DEFAULT_HISTORY_DIR),
-      String(Date.now()),
-    );
-    await this.snapshotTreeRec(cloneDir, historyTsDir, 0);
-    return historyTsDir;
+    return this.fsOps.snapshotDirToHistory(cloneDir);
   }
 
   private async makeUniqueHistoryDir(
     parentDir: string,
     ts: string,
   ): Promise<string> {
-    this.assertUnderUserLayer(parentDir);
-    await mkdir(parentDir, { recursive: true });
-    let candidate = join(parentDir, ts);
-    let counter = 0;
-    for (;;) {
-      this.assertUnderUserLayer(candidate);
-      try {
-        await mkdir(candidate, { recursive: false });
-        return candidate;
-      } catch (error: unknown) {
-        if (!isErrnoCode(error, 'EEXIST')) {
-          throw error;
-        }
-        counter += 1;
-        candidate = join(parentDir, `${ts}-${counter}`);
-      }
-    }
-  }
-
-  private async snapshotTreeRec(
-    sourceDir: string,
-    targetDir: string,
-    depth: number,
-  ): Promise<void> {
-    if (depth > MAX_COPY_RECURSION_DEPTH) {
-      this.logger.warn(
-        '[UserLayerMirror] snapshot recursion depth cutoff; history may be partial',
-        { sourceDir, maxDepth: MAX_COPY_RECURSION_DEPTH },
-      );
-      return;
-    }
-    await mkdir(targetDir, { recursive: true });
-    const entries = await readdir(sourceDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isSymbolicLink()) {
-        continue;
-      }
-      if (entry.name === DEFAULT_HISTORY_DIR) {
-        continue;
-      }
-      if (entry.name === ORIGIN_SIDECAR_FILENAME) {
-        continue;
-      }
-      const sourcePath = join(sourceDir, entry.name);
-      const targetPath = join(targetDir, entry.name);
-      if (entry.isDirectory()) {
-        await this.snapshotTreeRec(sourcePath, targetPath, depth + 1);
-      } else if (entry.isFile()) {
-        await this.copyFileAtomic(sourcePath, targetPath);
-      }
-    }
+    return this.fsOps.makeUniqueHistoryDir(parentDir, ts);
   }
 
   private async snapshotFileToHistory(
@@ -1108,13 +1229,7 @@ export class UserLayerMirrorService {
     slug: string,
     cloneFile: string,
   ): Promise<string> {
-    const historyTsDir = await this.makeUniqueHistoryDir(
-      join(rootDir, DEFAULT_HISTORY_DIR, slug),
-      String(Date.now()),
-    );
-    const targetFile = join(historyTsDir, basename(cloneFile));
-    await this.copyFileAtomic(cloneFile, targetFile);
-    return historyTsDir;
+    return this.fsOps.snapshotFileToHistory(rootDir, slug, cloneFile);
   }
 
   private async withSlugLock<T>(
@@ -1519,124 +1634,91 @@ export class UserLayerMirrorService {
   }
 
   private assertUnderUserLayer(targetPath: string): void {
-    const userBase = resolve(join(homedir(), '.ptah', 'user'));
-    const resolved = resolve(targetPath);
-    if (resolved !== userBase && !resolved.startsWith(userBase + sep)) {
-      throw new Error(
-        `[UserLayerMirror] refusing to write outside ~/.ptah/user/: ${resolved}`,
-      );
-    }
-    const pluginsBase = resolve(join(homedir(), '.ptah', 'plugins'));
-    if (resolved === pluginsBase || resolved.startsWith(pluginsBase + sep)) {
-      throw new Error(
-        `[UserLayerMirror] refusing to write under ~/.ptah/plugins/: ${resolved}`,
-      );
-    }
+    this.fsOps.assertUnderUserLayer(targetPath);
   }
 
   private async clearCloneTrackedContent(cloneDir: string): Promise<void> {
-    this.assertUnderUserLayer(cloneDir);
-    const entries = await readdir(cloneDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name === DEFAULT_HISTORY_DIR) {
-        continue;
-      }
-      if (entry.name === ORIGIN_SIDECAR_FILENAME) {
-        continue;
-      }
-      const entryPath = join(cloneDir, entry.name);
-      this.assertUnderUserLayer(entryPath);
-      await rm(entryPath, { recursive: true, force: true });
-    }
+    await this.fsOps.clearCloneTrackedContent(cloneDir);
   }
 
   private async copyTree(sourceDir: string, targetDir: string): Promise<void> {
-    const rootStat = await lstat(sourceDir);
-    if (rootStat.isSymbolicLink()) {
-      this.logger.warn('[UserLayerMirror] skipping symlinked source root', {
-        sourceDir,
-      });
-      return;
-    }
-    await this.copyTreeRec(sourceDir, targetDir, 0);
-  }
-
-  private async copyTreeRec(
-    sourceDir: string,
-    targetDir: string,
-    depth: number,
-  ): Promise<void> {
-    if (depth > MAX_COPY_RECURSION_DEPTH) {
-      this.logger.warn(
-        '[UserLayerMirror] copy recursion depth cutoff; skill may be partially cloned',
-        { sourceDir, maxDepth: MAX_COPY_RECURSION_DEPTH },
-      );
-      return;
-    }
-    await mkdir(targetDir, { recursive: true });
-    const entries = await readdir(sourceDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isSymbolicLink()) {
-        continue;
-      }
-      const sourcePath = join(sourceDir, entry.name);
-      const targetPath = join(targetDir, entry.name);
-      if (entry.isDirectory()) {
-        await this.copyTreeRec(sourcePath, targetPath, depth + 1);
-      } else if (entry.isFile()) {
-        await this.copyFileAtomic(sourcePath, targetPath);
-      }
-    }
+    await this.fsOps.copyTree(sourceDir, targetDir);
   }
 
   private async copyFileAtomic(
     sourceFile: string,
     targetFile: string,
   ): Promise<void> {
-    this.assertUnderUserLayer(targetFile);
-    const content = await readFile(sourceFile);
-    const tempPath = `${targetFile}.${process.pid}.${Date.now()}.tmp`;
-    if (dirname(tempPath) !== dirname(targetFile)) {
-      throw new Error(
-        `[UserLayerMirror] temp path must share the target parent dir: ${tempPath}`,
-      );
-    }
-    let renamed = false;
-    try {
-      await writeFile(tempPath, content);
-      await rename(tempPath, targetFile);
-      renamed = true;
-    } finally {
-      if (!renamed) {
-        await unlink(tempPath).catch(() => undefined);
-      }
-    }
+    await this.fsOps.copyFileAtomic(sourceFile, targetFile);
   }
 
   private async listSubdirectories(dir: string): Promise<string[]> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    return this.fsOps.listSubdirectories(dir);
   }
 
   private async dirExists(dir: string): Promise<boolean> {
-    try {
-      const s = await stat(dir);
-      return s.isDirectory();
-    } catch {
-      return false;
-    }
+    return this.fsOps.dirExists(dir);
   }
 
   private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      const s = await stat(filePath);
-      return s.isFile();
-    } catch {
-      return false;
-    }
+    return this.fsOps.fileExists(filePath);
   }
 
   private isEnoent(error: unknown): boolean {
-    return isErrnoCode(error, 'ENOENT');
+    return this.fsOps.isEnoent(error);
   }
+}
+
+/**
+ * Does this source own this clone?
+ *
+ * Slugs are global across the user layer but sources are not: two plugins can
+ * ship the same slug, and `mirrorSkillSlug`'s first-write-wins rule picks ONE
+ * owner and records `conflictsWith` on the loser. Reconciling the clone against
+ * the loser's bytes would flag a divergence that is really just "the other
+ * plugin's copy differs", and the user would be offered a rebase onto content
+ * their clone was never made from.
+ *
+ * It is also what makes the synthesized-skill pass safe to add beside the
+ * plugin pass: both walk `<skills>/<slug>`, and only the sidecar says which one
+ * the clone came from.
+ */
+function ownsClone(
+  sidecar: OriginSidecar,
+  expectedPluginId: string | null,
+): boolean {
+  return sidecar.pluginId === expectedPluginId;
+}
+
+/** Bundled plugins and harness-authored plugins, in that order. */
+function allPluginRoots(sources: MirrorSources): string[] {
+  return [...sources.pluginPaths, ...(sources.harnessPluginRoots ?? [])];
+}
+
+function emptyReconcileResult(): ReconcileResult {
+  return {
+    noop: 0,
+    fastForwarded: 0,
+    diverged: 0,
+    missingSidecar: 0,
+    errors: 0,
+    divergedSlugs: [],
+    reaped: 0,
+    orphaned: 0,
+    reapedClones: [],
+    orphanedClones: [],
+  };
+}
+
+function toCloneEntry(sidecar: OriginSidecar): CloneEntry {
+  return {
+    slug: sidecar.slug,
+    kind: sidecar.kind,
+    pluginId: sidecar.pluginId,
+    sourceHash: sidecar.sourceHash,
+    diverged: sidecar.diverged,
+    lastEnhancedAt: sidecar.lastEnhancedAt,
+    pendingSourceHash: sidecar.pendingSourceHash ?? null,
+    orphaned: sidecar.orphaned === true,
+  };
 }

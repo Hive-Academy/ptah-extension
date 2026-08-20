@@ -1,0 +1,16 @@
+{
+  "title": "Glass hero checkpoint — crisp crystal (silent)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "music": null,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "glass-hero",
+      "holdMs": 6000,
+      "captions": []
+    }
+  ]
+}

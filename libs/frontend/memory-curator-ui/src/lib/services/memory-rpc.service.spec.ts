@@ -239,6 +239,52 @@ describe('MemoryRpcService', () => {
       );
     });
 
+    it('suggestCorpora() calls corpus:suggest with workspaceRoot and LIST_MS timeout, returning data', async () => {
+      const payload = {
+        suggestions: [
+          {
+            suggestedName: 'auth',
+            filter: { name: 'auth', concepts: ['auth'], limit: 100 },
+            memberCount: 8,
+            topConcepts: ['auth'],
+            rationale: '8 memories tagged "auth"',
+            signal: 'concept' as const,
+          },
+        ],
+      };
+      rpcCall.mockResolvedValue(okResult(payload));
+
+      const result = await service.suggestCorpora({ workspaceRoot: '/ws' });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'corpus:suggest',
+        { workspaceRoot: '/ws' },
+        expect.objectContaining({ timeout: 10_000 }),
+      );
+      expect(result).toEqual(payload);
+    });
+
+    it('suggestCorpora() omits workspaceRoot when not provided', async () => {
+      rpcCall.mockResolvedValue(okResult({ suggestions: [] }));
+
+      await service.suggestCorpora();
+
+      const callArgs = rpcCall.mock.calls[0];
+      expect(callArgs[0]).toBe('corpus:suggest');
+      expect(callArgs[1]).toEqual({});
+      expect('workspaceRoot' in (callArgs[1] as Record<string, unknown>)).toBe(
+        false,
+      );
+    });
+
+    it('suggestCorpora() throws with the RPC error string on failure', async () => {
+      rpcCall.mockResolvedValue(errResult('suggest unavailable'));
+
+      await expect(service.suggestCorpora()).rejects.toThrow(
+        'suggest unavailable',
+      );
+    });
+
     it('buildCorpus() calls corpus:build and returns data', async () => {
       const payload = {
         corpus: {

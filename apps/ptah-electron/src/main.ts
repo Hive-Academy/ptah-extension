@@ -5,8 +5,13 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
-import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
-import { TOKENS, type SentryService } from '@ptah-extension/vscode-core';
+import { VOICE_TOKENS } from '@ptah-extension/voice-providers';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
+import {
+  TOKENS,
+  type Logger,
+  type SentryService,
+} from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
@@ -14,6 +19,12 @@ import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import type { UpdateManager } from './services/update/update-manager';
+import {
+  PtahTrayService,
+  handleWindowAllClosed,
+  PTAH_CONFIG_SECTION,
+  TRAY_KEEPALIVE_KEY,
+} from './services/tray/tray.service';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
@@ -26,7 +37,6 @@ if (!gotLock) {
 } else {
   let mainWindow: BrowserWindow | null = null;
   let resolvedStateStorage: IStateStorage | undefined;
-  let skillJunctionRef: { deactivateSync: () => void } | null = null;
   let revalidationInterval: ReturnType<typeof setInterval> | null = null;
   let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
   let gitWatcher: {
@@ -45,13 +55,33 @@ if (!gotLock) {
   let chatBridge: { stop: () => void } | null = null;
   let updateManager: UpdateManager | null = null;
   let symbolWatcher: { close: () => void } | null = null;
-  let licenseReactivityDisposable: { dispose: () => void } | null = null;
   let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
     null;
+  let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
+  let cliRegistry: { disposeAll: () => void } | null = null;
+  // C5 (TASK_2026_180) — stays `null` unless `skillSynthesis.trayKeepalive` is
+  // explicitly on AND the tray actually constructed. Nothing else may suppress
+  // the quit (R10).
+  let trayService: PtahTrayService | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
+
+    // Phase 3: capture the per-workspace isolated provider-proxy pool so its
+    // proxy servers are torn down on app quit (per-workspace teardown runs on
+    // workspace:removeFolder; this is the shutdown-wide backstop).
+    try {
+      providerProxyPool = boot.container.resolve<{
+        disposeAll: () => Promise<void>;
+      }>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL);
+    } catch (error: unknown) {
+      console.warn(
+        '[Ptah Electron] ProviderProxyPool resolve failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      providerProxyPool = null;
+    }
 
     app.on('before-quit', (event) => {
       try {
@@ -100,7 +130,6 @@ if (!gotLock) {
       startupWorkspaceRoot: boot.startupWorkspaceRoot,
     });
     resolvedStateStorage = wired.resolvedStateStorage;
-    skillJunctionRef = wired.refs.skillJunctionRef;
     gitWatcher = wired.refs.gitWatcher;
     sqliteConnection = wired.refs.sqliteConnection;
     memoryCurator = wired.refs.memoryCurator;
@@ -109,15 +138,13 @@ if (!gotLock) {
     skillTrigger = wired.refs.skillTrigger;
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
-    licenseReactivityDisposable = wired.refs.licenseReactivityDisposable;
     statusBridgeDisposables = wired.refs.statusBridgeDisposables;
+    cliRegistry = wired.refs.cliRegistry;
     boot.gitWatcherRef.current = gitWatcher;
 
     const post = await registerPostWindow({
       container: boot.container,
       resolvedStateStorage,
-      startupIsLicensed: boot.startupIsLicensed,
-      startupInitialView: boot.startupInitialView,
       setMainWindow: (w) => {
         mainWindow = w;
       },
@@ -129,6 +156,38 @@ if (!gotLock) {
     updateManager = post.updateManager;
     messagingGateway = post.messagingGateway;
     chatBridge = post.chatBridge;
+
+    // C5 (TASK_2026_180) — tray keep-alive, purely additive. The tray is built
+    // ONLY when `skillSynthesis.trayKeepalive` is explicitly on; it ships
+    // `false`, so by default no tray exists and `window-all-closed` behaves
+    // exactly as it did before this commit. Every failure path leaves
+    // `trayService` null, which means "no keep-alive" — never "keep-alive with
+    // no way to quit" (R10).
+    try {
+      const workspaceProvider =
+        boot.container.resolve<ElectronWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+        );
+      const keepAlive = workspaceProvider.getConfiguration<boolean>(
+        PTAH_CONFIG_SECTION,
+        TRAY_KEEPALIVE_KEY,
+        false,
+      );
+      if (keepAlive === true) {
+        trayService = PtahTrayService.create({
+          workspace: workspaceProvider,
+          iconPath: path.join(__dirname, 'assets', 'icons', 'png', '32x32.png'),
+          quit: () => app.quit(),
+          logger: boot.container.resolve<Logger>(TOKENS.LOGGER),
+        });
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[Ptah Electron] Tray keep-alive setup failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      trayService = null;
+    }
   });
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -143,13 +202,28 @@ if (!gotLock) {
       mainWindow.loadFile(rendererPath);
     }
   });
+  // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it
+  // can be asserted (this file uses `import.meta` and is not importable under
+  // ts-jest). With no live tray — the shipped default — it is `if
+  // (process.platform !== 'darwin') app.quit();` and nothing else. Pinned by
+  // `main.quit-path.spec.ts`.
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
+    handleWindowAllClosed({
+      platform: process.platform,
+      quit: () => app.quit(),
+      hasLiveTray: () => trayService?.isLive() ?? false,
+    });
   });
   app.on('will-quit', () => {
     flushWorkspacePersistence?.();
+    try {
+      void providerProxyPool?.disposeAll();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] ProviderProxyPool disposeAll failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);
       revalidationInterval = null;
@@ -176,14 +250,6 @@ if (!gotLock) {
       );
     }
     try {
-      licenseReactivityDisposable?.dispose();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] License reactivity binder dispose failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
       statusBridgeDisposables?.forEach((d) => d.dispose());
     } catch (error) {
       console.warn(
@@ -191,14 +257,11 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-    try {
-      skillJunctionRef?.deactivateSync();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Skill junction cleanup failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    // No harness teardown. `{ws}/.claude/{skills,commands}` are workspace
+    // artifacts, not host-process resources: `ptah tui`, the headless CLI, the
+    // gateway and a plain `claude` invocation all read them without ever
+    // running this app. Removing them on quit is the defect TASK_2026_278
+    // exists to close.
     try {
       skillTrigger?.stop();
     } catch (error) {
@@ -270,13 +333,32 @@ if (!gotLock) {
     }
 
     const diContainer = ElectronDIContainer.getContainer();
-    if (
-      diContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
-    ) {
-      const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
-        CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
+    // Terminate the voice utilityProcess worker (kills the child + idle timer).
+    try {
+      if (diContainer.isRegistered(VOICE_TOKENS.VOICE_WORKER_CLIENT)) {
+        diContainer
+          .resolve<{ dispose: () => void }>(VOICE_TOKENS.VOICE_WORKER_CLIENT)
+          .dispose();
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Voice worker dispose failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
       );
-      cliRegistry.disposeAll();
+    }
+    // Dispose the Ptah CLI registry ONLY if it was actually instantiated during
+    // the app's lifetime (captured as a ref in wireRuntime). Resolving it from
+    // the container here would force first-time construction of its dependency
+    // graph mid-teardown, which races with the DI/subsystem shutdown and can
+    // hang or throw (see auto-updater e2e: production + blocked network). When
+    // the registry was never used there are no per-agent proxies to stop.
+    try {
+      cliRegistry?.disposeAll();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] CLI registry dispose failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
     }
   });
 } // end of gotLock guard

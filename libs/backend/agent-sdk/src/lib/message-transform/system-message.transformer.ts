@@ -8,6 +8,7 @@ import {
   AgentProgressEvent,
   AgentStatusEvent,
   AgentCompletedEvent,
+  BackgroundAgentStartedEvent,
   SessionId,
 } from '@ptah-extension/shared';
 
@@ -40,17 +41,25 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
-    helpers.logger.info(
+    helpers.logger.debug(
       '[SdkMessageTransformer] Compact boundary received, resetting streaming state',
       { trigger: sdkMessage.compact_metadata.trigger },
     );
     state.clearStreamingState();
 
+    // Order matters and used to be wrong. `activeIds[0]` is just the
+    // most-recently-active session in the process — it sat AHEAD of the id the
+    // SDK put on this very message, so with two live sessions the prune and the
+    // token-snapshot clear below ran against the other one, and the
+    // compaction_complete event was addressed to it too (TASK_2026_295).
+    // The caller's id still wins: for harness and wizard streams it is a
+    // HarnessStreamId / WizardPhaseId, i.e. the routing key the frontend
+    // subscribed with, which no SDK payload carries.
     const activeIds = helpers.sessionLifecycle.getActiveSessionIds();
     const resolvedSessionId =
       sessionId ||
-      activeIds[0] ||
-      (sdkMessage.session_id as SessionId | undefined);
+      (sdkMessage.session_id as SessionId | undefined) ||
+      activeIds[0];
 
     if (!resolvedSessionId) {
       helpers.logger.warn(
@@ -89,12 +98,16 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
-    helpers.logger.info(
+    helpers.logger.debug(
       '[SdkMessageTransformer] Local command output received',
       { contentLength: sdkMessage.content.length },
     );
     const messageId = `cmd_${generateEventId()}`;
-    const resolvedSessionId = sessionId || sdkMessage.session_id || '';
+    // `||` not `??`: an empty `session_id` on the payload is not an id, and the
+    // trailing `undefined` keeps it from becoming one. Local command output is
+    // still worth emitting unattributed — it is the user's own `/command`
+    // echo, and dropping it would lose visible transcript content.
+    const resolvedSessionId = sessionId || sdkMessage.session_id || undefined;
 
     const events: FlatStreamEventUnion[] = [
       {
@@ -136,6 +149,14 @@ export class SystemMessageTransformer {
     if (toolUseId) {
       state.setTaskParent(msg.task_id, toolUseId);
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
+
+      // A `local_workflow` task_started is the root of a workflow run: its
+      // tool_use_id is the `Workflow` tool_use id and it carries the
+      // workflow_name. Register (or merge the name into) the run root so this
+      // event and every descendant agent share the same workflowRunId.
+      if (msg.task_type === 'local_workflow') {
+        state.registerWorkflowRunRoot(toolUseId, msg.workflow_name);
+      }
     }
 
     if (msg.skip_transcript) {
@@ -159,8 +180,15 @@ export class SystemMessageTransformer {
     }
     state.markTaskStartedEmitted(toolUseId);
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+    const workflowRun = state.getWorkflowRun(toolUseId);
 
     const event: AgentStartEvent = {
       id: generateEventId(),
@@ -173,7 +201,12 @@ export class SystemMessageTransformer {
       agentType: msg.task_type ?? 'Task',
       agentDescription: msg.description,
       agentPrompt: msg.prompt,
+      teammateName:
+        helpers.subagentRegistry.get(toolUseId)?.teammateName ??
+        helpers.subagentRegistry.peekPendingTeammateName(toolUseId),
       taskId: msg.task_id,
+      workflowRunId: workflowRun?.runId,
+      workflowName: workflowRun?.name,
     };
 
     helpers.logger.debug('[SdkMessageTransformer] task_started → agent_start', {
@@ -201,7 +234,14 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
+    const workflowRun = state.getWorkflowRun(parentToolUseId);
 
     const event: AgentProgressEvent = {
       id: generateEventId(),
@@ -217,6 +257,8 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage.total_tokens,
       toolUses: msg.usage.tool_uses,
       durationMs: msg.usage.duration_ms,
+      workflowRunId: workflowRun?.runId,
+      workflowName: workflowRun?.name,
     };
 
     return [event];
@@ -239,26 +281,84 @@ export class SystemMessageTransformer {
     }
 
     const patch = msg.patch;
-    if (!patch.status) {
-      return [];
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
+    const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+    const workflowRun = state.getWorkflowRun(parentToolUseId);
+    const events: FlatStreamEventUnion[] = [];
+
+    if (patch.status) {
+      const statusEvent: AgentStatusEvent = {
+        id: generateEventId(),
+        eventType: 'agent_status',
+        timestamp: Date.now(),
+        sessionId: resolvedSession,
+        messageId,
+        parentToolUseId,
+        taskId: msg.task_id,
+        status: patch.status,
+        description: patch.description,
+        errorMessage: patch.error,
+        workflowRunId: workflowRun?.runId,
+        workflowName: workflowRun?.name,
+      };
+      events.push(statusEvent);
     }
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // Mid-run backgrounding (Ctrl+B / subagent:background RPC → Query.background
+    // Tasks): the SDK flips `patch.is_backgrounded` to true. Emit a
+    // background_agent_started ALONGSIDE the agent_status patch so the frontend
+    // BackgroundAgentStore registers the agent immediately — otherwise the
+    // Background badge only appears once the task settles. The registry is the
+    // dedup source: emit once per task, and keep the SubagentRecord coherent
+    // with the run_in_background:true spawn path (status 'background' +
+    // isBackground) so getBackgroundAgents and the SubagentStop hook's
+    // background_completed handling treat it the same.
+    if (patch.is_backgrounded === true) {
+      const record = helpers.subagentRegistry.get(parentToolUseId);
+      const alreadyBackground =
+        record?.status === 'background' || record?.isBackground === true;
 
-    const event: AgentStatusEvent = {
-      id: generateEventId(),
-      eventType: 'agent_status',
-      timestamp: Date.now(),
-      sessionId: resolvedSession,
-      messageId: state.getMessageId('') ?? `task_${msg.task_id}`,
-      parentToolUseId,
-      taskId: msg.task_id,
-      status: patch.status,
-      description: patch.description,
-      errorMessage: patch.error,
-    };
+      if (!alreadyBackground) {
+        helpers.subagentRegistry.update(parentToolUseId, {
+          status: 'background',
+          isBackground: true,
+          backgroundStartedAt: Date.now(),
+        });
 
-    return [event];
+        const bgEvent: BackgroundAgentStartedEvent = {
+          id: generateEventId(),
+          eventType: 'background_agent_started',
+          timestamp: Date.now(),
+          sessionId: resolvedSession,
+          messageId,
+          parentToolUseId,
+          toolCallId: parentToolUseId,
+          agentType: record?.agentType ?? 'unknown',
+          agentId: record?.agentId,
+          teammateName: record?.teammateName,
+          agentDescription: patch.description,
+          outputFilePath: record?.outputFilePath,
+        };
+        events.push(bgEvent);
+
+        helpers.logger.debug(
+          '[SdkMessageTransformer] task_updated → background_agent_started (mid-run backgrounding)',
+          {
+            taskId: msg.task_id,
+            toolCallId: parentToolUseId,
+            agentId: record?.agentId,
+          },
+        );
+      }
+    }
+
+    return events;
   }
 
   transformTaskNotification(
@@ -284,7 +384,14 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
+    // `SdkMessageTransformer.transform` resolves it off this same object before
+    // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
+    // redundant, it was harmful: `??` treats `''` as present, so an empty
+    // payload `session_id` that the dispatcher had correctly rejected got pulled
+    // straight back in as a fake id.
+    const resolvedSession = sessionId;
+    const workflowRun = state.getWorkflowRun(parentToolUseId);
 
     const event: AgentCompletedEvent = {
       id: generateEventId(),
@@ -300,6 +407,8 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,
       durationMs: msg.usage?.duration_ms,
+      workflowRunId: workflowRun?.runId,
+      workflowName: workflowRun?.name,
     };
 
     helpers.logger.debug(

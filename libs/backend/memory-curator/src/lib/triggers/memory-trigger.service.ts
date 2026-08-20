@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -22,6 +23,7 @@ import {
   type PostToolUsePayload,
   type PreToolUseCallbackRegistry,
   type PreToolUsePayload,
+  type SessionIdResolvedCallbackRegistry,
   type SessionStartCallbackRegistry,
   type SessionStartPayload,
   type UserPromptSubmitCallbackRegistry,
@@ -68,6 +70,14 @@ type CurateSource =
 interface SessionState {
   readonly workspaceRoot: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Wall-clock instant `idleTimer` is due to fire, or `null` when no timer is
+   * armed. Recorded so `rekeySession` can re-arm under the new key with the
+   * REMAINING delay — a `setTimeout` closure captures the id it was armed
+   * with, so the timer has to be recreated, and recreating it with the full
+   * idle window would silently extend it.
+   */
+  idleDueAt: number | null;
   turnCount: number;
 }
 
@@ -83,6 +93,7 @@ export class MemoryTriggerService {
   private sessionEndHookDisposer: (() => void) | null = null;
   private preToolUseDisposer: (() => void) | null = null;
   private sessionStartDisposer: (() => void) | null = null;
+  private sessionIdResolvedDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly episodes = new EpisodeTracker();
   private readonly inFlightCurates = new Set<string>();
@@ -129,6 +140,8 @@ export class MemoryTriggerService {
     private readonly sessionStartRegistry: SessionStartCallbackRegistry,
     @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
     private readonly transcriptReader: ITranscriptReader,
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY)
+    private readonly sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry,
   ) {}
 
   start(): void {
@@ -168,6 +181,14 @@ export class MemoryTriggerService {
         this.onSessionStart(payload);
       },
     );
+    // Deliberately a synchronous arrow with no `await` anywhere beneath it —
+    // see the ordering contract on `rekeySession`.
+    this.sessionIdResolvedDisposer = this.sessionIdResolvedRegistry.register(
+      (payload) => {
+        if (payload.tabId === undefined) return;
+        this.rekeySession(payload.tabId, payload.realSessionId);
+      },
+    );
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -188,6 +209,7 @@ export class MemoryTriggerService {
     this.sessionEndHookDisposer?.();
     this.preToolUseDisposer?.();
     this.sessionStartDisposer?.();
+    this.sessionIdResolvedDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.userPromptSubmitDisposer = null;
@@ -197,6 +219,7 @@ export class MemoryTriggerService {
     this.sessionEndHookDisposer = null;
     this.preToolUseDisposer = null;
     this.sessionStartDisposer = null;
+    this.sessionIdResolvedDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
@@ -214,8 +237,15 @@ export class MemoryTriggerService {
    * Session activity drives the idle timer only. The authoritative
    * "turn complete" signal is the SDK `Stop` hook ({@link onStop}); the
    * legacy activity-based turn counter has been retired in favour of it.
+   *
+   * The empty-id check is the same one every other handler here makes, and it
+   * matters MORE on this path than on the ones that only read: `sessions` is
+   * keyed by session id and holds one idle timer per key, so two sessions both
+   * reporting `''` share a single slot — the second `onActivity` clears the
+   * first's timer, and only one of them is ever curated.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     const idleMs = this.readIdleMs();
     if (idleMs <= 0) return;
 
@@ -224,27 +254,111 @@ export class MemoryTriggerService {
       state = {
         workspaceRoot: payload.workspaceRoot,
         idleTimer: null,
+        idleDueAt: null,
         turnCount: 0,
       };
       this.sessions.set(payload.sessionId, state);
     }
 
     if (state.idleTimer) clearTimeout(state.idleTimer);
+    state.idleDueAt = Date.now() + idleMs;
     state.idleTimer = setTimeout(() => {
       this.fireIdle(payload.sessionId);
     }, idleMs);
   }
 
+  /**
+   * Migrate every piece of state keyed by `fromId` onto `toId`.
+   *
+   * Fired from the SDK's `SessionIdResolvedCallbackRegistry` when a session's
+   * canonical UUID becomes known. Before that instant a residual hook path —
+   * one whose payload genuinely lacks `session_id` and falls back to the
+   * closure — reports the **tabId**, so state gets armed under the tabId while
+   * `SessionEnd` always canonicalises to `realSessionId ?? tabId`
+   * (`session-control.service.ts:126`) and arrives under the UUID. That split
+   * is what strands an idle timer. TASK_2026_296 item 6, Part B.
+   *
+   * A tabId is itself a UUID v4, so nothing here inspects an id's SHAPE: both
+   * ids are supplied by the adapter and are shape-indistinguishable.
+   *
+   * ## Three rules, all load-bearing
+   *
+   * 1. **Synchronous, start to finish.** There is no `await` anywhere in this
+   *    method or in anything it calls, so nothing can interleave between
+   *    reading the old key and writing the new one. The curate-suppression
+   *    state (`inFlightCurates`, `lastCurateAt`, and the curator's own
+   *    `inFlight` map) is migrated FIRST, before `sessions` — so at no instant
+   *    is a curate un-suppressed under either key.
+   * 2. **Refuse-overwrite.** Where `toId` already holds an entry, that entry is
+   *    KEPT and the `fromId` entry is discarded, its timer cleared. Never
+   *    clobber: a missed merge costs one un-curated episode and is recoverable,
+   *    a wrong overwrite destroys a live session's state and is not. Mirrors
+   *    `SessionRegistry.bindRealSessionId`'s set-once discipline.
+   * 3. **Timers are re-armed, never carried.** A `setTimeout` closure captures
+   *    the id it was armed with, so a carried-over timer would fire
+   *    `fireIdle(tabId)` against a map that no longer has that key. The timer
+   *    is cleared and recreated under `toId` with the REMAINING delay taken
+   *    from `idleDueAt`.
+   */
+  rekeySession(fromId: string, toId: string): void {
+    const from = blankToUndefined(fromId);
+    const to = blankToUndefined(toId);
+    if (from === undefined || to === undefined || from === to) return;
+
+    // 1 — curate suppression first (R-Q3). `inFlightCurates` is a Set, so
+    // "keep toId" and "add toId" are the same operation.
+    if (this.inFlightCurates.delete(from)) this.inFlightCurates.add(to);
+    const lastCurate = this.lastCurateAt.get(from);
+    this.lastCurateAt.delete(from);
+    if (lastCurate !== undefined && !this.lastCurateAt.has(to)) {
+      this.lastCurateAt.set(to, lastCurate);
+    }
+    this.curator.rekeySession(from, to);
+
+    // 2 — the episode buffer (refuse-overwrite lives in the tracker).
+    this.episodes.rekey(from, to);
+
+    // 3 — the idle timer.
+    const state = this.sessions.get(from);
+    if (state) {
+      this.sessions.delete(from);
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+      if (this.sessions.has(to)) {
+        state.idleTimer = null;
+        state.idleDueAt = null;
+      } else {
+        const remaining =
+          state.idleDueAt === null ? null : state.idleDueAt - Date.now();
+        state.idleTimer =
+          remaining === null
+            ? null
+            : setTimeout(
+                () => {
+                  this.fireIdle(to);
+                },
+                Math.max(0, remaining),
+              );
+        this.sessions.set(to, state);
+      }
+    }
+
+    // 4 — the durable half. Rows captured under the tabId are un-drainable by
+    // the UUID-keyed drain until they are re-pointed.
+    this.observationQueue.backfillSessionId(from, to);
+  }
+
+  /**
+   * In-process session-end signal from `SessionControl.endSession`. Fires
+   * reliably even when the SDK `SessionEnd` hook cannot be delivered (the input
+   * stream closes on abort before the CLI dispatches it).
+   */
   private onSessionEnd(payload: SessionEndPayload): void {
-    const state = this.sessions.get(payload.sessionId);
-    if (!state) return;
-    if (state.idleTimer) clearTimeout(state.idleTimer);
-    this.sessions.delete(payload.sessionId);
+    this.flushSessionEnd(payload.sessionId, payload.workspaceRoot);
   }
 
   /** Real SDK `Stop` hook — the authoritative "assistant turn complete" signal. */
   private onStop(payload: StopPayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     this.observationQueue.insert({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
@@ -270,7 +384,7 @@ export class MemoryTriggerService {
 
   /** Real SDK `PostToolUseFailure` hook — buffer the failure for episode context. */
   private onToolFailure(payload: ToolFailurePayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.isInterrupt) return;
     this.observationQueue.insert({
       sessionId: payload.sessionId,
@@ -297,24 +411,33 @@ export class MemoryTriggerService {
 
   /** Real SDK `SessionEnd` hook — flush whatever the episode buffer holds. */
   private onSessionEndHook(payload: SessionEndHookPayload): void {
-    if (payload.sessionId && payload.sessionId.length > 0) {
-      if (this.readSessionEndEnabled()) {
-        this.tryEpisodeCurate(
-          payload.sessionId,
-          payload.workspaceRoot,
-          'session-end',
-          'session-end-trigger',
-        );
-      }
-      this.episodes.reset(payload.sessionId);
-      const state = this.sessions.get(payload.sessionId);
-      if (state?.idleTimer) clearTimeout(state.idleTimer);
-      this.sessions.delete(payload.sessionId);
+    this.flushSessionEnd(payload.sessionId, payload.workspaceRoot);
+  }
+
+  /**
+   * Curate the buffered episode (when enabled), reset the buffer, and tear down
+   * idle state. Reached from both the SDK `SessionEnd` hook and the in-process
+   * registry; idempotent because `tryEpisodeCurate` coalesces and no-ops on an
+   * already-flushed buffer, so a double-fire is harmless.
+   */
+  private flushSessionEnd(sessionId: string, workspaceRoot: string): void {
+    if (blankToUndefined(sessionId) === undefined) return;
+    if (this.readSessionEndEnabled()) {
+      this.tryEpisodeCurate(
+        sessionId,
+        workspaceRoot,
+        'session-end',
+        'session-end-trigger',
+      );
     }
+    this.episodes.reset(sessionId);
+    const state = this.sessions.get(sessionId);
+    if (state?.idleTimer) clearTimeout(state.idleTimer);
+    this.sessions.delete(sessionId);
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
-    if (payload.sessionId && payload.sessionId.length > 0) {
+    if (blankToUndefined(payload.sessionId) !== undefined) {
       this.observationQueue.insert({
         sessionId: payload.sessionId,
         workspaceRoot: payload.workspaceRoot,
@@ -323,7 +446,7 @@ export class MemoryTriggerService {
       });
     }
     if (!this.readUserPromptSubmitEnabled()) return;
-    if (!payload.sessionId || payload.sessionId.length === 0) {
+    if (blankToUndefined(payload.sessionId) === undefined) {
       this.logger.warn(
         '[memory-curator] empty sessionId in onUserPromptSubmit, skipping',
         { workspaceRoot: payload.workspaceRoot },
@@ -377,7 +500,7 @@ export class MemoryTriggerService {
   }
 
   private onPostToolUse(payload: PostToolUsePayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     this.observationQueue.insert({
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
@@ -431,7 +554,7 @@ export class MemoryTriggerService {
   }
 
   private onPreToolUseRead(payload: PreToolUsePayload): void {
-    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.toolName !== 'Read') return;
     const filePath = extractFilePath(payload.toolInput);
     this.observationQueue.insert({
@@ -490,6 +613,7 @@ export class MemoryTriggerService {
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.idleTimer = null;
+    state.idleDueAt = null;
     this.tryEpisodeCurate(
       sessionId,
       state.workspaceRoot,

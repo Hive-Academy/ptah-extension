@@ -22,6 +22,7 @@
 
 import 'reflect-metadata';
 
+import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   handleMCPRequest,
@@ -213,6 +214,238 @@ describe('protocol-handlers › tools/list', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Task specs namespace (TASK_2026_179, step 17)
+// ---------------------------------------------------------------------------
+
+const TASK_TOOLS = [
+  'ptah_task_create',
+  'ptah_task_update',
+  'ptah_task_get',
+  'ptah_task_list',
+  'ptah_task_check',
+] as const;
+
+/** Tool definitions from a `tools/list` response. */
+function listedTools(res: MCPResponse): Array<{
+  name: string;
+  annotations?: { readOnlyHint?: boolean };
+}> {
+  return (
+    res.result as {
+      tools: Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>;
+    }
+  ).tools;
+}
+
+function listedToolNames(res: MCPResponse): string[] {
+  return listedTools(res).map((tool) => tool.name);
+}
+
+describe('tools/list — task specs are ALWAYS ON', () => {
+  it('exposes all five task tools in the default (no-config) tool list', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'tasks-1', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+    for (const tool of TASK_TOOLS) {
+      expect(names).toContain(tool);
+    }
+  });
+
+  /**
+   * The namespace must be un-disableable, not merely on-by-default.
+   *
+   * Disabling every toggleable namespace AND passing `'tasks'` (the name a user
+   * would reach for) must still leave all five present. If someone later wraps
+   * these builders in a `disabled.has('tasks')` guard, this is what catches it.
+   */
+  it('survives disabledMcpNamespaces, including an explicit "tasks" entry', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'tasks-2', method: 'tools/list' }),
+        buildDeps({
+          hasIDECapabilities: true,
+          disabledMcpNamespaces: [
+            'tasks',
+            'task',
+            'ide',
+            'agent',
+            'git',
+            'json',
+            'browser',
+            'harness',
+            'code',
+          ],
+        }),
+      ),
+    );
+    for (const tool of TASK_TOOLS) {
+      expect(names).toContain(tool);
+    }
+    // Sanity: the toggles really did take effect for toggleable namespaces,
+    // otherwise the assertion above proves nothing.
+    expect(names).not.toContain('ptah_browser_navigate');
+    expect(names).not.toContain('ptah_agent_spawn');
+  });
+
+  /**
+   * No prose-writing tool, ever.
+   *
+   * The contract splits ownership: the carrier is machine-owned metadata and
+   * prose is agent-owned. A `set_section` tool would put agent narrative onto
+   * the file the Tasks board mutates — which is precisely the lost-status bug
+   * this task set exists to close. Asserting on the PATTERN rather than one
+   * exact name means a differently-spelled section-writer also fails.
+   */
+  it('exposes no *set_section* tool on any configuration', async () => {
+    for (const deps of [
+      buildDeps(),
+      buildDeps({ hasIDECapabilities: true }),
+      buildDeps({ hasIDECapabilities: true, hasSqliteLayer: true }),
+    ]) {
+      const names = listedToolNames(
+        await handleMCPRequest(
+          makeRequest({ id: 'tasks-3', method: 'tools/list' }),
+          deps,
+        ),
+      );
+      expect(names.filter((name) => name.includes('set_section'))).toEqual([]);
+    }
+  });
+
+  it('declares the read-only task tools as read-only', async () => {
+    const response = await handleMCPRequest(
+      makeRequest({ id: 'tasks-4', method: 'tools/list' }),
+      buildDeps(),
+    );
+    const byName = new Map(
+      listedTools(response).map((tool) => [tool.name, tool]),
+    );
+    for (const readOnly of [
+      'ptah_task_get',
+      'ptah_task_list',
+      'ptah_task_check',
+    ]) {
+      expect(byName.get(readOnly)?.annotations?.readOnlyHint).toBe(true);
+    }
+    // The mutating pair must NOT claim to be read-only.
+    for (const mutating of ['ptah_task_create', 'ptah_task_update']) {
+      expect(byName.get(mutating)?.annotations?.readOnlyHint).toBeUndefined();
+    }
+  });
+});
+
+describe('tools/call — task specs routing', () => {
+  interface TasksApiMock {
+    create: jest.Mock;
+    update: jest.Mock;
+    get: jest.Mock;
+    list: jest.Mock;
+    check: jest.Mock;
+  }
+
+  function buildTasksApi(): {
+    tasks: TasksApiMock;
+    deps: ProtocolHandlerDependencies;
+  } {
+    const tasks = {
+      create: jest.fn().mockResolvedValue({ ok: true, task: { id: 'A' } }),
+      update: jest.fn().mockResolvedValue({ ok: true, task: { id: 'A' } }),
+      get: jest.fn().mockResolvedValue({ ok: true, task: { id: 'A' } }),
+      list: jest.fn().mockResolvedValue({ ok: true, tasks: [], count: 0 }),
+      check: jest.fn().mockResolvedValue({ ok: true, healthy: true }),
+    };
+    return { tasks, deps: buildDeps({ ptahAPI: buildPtahAPIStub({ tasks }) }) };
+  }
+
+  it('routes each task tool to its namespace method with the raw args', async () => {
+    const { tasks, deps } = buildTasksApi();
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'call-1',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_task_create',
+          arguments: { title: 'New', type: 'FEATURE' },
+        },
+      }),
+      deps,
+    );
+    expect(tasks.create).toHaveBeenCalledWith({
+      title: 'New',
+      type: 'FEATURE',
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'call-2',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_task_update',
+          arguments: { taskId: 'TASK_2026_179', status: 'done' },
+        },
+      }),
+      deps,
+    );
+    expect(tasks.update).toHaveBeenCalledWith({
+      taskId: 'TASK_2026_179',
+      status: 'done',
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 'call-3',
+        method: 'tools/call',
+        params: { name: 'ptah_task_check' },
+      }),
+      deps,
+    );
+    expect(tasks.check).toHaveBeenCalled();
+  });
+
+  /**
+   * A validation refusal is DATA, not a protocol error: the namespace returns
+   * `{ ok: false, ... }` and the dispatcher passes it through as a successful
+   * tool result. That is what lets the agent read the reason and correct
+   * itself instead of only seeing "tool failed".
+   */
+  it('passes a typed namespace refusal through as tool result content', async () => {
+    const { tasks, deps } = buildTasksApi();
+    tasks.update.mockResolvedValue({
+      ok: false,
+      code: 'TASK_CONFLICT',
+      error: 'changed on disk',
+    });
+
+    const response = await handleMCPRequest(
+      makeRequest({
+        id: 'call-4',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_task_update',
+          arguments: { taskId: 'TASK_2026_179', status: 'done' },
+        },
+      }),
+      deps,
+    );
+
+    const result = response.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      ok: false,
+      code: 'TASK_CONFLICT',
+      error: 'changed on disk',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // tools/list — eager (_meta alwaysLoad) marking
 // ---------------------------------------------------------------------------
 
@@ -332,6 +565,80 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(content[0].type).toBe('text');
     expect(content[0].text).toContain('a.ts');
     expect(content[0].text).toContain('b.ts');
+  });
+
+  it('builds the dependency graph from ABSOLUTE paths and resolves a relative query arg', async () => {
+    const root = path.resolve('/ws');
+    const isBuilt = jest.fn().mockResolvedValue(false);
+    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 2 });
+    const getDependents = jest.fn().mockResolvedValue([]);
+    const getInfo = jest.fn().mockResolvedValue({ path: root });
+    const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
+
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+        search: { findFiles } as unknown as PtahAPI['search'],
+        dependencies: {
+          isBuilt,
+          buildGraph,
+          getDependents,
+        } as unknown as PtahAPI['dependencies'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 5,
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_dependents',
+          arguments: { file: 'src/a.ts' },
+        },
+      }),
+      deps,
+    );
+
+    // Graph built with absolute file paths (relative findFiles results joined to root).
+    expect(buildGraph).toHaveBeenCalledWith(
+      [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
+      root,
+    );
+    // Relative query arg resolved to absolute before querying.
+    expect(getDependents).toHaveBeenCalledWith(path.join(root, 'src/a.ts'));
+  });
+
+  it('passes an absolute dependency query arg through unchanged', async () => {
+    const abs = path.resolve('/ws/src/a.ts');
+    const getDependencies = jest.fn().mockResolvedValue([]);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: {
+          getInfo: jest.fn().mockResolvedValue({ path: path.resolve('/ws') }),
+        } as unknown as PtahAPI['workspace'],
+        search: {
+          findFiles: jest.fn().mockResolvedValue([]),
+        } as unknown as PtahAPI['search'],
+        dependencies: {
+          isBuilt: jest.fn().mockResolvedValue(true),
+          getDependencies,
+        } as unknown as PtahAPI['dependencies'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 6,
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_dependencies',
+          arguments: { file: abs },
+        },
+      }),
+      deps,
+    );
+
+    expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
   });
 
   it('invokes onToolResult callback with request id and result text on success', async () => {

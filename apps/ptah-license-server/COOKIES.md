@@ -12,11 +12,11 @@ The Ptah License Server uses a **SINGLE unified** HTTP-only authentication cooki
 
 **Set By**:
 
-- `GET /auth/callback` - WorkOS OAuth callback
-- `POST /auth/login/email` - Email/password login
-- `POST /auth/verify-email` - Email verification after signup
-- `GET /auth/verify?token=...` - Magic link verification
-- `GET /auth/oauth/:provider` → `/auth/callback` - Direct OAuth (GitHub/Google)
+- `GET /v1/auth/callback` - WorkOS OAuth callback
+- `POST /v1/auth/login/email` - Email/password login
+- `POST /v1/auth/verify-email` - Email verification after signup
+- `GET /v1/auth/verify?token=...` - Magic link verification
+- `GET /v1/auth/oauth/:provider` → `/v1/auth/callback` - Direct OAuth (GitHub/Google)
 
 **Validated By**:
 
@@ -45,7 +45,7 @@ The Ptah License Server uses a **SINGLE unified** HTTP-only authentication cooki
 
 ## Logout Behavior
 
-**Endpoint**: `POST /auth/logout`
+**Endpoint**: `POST /v1/auth/logout`
 
 **Clears the cookie**:
 
@@ -62,25 +62,25 @@ All authentication flows use the same `ptah_auth` cookie:
 ### 1. WorkOS OAuth Flow
 
 ```
-User → GET /auth/login → WorkOS → GET /auth/callback → Sets ptah_auth
+User → GET /v1/auth/login → WorkOS → GET /v1/auth/callback → Sets ptah_auth
 ```
 
 ### 2. Email/Password Flow
 
 ```
-User → POST /auth/login/email → Sets ptah_auth
+User → POST /v1/auth/login/email → Sets ptah_auth
 ```
 
 ### 3. Magic Link Flow
 
 ```
-User → POST /auth/magic-link → Email → GET /auth/verify → Sets ptah_auth
+User → POST /v1/auth/magic-link → Email → GET /v1/auth/verify → Sets ptah_auth
 ```
 
 ### 4. Direct OAuth (GitHub/Google)
 
 ```
-User → GET /auth/oauth/github → GitHub → GET /auth/callback → Sets ptah_auth
+User → GET /v1/auth/oauth/github → GitHub → GET /v1/auth/callback → Sets ptah_auth
 ```
 
 ---

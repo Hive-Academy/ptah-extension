@@ -11,7 +11,6 @@ import {
   RpcHandler,
   TOKENS,
   ConfigManager,
-  FeatureGateService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -45,7 +44,11 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import { parsePermissionLevel, parseEffortLevel } from './config-rpc.schema';
+import {
+  parsePermissionLevel,
+  parseEffortLevel,
+  parseApplyTo,
+} from './config-rpc.schema';
 
 /**
  * RPC handlers for configuration operations
@@ -78,8 +81,6 @@ export class ConfigRpcHandlers {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-    @inject(TOKENS.FEATURE_GATE_SERVICE)
-    private readonly featureGate: FeatureGateService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
@@ -136,6 +137,7 @@ export class ConfigRpcHandlers {
     >('config:model-switch', async (params) => {
       try {
         const { model, sessionId } = params;
+        const applyTo = parseApplyTo(params.applyTo, 'app');
         this.logger.info(
           '[ModelDiag] config:model-switch RECEIVED from frontend',
           {
@@ -144,7 +146,7 @@ export class ConfigRpcHandlers {
             startsWithClaude: model.startsWith('claude-'),
           },
         );
-        await this.modelSettings.selectedModel.set(model);
+        await this.modelSettings.selectedModel.set(model, applyTo);
         if (sessionId) {
           try {
             await this.sdkAdapter.setSessionModel(sessionId, model);
@@ -192,10 +194,21 @@ export class ConfigRpcHandlers {
   private registerModelSet(): void {
     this.rpcHandler.registerMethod(
       'config:model-set',
-      async (params: { model?: string; autopilot?: boolean } | undefined) => {
+      async (
+        params:
+          | {
+              model?: string;
+              autopilot?: boolean;
+              applyTo?: 'global' | 'workspace';
+            }
+          | undefined,
+      ) => {
         try {
           if (params?.model !== undefined) {
-            await this.modelSettings.selectedModel.set(params.model);
+            await this.modelSettings.selectedModel.set(
+              params.model,
+              parseApplyTo(params.applyTo, 'app'),
+            );
           }
           if (params?.autopilot !== undefined) {
             await this.configManager.set('autopilot.enabled', params.autopilot);
@@ -282,12 +295,6 @@ export class ConfigRpcHandlers {
           sessionId,
         });
         if (enabled && permissionLevel === 'yolo') {
-          const isPro = await this.featureGate.isProTier();
-          if (!isPro) {
-            throw new Error(
-              'YOLO mode requires a Pro subscription. Upgrade to enable unattended execution.',
-            );
-          }
           this.logger.warn(
             'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
             { enabled, permissionLevel },
@@ -303,14 +310,28 @@ export class ConfigRpcHandlers {
           ? (permissionLevel as PermissionLevel)
           : 'ask';
         this.permissionHandler.setPermissionLevel(effectiveLevel);
-        if (sessionId) {
+        // The autopilot popover does not pass a sessionId, so fall back to the
+        // most-recently-active session. Permission gating is now per-session
+        // (each session reads its own level), so the toggle must reach a
+        // concrete session to take effect on a running turn.
+        //
+        // An empty sessionId counts as "not supplied": `??` alone kept it, and
+        // the truthiness check below then discarded it, so the toggle reached
+        // no session at all and the fallback never fired.
+        const requestedSessionId = sessionId ? sessionId : undefined;
+        const targetSessionId =
+          requestedSessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+        if (targetSessionId) {
           try {
             const sdkMode = enabled
               ? this.mapPermissionToSdkMode(permissionLevel)
               : 'default';
-            await this.sdkAdapter.setSessionPermissionLevel(sessionId, sdkMode);
+            await this.sdkAdapter.setSessionPermissionLevel(
+              targetSessionId,
+              sdkMode,
+            );
             this.logger.debug('Permission mode synced to active session', {
-              sessionId,
+              sessionId: targetSessionId,
               sdkMode,
               enabled,
             });
@@ -417,6 +438,12 @@ export class ConfigRpcHandlers {
             tierOverrides: tierOverrides ?? 'null',
             savedModel,
           });
+          // Rates are the published ones either way; the active provider's
+          // billing policy only decides whether the line says they are
+          // charged per token or absorbed by a flat fee.
+          const pricingOptions = {
+            subscriptionCovered: this.modelResolver.isSubscriptionCovered(),
+          };
           const sdkModelIds = new Set(sdkModels.map((m) => m.value));
           const models: Array<{
             id: string;
@@ -446,7 +473,7 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
+                ? getModelPricingDescription(providerModelId, pricingOptions)
                 : m.description,
               isSelected:
                 m.value === savedModel ||
@@ -471,8 +498,8 @@ export class ConfigRpcHandlers {
               id: m.value,
               name: m.displayName,
               description: providerModelId
-                ? getModelPricingDescription(providerModelId)
-                : getModelPricingDescription(m.value),
+                ? getModelPricingDescription(providerModelId, pricingOptions)
+                : getModelPricingDescription(m.value, pricingOptions),
               isSelected:
                 m.value === savedModel ||
                 (savedModel.startsWith('claude-') &&
@@ -590,12 +617,13 @@ export class ConfigRpcHandlers {
       try {
         const effort = parseEffortLevel(params.effort);
         const sessionId = params.sessionId;
+        const applyTo = parseApplyTo(params.applyTo, 'app');
         this.logger.debug('RPC: config:effort-set called', {
           effort,
           sessionId: sessionId ?? null,
         });
 
-        await this.reasoningSettings.effort.set(effort || '');
+        await this.reasoningSettings.effort.set(effort || '', applyTo);
 
         if (sessionId) {
           try {

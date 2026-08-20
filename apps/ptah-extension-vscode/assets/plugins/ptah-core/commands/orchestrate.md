@@ -1,6 +1,6 @@
 ---
 description: Orchestrate development workflows with specialist agents. Supports FEATURE, BUGFIX, REFACTORING, DOCS, RESEARCH, DEVOPS, and CREATIVE task types.
-argument-hint: '[task description] or TASK_2025_XXX'
+argument-hint: '[task description] or TASK_YYYY_NNN'
 ---
 
 # Orchestrate Development Workflow
@@ -11,15 +11,16 @@ Invoke the orchestration skill for development workflows.
 
 ```
 /orchestrate [task description]     # New task
-/orchestrate TASK_2025_XXX          # Continue existing task
+/orchestrate TASK_YYYY_NNN          # Continue existing task
 ```
 
 ## Execution
 
-1. Load `.claude/skills/orchestration/SKILL.md`
+1. Invoke the `orchestration` skill (Skill tool) — do not Read it by relative path
 2. Follow the Workflow Selection Matrix to determine strategy
 3. Execute the chosen strategy (invoke agents, handle checkpoints)
-4. Load references as needed during execution:
+4. Load references as needed during execution, resolving them relative to the
+   orchestration skill's own directory:
    - `references/strategies.md` - Strategy details and flows
    - `references/agent-catalog.md` - Agent profiles and invocation
    - `references/team-leader-modes.md` - MODE 1/2/3 integration
@@ -35,6 +36,7 @@ Invoke the orchestration skill for development workflows.
 
 **Checkpoints**: Scope Clarification, Requirements Validation, Architecture Validation, QA Choice
 
-## Skill Path
+## Skill
 
-`.claude/skills/orchestration/SKILL.md`
+`orchestration` — invoke it with the Skill tool. Its location on disk varies by
+host and install method, so never hardcode a workspace-relative path to it.

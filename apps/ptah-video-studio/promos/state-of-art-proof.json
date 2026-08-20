@@ -1,0 +1,16 @@
+{
+  "title": "State-of-the-art proof — remocn + high-fidelity abstract 3D (silent)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "music": null,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "state-of-art-proof",
+      "holdMs": 12000,
+      "captions": []
+    }
+  ]
+}

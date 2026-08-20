@@ -39,7 +39,11 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 22
+  # 24, not 22: node 22 ships npm 10, which cannot resolve our lockfile
+  # (see package.json engines.npm >= 11) and silently degrades `npm ci` into
+  # an unpinned `npm install` fallback. The publish-* and deploy-* workflows
+  # stay on 22 deliberately -- they match release and DO buildpack targets.
+  NODE_VERSION: 24
   NX_TUI: 'false'
 
 jobs:
@@ -49,9 +53,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: ['22']
+        node-version: ['24']
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # Matches the other E2E jobs' headroom. The restore-cli-manifest chain
+    # (34 tasks) plus the full jest e2e harness overruns 10m on a cold
+    # node_modules / Nx cache even though the specs themselves pass quickly.
+    timeout-minutes: 20
     defaults:
       run:
         # Use bash on both Linux and Windows (Git Bash) so step scripts behave

@@ -12,7 +12,16 @@ export default {
       },
     ],
   },
-  transformIgnorePatterns: ['node_modules/(?!.*\\.mjs$)'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(?:.*\\.mjs$|marked|ngx-markdown))',
+  ],
+  moduleNameMapper: {
+    '^ngx-markdown$': '<rootDir>/src/__mocks__/ngx-markdown.ts',
+    // The Monaco diff surface is reached through a runtime import() so the
+    // Skills tab never inherits the editor bundle. Under jsdom that barrel
+    // would drag in Monaco + xterm; stub it instead.
+    '^@ptah-extension/editor$': '<rootDir>/src/__mocks__/ptah-editor.ts',
+  },
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',

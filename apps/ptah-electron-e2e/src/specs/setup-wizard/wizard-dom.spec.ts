@@ -3,7 +3,6 @@ import { test, expect } from '../../support/fixtures';
 test.describe('Setup wizard (DOM)', () => {
   test('first step renders', async ({ ui }) => {
     await ui.mockRpc({
-      'license:getStatus': { isPremium: true },
       'wizard:list-analyses': { analyses: [] },
     });
 
@@ -19,7 +18,6 @@ test.describe('Setup wizard (DOM)', () => {
 
   test('advance one step', async ({ ui }) => {
     await ui.mockRpc({
-      'license:getStatus': { isPremium: true },
       'wizard:list-analyses': { analyses: [] },
     });
 

@@ -492,7 +492,9 @@ describe('SessionForkService', () => {
             abortController: new AbortController(),
             messageQueue: [],
             resolveNext: null,
+            turnInFlight: false,
             currentModel: 'claude-sonnet-4-20250514',
+            permissionLevel: 'ask',
             lastActivityAt: 0,
           };
         }

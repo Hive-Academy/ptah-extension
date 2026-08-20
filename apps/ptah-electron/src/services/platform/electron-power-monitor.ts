@@ -2,9 +2,10 @@
  * ElectronPowerMonitor — `IPowerMonitor` implementation for the Electron host
  * (cron scheduler).
  *
- * Wraps `electron.powerMonitor.on('resume', ...)` / `'suspend'`. The cron
- * scheduler subscribes via this adapter so the `CatchupCoordinator` can
- * replay missed slots when the laptop wakes from sleep.
+ * Wraps `electron.powerMonitor.on('resume', ...)` / `'suspend'` and
+ * `isOnBatteryPower()`. The cron scheduler subscribes via this adapter so the
+ * `CatchupCoordinator` can replay missed slots when the laptop wakes from
+ * sleep, and gates battery-sensitive work on `isOnBattery()`.
  *
  * `onResume` / `onSuspend` return a dispose closure rather than emitter-style
  * `removeListener(cb)` so consumers
@@ -42,5 +43,9 @@ export class ElectronPowerMonitor implements IPowerMonitor {
 
       powerMonitor.off('suspend', listener);
     };
+  }
+
+  isOnBattery(): boolean {
+    return powerMonitor.isOnBatteryPower();
   }
 }

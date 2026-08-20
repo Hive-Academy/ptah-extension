@@ -1,0 +1,42 @@
+-- TASK_2026_201 R4.1 — additive: `Waitlist.approvedAt`.
+--
+-- "Approved for free" and "paid me money" become different facts. `approvedAt` is
+-- written by approve-to-cohort and by complimentary licence issuance; `convertedAt`
+-- keeps exactly one writer, the Paddle fan-out. See the `Waitlist` model docblock
+-- in schema.prisma for the full three-writer table.
+--
+-- FORWARD-ONLY AND SEQUENTIAL. This follows `20260902090000_packs_visibility_and_
+-- notifications`, the newest folder in this directory, and nothing sorts between
+-- them — checked against the migrations directory before the timestamp was chosen
+-- (Batch 1 Task 1.2). No previously-applied migration file is edited: doing so
+-- breaks Prisma's per-migration checksum and forces a database RESET, which is why
+-- `20260806000000_fix_founding_invite_offer_copy` exists at all (its header, :3-29).
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ✅ `_trgm` DROP-INDEX CHECK PERFORMED, NOTHING TO STRIP.
+--
+-- This file is HAND-AUTHORED; `prisma migrate diff` was not used to generate it,
+-- so its three unprompted index-drop proposals on `community_posts_body_trgm`,
+-- `community_topics_title_trgm` and `course_lessons_title_trgm` never entered the
+-- file. Prisma cannot express `gin_trgm_ops`, reads those hand-written GIN indexes
+-- as drift, and will propose deleting them on EVERY diff, for ever
+-- (`20260902090000_.../migration.sql:16-40`). The tell is a DROP-INDEX statement on
+-- a name ending `_trgm` that no task asked for. THE NEXT MIGRATION IN THIS APP MUST
+-- RUN THE SAME CHECK. This file drops nothing: it is one `ADD COLUMN`.
+--
+-- The two-word SQL keyword is written hyphenated throughout this header ON PURPOSE:
+-- Batch 1's acceptance gate greps these folders for the literal statement text and
+-- must return NOTHING, so a comment about the hazard may not itself trip the gate.
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- SAFETY. NULLABLE, no DEFAULT, no backfill, no index — existing rows are
+-- untouched and the migration is independently deployable against a populated
+-- `waitlist` (R4.1). `TIMESTAMP(3)` deliberately matches the sibling `notified_at`
+-- / `converted_at` columns (`20260719120000_add_waitlist/migration.sql:6-8`); a
+-- bare `TIMESTAMP` would give this one column microsecond precision the others do
+-- not have. `IF NOT EXISTS` makes the file re-runnable (NFR-Reliability).
+--
+-- NO INDEX, DELIBERATELY. The table is small and the only reads are one `count`
+-- aggregate (`approvedAt: { not: null }`) and a `datePresence` admin filter;
+-- `waitlist_created_at_idx` already serves the ordering.
+ALTER TABLE "waitlist" ADD COLUMN IF NOT EXISTS "approved_at" TIMESTAMP(3);

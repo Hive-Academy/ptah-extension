@@ -1,0 +1,20 @@
+{
+  "title": "Asset Sheet — curated brandified CC0 prop set (one slide, silent)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "music": null,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "asset-sheet",
+      "holdMs": 9000,
+      "captions": [
+        "One curated prop family, all CC0",
+        "brandify() unifies every material",
+        "Amber and emerald on a graded ink stage"
+      ]
+    }
+  ]
+}

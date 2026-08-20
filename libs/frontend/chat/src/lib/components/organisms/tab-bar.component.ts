@@ -21,6 +21,7 @@ import {
   SessionLivenessRegistry,
   TabManagerService,
 } from '@ptah-extension/chat-state';
+import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 
 /**
  * TabBarComponent - Chrome-style scrollable tab bar
@@ -100,11 +101,14 @@ import {
 export class TabBarComponent {
   protected readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly claims = inject(WorkflowSessionClaimService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
 
-  readonly tabs = this.tabManager.tabs;
+  readonly tabs = computed(() =>
+    this.tabManager.tabs().filter((t) => this.claims.surfaceFor(t.id) === null),
+  );
   readonly activeTabId = this.tabManager.activeTabId;
   readonly awaitingBackgroundTab = computed(() => {
     const activeId = this.activeTabId();

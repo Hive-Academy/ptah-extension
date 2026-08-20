@@ -2,9 +2,9 @@
  * Chat session sub-barrel.
  *
  * Re-exports the SDK-orchestration services that own the six chat RPC
- * method bodies plus premium-config helpers.
+ * method bodies plus SDK-config helpers.
  */
-export { ChatPremiumContextService } from './chat-premium-context.service';
+export { ChatSdkContextService } from './chat-sdk-context.service';
 export { ChatSessionService } from './chat-session.service';
 export { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 export { ChatSlashCommandRouterService } from './chat-slash-command-router.service';

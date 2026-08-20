@@ -44,7 +44,7 @@ export type TabLivenessStatus =
       @if (isAwaitingBackground()) {
         <lucide-angular
           [img]="MoonIcon"
-          class="w-3 h-3 flex-shrink-0 text-base-content/60 animate-pulse-slow"
+          class="w-3 h-3 flex-shrink-0 text-base-content-muted animate-pulse-slow"
           [attr.data-test]="'tab-item-awaiting-background-icon'"
         />
       } @else if (isStreaming()) {

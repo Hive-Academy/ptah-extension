@@ -276,6 +276,181 @@ describe('GitWatcherService', () => {
   });
 
   // ===========================================================================
+  // MAX-WAIT CEILINGS (TASK_2026_175)
+  //
+  // A plain re-arming debounce starves: while events keep arriving inside the
+  // window the timer is cleared every time and the trailing edge never runs.
+  // Measured against the live monorepo the workspace channel produced 0
+  // `git:status-update` pushes across 60s despite 655 qualifying events.
+  //
+  // Each test below emits FASTER than the channel's debounce window for
+  // LONGER than its ceiling, and proves two things: nothing fires before the
+  // ceiling (the debounce window is untouched — TASK_2026_173 C1 AC2), and
+  // the push is forced once the ceiling is crossed.
+  // ===========================================================================
+
+  describe('max-wait ceilings under continuous churn', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
+      (svc as unknown as { workspacePath: string }).workspacePath =
+        'D:\\fake\\ws';
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+    });
+
+    /** Emit `count` events `gapMs` apart, advancing fake time between them. */
+    function churn(emit: () => void, count: number, gapMs: number): void {
+      for (let i = 0; i < count; i++) {
+        emit();
+        jest.advanceTimersByTime(gapMs);
+      }
+    }
+
+    function calls(type: string): unknown[][] {
+      return broadcast.mock.calls.filter(([t]) => t === type);
+    }
+
+    /** Let the `void fetchAndPush()` chain settle. */
+    async function flush(): Promise<void> {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    it('workspace git status fires within WORKSPACE_MAX_WAIT_MS (8000)', async () => {
+      const emit = () =>
+        (
+          svc as unknown as {
+            scheduleUpdate(ms: number, kind: GitChangeKind): void;
+          }
+        ).scheduleUpdate(2000, 'workspace');
+
+      // 500ms apart — a quarter of the debounce window, so the trailing edge
+      // is never reached by coalescing alone. Last emit lands at t=7500.
+      churn(emit, 16, 500);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(0);
+
+      // t=8000: the burst has now run for the full ceiling.
+      emit();
+      await flush();
+      expect(calls('git:status-update').length).toBeGreaterThanOrEqual(1);
+      const payload = calls(
+        'git:status-update',
+      )[0][1] as GitStatusUpdatePayload;
+      expect(payload.causes).toEqual(['workspace']);
+    });
+
+    it('file tree refresh fires within TREE_MAX_WAIT_MS (2000)', () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleTreeRefresh(): void }
+        ).scheduleTreeRefresh();
+
+      // 200ms apart, well inside the 500ms window. Last emit lands at t=1800.
+      churn(emit, 10, 200);
+      expect(calls('file:tree-changed')).toHaveLength(0);
+
+      emit(); // t=2000
+      expect(calls('file:tree-changed')).toHaveLength(1);
+    });
+
+    it('git-ops refresh fires within GIT_OPS_MAX_WAIT_MS (2000)', async () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleGitOpsRefresh(kind: GitChangeKind): void }
+        ).scheduleGitOpsRefresh('index');
+
+      churn(emit, 10, 200);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(0);
+      expect(calls('editor:reread-open-tabs')).toHaveLength(0);
+
+      emit(); // t=2000
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
+      expect(calls('editor:reread-open-tabs')).toHaveLength(1);
+    });
+
+    it('content change fires within CONTENT_CHANGE_MAX_WAIT_MS (2000)', () => {
+      const emit = () =>
+        (
+          svc as unknown as {
+            scheduleContentChange(root: string, name: string): void;
+          }
+        ).scheduleContentChange('D:\\fake\\ws', 'a.ts');
+
+      churn(emit, 10, 200);
+      expect(calls('file:content-changed')).toHaveLength(0);
+
+      emit(); // t=2000
+      expect(calls('file:content-changed')).toHaveLength(1);
+      expect(calls('file:content-changed')[0][1]).toEqual({
+        filePath: 'D:/fake/ws/a.ts',
+      });
+    });
+
+    it('content-change ceilings are tracked per file, not globally', () => {
+      const emit = (name: string) =>
+        (
+          svc as unknown as {
+            scheduleContentChange(root: string, name: string): void;
+          }
+        ).scheduleContentChange('D:\\fake\\ws', name);
+
+      // `a.ts` is rewritten continuously; `b.ts` is touched once near the end.
+      churn(() => emit('a.ts'), 10, 200);
+      emit('b.ts');
+      emit('a.ts'); // t=2000 — only a.ts has an expired burst
+      expect(calls('file:content-changed')).toHaveLength(1);
+      expect(calls('file:content-changed')[0][1]).toEqual({
+        filePath: 'D:/fake/ws/a.ts',
+      });
+
+      // b.ts still coalesces normally on its own 500ms window.
+      jest.advanceTimersByTime(500);
+      expect(calls('file:content-changed')).toHaveLength(2);
+      expect(calls('file:content-changed')[1][1]).toEqual({
+        filePath: 'D:/fake/ws/b.ts',
+      });
+    });
+
+    it('a forced fire starts a fresh burst rather than firing on every event', () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleTreeRefresh(): void }
+        ).scheduleTreeRefresh();
+
+      churn(emit, 10, 200);
+      emit(); // t=2000 — forced
+      expect(calls('file:tree-changed')).toHaveLength(1);
+
+      // The next event opens a new burst; it must NOT fire immediately.
+      jest.advanceTimersByTime(200);
+      emit();
+      expect(calls('file:tree-changed')).toHaveLength(1);
+
+      churn(emit, 10, 200);
+      emit();
+      expect(calls('file:tree-changed')).toHaveLength(2);
+    });
+
+    it('stop() clears the burst so a restarted watcher does not fire instantly', () => {
+      const emit = () =>
+        (
+          svc as unknown as { scheduleTreeRefresh(): void }
+        ).scheduleTreeRefresh();
+
+      churn(emit, 10, 200);
+      svc.stop();
+      broadcast.mockClear();
+
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+      emit();
+      expect(calls('file:tree-changed')).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
   // FILTERING TESTS — exercise the real watcher callback function
   // ===========================================================================
 
@@ -304,57 +479,121 @@ describe('GitWatcherService', () => {
       expect(watchers.length).toBe(1);
     });
 
-    it('ignored prefixes (node_modules, dist, .git) do not schedule a tree refresh', () => {
-      jest.useFakeTimers();
+    /**
+     * Calls the SHIPPED exclusion decision (`isIgnoredWorkspaceEvent`, a
+     * one-line adapter over `isExcludedWorkspacePath` /`WATCH_IGNORED_DIRS`
+     * in `@ptah-extension/shared`).
+     *
+     * The previous version of this test hand-rolled the predicate inline,
+     * which made the spec a fourth maintained copy of the exclusion list and
+     * blind to exactly the drift TASK_2026_173 B4 exists to prevent. There is
+     * now no list here at all.
+     *
+     * `fs.watch` itself is not intercepted: Node's `fs` exports are
+     * non-configurable, so `jest.spyOn(fs, 'watch')` throws
+     * "Cannot redefine property". The end-to-end wiring (this decision
+     * actually gating the watcher callback) is covered by the real-`fs.watch`
+     * integration test further down.
+     */
+    function isIgnored(filename: string): boolean {
+      return (
+        svc as unknown as {
+          isIgnoredWorkspaceEvent(f: string | null): boolean;
+        }
+      ).isIgnoredWorkspaceEvent(filename);
+    }
+
+    it('drops events under every excluded directory', () => {
+      // Pre-existing exclusions — unchanged behaviour.
+      for (const name of [
+        '.git',
+        '.git/HEAD',
+        '.git\\HEAD',
+        'node_modules/foo.ts',
+        'node_modules\\foo.ts',
+        'dist/main.js',
+        'dist\\main.js',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+
+      // Newly excluded by TASK_2026_173 B4 — the intentional behavioural delta.
+      for (const name of [
+        '.nx/cache/abc.tmp',
+        '.nx\\cache\\abc.tmp',
+        '.angular/cache/x.tmp',
+        '.cache/build/x.bin',
+        '.tmp/scratch',
+        '.temp/scratch',
+        '.hg/store',
+        '.svn/entries',
+        '.Trash/deleted',
+        '.DS_Store',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+
+      // Nested occurrences too — monorepo churn does not only live at the root.
+      for (const name of [
+        'packages/foo/node_modules/bar/index.js',
+        'libs\\shared\\dist\\index.js',
+      ]) {
+        expect(isIgnored(name)).toBe(true);
+      }
+    });
+
+    it('keeps genuine source events, including plausible-source directories (R-9)', () => {
+      for (const name of [
+        'src/foo.ts',
+        'src\\foo.ts',
+        'apps/ptah-electron/src/main.ts',
+        'README.md',
+        // Deliberately NOT excluded: each is a plausible source directory.
+        'out/generated.ts',
+        'build/config.ts',
+        'coverage/report.ts',
+        '.next/page.ts',
+        '.turbo/log.ts',
+        // Prefix collisions must not be treated as segment matches.
+        'distribution/a.ts',
+        'node_modules_backup/a.ts',
+        // Config dot-directories the tree shows and the watcher tracks.
+        '.vscode/settings.json',
+        '.github/workflows/ci.yml',
+      ]) {
+        expect(isIgnored(name)).toBe(false);
+      }
+
+      // A null filename (platforms that do not surface it) is never ignored —
+      // the update must still be scheduled.
+      expect(
+        (
+          svc as unknown as {
+            isIgnoredWorkspaceEvent(f: string | null): boolean;
+          }
+        ).isIgnoredWorkspaceEvent(null),
+      ).toBe(false);
+    });
+
+    it('arms the dedicated .git watchers unfiltered (git ops still detected)', () => {
+      // `.git` is excluded from the RECURSIVE workspace watcher only, because
+      // the dedicated HEAD/index/refs watchers own it. If the shared exclusion
+      // predicate ever leaked into watchFile/watchDirectory, every commit,
+      // stage, checkout and branch switch would stop being detected — a far
+      // worse regression than the churn B4 removes.
+      const gitDir = path.join(tmpDir, '.git');
+      fs.mkdirSync(gitDir);
+      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gitDir, 'index'), '');
+      fs.mkdirSync(path.join(gitDir, 'refs'));
+
       svc.start(tmpDir, broadcast);
 
-      // The watcher callback is private; replicate the filter logic by
-      // simulating an event through the public watcher contract: invoke the
-      // private scheduler only AFTER calling the (private) workspace watcher
-      // handler equivalent. Since the handler is bound to fs.watch, we
-      // assert the contract by directly testing scheduleTreeRefresh — and
-      // by checking that the filter conditions in source mean a synthetic
-      // call site for an ignored filename never reaches scheduleTreeRefresh.
-      //
-      // Concretely: we just confirm scheduleTreeRefresh ALONE (no filter
-      // gating) does fire — proving the lack of broadcast in the ignored
-      // case is due to the filter, not a broken scheduler.
-      (svc as unknown as { scheduleTreeRefresh(): void }).scheduleTreeRefresh();
-      jest.advanceTimersByTime(500);
-
-      const treeCalls = broadcast.mock.calls.filter(
-        ([t]) => t === 'file:tree-changed',
+      // 1 workspace-root + HEAD + index + refs = 4. A leak of the predicate
+      // into watchFile/watchDirectory would drop this to 1.
+      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
+        4,
       );
-      // Sanity: the scheduler itself works
-      expect(treeCalls.length).toBeGreaterThanOrEqual(1);
-
-      // Now the filter contract: simulate invoking the workspace handler
-      // for an ignored path by clearing broadcasts and asserting the
-      // start() body's filter check rejects them. The handler is private
-      // and bound — we reach it via the watcher's emit contract by
-      // scheduling no-ops and verifying the fs.watch ignore predicate
-      // matches the documented prefixes.
-      broadcast.mockClear();
-
-      // Validate the documented prefixes by constructing the same predicate
-      // the source uses. This is a behavioural-contract guard.
-      const ignored = (filename: string): boolean =>
-        filename.startsWith('node_modules/') ||
-        filename.startsWith('node_modules\\') ||
-        filename.startsWith('dist/') ||
-        filename.startsWith('dist\\') ||
-        filename.startsWith('.git/') ||
-        filename.startsWith('.git\\') ||
-        filename === '.git';
-
-      expect(ignored('node_modules/foo.ts')).toBe(true);
-      expect(ignored('node_modules\\foo.ts')).toBe(true);
-      expect(ignored('dist/main.js')).toBe(true);
-      expect(ignored('dist\\main.js')).toBe(true);
-      expect(ignored('.git/HEAD')).toBe(true);
-      expect(ignored('.git\\HEAD')).toBe(true);
-      expect(ignored('.git')).toBe(true);
-      expect(ignored('src/foo.ts')).toBe(false);
     });
   });
 
@@ -398,9 +637,21 @@ describe('GitWatcherService', () => {
       expect(secondCount).toBe(1);
     });
 
-    it('switchWorkspace() to a non-git workspace re-attaches workspace watcher', () => {
+    it('switchWorkspace() to a non-git workspace re-attaches workspace watcher (after debounce)', async () => {
       svc.start(tmpA, broadcast);
       svc.switchWorkspace(tmpB);
+
+      // Debounced: the re-arm has not happened yet.
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpA,
+      );
+
+      // After the switch-debounce window the final target is armed.
+      await waitFor(
+        () =>
+          (svc as unknown as { workspacePath: string }).workspacePath === tmpB,
+        1500,
+      );
 
       const watchers = (svc as unknown as { watchers: unknown[] }).watchers;
       expect(watchers.length).toBe(1);
@@ -457,6 +708,117 @@ describe('GitWatcherService', () => {
   });
 
   // ===========================================================================
+  // SWITCH DEBOUNCE + DEFERRED INITIAL FETCH (deterministic, fake timers)
+  // ===========================================================================
+
+  describe('switch debounce + deferred initial fetch', () => {
+    let tmpA: string;
+    let tmpB: string;
+
+    beforeEach(() => {
+      tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-switch-a-'));
+      tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-switch-b-'));
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      for (const dir of [tmpA, tmpB]) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    it('collapses rapid switches into a single re-arm on the final target', () => {
+      svc.start(tmpA, broadcast);
+      const startSpy = jest.spyOn(svc, 'start');
+
+      svc.switchWorkspace(tmpB);
+      svc.switchWorkspace(tmpA);
+      svc.switchWorkspace(tmpB);
+
+      // Nothing re-armed yet — still debouncing.
+      expect(startSpy).not.toHaveBeenCalled();
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpA,
+      );
+
+      jest.advanceTimersByTime(300);
+
+      // Exactly one re-arm, on the final target (tmpB).
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      expect(startSpy).toHaveBeenCalledWith(tmpB, broadcast);
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpB,
+      );
+    });
+
+    it('A→B→A quickly leaves A watched with no teardown (queued restart dropped)', () => {
+      svc.start(tmpA, broadcast);
+      const startSpy = jest.spyOn(svc, 'start');
+
+      svc.switchWorkspace(tmpB);
+      svc.switchWorkspace(tmpA); // final target === currently watched path
+
+      jest.advanceTimersByTime(300);
+
+      // The restart is dropped because the final target is already watched.
+      expect(startSpy).not.toHaveBeenCalled();
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpA,
+      );
+    });
+
+    it('does not fire the initial git:status-update synchronously on arm', async () => {
+      // Give tmpA a .git dir so the initial fetch path is reached.
+      const gitDir = path.join(tmpA, '.git');
+      fs.mkdirSync(gitDir);
+      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gitDir, 'index'), '');
+      fs.mkdirSync(path.join(gitDir, 'refs'));
+
+      svc.start(tmpA, broadcast);
+
+      // Watchers are armed immediately, but the fetch is deferred.
+      expect(
+        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+      ).toBe(false);
+
+      jest.advanceTimersByTime(50);
+      // Flush the async fetchAndPush microtasks.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(gitInfo.getGitInfo).toHaveBeenCalledWith(tmpA);
+      expect(
+        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+      ).toBe(true);
+    });
+
+    it('stop() before the deferred initial fetch fires suppresses it', async () => {
+      const gitDir = path.join(tmpA, '.git');
+      fs.mkdirSync(gitDir);
+      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gitDir, 'index'), '');
+      fs.mkdirSync(path.join(gitDir, 'refs'));
+
+      svc.start(tmpA, broadcast);
+      svc.stop();
+
+      jest.advanceTimersByTime(50);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(
+        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+      ).toBe(false);
+    });
+  });
+
+  // ===========================================================================
   // REAL fs.watch INTEGRATION — non-git workspace receives file:tree-changed
   //
   // These tests use real timers and real file system events. They are
@@ -507,5 +869,55 @@ describe('GitWatcherService', () => {
       );
       expect(treeCalls.length).toBeGreaterThanOrEqual(1);
     });
+
+    /**
+     * End-to-end proof that the shared exclusion predicate is actually wired
+     * into the `fs.watch` callback — the unit tests above exercise the
+     * decision, this exercises the wiring.
+     *
+     * Positive control in the same test: if the negative half passed because
+     * `fs.watch` simply delivered nothing, the positive half would fail too.
+     */
+    it('writes under .nx/.angular are ignored while a real source write still pushes', async () => {
+      const nxCache = path.join(tmpDir, '.nx', 'cache');
+      const ngCache = path.join(tmpDir, '.angular', 'cache');
+      const srcDir = path.join(tmpDir, 'src');
+      // Created BEFORE start() so the mkdir events themselves are not measured.
+      fs.mkdirSync(nxCache, { recursive: true });
+      fs.mkdirSync(ngCache, { recursive: true });
+      fs.mkdirSync(srcDir, { recursive: true });
+
+      svc.start(tmpDir, broadcast);
+      broadcast.mockClear();
+
+      for (let i = 0; i < 5; i++) {
+        fs.writeFileSync(path.join(nxCache, `probe-${i}.tmp`), String(i));
+        fs.writeFileSync(path.join(ngCache, `probe-${i}.tmp`), String(i));
+      }
+
+      // Well past TREE_DEBOUNCE_MS (500) — nothing may have been pushed.
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(
+        broadcast.mock.calls.filter(([t]) => t === 'file:tree-changed'),
+      ).toHaveLength(0);
+
+      // Positive control: a genuine source write still fires (B4 AC3, R-9).
+      fs.writeFileSync(path.join(srcDir, 'real.ts'), 'export {};\n');
+      const fired = await waitFor(
+        () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
+        2500,
+      );
+      if (!fired) {
+        // fs.watch on Windows occasionally misses a short-lived file event.
+        fs.writeFileSync(path.join(srcDir, 'real-2.ts'), 'export {};\n');
+        await waitFor(
+          () => broadcast.mock.calls.some(([t]) => t === 'file:tree-changed'),
+          2500,
+        );
+      }
+      expect(
+        broadcast.mock.calls.filter(([t]) => t === 'file:tree-changed').length,
+      ).toBeGreaterThanOrEqual(1);
+    }, 15000);
   });
 });

@@ -22,6 +22,10 @@
  */
 
 import { z } from 'zod';
+import {
+  CustomProviderEntryChangesSchema,
+  CustomProviderEntryInputSchema,
+} from '@ptah-extension/shared';
 
 /**
  * Validated shape for the `provider:listModels` RPC method.
@@ -98,4 +102,63 @@ export const ProviderClearModelTierSchema = z.object({
 
 export type ProviderClearModelTierInput = z.infer<
   typeof ProviderClearModelTierSchema
+>;
+
+// ---------------------------------------------------------------------------
+// User-defined provider entries (TASK_2026_236)
+//
+// The entry shape itself is validated by the schemas in
+// `@ptah-extension/shared` — the SAME instances the settings store and the
+// frontend use — so the boundary check and the persistence check can never
+// drift apart. Only the RPC envelope is described here.
+//
+// `apiKey` is deliberately a sibling of `entry`, never a field inside it: it
+// goes to SecretStorage via AuthSecretsService and must not be reachable from
+// anything that gets serialised into `provider.custom.entries`.
+// ---------------------------------------------------------------------------
+
+/** `provider:listCustomEntries` — no parameters; tolerates `undefined`. */
+export const ProviderListCustomEntriesSchema = z.object({}).strict();
+
+export type ProviderListCustomEntriesInput = z.infer<
+  typeof ProviderListCustomEntriesSchema
+>;
+
+/** `provider:addCustomEntry`. */
+export const ProviderAddCustomEntrySchema = z.object({
+  entry: CustomProviderEntryInputSchema,
+  apiKey: z.string().optional(),
+});
+
+export type ProviderAddCustomEntryInput = z.infer<
+  typeof ProviderAddCustomEntrySchema
+>;
+
+/** `provider:updateCustomEntry`. */
+export const ProviderUpdateCustomEntrySchema = z.object({
+  id: z.string().min(1),
+  changes: CustomProviderEntryChangesSchema,
+  apiKey: z.string().optional(),
+});
+
+export type ProviderUpdateCustomEntryInput = z.infer<
+  typeof ProviderUpdateCustomEntrySchema
+>;
+
+/** `provider:removeCustomEntry`. */
+export const ProviderRemoveCustomEntrySchema = z.object({
+  id: z.string().min(1),
+});
+
+export type ProviderRemoveCustomEntryInput = z.infer<
+  typeof ProviderRemoveCustomEntrySchema
+>;
+
+/** `provider:testCustomEntry`. */
+export const ProviderTestCustomEntrySchema = z.object({
+  id: z.string().min(1),
+});
+
+export type ProviderTestCustomEntryInput = z.infer<
+  typeof ProviderTestCustomEntrySchema
 >;

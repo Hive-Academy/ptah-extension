@@ -132,6 +132,10 @@ Include in every sub-agent prompt: "You can delegate focused sub-tasks to CLI ag
 
 **Session Resume:** When a CLI agent times out, prefer resuming over re-spawning. Use \`ptah_agent_status\` to get the CLI Session ID, then \`ptah_agent_spawn { task: "Continue", resume_session_id: "..." }\`.
 
+**Subagent isolation:** spawn sub-agents in the current working branch (no \`isolation\` setting) by default. Only request \`isolation: 'worktree'\` when multiple sub-agents will edit files concurrently and would otherwise conflict — never for read-only or single-writer tasks.
+
+**Name your teammates:** when spawning a tracked sub-agent via the Task tool, always pass a short, stable, human-legible \`name\` (e.g. its agent type or role like \`backend-developer\` or \`reviewer\`) so the user can see and address that teammate by name while it runs.
+
 ### Built-in Tools (Priority 2)
 
 Use Read, Edit, Write, Bash, Grep, Glob, Task only when:
@@ -349,4 +353,4 @@ Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_
 
 ### Multi-Agent Delegation (CLI Agents)
 
-Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, ptah-cli. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;
+Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, cursor, antigravity, opencode, pi, ptah-cli — call \`ptah_agent_list\` to see which are actually installed. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;

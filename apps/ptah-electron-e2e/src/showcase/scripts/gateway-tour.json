@@ -1,0 +1,17 @@
+{
+  "scene": "gateway-tour",
+  "lines": [
+    "What if your agents lived right in your pocket?",
+    "You are inside Ptah, the AI coding orchestra, running agents in parallel on your desktop. In the next minute, we take it mobile.",
+    "Meet the Gateway. It puts your agents inside the chat apps you already use every day: Telegram, Discord, and Slack.",
+    "You do not change your habits. You pick the place your team already talks, and Ptah meets you there.",
+    "Start with Telegram — send a message from anywhere, and your agents get to work back home.",
+    "Setup is two moves: paste in a bot token, approve a one-time pairing code, and you are driving Ptah from a chat window.",
+    "Or give your whole team that same power, right inside your Discord server.",
+    "Invite the bot, register the slash-ptah command, and you decide exactly which servers get access.",
+    "And for the office, Slack slots in just the same — Ptah lives where your projects already do.",
+    "Connect a bot token, and you approve exactly who is allowed to talk to it. Nobody else gets in.",
+    "And you stay in control — every new device needs your one-time approval code before it can do a thing.",
+    "So yes — your agents really do live in your pocket now. Kick off work from the couch, the train, anywhere."
+  ]
+}

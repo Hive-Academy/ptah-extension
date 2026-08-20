@@ -13,6 +13,8 @@ import type { SkillMdGenerator } from './skill-md-generator';
 import type { SkillPromotionService } from './skill-promotion.service';
 import type { TrajectoryExtractor } from './trajectory-extractor';
 import type { CandidateId, SkillCandidateRow } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
+import type { SessionVerdict } from './archaeology/session-verdict.types';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -40,6 +42,9 @@ function fakeRow(
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
+    ...unjudgedVerdictFields(),
+    ...unmeasuredGateFields(),
     ...overrides,
   };
 }
@@ -50,6 +55,10 @@ describe('SkillSynthesisService', () => {
       enabled?: boolean;
       vecLoaded?: boolean;
       isOpen?: boolean;
+      authoredSlugs?: string[];
+      dominantSlug?: string | null;
+      /** When set, a verdict store is injected and serves this row. */
+      verdict?: SessionVerdict | null;
     } = {},
   ) {
     const vecLoaded = opts.vecLoaded ?? false;
@@ -108,6 +117,7 @@ describe('SkillSynthesisService', () => {
         },
         candidate: fakeRow(),
       })),
+      getDominantSkillSlugForSessions: jest.fn(() => opts.dominantSlug ?? null),
     } as unknown as jest.Mocked<SkillCandidateStore>;
     const md = {
       candidatesRoot: jest.fn(() => '/tmp/cands'),
@@ -129,14 +139,39 @@ describe('SkillSynthesisService', () => {
         hash: 'hash-1',
         canonicalText: 'canon',
         turnCount: 6,
+        sessionTurnCount: 6,
         shortDescription: 'do thing',
         slug: 'do-thing',
+        editCount: 2,
+        toolUseCount: 4,
+        bashTestPassed: false,
+        charLength: 5,
+        hasSuccessMarker: true,
       }),
     } as unknown as jest.Mocked<TrajectoryExtractor>;
     const sessionEndRegistry = {
       register: jest.fn(() => jest.fn()),
     } as unknown as ConstructorParameters<typeof SkillSynthesisService>[9];
     const curatorService = null;
+    const synthesizer = {
+      synthesize: jest.fn().mockResolvedValue(null),
+    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[10];
+    const registry =
+      opts.authoredSlugs === undefined
+        ? null
+        : ({
+            listAuthoredSlugs: jest.fn(() => new Set(opts.authoredSlugs)),
+          } as unknown as ConstructorParameters<
+            typeof SkillSynthesisService
+          >[11]);
+    const verdicts =
+      opts.verdict === undefined
+        ? null
+        : ({
+            findBySession: jest.fn(() => opts.verdict ?? null),
+          } as unknown as ConstructorParameters<
+            typeof SkillSynthesisService
+          >[15]);
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
@@ -148,6 +183,12 @@ describe('SkillSynthesisService', () => {
       extractor,
       curatorService,
       sessionEndRegistry,
+      synthesizer,
+      registry,
+      null,
+      null,
+      null,
+      verdicts,
     );
     return {
       svc,
@@ -157,6 +198,9 @@ describe('SkillSynthesisService', () => {
       md,
       promotion,
       extractor,
+      synthesizer,
+      registry,
+      verdicts,
     };
   }
 
@@ -207,6 +251,28 @@ describe('SkillSynthesisService', () => {
     expect(md.writeCandidate).toHaveBeenCalledTimes(1);
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
     expect(result?.reused).toBe(false);
+  });
+
+  it('analyzeSession() skips synthesis when the session is dominated by an authored skill', async () => {
+    const { svc, store } = setup({
+      authoredSlugs: ['orchestrate'],
+      dominantSlug: 'orchestrate',
+    });
+    await svc.start();
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result).toBeNull();
+    expect(store.registerCandidate).not.toHaveBeenCalled();
+  });
+
+  it('analyzeSession() proceeds when the dominant skill is not authored', async () => {
+    const { svc, store } = setup({
+      authoredSlugs: ['orchestrate'],
+      dominantSlug: 'some-synth-skill',
+    });
+    await svc.start();
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result?.reused).toBe(false);
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
   });
 
   it('analyzeSession() is idempotent for the same session within a process', async () => {
@@ -300,37 +366,268 @@ describe('SkillSynthesisService', () => {
     expect(svc.lastRunSummary().lastAnalyzeRunAt).not.toBeNull();
   });
 
-  it('analyzeSession() pushes ineligible + increments tooFewTurns when trajectory is null', async () => {
+  it('analyzeSession() pushes ineligible + increments prefilterTooThin when trajectory is null', async () => {
     const { svc, extractor } = setup();
     await svc.start();
     (extractor.extract as jest.Mock).mockResolvedValue(null);
     await svc.analyzeSession('s1', '/repo');
-    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    expect(svc.getEligibilityHistogram().prefilterTooThin).toBe(1);
     expect(
       svc
         .recentEvents(10)
-        .some((e) => e.kind === 'ineligible' && e.reason === 'tooFewTurns'),
+        .some(
+          (e) => e.kind === 'ineligible' && e.reason === 'prefilterTooThin',
+        ),
     ).toBe(true);
   });
 
-  it('analyzeSession() increments lowFidelity when fidelity ratio is below threshold', async () => {
+  it('analyzeSession() increments prefilterRejected when no real work happened', async () => {
     const { svc, extractor } = setup();
     await svc.start();
     (extractor.extract as jest.Mock).mockResolvedValue({
       hash: 'h2',
       canonicalText: 'canon',
-      turnCount: 1,
-      sessionTurnCount: 10,
+      turnCount: 3,
+      sessionTurnCount: 3,
       shortDescription: 'do thing',
       slug: 'do-thing',
+      editCount: 0,
+      toolUseCount: 0,
+      bashTestPassed: false,
+      charLength: 5,
+      hasSuccessMarker: false,
     });
     await svc.analyzeSession('s1', '/repo');
-    expect(svc.getEligibilityHistogram().lowFidelity).toBe(1);
+    expect(svc.getEligibilityHistogram().prefilterRejected).toBe(1);
     expect(
       svc
         .recentEvents(10)
-        .some((e) => e.kind === 'ineligible' && e.reason === 'lowFidelity'),
+        .some(
+          (e) => e.kind === 'ineligible' && e.reason === 'prefilterRejected',
+        ),
     ).toBe(true);
+  });
+
+  it('prefilter accepts an edit-only session (editCount>=1, no tools/tests)', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'edit-only',
+      canonicalText: 'canon',
+      turnCount: 2,
+      sessionTurnCount: 2,
+      shortDescription: 'do thing',
+      slug: 'do-thing',
+      editCount: 1,
+      toolUseCount: 1,
+      bashTestPassed: false,
+      charLength: 10,
+      hasSuccessMarker: false,
+    });
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result?.reused).toBe(false);
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+    expect(svc.getEligibilityHistogram().accepted).toBe(1);
+  });
+
+  it('prefilter accepts a tool-heavy session (toolUseCount>=2 && charLength>=800)', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'tool-heavy',
+      canonicalText: 'x'.repeat(900),
+      turnCount: 4,
+      sessionTurnCount: 4,
+      shortDescription: 'do thing',
+      slug: 'do-thing',
+      editCount: 0,
+      toolUseCount: 3,
+      bashTestPassed: false,
+      charLength: 900,
+      hasSuccessMarker: false,
+    });
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result?.reused).toBe(false);
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * B2.4.3 — the prefilter gates ELIGIBILITY TO SPEND and nothing else.
+   *
+   * It used to require tool activity AND a lot of text, which quietly selects
+   * for work that went well: a session that fought its way to an answer is
+   * tool-dense but frequently SHORT, because a debugging loop is terse. That is
+   * the most valuable material the pipeline can get — the archaeologist's
+   * `frictionMap` exists to capture exactly it — and it was being dropped before
+   * a single token was spent.
+   *
+   * Each case below is a session that today's gate REJECTS and phase 2 accepts,
+   * paired with a rejection that must survive the widening.
+   */
+  describe('prefilter widening (B2.4.3)', () => {
+    function shape(overrides: Record<string, unknown>) {
+      return {
+        hash: 'h',
+        canonicalText: 'canon',
+        turnCount: 4,
+        sessionTurnCount: 4,
+        shortDescription: 'do thing',
+        slug: 'do-thing',
+        editCount: 0,
+        toolUseCount: 0,
+        bashTestPassed: false,
+        charLength: 100,
+        hasSuccessMarker: false,
+        ...overrides,
+      };
+    }
+
+    it('accepts a tool-heavy session that is SHORT (the old AND rejected it)', async () => {
+      // Three tool calls, 120 characters: two failed greps and a fix. The old
+      // `toolUseCount >= 2 && charLength >= 800` threw this away.
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ toolUseCount: 3, charLength: 120 }),
+      );
+
+      const result = await svc.analyzeSession('s-short-tools', '/repo');
+
+      expect(result?.reused).toBe(false);
+      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+      expect(svc.getEligibilityHistogram().accepted).toBe(1);
+    });
+
+    it('accepts a long corrective conversation with no edits and no tools', async () => {
+      // Eight turns of back-and-forth, 900 characters, nothing written to disk.
+      // This is a session where the user corrected the assistant repeatedly —
+      // friction by definition — and it had no branch at all before phase 2.
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 8, sessionTurnCount: 8, charLength: 900 }),
+      );
+
+      const result = await svc.analyzeSession('s-corrective', '/repo');
+
+      expect(result?.reused).toBe(false);
+      expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('still rejects a session with nothing in it', async () => {
+      // The widening is a widening, not a removal — the analyzer is the only
+      // stage that runs once per session (R3) and the gate still has to bound
+      // what it costs.
+      const { svc, store, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 3, sessionTurnCount: 3, charLength: 40 }),
+      );
+
+      expect(await svc.analyzeSession('s-empty', '/repo')).toBeNull();
+      expect(store.registerCandidate).not.toHaveBeenCalled();
+      expect(svc.getEligibilityHistogram().prefilterRejected).toBe(1);
+    });
+
+    it('rejects a long conversation that is all one-word turns', async () => {
+      // `eligibilityMinTurns` alone would let "ok / ok / ok / ok / ok" through.
+      // The depth branch conjoins `prefilterMinChars` for exactly this.
+      const { svc, extractor } = setup();
+      await svc.start();
+      (extractor.extract as jest.Mock).mockResolvedValue(
+        shape({ turnCount: 9, sessionTurnCount: 9, charLength: 60 }),
+      );
+
+      expect(await svc.analyzeSession('s-chatter', '/repo')).toBeNull();
+    });
+  });
+
+  describe('the verdict reaches synthesis (B2.4.2)', () => {
+    const VERDICT: SessionVerdict = {
+      sessionId: 's1',
+      workspaceRoot: '/repo',
+      intent: 'make the thing work',
+      outcome: 'it was made to work',
+      evidenceClass: 'tests-green',
+      frictionMap: [],
+      routine: null,
+      turnCount: 6,
+      lane: 'archaeologist',
+      model: 'a-tier-alias',
+      passes: 2,
+      degradedReason: null,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    it('hands the session verdict to the synthesizer', async () => {
+      const { svc, synthesizer, verdicts } = setup({ verdict: VERDICT });
+      await svc.start();
+
+      await svc.analyzeSession('s1', '/repo');
+
+      expect(
+        (verdicts as unknown as { findBySession: jest.Mock }).findBySession,
+      ).toHaveBeenCalledWith('s1');
+      expect(
+        (synthesizer as unknown as { synthesize: jest.Mock }).synthesize,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ hash: 'hash-1' }),
+        expect.anything(),
+        VERDICT,
+      );
+    });
+
+    it('passes null in a host with no verdict store, without throwing', async () => {
+      const { svc, synthesizer } = setup();
+      await svc.start();
+
+      await svc.analyzeSession('s1', '/repo');
+
+      expect(
+        (synthesizer as unknown as { synthesize: jest.Mock }).synthesize,
+      ).toHaveBeenCalledWith(expect.anything(), expect.anything(), null);
+    });
+  });
+
+  it('prefilter rejects a thin session (no edits, few tools, short)', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'thin',
+      canonicalText: 'canon',
+      turnCount: 3,
+      sessionTurnCount: 3,
+      shortDescription: 'do thing',
+      slug: 'do-thing',
+      editCount: 0,
+      toolUseCount: 1,
+      bashTestPassed: false,
+      charLength: 100,
+      hasSuccessMarker: false,
+    });
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result).toBeNull();
+    expect(store.registerCandidate).not.toHaveBeenCalled();
+    expect(svc.getEligibilityHistogram().prefilterRejected).toBe(1);
+  });
+
+  it('analyzeSession() skips LLM synthesis when source is boot (template only)', async () => {
+    const { svc, synthesizer } = setup();
+    await svc.start();
+    await svc.analyzeSession('s1', '/repo', { source: 'boot' });
+    expect(
+      (synthesizer as unknown as { synthesize: jest.Mock }).synthesize,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('analyzeSession() calls the synthesizer for non-boot sources', async () => {
+    const { svc, synthesizer } = setup();
+    await svc.start();
+    await svc.analyzeSession('s1', '/repo', { source: 'idle' });
+    expect(
+      (synthesizer as unknown as { synthesize: jest.Mock }).synthesize,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('analyzeSession() with force=true bypasses the analyzedSessions dedup', async () => {
@@ -381,6 +678,11 @@ describe('SkillSynthesisService', () => {
         sessionTurnCount: 6,
         shortDescription: 'do thing',
         slug: 'do-thing',
+        editCount: 2,
+        toolUseCount: 4,
+        bashTestPassed: false,
+        charLength: 5,
+        hasSuccessMarker: true,
       });
     const first = await svc.analyzeSession('s1', '/repo');
     expect(first).toBeNull();
@@ -399,6 +701,11 @@ describe('SkillSynthesisService', () => {
       sessionTurnCount: 6,
       shortDescription: 'do thing',
       slug: 'do-thing',
+      editCount: 2,
+      toolUseCount: 4,
+      bashTestPassed: false,
+      charLength: 5,
+      hasSuccessMarker: true,
     });
     await svc.analyzeSession('s1', '/repo');
     const second = await svc.analyzeSession('s1', '/repo');
@@ -422,13 +729,15 @@ describe('SkillSynthesisService', () => {
     expect(all[all.length - 1].sessionId).toBe('s204');
   });
 
-  it('recordCuratorPass updates lastCuratorPassAt and emits curator-pass event', async () => {
+  it('recordCuratorPass updates lastCuratorPassAt only (no event push)', async () => {
     const { svc } = setup();
     await svc.start();
     svc.recordCuratorPass(1234567890);
     expect(svc.lastRunSummary().lastCuratorPassAt).toBe(1234567890);
+    // The richer curator-pass event now flows through the curator's onEvent
+    // sink, so recordCuratorPass itself no longer pushes an event.
     expect(svc.recentEvents(10).some((e) => e.kind === 'curator-pass')).toBe(
-      true,
+      false,
     );
   });
 
@@ -468,11 +777,11 @@ describe('SkillSynthesisService', () => {
       .mockReturnValue(today);
     (extractor.extract as jest.Mock).mockResolvedValue(null);
     await svc.analyzeSession('s1', '/repo');
-    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
+    expect(svc.getEligibilityHistogram().prefilterTooThin).toBe(1);
     todayKeySpy.mockReturnValue(tomorrow);
     await svc.analyzeSession('s2', '/repo');
-    expect(svc.getEligibilityHistogram().tooFewTurns).toBe(1);
-    expect(svc.getEligibilityHistogram().lowFidelity).toBe(0);
+    expect(svc.getEligibilityHistogram().prefilterTooThin).toBe(1);
+    expect(svc.getEligibilityHistogram().prefilterRejected).toBe(0);
     todayKeySpy.mockRestore();
   });
 
@@ -486,20 +795,23 @@ describe('SkillSynthesisService', () => {
       enabled: true,
       successesToPromote: 3,
       dedupCosineThreshold: 0.85,
-      maxActiveSkills: 50,
+      maxActiveSkills: 200,
       candidatesDir: '',
       eligibilityMinTurns: 5,
       evictionDecayRate: 0.95,
       generalizationContextThreshold: 3,
-      minTrajectoryFidelityRatio: 0.4,
       dedupClusterThreshold: 0.78,
-      minAbstractionEditDistance: 0.3,
+      prefilterMinEdits: 1,
+      prefilterMinChars: 800,
+      prefilterMinToolUses: 2,
       judgeEnabled: true,
       minJudgeScore: 6.0,
       judgeModel: 'inherit',
       maxPinnedSkills: 10,
       curatorEnabled: true,
       curatorIntervalHours: 24,
+      suggestionMinClusterSize: 2,
+      suggestionMaxCandidates: 200,
     });
   });
 });

@@ -20,24 +20,29 @@
 import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import {
-  AskUserQuestionRequestSchema,
   FlatStreamEventUnion,
+  GatewaySessionAttachedPayload,
+  GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
-  PermissionRequestSchema,
-  SdkCompactionCompletePayloadSchema,
-  SdkSubagentEndedPayloadSchema,
-  SdkTurnEndedPayloadSchema,
-  SdkTurnFailedPayloadSchema,
+  SessionId,
+  parseAskUserQuestionRequest,
+  parsePermissionRequest,
+  parseSdkCompactionCompletePayload,
+  parseSdkSubagentEndedPayload,
+  parseSdkTurnEndedPayload,
+  parseSdkTurnFailedPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import {
   SessionLivenessRegistry,
+  SurfaceId,
   TabId,
   TabManagerService,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import {
+  StreamingSurfaceRegistry,
   StreamRouter,
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
@@ -49,6 +54,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
+  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   /**
    * Authoritative StreamRouter.
    *
@@ -62,6 +68,27 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly streamRouter = inject(StreamRouter);
 
   private static readonly METADATA_DEBOUNCE_MS = 250;
+
+  /**
+   * Diagnostic label for a payload this handler refused.
+   *
+   * The wire payloads used to be validated with Zod, and the reject branch
+   * logged `parsed.error`. TASK_2026_187 Unit 10 replaced those schemas with
+   * hand-written parsers to keep the 304 kB Zod runtime out of the initial
+   * bundle, so there is no error object to log any more.
+   *
+   * This reports the payload's *shape* — its type and top-level key names —
+   * which is what actually identifies a contract mismatch, without echoing
+   * prompt text, tool input or session content into the console. That is a
+   * narrowing of what was logged before, not a widening.
+   */
+  private static describePayload(payload: unknown): string {
+    if (payload === null) return 'null';
+    if (Array.isArray(payload)) return `array(${payload.length})`;
+    if (typeof payload !== 'object') return typeof payload;
+    const name = (payload as object).constructor?.name ?? 'object';
+    return `${name}{${Object.keys(payload as object).join(',')}}`;
+  }
 
   private _metadataChangedTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -82,6 +109,8 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_TURN_ENDED,
     MESSAGE_TYPES.SESSION_TURN_FAILED,
     MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+    MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
+    MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -134,6 +163,70 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SESSION_SUBAGENT_ENDED:
         this.handleSessionSubagentEnded(message.payload);
         break;
+      case MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED:
+        this.handleGatewaySessionAttached(message.payload);
+        break;
+      case MESSAGE_TYPES.GATEWAY_SESSION_DETACHED:
+        this.handleGatewaySessionDetached(message.payload);
+        break;
+    }
+  }
+
+  /**
+   * `gateway:sessionAttached` — the backend has handed this tab's SDK session
+   * off to a messaging binding. Resolve the session UUID to EVERY active-tab
+   * showing it (canvas tiles can mirror one session) and mark all of them
+   * attached so their composers go read-only. Frontend-only flag — no
+   * persistence; the matching `gateway:sessionDetached` clears it.
+   */
+  private handleGatewaySessionAttached(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionAttached received but payload is undefined!',
+      );
+      return;
+    }
+    const { bindingId, sessionUuid, platform } =
+      payload as GatewaySessionAttachedPayload;
+    if (!bindingId || !sessionUuid || !platform) {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionAttached payload missing fields — dropped',
+        payload,
+      );
+      return;
+    }
+    const tabIds = this.tabManager.findTabIdsBySessionId(
+      SessionId.from(sessionUuid),
+    );
+    for (const tabId of tabIds) {
+      this.tabManager.markTabAttached(tabId, { bindingId, platform });
+    }
+  }
+
+  /**
+   * `gateway:sessionDetached` — the messaging binding was resolved back to the
+   * webview (or revoked). Re-enable every tab bound to the session.
+   */
+  private handleGatewaySessionDetached(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionDetached received but payload is undefined!',
+      );
+      return;
+    }
+    const { sessionUuid } = payload as GatewaySessionDetachedPayload;
+    if (!sessionUuid) {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionDetached payload missing sessionUuid — dropped',
+        payload,
+      );
+      return;
+    }
+    const tabIds = this.tabManager.findTabIdsBySessionId(
+      SessionId.from(sessionUuid),
+    );
+    for (const tabId of tabIds) {
+      this.tabManager.markTabDetached(tabId);
     }
   }
 
@@ -150,6 +243,13 @@ export class ChatMessageHandler implements MessageHandler {
    * with `command: 'clear'`. It wipes the target tab to a fresh, empty
    * conversation; every other CHAT_COMPLETE is ignored.
    */
+  private renderedSurfaceFor(tabId: string | undefined): SurfaceId | null {
+    if (!tabId) return null;
+    const surfaceId = this.workflowClaims.surfaceFor(tabId);
+    if (!surfaceId) return null;
+    return this.surfaceRegistry.getAdapter(surfaceId) ? surfaceId : null;
+  }
+
   private handleChatComplete(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
     const data = payload as {
@@ -157,10 +257,7 @@ export class ChatMessageHandler implements MessageHandler {
       tabId?: unknown;
       surfaceMode?: unknown;
     };
-    if (
-      typeof data.tabId === 'string' &&
-      this.workflowClaims.surfaceFor(data.tabId)
-    ) {
+    if (typeof data.tabId === 'string' && this.renderedSurfaceFor(data.tabId)) {
       return;
     }
     if (data.surfaceMode === true) return;
@@ -184,21 +281,21 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkSubagentEndedPayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkSubagentEndedPayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkSubagentEndedPayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    if (parsed.data.backgroundTasks.length === 0) {
+    if (parsed.backgroundTasks.length === 0) {
       this.liveness.markIdle(
-        parsed.data.sessionId,
-        this.workspaceFor(parsed.data.sessionId),
+        parsed.sessionId,
+        this.workspaceFor(parsed.sessionId),
       );
     }
-    this.chatStore.handleSubagentEndedNotification(parsed.data);
+    this.chatStore.handleSubagentEndedNotification(parsed);
   }
 
   private handleSessionTurnEnded(payload: unknown): void {
@@ -208,21 +305,21 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkTurnEndedPayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkTurnEndedPayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkTurnEndedPayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    const ws = this.workspaceFor(parsed.data.sessionId);
-    if (parsed.data.backgroundTasks.length > 0) {
-      this.liveness.markAwaitingBackground(parsed.data.sessionId, ws);
+    const ws = this.workspaceFor(parsed.sessionId);
+    if (parsed.backgroundTasks.length > 0) {
+      this.liveness.markAwaitingBackground(parsed.sessionId, ws);
     } else {
-      this.liveness.markIdle(parsed.data.sessionId, ws);
+      this.liveness.markIdle(parsed.sessionId, ws);
     }
-    this.chatStore.handleTurnEndedNotification(parsed.data);
+    this.chatStore.handleTurnEndedNotification(parsed);
   }
 
   private handleSessionTurnFailed(payload: unknown): void {
@@ -232,19 +329,19 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkTurnFailedPayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkTurnFailedPayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkTurnFailedPayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
     this.liveness.markFailed(
-      parsed.data.sessionId,
-      this.workspaceFor(parsed.data.sessionId),
+      parsed.sessionId,
+      this.workspaceFor(parsed.sessionId),
     );
-    this.chatStore.handleTurnFailedNotification(parsed.data);
+    this.chatStore.handleTurnFailedNotification(parsed);
   }
 
   private handleSessionCompactionComplete(payload: unknown): void {
@@ -254,15 +351,15 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = SdkCompactionCompletePayloadSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseSdkCompactionCompletePayload(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid SdkCompactionCompletePayload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    this.chatStore.handleCompactionCompleteNotification(parsed.data);
+    this.chatStore.handleCompactionCompleteNotification(parsed);
   }
 
   /**
@@ -304,7 +401,7 @@ export class ChatMessageHandler implements MessageHandler {
       surfaceMode?: boolean;
     };
 
-    const claimedSurface = tabId ? this.workflowClaims.surfaceFor(tabId) : null;
+    const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {
       if (event?.sessionId) {
         this.liveness.markStreaming(
@@ -339,7 +436,7 @@ export class ChatMessageHandler implements MessageHandler {
         surfaceMode?: boolean;
       }) ?? {};
 
-    const claimedSurface = tabId ? this.workflowClaims.surfaceFor(tabId) : null;
+    const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {
       console.error('[ChatMessageHandler] Workflow chat error:', {
         tabId,
@@ -375,15 +472,15 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = PermissionRequestSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parsePermissionRequest(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid PermissionRequest payload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    const prompt = parsed.data as Parameters<
+    const prompt = parsed as Parameters<
       typeof this.chatStore.handlePermissionRequest
     >[0];
     this.chatStore.handlePermissionRequest(prompt);
@@ -419,10 +516,17 @@ export class ChatMessageHandler implements MessageHandler {
       }) ?? {};
 
     if (realSessionId) {
-      const claimedSurface = tabId
-        ? this.workflowClaims.surfaceFor(tabId)
-        : null;
+      const claimedSurface = this.renderedSurfaceFor(tabId);
       if (claimedSurface) {
+        // The surface conversation was minted before the backend knew the
+        // real session id, so it does not contain `realSessionId` yet and
+        // every session→surface lookup (question routing included) misses.
+        // `onSurfaceCreated` is idempotent for an already-bound surface: it
+        // appends the session to the existing conversation and returns it.
+        this.streamRouter.onSurfaceCreated(
+          claimedSurface,
+          realSessionId as ClaudeSessionId,
+        );
         this.streamRouter.refreshQuestionTargetsForSession(
           realSessionId as ClaudeSessionId,
         );
@@ -451,16 +555,15 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const parsed = AskUserQuestionRequestSchema.safeParse(payload);
-    if (!parsed.success) {
+    const parsed = parseAskUserQuestionRequest(payload);
+    if (parsed === null) {
       console.warn(
         '[ChatMessageHandler] Invalid AskUserQuestionRequest payload — dropped',
-        parsed.error,
+        ChatMessageHandler.describePayload(payload),
       );
       return;
     }
-    const question =
-      parsed.data as import('@ptah-extension/shared').AskUserQuestionRequest;
+    const question = parsed;
     this.chatStore.handleQuestionRequest(question);
     this.streamRouter.routeQuestionPrompt(question);
   }

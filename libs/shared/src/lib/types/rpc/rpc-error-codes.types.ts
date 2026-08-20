@@ -5,8 +5,6 @@
  * so the two never drift apart.
  */
 export type RpcUserErrorCode =
-  | 'LICENSE_REQUIRED'
-  | 'PRO_TIER_REQUIRED'
   | 'WORKSPACE_NOT_OPEN'
   | 'UNAUTHORIZED_WORKSPACE'
   | 'MESSAGE_ID_NOT_FOUND'
@@ -16,4 +14,5 @@ export type RpcUserErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'INVALID_PARAMS'
   | 'TASK_NOT_FOUND'
-  | 'SESSION_ENDED';
+  | 'SESSION_ENDED'
+  | 'SESSION_ATTACHED_TO_GATEWAY';

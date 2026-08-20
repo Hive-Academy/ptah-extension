@@ -67,6 +67,7 @@ function makeRegistry(providerModels: MockProviderModels): PtahCliRegistry {
     null as never, // configPersistence
     null as never, // spawnOptionsService
     null as never, // modelResolver
+    null as never, // configManager
   );
 }
 

@@ -77,6 +77,17 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { LlmRpcHandlers } from './llm-rpc-app.handlers';
+import { ActiveProviderResolver } from '@ptah-extension/auth-providers';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
+
+function makeActiveProviderResolver(
+  values: Record<string, unknown>,
+): ActiveProviderResolver {
+  const scope = {
+    read: <T>(key: string): T | undefined => values[key] as T | undefined,
+  } as unknown as WorkspaceScopeResolver;
+  return new ActiveProviderResolver(scope);
+}
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces
@@ -160,6 +171,7 @@ function makeHarness(
     >[4],
     configManager as unknown as ConstructorParameters<typeof LlmRpcHandlers>[5],
     authSecrets as unknown as ConstructorParameters<typeof LlmRpcHandlers>[6],
+    makeActiveProviderResolver(opts.configSeed ?? {}),
   );
 
   return {

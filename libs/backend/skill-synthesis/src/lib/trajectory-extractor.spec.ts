@@ -5,6 +5,8 @@
  * `JsonlReaderService` so we can synthesize traces deterministically and
  * assert hash stability + eligibility rules.
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { TrajectoryExtractor } from './trajectory-extractor';
 
 const makeLogger = () => ({
@@ -32,6 +34,20 @@ const assistantTurn = (text: string) => ({
   type: 'assistant',
   message: { role: 'assistant', content: text },
 });
+const assistantToolUse = (name: string, input: unknown) => ({
+  type: 'assistant',
+  message: {
+    role: 'assistant',
+    content: [{ type: 'tool_use', name, input }],
+  },
+});
+const userToolResult = (content: string) => ({
+  type: 'user',
+  message: {
+    role: 'user',
+    content: [{ type: 'tool_result', content }],
+  },
+});
 
 describe('TrajectoryExtractor', () => {
   let reader: FakeReader;
@@ -42,26 +58,43 @@ describe('TrajectoryExtractor', () => {
     extractor = new TrajectoryExtractor(makeLogger() as never, reader as never);
   });
 
-  it('returns null for sessions with fewer than 5 turns', async () => {
-    reader.readJsonlMessages.mockResolvedValue([
-      userTurn('hi'),
-      assistantTurn('hello'),
-    ]);
+  it('returns null for sessions with fewer than 2 role turns', async () => {
+    reader.readJsonlMessages.mockResolvedValue([userTurn('hi')]);
     const out = await extractor.extract('s1', '/ws');
     expect(out).toBeNull();
   });
 
-  it('returns null when no success marker is present', async () => {
+  it('extracts a 2+ turn session even with no success marker', async () => {
     reader.readJsonlMessages.mockResolvedValue([
       userTurn('please refactor'),
       assistantTurn('working on it'),
       userTurn('continue'),
       assistantTurn('still working'),
-      userTurn('any progress?'),
-      assistantTurn('almost there'),
     ]);
     const out = await extractor.extract('s1', '/ws');
-    expect(out).toBeNull();
+    expect(out).not.toBeNull();
+    expect(out?.hasSuccessMarker).toBe(false);
+  });
+
+  it('counts tool_use/tool_result so a tool-bearing session reaches 2+ turns with tool-aware canonical text', async () => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('add a feature'),
+      assistantToolUse('Edit', { file_path: '/ws/src/a.ts' }),
+      userToolResult('file updated'),
+      assistantToolUse('Bash', { command: 'npm test' }),
+      userToolResult('all tests pass'),
+    ]);
+    const out = await extractor.extract('s1', '/ws');
+    expect(out).not.toBeNull();
+    if (!out) return;
+    expect(out.turnCount).toBeGreaterThanOrEqual(2);
+    expect(out.editCount).toBe(1);
+    expect(out.toolUseCount).toBe(2);
+    expect(out.bashTestPassed).toBe(true);
+    expect(out.canonicalText).toContain('[tool:Edit]');
+    expect(out.canonicalText).toContain('[tool:Bash npm test]');
+    expect(out.canonicalText.length).toBeGreaterThan(0);
+    expect(out.charLength).toBe(out.canonicalText.length);
   });
 
   it('extracts and hashes a 5+ turn session ending with a success marker', async () => {
@@ -104,7 +137,7 @@ describe('TrajectoryExtractor', () => {
     'typecheck green',
     'lint passing',
     'All checks passed',
-  ])('treats "%s" as a success marker', async (marker) => {
+  ])('flags "%s" as a success marker signal', async (marker) => {
     reader.readJsonlMessages.mockResolvedValue([
       userTurn('do the work'),
       assistantTurn('starting'),
@@ -115,9 +148,10 @@ describe('TrajectoryExtractor', () => {
     ]);
     const out = await extractor.extract('s1', '/ws');
     expect(out).not.toBeNull();
+    expect(out?.hasSuccessMarker).toBe(true);
   });
 
-  it('does not treat bare "fixed" or "successfully" as a success marker', async () => {
+  it('does not flag bare "fixed" or "successfully" as a success marker', async () => {
     reader.readJsonlMessages.mockResolvedValue([
       userTurn('do the work'),
       assistantTurn('starting'),
@@ -127,7 +161,8 @@ describe('TrajectoryExtractor', () => {
       assistantTurn('I successfully read the file and fixed a typo earlier'),
     ]);
     const out = await extractor.extract('s1', '/ws');
-    expect(out).toBeNull();
+    expect(out).not.toBeNull();
+    expect(out?.hasSuccessMarker).toBe(false);
   });
 
   it('reads the explicit transcriptPath instead of resolving by session id', async () => {
@@ -150,6 +185,78 @@ describe('TrajectoryExtractor', () => {
     expect(out).not.toBeNull();
     expect(reader.findSessionsDirectory).not.toHaveBeenCalled();
     expect(reader.readJsonlMessages).toHaveBeenCalledWith(explicitPath);
+  });
+
+  /**
+   * B2.4.1 fallout — `SkillEnhancerService`'s 5-turn requirement is now REAL,
+   * and this is the only thing pinning it.
+   *
+   * `minTurns` used to be `void`-ed: the gate was a hard floor of 2 whatever the
+   * caller asked for. B2.4.1 made the parameter do what its name says, which
+   * NARROWED one caller — `skill-enhancer.service.ts:733` passes
+   * `TRAJECTORY_MIN_TURNS`, so enhancement candidates with 2–4 role turns are
+   * rejected where they previously passed.
+   *
+   * That narrowing is intended: it restores the constant's plainly stated
+   * intent. But intended and accidental look identical in a diff, and the
+   * enhancer's own spec cannot tell them apart — it stubs `trajectories.extract`
+   * with a jest mock, so the real gate never runs there. Without this block the
+   * next person to widen `extract`'s default silently re-widens the enhancer
+   * with it and nothing goes red.
+   *
+   * The threshold is READ OUT OF the enhancer rather than re-typed here, so the
+   * guard defends the caller's actual number instead of a copy that can drift
+   * away from it.
+   */
+  describe("the enhancer's minTurns is honoured (defends skill-enhancer.service.ts:733)", () => {
+    const ENHANCER_SOURCE = fs.readFileSync(
+      path.join(__dirname, 'skill-enhancer.service.ts'),
+      'utf8',
+    );
+    const ENHANCER_MIN_TURNS = Number(
+      /const TRAJECTORY_MIN_TURNS = (\d+);/.exec(ENHANCER_SOURCE)?.[1],
+    );
+
+    const fourTurns = [
+      userTurn('the build is broken'),
+      assistantTurn('looking'),
+      userTurn('any luck'),
+      assistantTurn('still looking'),
+    ];
+    const fiveTurns = [...fourTurns, userTurn('and now?')];
+
+    it('still declares a threshold and still passes it to the extractor', () => {
+      // If either half goes, the two behavioural cases below would be
+      // defending a call that no longer happens.
+      expect(ENHANCER_MIN_TURNS).toBe(5);
+      expect(ENHANCER_SOURCE).toMatch(
+        /this\.trajectories\.extract\([\s\S]{0,120}TRAJECTORY_MIN_TURNS/,
+      );
+    });
+
+    it(`rejects a 4-turn session at the enhancer's threshold`, async () => {
+      reader.readJsonlMessages.mockResolvedValue(fourTurns);
+      expect(
+        await extractor.extract('s1', '/ws', ENHANCER_MIN_TURNS),
+      ).toBeNull();
+    });
+
+    it(`accepts a ${5}-turn session at the enhancer's threshold`, async () => {
+      // The paired positive: "returns null" alone is also satisfied by an
+      // extractor that returns null for everything.
+      reader.readJsonlMessages.mockResolvedValue(fiveTurns);
+      const out = await extractor.extract('s1', '/ws', ENHANCER_MIN_TURNS);
+      expect(out).not.toBeNull();
+      expect(out?.turnCount).toBe(5);
+    });
+
+    it('still extracts that same 4-turn session for callers that do NOT ask', async () => {
+      // The narrowing is scoped to callers who set a threshold. If the default
+      // ever climbs back to 5 this fails, which is the re-narrowing that would
+      // otherwise be invisible.
+      reader.readJsonlMessages.mockResolvedValue(fourTurns);
+      expect(await extractor.extract('s1', '/ws')).not.toBeNull();
+    });
   });
 
   it('normalizes workspace-specific paths so hashes are workspace-independent', async () => {

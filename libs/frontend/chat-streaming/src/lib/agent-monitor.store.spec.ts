@@ -356,6 +356,38 @@ describe('AgentMonitorStore', () => {
       expect(rec?.latestSummary).toBe('Done');
     });
 
+    it('captures the owning session id from the event onto the record', () => {
+      store.onAgentStart(startEvent({ sessionId: 'sess-owner' }));
+      expect(store.subagents().get(PARENT)?.parentSessionId).toBe('sess-owner');
+      // Later events refresh it; a null-ish event preserves the prior value.
+      store.onAgentProgress(progressEvent({ sessionId: 'sess-owner-2' }));
+      expect(store.subagents().get(PARENT)?.parentSessionId).toBe(
+        'sess-owner-2',
+      );
+    });
+
+    it('agentId captured on agent_start survives onAgentProgress/onAgentStatus/onAgentCompleted/onTaskToolResult merges', () => {
+      // agentId (the SDK short-hex id) is ONLY carried by agent_start — the
+      // sibling events never repeat it, so onAgentProgress/onAgentStatus/
+      // onAgentCompleted must preserve the existing value (`agentId: existing?.agentId`)
+      // rather than clobbering it with undefined. This is the id required to
+      // read the subagent's transcript via subagent:transcript.
+      store.onAgentStart(startEvent({ agentId: 'short-abc123' }));
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentProgress(progressEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentStatus(statusEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentCompleted(completedEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onTaskToolResult(PARENT, false);
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+    });
+
     it('records are independent per parentToolUseId', () => {
       store.onAgentStart(startEvent({ toolCallId: 'toolu_a' }));
       store.onAgentStart(startEvent({ toolCallId: 'toolu_b' }));
@@ -365,6 +397,202 @@ describe('AgentMonitorStore', () => {
       expect(store.subagents().get('toolu_a')?.status).toBe('completed');
       expect(store.subagents().get('toolu_b')?.status).toBe('running');
     });
+
+    describe('onTaskToolResult (foreground completion from Task tool_result)', () => {
+      it('transitions running → completed', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, false);
+        expect(store.subagents().get(PARENT)?.status).toBe('completed');
+      });
+
+      it('transitions running → failed when the tool_result is an error', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, true);
+        expect(store.subagents().get(PARENT)?.status).toBe('failed');
+      });
+
+      it('does NOT override a terminal status from a real agent_completed', () => {
+        store.onAgentStart(startEvent());
+        store.onAgentCompleted(completedEvent({ status: 'completed' }));
+        // A late tool_result with isError must not flip completed → failed.
+        store.onTaskToolResult(PARENT, true);
+        expect(store.subagents().get(PARENT)?.status).toBe('completed');
+      });
+
+      it('is a no-op for an unknown toolCallId (not a Task spawn)', () => {
+        store.onTaskToolResult('toolu_unknown', false);
+        expect(store.subagents().get('toolu_unknown')).toBeUndefined();
+      });
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Workflow run grouping fields (workflowRunId / workflowName)
+  // ─────────────────────────────────────────────────────────────────────
+  describe('workflow run fields', () => {
+    it('copies workflowRunId/workflowName from spawn info onto the MonitoredAgent', () => {
+      store.onAgentSpawned({
+        agentId: 'wf-agent',
+        cli: 'ptah-cli',
+        task: 'build step',
+        status: 'running',
+        startedAt: Date.now(),
+        workflowRunId: 'run-1',
+        workflowName: 'Release Build',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const agent = store.agents().find((a) => a.agentId === 'wf-agent');
+      expect(agent?.workflowRunId).toBe('run-1');
+      expect(agent?.workflowName).toBe('Release Build');
+    });
+
+    it('leaves workflow fields undefined for ordinary (non-workflow) agents', () => {
+      store.onAgentSpawned({
+        agentId: 'plain-agent',
+        cli: 'codex',
+        task: 'do a thing',
+        status: 'running',
+        startedAt: Date.now(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const agent = store.agents().find((a) => a.agentId === 'plain-agent');
+      expect(agent?.workflowRunId).toBeUndefined();
+      expect(agent?.workflowName).toBeUndefined();
+    });
+
+    it('copies workflowRunId/workflowName from agent_start onto the SubagentRecord', () => {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'a',
+        timestamp: 1,
+        toolCallId: 'toolu_wf',
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: 'short-wf',
+        source: 'hook',
+        workflowRunId: 'run-9',
+        workflowName: 'Migration',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const rec = store.subagents().get('toolu_wf');
+      expect(rec?.workflowRunId).toBe('run-9');
+      expect(rec?.workflowName).toBe('Migration');
+    });
+
+    it('preserves workflow fields across progress/completed merges', () => {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'a',
+        timestamp: 1,
+        toolCallId: 'toolu_wf2',
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: 'short-wf2',
+        source: 'hook',
+        workflowRunId: 'run-keep',
+        workflowName: 'Keep Me',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      // A later progress event WITHOUT the workflow fields must not clobber them.
+      store.onAgentProgress({
+        eventType: 'agent_progress',
+        id: 'p',
+        timestamp: 2,
+        parentToolUseId: 'toolu_wf2',
+        summary: 'progressing',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const rec = store.subagents().get('toolu_wf2');
+      expect(rec?.workflowRunId).toBe('run-keep');
+      expect(rec?.workflowName).toBe('Keep Me');
+    });
+
+    function startWorkflowSubagent(
+      toolCallId: string,
+      workflowRunId: string,
+      sessionId?: string,
+    ): void {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: `id-${toolCallId}`,
+        timestamp: 1,
+        toolCallId,
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: `short-${toolCallId}`,
+        source: 'hook',
+        sessionId,
+        workflowRunId,
+        workflowName: 'WF',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    it('activeWorkflowSubagents returns only records carrying a workflowRunId', () => {
+      startWorkflowSubagent('toolu_wf_a', 'run-1');
+      // A non-workflow subagent must be excluded.
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'id-plain',
+        timestamp: 1,
+        toolCallId: 'toolu_plain',
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: 'short-plain',
+        source: 'hook',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      mockActiveTab.set(null);
+      const workflow = store.activeWorkflowSubagents();
+      expect(workflow.map((r) => r.parentToolUseId)).toEqual(['toolu_wf_a']);
+    });
+
+    it('activeWorkflowSubagents scopes by active session (records w/o session shown)', () => {
+      startWorkflowSubagent('toolu_owned', 'run-1', 'sess-A');
+      startWorkflowSubagent('toolu_other', 'run-2', 'sess-B');
+      startWorkflowSubagent('toolu_global', 'run-3'); // no session → shown in all
+
+      mockActiveTab.set({ claudeSessionId: 'sess-A' });
+      const ids = store
+        .activeWorkflowSubagents()
+        .map((r) => r.parentToolUseId)
+        .sort();
+      expect(ids).toEqual(['toolu_global', 'toolu_owned']);
+    });
+
+    it('workflowSubagentsForSession filters by exact parentSessionId', () => {
+      startWorkflowSubagent('toolu_a', 'run-1', 'sess-A');
+      startWorkflowSubagent('toolu_b', 'run-2', 'sess-B');
+
+      expect(
+        store
+          .workflowSubagentsForSession('sess-A')
+          .map((r) => r.parentToolUseId),
+      ).toEqual(['toolu_a']);
+    });
+
+    it.each([
+      ['empty string', ''],
+      ['null', null],
+      ['undefined', undefined],
+    ])(
+      'workflowSubagentsForSession returns nothing for an unresolved scope (%s)',
+      (_label, sid) => {
+        startWorkflowSubagent('toolu_a', 'run-1', 'sess-A');
+        startWorkflowSubagent('toolu_b', 'run-2', 'sess-B');
+
+        // A scoped surface that has not resolved its session claims no agents —
+        // the same rule `agentVisibleInSession` applies for the tray and the
+        // resume banner. It must NOT degrade into "show everything".
+        expect(store.workflowSubagentsForSession(sid)).toEqual([]);
+      },
+    );
   });
 
   describe('Phase 3 — bidirectional messaging actions', () => {
@@ -416,6 +644,37 @@ describe('AgentMonitorStore', () => {
       });
     });
 
+    it('sendMessageToAgent targets an explicit owning session over the active tab', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.sendMessageToAgent(PARENT, 'hi', 'sess-owner');
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:send-message', {
+        sessionId: 'sess-owner',
+        parentToolUseId: PARENT,
+        text: 'hi',
+      });
+    });
+
+    it('stopAgent targets an explicit owning session over the active tab', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.stopAgent(TASK, 'sess-owner');
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:stop', {
+        sessionId: 'sess-owner',
+        taskId: TASK,
+      });
+    });
+
+    it('backgroundAgent dispatches subagent:background for the given session', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ backgrounded: true } as const),
+      );
+      const ok = await store.backgroundAgent('sess-owner', PARENT);
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:background', {
+        sessionId: 'sess-owner',
+        toolUseId: PARENT,
+      });
+      expect(ok).toBe(true);
+    });
+
     it('interruptSession dispatches subagent:interrupt for the active session', async () => {
       rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
       await store.interruptSession();
@@ -437,6 +696,179 @@ describe('AgentMonitorStore', () => {
       await store.stopAgent(TASK);
       const after = store.subagents().get(PARENT)?.status;
       expect(after).toBe(before); // unchanged — waits for agent_completed
+    });
+  });
+
+  describe('continueAgent', () => {
+    it('calls agent:continue with agentId + message and maps success', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ success: true }));
+
+      const result = await store.continueAgent('agent-1', 'do more');
+
+      expect(rpcMock.call).toHaveBeenCalledWith('agent:continue', {
+        agentId: 'agent-1',
+        message: 'do more',
+      });
+      expect(result).toEqual({ ok: true, code: undefined });
+    });
+
+    it('reports a refusal as ok=false, carrying its typed code', async () => {
+      // The handler answers a refusal as a transport SUCCESS whose payload says
+      // `success: false`. Reading only the envelope reports every refusal as a
+      // sent message, and the caller clears the user's draft over a follow-up
+      // that never reached the agent.
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ success: false, code: 'busy' }),
+      );
+
+      const result = await store.continueAgent('agent-1', 'do more');
+
+      expect(result.ok).toBe(false);
+      expect(result.code).toBe('busy');
+    });
+
+    it('reports ok=false when the RPC itself fails', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcError<unknown>('boom'));
+
+      const result = await store.continueAgent('agent-1', 'do more');
+
+      expect(result.ok).toBe(false);
+      expect(result.code).toBeUndefined();
+    });
+  });
+
+  describe('agent:spawned re-open idempotency', () => {
+    function spawnWith(overrides: Record<string, unknown>): void {
+      store.onAgentSpawned({
+        agentId: 'agent-x',
+        cli: 'codex',
+        task: 'Task for agent-x',
+        status: 'running',
+        startedAt: Date.now(),
+        displayName: 'Codex',
+        ...overrides,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    it('flips an existing completed agent back to running without duplicating the card', () => {
+      spawnWith({ supportsContinuation: true });
+      store.onAgentExited({
+        agentId: 'agent-x',
+        cli: 'codex',
+        task: 'Task for agent-x',
+        status: 'completed',
+        startedAt: Date.now(),
+        exitCode: 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const completed = store.agents().find((a) => a.agentId === 'agent-x');
+      expect(completed?.status).toBe('completed');
+      expect(completed?.completedAt).toBeDefined();
+
+      spawnWith({ status: 'running', supportsContinuation: true });
+
+      const cards = store.agents().filter((a) => a.agentId === 'agent-x');
+      expect(cards.length).toBe(1);
+      expect(cards[0].status).toBe('running');
+      expect(cards[0].completedAt).toBeUndefined();
+      expect(cards[0].exitCode).toBeUndefined();
+    });
+
+    it('preserves supportsContinuation across spawn → exit', () => {
+      spawnWith({ supportsContinuation: true });
+      store.onAgentExited({
+        agentId: 'agent-x',
+        cli: 'codex',
+        task: 'Task for agent-x',
+        status: 'completed',
+        startedAt: Date.now(),
+        exitCode: 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const card = store.agents().find((a) => a.agentId === 'agent-x');
+      expect(card?.supportsContinuation).toBe(true);
+    });
+
+    it('marks the card expired when the backend drops the record, and un-marks it on re-open', () => {
+      spawnWith({ supportsContinuation: true });
+
+      store.onAgentExpired('agent-x');
+      expect(
+        store.agents().find((a) => a.agentId === 'agent-x')
+          ?.continuationExpired,
+      ).toBe(true);
+
+      // The backend is tracking the id again — the sweep is undone, not sticky.
+      spawnWith({ status: 'running', supportsContinuation: true });
+      expect(
+        store.agents().find((a) => a.agentId === 'agent-x')
+          ?.continuationExpired,
+      ).toBe(false);
+    });
+
+    it('ignores an expiry for an id it has no card for', () => {
+      spawnWith({ supportsContinuation: true });
+      const before = store.agents();
+
+      store.onAgentExpired('never-seen');
+
+      expect(store.agents()).toBe(before);
+    });
+  });
+
+  describe('resumeAgentWithMessage', () => {
+    const expired = {
+      agentId: 'agent-x',
+      cli: 'codex' as const,
+      task: 'the original task',
+      cliSessionId: 'session-9',
+      parentSessionId: 'parent-1',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    it('resumes the session with the follow-up as the run task', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ success: true, agentId: 'agent-y' }),
+      );
+
+      const result = await store.resumeAgentWithMessage(expired, 'do more');
+
+      expect(rpcMock.call).toHaveBeenCalledWith('agent:resumeCliSession', {
+        cliSessionId: 'session-9',
+        cli: 'codex',
+        // The follow-up IS the resumed run's task — history comes from the
+        // session id, not from re-sending the original prompt.
+        task: 'do more',
+        parentSessionId: 'parent-1',
+        ptahCliId: undefined,
+        previousAgentId: 'agent-x',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('refuses without a session id rather than spawning a contextless agent', async () => {
+      const result = await store.resumeAgentWithMessage(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { ...expired, cliSessionId: undefined } as any,
+        'do more',
+      );
+
+      expect(rpcMock.call).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('no session to resume');
+    });
+
+    it('surfaces a handler-level failure verbatim', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ success: false, error: 'no such session file' }),
+      );
+
+      const result = await store.resumeAgentWithMessage(expired, 'do more');
+
+      expect(result).toEqual({ ok: false, error: 'no such session file' });
     });
   });
 });

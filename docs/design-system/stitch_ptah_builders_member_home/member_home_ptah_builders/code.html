@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ptah Builders | Member Home</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #0c141f;
+            color: #dce2f3;
+            -webkit-font-smoothing: antialiased;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+        }
+        .glass-panel {
+            background: #161a23;
+            border: 1px solid #2c3342;
+            border-radius: 12px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-low": "#151c27",
+                        "inverse-surface": "#dce2f3",
+                        "primary": "#ffc77f",
+                        "on-secondary-container": "#00374d",
+                        "on-primary-fixed-variant": "#643f00",
+                        "on-error": "#690005",
+                        "surface-container": "#19202c",
+                        "on-tertiary-container": "#004d69",
+                        "on-surface": "#dce2f3",
+                        "surface-tint": "#ffb957",
+                        "on-secondary": "#00354a",
+                        "tertiary": "#9ad9ff",
+                        "surface-container-highest": "#2e3542",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#36c2ff",
+                        "on-primary-container": "#643f00",
+                        "secondary-container": "#00a6e0",
+                        "tertiary-fixed": "#c4e7ff",
+                        "surface-container-lowest": "#070e1a",
+                        "on-secondary-fixed": "#001e2c",
+                        "on-primary": "#462b00",
+                        "on-secondary-fixed-variant": "#004c69",
+                        "surface-bright": "#323946",
+                        "secondary": "#7bd0ff",
+                        "on-tertiary-fixed-variant": "#004c69",
+                        "surface": "#0c141f",
+                        "primary-container": "#f5a524",
+                        "outline": "#9f8e7a",
+                        "error-container": "#93000a",
+                        "background": "#0c141f",
+                        "on-error-container": "#ffdad6",
+                        "outline-variant": "#524434",
+                        "secondary-fixed": "#c4e7ff",
+                        "inverse-on-surface": "#2a313d",
+                        "tertiary-fixed-dim": "#7bd0ff",
+                        "inverse-primary": "#835400",
+                        "primary-fixed-dim": "#ffb957",
+                        "on-primary-fixed": "#2a1800",
+                        "secondary-fixed-dim": "#7bd0ff",
+                        "surface-dim": "#0c141f",
+                        "on-tertiary": "#003549",
+                        "surface-variant": "#2e3542",
+                        "primary-fixed": "#ffddb5",
+                        "on-tertiary-fixed": "#001e2c",
+                        "on-background": "#dce2f3",
+                        "on-surface-variant": "#d7c3ae",
+                        "surface-container-high": "#232a36"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "stack-loose": "32px",
+                        "unit": "4px",
+                        "stack-tight": "8px",
+                        "gutter": "16px",
+                        "container-padding": "24px"
+                    },
+                    fontFamily: {
+                        "numeric-data": ["JetBrains Mono"],
+                        "code-sm": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"],
+                        "title-sm": ["Inter"],
+                        "body-base": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "numeric-data": ["14px", {"lineHeight": "1", "fontWeight": "500"}],
+                        "code-sm": ["13px", {"lineHeight": "1.6", "fontWeight": "450"}],
+                        "label-caps": ["11px", {"lineHeight": "1", "letterSpacing": "0.08em", "fontWeight": "600"}],
+                        "title-sm": ["18px", {"lineHeight": "1.4", "fontWeight": "600"}],
+                        "body-base": ["14px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "display-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-sm": ["13px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="h-screen w-[260px] flex-shrink-0 sticky top-0 left-0 border-r border-outline-variant bg-surface flex flex-col py-gutter px-gutter gap-stack-tight">
+<div class="mb-8 flex items-center gap-2 text-title-sm font-title-sm font-bold text-on-surface">
+<div class="w-6 h-6 bg-primary-container rounded flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">architecture</span>
+</div>
+<span>Ptah Builders</span>
+</div>
+<nav class="flex-grow space-y-6 overflow-y-auto scrollbar-hide">
+<!-- HUB -->
+<section>
+<h3 class="text-label-caps font-label-caps text-on-surface-variant/50 px-2 mb-2 uppercase">Hub</h3>
+<a class="flex items-center gap-3 px-2 py-2 text-primary font-bold bg-surface-container-highest/30 rounded-lg group transition-all duration-100" href="#">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="text-body-sm font-body-sm">Home</span>
+</a>
+</section>
+<!-- LEARN -->
+<section>
+<h3 class="text-label-caps font-label-caps text-on-surface-variant/50 px-2 mb-2 uppercase">Learn</h3>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">school</span>
+<span class="text-body-sm font-body-sm">Courses</span>
+</a>
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">history_edu</span>
+<span class="text-body-sm font-body-sm">Artifacts</span>
+</a>
+</div>
+</section>
+<!-- BUILD -->
+<section>
+<h3 class="text-label-caps font-label-caps text-on-surface-variant/50 px-2 mb-2 uppercase">Build</h3>
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="text-body-sm font-body-sm">Packs</span>
+</a>
+</section>
+<!-- LIVE -->
+<section>
+<h3 class="text-label-caps font-label-caps text-on-surface-variant/50 px-2 mb-2 uppercase">Live</h3>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="text-body-sm font-body-sm">Sessions</span>
+</a>
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">video_library</span>
+<span class="text-body-sm font-body-sm">Replays</span>
+</a>
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">add_task</span>
+<span class="text-body-sm font-body-sm">Request a session</span>
+</a>
+</div>
+</section>
+<!-- COMMUNITY -->
+<section>
+<h3 class="text-label-caps font-label-caps text-on-surface-variant/50 px-2 mb-2 uppercase">Community</h3>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">forum</span>
+<span class="text-body-sm font-body-sm">Feed</span>
+</a>
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span class="text-body-sm font-body-sm">My Threads</span>
+</a>
+<a class="flex items-center justify-between px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined">notifications</span>
+<span class="text-body-sm font-body-sm">Notifications</span>
+</div>
+<span class="bg-primary text-on-primary-fixed text-numeric-data px-1.5 rounded-full">5</span>
+</a>
+</div>
+</section>
+</nav>
+<!-- Sidebar Footer/Profile -->
+<div class="mt-auto pt-6 border-t border-outline-variant/30">
+<div class="flex items-center gap-3 mb-4 p-2 rounded-lg hover:bg-surface-container-highest/20 transition-colors">
+<img class="w-10 h-10 rounded-full border border-outline-variant" data-alt="Profile picture of Abdallah, a professional software engineer with a focused expression, in a high-tech studio environment with soft blue and amber ambient lighting. The style is crisp, professional, and minimalist, matching the high-performance software brand." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAh7qk7YGpz7zDvI-wrHR_ehFFdZGk8NpgPFA-HTZmeQQLTe5fAmsFbdS_M-2qbY71niy5ua_54fZu1N_KwqYQHzw8fCZIoHaDo8P2uAX1RYx1YduZlbTna3iPnAXfRDdAlUGv6rIn5JvKURuIHkSYqL5Dltgpor-B2x6ZaVPTzOfN9XtCl18MX1Nyj2G5tWxOOS34LqIq6xazoKIlS1S3PXkL3SDMh7jfukovvDucmQPd00SEh_Lgowg"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5">
+<p class="text-body-sm font-bold text-on-surface truncate">Abdallah</p>
+<span class="text-[10px] bg-primary-container/20 text-primary px-1.5 py-0.5 rounded border border-primary/20 font-label-caps uppercase">Founding</span>
+</div>
+<p class="text-[11px] text-on-surface-variant truncate">abdallah@builders.ptah</p>
+</div>
+</div>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="text-body-sm font-body-sm">Profile</span>
+</a>
+<a class="flex items-center gap-3 px-2 py-2 text-on-surface-variant font-medium hover:text-primary hover:bg-surface-container-highest/20 rounded-lg transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">workspace_premium</span>
+<span class="text-body-sm font-body-sm">Membership</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 bg-background min-h-screen p-container-padding flex flex-col gap-stack-loose overflow-y-auto">
+<!-- Header -->
+<header class="flex justify-between items-end">
+<div>
+<h1 class="font-display-lg text-display-lg text-on-surface">Welcome back, Abdallah</h1>
+<div class="flex items-center gap-2 mt-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-body-sm text-on-surface-variant">Membership Status:</span>
+<span class="text-label-caps font-label-caps text-primary border border-primary/30 px-2 py-0.5 rounded-full">Full Access Member</span>
+</div>
+</div>
+<div class="flex gap-stack-tight">
+<button class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary transition-colors glass-panel">search</button>
+<button class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary transition-colors glass-panel">settings</button>
+<button class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary transition-colors glass-panel">help_outline</button>
+</div>
+</header>
+<!-- Hero: Next Live Session -->
+<section class="glass-panel relative overflow-hidden p-8 flex flex-col md:flex-row justify-between items-center group">
+<div class="absolute top-0 right-0 w-1/2 h-full opacity-20 pointer-events-none">
+
+</div>
+<div class="relative z-10 space-y-6 max-w-2xl">
+<div class="inline-flex items-center gap-2 bg-primary/10 text-primary border border-primary/20 px-3 py-1 rounded-full">
+<span class="w-2 h-2 bg-primary rounded-full"></span>
+<span class="text-label-caps font-label-caps uppercase">Next Live Session</span>
+</div>
+<div>
+<h2 class="text-display-lg font-display-lg text-on-surface mb-2">System Design: Scaling to 10M Users</h2>
+<div class="flex items-center gap-6 text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">calendar_today</span>
+<span class="text-body-base">Thursday, Oct 24 • 18:00 UTC</span>
+</div>
+<div class="flex items-center gap-2">
+<img class="w-6 h-6 rounded-full" data-alt="A portrait of a senior cloud architect, male, with a silver-flecked beard and glasses, looking knowledgeable and professional. The background is a clean, dark engineering office with abstract glowing server lines. Aesthetic is technical, professional, and authoritative." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAMTNefU7cGprR6uRAZd-QitR0GSHhs6m626qhM0LxooxUeKOAfJoWNPui1tlW1wxpzWKYh7MoJ5J2qwPGwTKFV-yUPoNXyIzJb35cIroRFsTEr2G2Iih9S5j9fpKN7zY2pLgu7XCfXteGffGM1TJlsoXynvpvDlQf_zDkcR_q17lTsXdIN9_sgDz1Xrb0_dzeUd6TRYB5lKDAcJIa-4VWyLi8Su0NE4-vkS_PeqoPIfAMFZsfVT9Dbdg"/>
+<span class="text-body-base">Host: Marcus Chen</span>
+</div>
+</div>
+</div>
+<div class="flex gap-4">
+<button class="px-6 py-2.5 bg-primary text-on-primary-fixed font-bold rounded-lg hover:bg-primary/90 transition-all active:scale-95 flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">calendar_add_on</span>
+                        Add to calendar
+                    </button>
+<button class="px-6 py-2.5 border border-outline-variant text-on-surface font-bold rounded-lg hover:bg-surface-container-highest/40 transition-all flex items-center gap-2">
+                        Join Session
+                    </button>
+</div>
+</div>
+<div class="relative z-10 text-center glass-panel p-6 border-primary/20 mt-8 md:mt-0 min-w-[200px]">
+<p class="text-label-caps font-label-caps text-on-surface-variant mb-4">Starting in</p>
+<div class="flex gap-4 font-numeric-data text-headline-md text-primary">
+<div class="flex flex-col">
+<span>02</span>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Days</span>
+</div>
+<span class="opacity-50">:</span>
+<div class="flex flex-col">
+<span>14</span>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Hrs</span>
+</div>
+<span class="opacity-50">:</span>
+<div class="flex flex-col">
+<span>22</span>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Mins</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Stats Row -->
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+<div class="glass-panel p-4 flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-on-surface-variant uppercase">Course Progress</span>
+<span class="material-symbols-outlined text-primary">trending_up</span>
+</div>
+<div>
+<p class="text-display-lg font-numeric-data text-on-surface">72%</p>
+<div class="w-full bg-surface-container-highest h-1 rounded-full mt-2 overflow-hidden">
+<div class="bg-primary h-full w-[72%]"></div>
+</div>
+</div>
+</div>
+<div class="glass-panel p-4 flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-on-surface-variant uppercase">Packs Available</span>
+<span class="material-symbols-outlined text-secondary">inventory_2</span>
+</div>
+<p class="text-display-lg font-numeric-data text-on-surface">12</p>
+</div>
+<div class="glass-panel p-4 flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-on-surface-variant uppercase">Sessions Attended</span>
+<span class="material-symbols-outlined text-tertiary">groups</span>
+</div>
+<p class="text-display-lg font-numeric-data text-on-surface">48</p>
+</div>
+<div class="glass-panel p-4 flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-on-surface-variant uppercase">Unread Replies</span>
+<span class="material-symbols-outlined text-error">chat_bubble</span>
+</div>
+<p class="text-display-lg font-numeric-data text-on-surface">5</p>
+</div>
+</section>
+<!-- Two Column Layout -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-stack-loose">
+<!-- Left: Community Activity -->
+<div class="lg:col-span-8 flex flex-col gap-4">
+<div class="flex justify-between items-center px-2">
+<h2 class="text-title-sm font-title-sm text-on-surface">Community activity</h2>
+<a class="text-label-caps font-label-caps text-primary hover:underline uppercase tracking-widest" href="#">View all</a>
+</div>
+<div class="glass-panel overflow-hidden">
+<div class="divide-y divide-outline-variant/30">
+<!-- Thread Row 1 -->
+<div class="p-4 hover:bg-surface-container-highest/20 transition-colors flex items-center gap-4 group">
+<img class="w-10 h-10 rounded-full border border-outline-variant" data-alt="A small profile thumbnail of a diverse tech community member, stylized with a minimalist, high-contrast digital look. Dark theme background with subtle amber highlights." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAu7C6oB9IOEMiiUA1SdktTFLxWLP68ZS1iX9awe8buho-9VYTkJdzar3AxUckKfb1upNpy4IwKpNBIj2t1KbMPdLmJidRDfkT2EjlMYrPi73CP8nmCUvgWFp2EOAF0YhbM5t3P-suurWOe3jNcuV5jH9-ESwQ8XiCTdQlc2FQubt7ZKItlWORsqltUqb9i2m_ycC1gi6u-68rQanRNAgs-K57HJ8anny2r9quawoiX-wGof_37NR_tgw"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-body-base font-semibold text-on-surface truncate group-hover:text-primary transition-colors">Best practices for Redis caching in distributed systems</h4>
+<span class="text-[10px] bg-secondary/10 text-secondary border border-secondary/20 px-1.5 py-0.5 rounded font-label-caps">#performance</span>
+</div>
+<div class="flex items-center gap-4 text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">chat</span> 24 replies</span>
+<span>•</span>
+<span>2h ago</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</div>
+<!-- Thread Row 2 -->
+<div class="p-4 hover:bg-surface-container-highest/20 transition-colors flex items-center gap-4 group">
+<img class="w-10 h-10 rounded-full border border-outline-variant" data-alt="Profile avatar for a tech professional, minimalist aesthetic, vector-style with clean lines and deep obsidian background with amber accents." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCqtvF3zSb7pTjfFW87LdioybsiqlSW32Flh2AZGuTjE4hsyLPfwILOUNgCQ09SSug-JmDxE8JJtpWY3jT0Nc3AD2zoXodbkdoORuSE4teIgxDn6sfEMjs0z5RPZwosSnCZxNEdBCEDqWflSu2Y_1uXnsfAw4icDOywWQM5urM0yY-BuA_7CcpshmuPl__jfRYdyGh60bO--jFk97ro8miZK988bH0w5J0b03j_eOi6LfNa0nqThkPKQQ"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-body-base font-semibold text-on-surface truncate group-hover:text-primary transition-colors">Kubernetes Operator vs Helm: When to use what?</h4>
+<span class="text-[10px] bg-tertiary/10 text-tertiary border border-tertiary/20 px-1.5 py-0.5 rounded font-label-caps">#devops</span>
+</div>
+<div class="flex items-center gap-4 text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">chat</span> 12 replies</span>
+<span>•</span>
+<span>5h ago</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</div>
+<!-- Thread Row 3 -->
+<div class="p-4 hover:bg-surface-container-highest/20 transition-colors flex items-center gap-4 group">
+<img class="w-10 h-10 rounded-full border border-outline-variant" data-alt="Minimalist avatar for a software developer, clean profile art with architectural lighting, deep workspace palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOfqPSSqBJ2qfstlhSTusjGc3GHPG9SnbnKUqeWUtutB0aR7W_U9w1TeHsrxztsdmaDuGWNgWg49SHWiopoC7qGaX3_zsBQ1ZGGmycOYa3mh9zUmDIV98kNTmRTeAs_m3C96L7wUSXVo8Zx2Vwlhm6SkcGeUtJ8pxmA0JcbnYD-Kh_pFIzimTODNRhsfk9RN3k_ztGvTZV0kVJNBXVSIPOic7QRlzSxSjwiDoA_5hbmk5WkFR-iviBQQ"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-body-base font-semibold text-on-surface truncate group-hover:text-primary transition-colors">Debugging memory leaks in Go microservices</h4>
+<span class="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded font-label-caps">#debugging</span>
+</div>
+<div class="flex items-center gap-4 text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">chat</span> 8 replies</span>
+<span>•</span>
+<span>Yesterday</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</div>
+<!-- Thread Row 4 -->
+<div class="p-4 hover:bg-surface-container-highest/20 transition-colors flex items-center gap-4 group">
+<img class="w-10 h-10 rounded-full border border-outline-variant" data-alt="Sleek, futuristic avatar with geometric patterns in the background, matching a high-end technical workstation style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBkqnEo_hyppDlqCdqt9wYdP02or7As0G2JAU0rLTYUHSNx-c4g0crpEJoabpGyQiThu931h4Dib78bBMRLFhTczjtlfPqqAU8o9zl1qz5C81X5SDfhgylcYpsmIWxhTWPUl7cimDoGwrk4aTrpKtdys7JDNnHwWjrC-1beIyJyrzu9ktR-QcdzkiY8Yw3nKc4Ie2skc8o95Ij1ofmVD_EhF_bojiHvy7G-orS9F5zMTNvve9yoD9ox2A"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-body-base font-semibold text-on-surface truncate group-hover:text-primary transition-colors">Ptah CLI v2.4.0 is now live - Discussion</h4>
+<span class="text-[10px] bg-secondary/10 text-secondary border border-secondary/20 px-1.5 py-0.5 rounded font-label-caps">#announcement</span>
+</div>
+<div class="flex items-center gap-4 text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">chat</span> 45 replies</span>
+<span>•</span>
+<span>2 days ago</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</div>
+<!-- Thread Row 5 -->
+<div class="p-4 hover:bg-surface-container-highest/20 transition-colors flex items-center gap-4 group">
+<img class="w-10 h-10 rounded-full border border-outline-variant" data-alt="Technical avatar, male, glasses, professional setting, deep obsidian and amber color scheme." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBXtVuCRBXbjyJuPIKukxOlOnizCq1AxeIfd4ejEHvUVfsaulOY2edNs4l8k4o7UTYZ-woo-7kV1BMFoXe-BuBWjmoyJFILnsYST-CWSfMnDwiIVQH6JJ2lXujyTyD5ihoTxTK8wj8cCv2kI_juKloBNmZ0K3lC1D9Nc_5qNcL2S63h941pm2NUZUuawqLsVbB0qOQrjLSrX1AIYj7YPIaLmYYoBIT7nXkO1HG-6eheAsWtI1WJfO9l_Q"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-body-base font-semibold text-on-surface truncate group-hover:text-primary transition-colors">Comparing Protobuf vs JSON for high-throughput APIs</h4>
+<span class="text-[10px] bg-tertiary/10 text-tertiary border border-tertiary/20 px-1.5 py-0.5 rounded font-label-caps">#api-design</span>
+</div>
+<div class="flex items-center gap-4 text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">chat</span> 19 replies</span>
+<span>•</span>
+<span>3 days ago</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right: Sidebar widgets -->
+<div class="lg:col-span-4 flex flex-col gap-6">
+<!-- Continue Learning -->
+<div class="flex flex-col gap-3">
+<h3 class="text-label-caps font-label-caps text-on-surface-variant uppercase px-1">Continue learning</h3>
+<div class="glass-panel group cursor-pointer overflow-hidden">
+<div class="h-32 bg-surface-container relative">
+<div class="w-full h-full bg-cover bg-center" data-alt="A highly detailed technical illustration of a complex system architecture diagram, featuring nodes, message brokers, and data pipelines. The visual style uses thin glowing amber lines on a deep black background, evoking a premium IDE or command center aesthetic. The mood is precise, intellectual, and high-tech." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDTp-9ZR1f7cOrpjoGYDJ9sA26vAr6nGTH0zrMKTITtwjT2kyUm8Tp2szK9jY2FEe5uWTV_hx_Bcf36K0EQNHRHopi-ZMo-ZkokWfeeohgWlacNNNKo8Oan_E6p6AwaKqLZ-owXITi6Y1W4ArV6tyh1v0fkLOcpV-L67wO4ENH4F0FL4k-KSsfGuv4gIcuJPxtBXckDcraQty40dRlSg4IMQtVKVZK0Lp_EG4UmtY9cPlH8dDHJTHAFHw')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-[#161a23] to-transparent"></div>
+<div class="absolute bottom-2 left-3">
+<span class="text-[10px] bg-primary text-on-primary-fixed px-2 py-0.5 rounded font-bold">IN PROGRESS</span>
+</div>
+</div>
+<div class="p-4">
+<h4 class="text-body-base font-bold text-on-surface mb-1 group-hover:text-primary transition-colors">Advanced System Patterns</h4>
+<p class="text-body-sm text-on-surface-variant mb-4">Lesson: Event Sourcing vs CDC</p>
+<div class="space-y-1">
+<div class="flex justify-between text-[11px] font-numeric-data text-on-surface-variant">
+<span>45% Complete</span>
+<span>8 / 18 Lessons</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[45%]"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Your Packs -->
+<div class="flex flex-col gap-3">
+<h3 class="text-label-caps font-label-caps text-on-surface-variant uppercase px-1">Your packs</h3>
+<div class="glass-panel divide-y divide-outline-variant/30">
+<div class="p-3 flex items-center justify-between hover:bg-surface-container-highest/20 transition-colors">
+<div class="flex flex-col gap-1">
+<span class="text-body-sm font-bold text-on-surface">Kubernetes Operator Kit</span>
+<div class="flex gap-1">
+<span class="text-[9px] border border-outline-variant px-1 rounded text-on-surface-variant">Go</span>
+<span class="text-[9px] border border-outline-variant px-1 rounded text-on-surface-variant">K8s</span>
+</div>
+</div>
+<a class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" href="#">terminal</a>
+</div>
+<div class="p-3 flex items-center justify-between hover:bg-surface-container-highest/20 transition-colors">
+<div class="flex flex-col gap-1">
+<span class="text-body-sm font-bold text-on-surface">React Dashboard Core</span>
+<div class="flex gap-1">
+<span class="text-[9px] border border-outline-variant px-1 rounded text-on-surface-variant">TS</span>
+<span class="text-[9px] border border-outline-variant px-1 rounded text-on-surface-variant">UI</span>
+</div>
+</div>
+<a class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" href="#">terminal</a>
+</div>
+<div class="p-3 flex items-center justify-between hover:bg-surface-container-highest/20 transition-colors">
+<div class="flex flex-col gap-1">
+<span class="text-body-sm font-bold text-on-surface">Redis Cache Wrapper</span>
+<div class="flex gap-1">
+<span class="text-[9px] border border-outline-variant px-1 rounded text-on-surface-variant">Node</span>
+<span class="text-[9px] border border-outline-variant px-1 rounded text-on-surface-variant">Infra</span>
+</div>
+</div>
+<a class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" href="#">terminal</a>
+</div>
+</div>
+<button class="w-full py-2 border border-dashed border-outline-variant rounded-lg text-body-sm text-on-surface-variant hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2 mt-2">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                        Browse more packs
+                    </button>
+</div>
+</div>
+</section>
+</main>
+<!-- Micro-interaction Script -->
+<script>
+        // Simple countdown logic for the hero card
+        const countdownElements = document.querySelectorAll('.font-numeric-data span:first-child');
+        
+        // This is a static UI, but we can simulate a ticking clock if needed
+        // For now, let's just add hover effects to stats
+        document.querySelectorAll('.glass-panel').forEach(panel => {
+            panel.addEventListener('mouseenter', () => {
+                panel.style.borderColor = 'rgba(245, 165, 36, 0.3)';
+            });
+            panel.addEventListener('mouseleave', () => {
+                panel.style.borderColor = '#2c3342';
+            });
+        });
+    </script>
+</body></html>

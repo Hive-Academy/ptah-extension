@@ -35,6 +35,18 @@ export interface CorpusChangeEvent {
 
 export type CorpusChangeListener = (event: CorpusChangeEvent) => void;
 
+/**
+ * Lean corpus row for dedupe/suggestion passes: identity + the persisted
+ * filter blob only. Deliberately omits `count` (and its per-row
+ * `countMembers` query) so a whole-workspace scan is a single cheap SELECT.
+ */
+export interface CorpusFilterRow {
+  readonly id: string;
+  readonly name: string;
+  readonly workspaceRoot: string | null;
+  readonly queryJson: string;
+}
+
 interface CorpusRow {
   id: string;
   name: string;
@@ -133,6 +145,37 @@ export class CorpusStore {
           .prepare(`SELECT * FROM corpora ORDER BY built_at DESC`)
           .all() as CorpusRow[]);
     return rows.map((row) => rowToRef(row, this.countMembers(row.id)));
+  }
+
+  /**
+   * Bulk read of every corpus row's identity + persisted filter blob in ONE
+   * SELECT — no per-row `countMembers` round trip (unlike {@link list}).
+   * `queryJson` is returned raw; callers parse it (e.g. via `parseCorpusFilter`).
+   */
+  listFilterRows(
+    filter: { workspaceRoot?: string | null } = {},
+  ): readonly CorpusFilterRow[] {
+    const hasFilter = filter.workspaceRoot !== undefined;
+    const cols = `id, name, workspace_root, query_json`;
+    const rows = hasFilter
+      ? (this.connection.db
+          .prepare(
+            `SELECT ${cols} FROM corpora WHERE workspace_root IS ? ORDER BY built_at DESC`,
+          )
+          .all(filter.workspaceRoot) as Array<
+          Pick<CorpusRow, 'id' | 'name' | 'workspace_root' | 'query_json'>
+        >)
+      : (this.connection.db
+          .prepare(`SELECT ${cols} FROM corpora ORDER BY built_at DESC`)
+          .all() as Array<
+          Pick<CorpusRow, 'id' | 'name' | 'workspace_root' | 'query_json'>
+        >);
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      workspaceRoot: row.workspace_root,
+      queryJson: row.query_json,
+    }));
   }
 
   delete(id: string): boolean {

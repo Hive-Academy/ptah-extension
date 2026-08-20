@@ -55,7 +55,7 @@ export type SetupStatus = SetupStatusGetResponse;
         </div>
       } @else if (workspaceNotOpen()) {
         <!-- No workspace open — friendly prompt, no error styling -->
-        <div class="flex items-center gap-2 text-base-content/70">
+        <div class="flex items-center gap-2 text-base-content-muted">
           <lucide-angular [img]="FolderOpenIcon" class="shrink-0 w-4 h-4" />
           <span class="text-xs flex-1">Open a folder to configure agents</span>
           <button
@@ -93,7 +93,7 @@ export type SetupStatus = SetupStatusGetResponse;
             <div>
               <h4 class="text-xs font-medium leading-tight">Claude Agents</h4>
               @if (status()!.isConfigured) {
-                <p class="text-[10px] text-base-content/60 leading-tight">
+                <p class="text-[10px] text-base-content-muted leading-tight">
                   {{ status()!.agentCount }} agent{{
                     status()!.agentCount !== 1 ? 's' : ''
                   }}
@@ -103,7 +103,7 @@ export type SetupStatus = SetupStatusGetResponse;
                   }
                 </p>
               } @else {
-                <p class="text-[10px] text-base-content/60 leading-tight">
+                <p class="text-[10px] text-base-content-muted leading-tight">
                   Not configured
                 </p>
               }

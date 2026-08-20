@@ -1,0 +1,25 @@
+<!--
+  Admin shell — thin binding over the shared PanelLayout.
+
+  DO NOT add /admin* links to NavigationComponent, FooterComponent, or any
+  future sitemap.xml. This dashboard is gated by the ADMIN_EMAILS allowlist and
+  must remain invisible to public crawlers and unauthenticated users.
+
+  Scoped to the `operator-admin` daisyUI theme so admin surfaces stay separate
+  from the public marketing site, which remains on `operator`.
+-->
+<ptah-panel-layout
+  [navGroups]="navGroups()"
+  theme="operator-admin"
+  title="Admin Dashboard"
+  badgeLabel="Restricted"
+  badgeClass="badge-warning"
+  drawerId="admin-drawer"
+>
+  <ng-container panelTopBar>
+    @if (currentEmail(); as email) {
+      <span class="hidden sm:inline">Signed in as</span>
+      <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
+    }
+  </ng-container>
+</ptah-panel-layout>

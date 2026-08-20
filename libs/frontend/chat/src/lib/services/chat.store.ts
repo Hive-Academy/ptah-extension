@@ -11,6 +11,7 @@ import {
 import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
+  ChatSessionSummary,
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
@@ -30,8 +31,8 @@ import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.se
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionStatsAggregatorService } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
+import { TaskPromptBridgeService } from './chat-store/task-prompt-bridge.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
-import { MessageSenderService } from './message-sender.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
@@ -62,7 +63,6 @@ export class ChatStore {
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
-  private readonly messageSender = inject(MessageSenderService);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly compaction = inject(CompactionLifecycleService);
   private readonly messageDispatch = inject(MessageDispatchService);
@@ -70,6 +70,13 @@ export class ChatStore {
   private readonly lifecycle = inject(ChatLifecycleService);
   private readonly turnEndHandler = inject(TurnEndHandlerService);
   private readonly streamRouter = inject(StreamRouter);
+  /**
+   * Eagerly constructed so its `chatPromptRequest` effect is live for the whole
+   * app run — lets the standalone Tasks board launch orchestration sessions
+   * without importing this lib (signal-bridge inversion, NFR-11). Not otherwise
+   * read by the facade.
+   */
+  private readonly taskPromptBridge = inject(TaskPromptBridgeService);
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -194,11 +201,14 @@ export class ChatStore {
     return this.sessionLoader.updateSessionName(sessionId, name);
   }
 
-  async sendMessage(
-    content: string,
-    options?: SendMessageOptions,
-  ): Promise<void> {
-    return this.messageSender.send(content, options);
+  /**
+   * Insert or replace a session summary in the sidebar list without an RPC
+   * round-trip. Used by the rewind flow to surface the freshly-forked session
+   * immediately, winning the race against the debounced
+   * `session:metadataChanged` → `loadSessions()` broadcast.
+   */
+  upsertSessionSummary(summary: ChatSessionSummary): void {
+    return this.sessionLoader.upsertSessionSummary(summary);
   }
 
   async sendOrQueueMessage(
@@ -208,13 +218,6 @@ export class ChatStore {
     return this.messageDispatch.sendOrQueueMessage(content, options);
   }
 
-  async startNewConversation(content: string, files?: string[]): Promise<void> {
-    return this.conversation.startNewConversation(content, files);
-  }
-
-  async continueConversation(content: string, files?: string[]): Promise<void> {
-    return this.conversation.continueConversation(content, files);
-  }
   clearResumableSubagents(): void {
     this.sessionLoader.clearResumableSubagents();
   }

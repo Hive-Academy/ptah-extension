@@ -54,6 +54,7 @@ function clone(overrides: Partial<CloneEntry> = {}): CloneEntry {
     diverged: false,
     lastEnhancedAt: null,
     pendingSourceHash: null,
+    orphaned: false,
     ...overrides,
   };
 }

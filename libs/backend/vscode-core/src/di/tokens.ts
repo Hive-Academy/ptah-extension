@@ -37,9 +37,6 @@ export const CONFIG_MANAGER = Symbol.for('ConfigManager');
 export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
 export const RPC_HANDLER = Symbol.for('RpcHandler');
-export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
-  'RpcMethodRegistrationService',
-);
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
 export const SENTRY_SERVICE = Symbol.for('SentryService');
 export const TOKEN_COUNTER_SERVICE = Symbol.for('TokenCounterService');
@@ -61,6 +58,9 @@ export const FILE_TYPE_CLASSIFIER_SERVICE = Symbol.for(
   'FileTypeClassifierService',
 );
 export const WORKSPACE_INDEXER_SERVICE = Symbol.for('WorkspaceIndexerService');
+export const WORKSPACE_FILE_INDEX_SERVICE = Symbol.for(
+  'WorkspaceFileIndexService',
+);
 export const FILE_INDEXER_SERVICE = Symbol.for('FileIndexerService');
 export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
   'WorkspaceAnalyzerService',
@@ -84,11 +84,9 @@ export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
 export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 export const AGENT_PROCESS_MANAGER = Symbol.for('AgentProcessManager');
 export const CLI_DETECTION_SERVICE = Symbol.for('CliDetectionService');
-export const CLI_PLUGIN_SYNC_SERVICE = Symbol.for('CliPluginSyncService');
 export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
 export const LICENSE_SERVICE = Symbol.for('LicenseService');
 export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
-export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
@@ -183,7 +181,6 @@ export const TOKENS = {
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
   RPC_HANDLER,
-  RPC_METHOD_REGISTRATION_SERVICE,
   SUBAGENT_REGISTRY_SERVICE,
   SENTRY_SERVICE,
   TOKEN_COUNTER_SERVICE,
@@ -197,6 +194,7 @@ export const TOKENS = {
   IGNORE_PATTERN_RESOLVER_SERVICE,
   FILE_TYPE_CLASSIFIER_SERVICE,
   WORKSPACE_INDEXER_SERVICE,
+  WORKSPACE_FILE_INDEX_SERVICE,
   FILE_INDEXER_SERVICE,
   WORKSPACE_ANALYZER_SERVICE,
   WORKSPACE_SERVICE,
@@ -219,11 +217,9 @@ export const TOKENS = {
   QUALITY_EXPORT_SERVICE,
   AGENT_PROCESS_MANAGER,
   CLI_DETECTION_SERVICE,
-  CLI_PLUGIN_SYNC_SERVICE,
   AUTH_SECRETS_SERVICE,
   LICENSE_SERVICE,
   LICENSE_COMMANDS,
-  FEATURE_GATE_SERVICE,
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
   PERMISSION_PROMPT_SERVICE,

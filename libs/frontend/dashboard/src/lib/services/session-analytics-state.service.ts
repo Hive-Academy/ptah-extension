@@ -66,10 +66,10 @@ export interface AggregateTotals {
 
 /**
  * Date-range presets that scope which sessions feed the analytics card.
- * Bounded to one week so the dashboard never pulls an unbounded history —
+ * Bounded to two weeks so the dashboard never pulls an unbounded history —
  * the lower bound is applied server-side via the `session:list` `since` param.
  */
-export type SessionDateRange = '1d' | '2d' | '3d' | '7d';
+export type SessionDateRange = '1d' | '2d' | '3d' | '7d' | '14d';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -79,6 +79,7 @@ const RANGE_DAYS: Record<SessionDateRange, number> = {
   '2d': 2,
   '3d': 3,
   '7d': 7,
+  '14d': 14,
 };
 
 /** Selectable date-range options with their display labels (UI order). */
@@ -90,6 +91,7 @@ export const SESSION_DATE_RANGE_OPTIONS: ReadonlyArray<{
   { value: '2d', label: '2 days' },
   { value: '3d', label: '3 days' },
   { value: '7d', label: '1 week' },
+  { value: '14d', label: '2 weeks' },
 ];
 
 /** Safety cap on sessions returned for a single range. */

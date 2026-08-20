@@ -8,6 +8,13 @@
  * Tier 1 handlers: Zero refactoring needed (no vscode imports).
  * Tier 2 handlers: Refactored to use platform abstractions.
  */
+export { AgentRpcHandlers } from './agent-rpc.handlers';
+export { CommandRpcHandlers } from './command-rpc.handlers';
+export {
+  FileSystemRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
+} from './file-rpc.handlers';
 export { SessionRpcHandlers } from './session-rpc.handlers';
 export { ContextRpcHandlers } from './context-rpc.handlers';
 export { AutocompleteRpcHandlers } from './autocomplete-rpc.handlers';
@@ -21,12 +28,19 @@ export { ConfigRpcHandlers } from './config-rpc.handlers';
 export { LicenseRpcHandlers } from './license-rpc.handlers';
 export { ChatRpcHandlers } from './chat-rpc.handlers';
 export { AuthRpcHandlers } from './auth-rpc.handlers';
+export { asAuthCommandRunner } from './auth-command-runner';
+export type {
+  AuthCommandRequest,
+  AuthCommandResult,
+  IAuthCommandRunner,
+} from './auth-command-runner';
 export { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
 export { QualityRpcHandlers } from './quality-rpc.handlers';
 export { ProviderRpcHandlers } from './provider-rpc.handlers';
 export { WebSearchRpcHandlers } from './web-search-rpc.handlers';
 export { HarnessRpcHandlers } from './harness-rpc.handlers';
 export { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
+export { OutputStyleRpcHandlers } from './output-style-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 export { GitRpcHandlers } from './git-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
@@ -39,6 +53,9 @@ export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 export { VoiceRpcHandlers } from './voice-rpc.handlers';
+export { LayoutRpcHandlers } from './layout-rpc.handlers';
+export { TerminalRpcHandlers } from './terminal-rpc.handlers';
+export { UpdateRpcHandlers } from './update-rpc.handlers';
 export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,
@@ -56,3 +73,4 @@ export type {
   DbOpenBindingFolderResult,
 } from './persistence-rpc.handlers';
 export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
+export { TasksRpcHandlers } from './tasks-rpc.handlers';

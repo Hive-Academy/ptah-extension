@@ -1,0 +1,53 @@
+<div
+  class="flex-1 chat-scroll-container"
+  #messageContainer
+  (scroll)="onScroll($event)"
+>
+  <div #messageContent class="chat-scroll-content">
+    @for (
+      msg of vm().messages;
+      track trackByMessageId($index, msg);
+      let i = $index
+    ) {
+      <ptah-message-bubble
+        class="block px-2 pb-3 chat-msg-cv"
+        [message]="msg"
+        [messageIndex]="i"
+        [totalMessages]="vm().totalCount"
+        [isStreaming]="i >= vm().finalizedCount"
+        [isFinalizing]="isFinalizingTransition()"
+        [isSessionActive]="vm().isSessionActive"
+        (branchRequested)="branchRequested.emit($event)"
+        (rewindRequested)="rewindRequested.emit($event)"
+      />
+    }
+  </div>
+</div>
+
+@if (vm().streamingCount === 0 && vm().isStreaming) {
+  <div
+    class="chat chat-start px-2 pb-2 flex-shrink-0"
+    animate.enter="fade-enter"
+    animate.leave="fade-leave"
+  >
+    <div class="chat-image avatar">
+      <div class="w-8 h-8 rounded-full overflow-hidden">
+        <img [src]="ptahIconUri()" alt="Claude" width="32" height="32" />
+      </div>
+    </div>
+    <div class="chat-bubble bg-neutral">
+      <div class="skeleton h-4 w-64 mb-2"></div>
+      <div class="skeleton h-4 w-48 mb-2"></div>
+      <div class="skeleton h-4 w-56"></div>
+    </div>
+  </div>
+}
+
+@if (!vm().hasMessages && !vm().isStreaming && vm().streamingCount === 0) {
+  <ptah-chat-empty-state
+    class="absolute inset-0 flex items-center justify-center"
+    animate.enter="fade-enter"
+    animate.leave="fade-leave"
+    (promptSelected)="promptSelected.emit($event)"
+  />
+}

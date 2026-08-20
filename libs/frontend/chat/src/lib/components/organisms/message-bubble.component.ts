@@ -68,7 +68,17 @@ import {
     LucideAngularModule,
   ],
   templateUrl: './message-bubble.component.html',
-  styleUrl: './message-bubble.component.css',
+  // Two sheets, ONE stylesheet split in two — the combined rules exceeded the
+  // 10 kB `anyComponentStyle` budget (TASK_2026_187 Unit 7). ORDER IS
+  // LOAD-BEARING: `-prose` was physically the tail of the original file and
+  // contains rules that intentionally override earlier ones by source order
+  // (`.code-block-container pre` over `markdown pre`, the `markdown table`
+  // `border-top`). Both keep `:host`/`::ng-deep` encapsulation, so the emitted
+  // CSS is identical to the single-file version. Do not reorder or merge.
+  styleUrls: [
+    './message-bubble.component.css',
+    './message-bubble-prose.component.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.is-streaming]': 'isStreaming()',

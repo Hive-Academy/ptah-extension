@@ -11,6 +11,10 @@ export type {
 } from './auth-strategy.types';
 export { ModelResolver } from './model-resolver';
 export {
+  ActiveProviderResolver,
+  type ActiveAuth,
+} from './active-provider-resolver';
+export {
   ApiKeyStrategy,
   OAuthProxyStrategy,
   LocalNativeStrategy,

@@ -35,6 +35,19 @@
         </div>
       }
 
+      <!-- Persistent background-agents tray. On the main panel it renders once
+           and shows every session's agents; inside a canvas tile it renders
+           scoped to that tile's own session (traySessionId). Lives under the
+           stats summary so it never competes with the streamed output at the
+           bottom. Focus/steer/stop/background are handled inside the tray
+           against each agent's owning session. -->
+      @if (showBackgroundStrip()) {
+        <ptah-background-agent-tray
+          class="flex-shrink-0"
+          [sessionId]="traySessionId()"
+        />
+      }
+
       <!-- Compaction Notification Banner -->
       <div class="px-2">
         <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
@@ -49,65 +62,20 @@
       </div>
 
       <div class="flex-1 flex flex-col min-h-0 relative">
-        <div
-          class="flex-1 chat-scroll-container"
-          #messageContainer
-          (scroll)="onScroll($event)"
-        >
-          <div #messageContent class="chat-scroll-content">
-            @for (
-              msg of allMessages();
-              track trackByMessageId($index, msg);
-              let i = $index
-            ) {
-              <ptah-message-bubble
-                class="block px-2 pb-3 chat-msg-cv"
-                [message]="msg"
-                [messageIndex]="i"
-                [totalMessages]="totalMessageCount()"
-                [isStreaming]="i >= finalizedFiltered().length"
-                [isFinalizing]="isFinalizingTransition()"
-                [isSessionActive]="resolvedSessionIsActive()"
-                (branchRequested)="onBranchRequested($event)"
-                (rewindRequested)="onRewindRequested($event)"
-              />
-            }
-          </div>
-        </div>
-
-        @if (streamingMessages().length === 0 && resolvedIsStreaming()) {
-          <div
-            class="chat chat-start px-2 pb-2 flex-shrink-0"
-            animate.enter="fade-enter"
-            animate.leave="fade-leave"
-          >
-            <div class="chat-image avatar">
-              <div class="w-8 h-8 rounded-full overflow-hidden">
-                <img
-                  [src]="ptahIconUri()"
-                  alt="Claude"
-                  width="32"
-                  height="32"
-                />
-              </div>
-            </div>
-            <div class="chat-bubble bg-neutral">
-              <div class="skeleton h-4 w-64 mb-2"></div>
-              <div class="skeleton h-4 w-48 mb-2"></div>
-              <div class="skeleton h-4 w-56"></div>
-            </div>
-          </div>
-        }
-
-        @if (
-          resolvedMessages().length === 0 &&
-          !resolvedIsStreaming() &&
-          streamingMessages().length === 0
-        ) {
+        @for (tabId of transcriptTabIds(); track tabId) {
+          <ptah-chat-transcript
+            [tabId]="tabId"
+            [active]="tabId === resolvedTabId() && mainPanelShowing()"
+            [isSessionActive]="resolvedSessionIsActive()"
+            (branchRequested)="onBranchRequested($event)"
+            (rewindRequested)="onRewindRequested($event)"
+            (promptSelected)="handlePromptSelected($event)"
+          />
+        } @empty {
+          <!-- No tab yet (fresh chat): the empty state lives per-transcript, so
+               render it here directly until the first tab exists. -->
           <ptah-chat-empty-state
             class="absolute inset-0 flex items-center justify-center"
-            animate.enter="fade-enter"
-            animate.leave="fade-leave"
             (promptSelected)="handlePromptSelected($event)"
           />
         }
@@ -140,7 +108,7 @@
       <!-- Resume Notification Banner -->
       <div class="px-2 py-1">
         <ptah-resume-notification-banner
-          [resumableSubagents]="chatStore.resumableSubagents()"
+          [resumableSubagents]="resolvedResumableSubagents()"
           (resumeRequested)="handleResumeAgent($event)"
           (resumeAllRequested)="handleResumeAllAgents($event)"
         />
@@ -157,6 +125,9 @@
           />
         </div>
       }
+
+      <!-- Cloud voice-provider failure toast with switch-to-local action -->
+      <ptah-voice-provider-error-toast />
 
       <!-- Collapsed Permission Badge (doesn't block chat area) -->
       <ptah-permission-badge
@@ -194,7 +165,7 @@
                 aria-hidden="true"
               />
               <span class="text-primary font-medium">Message queued</span>
-              <span class="text-base-content/60"
+              <span class="text-base-content-muted"
                 >(will send when Claude finishes)</span
               >
             </div>
@@ -222,7 +193,7 @@
 
           <!-- Queued content preview (click to edit) -->
           <button
-            class="w-full text-left text-xs text-base-content/70 bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
+            class="w-full text-left text-xs text-base-content-muted bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
             (click)="editQueue()"
             type="button"
             title="Edit queued message"
@@ -239,7 +210,7 @@
 
       <!-- Input Area Collapse Toggle (full-width bar above input) -->
       <button
-        class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content/40 hover:text-base-content/70 flex-shrink-0"
+        class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content-muted hover:text-base-content flex-shrink-0"
         (click)="toggleInputCollapse()"
         [title]="inputCollapsed() ? 'Show input area' : 'Hide input area'"
         type="button"
@@ -263,33 +234,39 @@
     }
   </div>
 
-  <!-- Agents vertical toggle tab (per-session) -->
-  <ptah-sidebar-tab
-    label="Agents"
-    side="right"
-    [isOpen]="agentPanelOpen()"
-    [badgeType]="agentBadgeType()"
-    size="sm"
-    (toggled)="toggleAgentPanel()"
-  />
+  @if (!hideAgentSidebar) {
+    <!-- Agents vertical toggle tab (per-session) -->
+    <ptah-sidebar-tab
+      label="Agents"
+      side="right"
+      [isOpen]="agentPanelOpen()"
+      [badgeType]="agentBadgeType()"
+      size="sm"
+      (toggled)="toggleAgentPanel()"
+    />
 
-  <!-- Resize handle between chat and agent panel -->
-  @if (agentPanelOpen()) {
-    <div
-      class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group"
-      (mousedown)="onResizeStart($event)"
-    >
+    <!-- Resize handle between chat and agent panel -->
+    @if (agentPanelOpen()) {
       <div
-        class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"
-      ></div>
-    </div>
-  }
+        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none"
+        role="separator"
+        aria-orientation="vertical"
+        title="Drag to resize · double-click to reset"
+        (pointerdown)="onResizeStart($event)"
+        (dblclick)="onResizeReset()"
+      >
+        <div
+          class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"
+        ></div>
+      </div>
+    }
 
-  <!-- Agent monitor panel (session-scoped) -->
-  <ptah-agent-monitor-panel
-    [embeddedAgents]="sessionAgents()"
-    [embeddedOpen]="agentPanelOpen()"
-    [sessionId]="resolvedSessionId()"
-    (closed)="agentPanelOpen.set(false)"
-  />
+    <!-- Agent monitor panel (session-scoped) -->
+    <ptah-agent-monitor-panel
+      [embeddedAgents]="sessionAgents()"
+      [embeddedOpen]="agentPanelOpen()"
+      [sessionId]="resolvedSessionId()"
+      (closed)="agentPanelOpen.set(false)"
+    />
+  }
 </div>

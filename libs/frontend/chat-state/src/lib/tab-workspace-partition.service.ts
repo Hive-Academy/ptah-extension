@@ -20,6 +20,17 @@ export interface TabLookupResult {
 }
 
 /**
+ * A single workspace-removal emission. Append-only and never cleared: `seq`
+ * increments monotonically per removal so every independent consumer can
+ * process each removal exactly once by tracking its own last-seen `seq`,
+ * regardless of Angular effect-flush ordering (no shared single-shot ack).
+ */
+export interface WorkspaceRemovalEvent {
+  readonly path: string;
+  readonly seq: number;
+}
+
+/**
  * TabWorkspacePartitionService - Manages workspace-partitioned tab state
  *
  * Isolates workspace partitioning concerns from core tab CRUD operations.
@@ -65,10 +76,16 @@ export class TabWorkspacePartitionService {
   private readonly _activeWorkspacePath = signal<string | null>(null);
 
   /**
-   * Consume-and-clear signal that emits the workspace path just removed
-   * via removeWorkspaceState(); paired with clearRemovedWorkspace().
+   * Append-only signal carrying the most recent workspace removal, stamped with
+   * a monotonic `seq`. Never cleared: each consumer tracks its own last-seen
+   * `seq` and processes an emission exactly once, so no consumer can miss a
+   * removal because another consumer "acked" it first (the old single-shot
+   * clear-on-read contract was racy across independent effects).
    */
-  private readonly _removedWorkspace = signal<string | null>(null);
+  private readonly _removedWorkspace = signal<WorkspaceRemovalEvent | null>(
+    null,
+  );
+  private _removedSeq = 0;
 
   readonly activeWorkspacePath$ = this._activeWorkspacePath.asReadonly();
   readonly removedWorkspace$ = this._removedWorkspace.asReadonly();
@@ -109,11 +126,6 @@ export class TabWorkspacePartitionService {
    */
   get activeWorkspacePath(): string | null {
     return this._activeWorkspacePath();
-  }
-
-  /** Acknowledge the removedWorkspace$ signal after consumption. */
-  clearRemovedWorkspace(): void {
-    this._removedWorkspace.set(null);
   }
 
   /**
@@ -247,6 +259,47 @@ export class TabWorkspacePartitionService {
   }
 
   /**
+   * Find a tab by its (global) tab id with workspace context, searching the
+   * active workspace first, then every background workspace partition.
+   *
+   * Tab ids are global UUIDs, so a background-workspace tab's id will never be
+   * present in the active `_tabs` signal. Callers that resolve the OWNER of a
+   * streaming event by tab id (e.g. `SESSION_ID_RESOLVED` routing) must use
+   * this instead of `tabs().find(...)` to avoid falling through to the active
+   * tab and clobbering its live session.
+   *
+   * Pure lookup — never mutates state.
+   *
+   * @param tabId - Tab ID to look up
+   * @param activeTabs - Current active workspace tabs (from signal) for the
+   *   active-workspace fast path (the map copy can lag behind the signal).
+   */
+  findTabByIdAcrossWorkspaces(
+    tabId: string,
+    activeTabs?: TabState[],
+  ): TabLookupResult | null {
+    const activePath = this._activeWorkspacePath();
+    if (activePath) {
+      const tabs =
+        activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [];
+      const activeTab = tabs.find((t) => t.id === tabId);
+      if (activeTab) {
+        return { tab: activeTab, workspacePath: activePath };
+      }
+    }
+
+    for (const [wsPath, tabSet] of this._workspaceTabSets) {
+      if (wsPath === activePath) continue;
+      const found = tabSet.tabs.find((t) => t.id === tabId);
+      if (found) {
+        return { tab: found, workspacePath: wsPath };
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Update a tab in a background workspace (streaming in non-active workspace).
    * Mutates the tab directly in _workspaceTabSets without touching signals.
    *
@@ -321,7 +374,10 @@ export class TabWorkspacePartitionService {
     if (wasActive) {
       this._activeWorkspacePath.set(null);
     }
-    this._removedWorkspace.set(workspacePath);
+    this._removedWorkspace.set({
+      path: workspacePath,
+      seq: ++this._removedSeq,
+    });
 
     return wasActive;
   }
@@ -432,6 +488,9 @@ export class TabWorkspacePartitionService {
           tab.status === 'streaming' || tab.status === 'awaiting-background'
             ? 'loaded'
             : tab.status,
+        // Messaging attachment is a live, push-driven flag — a restored tab is
+        // never attached. Clear so a stale flag can't leave it read-only.
+        attachedBinding: null,
       }));
 
       return {

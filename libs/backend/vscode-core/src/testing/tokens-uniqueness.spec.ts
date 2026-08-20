@@ -13,9 +13,24 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.nx', 'coverage']);
 
 const INTENTIONAL_CROSS_LIB_MIRRORS = new Set<string>([
   'PtahCuratorLlm',
+  'PtahKnowledgeAgentService',
   'PtahUserLayerMirrorService',
   'SdkCompactionCallbackRegistry',
   'SdkInternalQueryService',
+  // Declared as literals in `skill-synthesis/src/lib/di/tokens.ts` to resolve
+  // `agent-sdk` registrations without importing that lib, which would close a
+  // `skill-synthesis → agent-sdk → skill-synthesis` cycle. Same pattern and
+  // same stated reason as `SdkInternalQueryService` above; they were simply
+  // never added when the two tokens were introduced.
+  //
+  // Renaming either side is NOT the fix. Both are injected
+  // `{ isOptional: true }`, so a mismatch resolves `null` instead of throwing,
+  // and every lane then silently ignores its configured provider and rides the
+  // user's foreground credentials — the exact defect lanes exist to prevent.
+  // `skill-synthesis/src/lib/di/register.spec.ts` pins the literals for that
+  // reason.
+  'SdkSessionActivityRegistry',
+  'SdkProviderAuthResolver',
 ]);
 
 function findTokensFiles(root: string): string[] {

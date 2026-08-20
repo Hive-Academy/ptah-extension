@@ -38,6 +38,42 @@ export function formatCompact(count: number): string {
 }
 
 /**
+ * Format a duration in milliseconds as a compact human string
+ * ("<1m", "42m", "3h 12m", "2d 4h"). Returns '--' for non-finite or
+ * negative durations.
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '--';
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (hours < 24)
+    return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
+}
+
+/**
+ * Format an absolute timestamp as a full date-time string
+ * ("Jul 14, 2026, 3:45 PM"). Returns 'Unknown' for falsy/NaN/epoch-zero.
+ */
+export function formatFullDate(timestamp: number): string {
+  if (!timestamp || isNaN(timestamp)) return 'Unknown';
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/**
  * Format a past timestamp as a short relative string ("just now", "2h ago").
  * Falls back to '' for falsy/NaN/epoch-zero or future timestamps.
  */

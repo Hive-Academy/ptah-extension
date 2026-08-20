@@ -19,6 +19,8 @@ import {
   ChatViewComponent,
   TabManagerService,
   SESSION_CONTEXT,
+  SESSION_VISIBLE,
+  SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
@@ -48,6 +50,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
     LucideAngularModule,
     TileAgentIndicatorComponent,
     TileAgentMiniPanelComponent,
+    SendToMessagingComponent,
   ],
   template: `
     <div
@@ -67,8 +70,12 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           tabLabel()
         }}</span>
         <ptah-tile-agent-indicator [tabId]="tabId()" />
+        <ptah-send-to-messaging
+          [tabId]="tabId()"
+          (click)="$event.stopPropagation()"
+        />
         <button
-          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-base-content"
+          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-base-content"
           (click)="onToggleViewMode($event)"
           [title]="
             isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
@@ -80,7 +87,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           />
         </button>
         <button
-          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
+          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-error"
           (click)="onClose($event)"
           aria-label="Close tile"
           title="Close tile"
@@ -117,6 +124,14 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * When true, renders a primary-colored ring border.
    */
   readonly focused = input<boolean>(false);
+
+  /**
+   * Whether this tile's workspace grid is on-screen. Drives visibility-based
+   * streaming registration and the inner transcript's reactivity pause: a
+   * hidden-workspace tile deregisters (so BatchedUpdateService keeps deferring
+   * its streaming flushes) and its transcript freezes.
+   */
+  readonly visible = input<boolean>(true);
 
   /**
    * Emits tabId when the user clicks anywhere on the tile.
@@ -168,6 +183,23 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   });
 
   /**
+   * Register this tile's tab as visible only while its workspace grid is
+   * on-screen. Driven by the `visible` input (not the lifecycle) so a tile that
+   * stays mounted in a hidden background workspace deregisters — keeping
+   * BatchedUpdateService's streaming-flush deferral in effect and preserving the
+   * cross-workspace streaming isolation from commit 571227a8a. Unregistered
+   * again in ngOnDestroy.
+   */
+  private readonly _visibilityRegistration = effect(() => {
+    const id = this.tabId();
+    if (this.visible()) {
+      this.tabManager.registerVisibleTab(id);
+    } else {
+      this.tabManager.unregisterVisibleTab(id);
+    }
+  });
+
+  /**
    * Child EnvironmentInjector providing SESSION_CONTEXT for this tile's ChatViewComponent.
    * Starts null; set in ngOnInit; destroyed in ngOnDestroy.
    * Private mutable signal; exposed as readonly via childInjector.
@@ -205,12 +237,13 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
     this._childInjector.set(
       createEnvironmentInjector(
-        [{ provide: SESSION_CONTEXT, useValue: tabIdSignal }],
+        [
+          { provide: SESSION_CONTEXT, useValue: tabIdSignal },
+          { provide: SESSION_VISIBLE, useValue: this.visible },
+        ],
         this.parentEnvInjector,
       ),
     );
-
-    this.tabManager.registerVisibleTab(this.tabId());
   }
 
   ngOnDestroy(): void {

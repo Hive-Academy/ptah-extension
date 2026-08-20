@@ -1,0 +1,15 @@
+{
+  "scene": "dashboard-tour",
+  "lines": [
+    "How much did your AI agents cost you this week? If you do not know, keep watching.",
+    "This is Ptah, the AI coding orchestra — and its dashboard is home base for every agent you run. Let us take the tour.",
+    "Everything on this screen is live. Real cards, real data — not one mock number anywhere.",
+    "First, get the lay of the land — the full page, top to bottom.",
+    "Need a second opinion? Convene a Tribunal — rival AI vendors debate your question, or race to build the answer.",
+    "Here is where the cost question gets answered. Session Analytics reads your real usage straight from disk.",
+    "Every token, every dollar, every turn — totaled across all of your sessions.",
+    "Want a tighter window? One click filters everything.",
+    "And when one session looks off, drill in and get the full story.",
+    "So, what did your agents cost this week? Now you know, down to the dollar. That is Ptah."
+  ]
+}

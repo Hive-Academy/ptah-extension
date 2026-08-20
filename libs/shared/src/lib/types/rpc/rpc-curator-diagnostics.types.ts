@@ -36,6 +36,9 @@ export interface MemoryCuratorEventWire {
 export type SkillSynthesisEventKind =
   | 'analyze-run'
   | 'curator-pass'
+  | 'curator-pass-start'
+  | 'backfill-progress'
+  | 'backfill-complete'
   | 'idle-trigger'
   | 'boot-scan'
   | 'manual-run'
@@ -110,9 +113,8 @@ export interface MemoryDbHealthDto {
 }
 
 export interface EligibilityHistogramDto {
-  readonly tooFewTurns: number;
-  readonly lowFidelity: number;
-  readonly insufficientAbstraction: number;
+  readonly prefilterTooThin: number;
+  readonly prefilterRejected: number;
   readonly accepted: number;
 }
 
@@ -209,4 +211,85 @@ export type SkillGetTriggersParams = Record<string, never>;
 
 export interface SkillGetTriggersResult {
   readonly triggers: SkillTriggersDto;
+}
+
+// ── Skill-synthesis lanes (TASK_2026_180, Phase 1) ──────────────────────────
+//
+// A LANE is the declared-capability record one background LLM stage runs
+// against. The wire mirror of `SkillLaneConfig`
+// (`skill-synthesis/src/lib/lanes/lane.types.ts`) — structural, not imported,
+// because `libs/shared` is the foundation layer and may not import a backend
+// lib.
+//
+// The invariant this contract carries onto the wire: **lanes differ ONLY by
+// capability fields.** `provider` is an opaque registry id here and is never
+// compared against a literal anywhere downstream; the only questions asked of
+// it are "is it empty?" and "what does the resolver hand back?". A discriminant
+// that named a vendor would make the capability fields decoration.
+
+/**
+ * The four stages that call an LLM. `archaeologist` and `replay` ship in later
+ * phases but are in the union from the start, because the settings tree and the
+ * picker UI are built once against it.
+ */
+export type SkillLaneIdDto = 'archaeologist' | 'synthesis' | 'judge' | 'replay';
+
+/** Bare tier aliases. Resolved by the SDK, never by a hardcoded model id. */
+export type SkillLaneTierDto = 'haiku' | 'sonnet' | 'opus';
+
+export interface SkillLaneDto {
+  readonly id: SkillLaneIdDto;
+  /** Registry provider id, or `''` = inherit the active workspace provider. */
+  readonly provider: string;
+  /** Concrete model id, a bare tier alias, or `''` = fall back. */
+  readonly model: string;
+  /** Bare tier used when `model` is `''` and a provider IS configured. */
+  readonly defaultTier: SkillLaneTierDto;
+  /**
+   * Whether this lane's endpoint honours JSON-Schema constrained output.
+   * `'parse'` means it does not and the manual JSON extractors are the only
+   * path.
+   */
+  readonly structuredOutput: 'sdk' | 'parse';
+  /**
+   * Whether this lane may run the multi-pass retrieval loop. `'none'` collapses
+   * it to a single pass rather than letting a model that cannot drive tools
+   * burn the whole `timeoutMs` discovering that.
+   */
+  readonly toolUse: 'required' | 'none';
+  /** Per-lane wall clock for one LLM call. */
+  readonly timeoutMs: number;
+  /** Prompt input budget in characters, applied per lane. */
+  readonly maxInputChars: number;
+  /** Upper bound on retrieval passes. Only the archaeologist exceeds 1. */
+  readonly maxPasses: number;
+}
+
+/** All four lanes, always complete — the read side never returns a partial. */
+export type SkillLanesDto = {
+  readonly [K in SkillLaneIdDto]: SkillLaneDto;
+};
+
+/**
+ * A sparse patch: any subset of lanes, any subset of their fields.
+ *
+ * `id` is excluded because a lane's identity is the key it is filed under,
+ * never a writable field. An omitted field is left alone rather than blanked,
+ * matching `flattenSkillLanes`, which skips `undefined` instead of persisting
+ * it.
+ */
+export interface SkillSetLanesParams {
+  readonly lanes: Partial<
+    Record<SkillLaneIdDto, Partial<Omit<SkillLaneDto, 'id'>>>
+  >;
+}
+
+export interface SkillSetLanesResult {
+  readonly lanes: SkillLanesDto;
+}
+
+export type SkillGetLanesParams = Record<string, never>;
+
+export interface SkillGetLanesResult {
+  readonly lanes: SkillLanesDto;
 }

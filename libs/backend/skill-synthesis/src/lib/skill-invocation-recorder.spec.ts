@@ -133,12 +133,81 @@ describe('SkillInvocationRecorder', () => {
       expect(record).toHaveBeenCalledWith({
         skillSlug: 'caveman',
         sessionId: 's9',
+        workspaceRoot: '/ws',
         contextId: 'fp-9',
         source: 'prompt-expansion',
         succeeded: true,
         isError: false,
         invokedAt: 4242,
+        metrics: null,
+        taskId: null,
       });
+    });
+  });
+
+  /**
+   * CORRECTION C10 — the whole reason this describe block exists.
+   *
+   * `RecordSkillEventInput` has declared `workspaceRoot: string` since the type
+   * shipped, and `recordSkillEvent` built the store payload without it, so the
+   * value was discarded on every single call. Nothing failed: the store did not
+   * ask for the field and the column did not exist until `0037`. Silent data
+   * loss that reads as working code.
+   *
+   * These assertions are written so they FAIL against the pre-fix recorder: an
+   * exact-shape equality above (an omitted key is not equal to a named one),
+   * a direct read of the forwarded field, and a DISTINCT value per call so a
+   * hard-coded constant would not satisfy them either.
+   */
+  describe('workspaceRoot forwarding (correction C10)', () => {
+    it('forwards workspaceRoot to the store instead of dropping it', () => {
+      const logger = makeLogger();
+      const { store, record } = makeStore();
+      const recorder = new SkillInvocationRecorder(logger, store);
+
+      recorder.recordSkillEvent(
+        input({ workspaceRoot: 'D:/projects/ptah-extension' }),
+      );
+
+      expect(record).toHaveBeenCalledTimes(1);
+      const payload = record.mock.calls[0][0] as Record<string, unknown>;
+      expect(payload['workspaceRoot']).toBe('D:/projects/ptah-extension');
+      // `in` rather than a truthiness check: an ABSENT key and a key holding
+      // `undefined` are the same to `?.`/`??`, and only one of them is the bug.
+      expect('workspaceRoot' in payload).toBe(true);
+    });
+
+    it('carries a DIFFERENT workspaceRoot per call, so no constant satisfies it', () => {
+      const logger = makeLogger();
+      const { store, record } = makeStore();
+      const recorder = new SkillInvocationRecorder(logger, store);
+
+      recorder.recordSkillEvent(
+        input({ workspaceRoot: '/ws/alpha', sessionId: 'a', invokedAt: 1000 }),
+      );
+      recorder.recordSkillEvent(
+        input({ workspaceRoot: '/ws/beta', sessionId: 'b', invokedAt: 1000 }),
+      );
+
+      const roots = record.mock.calls.map(
+        (c) => (c[0] as { workspaceRoot?: string }).workspaceRoot,
+      );
+      expect(roots).toEqual(['/ws/alpha', '/ws/beta']);
+    });
+
+    it('passes the empty string through rather than turning it into a NULL', () => {
+      // `''` is 0034's "deliberately cross-project" value, NOT "unknown". A
+      // `input.workspaceRoot || null` forwarding would erase that distinction
+      // here, one layer above the column that has to preserve it.
+      const logger = makeLogger();
+      const { store, record } = makeStore();
+      const recorder = new SkillInvocationRecorder(logger, store);
+
+      recorder.recordSkillEvent(input({ workspaceRoot: '' }));
+
+      const payload = record.mock.calls[0][0] as Record<string, unknown>;
+      expect(payload['workspaceRoot']).toBe('');
+      expect(payload['workspaceRoot']).not.toBeNull();
     });
   });
 

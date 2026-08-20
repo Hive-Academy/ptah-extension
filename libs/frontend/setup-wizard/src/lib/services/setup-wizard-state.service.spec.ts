@@ -643,7 +643,7 @@ describe('SetupWizardStateService', () => {
   describe('Enhance Step Integration (TASK_2025_149)', () => {
     it('should include enhance in step order and return correct stepIndex', () => {
       service.setCurrentStep('enhance');
-      // 'enhance' is at index 5 in: premium-check(0), welcome(1), scan(2), analysis(3), selection(4), enhance(5), generation(6), completion(7)
+      // 'enhance' is at index 5 in: welcome(0), scan(1), analysis(2), selection(3), generation(4), enhance(5), completion(6)
       expect(service.stepIndex()).toBe(5);
     });
 

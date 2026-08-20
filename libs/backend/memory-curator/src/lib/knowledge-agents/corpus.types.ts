@@ -5,38 +5,19 @@
  * a persisted `mem:searchIndex` filter. Corpora power priming sessions where
  * the corpus contents are pre-loaded into the system prompt for fast Q&A.
  */
-import type { MemoryType } from '../memory.types';
+import type { CorpusRef } from '@ptah-extension/memory-contracts';
 
 /**
- * Filter blob persisted on the corpus row and replayed by `rebuildCorpus`.
- * Field shapes mirror `MemSearchIndexFilter` for round-trip parity.
+ * The corpus DTOs are the single source of truth in `@ptah-extension/memory-contracts`
+ * (the zero-dep port lib both `memory-curator` and `vscode-lm-tools` import).
+ * Re-exported here so every existing intra-lib import (`./corpus.types`) and the
+ * public barrel keep resolving unchanged.
  */
-export interface BuildCorpusParams {
-  readonly name: string;
-  readonly workspaceRoot?: string | null;
-  readonly type?: readonly MemoryType[];
-  readonly concepts?: readonly string[];
-  readonly files?: readonly string[];
-  readonly query?: string;
-  readonly dateRange?: { readonly fromMs?: number; readonly toMs?: number };
-  readonly limit?: number;
-}
-
-/**
- * Lightweight handle returned by `buildCorpus`, `list`, etc. Used as the
- * compact UI/RPC representation.
- */
-export interface CorpusRef {
-  readonly id: string;
-  readonly name: string;
-  readonly count: number;
-  readonly builtAt: number;
-  readonly rebuiltAt: number | null;
-  readonly workspaceRoot: string | null;
-}
-
-/** Alias exposed for the upcoming Batch C2 RPC contract. */
-export type CorpusListEntry = CorpusRef;
+export type {
+  BuildCorpusParams,
+  CorpusRef,
+  CorpusListEntry,
+} from '@ptah-extension/memory-contracts';
 
 /**
  * Internal snapshot of a corpus row — includes the persisted filter blob and

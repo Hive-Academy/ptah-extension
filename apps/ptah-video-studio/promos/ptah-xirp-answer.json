@@ -1,0 +1,89 @@
+{
+  "title": "Ptah — the orchestra layer (answer to Spotify's Xirp)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "elevenlabs",
+  "voice": "rhCLC0x0OIX0cXmIBUFG",
+  "stability": 0.6,
+  "similarity": 0.75,
+  "style": 0,
+  "speed": 0.88,
+  "music": "mixkit-digital-clouds.mp3",
+  "musicVolume": 0.22,
+  "bare": true,
+  "subtitles": true,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "answer-sprawl",
+      "transition": "cut",
+      "holdMs": 9000,
+      "vo": "It starts with one session. Then three. Then a dozen, spread across Claude, Codex, Gemini and Copilot. And not one of them knows what the others just did.",
+      "captions": ["One session becomes a dozen."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-silo",
+      "transition": "cut",
+      "holdMs": 7500,
+      "vo": "The rules you wrote. The skills you tuned. The servers you wired up. All of it lives in your setup, and nowhere else on your team.",
+      "captions": ["Your context. Nobody else's."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-ask",
+      "transition": "cut",
+      "holdMs": 6500,
+      "vo": "So every new session starts the same way it always has. From zero.",
+      "captions": ["Every session starts from zero."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-ident",
+      "transition": "cut",
+      "holdMs": 3200,
+      "captions": []
+    },
+    {
+      "kind": "capture",
+      "capture": "chat-code-edit",
+      "transition": "cut",
+      "startFromMs": 8000,
+      "holdMs": 9000,
+      "vo": "Ptah runs the whole orchestra in one place. Every agent, every session, working the same codebase in parallel, without stepping on each other.",
+      "captions": ["Every agent. One place."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-vendors",
+      "transition": "cut",
+      "holdMs": 12000,
+      "vo": "Claude. Gemini. Codex. Copilot. Ptah drives each vendor's own official agent SDK, signed in under your account, on your existing subscription. Nothing is scraped, no keys are shared, and there is nothing here to get you banned. Your context just travels with you when you switch.",
+      "captions": ["Ptah drives their official agent SDKs."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-statement",
+      "transition": "cut",
+      "holdMs": 7500,
+      "vo": "So the next session, and the next person, start with everything the last one earned.",
+      "captions": ["Every session starts with what the last one learned."]
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-wipe",
+      "transition": "cut",
+      "holdMs": 1900,
+      "captions": []
+    },
+    {
+      "kind": "scene",
+      "scene": "answer-endcard",
+      "transition": "cut",
+      "holdMs": 7000,
+      "vo": "Ptah. The orchestra layer between AI agents and your codebase. Free to start.",
+      "captions": ["ptah.live"]
+    }
+  ]
+}

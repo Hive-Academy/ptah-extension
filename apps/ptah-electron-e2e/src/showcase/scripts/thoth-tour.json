@@ -1,0 +1,13 @@
+{
+  "scene": "thoth-tour",
+  "lines": [
+    "You have seen Ptah inside VS Code. That was just the tip. The desktop app is the whole iceberg.",
+    "This is Ptah Desktop — the full cockpit for your AI coding orchestra. Four tabs, all powered by a local brain. Let us take the tour.",
+    "Four tabs, four superpowers the extension could never have.",
+    "First, Memory. Your context survives every restart — a persistent brain that remembers what matters.",
+    "Next, Skills. Solve a problem once, and your agents keep that ability forever — ready to call on again.",
+    "Then Schedules. The work gets done while you sleep — cron-driven agents that wake up on their own.",
+    "And finally, the Gateway. Leave your desk behind — and drive Ptah from Telegram, Discord, or Slack.",
+    "Memory, skills, schedules, and the gateway — one app, one full brain. That is the rest of the iceberg."
+  ]
+}

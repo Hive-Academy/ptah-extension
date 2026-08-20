@@ -45,17 +45,30 @@ Languages: ${workspaceContext.languages.join(', ') || '(none detected)'}`;
 
     const toolsBlock = `## Tools
 Use the ptah.harness MCP tools to ground your recommendations:
-- searchSkills(query?) — find existing skills relevant to the user's needs across local plugin skills (incl. harness-authored) and the skills.sh marketplace; results are tagged source: 'local' | 'skills.sh'. A skills.sh skill can be installed by running \`npx skills add <owner/repo> --skill <id> -y\` via Bash — it lands in ~/.claude/skills and is then natively discovered.
+- searchSkills(query?) — find existing skills relevant to the user's needs across local plugin skills (incl. harness-authored) and the skills.sh marketplace; results are tagged source: 'local' | 'skills.sh'. Do NOT shell out to install a skills.sh skill — record it on the config instead (see What Apply Writes) and Apply installs it for you.
 - searchMcpRegistry(query, limit?) — search the official MCP Registry plus Smithery (when a Smithery key is configured) for relevant servers; results are tagged source: 'official' | 'smithery'.
 - listInstalledMcpServers() — check what MCP servers are already installed in the workspace.
 - createSkill(name, description, content, allowedTools?) — author custom skills.
 - proposeConfig(configUpdates, isConfigComplete?) — push partial HarnessConfig updates to the configuration surface. Call proposeConfig whenever configuration decisions firm up (persona, agents, skills, system prompt, MCP servers); configUpdates is a partial HarnessConfig — only include fields you are changing. Call it again with isConfigComplete=true once the configuration is ready to apply.`;
 
     const applyExpectations = `## What Apply Writes
-When the user clicks Apply, Ptah materializes the configuration to the workspace:
+When the user clicks Apply, Ptah materializes the configuration:
 - \`.claude/CLAUDE.md\` — the project system prompt / guidance.
 - \`.claude/agents/*.md\` — one file per designed subagent.
-- \`.claude/skills/\` — junctions for every selected or created skill.
+- \`~/.ptah/plugins/ptah-harness-*/skills/*/SKILL.md\` — one per entry in skills.createdSkills, written at apply time if you did not already author it with createSkill.
+- \`.claude/skills/\` — junctions for skills that exist on disk under an enabled plugin or a ptah-harness-* plugin, PLUS every skills.sh skill installed from \`skills.selectedSkillRefs\`.
+- \`.mcp.json\` and \`.vscode/mcp.json\` — every enabled mcp.servers entry you recorded WITH a transport config.
+- \`~/.ptah/harnesses/<name>.json\` — the reusable preset.
+
+A skills.sh skill is only installed if you record its origin alongside the id. Put the id in \`skills.selectedSkills\` and the origin in \`skills.selectedSkillRefs\`:
+\`{ skills: { selectedSkills: ['frontend-design'], selectedSkillRefs: [{ skillId: 'frontend-design', source: 'skills.sh', installSource: 'anthropics/skills' }] } }\`
+\`installSource\` is the \`owner/repo\` slug that searchSkills returns on the result — copy it verbatim. Optional: \`scope\` ('project', the default, or 'global').
+Locally discovered skills need no ref — just the id in \`selectedSkills\`. A skills.sh skill recorded without an \`installSource\` is NOT installed, and the user is warned to add it by hand.
+
+An MCP entry is only installed if you give it a \`config\`. Record servers like this:
+\`{ name: 'github', url: '', enabled: true, config: { type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] } }\`
+for a local server, or \`config: { type: 'http', url: 'https://…/mcp' }\` for a remote one. Optional: \`serverKey\` (config key, defaults to name) and \`installTargets\` (defaults to ['claude','vscode']).
+An entry without a \`config\` is still described in CLAUDE.md but is NOT installed, and the user is warned to add it by hand — so only omit the config when you genuinely cannot determine the transport.
 Set the user's expectations accordingly as the design firms up.`;
 
     const planningBlock = `## Project Planning (do this first — the workspace is empty)

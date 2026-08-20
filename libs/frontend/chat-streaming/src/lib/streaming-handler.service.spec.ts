@@ -421,6 +421,8 @@ describe('StreamingHandlerService', () => {
           agentType: 'general-purpose',
           toolCallId: 'toolu_agent_1',
         }),
+        // TASK_2026_154 Wave 2: session id is now tagged for scoped node-map clears.
+        SESSION_ID,
       );
       // Structural events flush immediately so the UI shows the new node.
       expect(batchedUpdate.flushSync).toHaveBeenCalled();
@@ -496,6 +498,35 @@ describe('StreamingHandlerService', () => {
       expect(state.currentTokenUsage).toEqual({ input: 10, output: 20 });
       expect(state.currentMessageId).toBe(MESSAGE_ID);
       expect(state.messageEventIds).toContain(MESSAGE_ID);
+    });
+  });
+
+  describe('queued-content flush gating on message_complete', () => {
+    beforeEach(() => {
+      tabsSignal.set([makeTab({ queuedContent: 'follow up question' })]);
+    });
+
+    it('does NOT flush queued content on an intermediate tool_use message_complete', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      const result = service.processStreamEvent(
+        messageComplete({ stopReason: 'tool_use' }),
+        TAB_ID,
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('flushes queued content on a terminal end_turn message_complete', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      const result = service.processStreamEvent(
+        messageComplete({ stopReason: 'end_turn' }),
+        TAB_ID,
+      );
+
+      expect(result).toEqual({
+        tabId: TAB_ID,
+        queuedContent: 'follow up question',
+      });
     });
   });
 
@@ -866,6 +897,80 @@ describe('StreamingHandlerService', () => {
           }),
         ]),
       );
+    });
+  });
+
+  /**
+   * TASK_2026_295 — the backend can emit `sessionId: ''` before the SDK session
+   * resolves. `SessionId.from('')` THROWS, and the fan-out lookup that used it
+   * ran unconditionally AFTER the event had already been applied to the tab, so
+   * the throw was swallowed by the outer catch and the method returned `null` —
+   * losing the compaction / queued-content dispatch that `ChatStore` reads.
+   */
+  describe('empty sessionId on the event', () => {
+    it('applies a tabId-routed event without logging a swallowed throw', () => {
+      service.processStreamEvent(
+        msgStart({ sessionId: '' as unknown as SessionId }),
+        TAB_ID,
+      );
+
+      expect(currentState().events.has('evt-msg-start')).toBe(true);
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('reports compaction_complete instead of swallowing it', () => {
+      const result = service.processStreamEvent(
+        {
+          id: 'evt-compaction-complete',
+          eventType: 'compaction_complete',
+          timestamp: 9,
+          sessionId: '',
+          preTokens: 100,
+          postTokens: 10,
+          durationMs: 5,
+          source: 'stream',
+        } as unknown as FlatStreamEventUnion,
+        TAB_ID,
+      );
+
+      expect(result?.compactionComplete).toBe(true);
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('never looks a tab up by an unparseable session id', () => {
+      service.processStreamEvent(
+        msgStart({ sessionId: '' as unknown as SessionId }),
+        TAB_ID,
+      );
+
+      expect(tabManager.findTabsBySessionId).not.toHaveBeenCalled();
+    });
+
+    it('does not hijack the active tab with an empty session id', () => {
+      const freshTab = makeTab({
+        claudeSessionId: undefined,
+        status: 'fresh',
+      } as Partial<TabState>);
+      tabsSignal.set([freshTab]);
+
+      const result = service.processStreamEvent(
+        msgStart({ sessionId: '' as unknown as SessionId }),
+      );
+
+      // `attachSession` runs `SessionId.from` internally and would have thrown.
+      expect(tabManager.attachSession).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+    });
+
+    it('handleSessionStats does not throw on an empty session id', () => {
+      expect(() =>
+        service.handleSessionStats({
+          sessionId: '',
+          cost: 1,
+          tokens: { input: 1, output: 1 },
+          duration: 1,
+        }),
+      ).not.toThrow();
     });
   });
 });

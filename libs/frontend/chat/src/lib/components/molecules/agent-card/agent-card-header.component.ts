@@ -35,7 +35,7 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
       <!-- Expand/collapse icon -->
       <lucide-angular
         [img]="agent().expanded ? ChevronDownIcon : ChevronRightIcon"
-        class="w-3 h-3 text-base-content/50 flex-shrink-0"
+        class="w-3 h-3 text-base-content-muted flex-shrink-0"
       />
 
       <!-- CLI badge (display name or CLI type) -->
@@ -61,7 +61,7 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
       <!-- Model badge -->
       @if (agent().model) {
         <span
-          class="badge badge-sm badge-ghost font-mono text-[9px] text-base-content/50 flex-shrink-0"
+          class="badge badge-sm badge-ghost font-mono text-[9px] text-base-content-muted flex-shrink-0"
           [title]="'Model: ' + agent().model"
         >
           {{ agent().model }}
@@ -106,7 +106,7 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 
       <!-- Elapsed time -->
       <span
-        class="text-[10px] text-base-content/40 flex-shrink-0"
+        class="text-[10px] text-base-content-muted flex-shrink-0"
         [class.ml-auto]="agent().status !== 'running' && !agent().cliSessionId"
       >
         {{ elapsedDisplay() }}
@@ -115,7 +115,7 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
       <!-- CLI Session ID badge (resume capability) -->
       @if (agent().cliSessionId) {
         <span
-          class="badge badge-xs badge-ghost font-mono text-[9px] text-base-content/30 ml-1 flex-shrink-0"
+          class="badge badge-xs badge-ghost font-mono text-[9px] text-base-content-muted ml-1 flex-shrink-0"
           [title]="'CLI Session: ' + agent().cliSessionId"
         >
           {{ agent().cliSessionId! | slice: 0 : 8 }}...

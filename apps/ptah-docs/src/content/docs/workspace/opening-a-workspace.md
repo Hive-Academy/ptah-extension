@@ -15,8 +15,6 @@ Use **File → Open Folder…** (or the welcome screen's **Open Folder** button)
 2. Add it to the **Recent Workspaces** list.
 3. Kick off the initial project analysis.
 
-![Open Folder dialog](/screenshots/open-folder-dialog.png)
-
 ## 2. Recent workspaces
 
 The welcome screen and the **File → Open Recent** menu list the last workspaces you used, most recent first. Selecting one re-opens it instantly — Ptah caches the previous analysis and only re-runs scans when files have changed.

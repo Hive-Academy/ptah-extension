@@ -11,5 +11,6 @@
 export const COPILOT_PROXY_TOKEN_PLACEHOLDER = 'copilot-proxy-managed';
 export const CODEX_PROXY_TOKEN_PLACEHOLDER = 'codex-proxy-managed';
 export const OPENROUTER_PROXY_TOKEN_PLACEHOLDER = 'openrouter-proxy-token';
+export const SAKANA_PROXY_TOKEN_PLACEHOLDER = 'sakana-proxy-token';
 export const LOCAL_PROXY_TOKEN_PLACEHOLDER = 'local-proxy-managed';
 export const OLLAMA_AUTH_TOKEN_PLACEHOLDER = 'ollama';

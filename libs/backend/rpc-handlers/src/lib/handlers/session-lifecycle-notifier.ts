@@ -23,15 +23,17 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   MESSAGE_TYPES,
-  SdkCompactionCompletePayloadSchema,
-  SdkSubagentEndedPayloadSchema,
-  SdkTurnEndedPayloadSchema,
-  SdkTurnFailedPayloadSchema,
   type SdkCompactionCompletePayload,
   type SdkSubagentEndedPayload,
   type SdkTurnEndedPayload,
   type SdkTurnFailedPayload,
 } from '@ptah-extension/shared';
+import {
+  SdkCompactionCompletePayloadSchema,
+  SdkSubagentEndedPayloadSchema,
+  SdkTurnEndedPayloadSchema,
+  SdkTurnFailedPayloadSchema,
+} from '@ptah-extension/shared/schemas';
 
 /**
  * Minimal interface for the webview broadcaster used by the notifier. Matches

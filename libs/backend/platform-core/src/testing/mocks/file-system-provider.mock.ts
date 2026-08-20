@@ -54,6 +54,12 @@ function enoent(path: string): Error {
   return err;
 }
 
+function eexist(path: string): Error {
+  const err = new Error(`EEXIST: file already exists, mkdir '${path}'`);
+  (err as Error & { code?: string }).code = 'EEXIST';
+  return err;
+}
+
 function createEmptyWatcher(): IFileWatcher {
   const [onDidChange] = createEvent<string>();
   const [onDidCreate] = createEvent<string>();
@@ -179,6 +185,20 @@ export function createMockFileSystemProvider(
       directories.add(normalized);
       registerDirChain(`${normalized}/.`);
     }),
+    createDirectoryExclusive: jest.fn(async (path: string): Promise<void> => {
+      const normalized = path.replace(/\\/g, '/').replace(/\/$/, '');
+      // Single-step check-and-claim, mirroring a non-recursive mkdir. The Map
+      // and Set lookups happen synchronously with no interleaving await, so the
+      // mock has the same all-or-nothing semantics as the real adapters.
+      if (
+        directories.has(normalized) ||
+        files.has(path) ||
+        files.has(normalized)
+      ) {
+        throw eexist(path);
+      }
+      directories.add(normalized);
+    }),
     copy: jest.fn(
       async (
         source: string,
@@ -212,9 +232,14 @@ export function createMockFileSystemProvider(
         return results;
       },
     ),
-    createFileWatcher: jest.fn((_pattern: string): IFileWatcher => {
-      return createEmptyWatcher();
-    }),
+    createFileWatcher: jest.fn(
+      (
+        _pattern: string,
+        _options?: { exclude?: string[]; cwd?: string },
+      ): IFileWatcher => {
+        return createEmptyWatcher();
+      },
+    ),
     __state: { files, directories },
   } as MockFileSystemProvider;
 

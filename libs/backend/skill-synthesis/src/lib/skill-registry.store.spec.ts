@@ -218,6 +218,39 @@ maybe('SkillRegistryStore', () => {
     }
   });
 
+  it('listAuthoredSlugs returns only authored skills', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      store.upsert(
+        entry({ kind: 'skill', slug: 'orchestrate', cloneStatus: 'authored' }),
+      );
+      store.upsert(
+        entry({ kind: 'skill', slug: 'review', cloneStatus: 'authored' }),
+      );
+      store.upsert(
+        entry({ kind: 'skill', slug: 'cloned', cloneStatus: 'clone' }),
+      );
+      store.upsert(
+        entry({ kind: 'skill', slug: 'synthed', cloneStatus: 'synth' }),
+      );
+      store.upsert(
+        entry({ kind: 'agent', slug: 'orchestrate', cloneStatus: 'authored' }),
+      );
+
+      const authored = store.listAuthoredSlugs();
+      expect(authored.has('orchestrate')).toBe(true);
+      expect(authored.has('review')).toBe(true);
+      expect(authored.has('cloned')).toBe(false);
+      expect(authored.has('synthed')).toBe(false);
+      // The authored AGENT named 'orchestrate' is the same slug, so the set
+      // still has 2 distinct skill slugs.
+      expect(authored.size).toBe(2);
+    } finally {
+      db.close();
+    }
+  });
+
   it('linkCandidate sets candidate_id and clone_status synth', () => {
     const db = createInMemoryDb();
     try {

@@ -35,7 +35,7 @@ import { homedir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 
 import {
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   SDK_TOKENS,
   type ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
@@ -854,7 +854,8 @@ async function runUse(
  *
  * Pass `default` (or an empty string / `null`) to clear the override and
  * fall back to direct Anthropic. Any other value is validated against the
- * `ANTHROPIC_PROVIDERS` registry; unknown ids are rejected with a
+ * merged provider registry (built-ins plus user-defined entries, via
+ * `getAllAnthropicProviders()`); unknown ids are rejected with a
  * `did-you-mean?` suggestion via Levenshtein distance.
  *
  * Writes only `anthropicProviderId` â€” `authMethod` and `defaultProvider`
@@ -878,7 +879,7 @@ async function runSetAnthropicRoute(
     return ExitCode.UsageError;
   }
 
-  const validIds = ANTHROPIC_PROVIDERS.map((p) => p.id);
+  const validIds = getAllAnthropicProviders().map((p) => p.id);
   const lowered = raw.toLowerCase();
   const isClear =
     lowered === 'default' ||

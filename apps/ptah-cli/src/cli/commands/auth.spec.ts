@@ -25,23 +25,34 @@ import type { ICopilotAuthService } from '@ptah-extension/auth-providers';
 // otherwise prevent the import from resolving in jest). The auth command only
 // reads AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH at runtime.
 //
-// `ANTHROPIC_PROVIDERS` is consumed transitively by `auth-rpc.schema.ts`
-// (`ANTHROPIC_PROVIDERS.map(p => p.id)` at module load â†’ Zod enum). The
-// fixture lives in `test-utils/agent-sdk-mock.ts` so it stays in sync with
-// `settings.spec.ts` and is type-anchored against the real registry shape.
+// The provider-registry accessors are consumed by `auth.ts` itself
+// (`getAllAnthropicProviders()` for the did-you-mean list) and transitively by
+// `auth-rpc.schema.ts` (`getAnthropicProvider()` in the provider-id
+// refinement). The fixture lives in `test-utils/agent-sdk-mock.ts` so it stays
+// in sync with `settings.spec.ts` and is type-anchored against the real
+// registry shape.
 // `require()` is used inside the factory because jest hoists `jest.mock`
 // above module-scope `import` statements.
 jest.mock(
   '@ptah-extension/agent-sdk',
   () => {
     const {
-      mockAnthropicProviders,
+      mockProviderRegistryAccessors,
+      mockAllTierEnvKeys,
     } = require('../../test-utils/agent-sdk-mock');
     return {
       SDK_TOKENS: {
         SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
       },
-      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      ...mockProviderRegistryAccessors(),
+      // `auth.ts` statically imports `spawnCli` from
+      // `@ptah-extension/cli-agent-runtime`, whose `ptah-cli-registry.ts`
+      // pulls in the real `auth-providers` barrel -> `di/register.ts` ->
+      // `provider-auth-resolver.ts`, which SPREADS this constant at module
+      // scope. Omitting it throws "ALL_TIER_ENV_KEYS is not iterable" before
+      // any test runs, surfacing as "Test suite failed to run" with a stack
+      // in library code this spec has nothing to do with.
+      ALL_TIER_ENV_KEYS: mockAllTierEnvKeys(),
       // Stub: tests inject `spawnCodexLogin` via hooks, so the real
       // `spawnCli` is never reached. We only need a callable export so
       // the value import in `auth.ts` resolves at module load.

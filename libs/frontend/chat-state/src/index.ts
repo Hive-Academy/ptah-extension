@@ -16,6 +16,7 @@ export {
   TabWorkspacePartitionService,
   type WorkspaceTabSet,
   type TabLookupResult,
+  type WorkspaceRemovalEvent,
 } from './lib/tab-workspace-partition.service';
 export {
   ConfirmationDialogService,

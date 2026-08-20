@@ -13,7 +13,10 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  SentryService,
+  WebviewManager,
+} from '@ptah-extension/vscode-core';
 import type {
   IPlatformCommands,
   IPlatformAuthProvider,
@@ -21,7 +24,7 @@ import type {
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
-  ANTHROPIC_PROVIDERS,
+  getAllAnthropicProviders,
   DEFAULT_PROVIDER_ID,
   getAnthropicProvider,
   TIER_ENV_VAR_MAP,
@@ -29,18 +32,58 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   ProviderModelsService,
+  ActiveProviderResolver,
   AUTH_PROVIDERS_TOKENS,
 } from '@ptah-extension/auth-providers';
 import type {
   CopilotAuthService,
+  CopilotDeviceLoginInfo,
   ICodexAuthService,
 } from '@ptah-extension/auth-providers';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { AuthDeviceCodePayload } from '@ptah-extension/shared';
+import { asAuthCommandRunner } from './auth-command-runner';
+import {
+  SETTINGS_TOKENS,
+  WorkspaceScopeResolver,
+} from '@ptah-extension/settings-core';
+import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
 import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
-import { AuthSettingsSchema, parseAuthMethod } from './auth-rpc.schema';
+import type {
+  AuthGetScopeResult,
+  AuthClearWorkspaceOverrideResult,
+} from '@ptah-extension/shared';
+import { AuthSettingsSchema } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+/** Provider registry ids used to tag interactive-login push events. */
+const COPILOT_PROVIDER_ID = 'github-copilot';
+const CODEX_PROVIDER_ID = 'openai-codex';
+
+function resolveScopeFromKey(
+  effectiveKey: string,
+  globalKey: string,
+): { scope: 'global' | 'app' | 'workspace'; runtime?: string } {
+  if (effectiveKey === globalKey) {
+    return { scope: 'global' };
+  }
+  const appMatch = /^app\.([^.]+)\.(.*)$/.exec(effectiveKey);
+  if (appMatch) {
+    const runtime = appMatch[1];
+    const rest = appMatch[2];
+    if (rest.startsWith('workspace.')) {
+      return { scope: 'workspace', runtime };
+    }
+    return { scope: 'app', runtime };
+  }
+  if (effectiveKey.startsWith('workspace.')) {
+    return { scope: 'workspace' };
+  }
+  return { scope: 'global' };
+}
 
 /**
  * RPC handlers for authentication operations
@@ -59,6 +102,8 @@ export class AuthRpcHandlers {
     'auth:copilotStatus',
     'auth:codexLogin',
     'auth:getApiKeyStatus',
+    'auth:getScope',
+    'auth:clearWorkspaceOverride',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -72,6 +117,8 @@ export class AuthRpcHandlers {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private readonly activeProviderResolver: ActiveProviderResolver,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: CopilotAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
@@ -84,6 +131,16 @@ export class AuthRpcHandlers {
     private readonly cliDetector: ClaudeCliDetector,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
+    private readonly scopeResolver: WorkspaceScopeResolver,
+    /**
+     * Optional: absent in unit harnesses and in any host that has not wired a
+     * webview manager. Used only to broadcast interactive-login progress
+     * (`auth:deviceCode`, `auth:loginOutput`) — never load-bearing for the RPC
+     * result itself.
+     */
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager?: WebviewManager,
   ) {}
 
   /**
@@ -101,6 +158,8 @@ export class AuthRpcHandlers {
     this.registerCopilotStatus();
     this.registerCodexLogin();
     this.registerGetApiKeyStatus();
+    this.registerGetScope();
+    this.registerClearWorkspaceOverride();
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -115,6 +174,8 @@ export class AuthRpcHandlers {
         'auth:copilotStatus',
         'auth:codexLogin',
         'auth:getApiKeyStatus',
+        'auth:getScope',
+        'auth:clearWorkspaceOverride',
       ],
     });
   }
@@ -158,25 +219,28 @@ export class AuthRpcHandlers {
         this.logger.debug('RPC: auth:getAuthStatus called');
         const safeParams: AuthGetAuthStatusParams = params ?? {};
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
-        const rawMethod = this.configManager.get<string>('authMethod');
-        const authMethod = parseAuthMethod(rawMethod);
-        const anthropicProviderId = this.configManager.getWithDefault<string>(
-          'anthropicProviderId',
-          DEFAULT_PROVIDER_ID,
-        );
+        const active = this.activeProviderResolver.resolveActiveAuth();
+        const authMethod = active.authMethod;
+        const anthropicProviderId = active.providerId;
         const checkProviderId = safeParams.providerId || anthropicProviderId;
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);
         let hasAnyProviderKey = hasOpenRouterKey;
+        // Merged list — built-ins plus user-defined entries. A custom provider
+        // holding the only configured key must still flip this flag.
+        const allProviders = getAllAnthropicProviders();
         if (!hasAnyProviderKey) {
-          for (const p of ANTHROPIC_PROVIDERS) {
+          for (const p of allProviders) {
             if (await this.authSecretsService.hasProviderKey(p.id)) {
               hasAnyProviderKey = true;
               break;
             }
           }
         }
-        const availableProviders = ANTHROPIC_PROVIDERS.map((p) => ({
+        // The read model behind BOTH the webview tile grid and the TUI tile
+        // list. Sourcing it from the static array is what made user-defined
+        // entries invisible everywhere at once.
+        const availableProviders = allProviders.map((p) => ({
           id: p.id,
           name: p.name,
           description: p.description,
@@ -192,6 +256,10 @@ export class AuthRpcHandlers {
             'supportsOptionalApiKey' in p
               ? p.supportsOptionalApiKey
               : undefined,
+          // Ambient-credential providers (claude-cli). Without this the tile
+          // is indistinguishable from a local server in this payload, which is
+          // how the TUI came to render it with a fabricated localhost endpoint.
+          nativeAuth: 'nativeAuth' in p ? p.nativeAuth : undefined,
         }));
         let copilotAuthenticated = false;
         let copilotUsername: string | undefined;
@@ -303,7 +371,15 @@ export class AuthRpcHandlers {
           params: sanitizedParams,
         });
         const validated = AuthSettingsSchema.parse(params);
-        await this.configManager.set('authMethod', validated.authMethod);
+        const applyTo: 'global' | 'app' | 'workspace' =
+          validated.applyTo ?? 'global';
+        await this.scopeResolver.write(
+          'authMethod',
+          validated.authMethod,
+          applyTo,
+          true,
+        );
+        await this.scopeResolver.clearMoreSpecific('authMethod', applyTo, true);
         if (validated.anthropicApiKey !== undefined) {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(
@@ -317,10 +393,8 @@ export class AuthRpcHandlers {
         if (validated.providerApiKey !== undefined) {
           const targetProviderId =
             validated.anthropicProviderId ??
-            this.configManager.getWithDefault<string>(
-              'anthropicProviderId',
-              DEFAULT_PROVIDER_ID,
-            );
+            this.scopeResolver.read<string>('anthropicProviderId', true) ??
+            DEFAULT_PROVIDER_ID;
 
           if (validated.providerApiKey.trim()) {
             await this.authSecretsService.setProviderKey(
@@ -333,9 +407,16 @@ export class AuthRpcHandlers {
           this.providerModels.clearCache(targetProviderId);
         }
         if (validated.anthropicProviderId !== undefined) {
-          await this.configManager.set(
+          await this.scopeResolver.write(
             'anthropicProviderId',
             validated.anthropicProviderId,
+            applyTo,
+            true,
+          );
+          await this.scopeResolver.clearMoreSpecific(
+            'anthropicProviderId',
+            applyTo,
+            true,
           );
           await this.autoMapProviderTiers(validated.anthropicProviderId);
         }
@@ -440,7 +521,13 @@ export class AuthRpcHandlers {
       try {
         this.logger.debug('RPC: auth:copilotLogin called');
 
-        const loginSuccess = await this.copilotAuth.login();
+        // The device-code flow blocks inside `login()` for up to five minutes.
+        // Broadcasting the code the moment it exists is the only way a surface
+        // without a message dialog (the TUI) can show the user what to do —
+        // `showInformationMessage` still fires for VS Code / Electron.
+        const loginSuccess = await this.copilotAuth.login({
+          onDeviceCode: (info) => this.broadcastDeviceCode(info),
+        });
 
         if (!loginSuccess) {
           return {
@@ -473,9 +560,12 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * auth:copilotLogout - Disconnect GitHub Copilot OAuth
+   * auth:copilotLogout - Disconnect GitHub Copilot in Ptah.
    *
-   * Clears the in-memory Copilot auth state.
+   * Clears the in-memory Copilot auth state AND persists a Ptah-side logout
+   * tombstone so the next `configure()` does not silently re-authenticate from
+   * the shared `~/.config/github-copilot/hosts.json`. That file is left alone
+   * on purpose — it belongs to the user's editor Copilot integrations too.
    */
   private registerCopilotLogout(): void {
     this.rpcHandler.registerMethod<Record<string, never>, { success: boolean }>(
@@ -483,7 +573,11 @@ export class AuthRpcHandlers {
       async () => {
         try {
           this.logger.debug('RPC: auth:copilotLogout called');
-          this.copilotAuth.logout();
+          // MUST be awaited: logout() persists a logout tombstone to the
+          // settings store (TASK_2026_172 Issue 2). Fire-and-forget would
+          // report success before the write landed and could lose it entirely
+          // if the host exited right after.
+          await this.copilotAuth.logout();
           this.logger.info('RPC: auth:copilotLogout succeeded');
           return { success: true };
         } catch (error) {
@@ -657,7 +751,7 @@ export class AuthRpcHandlers {
           DEFAULT_PROVIDER_ID,
         );
         const providers = await Promise.all(
-          ANTHROPIC_PROVIDERS.map(async (p) => ({
+          getAllAnthropicProviders().map(async (p) => ({
             provider: p.id,
             displayName: p.name,
             hasApiKey: await this.authSecretsService.hasProviderKey(p.id),
@@ -680,24 +774,179 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * auth:codexLogin - Open a terminal for the user to run `codex login`
+   * auth:codexLogin - Start the external `codex login --device-auth` flow.
    *
-   * Codex authentication is managed externally via the CLI.
-   * This handler opens a VS Code terminal with `codex login` pre-typed,
-   * making it one-click from the auth settings UI.
+   * Two paths, selected by platform capability (see `auth-command-runner.ts`):
+   *
+   * 1. The platform can run the command itself (`IAuthCommandRunner`, i.e. the
+   *    CLI/TUI runtime). The command is spawned, its output is streamed to the
+   *    UI as `auth:loginOutput` / `auth:deviceCode` push events, and `success`
+   *    reflects the real exit code.
+   * 2. The platform has a terminal (VS Code). Unchanged historical behaviour:
+   *    hand the command to `openTerminal` and report success — the user drives
+   *    it from there and the outcome is not observable here.
    */
   private registerCodexLogin(): void {
-    this.rpcHandler.registerMethod<void, { success: boolean }>(
+    this.rpcHandler.registerMethod<void, { success: boolean; error?: string }>(
       'auth:codexLogin',
       async () => {
-        this.logger.info('RPC: auth:codexLogin - opening terminal');
-        this.platformCommands.openTerminal(
-          'Codex Login',
-          'codex login --device-auth',
-        );
-        return { success: true };
+        const command = 'codex login --device-auth';
+        const runner = asAuthCommandRunner(this.platformCommands);
+
+        if (!runner) {
+          this.logger.info('RPC: auth:codexLogin - opening terminal');
+          this.platformCommands.openTerminal('Codex Login', command);
+          return { success: true };
+        }
+
+        this.logger.info('RPC: auth:codexLogin - running command in-process');
+        try {
+          const result = await runner.runAuthCommand({
+            provider: CODEX_PROVIDER_ID,
+            name: 'Codex Login',
+            command,
+          });
+          if (!result.success) {
+            this.logger.warn(
+              `RPC: auth:codexLogin failed (exit ${String(result.exitCode)})`,
+            );
+            return {
+              success: false,
+              error: result.error ?? 'codex login did not complete.',
+            };
+          }
+          this.codexAuth.clearCache();
+          await this.sdkAdapter.reset();
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:codexLogin failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerCodexLogin' },
+          );
+          return { success: false, error: 'Failed to start Codex login.' };
+        }
       },
     );
+  }
+
+  /**
+   * Broadcast a provider device code to every attached surface. Best-effort:
+   * a missing webview manager or a rejected send must never fail the login.
+   */
+  private broadcastDeviceCode(info: CopilotDeviceLoginInfo): void {
+    const payload: AuthDeviceCodePayload = {
+      provider: COPILOT_PROVIDER_ID,
+      userCode: info.userCode,
+      verificationUri: info.verificationUri,
+      expiresInSeconds: info.expiresIn,
+    };
+    void this.webviewManager
+      ?.broadcastMessage(MESSAGE_TYPES.AUTH_DEVICE_CODE, payload)
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Failed to broadcast ${MESSAGE_TYPES.AUTH_DEVICE_CODE}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+  }
+
+  /**
+   * auth:getScope - Report whether the active workspace overrides auth/provider
+   * settings or inherits the global defaults.
+   */
+  private registerGetScope(): void {
+    this.rpcHandler.registerMethod<Record<string, never>, AuthGetScopeResult>(
+      'auth:getScope',
+      async () => {
+        try {
+          const activePath = this.scopeResolver.getActivePath() ?? null;
+          const authMethodKey = this.scopeResolver.effectiveKey(
+            'authMethod',
+            true,
+          );
+          const providerKey = this.scopeResolver.effectiveKey(
+            'anthropicProviderId',
+            true,
+          );
+          const authMethodResolved = resolveScopeFromKey(
+            authMethodKey,
+            'authMethod',
+          );
+          const providerResolved = resolveScopeFromKey(
+            providerKey,
+            'anthropicProviderId',
+          );
+          const runtime =
+            authMethodResolved.runtime ?? providerResolved.runtime;
+          return {
+            authMethodScope: authMethodResolved.scope,
+            providerScope: providerResolved.scope,
+            activePath,
+            ...(runtime !== undefined ? { runtime } : {}),
+          };
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:getScope failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerGetScope' },
+          );
+          throw error;
+        }
+      },
+    );
+  }
+
+  /**
+   * auth:clearWorkspaceOverride - Drop the active workspace's overrides for
+   * authMethod, anthropicProviderId, and the active provider's model + effort
+   * keys, reverting them to the global defaults.
+   */
+  private registerClearWorkspaceOverride(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      AuthClearWorkspaceOverrideResult
+    >('auth:clearWorkspaceOverride', async () => {
+      try {
+        const authMethod =
+          this.scopeResolver.read<string>('authMethod', true) ?? 'apiKey';
+        const providerId =
+          this.scopeResolver.read<string>('anthropicProviderId', true) ?? '';
+        const authKey = resolveAuthProviderKey(authMethod, providerId);
+
+        await this.scopeResolver.clearOverride('authMethod', true);
+        await this.scopeResolver.clearOverride('anthropicProviderId', true);
+        await this.scopeResolver.clearOverride(
+          `provider.${authKey}.selectedModel`,
+          true,
+        );
+        await this.scopeResolver.clearOverride(
+          `provider.${authKey}.reasoningEffort`,
+          true,
+        );
+
+        await this.sdkAdapter.reset();
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:clearWorkspaceOverride failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerClearWorkspaceOverride' },
+        );
+        throw error;
+      }
+    });
   }
 
   /**

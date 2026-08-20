@@ -303,6 +303,75 @@ describe('MemoryStateService — workspace-scope race guard', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// MemoryStateService — stale-response race guard
+//
+// A workspace/scope switch fires a fresh refresh while an earlier one may still
+// be in flight. The slow (previous-workspace) response must never overwrite the
+// list the user is now looking at. Each loader stamps its request and drops a
+// superseded result.
+// ---------------------------------------------------------------------------
+
+describe('MemoryStateService — stale-response race guard', () => {
+  let service: MemoryStateService;
+  let listMock: jest.Mock;
+  const workspaceSignal = signal<{
+    path: string;
+    name: string;
+    type: string;
+  } | null>({ path: 'D:/ws-a', name: 'a', type: 'workspace' });
+
+  beforeEach(() => {
+    listMock = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        MemoryStateService,
+        {
+          provide: MemoryRpcService,
+          useValue: {
+            list: listMock,
+            stats: jest.fn().mockResolvedValue({
+              core: 0,
+              recall: 0,
+              archival: 0,
+              codeIndex: 0,
+              lastCuratedAt: null,
+            }),
+          },
+        },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceSignal },
+        },
+      ],
+    });
+    service = TestBed.inject(MemoryStateService);
+  });
+
+  it('drops a slow refresh once a newer refresh has already resolved', async () => {
+    let resolveFirst: (v: unknown) => void = () => undefined;
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFirst = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce({
+      memories: [{ id: 'fresh', tier: 'core' }],
+    });
+
+    const slow = service.refresh(); // seq 1 — pending (previous workspace)
+    await service.refresh(); // seq 2 — resolves with the new workspace's list
+    expect(service.entries().map((m) => m.id)).toEqual(['fresh']);
+
+    // The stale seq-1 response lands last and must be ignored.
+    resolveFirst({ memories: [{ id: 'stale', tier: 'core' }] });
+    await slow;
+    expect(service.entries().map((m) => m.id)).toEqual(['fresh']);
+    expect(service.loading()).toBe(false);
+  });
+});
+
 describe('MemoryStateService — loadSymbols', () => {
   let service: MemoryStateService;
   let searchSymbolsMock: jest.Mock;

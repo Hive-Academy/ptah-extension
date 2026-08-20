@@ -9,6 +9,7 @@
  */
 
 import * as path from 'path';
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import { FileSystemManager } from '@ptah-extension/vscode-core';
 import { FileType } from '@ptah-extension/platform-core';
 import type {
@@ -30,7 +31,7 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 14 Namespaces:
+  overview: `Ptah IDE Access - 21 Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
@@ -39,6 +40,7 @@ GIT: ptah.git.* (worktree operations)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
+MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 
 Use ptah.help('namespace') for details on any namespace.`,
 
@@ -229,11 +231,12 @@ Call this after writing any JSON file to ensure clean, parseable output.`,
 
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 
-Spawn Codex CLI or Copilot CLI as background workers for parallel task execution.
+Spawn CLI agents as background workers for parallel task execution. Which agents
+exist is per-machine — call list() first rather than assuming a vendor.
 
 LIFECYCLE:
 - spawn(request) - Launch a CLI agent with a task
-  request: { task: string, cli?: 'codex'|'copilot', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  request: { task: string, cli?: ${SYSTEM_CLI_TYPES.map((cli) => `'${cli}'`).join('|')}, workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
   returns: { agentId, cli, status, startedAt }
 
 - status(agentId?) - Get agent status (omit agentId for all agents)
@@ -257,12 +260,47 @@ WAITING:
   Default pollInterval: 2000ms
 
 EXAMPLE:
-  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'codex' });
+  const [agent] = (await ptah.agent.list()).filter((a) => a.installed);
+  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: agent.cli });
   const status = await ptah.agent.status(result.agentId);
   if (status.status === 'completed') {
     const output = await ptah.agent.read(result.agentId);
     return output.stdout;
   }`,
+
+  corpus: `ptah.corpus - Knowledge Corpora (workspace memory boards)
+
+A "corpus" is a named, workspace-scoped snapshot of related memories, built from a
+filter over the memory index. Use it to assemble a focused knowledge board the user can
+then chat against.
+
+- build(name, filter?) - Create a corpus from a memory filter. Returns { corpus } or { error }.
+    filter (all optional; omit fields you don't need):
+      type:     ('bugfix'|'feature'|'decision'|'discovery'|'refactor'|'change')[]
+      concepts: string[]  - topic tags, e.g. ['auth','jwt','session']
+      files:    string[]  - path substrings to scope by, e.g. ['libs/backend/auth']
+      query:    string    - free-text semantic query, e.g. 'authentication flow'
+      dateRange:{ fromMs?, toMs? } - epoch-ms bounds
+      limit:    number    - max memories (default 100)
+    Do NOT pass workspaceRoot - it is injected automatically.
+- list()          - List corpora in the current workspace. Returns { corpora }.
+- rebuild(name)   - Re-run the corpus's saved filter to pick up new memories.
+                    Returns { added, removed }.
+- prime(name)     - Open a chat session pre-loaded with the corpus so the user can ask
+                    questions about it. Returns { sessionId }.
+
+WHEN TO USE:
+- User asks to "make/build a board/corpus about X" -> build('X', { concepts:[...], query:'X' }).
+  Translate a vague ask into concepts + a query; add files[] if they name a folder/module,
+  type[] if they mention bugs/features/decisions.
+- User asks "what corpora do I have?" -> list().
+- User says a corpus is stale / "refresh it" -> rebuild(name).
+- User wants to "explore/ask questions about" an existing corpus -> prime(name), then tell
+  them a corpus chat is ready.
+- Before build(), consider list() to avoid a name clash (build fails if the name exists).
+
+Every method returns { error } instead of throwing when the service is unavailable or args
+are invalid - always check for .error before using the result.`,
 };
 
 /**

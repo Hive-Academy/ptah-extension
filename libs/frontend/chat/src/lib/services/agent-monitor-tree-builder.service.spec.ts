@@ -155,6 +155,52 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(b).not.toBe(a);
       expect(b[0].content).toBe(a[0].content);
     });
+
+    it('incremental build equals a from-scratch build at every prefix', () => {
+      // A multi-turn run with tool calls whose results arrive in a later turn,
+      // plus a final streaming text block. Feeding this prefix-by-prefix to one
+      // agent must match a fresh-agent (whole-array) build at every step —
+      // proving incremental indexing never diverges from a full rebuild.
+      const events: FlatStreamEventUnion[] = [
+        messageStart('m1', 'msg-1', 1000),
+        textDelta('t1', 'msg-1', 0, 'analyzing '),
+        textDelta('t2', 'msg-1', 0, 'repo'),
+        toolStart('ts1', 'msg-1', 'tc-1', 'Glob', 1100),
+        toolStart('ts2', 'msg-1', 'tc-2', 'Grep', 1200),
+        toolResult('tr1', 'tc-1', 'a.ts\nb.ts'),
+        toolResult('tr2', 'tc-2', 'match found'),
+        messageStart('m2', 'msg-2', 2000),
+        toolStart('ts3', 'msg-2', 'tc-3', 'Read', 2100),
+        toolResult('tr3', 'tc-3', 'file contents'),
+        messageStart('m3', 'msg-3', 3000),
+        textDelta('t3', 'msg-3', 0, 'Here is '),
+        textDelta('t4', 'msg-3', 0, 'the verdict'),
+      ];
+
+      for (let k = 1; k <= events.length; k++) {
+        const prefix = events.slice(0, k);
+        const incremental = service.buildTree('stream', prefix);
+        const fromScratch = service.buildTree(`fresh-${k}`, prefix);
+        expect(incremental).toEqual(fromScratch);
+      }
+    });
+
+    it('restarts cleanly when the event array shrinks (agent reset)', () => {
+      const full = [
+        messageStart('e1', 'msg-1'),
+        textDelta('e2', 'msg-1', 0, 'first '),
+        textDelta('e3', 'msg-1', 0, 'run'),
+      ];
+      service.buildTree('agent-1', full);
+      // A shorter array (length below the processed count) signals an agent
+      // reset → state restarts and rebuilds from the new events.
+      const reset = service.buildTree('agent-1', [
+        messageStart('r1', 'msg-9'),
+        textDelta('r2', 'msg-9', 0, 'second run'),
+      ]);
+      expect(reset).toHaveLength(1);
+      expect(reset[0].content).toBe('second run');
+    });
   });
 
   describe('buildTreeFromSegments', () => {

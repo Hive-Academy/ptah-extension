@@ -23,6 +23,8 @@ import { FileTreeNode } from '../models/file-tree.model';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
 import { FileTreeInlineInputComponent } from './file-tree-inline-input.component';
+import { FileTreeMoreRowComponent } from './file-tree-more-row.component';
+import { createFileTreeWindow } from './file-tree-window';
 import type { GitFileStatus } from '@ptah-extension/shared';
 
 /**
@@ -47,6 +49,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
     FileTreeNodeComponent,
     LucideAngularModule,
     FileTreeInlineInputComponent,
+    FileTreeMoreRowComponent,
   ],
   template: `
     @if (isRenaming()) {
@@ -118,13 +121,20 @@ import type { GitFileStatus } from '@ptah-extension/shared';
           (cancelled)="creatingType.set(null)"
         />
       }
-      @for (child of sortedChildren(); track child.path) {
+      @for (child of visibleChildren(); track child.path) {
         <ptah-file-tree-node
           [node]="child"
           [depth]="depth() + 1"
           [activeFilePath]="activeFilePath()"
           (fileClicked)="fileClicked.emit($event)"
           (contextMenuRequested)="contextMenuRequested.emit($event)"
+        />
+      }
+      @if (hiddenChildCount() > 0) {
+        <ptah-file-tree-more-row
+          [hiddenCount]="hiddenChildCount()"
+          [depth]="depth() + 1"
+          (revealMore)="childWindow.showMore()"
         />
       }
     }
@@ -250,7 +260,7 @@ export class FileTreeNodeComponent {
       case '??':
         return 'text-info';
       default:
-        return 'text-base-content/50';
+        return 'text-base-content-muted';
     }
   });
 
@@ -280,6 +290,18 @@ export class FileTreeNodeComponent {
    * Whether this directory contains any files with git changes.
    * Used to show a small dot indicator on directories that have modified children.
    * Only applies to directory nodes.
+   *
+   * The answer is a single `Set.has` against
+   * {@link GitStatusService.changedDirPrefixes}, so it is constant-time with
+   * respect to the number of changed files (B3 AC2) — this used to scan every
+   * key of `fileStatusMap` once per directory node, making a status update
+   * cost O(changed files × directory nodes).
+   *
+   * Note the boundary: the old scan compared `relativeDirPath + '/'` as a
+   * PREFIX of file keys; the set stores directory paths WITHOUT a trailing
+   * slash, so the lookup uses the bare `relativeDirPath`. The normalization
+   * below (workspace-root strip + `\`→`/`) is what makes mixed-separator
+   * inputs line up with the set's normalized entries (B3 AC5).
    */
   readonly hasChangedChildren = computed((): boolean => {
     if (this.node().type !== 'directory') return false;
@@ -296,11 +318,7 @@ export class FileTreeNodeComponent {
       : '';
     if (!relativeDirPath) return false;
 
-    const dirPrefix = relativeDirPath + '/';
-    for (const key of this.gitStatus.fileStatusMap().keys()) {
-      if (key.startsWith(dirPrefix)) return true;
-    }
-    return false;
+    return this.gitStatus.changedDirPrefixes().has(relativeDirPath);
   });
   readonly FolderIcon = Folder;
   private readonly FileIcon = File;
@@ -317,19 +335,49 @@ export class FileTreeNodeComponent {
     );
   }
 
-  protected sortedChildren(): FileTreeNode[] {
+  /**
+   * A `computed`, not a method, and the difference is exactly 3x.
+   *
+   * The window below derives three computeds from this list — its bound, the
+   * visible slice, and the hidden count — and each of them calls it. As a
+   * plain method that is three full O(n log n) sorts, with a `localeCompare`
+   * per comparison, on every children change; memoized it is one. Measured on
+   * a 1,000-child directory: 6,657 comparisons as a method, 2,219 as a
+   * computed, pinned in `file-tree-windowing.spec.ts`.
+   *
+   * What it is NOT is a per-change-detection fix. Reading it as a method
+   * straight from the `@for` did not re-sort on a view refresh either — that
+   * was measured too (five `git:status-update` pushes, zero extra
+   * comparisons), so do not restate this as "it used to re-sort every tick".
+   */
+  protected readonly sortedChildren = computed((): readonly FileTreeNode[] => {
     const children = this.node().children;
     if (!children) return [];
     return [...children].sort((a, b) => {
       if (a.type === b.type) return a.name.localeCompare(b.name);
       return a.type === 'directory' ? -1 : 1;
     });
-  }
+  });
+
+  /**
+   * Bounded view over {@link sortedChildren} — see `file-tree-window.ts` for
+   * why one directory's children are chunked rather than scroll-virtualized.
+   */
+  protected readonly childWindow = createFileTreeWindow(
+    () => this.sortedChildren(),
+    () => this.activeFilePath(),
+  );
+  protected readonly visibleChildren = this.childWindow.visible;
+  protected readonly hiddenChildCount = this.childWindow.hiddenCount;
 
   protected async onNodeClick(): Promise<void> {
     if (this.node().type === 'directory') {
       const wasExpanded = this.expanded();
       this.expanded.update((v) => !v);
+      // Collapsing drops the window back to the first chunk. Re-expanding a
+      // directory someone had walked out to 4,000 rows should not silently
+      // re-mount all 4,000.
+      if (wasExpanded) this.childWindow.reset();
       if (!wasExpanded && this.node().needsLoad) {
         this.isLoadingChildren.set(true);
         await this.editorService.loadDirectoryChildren(this.node().path);

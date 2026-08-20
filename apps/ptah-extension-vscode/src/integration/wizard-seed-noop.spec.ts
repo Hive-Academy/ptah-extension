@@ -294,14 +294,8 @@ describe('VS Code wizard:deep-analyze — memory seeding no-op (T5.2)', () => {
   it('[vscode-noop] seeding is skipped gracefully when memory-curator is not registered', async () => {
     const h = makeHarness();
 
-    // Wire premium-gating services (required for wizard:deep-analyze to proceed)
-    h.container.__register(Symbol.for('LicenseService'), {
-      verifyLicense: jest.fn().mockResolvedValue({
-        valid: true,
-        plan: { isPremium: true },
-        tier: 'pro',
-      }),
-    });
+    // Wire the MCP service (required for wizard:deep-analyze to proceed — the
+    // handler throws early when the code-execution MCP server isn't running).
     h.container.__register(Symbol.for('CodeExecutionMCP'), {
       getPort: () => 9999,
     });

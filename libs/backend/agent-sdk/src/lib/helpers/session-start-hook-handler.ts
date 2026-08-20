@@ -9,6 +9,7 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 import { isSessionStartHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
+import { resolveHookSessionId } from './hook-session-resolver';
 import { SessionStartCallbackRegistry } from './session-start-callback-registry';
 
 @injectable()
@@ -20,7 +21,7 @@ export class SessionStartHookHandler {
   ) {}
 
   createHooks(
-    sessionId: string,
+    sessionId: string | undefined,
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     return {
@@ -39,11 +40,17 @@ export class SessionStartHookHandler {
                 if (this.callbackRegistry.size === 0) {
                   return { continue: true };
                 }
-                const resolvedSessionId =
-                  typeof input.session_id === 'string' &&
-                  input.session_id.length > 0
-                    ? input.session_id
-                    : sessionId;
+                const resolvedSessionId = resolveHookSessionId(
+                  input.session_id,
+                  sessionId,
+                );
+                if (!resolvedSessionId) {
+                  this.logger.warn(
+                    '[SessionStartHookHandler] SessionStart missing sessionId, skipping fan-out',
+                    { source: input.source },
+                  );
+                  return { continue: true };
+                }
                 this.callbackRegistry.notifyAll({
                   source: input.source,
                   sessionId: resolvedSessionId,

@@ -1,0 +1,43 @@
+<div class="flex flex-col gap-2">
+  <div class="flex items-baseline gap-2">
+    <span class="text-xs font-medium uppercase tracking-wide opacity-70">
+      Session types
+    </span>
+    <span class="text-xs opacity-50">
+      Drag onto the calendar, or click to schedule
+    </span>
+  </div>
+
+  <div #paletteContainer class="flex flex-wrap gap-2">
+    @for (t of templates(); track t.id) {
+      <button
+        type="button"
+        class="group flex cursor-grab items-center gap-2.5 rounded-lg border border-hairline bg-base-200 py-1.5 pl-2.5 pr-3 text-left transition hover:border-base-content/25 hover:bg-base-300 active:cursor-grabbing"
+        [attr.data-session-template]="t.id"
+        [attr.data-template-title]="t.title"
+        [attr.data-template-duration]="t.durationMinutes"
+        [attr.data-template-color]="t.color"
+        [attr.title]="
+          t.hasOwnSeries
+            ? t.cohortName + ' runs its own recurring series'
+            : t.cohortName + ' uses the default Builders series'
+        "
+        (click)="onPick(t)"
+      >
+        <span
+          class="h-6 w-1 shrink-0 rounded-full"
+          [style.background-color]="t.color"
+          aria-hidden="true"
+        ></span>
+        <span class="flex flex-col leading-tight">
+          <span class="text-sm font-medium">{{ t.cohortName }}</span>
+          <span class="text-[11px] opacity-60">
+            {{ t.durationMinutes }} min ·
+            {{ t.memberCount }}
+            {{ t.memberCount === 1 ? 'member' : 'members' }}
+          </span>
+        </span>
+      </button>
+    }
+  </div>
+</div>

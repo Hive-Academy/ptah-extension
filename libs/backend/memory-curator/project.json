@@ -20,8 +20,7 @@
           "better-sqlite3",
           "sqlite-vec",
           "@huggingface/transformers",
-          "ulid",
-          "node:worker_threads"
+          "ulid"
         ]
       }
     },

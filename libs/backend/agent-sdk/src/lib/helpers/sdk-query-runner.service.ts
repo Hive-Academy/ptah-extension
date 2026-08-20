@@ -9,12 +9,11 @@
  *   - `oneShot`   â€” single-string prompt, bypassPermissions, no canUseTool,
  *                   maxTurns explicit, persistSession=false, subagent +
  *                   compaction hooks wired, identity prompt + PTAH_CORE
- *                   appended for premium. Used by `InternalQueryService`.
+ *                   appended. Used by `InternalQueryService`.
  *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
- *                   and hands them in along with the iterable/string prompt
- *                   plus the optional `warmQuery` handle. The runner only owns
- *                   `moduleLoader.getQueryFunction()` + `queryFn(...)` +
- *                   warm-query short-circuit. Session-registry / streamInput /
+ *                   and hands them in along with the iterable/string prompt.
+ *                   The runner only owns `moduleLoader.getQueryFunction()` +
+ *                   `queryFn(...)`. Session-registry / streamInput /
  *                   slash-command orchestration stays on `SessionQueryExecutor`.
  *
  * "Enhanced prompts never resolve here" invariant preserved: `enhancedPromptsContent`
@@ -45,9 +44,9 @@ import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
 import { CompactionHookHandler } from './compaction-hook-handler';
 import {
-  getAnthropicProvider,
-  ANTHROPIC_PROVIDERS,
-} from '@ptah-extension/shared';
+  buildModelIdentityPrompt,
+  getActiveProviderId,
+} from './sdk-query-options-builder';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import {
   Options as SdkQueryOptions,
@@ -60,10 +59,48 @@ import {
   QueryFunction,
 } from '../types/sdk-types/claude-sdk.types';
 import type { Query } from './session-lifecycle-manager';
-import { PTAH_MCP_PORT } from '../constants';
+import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
+
+/**
+ * Env keys that together name ONE provider. They are mutually exclusive: a
+ * bearer token and an API key belong to different backends, and inheriting one
+ * while the other is overridden points the run at neither cleanly.
+ */
+const PROVIDER_IDENTITY_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+] as const;
+
+/**
+ * Blank out ambient provider credentials a one-shot override does not itself
+ * set.
+ *
+ * `options.env` starts from `process.env`, and the interactive chat session
+ * writes its own credentials there — `OAuthProxyStrategy` assigns
+ * `process.env.ANTHROPIC_AUTH_TOKEN` when Codex or Copilot is active. Without
+ * this, a one-shot that overrides to an API-key provider still receives the
+ * chat session's proxy token and can be routed to the wrong backend entirely.
+ *
+ * Only keys the ambient env actually carries are emitted, so the resulting key
+ * SET is unchanged — the override path stays byte-comparable with the
+ * no-override path, which `sdk-query-runner.service.spec.ts` pins.
+ */
+function clearLeakedProviderIdentity(
+  ambient: NodeJS.ProcessEnv,
+  override: AuthEnv,
+): Record<string, undefined> {
+  const cleared: Record<string, undefined> = {};
+  for (const key of PROVIDER_IDENTITY_ENV_KEYS) {
+    if (override[key] === undefined && ambient[key] !== undefined) {
+      cleared[key] = undefined;
+    }
+  }
+  return cleared;
+}
 
 export interface OneShotAuthOverride {
   readonly env: AuthEnv;
@@ -76,13 +113,11 @@ export interface OneShotRunInput {
   model: string;
   prompt: string;
   systemPromptAppend?: string;
-  isPremium: boolean;
   mcpServerRunning: boolean;
   mcpPort?: number;
   maxTurns?: number;
   outputFormat?: OutputFormat;
   abortController?: AbortController;
-  pluginPaths?: string[];
   auth?: OneShotAuthOverride;
 }
 
@@ -96,12 +131,10 @@ export interface InteractiveRunInput {
   mode: 'interactive';
   prompt: string | AsyncIterable<SDKUserMessage>;
   options: SdkQueryOptions;
-  warmQuery?: { close: () => void; query?: unknown } | null;
 }
 
 export interface InteractiveRunResult {
   sdkQuery: Query;
-  usedWarmQuery: boolean;
 }
 
 @injectable()
@@ -152,13 +185,10 @@ export class SdkQueryRunner {
     this.logger.info(`${SERVICE_TAG} Starting internal query`, {
       cwd: input.cwd,
       model: input.model,
-      isPremium: input.isPremium,
       mcpServerRunning: input.mcpServerRunning,
       mcpPort: input.mcpPort,
       maxTurns: input.maxTurns ?? DEFAULT_ONE_SHOT_MAX_TURNS,
       hasSystemPromptAppend: !!input.systemPromptAppend,
-      hasPlugins: (input.pluginPaths?.length ?? 0) > 0,
-      pluginCount: input.pluginPaths?.length ?? 0,
       cliJsPath: cliJsPath ?? 'NOT_RESOLVED',
     });
 
@@ -219,69 +249,31 @@ export class SdkQueryRunner {
     input: InteractiveRunInput,
   ): Promise<InteractiveRunResult> {
     const queryFn = await this.moduleLoader.getQueryFunction();
-    return this.invokeQueryWithWarmFallback(
-      queryFn,
-      input.prompt,
-      input.options,
-      input.warmQuery ?? null,
-    );
+    return this.invokeWithLoadedQuery(queryFn, input.prompt, input.options);
   }
 
   invokeWithLoadedQuery(
     queryFn: QueryFunction,
     prompt: string | AsyncIterable<SDKUserMessage>,
     options: SdkQueryOptions,
-    warmQuery: { close: () => void; query?: unknown } | null,
   ): InteractiveRunResult {
-    return this.invokeQueryWithWarmFallback(
-      queryFn,
-      prompt,
-      options,
-      warmQuery,
-    );
+    const sdkQuery = queryFn({ prompt, options });
+    return { sdkQuery };
   }
 
-  private invokeQueryWithWarmFallback(
-    queryFn: QueryFunction,
-    prompt: string | AsyncIterable<SDKUserMessage>,
-    options: SdkQueryOptions,
-    warmQuery: { close: () => void; query?: unknown } | null,
-  ): InteractiveRunResult {
-    let sdkQuery: Query;
-    let usedWarmQuery = false;
-
-    if (
-      warmQuery &&
-      typeof (warmQuery as { query?: unknown }).query === 'function'
-    ) {
-      try {
-        const warmQueryFn = (
-          warmQuery as unknown as {
-            query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
-          }
-        ).query;
-        sdkQuery = warmQueryFn(prompt);
-        usedWarmQuery = true;
-      } catch (warmErr) {
-        this.logger.warn(
-          `${SERVICE_TAG} warmQuery.query() threw â€” falling back to fresh query`,
-          warmErr instanceof Error ? warmErr : new Error(String(warmErr)),
-        );
-
-        warmQuery.close();
-        sdkQuery = queryFn({
-          prompt,
-          options,
-        });
-      }
-    } else {
-      sdkQuery = queryFn({
-        prompt,
-        options,
-      });
-    }
-
-    return { sdkQuery, usedWarmQuery };
+  /**
+   * Whether a one-shot query can be ATTEMPTED in this process at all.
+   *
+   * `false` only on a host that never initialized the SDK — see
+   * `SdkRuntimeStateService.hasInitialized`. It is the cheap pre-check for
+   * {@link verifyHealth}'s hardest case: that guard throws an `SdkError` on
+   * `status: 'initializing'`, and a caller that cannot import `SdkError`
+   * (`skill-synthesis` keeps zero SDK imports) can only read that throw as a
+   * transport fault and retry it forever against a host that will never have an
+   * LLM. Asking first is what lets such a caller answer "not here" instead.
+   */
+  isInitialized(): boolean {
+    return this.runtimeState.hasInitialized();
   }
 
   private verifyHealth(): void {
@@ -306,10 +298,21 @@ export class SdkQueryRunner {
       input.auth?.env.ANTHROPIC_BASE_URL ??
       authEnv.ANTHROPIC_BASE_URL;
 
-    const systemPrompt = this.buildOneShotSystemPrompt(input, authEnv);
+    // Resolved against the SAME authEnv the SDK will run with (the one-shot
+    // override when present), so `options.model`, `options.env` and the
+    // identity clarification all name one model.
+    const resolvedModel = this.modelService.resolveModelId(
+      input.model,
+      input.auth?.env,
+    );
+
+    const systemPrompt = this.buildOneShotSystemPrompt(
+      input,
+      authEnv,
+      resolvedModel,
+    );
 
     const mcpServers = this.buildOneShotMcpServers(
-      input.isPremium,
       input.mcpServerRunning,
       input.mcpPort,
     );
@@ -321,13 +324,12 @@ export class SdkQueryRunner {
       `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`,
     );
 
-    const resolvedModel = this.modelService.resolveModelId(input.model);
-
     const options: SdkQueryOptions = {
       abortController,
       cwd: input.cwd,
       model: resolvedModel,
       systemPrompt,
+      settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
       tools: {
         type: 'preset',
         preset: 'claude_code',
@@ -342,6 +344,9 @@ export class SdkQueryRunner {
       env: {
         ...process.env,
         ...buildTierEnvDefaults(authEnv),
+        ...(input.auth
+          ? clearLeakedProviderIdentity(process.env, input.auth.env)
+          : {}),
         ...authEnv,
         NO_PROXY: '127.0.0.1,localhost',
         ...(() => {
@@ -377,6 +382,7 @@ export class SdkQueryRunner {
   private buildOneShotSystemPrompt(
     input: OneShotRunInput,
     authEnv: AuthEnv = this.authEnv,
+    resolvedModel?: string,
   ): {
     type: 'preset';
     preset: 'claude_code';
@@ -384,7 +390,10 @@ export class SdkQueryRunner {
   } {
     const appendParts: string[] = [];
 
-    const identityPrompt = this.buildOneShotIdentityPrompt(authEnv);
+    const identityPrompt = buildModelIdentityPrompt(
+      getActiveProviderId(authEnv),
+      resolvedModel,
+    );
     if (identityPrompt) {
       appendParts.push(identityPrompt);
       this.logger.debug(
@@ -392,12 +401,10 @@ export class SdkQueryRunner {
       );
     }
 
-    if (input.isPremium) {
-      appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-      this.logger.debug(
-        `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`,
-      );
-    }
+    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+    this.logger.debug(
+      `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`,
+    );
 
     if (input.systemPromptAppend) {
       appendParts.push(input.systemPromptAppend);
@@ -410,57 +417,10 @@ export class SdkQueryRunner {
     };
   }
 
-  private buildOneShotIdentityPrompt(
-    authEnv: AuthEnv = this.authEnv,
-  ): string | undefined {
-    const baseUrl = authEnv.ANTHROPIC_BASE_URL;
-    if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
-      return undefined;
-    }
-
-    for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
-      const provider = getAnthropicProvider(id);
-      if (!provider || !provider.baseUrl) continue;
-      try {
-        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-          const actualModel =
-            authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-            authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-            authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-
-          if (!actualModel) {
-            return undefined;
-          }
-
-          return `# Model Identity Clarification
-
-IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
-
-When asked about your identity, model, or capabilities:
-- State that you are ${actualModel} from ${provider.name}
-- Do NOT claim to be Claude, Claude Opus, Claude Sonnet, or any Anthropic model
-- You may mention you are running through an Anthropic-compatible API interface
-
-This clarification takes precedence over any other identity instructions in the system prompt.`;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    return undefined;
-  }
-
   private buildOneShotMcpServers(
-    isPremium: boolean,
     mcpServerRunning: boolean,
     mcpPort?: number,
   ): Record<string, McpHttpServerConfig> {
-    if (!isPremium) {
-      this.logger.debug(`${SERVICE_TAG} MCP disabled (not premium)`);
-      return {};
-    }
-
     if (!mcpServerRunning) {
       this.logger.warn(`${SERVICE_TAG} MCP disabled (server not running)`);
       return {};
@@ -478,8 +438,15 @@ This clarification takes precedence over any other identity instructions in the 
   private buildOneShotHooks(
     cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+    // One synthetic id for BOTH handlers. A one-shot query has no Ptah session
+    // id at all, and passing none to the subagent handler left every subagent
+    // it spawns unregistered — the SubagentStart gate needs a parent id, and
+    // the payload one only arrives once the SDK has started (TASK_2026_295).
     const oneShotSessionId = `internal-query-${Date.now()}`;
+    const subagentHooks = this.subagentHookHandler.createHooks(
+      cwd,
+      oneShotSessionId,
+    );
     const compactionHooks = this.compactionHookHandler.createHooks(
       oneShotSessionId,
       cwd,

@@ -39,7 +39,7 @@ import { BrowserSettingsComponent } from './browser-settings.component';
             MCP Server Port
           </h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Configure the port for Ptah's MCP server (code execution tools).
         </p>
 
@@ -81,7 +81,7 @@ import { BrowserSettingsComponent } from './browser-settings.component';
           </div>
         }
 
-        <div class="text-[10px] text-base-content/40 mt-1.5">
+        <div class="text-[10px] text-base-content-muted mt-1.5">
           Default: 51820 · Range: 1024–65535
         </div>
       </div>
@@ -96,7 +96,7 @@ import { BrowserSettingsComponent } from './browser-settings.component';
             MCP Tool Namespaces
           </h2>
         </div>
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Enable or disable tool groups exposed to AI agents. Disabling unused
           namespaces reduces context window usage.
         </p>
@@ -109,11 +109,11 @@ import { BrowserSettingsComponent } from './browser-settings.component';
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
                   <span class="text-xs font-medium">{{ ns.label }}</span>
-                  <span class="text-[10px] text-base-content/40"
+                  <span class="text-[10px] text-base-content-muted"
                     >({{ ns.toolCount }} tools)</span
                   >
                 </div>
-                <p class="text-[10px] text-base-content/50 truncate">
+                <p class="text-[10px] text-base-content-muted truncate">
                   {{ ns.description }}
                 </p>
               </div>

@@ -38,6 +38,7 @@ jest.mock('ngx-markdown', () => {
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TabState } from '@ptah-extension/chat-types';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import {
   AwaitingBackgroundIndicatorComponent,
   TabItemComponent,
@@ -119,13 +120,24 @@ describe('TabBarComponent', () => {
     toggleTabViewMode: jest.fn(),
   };
 
+  const claimedSurfaces = new Map<string, string>();
+  const mockClaims = {
+    surfaceFor: jest.fn(
+      (id: string): string | null => claimedSurfaces.get(id) ?? null,
+    ),
+  };
+
   beforeEach(async () => {
     tabsSignal.set([]);
     activeTabIdSignal.set(null);
+    claimedSurfaces.clear();
     jest.clearAllMocks();
     await TestBed.configureTestingModule({
       imports: [TabBarComponent],
-      providers: [{ provide: TabManagerService, useValue: mockTabManager }],
+      providers: [
+        { provide: TabManagerService, useValue: mockTabManager },
+        { provide: WorkflowSessionClaimService, useValue: mockClaims },
+      ],
     })
       .overrideComponent(TabBarComponent, {
         remove: {
@@ -232,5 +244,38 @@ describe('TabBarComponent', () => {
     );
     expect(slot).toBeTruthy();
     expect(slot.textContent).toContain('0 tasks');
+  });
+
+  it('hides workflow-claimed tabs from the rendered tab list', () => {
+    tabsSignal.set([
+      makeTab({ id: 'chat', title: 'Chat' }),
+      makeTab({ id: 'workflow', title: 'Tribunal: council' }),
+    ]);
+    claimedSurfaces.set('workflow', 'surface-1');
+    fixture.detectChanges();
+
+    const items = fixture.nativeElement.querySelectorAll(
+      '[data-test="tab-item-stub"]',
+    );
+    expect(items.length).toBe(1);
+    expect(items[0].textContent).toContain('Chat');
+  });
+
+  it('reveals a previously-claimed tab once its claim is released', () => {
+    tabsSignal.set([makeTab({ id: 'workflow', title: 'Tribunal: council' })]);
+    claimedSurfaces.set('workflow', 'surface-1');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('[data-test="tab-item-stub"]')
+        .length,
+    ).toBe(0);
+
+    claimedSurfaces.delete('workflow');
+    tabsSignal.set([makeTab({ id: 'workflow', title: 'Tribunal: council' })]);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('[data-test="tab-item-stub"]')
+        .length,
+    ).toBe(1);
   });
 });

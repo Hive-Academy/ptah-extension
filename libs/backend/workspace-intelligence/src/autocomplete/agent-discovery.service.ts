@@ -3,7 +3,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import matter from 'gray-matter';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
@@ -40,6 +43,14 @@ export interface AgentDiscoveryResult {
 export interface AgentSearchRequest {
   query: string;
   maxResults?: number;
+  /**
+   * Answer for this workspace specifically, overriding the process-global
+   * `IWorkspaceProvider`. Omit for the active folder (pre-TASK_2026_200
+   * behaviour). The process-global root is the *window's* folder in VS Code and
+   * flips at runtime in Electron, so a caller bound to a particular workspace
+   * must pass it — there is nothing else on the RPC envelope to disambiguate.
+   */
+  workspaceRoot?: string;
 }
 
 /**
@@ -55,13 +66,29 @@ export interface AgentSearchRequest {
 export class AgentDiscoveryService {
   private cache: AgentInfo[] = [];
   private cacheTimestamp = 0;
+  /**
+   * `normalizeWorkspaceRoot()` of the root {@link cache} was built from, or
+   * `undefined` when it was built with no workspace open.
+   *
+   * TASK_2026_200: `cache` is a process-global field and `searchAgents` served
+   * it to every caller regardless of which workspace they asked about, so the
+   * first workspace to populate it answered for all subsequent ones — the
+   * silent wrong-workspace answer this task exists to kill, just on the `/`
+   * picker instead of the `@` one. Keying the cache is what makes the explicit
+   * `workspaceRoot` override actually observable; without it the override would
+   * be accepted and then ignored on every call after the first.
+   *
+   * Written only alongside `cache` itself, synchronously and adjacently, so the
+   * pair can never disagree about which root the list belongs to.
+   */
+  private cacheRootKey: string | undefined;
   private watchers: IDisposable[] = [];
 
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fsProvider: IFileSystemProvider
+    private readonly fsProvider: IFileSystemProvider,
   ) {}
 
   /**
@@ -115,21 +142,29 @@ export class AgentDiscoveryService {
   }
 
   /**
-   * Discover all agents (project + user)
+   * Discover all agents (project + user).
+   *
+   * @param explicitRoot Scan this workspace instead of the process-global
+   * active folder. Omitted → `IWorkspaceProvider.getWorkspaceRoot()`, exactly
+   * as before TASK_2026_200.
    */
-  async discoverAgents(): Promise<AgentDiscoveryResult> {
+  async discoverAgents(explicitRoot?: string): Promise<AgentDiscoveryResult> {
     try {
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      // An explicit root ALWAYS wins over the provider. The provider reports
+      // whichever folder is active *now*, which is not necessarily the
+      // workspace the calling tab/session is bound to.
+      const workspaceRoot =
+        explicitRoot ?? this.workspaceProvider.getWorkspaceRoot();
       const builtinAgents = this.getBuiltinAgents();
 
       if (!workspaceRoot) {
         return { success: true, agents: builtinAgents };
       }
       const projectAgents = await this.scanAgentDirectory(
-        path.join(workspaceRoot, '.claude/agents')
+        path.join(workspaceRoot, '.claude/agents'),
       );
       const userAgents = await this.scanAgentDirectory(
-        path.join(os.homedir(), '.claude/agents')
+        path.join(os.homedir(), '.claude/agents'),
       );
 
       const allAgents = [
@@ -137,7 +172,12 @@ export class AgentDiscoveryService {
         ...projectAgents.map((a) => ({ ...a, scope: 'project' as const })),
         ...userAgents.map((a) => ({ ...a, scope: 'user' as const })),
       ];
+      // Publish the list and the root it belongs to together: three adjacent
+      // synchronous writes with no await between them, so a concurrent
+      // discovery for another root can only replace the whole triple, never
+      // leave `cache` from one root tagged with another root's key.
       this.cache = allAgents;
+      this.cacheRootKey = normalizeWorkspaceRoot(workspaceRoot);
       this.cacheTimestamp = Date.now();
 
       return { success: true, agents: allAgents };
@@ -155,24 +195,48 @@ export class AgentDiscoveryService {
    * Search agents by query
    */
   async searchAgents(
-    request: AgentSearchRequest
+    request: AgentSearchRequest,
   ): Promise<AgentDiscoveryResult> {
     try {
-      if (this.cache.length === 0) {
-        await this.discoverAgents();
+      const { query, maxResults = 20, workspaceRoot } = request;
+      const root = workspaceRoot ?? this.workspaceProvider.getWorkspaceRoot();
+      const rootKey = root ? normalizeWorkspaceRoot(root) : undefined;
+
+      // Resolve the list into a LOCAL and filter that — never re-read
+      // `this.cache` after an await. `cache` is a process-global field that any
+      // concurrent `discoverAgents` for a different workspace can replace while
+      // we are suspended; reading it post-await is precisely how the other
+      // workspace's agents end up in this caller's `/` picker.
+      let agents: AgentInfo[];
+      if (this.cache.length > 0 && this.cacheRootKey === rootKey) {
+        // Cache hit: the check above and this read are in the same synchronous
+        // block, so the list cannot be swapped out between them.
+        agents = this.cache;
+      } else {
+        const discovered = await this.discoverAgents(root);
+        // The awaited call's OWN return value — immune to a later publish.
+        //
+        // A failed discovery degrades to an empty list rather than propagating
+        // `success: false`, matching the pre-TASK_2026_200 code, which ignored
+        // `discoverAgents()`'s return entirely and sliced an empty `cache`.
+        //
+        // ONE deliberate behaviour change (TASK_2026_200, documented): with NO
+        // workspace open, `discoverAgents` returns the builtin agents but does
+        // not cache them, so the old code sliced the empty field and dropped
+        // them. Reading the return value surfaces them, which is plainly what
+        // `discoverAgents` intends. Covered by a named test.
+        agents = discovered.agents ?? [];
       }
 
-      const { query, maxResults = 20 } = request;
-
       if (!query || query.trim() === '') {
-        return { success: true, agents: this.cache.slice(0, maxResults) };
+        return { success: true, agents: agents.slice(0, maxResults) };
       }
 
       const lowerQuery = query.toLowerCase();
-      const filtered = this.cache.filter(
+      const filtered = agents.filter(
         (agent) =>
           agent.name.toLowerCase().includes(lowerQuery) ||
-          agent.description.toLowerCase().includes(lowerQuery)
+          agent.description.toLowerCase().includes(lowerQuery),
       );
 
       return { success: true, agents: filtered.slice(0, maxResults) };
@@ -187,13 +251,22 @@ export class AgentDiscoveryService {
   }
 
   /**
-   * Initialize file watchers for real-time updates
+   * Initialize file watchers for real-time updates.
+   *
+   * DELIBERATELY NOT root-parameterized (TASK_2026_200 task 2.4). This is a
+   * background refresh path with no caller to scope it to — it is armed once at
+   * activation, and its `refreshCache` fires from OS events, not from a request
+   * that knows which workspace it means. Threading a root here would only pin
+   * the watcher to whichever workspace happened to be active at activation
+   * time, which is worse than tracking the process-global active folder. The
+   * per-request correctness fix lives in `searchAgents`/`discoverAgents`, where
+   * a caller with an opinion actually exists. Please do not "fix" this.
    */
   initializeWatchers(): void {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) return;
     const projectWatcher = this.fsProvider.createFileWatcher(
-      '.claude/agents/*.md'
+      '.claude/agents/*.md',
     );
 
     const refreshCache = () => {
@@ -210,7 +283,7 @@ export class AgentDiscoveryService {
       projectWatcher,
       createDisposable,
       changeDisposable,
-      deleteDisposable
+      deleteDisposable,
     );
   }
 
@@ -223,7 +296,7 @@ export class AgentDiscoveryService {
       const agentFiles = files.filter((f) => f.endsWith('.md'));
 
       const agents = await Promise.all(
-        agentFiles.map((file) => this.parseAgentFile(path.join(dir, file)))
+        agentFiles.map((file) => this.parseAgentFile(path.join(dir, file))),
       );
 
       return agents.filter(Boolean) as AgentInfo[];
@@ -232,7 +305,7 @@ export class AgentDiscoveryService {
         error instanceof Error ? error.message : String(error);
       console.debug(
         `[AgentDiscovery] Directory ${dir} not accessible:`,
-        errorMessage
+        errorMessage,
       );
       return [];
     }
@@ -247,13 +320,13 @@ export class AgentDiscoveryService {
       const { data: frontmatter, content: prompt } = matter(content);
       if (!frontmatter['name'] || !frontmatter['description']) {
         console.warn(
-          `[AgentDiscovery] Invalid agent file (missing name/description): ${filePath}`
+          `[AgentDiscovery] Invalid agent file (missing name/description): ${filePath}`,
         );
         return null;
       }
       if (!/^[a-z0-9-]+$/.test(frontmatter['name'])) {
         console.warn(
-          `[AgentDiscovery] Invalid agent name format: ${frontmatter['name']}`
+          `[AgentDiscovery] Invalid agent name format: ${frontmatter['name']}`,
         );
         return null;
       }
@@ -273,7 +346,7 @@ export class AgentDiscoveryService {
         error instanceof Error ? error.message : String(error);
       console.error(
         `[AgentDiscovery] Failed to parse agent file ${filePath}:`,
-        errorMessage
+        errorMessage,
       );
       return null;
     }

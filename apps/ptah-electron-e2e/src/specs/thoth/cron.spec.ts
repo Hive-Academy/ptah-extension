@@ -51,7 +51,7 @@ test.describe('Thoth — Cron tab', () => {
     );
   });
 
-  test('table renders jobs', async ({ ui }) => {
+  test('card grid renders jobs', async ({ ui }) => {
     await ui.mockRpc({
       'cron:list': {
         jobs: [makeJob('j1', true), makeJob('j2', false)],
@@ -62,7 +62,7 @@ test.describe('Thoth — Cron tab', () => {
 
     const page = ui.page;
 
-    await expect(page.locator('[data-testid="cron-job-row"]')).toHaveCount(2);
+    await expect(page.locator('[data-testid="cron-job-card"]')).toHaveCount(2);
     await expect(page.locator('[data-testid="cron-stat-total"]')).toHaveText(
       '2',
     );
@@ -105,7 +105,7 @@ test.describe('Thoth — Cron tab', () => {
     await page.locator('[data-testid="cron-form-submit"]').click();
 
     await expect(page.locator('[data-testid="cron-form"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="cron-job-row"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="cron-job-card"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="cron-stat-total"]')).toHaveText(
       '1',
     );

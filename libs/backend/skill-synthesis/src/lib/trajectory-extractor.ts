@@ -1,15 +1,3 @@
-/**
- * TrajectoryExtractor — derives a stable, normalized trajectory representation
- * from a Claude session JSONL trace.
- *
- * Trigger contract (architecture §6.5):
- *  - Sessions with ≥5 user/assistant turns AND a success marker are eligible.
- *  - At most one candidate is produced per session.
- *
- * "Normalization" strips workspace-specific paths and timestamps so that two
- * structurally identical trajectories produce the same SHA-256 hash and the
- * same canonical text used for embedding.
- */
 import * as crypto from 'node:crypto';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -18,7 +6,38 @@ import { SDK_TOKENS, type JsonlReaderService } from '@ptah-extension/agent-sdk';
 /** Minimum number of user/assistant turns required to consider a session. */
 export const MIN_TURNS_FOR_TRAJECTORY = 5;
 
-/** Heuristic phrases interpreted as "task succeeded". */
+/**
+ * Absolute floor on role-bearing turns. Below this there is no trajectory to
+ * extract at all — one turn is a message, not a session.
+ *
+ * It is also the DEFAULT for `extract`'s `minTurns`, which is the phase-2
+ * split: the extractor answers "is there a readable session here", and
+ * `SkillSynthesisService.passesPrefilter` answers "is it worth spending tokens
+ * on". Those are different questions and were previously fused — badly, because
+ * the fusion did not actually work (see `extract`).
+ */
+export const MIN_ROLE_TURNS_FLOOR = 2;
+
+const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
+const BASH_TEST_PATTERN =
+  /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
+
+/**
+ * Heuristic phrases interpreted as "task succeeded".
+ *
+ * ## THIS IS AN INFORMATIONAL SIGNAL AND NOTHING MAY DECIDE ON IT (phase 2)
+ *
+ * A model writing "Task complete!" is evidence that a model wrote a sentence.
+ * The authority on whether a session succeeded is
+ * `SessionVerdict.evidenceClass`, produced by the archaeologist from the whole
+ * transcript — a session whose tail matches every regex below still comes back
+ * `unverified` when nothing in the transcript settles the outcome.
+ *
+ * So the flag is still COMPUTED — it is a cheap, honest observation and phases
+ * 3/4 may want it as one feature among many — but no promotion, eligibility,
+ * ranking or synthesis path may read it to decide success. `regex-demotion.spec.ts`
+ * pins that with a source scan; keep it true.
+ */
 const SUCCESS_MARKERS = [
   /\btask\s+complete(d)?\b/i,
   /\bdone[!.\s]/i,
@@ -43,6 +62,21 @@ export interface ExtractedTrajectory {
   shortDescription: string;
   /** A slug-friendly name derived from the description. */
   slug: string;
+  /** Count of Edit/Write/MultiEdit tool_use blocks observed. */
+  editCount: number;
+  /** Count of all tool_use blocks observed. */
+  toolUseCount: number;
+  /** True when a test-runner Bash command completed in the session. */
+  bashTestPassed: boolean;
+  /** Length of the normalized canonical text. */
+  charLength: number;
+  /**
+   * Informational signal — whether a success marker was found near the tail.
+   *
+   * INFORMATIONAL IN THE LITERAL SENSE: nothing may branch on it. The verdict's
+   * `evidenceClass` is the authority on whether the session succeeded.
+   */
+  hasSuccessMarker: boolean;
 }
 
 @injectable()
@@ -54,14 +88,31 @@ export class TrajectoryExtractor {
   ) {}
 
   /**
-   * Read the JSONL for a session and return an extracted trajectory if the
-   * eligibility rules are met. Returns null when the session is too short
-   * or lacks a success marker.
+   * Read the JSONL for a session and return its trajectory, or `null` when the
+   * transcript cannot be read or carries fewer than `minTurns` role turns.
+   *
+   * A success marker is NEVER a condition — the doc comment that said so was
+   * describing behaviour this class has not had for several releases, and
+   * phase 2 makes the demotion explicit rather than accidental.
+   *
+   * ## `minTurns` IS HONOURED. IT USED TO BE `void`-ed.
+   *
+   * The parameter was neutered (`void minTurns;`) when the arithmetic curation
+   * gates were replaced, leaving every caller setting a threshold that did
+   * nothing while `MIN_ROLE_TURNS_FLOOR` silently decided. It now does what its
+   * name says, and its DEFAULT moved from {@link MIN_TURNS_FOR_TRAJECTORY} to
+   * {@link MIN_ROLE_TURNS_FLOOR} so that restoring it does not quietly NARROW
+   * the harvest phase 2 is deliberately widening: a 3-turn session that lands an
+   * edit is still extractable, and whether it is worth spending tokens on is
+   * `passesPrefilter`'s call, not this method's.
+   *
+   * The value is clamped up to the floor — a caller asking for `0` is asking for
+   * a trajectory over nothing.
    *
    * @param sessionId      Session to analyze.
    * @param workspaceRoot  Used to locate the JSONL file and normalize paths.
-   * @param minTurns       Minimum qualifying turns required. Defaults to
-   *                       {@link MIN_TURNS_FOR_TRAJECTORY} when not supplied.
+   * @param minTurns       Minimum role-bearing turns required. Defaults to
+   *                       {@link MIN_ROLE_TURNS_FLOOR}, which is also the floor.
    * @param transcriptPath When provided, the JSONL at this exact path is read
    *                       instead of resolving the file by session id. Required
    *                       for subagent transcripts which live under
@@ -70,7 +121,7 @@ export class TrajectoryExtractor {
   async extract(
     sessionId: string,
     workspaceRoot: string,
-    minTurns: number = MIN_TURNS_FOR_TRAJECTORY,
+    minTurns: number = MIN_ROLE_TURNS_FLOOR,
     transcriptPath?: string,
   ): Promise<ExtractedTrajectory | null> {
     let filePath: string;
@@ -98,23 +149,34 @@ export class TrajectoryExtractor {
       });
       return null;
     }
+    const requiredTurns = Number.isFinite(minTurns)
+      ? Math.max(MIN_ROLE_TURNS_FLOOR, Math.floor(minTurns))
+      : MIN_ROLE_TURNS_FLOOR;
     let sessionTurnCount = 0;
+    let editCount = 0;
+    let toolUseCount = 0;
+    let bashTestPassed = false;
     const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
     for (const m of messages) {
       const role = this.roleOf(m);
       if (role) sessionTurnCount++;
       if (!role) continue;
+      const signals = this.collectToolSignals(m);
+      editCount += signals.editCount;
+      toolUseCount += signals.toolUseCount;
+      if (signals.bashTestPassed) bashTestPassed = true;
       const text = this.textOf(m);
       if (!text) continue;
       turns.push({ role, text });
     }
 
-    if (turns.length < minTurns) {
+    if (turns.length < requiredTurns) {
       return null;
     }
-    if (!this.hasSuccessMarker(turns)) {
-      return null;
-    }
+
+    // Computed, carried, and read by NOBODY as a success decision. See the
+    // SUCCESS_MARKERS header.
+    const hasSuccessMarker = this.hasSuccessMarker(turns);
 
     const normalized = turns
       .map((t) => `[${t.role}] ${this.normalize(t.text, workspaceRoot)}`)
@@ -132,6 +194,11 @@ export class TrajectoryExtractor {
       sessionTurnCount: sessionTurnCount > 0 ? sessionTurnCount : turns.length,
       shortDescription: shortDescription || 'Captured workflow',
       slug: slug || `skill-${hash.slice(0, 8)}`,
+      editCount,
+      toolUseCount,
+      bashTestPassed,
+      charLength: normalized.length,
+      hasSuccessMarker,
     };
   }
 
@@ -152,6 +219,51 @@ export class TrajectoryExtractor {
     if (Array.isArray(content)) {
       const parts: string[] = [];
       for (const c of content) {
+        if (!c || typeof c !== 'object') continue;
+        const block = c as {
+          type?: string;
+          text?: string;
+          name?: string;
+          input?: unknown;
+          content?: unknown;
+        };
+        if (block.type === 'text' && typeof block.text === 'string') {
+          parts.push(block.text);
+        } else if (block.type === 'tool_use') {
+          parts.push(this.toolUseMarker(block.name, block.input));
+        } else if (block.type === 'tool_result') {
+          const marker = this.toolResultMarker(block.content);
+          if (marker) parts.push(marker);
+        }
+      }
+      return parts.join('\n');
+    }
+    return '';
+  }
+
+  private toolUseMarker(name: unknown, input: unknown): string {
+    const toolName =
+      typeof name === 'string' && name.length > 0 ? name : 'tool';
+    if (toolName === 'Bash') {
+      const cmd = this.bashCommandOf(input);
+      if (cmd) return `[tool:Bash ${this.truncate(cmd, 80)}]`;
+    }
+    return `[tool:${toolName}]`;
+  }
+
+  private toolResultMarker(content: unknown): string {
+    const text = this.toolResultText(content);
+    if (!text) return '';
+    const compact = text.replace(/\s+/g, ' ').trim();
+    if (!compact) return '';
+    return `[tool_result: ${this.truncate(compact, 200)}]`;
+  }
+
+  private toolResultText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const c of content) {
         if (c && typeof c === 'object') {
           const block = c as { type?: string; text?: string };
           if (block.type === 'text' && typeof block.text === 'string') {
@@ -159,9 +271,49 @@ export class TrajectoryExtractor {
           }
         }
       }
-      return parts.join('\n');
+      return parts.join(' ');
     }
     return '';
+  }
+
+  private bashCommandOf(input: unknown): string | null {
+    if (input && typeof input === 'object' && 'command' in input) {
+      const c = (input as { command?: unknown }).command;
+      if (typeof c === 'string') return c;
+    }
+    return null;
+  }
+
+  private collectToolSignals(msg: unknown): {
+    editCount: number;
+    toolUseCount: number;
+    bashTestPassed: boolean;
+  } {
+    let editCount = 0;
+    let toolUseCount = 0;
+    let bashTestPassed = false;
+    if (!msg || typeof msg !== 'object') {
+      return { editCount, toolUseCount, bashTestPassed };
+    }
+    const m = msg as { message?: { content?: unknown } };
+    const content = m.message?.content;
+    if (!Array.isArray(content)) {
+      return { editCount, toolUseCount, bashTestPassed };
+    }
+    for (const c of content) {
+      if (!c || typeof c !== 'object') continue;
+      const block = c as { type?: string; name?: string; input?: unknown };
+      if (block.type !== 'tool_use') continue;
+      toolUseCount++;
+      const toolName = typeof block.name === 'string' ? block.name : '';
+      if (EDIT_TOOL_NAMES.has(toolName)) {
+        editCount++;
+      } else if (toolName === 'Bash') {
+        const cmd = this.bashCommandOf(block.input);
+        if (cmd && BASH_TEST_PATTERN.test(cmd)) bashTestPassed = true;
+      }
+    }
+    return { editCount, toolUseCount, bashTestPassed };
   }
 
   private hasSuccessMarker(

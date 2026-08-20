@@ -1,0 +1,124 @@
+<section class="flex flex-col gap-4">
+  <!-- Header: title + count + search + primary compose action -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <lucide-angular
+        [img]="MegaphoneIcon"
+        class="h-5 w-5 text-base-content-muted"
+        aria-hidden="true"
+      />
+      <h1 class="text-xl font-semibold">Campaign History</h1>
+      <span class="text-sm text-base-content-muted">({{ total() }} total)</span>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        type="search"
+        class="input input-bordered input-sm w-72 max-w-full"
+        [placeholder]="searchPlaceholder"
+        [value]="search()"
+        (input)="onSearchInput($event)"
+        aria-label="Search campaigns"
+      />
+      <a routerLink="/admin/marketing/compose" class="btn btn-primary btn-sm gap-1">
+        <lucide-angular [img]="PlusIcon" class="h-4 w-4" aria-hidden="true" />
+        Compose Campaign
+      </a>
+    </div>
+  </header>
+
+  @if (loadError(); as msg) {
+    <div class="alert alert-error">
+      <span>{{ msg }}</span>
+      <button type="button" class="btn btn-sm" (click)="retry()">Retry</button>
+    </div>
+  }
+
+  <!-- Row list -->
+  <div class="rounded-lg border border-hairline bg-base-200 p-2">
+    @if (loading()) {
+      @for (s of skeletonRows; track $index) {
+        <div class="flex items-center gap-3 px-3 py-2.5">
+          <div class="h-4 w-48 animate-pulse rounded bg-base-300"></div>
+          <div class="ml-auto h-4 w-28 animate-pulse rounded bg-base-300"></div>
+        </div>
+      }
+    } @else if (isEmpty()) {
+      @if (search().trim()) {
+        <ptah-empty-state
+          [icon]="MegaphoneIcon"
+          message="No campaigns match your search"
+          hint="Try clearing the search box to see every campaign."
+        />
+      } @else {
+        <ptah-empty-state
+          [icon]="MegaphoneIcon"
+          message="No campaigns sent yet"
+          hint="Compose your first campaign to see performance here."
+        >
+          <a routerLink="/admin/marketing/compose" class="btn btn-primary btn-sm">
+            Compose Campaign
+          </a>
+        </ptah-empty-state>
+      }
+    } @else {
+      @for (row of rows(); track row.id) {
+        <a
+          [routerLink]="['/admin/marketing-campaigns', row.id]"
+          class="flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-base-300"
+        >
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="truncate text-sm font-medium">{{ row.name }}</span>
+            <ptah-status-badge
+              [variant]="row.statusVariant"
+              [label]="row.statusLabel"
+              size="xs"
+            />
+          </div>
+          <div class="flex shrink-0 items-center gap-3">
+            <div class="hidden items-center gap-3 text-xs tabular-nums sm:flex">
+              <span [class]="row.delivery.colorClass">{{ row.delivery.text }} delivered</span>
+              <span [class]="row.bounce.colorClass">{{ row.bounce.text }} bounced</span>
+              <span [class]="row.complaint.colorClass">{{ row.complaint.text }} complaints</span>
+            </div>
+            <span class="whitespace-nowrap text-xs text-base-content-muted">
+              {{ relative(row.createdAt) }}
+            </span>
+            <lucide-angular
+              [img]="ChevronRightIcon"
+              class="h-4 w-4 text-base-content-muted"
+              aria-hidden="true"
+            />
+          </div>
+        </a>
+      }
+    }
+  </div>
+
+  <!-- Pagination -->
+  @if (!isEmpty() && !loadError() && !loading()) {
+    <div class="flex flex-wrap items-center justify-end gap-3 text-sm">
+      <span class="tabular-nums text-base-content-muted">
+        Page {{ page() }} of {{ totalPages() }}
+      </span>
+      <div class="join">
+        <button
+          type="button"
+          class="btn btn-sm join-item"
+          [disabled]="page() <= 1"
+          (click)="onPrev()"
+        >
+          Prev
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm join-item"
+          [disabled]="page() >= totalPages()"
+          (click)="onNext()"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  }
+</section>

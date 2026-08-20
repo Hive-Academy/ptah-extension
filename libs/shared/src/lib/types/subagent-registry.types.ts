@@ -34,16 +34,6 @@ export interface SubagentRecord {
   readonly toolCallId: string;
 
   /**
-   * The session ID from the SubagentStart hook (input.session_id).
-   * NOTE: This is actually the PARENT session ID, not the subagent's own session.
-   * The SDK hook does not expose the subagent's own session ID.
-   * For subagent resumption, instruct the model to "Resume agent <agentId>"
-   * within the same (resumed) session — the Agent tool has no resume parameter.
-   * @deprecated Use parentSessionId for parent session lookups. This field is redundant.
-   */
-  readonly sessionId: string;
-
-  /**
    * Agent type (e.g., 'Explore', 'Plan', 'software-architect').
    * Derived from the SubagentStart hook event.
    */
@@ -70,14 +60,32 @@ export interface SubagentRecord {
   /**
    * Parent session ID for routing and filtering.
    * The session that spawned this subagent.
+   *
+   * Absent when the spawn happened before the parent session id was known.
+   * `undefined` is the only representation of "not known"; an empty string is
+   * not a session id and must never be stored in its place. Consumers that
+   * filter by parent must treat an absent parent as unattributed, never as a
+   * wildcard match.
    */
-  readonly parentSessionId: string;
+  readonly parentSessionId?: string;
 
   /**
    * Short agent identifier (e.g., "adcecb2") from SDK.
    * Used as stable key for summary content lookup.
    */
   readonly agentId: string;
+
+  /**
+   * Human-legible teammate name passed by the coordinator on the Agent/Task
+   * tool's `name` input (e.g. "backend-developer", "reviewer").
+   *
+   * Captured from the assistant `tool_use.input.name` BEFORE the SubagentStart
+   * hook fires and merged onto the record at registration. When present it is
+   * preferred over the opaque short-hex `agentId` in user-facing prose (e.g. the
+   * coordinator steering instruction). Optional — spawns without a `name` fall
+   * back to `agentId`.
+   */
+  readonly teammateName?: string;
 
   /**
    * Whether this subagent is running in the background.
@@ -182,8 +190,73 @@ export interface SubagentInterruptParams {
 }
 
 /**
+ * Parameters for subagent:background RPC method
+ */
+export interface SubagentBackgroundParams {
+  /** Session that owns the running task(s) */
+  readonly sessionId: string;
+  /**
+   * Optional SDK tool_use ID of a single foreground task to background.
+   * When omitted, all in-flight foreground tasks are backgrounded (Ctrl+B parity).
+   */
+  readonly toolUseId?: string;
+}
+
+/**
+ * Result of the subagent:background RPC method
+ */
+export interface SubagentBackgroundResult {
+  /**
+   * Whether any foreground task was moved to the background.
+   * False when `toolUseId` was given but matched no foreground task.
+   */
+  readonly backgrounded: boolean;
+}
+
+/**
  * Result shape for command-type subagent RPC methods (send, stop, interrupt)
  */
 export interface SubagentCommandResult {
   readonly ok: true;
+}
+
+/**
+ * A single UI-friendly message from a subagent's historical transcript.
+ *
+ * Normalized down from the SDK's `SessionMessage` shape: text content blocks are
+ * concatenated into `text`, tool noise is dropped, and only user/assistant turns
+ * are surfaced. Consumed by the subagent transcript viewer.
+ */
+export interface SubagentTranscriptMessage {
+  /** The turn author. System messages are filtered out during normalization. */
+  readonly role: 'user' | 'assistant';
+  /** Rendered text content (text blocks concatenated). */
+  readonly text: string;
+  /** ISO-8601 timestamp when available on the transcript line; omitted otherwise. */
+  readonly timestamp?: string;
+}
+
+/**
+ * Parameters for the subagent:transcript RPC method.
+ *
+ * Reads a subagent's full historical transcript on demand via the SDK's
+ * `getSubagentMessages(sessionId, agentId, { limit, offset })`.
+ */
+export interface SubagentTranscriptParams {
+  /** Parent session UUID that owns the subagent. */
+  readonly sessionId: string;
+  /** SDK subagent id (the short-hex `agentId`). */
+  readonly agentId: string;
+  /** Maximum number of messages to return. */
+  readonly limit?: number;
+  /** Number of messages to skip from the start. */
+  readonly offset?: number;
+}
+
+/**
+ * Result of the subagent:transcript RPC method.
+ */
+export interface SubagentTranscriptResult {
+  /** Normalized transcript messages in chronological order. */
+  readonly messages: SubagentTranscriptMessage[];
 }

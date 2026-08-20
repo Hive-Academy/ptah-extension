@@ -4,9 +4,12 @@ import * as path from 'path';
 /**
  * Playwright globalSetup -- verifies the Electron build artifacts exist
  * before any tests run. The `dependsOn` chain in project.json normally
- * runs `nx build-dev ptah-electron` + `nx copy-renderer ptah-electron`
+ * runs `nx build-dev ptah-electron` + `nx copy-renderer-dev ptah-electron`
  * automatically, but a stale dist directory can leave artifacts missing.
  * We fail fast with an actionable error if anything is absent.
+ *
+ * Deliberately `copy-renderer-dev`, not `copy-renderer`: the latter is
+ * pinned to production and used only by `package` (TASK_2026_229).
  */
 export default async function globalSetup(): Promise<void> {
   const distRoot = path.resolve(
@@ -33,7 +36,7 @@ export default async function globalSetup(): Promise<void> {
     throw new Error(
       `[ptah-electron-e2e] Missing Electron build artifacts:\n${list}\n\n` +
         `Run the build first:\n` +
-        `  npx nx build-dev ptah-electron && npx nx copy-renderer ptah-electron\n\n` +
+        `  npx nx build-dev ptah-electron && npx nx copy-renderer-dev ptah-electron\n\n` +
         `(The 'e2e' target normally chains these via dependsOn -- if you\n` +
         `see this error, the build step likely failed. Re-run with verbose\n` +
         `Nx output to inspect.)`,

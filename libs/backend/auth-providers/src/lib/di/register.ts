@@ -10,6 +10,9 @@ import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { AuthManager } from '../auth/auth-manager';
 import { ModelResolver } from '../auth/model-resolver';
+import { ActiveProviderResolver } from '../auth/active-provider-resolver';
+import { WorkspaceProviderProfileResolver } from '../auth/workspace-provider-profile-resolver';
+import { ProviderProxyPool } from '../auth/provider-proxy-pool';
 import {
   ApiKeyStrategy,
   OAuthProxyStrategy,
@@ -24,7 +27,7 @@ import { CodexTranslationProxy } from '../providers/codex';
 import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
-import { CuratorAuthResolver } from '../auth/curator-auth-resolver';
+import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -69,6 +72,21 @@ export function registerAuthProvidersServices(
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
     { useClass: ModelResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER,
+    { useClass: ActiveProviderResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL,
+    { useClass: ProviderProxyPool },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
+    { useClass: WorkspaceProviderProfileResolver },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
@@ -123,8 +141,8 @@ export function registerCuratorAuthServices(
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
-    SDK_TOKENS.SDK_CURATOR_AUTH_RESOLVER,
-    { useClass: CuratorAuthResolver },
+    SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER,
+    { useClass: ProviderAuthResolver },
     { lifecycle: Lifecycle.Singleton },
   );
 

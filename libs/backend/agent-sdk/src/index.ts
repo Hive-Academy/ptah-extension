@@ -32,8 +32,12 @@ export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter'
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
+export type {
+  PermissionPromptLifecycleEvent,
+  PermissionPromptLifecycleListener,
+} from './lib/sdk-permission-handler';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
-export type { ICuratorAuthResolver } from './lib/curator-llm-adapter';
+export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';
 export type { IPricingProvider } from './lib/pricing.port';
 export {
@@ -76,6 +80,9 @@ export {
   type PreToolUseCallback,
   type PreToolUsePayload,
   PreToolUseHookHandler,
+  SessionIdResolvedCallbackRegistry,
+  type SessionIdResolvedPayload,
+  type SessionIdResolvedRegistryCallback,
   SessionStartCallbackRegistry,
   type SessionStartCallback,
   type SessionStartPayload,
@@ -133,6 +140,8 @@ export { buildSafeEnv } from './lib/helpers/build-safe-env';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,
+  TIER_METADATA_ENV_VAR_MAP,
+  ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
   SdkModelService,
   MemoryPromptInjector,
@@ -144,19 +153,37 @@ export {
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
+  getAllAnthropicProviders,
   getProviderBaseUrl,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
+  setCustomProviderEntries,
+  clearCustomProviderEntries,
+  getCustomProviderEntries,
+  getCustomProviderEntry,
+  isCustomProviderId,
+  customEntryToAnthropicProvider,
+  CustomProviderEntrySchema,
+  CustomProviderEntriesSchema,
+  CUSTOM_PROVIDER_LANES,
 } from '@ptah-extension/shared';
 export type {
   AnthropicProvider,
   AnthropicProviderId,
   ProviderStaticModel,
+  CustomProviderEntry,
+  CustomProviderLane,
+  CustomProviderPricing,
+  SetCustomProviderEntriesResult,
 } from '@ptah-extension/shared';
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,
+  // The one builder of the output-style FLAG tier. Exported so the CLI-agent
+  // spawn path in `cli-agent-runtime` reuses it instead of growing a second
+  // definition of `Options.settings`.
+  buildFlagSettings,
   getActiveProviderId,
 } from './lib/helpers';
 export type {
@@ -172,11 +199,6 @@ export {
   discoverPluginSkills,
   formatSkillsForPrompt,
   type PluginSkillInfo,
-} from './lib/helpers';
-export {
-  SkillJunctionService,
-  type SkillJunctionActivateOptions,
-  type SkillJunctionResult,
 } from './lib/helpers';
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
@@ -206,6 +228,11 @@ export type {
   StreamProcessorResult,
 } from './lib/stream-processing';
 export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
+export {
+  HARNESS_PREFLIGHT_TOKEN,
+  type HarnessPreflightRequest,
+  type IHarnessPreflight,
+} from './lib/harness/harness-preflight.port';
 export {
   wireSessionMetadataEvents,
   type WireSessionMetadataEventsContext,

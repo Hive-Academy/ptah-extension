@@ -452,6 +452,7 @@ export class MemoryRpcHandlers {
             lastDecayStats: snapshot.lastDecayStats
               ? {
                   scanned: snapshot.lastDecayStats.scanned,
+                  promoted: snapshot.lastDecayStats.promoted,
                   demoted: snapshot.lastDecayStats.demoted,
                   archived: snapshot.lastDecayStats.archived,
                   expired: snapshot.lastDecayStats.expired,

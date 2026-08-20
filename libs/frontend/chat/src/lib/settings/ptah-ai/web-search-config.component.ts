@@ -76,7 +76,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
           </h2>
         </div>
 
-        <p class="text-xs text-base-content/70 mb-3">
+        <p class="text-xs text-base-content-muted mb-3">
           Enable web search for AI agents via the
           <code class="text-[10px] bg-base-300 px-1 rounded"
             >ptah_web_search</code
@@ -93,7 +93,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
         <div class="mb-3">
           <label
             for="web-search-provider"
-            class="text-xs font-medium text-base-content/70 mb-1 block"
+            class="text-xs font-medium text-base-content-muted mb-1 block"
           >
             Search Provider
           </label>
@@ -114,7 +114,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
             }
           </select>
           @if (activeProviderInfo()) {
-            <p class="text-[10px] text-base-content/50 mt-1">
+            <p class="text-[10px] text-base-content-muted mt-1">
               {{ activeProviderInfo()!.description }}
               <a
                 [href]="activeProviderInfo()!.signupUrl"
@@ -133,7 +133,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
           <div class="flex items-center justify-between mb-1">
             <label
               for="web-search-api-key"
-              class="text-xs font-medium text-base-content/70 flex items-center gap-1"
+              class="text-xs font-medium text-base-content-muted flex items-center gap-1"
             >
               <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
               API Key
@@ -221,11 +221,11 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
           <div class="flex items-center justify-between mb-1">
             <label
               for="web-search-max-results"
-              class="text-xs font-medium text-base-content/70"
+              class="text-xs font-medium text-base-content-muted"
             >
               Max Results
             </label>
-            <span class="text-xs text-base-content/50">
+            <span class="text-xs text-base-content-muted">
               {{ maxResults() }}
             </span>
           </div>
@@ -239,7 +239,7 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
             class="range range-xs range-secondary"
           />
           <div
-            class="flex justify-between text-[10px] text-base-content/40 px-0.5"
+            class="flex justify-between text-[10px] text-base-content-muted px-0.5"
           >
             <span>1</span>
             <span>5</span>

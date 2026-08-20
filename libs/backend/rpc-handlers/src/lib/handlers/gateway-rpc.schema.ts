@@ -34,3 +34,25 @@ export function extractGatewayOrigin(params: unknown): string | null {
   if (!parsed.success) return null;
   return parsed.data.origin ?? null;
 }
+
+/**
+ * Boundary schema for `gateway:attachSession`. The webview supplies the real
+ * SDK `sessionUuid` and the session's `workspaceRoot` (never inferred backend
+ * side); `externalConversationId` is optional and defaults to `'default'` at
+ * the service layer.
+ */
+export const GatewayAttachSessionParamsSchema = z
+  .object({
+    bindingId: z.string().min(1),
+    sessionUuid: z.string().min(1),
+    workspaceRoot: z.string().min(1),
+    externalConversationId: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+/** Boundary schema for `gateway:detachSession`. */
+export const GatewayDetachSessionParamsSchema = z
+  .object({
+    bindingId: z.string().min(1),
+  })
+  .passthrough();

@@ -6,11 +6,20 @@
  *   - API-first / CLI-fallback path for `search`.
  *   - CLI / curated-constant fallback chain for `getPopular`.
  *   - Curated constants feed `detectRecommended`.
+ *   - install/uninstall go through the SOURCE ROOT service and then PROPAGATE,
+ *     never `reconcile`, and a propagation failure does not fail the action.
+ *   - a hostile `source`, `skillId` or `name` is refused AT THE BOUNDARY, so
+ *     nothing traversal-shaped reaches a path join or a spawned process.
+ *
+ * `SkillsShSourceRootService` is stubbed throughout: the real one writes to
+ * `~/.ptah/plugins`, and what this file is about is which calls the handler
+ * makes and in what order.
  */
 
 import 'reflect-metadata';
 
 import { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
+import type { SkillsShSourceRootService } from '../skills-sh/skills-sh-source-root.service';
 import type { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 import type { SkillShEntry } from '@ptah-extension/shared';
 
@@ -65,25 +74,52 @@ class StubApiClient {
   invalidateInstallCaches = jest.fn();
 }
 
+class StubSourceRoots {
+  readonly pluginsBasePath = '/home/user/.ptah/plugins';
+  adoptLegacyInstalls = jest.fn(async () => 0);
+  install = jest.fn(async () => ({
+    success: true as const,
+    rootId: 'ptah-skillssh-anthropics-skills',
+    slugs: ['frontend-design'],
+  }));
+  uninstall = jest.fn(async () => ({
+    success: true as const,
+    rootId: 'ptah-skillssh-anthropics-skills',
+    removedRoot: true,
+  }));
+  listInstalled = jest.fn(async () => []);
+  installedSlugs = jest.fn(async () => new Set<string>());
+}
+
+class StubPropagation {
+  propagate = jest.fn(async () => undefined);
+}
+
 interface Harness {
   handlers: SkillsShRpcHandlers;
   rpc: StubRpcHandler;
   logger: StubLogger;
   api: StubApiClient;
+  sourceRoots: StubSourceRoots;
+  propagation: StubPropagation;
 }
 
 function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
   const rpc = new StubRpcHandler();
   const logger = new StubLogger();
   const api = new StubApiClient();
+  const sourceRoots = new StubSourceRoots();
+  const propagation = new StubPropagation();
   const handlers = new SkillsShRpcHandlers(
     logger as unknown as never,
     rpc as unknown as never,
     new StubWorkspaceProvider(opts.workspaceRoot) as unknown as never,
     api as unknown as SkillsShApiClient,
+    sourceRoots as unknown as SkillsShSourceRootService,
+    propagation as unknown as never,
   );
   handlers.register();
-  return { handlers, rpc, logger, api };
+  return { handlers, rpc, logger, api, sourceRoots, propagation };
 }
 
 function makeFakeChild(
@@ -225,29 +261,182 @@ describe('SkillsShRpcHandlers — detectRecommended', () => {
   });
 });
 
-describe('SkillsShRpcHandlers — install/uninstall cache invalidation', () => {
-  it('invalidates the API client install caches after install', async () => {
-    const h = makeHarness({ workspaceRoot: '/repo' });
-    mockSpawnOnce('', '', 0);
+type ActionResult = { success: boolean; error?: string };
 
-    await h.rpc.call('skillsSh:install', {
+describe('SkillsShRpcHandlers — install lands in the source root and propagates', () => {
+  it('installs through the source-root service, never the CLI directly', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:install', {
       source: 'anthropics/skills',
       skillId: 'frontend-design',
-      scope: 'project',
     });
 
+    expect(result.success).toBe(true);
+    expect(h.sourceRoots.install).toHaveBeenCalledWith({
+      source: 'anthropics/skills',
+      skillId: 'frontend-design',
+    });
+    expect(spawn).not.toHaveBeenCalled();
     expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
   });
 
-  it('invalidates the API client install caches after uninstall', async () => {
+  it('propagates AFTER the write, and only via propagate()', async () => {
     const h = makeHarness({ workspaceRoot: '/repo' });
-    mockSpawnOnce('', '', 0);
 
-    await h.rpc.call('skillsSh:uninstall', {
-      name: 'frontend-design',
-      scope: 'project',
+    await h.rpc.call('skillsSh:install', { source: 'anthropics/skills' });
+
+    expect(h.propagation.propagate).toHaveBeenCalledWith(
+      '/repo',
+      'skillsSh:install',
+    );
+    expect(h.sourceRoots.install.mock.invocationCallOrder[0]).toBeLessThan(
+      h.propagation.propagate.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('sweeps legacy installs before writing anything new', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    await h.rpc.call('skillsSh:install', { source: 'anthropics/skills' });
+
+    expect(h.sourceRoots.adoptLegacyInstalls).toHaveBeenCalledWith('/repo');
+    expect(
+      h.sourceRoots.adoptLegacyInstalls.mock.invocationCallOrder[0],
+    ).toBeLessThan(h.sourceRoots.install.mock.invocationCallOrder[0]);
+  });
+
+  it('does not propagate when there is no workspace to reconcile', async () => {
+    const h = makeHarness();
+
+    await h.rpc.call('skillsSh:install', { source: 'anthropics/skills' });
+
+    expect(h.sourceRoots.install).toHaveBeenCalled();
+    expect(h.propagation.propagate).not.toHaveBeenCalled();
+  });
+
+  it('still reports success when propagation fails — the bytes are on disk', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.propagation.propagate.mockRejectedValue(new Error('reconcile exploded'));
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:install', {
+      source: 'anthropics/skills',
     });
 
+    expect(result.success).toBe(true);
+    expect(h.logger.warn).toHaveBeenCalled();
+  });
+
+  it('does not propagate when the install itself failed', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.sourceRoots.install.mockResolvedValue({
+      success: false,
+      error: 'network down',
+    } as unknown as never);
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:install', {
+      source: 'anthropics/skills',
+    });
+
+    expect(result).toEqual({ success: false, error: 'network down' });
+    expect(h.propagation.propagate).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillsShRpcHandlers — uninstall reaps', () => {
+  it('removes from the source root and propagates so the reap sweep runs', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:uninstall', {
+      name: 'frontend-design',
+    });
+
+    expect(result.success).toBe(true);
+    expect(h.sourceRoots.uninstall).toHaveBeenCalledWith('frontend-design');
+    expect(h.propagation.propagate).toHaveBeenCalledWith(
+      '/repo',
+      'skillsSh:uninstall',
+    );
+    expect(h.sourceRoots.uninstall.mock.invocationCallOrder[0]).toBeLessThan(
+      h.propagation.propagate.mock.invocationCallOrder[0],
+    );
     expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
+  });
+
+  it('does not propagate when the skill was not installed', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.sourceRoots.uninstall.mockResolvedValue({
+      success: false,
+      error: 'No skills.sh skill named "ghost" is installed.',
+    } as unknown as never);
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:uninstall', {
+      name: 'ghost',
+    });
+
+    expect(result.success).toBe(false);
+    expect(h.propagation.propagate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * These values reach BOTH a `path.join` and a spawned process argv, so a
+ * rejection here is the difference between a bad request and a write outside
+ * `~/.ptah/plugins`. The refactor moved the code that enforced it; this block
+ * is what stops it from moving again unnoticed.
+ */
+describe('SkillsShRpcHandlers — hostile input is refused at the boundary', () => {
+  it.each([
+    ['traversal in the owner half', '../../../../etc'],
+    ['traversal as both halves', '../..'],
+    ['an absolute path', '/etc/passwd'],
+    ['a backslash separator', 'owner\\..\\..\\repo'],
+    ['a shell metacharacter', 'owner/repo; rm -rf ~'],
+    ['a flag-shaped source', '--global'],
+    ['an empty source', ''],
+  ])('rejects %s without touching the source roots', async (_label, source) => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:install', {
+      source,
+    });
+
+    expect(result.success).toBe(false);
+    expect(h.sourceRoots.install).not.toHaveBeenCalled();
+    expect(h.propagation.propagate).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['traversal', '../../evil'],
+    ['a bare dot-dot', '..'],
+    ['a path separator', 'a/b'],
+    ['a shell metacharacter', 'design && curl evil.sh'],
+  ])('rejects %s as a skillId', async (_label, skillId) => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:install', {
+      source: 'anthropics/skills',
+      skillId,
+    });
+
+    expect(result.success).toBe(false);
+    expect(h.sourceRoots.install).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['traversal', '../../../.ssh'],
+    ['a bare dot-dot', '..'],
+    ['a single dot', '.'],
+    ['a path separator', 'skills/frontend-design'],
+  ])('rejects %s as an uninstall name', async (_label, name) => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    const result = await h.rpc.call<ActionResult>('skillsSh:uninstall', {
+      name,
+    });
+
+    expect(result.success).toBe(false);
+    expect(h.sourceRoots.uninstall).not.toHaveBeenCalled();
   });
 });

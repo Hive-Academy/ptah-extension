@@ -52,7 +52,7 @@ Use `${env:NAME}` to reference shell environment variables. This keeps secrets o
 From any chat, call:
 
 ```text
-harness_list_installed_mcp
+ptah_harness_list_installed_mcp
 ```
 
 Ptah returns the full connected-servers list with their tool catalogs, transport, and status. Use this to verify a new server was picked up.
@@ -92,12 +92,12 @@ Third-party servers run with your user privileges. Vet what they do before grant
 
 ## Troubleshooting
 
-| Symptom                                          | Likely cause              | Fix                                            |
-| ------------------------------------------------ | ------------------------- | ---------------------------------------------- |
-| Server missing from `harness_list_installed_mcp` | Config parse error        | Check JSON syntax; logs in `~/.ptah/logs/mcp/` |
-| Server connects but tools are empty              | Server binary out of date | Update or pin version in `args`                |
-| Repeated permission prompts                      | Tool not in `allow` list  | Use the `fewer-permission-prompts` skill       |
-| stdio server crashes immediately                 | Missing env var           | Verify `${env:NAME}` resolves                  |
+| Symptom                                               | Likely cause              | Fix                                            |
+| ----------------------------------------------------- | ------------------------- | ---------------------------------------------- |
+| Server missing from `ptah_harness_list_installed_mcp` | Config parse error        | Check JSON syntax; logs in `~/.ptah/logs/mcp/` |
+| Server connects but tools are empty                   | Server binary out of date | Update or pin version in `args`                |
+| Repeated permission prompts                           | Tool not in `allow` list  | Use the `fewer-permission-prompts` skill       |
+| stdio server crashes immediately                      | Missing env var           | Verify `${env:NAME}` resolves                  |
 
 ## Next steps
 

@@ -44,4 +44,6 @@ export {
 export {
   AgentMonitorStore,
   type MonitoredAgent,
+  type SubagentRecord,
 } from './lib/agent-monitor.store';
+export { agentVisibleInSession, knownSessionId } from './lib/session-scope';

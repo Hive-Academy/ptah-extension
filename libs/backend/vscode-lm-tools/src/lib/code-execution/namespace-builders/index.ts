@@ -64,6 +64,11 @@ export {
   type MemoryNamespace,
 } from './memory-namespace.builder';
 export {
+  buildCorpusNamespace,
+  type CorpusNamespaceDependencies,
+  type CorpusNamespace,
+} from './corpus-namespace.builder';
+export {
   buildCodeNamespace,
   type CodeNamespaceDependencies,
   type CodeNamespace,
@@ -71,7 +76,21 @@ export {
   type ReindexResult,
 } from './code-namespace.builder';
 export {
+  buildTasksNamespace,
+  type TasksNamespaceDependencies,
+  type TasksNamespace,
+  type TaskSpecWriterLike,
+  type TaskSpecIndexLike,
+  type TaskMutationResult,
+  type TaskGetResult,
+  type TaskDerivedRelations,
+  type TaskListResult,
+  type TaskCheckResult,
+} from './tasks-namespace.builder';
+export {
   buildHarnessNamespace,
   type HarnessNamespaceDependencies,
   type HarnessNamespace,
+  type HarnessMcpInstaller,
+  type HarnessMcpInstallOutcome,
 } from './harness-namespace.builder';

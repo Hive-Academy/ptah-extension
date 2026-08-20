@@ -3,15 +3,18 @@ import {
   ChangeDetectionStrategy,
   inject,
   OnInit,
+  signal,
 } from '@angular/core';
 import { LucideAngularModule, ChartColumn } from 'lucide-angular';
 import {
   SessionAnalyticsStateService,
   SessionDateRange,
   SESSION_DATE_RANGE_OPTIONS,
+  DashboardSessionEntry,
 } from '../../services/session-analytics-state.service';
 import { MetricsCardsComponent } from '../session-analytics/metrics-cards.component';
 import { SessionStatsCardComponent } from '../session-analytics/session-stats-card.component';
+import { SessionDetailModalComponent } from '../session-analytics/session-detail-modal.component';
 
 /**
  * AnalyticsCardComponent
@@ -40,6 +43,7 @@ import { SessionStatsCardComponent } from '../session-analytics/session-stats-ca
   imports: [
     MetricsCardsComponent,
     SessionStatsCardComponent,
+    SessionDetailModalComponent,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,6 +62,9 @@ export class AnalyticsCardComponent implements OnInit {
   readonly dateRange = this.analyticsState.dateRange;
   readonly totalSessionCount = this.analyticsState.totalSessionCount;
 
+  /** The session shown in the detail modal, or null when closed. */
+  readonly selectedSession = signal<DashboardSessionEntry | null>(null);
+
   ngOnInit(): void {
     this.analyticsState.loadDashboardData();
   }
@@ -68,5 +75,13 @@ export class AnalyticsCardComponent implements OnInit {
 
   setDateRange(range: SessionDateRange): void {
     this.analyticsState.setDateRange(range);
+  }
+
+  openSession(session: DashboardSessionEntry): void {
+    this.selectedSession.set(session);
+  }
+
+  closeSession(): void {
+    this.selectedSession.set(null);
   }
 }

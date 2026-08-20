@@ -13,6 +13,8 @@ import type {
 import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
+import type { PermissionLevel } from './model-autopilot.types';
+import type { ProviderProfile } from './provider-profile.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -97,10 +99,18 @@ export interface AgentSessionStartConfig extends AISessionConfig {
   prompt?: string;
   files?: string[];
   images?: { data: string; mediaType: string }[];
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
+  /**
+   * Initial per-session permission level for the interactive session-start
+   * path. When provided, seeds `SessionRecord.permissionLevel` instead of the
+   * global default so the very first tool call in the turn uses this level.
+   * Interactive callers pass a FRONTEND level (e.g. `'yolo'`), never the SDK
+   * `'bypassPermissions'` alias — the executor maps it to the SDK mode via
+   * `PERMISSION_MODE_MAP` so `canUseTool` still runs.
+   */
+  permissionLevel?: PermissionLevel;
   /**
    * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
    * for finer streaming deltas. Forwarded to the Claude Agent SDK as
@@ -116,21 +126,39 @@ export interface AgentSessionStartConfig extends AISessionConfig {
    * `undefined` and the merge is a no-op.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * Per-session provider profile (isolated `authEnv` snapshot + model + optional
+   * cli.js path) resolved for THIS session's workspace. When supplied, the
+   * adapter runs the session against the profile's provider instead of the
+   * process-global auth env — enabling concurrent workspaces to use different
+   * AI providers. `undefined` preserves the global-auth behavior. Sourced by the
+   * interactive-chat path from a per-workspace resolver and by the Ptah CLI path
+   * from its per-agent registry.
+   */
+  providerProfile?: ProviderProfile;
 }
 
 /**
  * Extended session config used by resumeSession.
  */
 export interface AgentSessionResumeConfig extends AISessionConfig {
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
+  /**
+   * Initial per-session permission level for the interactive resume path.
+   * When provided, seeds `SessionRecord.permissionLevel` instead of the global
+   * default. Interactive callers pass a FRONTEND level (e.g. `'yolo'`), never
+   * the SDK `'bypassPermissions'` alias.
+   */
+  permissionLevel?: PermissionLevel;
   /** New user message to send as part of this resumed turn. */
   prompt?: string;
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */
   includePartialMessages?: boolean;
+  /** See {@link AgentSessionStartConfig.providerProfile}. */
+  providerProfile?: ProviderProfile;
 }
 
 /**
@@ -138,7 +166,6 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
  */
 export interface SlashCommandRunConfig {
   sessionConfig?: AISessionConfig;
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];

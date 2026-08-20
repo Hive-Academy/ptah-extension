@@ -19,6 +19,7 @@ import {
   OpenRouterTranslationProxy,
   OpenRouterPricingService,
 } from './openrouter';
+import { SakanaAuthService, SakanaTranslationProxy } from './sakana';
 import {
   OllamaModelDiscoveryService,
   LmStudioTranslationProxy,
@@ -71,6 +72,16 @@ export function registerProviders(container: DependencyContainer): void {
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PRICING,
     { useClass: OpenRouterPricingService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_SAKANA_AUTH,
+    { useClass: SakanaAuthService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_SAKANA_PROXY,
+    { useClass: SakanaTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

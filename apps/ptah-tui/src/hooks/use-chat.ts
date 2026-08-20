@@ -73,6 +73,11 @@ interface ChatErrorPayload {
   readonly error?: string;
 }
 
+interface SessionIdResolvedPayload {
+  readonly tabId?: string;
+  readonly realSessionId?: string;
+}
+
 const DEFAULT_FLUSH_INTERVAL_MS = 100;
 const DEFAULT_WATCHDOG_MS = 60_000;
 
@@ -103,6 +108,20 @@ function nowIso(): string {
 }
 
 /**
+ * Key a text block by the message it belongs to plus its block index.
+ *
+ * The backend emits multiple text blocks per assistant message, and the
+ * `source: 'complete'` re-emission repeats each block in full — so the two
+ * emissions only line up when they are bucketed by the same key.
+ */
+function textBlockKey(
+  messageId: string,
+  blockIndex: number | undefined,
+): string {
+  return `${messageId}:${blockIndex ?? 0}`;
+}
+
+/**
  * Framework-free chat streaming controller. Owns the conversation identity
  * (UUID-v4 tabId), the demux of the current `chat:chunk`/`chat:complete`/
  * `chat:error` push contract, the debounced text-delta flush, the streaming
@@ -124,7 +143,14 @@ export class ChatStreamController {
   status: ChatStatusNotice | null = null;
   isStreaming = false;
 
-  private pendingText = '';
+  /**
+   * Accumulated text per `messageId:blockIndex`, plus the order the blocks
+   * were first seen. The rendered bubble is the ordered concatenation, which
+   * is what makes REPLACE semantics expressible for `source: 'complete'`.
+   */
+  private readonly textBlocks = new Map<string, string>();
+  private textBlockOrder: string[] = [];
+  private textDirty = false;
   private streamingMessageId: string | null = null;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
@@ -133,6 +159,7 @@ export class ChatStreamController {
   private readonly onChunk: (payload: unknown) => void;
   private readonly onComplete: (payload: unknown) => void;
   private readonly onError: (payload: unknown) => void;
+  private readonly onIdResolved: (payload: unknown) => void;
 
   constructor(options: ChatControllerOptions) {
     this.transport = options.transport;
@@ -145,16 +172,38 @@ export class ChatStreamController {
     this.onChunk = (payload) => this.handleChunk(payload);
     this.onComplete = (payload) => this.handleComplete(payload);
     this.onError = (payload) => this.handleError(payload);
+    this.onIdResolved = (payload) => this.handleIdResolved(payload);
 
     this.pushAdapter.on('chat:chunk', this.onChunk);
     this.pushAdapter.on('chat:complete', this.onComplete);
     this.pushAdapter.on('chat:error', this.onError);
+    // `chat:start` resolves to `{ success: true }` with no sessionId, so the
+    // real SDK session id only ever arrives on a push event. Listening here as
+    // well as in SessionController means a follow-up `chat:continue` still has
+    // the right id even if no chunk carried it.
+    this.pushAdapter.on('session:id-resolved', this.onIdResolved);
   }
 
   dispose(): void {
+    // Ctrl+S or Ctrl+T mid-turn unmounts the panel and disposes this
+    // controller. Detaching the listeners alone left the *backend* turn
+    // running: the footer dropped "esc interrupt" along with the panel, so the
+    // turn kept generating and billing with nothing left that could stop it.
+    // Fire-and-forget on purpose — dispose is sync, and a React cleanup that
+    // awaited a round trip would hold the unmount open.
+    if (this.isStreaming) {
+      void this.abortInFlightTurn();
+      this.isStreaming = false;
+      this.streamingMessageId = null;
+      this.inFlight = false;
+      // No `finalizeStreaming()` here: it ends in `emit()`, and emitting into
+      // a component that is already unmounting is a state update on a dead
+      // tree. The listeners come off two lines below regardless.
+    }
     this.pushAdapter.off('chat:chunk', this.onChunk);
     this.pushAdapter.off('chat:complete', this.onComplete);
     this.pushAdapter.off('chat:error', this.onError);
+    this.pushAdapter.off('session:id-resolved', this.onIdResolved);
     this.clearFlushTimer();
     this.clearWatchdog();
   }
@@ -170,10 +219,17 @@ export class ChatStreamController {
     const assistant = this.makeMessage('assistant', '');
     assistant.isStreaming = true;
     this.streamingMessageId = assistant.id;
-    this.pendingText = '';
+    this.resetTextBlocks();
     this.messages = [...this.messages, userMessage, assistant];
     this.isStreaming = true;
     this.emit();
+
+    // Armed BEFORE the RPC, not after it resolves. `chat:continue` is awaited
+    // all the way through `sendMessageToSession` → session resume; when that
+    // promise never settles (the observed hang) a watchdog armed after the
+    // await is never created at all, so the UI stayed on "Streaming" forever
+    // with the input disabled and no error.
+    this.armWatchdog();
 
     const isFirstTurn = this.sessionId === null;
     const method = isFirstTurn ? 'chat:start' : 'chat:continue';
@@ -202,6 +258,8 @@ export class ChatStreamController {
       if (response.data?.sessionId && this.sessionId === null) {
         this.sessionId = response.data.sessionId;
       }
+      // Re-arm so the window measures silence since the backend accepted the
+      // turn rather than silence since the user pressed Enter.
       this.armWatchdog();
     } catch (error: unknown) {
       const text = error instanceof Error ? error.message : String(error);
@@ -210,13 +268,18 @@ export class ChatStreamController {
   }
 
   async stop(): Promise<void> {
+    await this.abortInFlightTurn();
+    this.finalizeStreaming();
+  }
+
+  /** The abort round trip alone, so `dispose` can issue it without emitting. */
+  private async abortInFlightTurn(): Promise<void> {
     const abortId = this.sessionId ?? this.tabId;
     try {
       await this.transport.call('chat:abort', { sessionId: abortId });
     } catch {
       // best effort — backend may have already stopped
     }
-    this.finalizeStreaming();
   }
 
   addSystemMessage(text: string): void {
@@ -243,8 +306,11 @@ export class ChatStreamController {
         this.armWatchdog();
         return;
       case 'text_delta':
-        this.pendingText += event.delta;
-        this.scheduleFlush();
+        this.applyTextDelta(
+          textBlockKey(event.messageId, event.blockIndex),
+          event.delta,
+          event.source === 'complete' || event.source === 'history',
+        );
         this.armWatchdog();
         return;
       case 'thinking_delta':
@@ -289,6 +355,17 @@ export class ChatStreamController {
     if (!errorPayload || errorPayload.tabId !== this.tabId) return;
     this.captureSessionId(errorPayload.sessionId);
     this.failTurn(errorPayload.error ?? 'Unknown streaming error');
+  }
+
+  private handleIdResolved(payload: unknown): void {
+    if (!isObject(payload)) return;
+    const resolved = payload as SessionIdResolvedPayload;
+    if (resolved.tabId !== this.tabId) return;
+    const real = resolved.realSessionId;
+    if (typeof real !== 'string' || real.length === 0) return;
+    // Unconditional, unlike `captureSessionId`: this event is authoritative
+    // and supersedes a tabId that leaked in through `chat:complete`.
+    this.sessionId = real;
   }
 
   private captureSessionId(candidate: string | undefined): void {
@@ -381,16 +458,49 @@ export class ChatStreamController {
     }, this.flushIntervalMs);
   }
 
+  private resetTextBlocks(): void {
+    this.textBlocks.clear();
+    this.textBlockOrder = [];
+    this.textDirty = false;
+  }
+
+  /**
+   * Fold one `text_delta` into its block.
+   *
+   * The backend emits every assistant text block TWICE: incrementally from
+   * `stream-event.transformer.ts` (`source: 'stream'`, `delta` = the next
+   * chunk) and then once more in full from `assistant-message.transformer.ts`
+   * (`source: 'complete'`, `delta` = the entire block). Appending both is what
+   * rendered "Hey! What are you working on?" twice. `replace` mirrors the
+   * Angular accumulator, which has always discriminated on `source`.
+   */
+  private applyTextDelta(key: string, delta: string, replace: boolean): void {
+    if (delta.length === 0) return;
+    if (!this.textBlocks.has(key)) {
+      this.textBlockOrder = [...this.textBlockOrder, key];
+    }
+    const previous = this.textBlocks.get(key) ?? '';
+    this.textBlocks.set(key, replace ? delta : previous + delta);
+    this.textDirty = true;
+    this.scheduleFlush();
+  }
+
+  private renderTextBlocks(): string {
+    return this.textBlockOrder
+      .map((key) => this.textBlocks.get(key) ?? '')
+      .join('');
+  }
+
   private flushPending(force = false): void {
     const id = this.streamingMessageId;
-    const pending = this.pendingText;
-    if (!id || pending.length === 0) {
+    if (!id || !this.textDirty) {
       if (force) this.clearFlushTimer();
       return;
     }
-    this.pendingText = '';
+    this.textDirty = false;
+    const content = this.renderTextBlocks();
     this.messages = this.messages.map((m) =>
-      m.id === id ? { ...m, content: m.content + pending } : m,
+      m.id === id ? { ...m, content } : m,
     );
     this.emit();
   }
@@ -399,19 +509,14 @@ export class ChatStreamController {
     this.clearWatchdog();
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = null;
-      this.flushPending(true);
-      this.markStreamingDone();
-      this.messages = [
-        ...this.messages,
-        this.makeMessage(
-          'system',
-          'Streaming timed out — no response from backend.',
-        ),
-      ];
-      this.isStreaming = false;
-      this.streamingMessageId = null;
-      this.inFlight = false;
-      this.emit();
+      // Same teardown as a backend error: leave Streaming, drop the in-flight
+      // guard so the composer accepts input again, and say so on screen. The
+      // TUI must never be left hung.
+      this.failTurn(
+        `Streaming timed out after ${Math.round(
+          this.watchdogMs / 1000,
+        )}s — no response from the backend. The turn was abandoned; you can send another message.`,
+      );
     }, this.watchdogMs);
   }
 

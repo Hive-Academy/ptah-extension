@@ -8,6 +8,8 @@
  * - subagent:send-message  — Push a user message into a running subagent
  * - subagent:stop          — Stop a specific subagent by taskId
  * - subagent:interrupt     — Interrupt the entire session
+ * - subagent:background    — Move in-flight foreground task(s) to background
+ * - subagent:transcript    — Read a subagent's historical transcript on demand
  *
  * NOTE: The chat:subagent-resume RPC has been removed.
  * Subagent resumption is now handled via context injection in chat:continue,
@@ -29,15 +31,22 @@ import {
   SubagentSendMessageParams,
   SubagentStopParams,
   SubagentInterruptParams,
+  SubagentBackgroundParams,
+  SubagentBackgroundResult,
   SubagentCommandResult,
+  SubagentTranscriptParams,
+  SubagentTranscriptResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
 import {
+  SubagentQuerySchema,
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
+  SubagentBackgroundSchema,
+  SubagentTranscriptSchema,
 } from './subagent-rpc.schema';
 
 /**
@@ -56,6 +65,12 @@ import {
  *
  * // Frontend: Interrupt the whole session
  * await rpcService.call('subagent:interrupt', { sessionId });
+ *
+ * // Frontend: Push in-flight foreground task(s) to the background
+ * const { backgrounded } = await rpcService.call('subagent:background', { sessionId, toolUseId });
+ *
+ * // Frontend: Read a subagent's full transcript on demand
+ * const { messages } = await rpcService.call('subagent:transcript', { sessionId, agentId });
  * ```
  */
 @injectable()
@@ -65,6 +80,8 @@ export class SubagentRpcHandlers {
     'subagent:send-message',
     'subagent:stop',
     'subagent:interrupt',
+    'subagent:background',
+    'subagent:transcript',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -86,6 +103,8 @@ export class SubagentRpcHandlers {
     this.registerSendMessage();
     this.registerStop();
     this.registerInterrupt();
+    this.registerBackground();
+    this.registerTranscript();
 
     this.logger.debug('Subagent RPC handlers registered', {
       methods: SubagentRpcHandlers.METHODS,
@@ -107,7 +126,12 @@ export class SubagentRpcHandlers {
       'chat:subagent-query',
       async (params) => {
         try {
-          const { toolCallId, sessionId } = params;
+          // Shape validation only — see SubagentQuerySchema. The empty-id rule
+          // below is this handler's, not Zod's. Parsing inside this try is
+          // deliberate: the catch returns `{ subagents: [] }` and captures to
+          // Sentry, so a malformed param yields an empty list plus one Sentry
+          // event rather than a thrown RPC.
+          const { toolCallId, sessionId } = SubagentQuerySchema.parse(params);
 
           this.logger.debug('RPC: subagent:query called', {
             toolCallId,
@@ -117,7 +141,17 @@ export class SubagentRpcHandlers {
             const record = this.registry.get(toolCallId);
             return { subagents: record ? [record] : [] };
           }
-          if (sessionId) {
+          // A sessionId that is present but empty is a scoped query whose
+          // scope cannot be resolved — answer with nothing. Falling through to
+          // the unscoped branch offered this session the chance to resume
+          // another session's interrupted subagents.
+          if (sessionId !== undefined) {
+            if (sessionId === '') {
+              this.logger.warn(
+                'RPC: subagent:query received an empty sessionId — returning no subagents',
+              );
+              return { subagents: [] };
+            }
             const subagents = this.registry.getResumableBySession(sessionId);
             this.logger.debug('RPC: subagent:query by session result', {
               sessionId,
@@ -227,6 +261,84 @@ export class SubagentRpcHandlers {
 
       await this.dispatcher.interruptSession(sessionId);
       return { ok: true };
+    });
+  }
+
+  /**
+   * subagent:background — Move in-flight foreground task(s) to the background.
+   *
+   * Calls Query.backgroundTasks(toolUseId) (Ctrl+B parity). With no toolUseId,
+   * all foreground tasks are backgrounded; with a toolUseId, only that task is
+   * targeted and `backgrounded` is false when the id matched no foreground task.
+   */
+  private registerBackground(): void {
+    this.rpcHandler.registerMethod<
+      SubagentBackgroundParams,
+      SubagentBackgroundResult
+    >('subagent:background', async (params) => {
+      const parsed = SubagentBackgroundSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(
+          `subagent:background: invalid params — ${parsed.error.message}`,
+          'INVALID_PARAMS',
+        );
+      }
+
+      const { sessionId, toolUseId } = parsed.data;
+
+      this.logger.debug('RPC: subagent:background called', {
+        sessionId,
+        toolUseId,
+      });
+
+      const backgrounded = await this.dispatcher.backgroundTask(
+        sessionId,
+        toolUseId,
+      );
+      return { backgrounded };
+    });
+  }
+
+  /**
+   * subagent:transcript — Read a subagent's full historical transcript.
+   *
+   * Delegates the SDK read + normalization to
+   * {@link SubagentMessageDispatcher.getSubagentTranscript} (agent-sdk owns the
+   * ESM-only SDK dependency). This handler only validates params and shapes the
+   * RPC result.
+   *
+   * Defensive: the dispatcher returns `[]` on missing export / not-found / read
+   * failure, so this never throws for a missing transcript (mirrors
+   * registerSubagentQuery).
+   */
+  private registerTranscript(): void {
+    this.rpcHandler.registerMethod<
+      SubagentTranscriptParams,
+      SubagentTranscriptResult
+    >('subagent:transcript', async (params) => {
+      const parsed = SubagentTranscriptSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(
+          `subagent:transcript: invalid params — ${parsed.error.message}`,
+          'INVALID_PARAMS',
+        );
+      }
+
+      const { sessionId, agentId, limit, offset } = parsed.data;
+
+      this.logger.debug('RPC: subagent:transcript called', {
+        sessionId,
+        agentId,
+        limit,
+        offset,
+      });
+
+      const messages = await this.dispatcher.getSubagentTranscript(
+        sessionId,
+        agentId,
+        { limit, offset },
+      );
+      return { messages };
     });
   }
 }

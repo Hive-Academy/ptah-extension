@@ -13,8 +13,12 @@ interface FakeChildControls {
     stderr: PassThrough;
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
 }
+
+/** A stable fake PID so abort handlers route through killProcessTree(pid). */
+const FAKE_PID = 4242;
 
 function createFakeChild(): FakeChildControls {
   const stdout = new PassThrough();
@@ -27,9 +31,11 @@ function createFakeChild(): FakeChildControls {
     stderr: PassThrough;
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
+  emitter.pid = FAKE_PID;
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;
@@ -55,6 +61,7 @@ let currentChild: FakeChildControls | null = null;
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
 const mockProbeCliVersion = jest.fn();
+const mockKillProcessTree = jest.fn();
 
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
@@ -65,6 +72,9 @@ jest.mock('./cli-adapter.utils', () => {
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
+    // Abort handlers tree-kill the child by PID. Mock it so the test never
+    // issues a real process.kill(-pid) group-kill against the runner.
+    killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
   };
 });
 
@@ -612,13 +622,13 @@ describe('CopilotSdkAdapter', () => {
       expect(output.join('')).not.toContain('{bogus json line');
     });
 
-    it('propagates AbortSignal by sending SIGTERM to the child process', async () => {
+    it('tree-kills the child process group on abort', async () => {
       const handle = await adapter.runSdk(defaultOptions);
       handle.onOutput(() => {});
 
       handle.abort.abort();
 
-      expect(currentChild?.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
 
       currentChild?.emitClose(null, 'SIGTERM');
       const code = await handle.done;
@@ -702,6 +712,144 @@ describe('CopilotSdkAdapter', () => {
       expect(joined).toContain('compaction');
       expect(joined).toContain('5000');
       expect(joined).toContain('1200');
+    });
+  });
+
+  describe('runSdk() — continuation via resume-by-session-id', () => {
+    const defaultOptions = {
+      task: 'Implement feature X',
+      workingDirectory: '/proj',
+    };
+
+    beforeEach(() => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/copilot');
+    });
+
+    it('reports supportsContinuation false until a session id is resolved, true after', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      expect(handle.supportsContinuation?.()).toBe(false);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-xyz',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(handle.supportsContinuation?.()).toBe(true);
+    });
+
+    it('returns supportsContinuation=false handle when the binary cannot be resolved', async () => {
+      mockResolveCliPath.mockResolvedValue(null);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+      await handle.done;
+
+      expect(handle.supportsContinuation?.()).toBe(false);
+      expect(handle.continue).toBeUndefined();
+    });
+
+    it('continue() spawns a NEW child with --resume=<capturedSessionId> and the message as the task', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-cont',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+
+      const outcome = await handle.continue?.('follow-up question');
+      expect(outcome).toBeDefined();
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      const [binaryArg, argsArg] = mockSpawnCli.mock.calls[1] as [
+        string,
+        string[],
+      ];
+      expect(binaryArg).toBe('/usr/local/bin/copilot');
+      expect(argsArg).toContain('--resume=copilot-sess-cont');
+      const promptIdx = argsArg.indexOf('-p');
+      expect(promptIdx).toBeGreaterThanOrEqual(0);
+      expect(argsArg[promptIdx + 1]).toContain('follow-up question');
+
+      currentChild?.emitClose(0);
+      const code = await outcome!.done;
+      expect(code).toBe(0);
+    });
+
+    it('routes the continued child output to the SAME onOutput callback', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'turn one' },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-same',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const outcome = await handle.continue?.('next turn');
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'turn two' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await outcome!.done;
+
+      const joined = output.join('');
+      expect(joined).toContain('turn one');
+      expect(joined).toContain('turn two');
+    });
+
+    it('abort cancels the continued child', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-abort',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const outcome = await handle.continue?.('keep going');
+      const continuedChild = currentChild;
+
+      handle.abort.abort();
+      expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
+
+      continuedChild?.emitClose(null, 'SIGTERM');
+      const code = await outcome!.done;
+      expect(code).toBe(1);
     });
   });
 

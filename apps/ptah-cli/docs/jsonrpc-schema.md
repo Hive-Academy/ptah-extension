@@ -93,12 +93,62 @@ Example:
 | `agent.pack.install.complete` | Install complete                 | `{ pack_id, installed: string[], skipped: string[], changed: bool }` |
 | `agent.list`                  | `agent list`                     | `{ entries: Array<{ name, path }> }`                                 |
 | `agent.applied`               | `agent apply <name>`             | `{ name, path, changed: bool }`                                      |
-| `agent_cli.detection`         | `agent-cli detect`               | `{ entries: Array<{ id, available, path?, version? }> }`             |
+| `agent_cli.detection`         | `agent-cli detect`               | `{ clis: CliDetectionResult[] }` — see note below                    |
 | `agent_cli.config`            | `agent-cli config get`           | `{ config: AgentOrchestrationConfig }`                               |
-| `agent_cli.config.updated`    | `agent-cli config set`           | `{ key, value, changed: bool }`                                      |
-| `agent_cli.models`            | `agent-cli models list`          | `{ entries: Array<{ cli, model_id }> }`                              |
-| `agent_cli.stopped`           | `agent-cli stop <id>`            | `{ agent_id }`                                                       |
-| `agent_cli.resumed`           | `agent-cli resume <id>`          | `{ agent_id, session_id? }` (then `agent.*` chat notifications)      |
+| `agent_cli.config.updated`    | `agent-cli config set`           | `{ key, value }`                                                     |
+| `agent_cli.models`            | `agent-cli models list`          | per-CLI arrays, or a scoped `supported:false` — see note below       |
+| `agent_cli.stopped`           | `agent-cli stop <id>`            | `{ agentId, cli? }` — `cli` only when `--cli` was passed             |
+| `agent_cli.resumed`           | `agent-cli resume <id>`          | `{ cliSessionId, cli, ptahCliId?, agentId? }`                        |
+
+#### `agent_cli.*` — selectors vs. wire values
+
+`--cli` accepts every CLI agent target Ptah has an adapter for:
+
+| Selector                                                      | Wire `cli` | Notes                                            |
+| ------------------------------------------------------------- | ---------- | ------------------------------------------------ |
+| `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi` | itself     | The system CLIs — binaries Ptah spawns.          |
+| `ptah-cli`                                                    | `ptah-cli` | A configured provider, addressed by `ptahCliId`. |
+| `glm`                                                         | `ptah-cli` | **Deprecated alias.** Warns on stderr.           |
+
+The selector set is derived from `SYSTEM_CLI_TYPES`, so a new adapter becomes
+selectable here the moment it is registered. Nothing is blocked: an earlier
+version of this document claimed `copilot` and `cursor` were unavailable for
+Windows spawn reasons, which was never true of the runtime.
+
+`glm` is a **provider**, not a binary — GLM (Z.AI) is an Anthropic-compatible
+endpoint Ptah drives through the `ptah-cli` agent type. The alias survives only
+for compatibility; use `--cli ptah-cli [--ptah-cli-id <id>]`.
+
+- **`agent_cli.detection`** carries `CliDetectionResult[]` covering both families:
+  the detected system CLIs, plus one entry per configured Ptah CLI provider with
+  `cli: "ptah-cli"`, `ptahCliId`, `ptahCliName` and `providerName`. This is where
+  `--ptah-cli-id` values come from.
+
+- **`agent_cli.resumed`** — `cli` echoes the SELECTOR you passed. On the wire,
+  `agent-cli resume <id> --cli codex --task "<work>"` sends
+  `{ cliSessionId, cli: "codex", task }`; `--cli ptah-cli` (or `glm`) sends
+  `cli: "ptah-cli"` plus `ptahCliId` only when `--ptah-cli-id` was supplied.
+  Omitting it is meaningful: the backend then resolves the first enabled provider
+  holding an API key, and fails with `No Ptah CLI agents configured` when there is
+  none. `--ptah-cli-id` alongside a system CLI is a usage error (exit 2). `--task`
+  is required and must be non-empty — the RPC's own schema rejects `""`.
+
+  > Before TASK_2026_297 the only accepted selector was `glm`, and it sent
+  > `cli: "glm"` — a value no `CliType` admits — so every invocation failed with
+  > `glm CLI is not installed`.
+
+- **`agent_cli.stopped`** — `cli` never reaches the wire. `agent:stop` receives
+  `{ agentId }` only, so `--cli` is optional on `stop` and acts purely as a
+  client-side check; the field is echoed back only when supplied.
+
+- **`agent_cli.models`** — unscoped emits one array per **system** CLI:
+  `{ codex, copilot, cursor, antigravity, opencode, pi }`, each `CliModelOption[]`.
+  Scoped to a system CLI emits `{ cli, models, supported: true }` from the same
+  RPC. Scoped to `ptah-cli` (or `glm`) emits
+  `{ cli, models: [], supported: false, reason, hint }` and makes no RPC call:
+  `AgentListCliModelsResult` has one field per system CLI and no `ptah-cli`
+  member, so a provider cannot be answered from it. `supported: false` is the
+  machine-readable distinction between "cannot answer" and "no models".
 
 ### 1.4 Setup wizard + analyze (`wizard.*`, `analyze.*`)
 
@@ -476,23 +526,23 @@ Errors are emitted as JSON-RPC error responses on stderr. Notifications never ca
 
 ### 4.2 Ptah-specific codes (`error.data.ptah_code`)
 
-| `ptah_code`                   | Meaning                                                                                           | Process Exit | Recoverable                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------- | ------------ | -------------------------------- |
-| `db_lock`                     | Prisma DB locked / contention                                                                     | `1`          | Yes (retry)                      |
-| `provider_unavailable`        | Provider endpoint unreachable                                                                     | `1`          | Yes (retry)                      |
-| `auth_required`               | No valid credentials                                                                              | `3`          | No (user action)                 |
-| `rate_limited`                | Provider rate limit                                                                               | `1`          | Yes (backoff)                    |
-| `license_required`            | Subscription invalid                                                                              | `4`          | No                               |
-| `unknown`                     | Unrecognized resource                                                                             | `1`          | No                               |
-| `internal_failure`            | Unrecoverable internal error                                                                      | `5`          | No                               |
-| `wizard_phase_failed`         | Setup wizard phase did not complete (`data.phase` carries the phase name)                         | `1`          | Sometimes                        |
-| `generation_failed`           | Agent-generation pipeline failed (`data.item_id` carries the failed item)                         | `1`          | Sometimes (retry-item)           |
-| `harness_invalid`             | `.ptah/` directory in invalid state                                                               | `1`          | Yes (re-run init)                |
-| `mcp_install_failed`          | MCP server install rejected by target CLI (`data.target` carries the target id)                   | `1`          | Sometimes                        |
-| `cli_agent_unavailable`       | Required CLI agent (glm) not on PATH OR rejected by allowlist                                     | `3`          | No (user install)                |
-| `proxy_bind_failed`           | Anthropic proxy could not bind requested host/port (`data.host`/`data.port`/`data.cause`)         | `1`          | Sometimes (try a different port) |
-| `proxy_invalid_request`       | Proxy received a malformed Anthropic Messages request (HTTP 400; `data.detail` carries the cause) | `1`          | Yes (caller fix)                 |
-| `permission_gate_unavailable` | `ptah proxy start` invoked without `--auto-approve` and not embedded in `ptah interact`           | `3`          | No (user action)                 |
+| `ptah_code`                   | Meaning                                                                                           | Process Exit | Recoverable                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- | ------------ | ---------------------------------- |
+| `db_lock`                     | Prisma DB locked / contention                                                                     | `1`          | Yes (retry)                        |
+| `provider_unavailable`        | Provider endpoint unreachable                                                                     | `1`          | Yes (retry)                        |
+| `auth_required`               | No valid credentials                                                                              | `3`          | No (user action)                   |
+| `rate_limited`                | Provider rate limit                                                                               | `1`          | Yes (backoff)                      |
+| `license_required`            | Subscription invalid                                                                              | `4`          | No                                 |
+| `unknown`                     | Unrecognized resource                                                                             | `1`          | No                                 |
+| `internal_failure`            | Unrecoverable internal error                                                                      | `5`          | No                                 |
+| `wizard_phase_failed`         | Setup wizard phase did not complete (`data.phase` carries the phase name)                         | `1`          | Sometimes                          |
+| `generation_failed`           | Agent-generation pipeline failed (`data.item_id` carries the failed item)                         | `1`          | Sometimes (retry-item)             |
+| `harness_invalid`             | `.ptah/` directory in invalid state                                                               | `1`          | Yes (re-run init)                  |
+| `mcp_install_failed`          | MCP server install rejected by target CLI (`data.target` carries the target id)                   | `1`          | Sometimes                          |
+| `cli_agent_unavailable`       | `--cli` value names no known CLI agent target (`data.allowed` lists them all)                     | `3`          | No (user must pass a known target) |
+| `proxy_bind_failed`           | Anthropic proxy could not bind requested host/port (`data.host`/`data.port`/`data.cause`)         | `1`          | Sometimes (try a different port)   |
+| `proxy_invalid_request`       | Proxy received a malformed Anthropic Messages request (HTTP 400; `data.detail` carries the cause) | `1`          | Yes (caller fix)                   |
+| `permission_gate_unavailable` | `ptah proxy start` invoked without `--auto-approve` and not embedded in `ptah interact`           | `3`          | No (user action)                   |
 
 Example — invalid params on `task.submit`:
 

@@ -12,17 +12,76 @@
  *
  *   <body markdown>
  *
- * Layout:
- *   ~/.ptah/skills/_candidates/<slug>/SKILL.md   (status='candidate')
- *   ~/.ptah/skills/<slug>/SKILL.md               (status='promoted')
+ * Layout, both halves derived from ONE root (`skillSynthesis.skillsRoot`,
+ * default `~/.ptah/skills`):
+ *   <root>/_candidates/<slug>/SKILL.md   (status='candidate')
+ *   <root>/<slug>/SKILL.md               (status='promoted')
  */
 import { inject, injectable } from 'tsyringe';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 
 const MAX_SLUG_RETRIES = 5;
+
+/** Settings section, matching every other reader in this library. */
+export const SKILLS_ROOT_SECTION = 'ptah';
+export const SKILLS_ROOT_KEY = 'skillSynthesis.skillsRoot';
+/** The candidate sub-directory, relative to the skills root. */
+export const CANDIDATES_DIR_NAME = '_candidates';
+
+/**
+ * The single root every synthesized-skill path is derived from.
+ *
+ * `~/.ptah/skills` unless `skillSynthesis.skillsRoot` names another absolute
+ * path. Read through the port so the CLI, Electron and VS Code hosts agree, and
+ * fail-soft to the default: a hand-edited settings file must not be able to
+ * point promotion at one root while the user-layer mirror walks another — that
+ * divergence is exactly the defect this function exists to close.
+ *
+ * Callers OUTSIDE this lib (the host activation glue that feeds
+ * `UserLayerMirrorService.mirrorAll`) must use this too, or the mirror is told a
+ * third root and promoted skills stop being cloned.
+ */
+export function resolveSkillsRoot(
+  workspace: IWorkspaceProvider | null | undefined,
+): string {
+  const fallback = path.join(os.homedir(), '.ptah', 'skills');
+  if (!workspace) return fallback;
+  try {
+    const raw = workspace.getConfiguration<string>(
+      SKILLS_ROOT_SECTION,
+      SKILLS_ROOT_KEY,
+      '',
+    );
+    return typeof raw === 'string' && raw.trim().length > 0
+      ? raw.trim()
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * The candidate root: an explicit `skillSynthesis.candidatesDir` override if the
+ * user set one, otherwise `<skillsRoot>/_candidates`.
+ *
+ * The override survives because it predates the unified root and some installs
+ * point it at a scratch disk; what changed is the DEFAULT, which now moves with
+ * the skills root instead of being pinned to `~/.ptah/skills/_candidates`.
+ */
+export function resolveCandidatesRoot(
+  workspace: IWorkspaceProvider | null | undefined,
+  override?: string,
+): string {
+  if (override && override.length > 0) return override;
+  return path.join(resolveSkillsRoot(workspace), CANDIDATES_DIR_NAME);
+}
 
 export interface SkillMdInput {
   /** Desired slug (will be retried with `-2…-5` suffix if collision). */
@@ -49,17 +108,26 @@ export interface MaterializedSkill {
 
 @injectable()
 export class SkillMdGenerator {
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    /**
+     * Optional and last so the existing positional construction in specs and in
+     * any host that predates the unified root keeps compiling. Absent ⇒ the
+     * documented `~/.ptah/skills` default, which is what every caller got
+     * before the key existed.
+     */
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace: IWorkspaceProvider | null = null,
+  ) {}
 
   /** Root for candidate skills (status='candidate'). */
   candidatesRoot(override?: string): string {
-    if (override && override.length > 0) return override;
-    return path.join(os.homedir(), '.ptah', 'skills', '_candidates');
+    return resolveCandidatesRoot(this.workspace, override);
   }
 
   /** Root for active/promoted skills (status='promoted'). */
   activeRoot(): string {
-    return path.join(os.homedir(), '.ptah', 'skills');
+    return resolveSkillsRoot(this.workspace);
   }
 
   /**

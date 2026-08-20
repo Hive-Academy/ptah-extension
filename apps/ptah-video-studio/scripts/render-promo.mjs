@@ -1,0 +1,437 @@
+/**
+ * render-promo.mjs — capture-free promotional videos from a JSON spec.
+ *
+ * Reads `promos/<slug>.json` (a PromoSpec: ordered slides with on-screen copy
+ * and optional per-slide narration `vo` lines), narrates the voiced slides via
+ * the existing narrate.mjs machinery, and renders the PromoReel composition —
+ * no Playwright capture, no e2e stack, no beats/shots.
+ *
+ * Flow:
+ *   1. Write `narration-script.json` into the promo's recordings dir (the
+ *      narration source narrate.mjs already understands), one beat per slide —
+ *      silent slides keep their index so wav numbering stays aligned.
+ *   2. Spawn `narrate.mjs --scene <slug>` (skips when up to date).
+ *   3. Build PromoReel props (spec + per-slide clip durations + wav paths)
+ *      and `npx remotion render` with `--public-dir` = the promo dir.
+ *
+ * Usage:
+ *   node apps/ptah-video-studio/scripts/render-promo.mjs --promo dyad-vs-ptah-landscape
+ *     [--force-narration]
+ *
+ * Output: dist/apps/ptah-electron-e2e/recordings/<slug>/out/<slug>.mp4
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { APP_ROOT, sceneDir, parseArgs, loadStudioEnv } from './paths.mjs';
+import { masterAudio, describeMasterResult } from './lib/master-audio.mjs';
+
+loadStudioEnv();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROMOS_DIR = path.resolve(APP_ROOT, 'promos');
+const MUSIC_DIR = path.resolve(APP_ROOT, 'assets', 'music');
+const SFX_DIR = path.resolve(APP_ROOT, 'assets', 'sfx');
+// Shared 3D assets (GLB models, etc.) live under public/ so staticFile()
+// resolves them in Remotion Studio (default public dir). render() below sets
+// --public-dir to the per-scene recordings dir, so these must ALSO be copied
+// there or 3D scenes 404 on render. See stagePublicAssets().
+const PUBLIC_DIR = path.resolve(APP_ROOT, 'public');
+
+// Cut/accent SFX staged into every promo's public dir when present on disk —
+// see assets/sfx/SFX-CREDITS.md. Never fails on a missing file (PromoReel/
+// PromoSoundDesign treat an absent prop as "skip this sound").
+const SFX_FILES = {
+  whooshFile: 'whoosh.mp3',
+  tickFile: 'tick.mp3',
+  chimeFile: 'chime.mp3',
+};
+
+/**
+ * Copy whichever cut/accent SFX exist on disk into the promo's public dir.
+ * Returns a partial PromoReelProps object — only props for files that actually
+ * exist are set, so a missing file just means that sound is skipped.
+ */
+function stagePromoSfx(dir) {
+  const props = {};
+  for (const [propName, fileName] of Object.entries(SFX_FILES)) {
+    const src = path.join(SFX_DIR, fileName);
+    if (!fs.existsSync(src)) continue;
+    const destName = `sfx-${fileName}`;
+    fs.copyFileSync(src, path.join(dir, destName));
+    props[propName] = destName;
+  }
+  return props;
+}
+
+// Background music bed applied to every promo unless a spec sets `music: null`.
+// `music: "<file>"` picks a different track from assets/music/. Volume sits low
+// so narration stays clearly on top.
+const DEFAULT_MUSIC = 'rising-dawn.mp3';
+const DEFAULT_MUSIC_VOLUME = 0.24;
+
+/**
+ * Resolve the music bed for a spec and copy it into the scene's public dir so
+ * staticFile() can load it. Returns { musicFile, musicVolume } or {} when there
+ * is no track (spec disabled it, or the file is missing).
+ */
+function resolveMusic(spec, dir) {
+  const name = spec.music === undefined ? DEFAULT_MUSIC : spec.music;
+  if (!name) return {};
+  const src = path.isAbsolute(name) ? name : path.join(MUSIC_DIR, name);
+  if (!fs.existsSync(src)) {
+    console.warn(`[promo] music not found: ${src} — rendering without a bed.`);
+    return {};
+  }
+  const destName = `music${path.extname(src) || '.mp3'}`;
+  fs.copyFileSync(src, path.join(dir, destName));
+  return {
+    musicFile: destName,
+    musicVolume: typeof spec.musicVolume === 'number' ? spec.musicVolume : DEFAULT_MUSIC_VOLUME,
+  };
+}
+
+/**
+ * Recursively copy a directory (Node >=16 has fs.cpSync). Used to mirror
+ * public/ subdirs (models/, hdri/, …) into the per-scene public dir so
+ * staticFile('models/x.glb') resolves under --public-dir=<sceneDir>.
+ */
+function copyDir(src, dest) {
+  fs.cpSync(src, dest, { recursive: true });
+}
+
+/**
+ * Stage shared 3D/static assets from apps/ptah-video-studio/public/ into the
+ * scene's public dir (which render() passes as --public-dir). Mirrors known
+ * asset subfolders so staticFile() paths line up between Studio (public/) and
+ * headless render (scene dir). Missing folders are skipped silently.
+ */
+function stagePublicAssets(dir) {
+  if (!fs.existsSync(PUBLIC_DIR)) return;
+  for (const sub of ['models', 'hdri', 'brand']) {
+    const src = path.join(PUBLIC_DIR, sub);
+    if (!fs.existsSync(src)) continue;
+    copyDir(src, path.join(dir, sub));
+  }
+}
+
+/**
+ * Stage `kind: 'capture'` footage into the promo's public dir and rewrite each
+ * slide's `src` to the staged filename, so staticFile() resolves it under
+ * --public-dir. A spec references source footage by scene slug
+ * (`"capture": "chat-code-edit"`), which resolves to that scene's RAW Playwright
+ * recording — no re-capture, no Playwright, no Electron.
+ *
+ * Raw is the default on purpose. The rendered `out/<slug>.mp4` has already been
+ * through the showcase compositor, so it carries baked-in lower-third captions,
+ * a DeviceFrame inset and the corner watermark — all of which fight a full-bleed
+ * product act and double up with this reel's own narration. Set
+ * `"captureRendered": true` on a slide to deliberately use that treatment.
+ */
+function stageCaptures(spec, dir) {
+  let staged = 0;
+  for (const slide of spec.slides) {
+    if (slide.kind !== 'capture') continue;
+    const source = slide.capture;
+    if (!source) throw new Error(`Promo ${spec.slug}: a capture slide has no "capture" scene slug.`);
+    const src = path.isAbsolute(source)
+      ? source
+      : slide.captureRendered
+        ? path.join(sceneDir(source), 'out', `${source}.mp4`)
+        : path.join(sceneDir(source), 'raw.webm');
+    if (!fs.existsSync(src)) {
+      throw new Error(
+        `Promo ${spec.slug}: capture footage not found at ${src}. ` +
+          `Capture that scene first (ptah-electron-e2e:showcase --grep "${source}").`,
+      );
+    }
+    const destName = `capture-${source}-${path.basename(src)}`;
+    fs.copyFileSync(src, path.join(dir, destName));
+    slide.src = destName;
+    staged++;
+  }
+  if (staged > 0) console.log(`[promo] staged ${staged} capture clip(s).`);
+}
+
+/**
+ * Inline the per-frame TUI grids for `kind: 'terminal'` slides.
+ *
+ * These go into the props file rather than the public dir on purpose: the grid
+ * data is the SUBJECT of the shot, not an asset the page fetches, and inlining
+ * keeps TerminalPlayer synchronous — no delayRender/continueRender dance, and
+ * therefore no way for a slow fetch to race a frame render.
+ */
+function inlineTerminals(spec) {
+  let inlined = 0;
+  for (const slide of spec.slides) {
+    if (slide.kind !== 'terminal') continue;
+    const source = slide.terminal;
+    if (!source) throw new Error(`Promo ${spec.slug}: a terminal slide has no "terminal" scene slug.`);
+    const framesPath = path.join(sceneDir(source), 'tui-frames.json');
+    if (!fs.existsSync(framesPath)) {
+      throw new Error(
+        `Promo ${spec.slug}: no TUI frames at ${framesPath}. Record and grid it first:\n` +
+          `  node apps/ptah-video-studio/scripts/record-tui.mjs --scene ${source} --live\n` +
+          `  node apps/ptah-video-studio/scripts/tui-frames.mjs  --scene ${source}`,
+      );
+    }
+    slide.frames = JSON.parse(fs.readFileSync(framesPath, 'utf8'));
+    inlined++;
+  }
+  if (inlined > 0) console.log(`[promo] inlined ${inlined} terminal recording(s).`);
+}
+
+function loadSpec(slug) {
+  const specPath = path.join(PROMOS_DIR, `${slug}.json`);
+  if (!fs.existsSync(specPath)) {
+    const available = fs.existsSync(PROMOS_DIR)
+      ? fs
+          .readdirSync(PROMOS_DIR)
+          .filter((f) => f.endsWith('.json'))
+          .map((f) => f.replace(/\.json$/, ''))
+          .join(', ')
+      : '(none)';
+    throw new Error(
+      `No promo spec at ${specPath}. Available promos: ${available}`,
+    );
+  }
+  const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+  if (!Array.isArray(spec.slides) || spec.slides.length === 0) {
+    throw new Error(`Promo ${slug}: spec has no slides.`);
+  }
+  spec.slug = slug;
+  return spec;
+}
+
+/**
+ * Materialize the narration source narrate.mjs consumes. One beat per slide —
+ * silent slides carry empty text (narrate skips them) so clip file numbering
+ * (1-based beat index) stays aligned with slide indices.
+ */
+function writeNarrationScript(spec, dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const scriptPath = path.join(dir, 'narration-script.json');
+  const next = {
+    scene: spec.slug,
+    beats: spec.slides.map((slide, i) => ({ tMs: i, vo: slide.vo ?? '' })),
+  };
+  const serialized = JSON.stringify(next, null, 2);
+  // Only touch the file when the lines changed — narrate.mjs's skip logic is
+  // mtime-based, so a no-op rewrite would force a full re-synthesis.
+  if (
+    !fs.existsSync(scriptPath) ||
+    fs.readFileSync(scriptPath, 'utf8') !== serialized
+  ) {
+    fs.writeFileSync(scriptPath, serialized);
+  }
+}
+
+/**
+ * Narrate the promo's voiced slides. A spec may pin the engine/voice/model
+ * — those flags override narrate.mjs's env defaults; unset ones fall through
+ * to PH_TTS_ENGINE / PH_ELEVENLABS_VOICE_ID.
+ */
+function narrate(slug, spec, force, engineOverride) {
+  const args = [path.join(__dirname, 'narrate.mjs'), '--scene', slug];
+  // `--engine` beats the spec so a draft can be voiced locally (kokoro) without
+  // editing — and committing — a spec that is pinned to a paid engine for the
+  // final cut. Note kokoro emits no word alignment, so a kokoro draft falls back
+  // to even-sliced captions; re-render on the spec's engine for word-synced ones.
+  const engine = engineOverride || spec.engine;
+  if (engine) args.push('--engine', engine);
+  if (spec.voice) args.push('--voice', spec.voice);
+  if (spec.model) args.push('--model', spec.model);
+  // Per-spec delivery controls (deliberate/premium tuning). Unset ones fall
+  // through to narrate.mjs's engine-aware defaults. A change to any of these is
+  // part of the settings fingerprint, so it busts the wav-reuse skip.
+  if (spec.speed != null) args.push('--speed', String(spec.speed));
+  if (spec.stability != null) args.push('--stability', String(spec.stability));
+  if (spec.similarity != null) args.push('--similarity', String(spec.similarity));
+  if (spec.style != null) args.push('--style', String(spec.style));
+  if (force) args.push('--force');
+  execFileSync(process.execPath, args, { stdio: 'inherit' });
+}
+
+/**
+ * Group a clip's word tokens into one window per spoken sentence. Feeds
+ * `PromoSlide.captionWindowsMs`, which `PhaseStage` uses to land phase
+ * boundaries on real sentence timings instead of an even 1/N division.
+ */
+function sentenceWindows(words) {
+  const out = [];
+  let start = null;
+  let end = null;
+  for (const word of words) {
+    if (start === null) start = word.startMs;
+    end = word.endMs;
+    if (/[.!?]"?$/.test(word.text)) {
+      out.push({ startMs: start, endMs: end });
+      start = null;
+    }
+  }
+  if (start !== null && end !== null) out.push({ startMs: start, endMs: end });
+  return out;
+}
+
+/**
+ * Per-slide clip durations + wav paths from durations.json (1-based index).
+ *
+ * ALSO attaches the ElevenLabs word alignment (`clip.words`, emitted by
+ * narrate.mjs's `wordsFromAlignment`) onto each slide as `voWordsMs` +
+ * `captionWindowsMs`. Without this, `CaptionRail` silently falls back to
+ * even-slicing the `vo` paragraph — i.e. no word-synced captions on ANY promo,
+ * however it was narrated. Kokoro emits no alignment, so those specs keep the
+ * fallback. The mutated `spec` is what gets serialized into the render props.
+ */
+function narrationProps(spec, dir) {
+  const durationsPath = path.join(dir, 'durations.json');
+  const clipDurationsMs = new Array(spec.slides.length).fill(null);
+  const narrationFiles = {};
+  if (!fs.existsSync(durationsPath)) return { clipDurationsMs, narrationFiles };
+  const durations = JSON.parse(fs.readFileSync(durationsPath, 'utf8'));
+  let aligned = 0;
+  for (const clip of durations.clips ?? []) {
+    const slideIndex = (clip.index ?? 0) - 1;
+    if (slideIndex < 0 || slideIndex >= spec.slides.length) continue;
+    if (typeof clip.durationMs === 'number') {
+      clipDurationsMs[slideIndex] = clip.durationMs;
+    }
+    if (clip.file) narrationFiles[slideIndex] = clip.file;
+    if (Array.isArray(clip.words) && clip.words.length > 0) {
+      const slide = spec.slides[slideIndex];
+      slide.voWordsMs = clip.words;
+      const windows = sentenceWindows(clip.words);
+      if (windows.length > 0) slide.captionWindowsMs = windows;
+      aligned++;
+    }
+  }
+  if (aligned > 0) {
+    console.log(`[promo] word-synced captions on ${aligned} slide(s) from VO alignment.`);
+  }
+  return { clipDurationsMs, narrationFiles };
+}
+
+function render(spec, dir) {
+  const outDir = path.join(dir, 'out');
+  fs.mkdirSync(outDir, { recursive: true });
+  const outFile = path.join(outDir, `${spec.slug}.mp4`);
+
+  // Mirror public/ 3D assets into this scene's public dir before render.
+  stagePublicAssets(dir);
+  // Copy any real product footage the spec references (mutates slide.src).
+  stageCaptures(spec, dir);
+  // Inline any recorded TUI grids (mutates slide.frames).
+  inlineTerminals(spec);
+
+  const props = {
+    spec,
+    ...narrationProps(spec, dir),
+    ...resolveMusic(spec, dir),
+    ...stagePromoSfx(dir),
+  };
+  const propsPath = path.join(dir, 'promo-props.json');
+  fs.writeFileSync(propsPath, JSON.stringify(props, null, 2));
+
+  const voiced = Object.keys(props.narrationFiles).length;
+  console.log(
+    `[promo] ${spec.slug}: ${spec.slides.length} slide(s), ${voiced} narrated, ` +
+      `music ${props.musicFile ? 'on' : 'off'}, ` +
+      `${spec.format === 'landscape' ? '1920x1080' : '1080x1920'} -> ${outFile}`,
+  );
+
+  execFileSync(
+    'npx',
+    [
+      'remotion',
+      'render',
+      'src/Root.tsx',
+      'PromoReel',
+      outFile,
+      `--props=${propsPath}`,
+      `--public-dir=${dir}`,
+    ],
+    { cwd: APP_ROOT, stdio: 'inherit', shell: process.platform === 'win32' },
+  );
+
+  // Remotion sets the mix BALANCE but never the absolute level, so an unmastered
+  // render lands ~8 dB under the -14 LUFS platforms normalize to. Master in place
+  // (video stream-copied) so the file is publishable as rendered.
+  console.log(`[promo] master: ${describeMasterResult(masterAudio(outFile))}`);
+  console.log(`[promo] Done: ${outFile}`);
+}
+
+function renderPromo(slug, force, engineOverride) {
+  const spec = loadSpec(slug);
+  const dir = sceneDir(slug);
+  writeNarrationScript(spec, dir);
+  if (spec.slides.some((s) => s.vo)) {
+    narrate(slug, spec, force, engineOverride);
+  }
+  render(spec, dir);
+}
+
+/** Every `promos/*.json` slug (for --all campaign renders). */
+function allSlugs() {
+  if (!fs.existsSync(PROMOS_DIR)) return [];
+  return fs
+    .readdirSync(PROMOS_DIR)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.replace(/\.json$/, ''))
+    .sort();
+}
+
+function main() {
+  const args = parseArgs();
+  const force = Boolean(args['force-narration']);
+  const engineOverride =
+    typeof args.engine === 'string' ? args.engine : undefined;
+
+  // Slug sources: --all (whole campaign), --promo <slug>, or positional slugs
+  // (`render-promo one two three`). Multiple slugs render sequentially.
+  let slugs;
+  if (args.all) {
+    slugs = allSlugs();
+  } else if (typeof args.promo === 'string') {
+    slugs = [args.promo];
+  } else if (args._.length > 0) {
+    slugs = args._;
+  } else {
+    throw new Error(
+      'Usage: node render-promo.mjs (--promo <slug> | <slug...> | --all) [--force-narration]',
+    );
+  }
+
+  if (slugs.length === 0) {
+    console.log('[promo] No promos to render.');
+    return;
+  }
+
+  const failures = [];
+  for (const slug of slugs) {
+    try {
+      console.log(`\n[promo] ===== ${slug} =====`);
+      renderPromo(slug, force, engineOverride);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[promo] ${slug} FAILED: ${message}`);
+      failures.push(slug);
+    }
+  }
+
+  if (slugs.length > 1) {
+    console.log(
+      `\n[promo] Campaign done: ${slugs.length - failures.length}/${slugs.length} rendered` +
+        (failures.length ? ` — failed: ${failures.join(', ')}` : '.'),
+    );
+  }
+  if (failures.length) process.exitCode = 1;
+}
+
+try {
+  main();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[promo] FAILED: ${message}`);
+  process.exitCode = 1;
+}

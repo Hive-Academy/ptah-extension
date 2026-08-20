@@ -49,15 +49,12 @@ For detailed patterns and workflows, see:
 ## Aesthetic Discovery Questions
 
 1. **Industry/Niche**: What domain is your product in?
-
    - Developer tools / SaaS / E-commerce / Creative / Enterprise / Other
 
 2. **Personality**: What 3 adjectives describe your brand?
-
    - Examples: Modern, Trustworthy, Playful, Premium, Technical, Approachable
 
 3. **Reference Sites**: What 2-3 websites do you admire visually?
-
    - We'll analyze these for patterns
 
 4. **Mood**: Light and airy OR Dark and dramatic?
@@ -147,7 +144,10 @@ When completing design work, deliver:
 
 [Full design system specification]
 
-- Save to: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
+- Save to: `DESIGN-SYSTEM.md` inside the `technical-content-writer` skill's own
+  directory (its sibling files live there). Locate that directory via the Skill
+  tool / plugin root — never write to a workspace-relative `.claude/` path,
+  which differs per host and install method.
 
 ### 3. Asset Generation Briefs
 
@@ -168,12 +168,16 @@ When completing design work, deliver:
 
 After creating a design system, update:
 
+Both files below are siblings of the `technical-content-writer` SKILL.md. Resolve
+them against that skill's own directory, which you get from the Skill tool /
+plugin root — a workspace-relative `.claude/` path is not portable across hosts.
+
 ```bash
 # Save design system for content generation
-Write(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
+Write(<technical-content-writer skill dir>/DESIGN-SYSTEM.md)
 
 # Reference in landing page generation
-Read(.claude/skills/technical-content-writer/LANDING-PAGES.md)
+Read(<technical-content-writer skill dir>/LANDING-PAGES.md)
 ```
 
 This ensures all generated content follows your visual identity.

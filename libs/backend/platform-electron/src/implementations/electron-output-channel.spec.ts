@@ -27,6 +27,16 @@ async function flushStreams(ms = 50): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+// Mirror ElectronOutputChannel's per-day file naming so assertions can locate
+// today's log file.
+function todayLogFile(name: string): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${name}-${y}-${m}-${d}.log`;
+}
+
 afterEach(async () => {
   // Allow async stream writes initiated by the contract suite to flush before
   // we delete the directory — otherwise Windows refuses to unlink the log.
@@ -63,7 +73,10 @@ describe('ElectronOutputChannel — Electron-specific behaviour', () => {
     channel.appendLine('second');
     await flushStreams();
 
-    const raw = await fs.readFile(path.join(logDir, 'ptah-test.log'), 'utf-8');
+    const raw = await fs.readFile(
+      path.join(logDir, todayLogFile('ptah-test')),
+      'utf-8',
+    );
     // Each line must start with a bracketed ISO timestamp, e.g. `[2024-...Z]`.
     expect(raw).toMatch(/^\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\] first/m);
     expect(raw).toMatch(/^\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\] second/m);
@@ -73,7 +86,10 @@ describe('ElectronOutputChannel — Electron-specific behaviour', () => {
     channel.append('frag-a');
     channel.append('frag-b');
     await flushStreams();
-    const raw = await fs.readFile(path.join(logDir, 'ptah-test.log'), 'utf-8');
+    const raw = await fs.readFile(
+      path.join(logDir, todayLogFile('ptah-test')),
+      'utf-8',
+    );
     expect(raw).toContain('frag-afrag-b');
   });
 
@@ -84,7 +100,10 @@ describe('ElectronOutputChannel — Electron-specific behaviour', () => {
     channel.appendLine('after-clear');
     await flushStreams();
 
-    const raw = await fs.readFile(path.join(logDir, 'ptah-test.log'), 'utf-8');
+    const raw = await fs.readFile(
+      path.join(logDir, todayLogFile('ptah-test')),
+      'utf-8',
+    );
     expect(raw).toContain('after-clear');
     expect(raw).not.toContain('before-clear');
   });

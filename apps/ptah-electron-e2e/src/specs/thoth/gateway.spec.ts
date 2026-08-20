@@ -100,9 +100,6 @@ test.describe('Thoth — Gateway tab', () => {
       page.locator('[data-testid="gateway-platform-card-telegram"]'),
     ).toBeVisible();
     await expect(
-      page.locator('[data-testid="gateway-platform-status-telegram"]'),
-    ).toHaveText('running');
-    await expect(
       platformPane(ui, 'telegram').locator(
         '[data-testid="gateway-binding-empty"]',
       ),
@@ -180,13 +177,9 @@ test.describe('Thoth — Gateway tab', () => {
     await ui.openTab('gateway');
 
     const page = ui.page;
-    const discordPane = platformPane(ui, 'discord');
 
     await expect(
       page.locator('[data-testid="gateway-tile-status-discord"]'),
-    ).toHaveText('stopped');
-    await expect(
-      discordPane.locator('[data-testid="gateway-platform-status-discord"]'),
     ).toHaveText('stopped');
 
     await ui.pushEvent({
@@ -206,9 +199,6 @@ test.describe('Thoth — Gateway tab', () => {
 
     await expect(
       page.locator('[data-testid="gateway-tile-status-discord"]'),
-    ).toHaveText('running');
-    await expect(
-      discordPane.locator('[data-testid="gateway-platform-status-discord"]'),
     ).toHaveText('running');
   });
 });

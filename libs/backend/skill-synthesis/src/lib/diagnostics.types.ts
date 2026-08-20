@@ -3,6 +3,9 @@ import type { PopulatedSkillTriggers } from './triggers/skill-trigger-config';
 export type SkillSynthesisEventKind =
   | 'analyze-run'
   | 'curator-pass'
+  | 'curator-pass-start'
+  | 'backfill-progress'
+  | 'backfill-complete'
   | 'idle-trigger'
   | 'boot-scan'
   | 'manual-run'
@@ -12,10 +15,7 @@ export type SkillSynthesisEventKind =
   | 'rate-limited'
   | 'error';
 
-export type SkillIneligibleReason =
-  | 'tooFewTurns'
-  | 'lowFidelity'
-  | 'insufficientAbstraction';
+export type SkillIneligibleReason = 'prefilterTooThin' | 'prefilterRejected';
 
 export interface SkillSynthesisEvent {
   readonly kind: SkillSynthesisEventKind;
@@ -28,9 +28,8 @@ export interface SkillSynthesisEvent {
 }
 
 export interface EligibilityHistogram {
-  readonly tooFewTurns: number;
-  readonly lowFidelity: number;
-  readonly insufficientAbstraction: number;
+  readonly prefilterTooThin: number;
+  readonly prefilterRejected: number;
   readonly accepted: number;
 }
 

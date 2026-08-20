@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -17,6 +18,7 @@ import type {
   SkillSynthesisSettings,
   CandidateId,
 } from './types';
+import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 import {
   INTERNAL_QUERY_SERVICE_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
@@ -34,12 +36,55 @@ import {
   SKILL_REPROPAGATION_TOKEN,
   type SkillRepropagationPort,
 } from './skill-repropagation.port';
+import {
+  SPEC_FINDINGS_TOKEN,
+  type SpecFindingsPort,
+} from './spec-findings.port';
+import type { SkillScorecardService } from './skill-scorecard.service';
+import type { AgentScorecard } from '@ptah-extension/shared';
 
 const ENHANCE_TIMEOUT_MS = 30_000;
-const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const MIN_INVOCATIONS_TO_ENHANCE = 5;
+/**
+ * Hard cap on the measured-scorecard block appended to the agent enhancement
+ * prompt (R8.3). Well inside the 4,000-char findings discipline so prompt bloat
+ * stays bounded.
+ */
+const MAX_SCORECARD_CHARS = 1200;
+/** Auto-enhancement cooldown after a successful enhancement. */
+export const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+/** Minimum recorded invocations before a clone is auto-enhance eligible. */
+export const MIN_INVOCATIONS_TO_ENHANCE = 5;
+/**
+ * The MEASURED win rate at or above which auto-enhancement leaves a clone alone.
+ *
+ * A second eligibility input ALONGSIDE {@link MIN_INVOCATIONS_TO_ENHANCE}, not a
+ * replacement for it: the invocation floor asks "is there enough usage to learn
+ * from", this asks "is there anything left to fix". A clone winning 80 % of its
+ * measured sessions is working, and spending a background LLM call to rewrite it
+ * risks the regression more than it buys the improvement.
+ *
+ * ## `null` DOES NOT GATE
+ *
+ * An unmeasured clone (`winRate === null`) is NOT treated as a winner and NOT
+ * treated as a loser — the invocation floor decides alone, exactly as it did
+ * before this gate existed. That is why the check is written `=== null` first:
+ * `winRate >= MAX` would let `null` through by accident today and `winRate ?? 1`
+ * would block every unmeasured clone tomorrow. The mirror-image trap is `||`,
+ * which turns a measured `0` — the clone most in need of enhancement — into
+ * "unmeasured".
+ */
+export const MAX_WIN_RATE_TO_AUTO_ENHANCE = 0.8;
 const MAX_TRAJECTORY_SESSIONS = 3;
 const TRAJECTORY_MIN_TURNS = 5;
+
+/**
+ * How long a generated-but-unapplied proposal stays redeemable. Long enough to
+ * read a full diff, short enough that the clone on disk cannot have drifted far
+ * underneath it.
+ */
+export const PROPOSAL_TTL_MS = 15 * 60 * 1000;
+/** Hard cap on cached proposals; oldest is evicted first (insertion order). */
+export const MAX_CACHED_PROPOSALS = 20;
 
 export interface EnhanceOptions {
   readonly manual?: boolean;
@@ -55,6 +100,14 @@ export type EnhanceSkipReason =
   | 'no-change'
   | 'invalid-candidate'
   | 'judge-rejected'
+  /**
+   * The clone's MEASURED win rate is at or above
+   * {@link MAX_WIN_RATE_TO_AUTO_ENHANCE}. Distinct from `below-threshold`: that
+   * one means "not enough usage to learn from", this one means "enough usage,
+   * and it says the clone is already working". Unreachable from an unmeasured
+   * clone and unreachable from a manual run.
+   */
+  | 'win-rate-sufficient'
   | 'error';
 
 export interface EnhanceResult {
@@ -74,8 +127,79 @@ export interface RevertEnhancementResult {
   newHistoryTs: string | null;
 }
 
+/**
+ * A generated-and-judged improvement that has NOT been written to disk. Held
+ * in memory only (never persisted) and redeemable exactly once via
+ * {@link SkillEnhancerService.applyProposal}.
+ */
+export interface EnhancementProposal {
+  readonly proposalId: string;
+  readonly slug: string;
+  readonly kind: SkillRegistryKind;
+  readonly currentBody: string;
+  readonly proposedBody: string;
+  readonly judgeScore: number | null;
+  readonly judgeReason: string | null;
+  readonly createdAt: number;
+}
+
+/**
+ * Outcome of the read-only half of enhancement. `proposed: true` guarantees
+ * `proposalId` / `currentBody` / `proposedBody` are non-null. On a skip the
+ * bodies and judge fields are still filled in wherever they are known, so the
+ * caller can show *why* a candidate was rejected next to the rejected diff.
+ */
+export interface GenerateProposalResult {
+  proposed: boolean;
+  slug: string;
+  kind: SkillRegistryKind;
+  currentBody: string | null;
+  proposedBody: string | null;
+  judgeScore: number | null;
+  judgeReason: string | null;
+  proposalId: string | null;
+  skipReason?: EnhanceSkipReason;
+}
+
+/** Outcome of the write half of enhancement. */
+export interface ApplyProposalResult {
+  applied: boolean;
+  slug: string;
+  kind: SkillRegistryKind;
+  judgeScore: number | null;
+  judgeReason: string | null;
+  historyTs: string | null;
+}
+
+/** Why a `proposalId` could not be redeemed. */
+export type ProposalRejectionCode = 'not-found' | 'expired' | 'mismatch';
+
+/**
+ * Thrown by {@link SkillEnhancerService.applyProposal} when the id does not
+ * resolve to a live proposal for the requested `(kind, slug)`. Callers MUST
+ * surface this rather than silently regenerating — re-running the LLM would
+ * apply a body the user never previewed.
+ */
+export class ProposalNotFoundError extends Error {
+  constructor(
+    readonly code: ProposalRejectionCode,
+    readonly proposalId: string,
+  ) {
+    super(`Enhancement proposal ${code}: ${proposalId}`);
+    this.name = 'ProposalNotFoundError';
+  }
+}
+
 @injectable()
 export class SkillEnhancerService {
+  /**
+   * Generated-but-unapplied proposals, keyed by opaque `proposalId`. In-memory
+   * only and process-local: a restart simply invalidates outstanding previews,
+   * which is the safe failure mode (Apply re-previews instead of writing a
+   * body nobody saw).
+   */
+  private readonly proposals = new Map<string, EnhancementProposal>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -94,8 +218,21 @@ export class SkillEnhancerService {
     private readonly internalQuery: IInternalQuery | null,
     @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
     private readonly repropagation: SkillRepropagationPort | null,
+    @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
+    private readonly specFindings: SpecFindingsPort | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
+      isOptional: true,
+    })
+    private readonly scorecard: SkillScorecardService | null,
   ) {}
 
+  /**
+   * Two measured inputs, both of which must say "yes", plus the cooldown:
+   * enough recorded usage to learn from ({@link MIN_INVOCATIONS_TO_ENHANCE})
+   * and no measurement saying the clone is already winning
+   * ({@link MAX_WIN_RATE_TO_AUTO_ENHANCE}). An unmeasured clone is decided by
+   * the invocation floor alone — see {@link isAlreadyWinning}.
+   */
   isEligible(
     slug: string,
     settings: SkillSynthesisSettings,
@@ -103,22 +240,75 @@ export class SkillEnhancerService {
   ): boolean {
     const stats = this.candidates.getInvocationStats(slug);
     if (stats.total < MIN_INVOCATIONS_TO_ENHANCE) return false;
-    return !this.isWithinCooldown(slug, settings, kind);
+    if (this.isWithinCooldown(slug, settings, kind)) return false;
+    return !this.isAlreadyWinning(slug);
   }
 
-  async enhance(
+  /**
+   * `true` only when a MEASURED win rate is at or above
+   * {@link MAX_WIN_RATE_TO_AUTO_ENHANCE}.
+   *
+   * `null` (never measured) returns `false` — "we have no evidence this clone is
+   * fine", which leaves the decision exactly where it was before this gate. A
+   * measured `0` also returns `false`, and that is the case the `=== null` test
+   * exists to protect: it is the clone most worth enhancing, and any truthiness
+   * check on this number would file it under "unmeasured".
+   */
+  private isAlreadyWinning(slug: string): boolean {
+    const winRate = this.winRateFor(slug);
+    if (winRate === null) return false;
+    return winRate >= MAX_WIN_RATE_TO_AUTO_ENHANCE;
+  }
+
+  /**
+   * The clone's measured win rate, or `null` for "never measured".
+   *
+   * Fail-soft: a store failure reads as unmeasured, which withholds the gate
+   * rather than inventing a verdict — enhancement then falls back to the
+   * invocation floor alone.
+   */
+  private winRateFor(slug: string): number | null {
+    try {
+      const measured = this.candidates
+        .getWinRates()
+        .find((rate) => rate.slug === slug);
+      return measured ? measured.winRate : null;
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[skill-enhancer] win-rate read failed; treating as unmeasured',
+        {
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Generate + judge an improvement WITHOUT touching disk.
+   *
+   * Runs every gate the write path runs (eligibility, cooldown, generation,
+   * judge verdict, frontmatter validation) and stops immediately before the
+   * snapshot/write. A proposal that clears all gates is parked in the
+   * in-memory cache and its opaque `proposalId` returned; redeem it with
+   * {@link applyProposal}. Fail-soft: never throws, mirroring `enhance`.
+   */
+  async generateProposal(
     slug: string,
     settings: SkillSynthesisSettings,
     options: EnhanceOptions = {},
-  ): Promise<EnhanceResult> {
+  ): Promise<GenerateProposalResult> {
     const kind: SkillRegistryKind = options.kind ?? 'skill';
-    const base: EnhanceResult = {
-      changed: false,
+    const base: GenerateProposalResult = {
+      proposed: false,
       slug,
       kind,
+      currentBody: null,
+      proposedBody: null,
       judgeScore: null,
       judgeReason: null,
-      historyTs: null,
+      proposalId: null,
     };
 
     try {
@@ -139,17 +329,29 @@ export class SkillEnhancerService {
       if (!options.manual && this.isWithinCooldown(slug, settings, kind)) {
         return { ...base, skipReason: 'cooldown' };
       }
+      // Last of the three auto-eligibility gates, and the only one that reads a
+      // measurement rather than a count: a clone that is measurably winning gets
+      // no background rewrite. Manual runs bypass it exactly as they bypass the
+      // invocation floor — the user asked.
+      if (!options.manual && this.isAlreadyWinning(slug)) {
+        return { ...base, skipReason: 'win-rate-sufficient' };
+      }
 
       const cwd = this.resolveCwd();
+      // Measured-usage signal for agent clones only; null (byte-identical
+      // fallback) for skills/commands or when no graded/metric data exists.
+      const scorecardBlock =
+        kind === 'agent' ? this.buildAgentScorecardBlock(slug) : null;
       const candidateBody = await this.generateCandidate(
         slug,
         currentBody,
         settings,
         cwd,
         kind,
+        scorecardBlock,
       );
       if (!candidateBody) {
-        return { ...base, skipReason: 'empty-candidate' };
+        return { ...base, currentBody, skipReason: 'empty-candidate' };
       }
 
       if (candidateBody.trim() === currentBody.trim()) {
@@ -160,35 +362,56 @@ export class SkillEnhancerService {
             kind,
           },
         );
-        return { ...base, skipReason: 'no-change' };
+        return { ...base, currentBody, skipReason: 'no-change' };
       }
 
       const decision = await this.judge.judge(
         this.synthRow(slug, currentBody),
         candidateBody,
         settings,
+        scorecardBlock ?? undefined,
       );
 
-      const autoRequiresVerdict = !options.manual;
-      const passedForWrite =
-        decision.passed &&
-        (!autoRequiresVerdict || decision.reason === 'judge-verdict');
+      const judged: GenerateProposalResult = {
+        ...base,
+        currentBody,
+        proposedBody: candidateBody,
+        judgeScore: decision.score,
+        judgeReason: decision.reason,
+      };
+
+      /**
+       * The judge reports; the threshold is applied HERE.
+       *
+       * `scored` is the only status carrying a number, so it is the only one
+       * that can clear the bar. The other two are split by who asked:
+       *
+       *  - AUTOMATIC enhancement demands a genuine verdict. `unscored` (the
+       *    judge could not tell us) and `disabled` (no gate configured) both
+       *    stop it, which is the behaviour the pre-lane code got by testing
+       *    `reason === 'judge-verdict'` — except that it used to arrive here
+       *    with a fabricated `score: 10` attached.
+       *  - A MANUAL request is the user asking for this specific change, so
+       *    only an explicit low score refuses them.
+       */
+      const scoredPass =
+        decision.status === 'scored' &&
+        decision.score !== null &&
+        decision.score >= settings.minJudgeScore;
+      const passedForWrite = options.manual
+        ? decision.status !== 'scored' || scoredPass
+        : scoredPass;
 
       if (!passedForWrite) {
         this.logger.info('[skill-enhancer] candidate not written', {
           slug,
           kind,
-          judgePassed: decision.passed,
+          judgeStatus: decision.status,
           judgeReason: decision.reason,
           judgeScore: decision.score,
           manual: options.manual ?? false,
         });
-        return {
-          ...base,
-          judgeScore: decision.score,
-          judgeReason: decision.reason,
-          skipReason: 'judge-rejected',
-        };
+        return { ...judged, skipReason: 'judge-rejected' };
       }
 
       if (
@@ -204,62 +427,135 @@ export class SkillEnhancerService {
             judgeReason: decision.reason,
           },
         );
-        return {
-          ...base,
-          judgeScore: decision.score,
-          judgeReason: decision.reason,
-          skipReason: 'invalid-candidate',
-        };
+        return { ...judged, skipReason: 'invalid-candidate' };
       }
 
       if (
         !this.requiresFrontmatter(kind) &&
         candidateBody.trim().length === 0
       ) {
+        return { ...judged, skipReason: 'invalid-candidate' };
+      }
+
+      const proposal: EnhancementProposal = {
+        proposalId: randomUUID(),
+        slug,
+        kind,
+        currentBody,
+        proposedBody: candidateBody,
+        judgeScore: decision.score,
+        judgeReason: decision.reason,
+        createdAt: Date.now(),
+      };
+      this.cacheProposal(proposal);
+
+      return { ...judged, proposed: true, proposalId: proposal.proposalId };
+    } catch (error: unknown) {
+      this.logger.warn('[skill-enhancer] proposal generation failed', {
+        slug,
+        kind,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { ...base, skipReason: 'error' };
+    }
+  }
+
+  /**
+   * Redeem a previously generated proposal: snapshot the clone to history,
+   * write the exact previewed body, refresh the sidecar, and re-propagate.
+   *
+   * Consumes the cache entry, so a `proposalId` applies at most once. Throws
+   * {@link ProposalNotFoundError} on an unknown / expired id or when
+   * `(kind, slug)` do not match the cached proposal — never regenerates.
+   */
+  async applyProposal(
+    kind: SkillRegistryKind,
+    slug: string,
+    proposalId: string,
+  ): Promise<ApplyProposalResult> {
+    const proposal = this.takeProposal(kind, slug, proposalId);
+
+    const written: WriteEnhancedResult =
+      proposal.kind === 'skill'
+        ? await this.mirror.writeEnhancedSkill({
+            slug: proposal.slug,
+            newBody: proposal.proposedBody,
+          })
+        : await this.mirror.writeEnhancedFileClone({
+            kind: proposal.kind,
+            slug: proposal.slug,
+            newBody: proposal.proposedBody,
+          });
+
+    this.registry.markEnhanced(
+      proposal.kind,
+      proposal.slug,
+      Date.now(),
+      written.currentContentHash,
+    );
+
+    await this.repropagate(proposal.slug, proposal.kind);
+
+    this.logger.info('[skill-enhancer] clone enhanced', {
+      slug: proposal.slug,
+      kind: proposal.kind,
+      judgeScore: proposal.judgeScore,
+      judgeReason: proposal.judgeReason,
+      historyTs: written.historyTs,
+    });
+
+    return {
+      applied: true,
+      slug: proposal.slug,
+      kind: proposal.kind,
+      judgeScore: proposal.judgeScore,
+      judgeReason: proposal.judgeReason,
+      historyTs: written.historyTs,
+    };
+  }
+
+  /**
+   * One-shot enhancement: generate, judge, and write in a single pass.
+   *
+   * Thin compose of {@link generateProposal} + {@link applyProposal} — the
+   * auto-enhance path and `skillSynthesis:enhanceNow` keep their exact prior
+   * behaviour, including fail-soft error handling.
+   */
+  async enhance(
+    slug: string,
+    settings: SkillSynthesisSettings,
+    options: EnhanceOptions = {},
+  ): Promise<EnhanceResult> {
+    const kind: SkillRegistryKind = options.kind ?? 'skill';
+    const base: EnhanceResult = {
+      changed: false,
+      slug,
+      kind,
+      judgeScore: null,
+      judgeReason: null,
+      historyTs: null,
+    };
+
+    try {
+      const proposal = await this.generateProposal(slug, settings, options);
+      if (!proposal.proposed || proposal.proposalId === null) {
         return {
           ...base,
-          judgeScore: decision.score,
-          judgeReason: decision.reason,
-          skipReason: 'invalid-candidate',
+          judgeScore: proposal.judgeScore,
+          judgeReason: proposal.judgeReason,
+          skipReason: proposal.skipReason ?? 'error',
         };
       }
 
-      const written: WriteEnhancedResult =
-        kind === 'skill'
-          ? await this.mirror.writeEnhancedSkill({
-              slug,
-              newBody: candidateBody,
-            })
-          : await this.mirror.writeEnhancedFileClone({
-              kind,
-              slug,
-              newBody: candidateBody,
-            });
-
-      this.registry.markEnhanced(
-        kind,
-        slug,
-        Date.now(),
-        written.currentContentHash,
-      );
-
-      await this.repropagate(slug, kind);
-
-      this.logger.info('[skill-enhancer] clone enhanced', {
-        slug,
-        kind,
-        judgeScore: decision.score,
-        judgeReason: decision.reason,
-        historyTs: written.historyTs,
-      });
+      const applied = await this.applyProposal(kind, slug, proposal.proposalId);
 
       return {
         changed: true,
         slug,
         kind,
-        judgeScore: decision.score,
-        judgeReason: decision.reason,
-        historyTs: written.historyTs,
+        judgeScore: applied.judgeScore,
+        judgeReason: applied.judgeReason,
+        historyTs: applied.historyTs,
       };
     } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] enhance failed; fail-soft', {
@@ -269,6 +565,50 @@ export class SkillEnhancerService {
       });
       return { ...base, skipReason: 'error' };
     }
+  }
+
+  /** Park a proposal, pruning expired entries and capping total size. */
+  private cacheProposal(proposal: EnhancementProposal): void {
+    this.pruneProposals();
+    while (this.proposals.size >= MAX_CACHED_PROPOSALS) {
+      // Map iterates in insertion order → first key is the oldest proposal.
+      const oldest = this.proposals.keys().next();
+      if (oldest.done) break;
+      this.proposals.delete(oldest.value);
+    }
+    this.proposals.set(proposal.proposalId, proposal);
+  }
+
+  /** Drop every proposal past {@link PROPOSAL_TTL_MS}. */
+  private pruneProposals(): void {
+    const cutoff = Date.now() - PROPOSAL_TTL_MS;
+    for (const [id, proposal] of this.proposals) {
+      if (proposal.createdAt <= cutoff) {
+        this.proposals.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Resolve and consume a proposal, asserting it belongs to `(kind, slug)`.
+   * Removal happens before the write so a failed apply cannot be retried
+   * against a clone whose on-disk state is now unknown.
+   */
+  private takeProposal(
+    kind: SkillRegistryKind,
+    slug: string,
+    proposalId: string,
+  ): EnhancementProposal {
+    this.pruneProposals();
+    const proposal = this.proposals.get(proposalId);
+    if (!proposal) {
+      throw new ProposalNotFoundError('not-found', proposalId);
+    }
+    if (proposal.kind !== kind || proposal.slug !== slug) {
+      throw new ProposalNotFoundError('mismatch', proposalId);
+    }
+    this.proposals.delete(proposalId);
+    return proposal;
   }
 
   async revert(
@@ -341,10 +681,12 @@ export class SkillEnhancerService {
     settings: SkillSynthesisSettings,
     cwd: string,
     kind: SkillRegistryKind = 'skill',
+    scorecardBlock: string | null = null,
   ): Promise<string | null> {
     if (!this.internalQuery) return null;
     const stats = this.candidates.getInvocationStats(slug);
     const trajectorySignal = await this.collectTrajectorySignal(slug, cwd);
+    const specFindings = await this.collectSpecFindings(slug);
     const model = resolveJudgeModel(
       settings.judgeModel,
       this.workspaceProvider,
@@ -359,10 +701,11 @@ export class SkillEnhancerService {
     const promptLines = [
       `You are improving an existing AI ${artifactLabel} based on real usage signal.`,
       `Rewrite it to be clearer, more actionable, and more robust against the observed failures.`,
+      ...this.bestPracticeGuidance(kind),
     ];
     if (this.requiresFrontmatter(kind)) {
       promptLines.push(
-        `Preserve the YAML frontmatter (name, description) unless it is clearly wrong.`,
+        `Preserve the YAML frontmatter (name, description) unless it is clearly wrong — and if you touch the description, make sure it still states WHEN to use this ${artifactLabel}.`,
       );
     }
     promptLines.push(
@@ -373,11 +716,19 @@ export class SkillEnhancerService {
       `Recent trajectory signal:`,
       trajectorySignal || '(none available)',
       ``,
+      `Graded review findings (from orchestration specs — how this ${artifactLabel} actually performed):`,
+      specFindings || '(none available)',
+      ``,
       `Current ${artifactLabel}:`,
       `---`,
       currentBody.slice(0, 8000),
       `---`,
     );
+    // Agent clones only: append the bounded measured-scorecard block when
+    // graded/metric data exists. Absent → prompt byte-identical to today (R8.2).
+    if (scorecardBlock) {
+      promptLines.push(``, scorecardBlock);
+    }
     const prompt = promptLines.join('\n');
 
     const abortController = new AbortController();
@@ -390,7 +741,6 @@ export class SkillEnhancerService {
         cwd,
         model,
         prompt,
-        isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,
@@ -417,6 +767,37 @@ export class SkillEnhancerService {
     } finally {
       clearTimeout(timeoutHandle);
     }
+  }
+
+  /**
+   * Kind-specific authoring best practices injected into the enhancement
+   * prompt so rewrites converge on well-formed artifacts rather than just
+   * "more text". Mirrors the synthesis-time skill-creator guidance.
+   */
+  private bestPracticeGuidance(kind: SkillRegistryKind): string[] {
+    if (kind === 'agent') {
+      return [
+        `Best practices for an agent definition:`,
+        `- Keep the role sharp: one clear specialty, explicit responsibilities, and what it should NOT do.`,
+        `- The frontmatter description is the routing signal — it must say WHEN to delegate to this agent.`,
+        `- Prefer concise, imperative instructions and concrete workflow steps over prose; assume the agent is already capable.`,
+        `- Address the observed failures directly; remove guidance that is redundant with general competence.`,
+      ];
+    }
+    if (kind === 'command') {
+      return [
+        `Best practices for a command prompt:`,
+        `- Keep it single-purpose and deterministic; state the exact steps to follow.`,
+        `- Handle arguments explicitly and note required vs optional inputs.`,
+        `- Be concise — every line must earn its token cost.`,
+      ];
+    }
+    return [
+      `Best practices for a SKILL.md (skill-creator rules):`,
+      `- Put ALL "when to use" / trigger information in the frontmatter description — never as a body section.`,
+      `- Body is imperative procedural guidance only: concise steps, generalized (no workspace-specific paths or one-off details), no frontmatter duplication, no README/changelog prose.`,
+      `- Match degrees of freedom to the task: exact steps where fragile, heuristics where multiple approaches are valid.`,
+    ];
   }
 
   private async collectTrajectorySignal(
@@ -449,6 +830,91 @@ export class SkillEnhancerService {
     return parts.join('\n\n---\n\n');
   }
 
+  private async collectSpecFindings(slug: string): Promise<string> {
+    if (!this.specFindings) return '';
+    try {
+      const findings = await this.specFindings.getRecentFindings(slug);
+      return findings ?? '';
+    } catch (error: unknown) {
+      this.logger.debug('[skill-enhancer] spec findings lookup failed', {
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return '';
+    }
+  }
+
+  /**
+   * Build the bounded (≤{@link MAX_SCORECARD_CHARS}) measured-scorecard block
+   * for an agent clone, or `null` when the scorecard service is absent or the
+   * slug has no graded/metric data (byte-identical fallback, R8.2). Never
+   * throws — degrades to `null` so enhancement proceeds unchanged.
+   */
+  private buildAgentScorecardBlock(slug: string): string | null {
+    if (!this.scorecard) return null;
+    try {
+      const card = this.scorecard.getScorecards([slug])[slug];
+      if (!card || !this.hasScorecardData(card)) return null;
+      return this.formatScorecardBlock(card).slice(0, MAX_SCORECARD_CHARS);
+    } catch (error: unknown) {
+      this.logger.debug('[skill-enhancer] scorecard block build failed', {
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /** Scorecard carries usable signal only if graded or any metric is non-null. */
+  private hasScorecardData(card: AgentScorecard): boolean {
+    if (card.gradedCount > 0) return true;
+    return [
+      card.avgInputTokens,
+      card.avgOutputTokens,
+      card.avgCacheReadTokens,
+      card.totalInputTokens,
+      card.totalOutputTokens,
+      card.avgCostUsd,
+      card.avgDurationMs,
+      card.avgToolCount,
+    ].some((v) => v !== null);
+  }
+
+  private formatScorecardBlock(card: AgentScorecard): string {
+    const successRate =
+      card.gradedSuccessRate !== null
+        ? `${Math.round(card.gradedSuccessRate * 100)}% (${Math.round(
+            card.gradedSuccessRate * card.gradedCount,
+          )}/${card.gradedCount} graded runs; ${card.totalInvocations} total invocations)`
+        : `n/a (0 graded runs; ${card.totalInvocations} total invocations)`;
+    const verdicts =
+      card.recentVerdicts.length > 0
+        ? card.recentVerdicts
+            .map(
+              (v) =>
+                `${v.succeeded ? 'COMPLETE' : 'FAILED'}${
+                  v.taskId ? `(${v.taskId})` : ''
+                }`,
+            )
+            .join(', ')
+        : '(none graded yet)';
+    return [
+      `Measured scorecard for this agent (from graded orchestration runs):`,
+      `- Reconciled success rate: ${successRate}`,
+      `- Avg tokens/run: in=${fmtCount(card.avgInputTokens)} out=${fmtCount(
+        card.avgOutputTokens,
+      )} cacheRead=${fmtCount(
+        card.avgCacheReadTokens,
+      )} | total in=${fmtCount(card.totalInputTokens)} out=${fmtCount(
+        card.totalOutputTokens,
+      )} | avg cost ${fmtCost(card.avgCostUsd)} | avg duration ${fmtDuration(
+        card.avgDurationMs,
+      )} | avg tools ${fmtCount(card.avgToolCount)}`,
+      `- Recent verdicts: ${verdicts}`,
+      `Optimize explicitly to reduce token consumption and fix recurring failure patterns while preserving the agent's role, triggers, and frontmatter routing.`,
+    ].join('\n');
+  }
+
   private synthRow(slug: string, body: string): SkillCandidateRow {
     return {
       id: slug as unknown as CandidateId,
@@ -466,6 +932,9 @@ export class SkillEnhancerService {
       rejectedAt: null,
       rejectedReason: null,
       pinned: false,
+      residency: 'resident',
+      ...unjudgedVerdictFields(),
+      ...unmeasuredGateFields(),
     };
   }
 
@@ -515,4 +984,26 @@ export class SkillEnhancerService {
     const fence = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/.exec(text.trim());
     return fence ? fence[1] : text;
   }
+}
+
+/** Compact a nullable count/token average: `48.2k`, `210`, or `n/a`. */
+function fmtCount(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return 'n/a';
+  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n)}`;
+}
+
+/** Format a nullable USD cost: `$0.41` or `n/a`. */
+function fmtCost(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return 'n/a';
+  return `$${n.toFixed(2)}`;
+}
+
+/** Format a nullable duration in ms as `4m12s`, `9s`, or `n/a`. */
+function fmtDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return 'n/a';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
 }

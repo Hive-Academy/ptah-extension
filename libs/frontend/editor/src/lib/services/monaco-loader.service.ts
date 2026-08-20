@@ -18,6 +18,27 @@ type WindowWithMonaco = Window & {
 };
 
 /**
+ * Minimal shape of Monaco's `languages.typescript` namespace that we use.
+ * Recent `monaco-editor` type bundles narrow this namespace to `{ deprecated: true }`,
+ * dropping the `*Defaults` handles from the public types even though they still
+ * exist at runtime. We reach them through this structural type (the call sites are
+ * guarded by optional chaining), consistent with this service's role of silencing
+ * Monaco's type-level false positives.
+ */
+interface MonacoTsDiagnosticsDefaults {
+  setDiagnosticsOptions(options: {
+    noSemanticValidation: boolean;
+    noSyntaxValidation: boolean;
+    noSuggestionDiagnostics: boolean;
+  }): void;
+}
+
+interface MonacoTypescriptLanguages {
+  typescriptDefaults?: MonacoTsDiagnosticsDefaults;
+  javascriptDefaults?: MonacoTsDiagnosticsDefaults;
+}
+
+/**
  * MonacoLoaderService — single coordination point for Monaco loading.
  *
  * Why this exists: `ngx-monaco-editor-v2` only loads Monaco when its
@@ -51,6 +72,38 @@ export class MonacoLoaderService {
   /** Polling interval while waiting for a parallel loader, in ms. */
   private static readonly POLL_INTERVAL_MS = 100;
 
+  /** Guards `configureTypeScriptDefaults` so it only runs once per page. */
+  private static tsDefaultsConfigured = false;
+
+  /**
+   * Silence Monaco's built-in TS/JS semantic validation.
+   *
+   * Monaco ships its own in-browser TypeScript worker that does NOT read the
+   * workspace `tsconfig.json` (no `moduleResolution`, no `paths`) and only sees
+   * files loaded as Monaco models. That combination makes it emit false
+   * positives like TS2792 "Cannot find module '../services/x'. Did you mean to
+   * set the 'moduleResolution' option to 'nodenext'…" for relative imports that
+   * resolve perfectly fine on disk / in the real `tsc` build. Our panel is a
+   * viewer/editor, not the project type-checker — VS Code's `tsserver` remains
+   * the source of truth — so we disable semantic diagnostics while keeping
+   * genuine syntax errors.
+   */
+  private configureTypeScriptDefaults(m: MonacoApi): void {
+    if (MonacoLoaderService.tsDefaultsConfigured) return;
+    const ts = m.languages?.typescript as unknown as
+      | MonacoTypescriptLanguages
+      | undefined;
+    if (!ts) return;
+    const diagnostics = {
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+      noSuggestionDiagnostics: true,
+    };
+    ts.typescriptDefaults?.setDiagnosticsOptions(diagnostics);
+    ts.javascriptDefaults?.setDiagnosticsOptions(diagnostics);
+    MonacoLoaderService.tsDefaultsConfigured = true;
+  }
+
   load(): Promise<MonacoApi> {
     if (this.loadPromise) return this.loadPromise;
 
@@ -60,6 +113,7 @@ export class MonacoLoaderService {
           const win = window as WindowWithMonaco;
 
           if (win.monaco) {
+            this.configureTypeScriptDefaults(win.monaco);
             resolve(win.monaco);
             return;
           }
@@ -85,7 +139,10 @@ export class MonacoLoaderService {
             settled = true;
             cleanup();
             if (value instanceof Error) reject(value);
-            else resolve(value);
+            else {
+              this.configureTypeScriptDefaults(value);
+              resolve(value);
+            }
           };
 
           // Poll for window.monaco — handles the case where a parallel loader

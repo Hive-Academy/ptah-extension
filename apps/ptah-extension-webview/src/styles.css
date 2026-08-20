@@ -31,14 +31,20 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
  * and Egyptian gold accents used throughout the Anubis theme. They remain
  * constant across light/dark themes to maintain brand identity.
  *
- * Note: Gold accents (--gold-glow, --gold-accent, etc.) are intentionally NOT
- * theme-switched as they represent the consistent "Egyptian gold" brand aesthetic
- * that gives Ptah its distinctive visual identity.
+ * Brand gold tokens (--ptah-gold*) ARE theme-aware: the dark theme uses the
+ * bright Egyptian gold (#d4af37), while the light theme deepens it so the same
+ * accents remain readable against the warm cream background. Always reference
+ * these tokens instead of hardcoding #d4af37 / #f5d97d / rgba(212,175,55).
  *
  * The glass morphism effects use semi-transparent backgrounds with backdrop blur
  * to create the crystalline "Wisdom of Thoth" visual language.
  */
 :root {
+  /* Brand gold — theme-aware (overridden for light theme below) */
+  --ptah-gold: #d4af37; /* primary brand gold */
+  --ptah-gold-strong: #f5d97d; /* emphasis / hover (brighter in dark) */
+  --ptah-gold-soft: rgba(212, 175, 55, 0.12); /* translucent fill / hover bg */
+
   /* ========================================================================
      VS CODE SIDEBAR SCALING SYSTEM
      Optimized for sidebar widths: 200px (min) to 600px (max)
@@ -88,11 +94,11 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   );
 
   /* Agent Color Variables (God Pantheon) */
-  --agent-color-anubis: #d4af37; /* Supervisor - Gold */
+  --agent-color-anubis: var(--ptah-gold); /* Supervisor - Gold */
   --agent-color-thoth: #2563eb; /* Architect - Blue */
   --agent-color-ptah: #16a34a; /* Developer - Green */
   --agent-color-seshat: #e8e6e1; /* QA - White */
-  --agent-color-maat: #d4af37; /* Reviewer - Gold */
+  --agent-color-maat: var(--ptah-gold); /* Reviewer - Gold */
   --agent-color-khnum: #dc2626; /* PM - Red */
 
   /* Sacred Geometry */
@@ -102,6 +108,81 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --aura-color-dim: oklch(70% 0.18 70 / 0.5); /* Gold glow dim */
   --aura-color-bright: oklch(70% 0.18 70 / 0.8); /* Gold glow bright */
 }
+
+/* Brand gold — deepened for ANY light theme (cupcake, emerald, pastel, …) so
+   accents stay readable on light backgrounds. Driven by the data-theme-mode
+   marker ThemeService sets, NOT by individual theme names, so new themes need
+   no extra CSS. Dark themes keep the bright #d4af37 from :root above. */
+[data-theme-mode='light'] {
+  --ptah-gold: oklch(58% 0.132 75);
+  --ptah-gold-strong: oklch(48% 0.12 70);
+  --ptah-gold-soft: oklch(58% 0.132 75 / 0.14);
+}
+
+/* ============================================================================
+   `--bcm` / base-content-muted — SECONDARY TEXT TIER, PER THEME (TASK_2026_186)
+   ============================================================================
+
+   `anubis` and `anubis-light` get their `--bcm` from tailwind.config.js, where
+   they are defined. The other 32 daisyUI themes are compiled into the deferred
+   `theme-extra.css` from node_modules and cannot be edited there, so their
+   measured values live here. This sheet is always loaded, so the property is
+   set whichever way the deferred sheet arrives.
+
+   WHY A TOKEN AND NOT `text-base-content/60`
+   TASK_2026_183 removed the alpha ladder because no single alpha is correct
+   everywhere. Composited in sRGB, `/60` is 5.94:1 on anubis but 3.45:1 on the
+   built-in `dark` theme — because `dark`'s base-content is only 7.03:1 at FULL
+   opacity. There is no alpha that passes on both.
+
+   HOW THESE VALUES WERE CHOSEN
+   Each is base-content interpolated toward that theme's own base-100 in OKLCH,
+   by the largest fraction (capped at 40%) that still measures >= 5.0:1 — the
+   4.5:1 gate plus headroom. Themes with little headroom get little muting;
+   `aqua` gets none at all (its base-content is only 4.73:1 to begin with), which
+   is the correct answer rather than a failure.
+
+   DO NOT hand-edit these. Every value here is re-measured by
+   apps/ptah-extension-webview/src/app/base-content-muted.spec.ts, which reads
+   the literal theme sources — including daisyUI's own auto-generation of an
+   absent `base-content` — and fails if any theme drops below 4.5:1 or if a
+   theme in the picker has no value at all. To ADD a theme, compute its value
+   with the rule above (largest OKLCH mix toward base-100, capped at 40%, that
+   still measures >= 5.0:1) and let the spec confirm it. A theme missing from
+   this list is safe but unmuted: the utility falls back to `var(--bc)`.
+   ============================================================================ */
+[data-theme='acid'] { --bcm: 51.22539% 0 0; }
+[data-theme='aqua'] { --bcm: 89.751922% 0.025508 261.181674; }
+[data-theme='autumn'] { --bcm: 49.823638% 0 0; }
+[data-theme='black'] { --bcm: 58.480355% 0 0; }
+[data-theme='bumblebee'] { --bcm: 52% 0 0; }
+[data-theme='business'] { --bcm: 64.809638% 0 0; }
+[data-theme='cmyk'] { --bcm: 52% 0 0; }
+[data-theme='coffee'] { --bcm: 63.427702% 0.080513 59.85516; }
+[data-theme='corporate'] { --bcm: 53.433944% 0.018783 310.843373; }
+[data-theme='cupcake'] { --bcm: 53.259778% 0.041413 354.463901; }
+[data-theme='cyberpunk'] { --bcm: 49.1452% 0.09308 104.32; }
+[data-theme='dark'] { --bcm: 65.537861% 0.020546 262.216118; }
+[data-theme='dim'] { --bcm: 70.06154% 0.029339 233.121306; }
+[data-theme='dracula'] { --bcm: 70.177757% 0.013589 174.930522; }
+[data-theme='emerald'] { --bcm: 54.430434% 0.022665 291.44056; }
+[data-theme='fantasy'] { --bcm: 54.416259% 0.018687 294.86753; }
+[data-theme='forest'] { --bcm: 61.573653% 0.003925 17.911531; }
+[data-theme='garden'] { --bcm: 47.357784% 0.001864 17.270898; }
+[data-theme='halloween'] { --bcm: 65.111648% 0 0; }
+[data-theme='lemonade'] { --bcm: 51.3292% 0.0104 123.72; }
+[data-theme='light'] { --bcm: 54.416259% 0.018687 294.86753; }
+[data-theme='lofi'] { --bcm: 40% 0 0; }
+[data-theme='luxury'] { --bcm: 60.728735% 0.094705 40.211377; }
+[data-theme='night'] { --bcm: 62.507497% 0.018845 265.754875; }
+[data-theme='nord'] { --bcm: 50.944833% 0.018369 263.163395; }
+[data-theme='pastel'] { --bcm: 52% 0 0; }
+[data-theme='retro'] { --bcm: 48.662535% 0.015873 31.132774; }
+[data-theme='sunset'] { --bcm: 63.174474% 0.037278 243.196345; }
+[data-theme='synthwave'] { --bcm: 67.490532% 0.037693 295.949172; }
+[data-theme='valentine'] { --bcm: 51.274741% 0.067882 357.901888; }
+[data-theme='winter'] { --bcm: 54.458679% 0.042228 278.361426; }
+[data-theme='wireframe'] { --bcm: 52% 0 0; }
 
 /* Light theme overrides for glass morphism and decorative elements */
 [data-theme='anubis-light'] {
@@ -707,6 +788,14 @@ Enhanced typography, visual hierarchy, and reading comfort
   white-space: normal;
   overflow-wrap: break-word;
   word-break: break-all;
+}
+
+/* Light themes: the pale warning amber is illegible on light backgrounds — use
+   the deepened brand gold so inline code pills keep the warm accent while
+   staying readable. Keyed on the mode marker so it covers every light theme. */
+[data-theme-mode='light'] .prose code,
+[data-theme-mode='light'] .agent-prose code {
+  color: var(--ptah-gold-strong);
 }
 
 /* --- Code blocks: Elevated card with subtle shadow --- */
@@ -1315,7 +1404,7 @@ UTILITY CLASSES
 }
 
 .text-gold {
-  color: #d4af37;
+  color: var(--ptah-gold);
 }
 
 .text-lapis {
@@ -1852,14 +1941,14 @@ Session-related buttons use the brand gold, view pills get elegant styling
 
 /* Gold accent button — used for Sessions toggle and +New session */
 .btn-gold {
-  color: #d4af37;
+  color: var(--ptah-gold);
   background: transparent;
   border: none;
 }
 
 .btn-gold:hover {
-  background-color: rgba(212, 175, 55, 0.12);
-  color: #f5d97d;
+  background-color: var(--ptah-gold-soft);
+  color: var(--ptah-gold-strong);
 }
 
 /* Electron navbar — DaisyUI tabs-lifted with gold active accent */
@@ -1871,8 +1960,8 @@ Session-related buttons use the brand gold, view pills get elegant styling
 
 .electron-tabs.tabs-lifted > .tab-active {
   --tab-bg: oklch(var(--b1));
-  --tab-border-color: #d4af37;
-  color: #f5d97d;
+  --tab-border-color: var(--ptah-gold);
+  color: var(--ptah-gold-strong);
   font-weight: 500;
 }
 

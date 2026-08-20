@@ -123,8 +123,8 @@ describe('license CLI flag handling + cold-start cache (Bug 8 + Bug 9)', () => {
       'ptah.licenseCache': {
         status: {
           valid: true,
-          tier: 'pro',
-          plan: { name: 'Pro' },
+          tier: 'builders',
+          plan: { name: 'Builders' },
           expiresAt: new Date(now + 86_400_000).toISOString(),
         },
         persistedAt: now,
@@ -149,9 +149,9 @@ describe('license CLI flag handling + cold-start cache (Bug 8 + Bug 9)', () => {
     expect(note).toBeTruthy();
     // The persisted tier must surface in the notification — cold start
     // hydration proves the fix is live. The serialized payload may
-    // nest the value differently, so we scan the JSON for 'pro'.
+    // nest the value differently, so we scan the JSON for 'builders'.
     const haystack = JSON.stringify(note!.params).toLowerCase();
-    expect(haystack).toContain('pro');
+    expect(haystack).toContain('builders');
   });
 });
 

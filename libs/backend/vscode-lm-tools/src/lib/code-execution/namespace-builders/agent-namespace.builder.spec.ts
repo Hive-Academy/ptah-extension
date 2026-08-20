@@ -185,6 +185,45 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
     );
   });
 
+  // TASK_2026_295 — an empty request.parentSessionId is absent, not supplied.
+  // `request.parentSessionId ?? getActiveSessionId?.()` does NOT fall through
+  // on '', so the empty id both suppressed the fallback AND was then discarded
+  // by the truthiness check — the spawn proceeded with no parent at all.
+  it('treats an empty request.parentSessionId as absent and falls back to getActiveSessionId()', async () => {
+    const { deps, mocks } = makeDeps({
+      getActiveSessionId: () => 'tab-1',
+      resolveSessionId: (s) => (s === 'tab-1' ? 'session-uuid-1' : s),
+    });
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      parentSessionId: '',
+    } as SpawnAgentRequest);
+
+    expect(mocks.processManager.spawn.mock.calls[0][0].parentSessionId).toBe(
+      'session-uuid-1',
+    );
+  });
+
+  it('leaves parentSessionId undefined when it is empty and there is no active session', async () => {
+    const { deps, mocks } = makeDeps({ resolveSessionId: (s) => s });
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      parentSessionId: '',
+    } as SpawnAgentRequest);
+
+    expect(
+      mocks.processManager.spawn.mock.calls[0][0].parentSessionId,
+    ).toBeUndefined();
+  });
+
   it('throws when request.cli is listed in getDisabledClis', async () => {
     const { deps } = makeDeps({ getDisabledClis: () => ['codex'] });
     await expect(
@@ -255,6 +294,36 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
       expect.objectContaining({ workingDirectory: 'D:/ws' }),
     );
     expect(setAgentId).toHaveBeenCalledWith('spawned-1');
+  });
+
+  it('forwards the raw model override and modelTier into registry.spawnAgent', async () => {
+    const { deps, mocks } = makeDeps();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.spawnAgent.mockResolvedValue({
+      handle: { id: 'h' } as unknown as SdkHandle,
+      agentName: 'MyAgent',
+      setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-2',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 'task body',
+      ptahCliId: 'agent-a',
+      model: 'raw-override-model',
+      modelTier: 'opus',
+    } as SpawnAgentRequest);
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
+      'agent-a',
+      'task body',
+      expect.objectContaining({
+        model: 'raw-override-model',
+        modelTier: 'opus',
+      }),
+    );
   });
 
   it('throws with helpful message when registry returns a failure status', async () => {
@@ -342,7 +411,10 @@ describe('buildAgentNamespace — list', () => {
     ]);
   });
 
-  it('filters out disabled CLIs before merging', async () => {
+  // `spawn` REJECTS an explicit disabled `cli`, so omitting disabled CLIs here
+  // meant the only way to discover the restriction was to fail a spawn. They
+  // are now reported with `disabled: true` instead.
+  it('reports disabled CLIs with disabled: true instead of omitting them', async () => {
     const { deps, mocks } = makeDeps({
       registry: undefined,
       getDisabledClis: () => ['copilot'],
@@ -353,7 +425,35 @@ describe('buildAgentNamespace — list', () => {
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
-    expect(list.map((r) => r.cli)).toEqual(['codex']);
+
+    expect(list.map((r) => r.cli)).toEqual(['codex', 'copilot']);
+    expect(list.find((r) => r.cli === 'codex')?.disabled).toBeUndefined();
+    expect(list.find((r) => r.cli === 'copilot')?.disabled).toBe(true);
+  });
+
+  it('leaves ptah-cli agents unmarked — disabledClis matches CLI types only', async () => {
+    const { deps, mocks } = makeDeps({
+      getDisabledClis: () => ['ptah-alice'],
+    });
+    mocks.detection.detectAll.mockResolvedValue([
+      { cli: 'codex', installed: true, supportsSteer: false },
+    ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.listAgents.mockResolvedValue([
+      {
+        id: 'ptah-alice',
+        name: 'Alice',
+        providerName: 'anthropic',
+        hasApiKey: true,
+        enabled: true,
+      },
+    ]);
+
+    const list = await buildAgentNamespace(deps).list();
+    const alice = list.find((r) => r.ptahCliId === 'ptah-alice');
+
+    expect(alice).toBeDefined();
+    expect(alice?.disabled).toBeUndefined();
   });
 
   it('merges ptah-cli agents that are enabled+hasApiKey and honors preferred order', async () => {

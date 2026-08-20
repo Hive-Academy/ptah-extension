@@ -55,6 +55,9 @@ Thumbs.db
 **/assets/plugins/**
 **/templates/**
 
+# Harness preset seed artifacts — Electron/CLI-imported, not VSIX assets (may name CLI vendors)
+**/assets/harnesses/**
+
 # License file — triggers marketplace scanner
 LICENSE.md
 

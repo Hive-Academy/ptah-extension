@@ -15,6 +15,18 @@ export type {
   SmitheryLogger,
   SmitheryRegistrySourceOptions,
 } from './smithery-registry.source';
+export { PulseMcpRegistrySource } from './pulsemcp-registry.source';
+export type {
+  PulseMcpLogger,
+  PulseMcpRegistrySourceOptions,
+} from './pulsemcp-registry.source';
+export {
+  PULSEMCP_DEFAULT_REGISTRY_BASE,
+  PULSEMCP_DEFAULT_PAGE_SIZE,
+  PULSEMCP_CACHE_TTL_MS,
+  PULSEMCP_REQUEST_TIMEOUT_MS,
+  PULSEMCP_FIRST_OFFSET,
+} from './pulsemcp-wire.constants';
 export { SmitheryConnectionResolver } from './smithery-connection-resolver';
 export type {
   SmitheryResolveInput,
@@ -47,10 +59,47 @@ export type {
   SmitheryOverrideLogger,
   SmitheryOverrideResolverDeps,
 } from './smithery-override-resolver';
+export {
+  McpOAuthService,
+  deriveMcpOAuthServerKey,
+} from './oauth/mcp-oauth.service';
+export { LoopbackOAuthCallbackListener } from './oauth/loopback-oauth-callback-listener';
+export type {
+  McpOAuthServiceDeps,
+  McpOAuthLogger,
+  ConnectOptions,
+} from './oauth/mcp-oauth.service';
+export {
+  createMcpOAuthTokenStore,
+  MCP_OAUTH_TOKEN_SECRET_PREFIX,
+} from './oauth/mcp-oauth-token-store';
+export type {
+  McpOAuthTokenStore,
+  McpOAuthTokenRecord,
+} from './oauth/mcp-oauth-token-store';
+export { McpOAuthInstalledManifestStore } from './oauth/mcp-oauth-installed-manifest';
+export { McpOAuthOverrideResolver } from './oauth/mcp-oauth-override-resolver';
+export type {
+  McpOAuthOverrideLogger,
+  McpOAuthOverrideResolverDeps,
+} from './oauth/mcp-oauth-override-resolver';
+export { generatePkceChallenge } from './oauth/pkce';
+export type { PkceChallenge } from './oauth/pkce';
+export {
+  discoverAuthorizationServer,
+  discoverAuthServerMetadata,
+  registerClient,
+} from './oauth/mcp-oauth-metadata';
+export type {
+  FetchLike,
+  AuthServerMetadata,
+  RegisteredClient,
+} from './oauth/mcp-oauth-metadata';
+/**
+ * The install surface. The per-target installers, their manifest tracker and
+ * the JSON config helpers were deleted in TASK_2026_278 Batch 2 — writing MCP
+ * config files is now the reconciler's MCP facet
+ * (`@ptah-extension/harness-sync`), and `McpInstallService` records intent and
+ * asks it to reconcile.
+ */
 export { McpInstallService } from './mcp-install.service';
-export { McpInstallManifestTracker } from './mcp-install-manifest';
-export type { IMcpServerInstaller } from './mcp-installer.interface';
-export { VscodeMcpInstaller } from './installers/vscode-mcp.installer';
-export { ClaudeMcpInstaller } from './installers/claude-mcp.installer';
-export { CursorMcpInstaller } from './installers/cursor-mcp.installer';
-export { CopilotMcpInstaller } from './installers/copilot-mcp.installer';

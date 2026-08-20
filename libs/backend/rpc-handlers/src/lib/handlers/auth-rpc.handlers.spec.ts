@@ -76,15 +76,134 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import type {
   CopilotAuthService,
+  CopilotLoginOptions,
   ICodexAuthService,
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
+import { ActiveProviderResolver } from '@ptah-extension/auth-providers';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
 import { AuthRpcHandlers } from './auth-rpc.handlers';
+
+// ---------------------------------------------------------------------------
+// WorkspaceScopeResolver mock — backed by an in-memory two-tier store so the
+// handler's resolver reads/writes behave like the real global/workspace
+// fallback without a file backend.
+// ---------------------------------------------------------------------------
+
+interface MockScopeResolver {
+  read: jest.Mock<unknown, [string, boolean?]>;
+  hasOverride: jest.Mock<boolean, [string, boolean?]>;
+  write: jest.Mock<
+    Promise<void>,
+    [string, unknown, 'global' | 'app' | 'workspace', boolean?]
+  >;
+  clearOverride: jest.Mock<Promise<void>, [string, boolean?]>;
+  clearMoreSpecific: jest.Mock<
+    Promise<void>,
+    [string, 'global' | 'app' | 'workspace', boolean?]
+  >;
+  effectiveKey: jest.Mock<string, [string, boolean?]>;
+  getActivePath: jest.Mock<string | undefined, []>;
+  globalStore: Map<string, unknown>;
+  workspaceStore: Map<string, unknown>;
+  appStore: Map<string, unknown>;
+}
+
+function createMockScopeResolver(opts: {
+  global?: Record<string, unknown>;
+  workspace?: Record<string, unknown>;
+  app?: Record<string, unknown>;
+  activePath?: string | undefined;
+  appScope?: string;
+}): MockScopeResolver {
+  const globalStore = new Map<string, unknown>(
+    Object.entries(opts.global ?? {}),
+  );
+  const workspaceStore = new Map<string, unknown>(
+    Object.entries(opts.workspace ?? {}),
+  );
+  const appStore = new Map<string, unknown>(Object.entries(opts.app ?? {}));
+  const activePath = 'activePath' in opts ? opts.activePath : '/ws/project-a';
+  const appScope = opts.appScope ?? 'app.vscode';
+
+  const read = jest.fn((key: string, appScopable = false) => {
+    if (appScopable && appStore.has(key)) return appStore.get(key);
+    if (activePath && workspaceStore.has(key)) return workspaceStore.get(key);
+    return globalStore.get(key);
+  });
+
+  const hasOverride = jest.fn((key: string, appScopable = false) => {
+    if (appScopable && appStore.has(key)) return true;
+    return !!activePath && workspaceStore.has(key);
+  });
+
+  const write = jest.fn(
+    async (
+      key: string,
+      value: unknown,
+      target: 'global' | 'app' | 'workspace',
+      _appScopable = false,
+    ) => {
+      if (target === 'app') {
+        appStore.set(key, value);
+      } else if (target === 'workspace' && activePath) {
+        workspaceStore.set(key, value);
+      } else {
+        globalStore.set(key, value);
+      }
+    },
+  );
+
+  const clearOverride = jest.fn(async (key: string, appScopable = false) => {
+    if (appScopable && appStore.has(key)) {
+      appStore.delete(key);
+    } else {
+      workspaceStore.delete(key);
+    }
+  });
+
+  const clearMoreSpecific = jest.fn(
+    async (
+      key: string,
+      target: 'global' | 'app' | 'workspace',
+      _appScopable = false,
+    ) => {
+      if (target === 'workspace') return;
+      if (activePath) workspaceStore.delete(key);
+      if (target === 'global') appStore.delete(key);
+    },
+  );
+
+  const effectiveKey = jest.fn((key: string, appScopable = false): string => {
+    if (appScopable && appStore.has(key)) {
+      return `${appScope}.${key}`;
+    }
+    if (activePath && workspaceStore.has(key)) {
+      return `workspace.mock.${key}`;
+    }
+    return key;
+  });
+
+  const getActivePath = jest.fn(() => activePath);
+
+  return {
+    read,
+    hasOverride,
+    write,
+    clearOverride,
+    clearMoreSpecific,
+    effectiveKey,
+    getActivePath,
+    globalStore,
+    workspaceStore,
+    appStore,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler touches
@@ -130,19 +249,41 @@ function createMockCopilot(): MockCopilot {
   return {
     isAuthenticated: jest.fn().mockResolvedValue(false),
     login: jest.fn().mockResolvedValue(true),
-    logout: jest.fn(),
+    // Async on purpose: `logout()` persists the Ptah logout tombstone
+    // (TASK_2026_172 Issue 2), so the handler must await it.
+    logout: jest.fn().mockResolvedValue(undefined),
   } as unknown as MockCopilot;
 }
 
-type MockCodex = jest.Mocked<Pick<ICodexAuthService, 'getTokenStatus'>>;
+type MockCodex = jest.Mocked<
+  Pick<ICodexAuthService, 'getTokenStatus' | 'clearCache'>
+>;
 
 function createMockCodex(): MockCodex {
   return {
     getTokenStatus: jest
       .fn()
       .mockResolvedValue({ authenticated: false, stale: false }),
+    clearCache: jest.fn(),
   };
 }
+
+/**
+ * Push surface used by the interactive-login events (`auth:deviceCode`).
+ * Injected optionally, mirroring the handler's `{ isOptional: true }` binding.
+ */
+type MockWebviewManager = { broadcastMessage: jest.Mock };
+
+function createMockWebviewManager(): MockWebviewManager {
+  return { broadcastMessage: jest.fn().mockResolvedValue(undefined) };
+}
+
+/**
+ * The `IAuthCommandRunner` capability, present only on adapters that can drive
+ * an interactive login themselves (the CLI/TUI runtime). Attaching it to the
+ * platform-commands mock is exactly how `asAuthCommandRunner` detects it.
+ */
+type MockAuthCommandRunner = jest.Mock;
 
 type MockCliDetector = jest.Mocked<
   Pick<ClaudeCliDetector, 'performHealthCheck'>
@@ -176,6 +317,9 @@ interface Harness {
   platformAuth: MockAuthProvider;
   cliDetector: MockCliDetector;
   sentry: MockSentryService;
+  scopeResolver: MockScopeResolver;
+  webviewManager: MockWebviewManager;
+  authCommandRunner?: MockAuthCommandRunner;
 }
 
 function makeHarness(
@@ -184,6 +328,22 @@ function makeHarness(
     configSeed?: Record<string, unknown>;
     credentialsSeed?: { apiKey?: string };
     providerKeysSeed?: Record<string, string>;
+    workspaceOverrides?: Record<string, unknown>;
+    appOverrides?: Record<string, unknown>;
+    activePath?: string | undefined;
+    appScope?: string;
+    /**
+     * When supplied, the platform-commands mock gains the optional
+     * `runAuthCommand` capability and returns this result — simulating the
+     * CLI/TUI runtime. Omit it to simulate VS Code (terminal path).
+     */
+    authCommandResult?: {
+      success: boolean;
+      exitCode: number | null;
+      error?: string;
+    };
+    /** When true, `runAuthCommand` rejects instead of resolving. */
+    authCommandThrows?: boolean;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -202,9 +362,33 @@ function makeHarness(
   const copilot = createMockCopilot();
   const codex = createMockCodex();
   const platformCommands = createMockPlatformCommands();
+  const webviewManager = createMockWebviewManager();
+
+  let authCommandRunner: MockAuthCommandRunner | undefined;
+  if (opts.authCommandResult !== undefined || opts.authCommandThrows === true) {
+    authCommandRunner =
+      opts.authCommandThrows === true
+        ? jest.fn().mockRejectedValue(new Error('spawn exploded'))
+        : jest.fn().mockResolvedValue(opts.authCommandResult);
+    (
+      platformCommands as unknown as { runAuthCommand: MockAuthCommandRunner }
+    ).runAuthCommand = authCommandRunner;
+  }
+
   const platformAuth = createMockAuthProvider();
   const cliDetector = createMockCliDetector();
   const sentry = createMockSentryService();
+  const scopeResolver = createMockScopeResolver({
+    global: opts.configSeed,
+    workspace: opts.workspaceOverrides,
+    app: opts.appOverrides,
+    ...('activePath' in opts ? { activePath: opts.activePath } : {}),
+    ...(opts.appScope !== undefined ? { appScope: opts.appScope } : {}),
+  });
+
+  const activeProviderResolver = new ActiveProviderResolver(
+    scopeResolver as unknown as WorkspaceScopeResolver,
+  );
 
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
@@ -213,12 +397,15 @@ function makeHarness(
     authSecrets as unknown as IAuthSecretsService,
     sdkAdapter as unknown as SdkAgentAdapter,
     providerModels as unknown as ProviderModelsService,
+    activeProviderResolver,
     copilot as unknown as CopilotAuthService,
     codex as unknown as ICodexAuthService,
     platformCommands as unknown as IPlatformCommands,
     platformAuth as unknown as IPlatformAuthProvider,
     cliDetector as unknown as ClaudeCliDetector,
     sentry as unknown as SentryService,
+    scopeResolver as unknown as WorkspaceScopeResolver,
+    webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
   );
 
   return {
@@ -235,6 +422,9 @@ function makeHarness(
     platformAuth,
     cliDetector,
     sentry,
+    scopeResolver,
+    webviewManager,
+    ...(authCommandRunner ? { authCommandRunner } : {}),
   };
 }
 
@@ -504,6 +694,159 @@ describe('AuthRpcHandlers', () => {
 
       expect(h.providerModels.clearCache).toHaveBeenCalledWith('claude');
     });
+
+    it('defaults applyTo to global — writes authMethod/provider to the bare global key', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'global',
+        true,
+      );
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'global',
+        true,
+      );
+      expect(h.scopeResolver.globalStore.get('authMethod')).toBe('thirdParty');
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+    });
+
+    it('routes a workspace-targeted write to the prefixed workspace key', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        applyTo: 'workspace',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'workspace',
+        true,
+      );
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'workspace',
+        true,
+      );
+      expect(h.scopeResolver.workspaceStore.get('authMethod')).toBe(
+        'thirdParty',
+      );
+      expect(h.scopeResolver.globalStore.has('authMethod')).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:getScope
+  // -------------------------------------------------------------------------
+
+  describe('auth:getScope', () => {
+    it('reports inherited (global) scope when no workspace override exists', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: 'anthropic' },
+        activePath: '/ws/project-a',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        activePath: string | null;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('global');
+      expect(result.providerScope).toBe('global');
+      expect(result.activePath).toBe('/ws/project-a');
+    });
+
+    it('reports workspace scope for keys that the active folder overrides', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey' },
+        workspaceOverrides: { authMethod: 'thirdParty' },
+        activePath: '/ws/project-b',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('workspace');
+      expect(result.providerScope).toBe('global');
+    });
+
+    it('returns null activePath when no active folder is resolved', async () => {
+      const h = makeHarness({ activePath: undefined });
+      h.handlers.register();
+
+      const result = await call<{ activePath: string | null }>(
+        h,
+        'auth:getScope',
+      );
+
+      expect(result.activePath).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:clearWorkspaceOverride
+  // -------------------------------------------------------------------------
+
+  describe('auth:clearWorkspaceOverride', () => {
+    it('clears auth/provider/model/effort overrides for the active folder and reverts to global', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: '' },
+        workspaceOverrides: {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+        },
+        activePath: '/ws/project-c',
+      });
+      h.handlers.register();
+
+      // Pre-condition: the folder overrides authMethod.
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(true);
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'auth:clearWorkspaceOverride',
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'authMethod',
+        true,
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        true,
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'provider.thirdParty.openrouter.selectedModel',
+        true,
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'provider.thirdParty.openrouter.reasoningEffort',
+        true,
+      );
+      // Overrides gone → reads now fall through to the global tier.
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+      expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -588,6 +931,95 @@ describe('AuthRpcHandlers', () => {
       expect(h.sdkAdapter.reset).toHaveBeenCalled();
     });
 
+    /**
+     * Regression: the device code was surfaced only through
+     * `IUserInteraction.showInformationMessage`, which the CLI implements as
+     * `console.log` — swallowed by the TUI's console capture. `login()` then
+     * blocks polling for up to five minutes, so the user saw a bare spinner.
+     * The handler must hand `login()` an observer that broadcasts the code the
+     * moment it exists.
+     */
+    it('broadcasts auth:deviceCode as soon as the device code is known', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockImplementation(async (opts?: CopilotLoginOptions) => {
+        opts?.onDeviceCode?.({
+          deviceCode: 'opaque-device-code',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          interval: 5,
+          expiresIn: 900,
+        });
+        return true;
+      });
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'auth:deviceCode',
+        {
+          provider: 'github-copilot',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          expiresInSeconds: 900,
+        },
+      );
+    });
+
+    it('never broadcasts the opaque deviceCode polling key to the UI', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockImplementation(async (opts?: CopilotLoginOptions) => {
+        opts?.onDeviceCode?.({
+          deviceCode: 'secret-polling-key',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          interval: 5,
+          expiresIn: 900,
+        });
+        return true;
+      });
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      const broadcast = JSON.stringify(
+        h.webviewManager.broadcastMessage.mock.calls,
+      );
+      expect(broadcast).not.toContain('secret-polling-key');
+    });
+
+    it('completes the login even when the broadcast rejects', async () => {
+      const h = makeHarness();
+      h.webviewManager.broadcastMessage.mockRejectedValue(
+        new Error('no surface attached'),
+      );
+      h.copilot.login.mockImplementation(async (opts?: CopilotLoginOptions) => {
+        opts?.onDeviceCode?.({
+          deviceCode: 'd',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          interval: 5,
+          expiresIn: 900,
+        });
+        return true;
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      expect(result.success).toBe(true);
+    });
+
+    it('emits no device-code broadcast when login resolves without one (file-based restore)', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockResolvedValue(true);
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      expect(h.webviewManager.broadcastMessage).not.toHaveBeenCalled();
+    });
+
     it('returns a structured failure when Copilot login returns false', async () => {
       const h = makeHarness();
       h.copilot.login.mockResolvedValue(false);
@@ -629,6 +1061,37 @@ describe('AuthRpcHandlers', () => {
       expect(result.success).toBe(true);
       expect(h.copilot.logout).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * `logout()` persists a logout tombstone. A fire-and-forget call would
+     * report success before the write landed — and lose it entirely if the
+     * host exited right after — so the handler must await it.
+     */
+    it('awaits logout() before reporting success', async () => {
+      const h = makeHarness();
+      let settled = false;
+      h.copilot.logout.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        settled = true;
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:copilotLogout');
+
+      expect(settled).toBe(true);
+      expect(result.success).toBe(true);
+    });
+
+    it('reports failure when the tombstone write rejects', async () => {
+      const h = makeHarness();
+      h.copilot.logout.mockRejectedValue(new Error('settings store offline'));
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:copilotLogout');
+
+      expect(result.success).toBe(false);
+      expect(h.sentry.captureException).toHaveBeenCalled();
+    });
   });
 
   describe('auth:copilotStatus', () => {
@@ -668,7 +1131,7 @@ describe('AuthRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('auth:codexLogin', () => {
-    it('opens a terminal running `codex login --device-auth` via IPlatformCommands', async () => {
+    it('opens a terminal running `codex login --device-auth` when the platform has one', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -679,6 +1142,76 @@ describe('AuthRpcHandlers', () => {
         'Codex Login',
         'codex login --device-auth',
       );
+    });
+
+    /**
+     * Regression: in the CLI/TUI runtime `openTerminal` is a no-op, so the old
+     * unconditional `return { success: true }` reported a login that never
+     * happened. When the adapter advertises `runAuthCommand`, the command must
+     * be run for real and the result must track its outcome.
+     */
+    it('runs the command via IAuthCommandRunner instead of openTerminal when the capability exists', async () => {
+      const h = makeHarness({
+        authCommandResult: { success: true, exitCode: 0 },
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:codexLogin');
+
+      expect(result.success).toBe(true);
+      expect(h.authCommandRunner).toHaveBeenCalledWith({
+        provider: 'openai-codex',
+        name: 'Codex Login',
+        command: 'codex login --device-auth',
+      });
+      expect(h.platformCommands.openTerminal).not.toHaveBeenCalled();
+    });
+
+    it('refreshes codex credentials and resets the SDK after a successful run', async () => {
+      const h = makeHarness({
+        authCommandResult: { success: true, exitCode: 0 },
+      });
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:codexLogin');
+
+      expect(h.codex.clearCache).toHaveBeenCalledTimes(1);
+      expect(h.sdkAdapter.reset).toHaveBeenCalled();
+    });
+
+    it('reports failure (never optimistic success) when the command exits non-zero', async () => {
+      const h = makeHarness({
+        authCommandResult: {
+          success: false,
+          exitCode: 1,
+          error: '`codex login --device-auth` exited with code 1.',
+        },
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'auth:codexLogin',
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('exited with code 1');
+      expect(h.codex.clearCache).not.toHaveBeenCalled();
+    });
+
+    it('returns a structured failure (no throw to the RPC boundary) when the runner rejects', async () => {
+      const h = makeHarness({ authCommandThrows: true });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'auth:codexLogin',
+      );
+
+      expect(result.success).toBe(false);
+      expect(h.sentry.captureException).toHaveBeenCalled();
+      // Library error text must not reach the client verbatim.
+      expect(result.error).not.toContain('spawn exploded');
     });
   });
 
@@ -747,6 +1280,99 @@ describe('AuthRpcHandlers', () => {
       );
       expect(otherEntries.every((p) => p.hasApiKey === false)).toBe(true);
       expect(otherEntries.every((p) => p.isDefault === false)).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-7 — saveSettings(applyTo:'app') writes to app scope
+  // -------------------------------------------------------------------------
+
+  describe('AC-7 — auth:saveSettings with applyTo:app writes to app scope', () => {
+    it('writes authMethod to the app store when applyTo=app', async () => {
+      const h = makeHarness({ appScope: 'app.vscode' });
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        applyTo: 'app',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'app',
+        true,
+      );
+      expect(h.scopeResolver.appStore.get('authMethod')).toBe('thirdParty');
+      expect(h.scopeResolver.globalStore.has('authMethod')).toBe(false);
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+    });
+
+    it('writes anthropicProviderId to the app store when applyTo=app', async () => {
+      const h = makeHarness({ appScope: 'app.vscode' });
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        applyTo: 'app',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'app',
+        true,
+      );
+      expect(h.scopeResolver.appStore.get('anthropicProviderId')).toBe(
+        'openrouter',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-9 — auth:getScope reports 'app' + runtime when key at app level
+  // -------------------------------------------------------------------------
+
+  describe('AC-9 — auth:getScope reports app scope + runtime context', () => {
+    it('reports authMethodScope=app and includes runtime when app override exists', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey' },
+        appOverrides: { authMethod: 'thirdParty' },
+        activePath: '/ws/project-x',
+        appScope: 'app.vscode',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        activePath: string | null;
+        runtime?: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('app');
+      expect(result.runtime).toBe('vscode');
+    });
+
+    it('getScope returns runtime from the app-level effective key', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: 'claude' },
+        appOverrides: { anthropicProviderId: 'openrouter' },
+        activePath: '/ws/proj',
+        appScope: 'app.vscode',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        runtime?: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.providerScope).toBe('app');
+      expect(result.runtime).toBe('vscode');
+      expect(result.authMethodScope).toBe('global');
     });
   });
 });

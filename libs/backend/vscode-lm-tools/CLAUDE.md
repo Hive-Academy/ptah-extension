@@ -43,13 +43,14 @@ Note: `VscodeIDECapabilities` lives at the `'@ptah-extension/vscode-lm-tools/vsc
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/shared`, `@ptah-extension/memory-contracts`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-sdk`
+**Internal**: `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/shared`, `@ptah-extension/memory-contracts`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-sdk`, `@ptah-extension/cli-agent-runtime` (public barrel only — MCP registry sources + `McpInstallService` backing `ptah.harness.*`)
 **External**: `chrome-launcher`, `chrome-remote-interface`, `exa-js`, `@tavily/core`, `json2md`, `minimatch`, `jpeg-js`, `gifenc`, `cross-spawn`, `tsyringe`
 
 ## Guidelines
 
 - The platform-agnostic surface MUST NOT import `vscode`. VS Code-specific `VscodeIDECapabilities` is at the `/vscode` subpath only — bundlers (Electron) drop that subpath at build time.
-- Capabilities are injected via `IDE_CAPABILITIES_TOKEN` / `BROWSER_CAPABILITIES_TOKEN` — host apps register their own implementations.
+- Capabilities are injected via `IDE_CAPABILITIES_TOKEN` / `BROWSER_CAPABILITIES_TOKEN` — host apps register their own implementations. Use a DI token ONLY when the implementation genuinely differs per host (VS Code LSP, Electron CDP). Host-agnostic collaborators (MCP registries, `McpInstallService`) are wired directly in `PtahAPIBuilder` — there is exactly one construction site and all three hosts share it via `registerVsCodeLmToolsServices`.
+- `ptah.harness.*` collaborators are declared as narrow structural interfaces in `harness-namespace.builder.ts` (`HarnessMcpRegistrySource`, `HarnessSkillsDirectory`, `HarnessMcpInstaller`) so the builder stays unit-testable; each is optional and degrades to a clear error.
 - Web search providers all implement `IWebSearchProvider`; selection happens via `WebSearchProviderType` setting.
 - Permission prompts route through `IUserInteraction` (platform-core) via the prompt service.
 - `catch (error: unknown)`.

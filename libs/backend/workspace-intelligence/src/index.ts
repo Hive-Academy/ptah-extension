@@ -12,6 +12,7 @@ export {
 } from './services/file-system.service';
 export {
   ContextService,
+  WorkspaceRootMismatchError,
   type FileSearchResult,
   type FileSearchOptions,
 } from './context/context.service';
@@ -44,6 +45,12 @@ export { ProjectDetectorService } from './project-analysis/project-detector.serv
 export { FrameworkDetectorService } from './project-analysis/framework-detector.service';
 export { DependencyAnalyzerService } from './project-analysis/dependency-analyzer.service';
 export { MonorepoDetectorService } from './project-analysis/monorepo-detector.service';
+export {
+  probeStackToolchain,
+  parseProbeVersion,
+  compareVersions,
+} from './project-analysis/toolchain-probe';
+export type { ToolchainProbeOptions } from './project-analysis/toolchain-probe';
 export { PatternMatcherService } from './file-indexing/pattern-matcher.service';
 export { IgnorePatternResolverService } from './file-indexing/ignore-pattern-resolver.service';
 export { DEFAULT_WORKSPACE_EXCLUDES } from './file-indexing/workspace-default-excludes';
@@ -52,6 +59,7 @@ export {
   type WorkspaceIndexOptions,
   type IndexingProgress,
 } from './file-indexing/workspace-indexer.service';
+export { WorkspaceFileIndexService } from './file-indexing/workspace-file-index.service';
 export {
   FileTypeClassifierService,
   type FileClassificationResult,

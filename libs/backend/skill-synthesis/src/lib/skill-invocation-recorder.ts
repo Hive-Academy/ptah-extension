@@ -1,7 +1,9 @@
 import { inject, injectable } from 'tsyringe';
+import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
+import type { SubagentRunMetrics } from './types';
 
 const DEDUP_BUCKET_MS = 2000;
 const DEDUP_CAP = 500;
@@ -13,7 +15,11 @@ export interface RecordSkillEventInput {
   readonly contextId: string | null;
   readonly succeeded: boolean;
   readonly invokedAt: number;
-  readonly source: 'tool-use' | 'prompt-expansion';
+  readonly source: 'tool-use' | 'prompt-expansion' | 'subagent';
+  /** Subagent-source only; transcript-derived metrics (NULL when unavailable). */
+  readonly metrics?: SubagentRunMetrics | null;
+  /** Exact task attribution (TASK_YYYY_NNN) for subagent runs, else NULL. */
+  readonly taskId?: string | null;
 }
 
 @injectable()
@@ -28,7 +34,7 @@ export class SkillInvocationRecorder {
 
   recordSkillEvent(input: RecordSkillEventInput): void {
     if (!input.slug || input.slug.length === 0) return;
-    if (!input.sessionId || input.sessionId.length === 0) return;
+    if (blankToUndefined(input.sessionId) === undefined) return;
 
     const key = `${input.slug}|${input.sessionId}|${Math.floor(
       input.invokedAt / DEDUP_BUCKET_MS,
@@ -40,11 +46,19 @@ export class SkillInvocationRecorder {
       this.store.recordSkillEvent({
         skillSlug: input.slug,
         sessionId: input.sessionId,
+        // Forwarded, not derived. `workspaceRoot` was declared on the input
+        // and then dropped here on every call from the day the type shipped —
+        // silent data loss that no test noticed because the store never asked
+        // for it (correction C10, migration 0037). Every phase-4 read that
+        // scopes by workspace depends on this one line.
+        workspaceRoot: input.workspaceRoot,
         contextId: input.contextId,
         source: input.source,
         succeeded: input.succeeded,
         isError: !input.succeeded,
         invokedAt: input.invokedAt,
+        metrics: input.metrics ?? null,
+        taskId: input.taskId ?? null,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

@@ -105,14 +105,21 @@ test.describe('Editor — Monaco panel', () => {
     const monacoHost = page.locator('[data-testid="editor-monaco"]');
     await expect(monacoHost).toBeVisible();
 
-    const monacoInstance = page.locator('.monaco-editor').first();
+    // Scoped to the code-editor's own host: `.monaco-editor` unscoped also
+    // matches the diff-view's permanently-mounted (but currently
+    // `invisible`) Monaco instance since 3a73a037d made both surfaces
+    // always-mounted siblings, and `.first()` picked whichever is first in
+    // DOM order — the hidden diff editor, not this test's code editor.
+    const monacoInstance = monacoHost.locator('.monaco-editor').first();
     await expect(monacoInstance).toBeVisible({ timeout: 15_000 });
     await expect(monacoHost).toContainText('export const x = 1;', {
       timeout: 15_000,
     });
   });
 
-  test('git status bar reflects pushed changes', async ({ ui }) => {
+  test('git status bar hides the push button when there is nothing to push', async ({
+    ui,
+  }) => {
     await ui.mockRpc({
       'editor:getFileTree': fileTree(),
     });
@@ -130,18 +137,7 @@ test.describe('Editor — Monaco panel', () => {
           ahead: 0,
           behind: 0,
         },
-        files: [
-          {
-            path: 'src/main.ts',
-            status: 'M',
-            staged: false,
-          },
-          {
-            path: 'src/util.ts',
-            status: 'A',
-            staged: true,
-          },
-        ],
+        files: [],
         isGitRepo: true,
       },
     });
@@ -151,8 +147,49 @@ test.describe('Editor — Monaco panel', () => {
     );
     await expect(statusBar).toBeVisible();
 
-    const changedCount = page.getByTitle('2 changed file(s)');
-    await expect(changedCount).toBeVisible();
-    await expect(changedCount).toContainText('2');
+    await expect(page.locator('[data-testid="git-push-button"]')).toHaveCount(
+      0,
+    );
+  });
+
+  test('git status bar push button pushes unpushed commits to remote', async ({
+    ui,
+  }) => {
+    await ui.mockRpc({
+      'editor:getFileTree': fileTree(),
+      'git:push': { success: true },
+    });
+
+    await ui.goto('editor');
+
+    const page = ui.page;
+
+    await ui.pushEvent({
+      type: 'git:status-update',
+      payload: {
+        branch: {
+          branch: 'main',
+          upstream: 'origin/main',
+          ahead: 2,
+          behind: 0,
+        },
+        files: [],
+        isGitRepo: true,
+      },
+    });
+
+    const statusBar = page.locator(
+      'ptah-git-status-bar [role="status"][aria-label="Git status"]',
+    );
+    await expect(statusBar).toBeVisible();
+
+    const pushButton = page.locator('[data-testid="git-push-button"]');
+    await expect(pushButton).toBeVisible();
+    await expect(pushButton).toContainText('Push');
+
+    await pushButton.click();
+
+    const observed = await ui.waitForObservedCall('git:push');
+    expect(observed.method).toBe('git:push');
   });
 });

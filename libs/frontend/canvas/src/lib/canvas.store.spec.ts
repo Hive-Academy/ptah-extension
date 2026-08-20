@@ -36,7 +36,11 @@ jest.mock('ngx-markdown', () => {
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 
-import { CanvasStore, CanvasSeedTab } from './canvas.store';
+import {
+  CanvasStore,
+  CanvasSeedTab,
+  RETAINED_WORKSPACE_CAP,
+} from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { TabManagerService } from '@ptah-extension/chat';
 
@@ -159,5 +163,114 @@ describe('CanvasStore workspace partitioning', () => {
     );
     store.switchWorkspaceTiles('/ws/a', tooMany);
     expect(store.tiles().length).toBe(CanvasStore.MAX_TILES);
+  });
+
+  it('keeps tiles/focusedTabId/tileCount/canAddTile as reactive accessors', () => {
+    expect(typeof store.tiles).toBe('function');
+    expect(typeof store.focusedTabId).toBe('function');
+    expect(typeof store.tileCount).toBe('function');
+    expect(typeof store.canAddTile).toBe('function');
+
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    expect(store.tileCount()).toBe(1);
+    expect(store.canAddTile()).toBe(true);
+  });
+
+  it('tiles() and focusedTabId() follow activeWorkspacePath across switches', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    store.focusTile('a-tab-1');
+    store.switchWorkspaceTiles('/ws/b', []);
+    store.adoptTab('b-tab-1');
+
+    expect(store.activeWorkspacePath()).toBe('/ws/b');
+    expect(store.tiles().map((t) => t.tabId)).toEqual(['b-tab-1']);
+    expect(store.focusedTabId()).toBeNull();
+
+    store.switchWorkspaceTiles('/ws/a', []);
+    expect(store.activeWorkspacePath()).toBe('/ws/a');
+    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-1']);
+    expect(store.focusedTabId()).toBe('a-tab-1');
+  });
+
+  it('tilesFor(path) exposes each workspace tiles as a stable memoized signal', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    store.switchWorkspaceTiles('/ws/b', []);
+    store.adoptTab('b-tab-1');
+
+    const aTiles = store.tilesFor('/ws/a');
+    expect(store.tilesFor('/ws/a')).toBe(aTiles);
+    expect(aTiles().map((t) => t.tabId)).toEqual(['a-tab-1']);
+    expect(
+      store
+        .tilesFor('/ws/b')()
+        .map((t) => t.tabId),
+    ).toEqual(['b-tab-1']);
+  });
+
+  it('workspacePaths lists mounted workspaces in insertion order', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.switchWorkspaceTiles('/ws/b', []);
+    store.switchWorkspaceTiles('/ws/c', []);
+    expect(store.workspacePaths()).toEqual(['/ws/a', '/ws/b', '/ws/c']);
+  });
+
+  it('evicts the LRU workspace beyond RETAINED_WORKSPACE_CAP but restores its tiles on return', () => {
+    expect(RETAINED_WORKSPACE_CAP).toBe(4);
+
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    store.updateTilePosition('a-tab-1', { x: 5, y: 5, w: 5, h: 5 });
+    store.switchWorkspaceTiles('/ws/b', []);
+    store.switchWorkspaceTiles('/ws/c', []);
+    store.switchWorkspaceTiles('/ws/d', []);
+    expect(store.workspacePaths()).toEqual([
+      '/ws/a',
+      '/ws/b',
+      '/ws/c',
+      '/ws/d',
+    ]);
+
+    store.switchWorkspaceTiles('/ws/e', []);
+    // /ws/a is least-recently-active → drops out of the mounted set (grid unmounts)
+    expect(store.workspacePaths()).toEqual([
+      '/ws/b',
+      '/ws/c',
+      '/ws/d',
+      '/ws/e',
+    ]);
+
+    // returning re-mounts /ws/a with its saved tiles + positions intact
+    store.switchWorkspaceTiles('/ws/a', []);
+    expect(store.workspacePaths()).toContain('/ws/a');
+    expect(store.tiles().map((t) => t.tabId)).toEqual(['a-tab-1']);
+    expect(store.tiles()[0].position).toEqual({ x: 5, y: 5, w: 5, h: 5 });
+  });
+
+  it('allTabIds returns tabIds across every retained workspace', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    store.switchWorkspaceTiles('/ws/b', []);
+    store.adoptTab('b-tab-1');
+
+    expect([...store.allTabIds()].sort()).toEqual(['a-tab-1', 'b-tab-1']);
+  });
+
+  it('removeTileFromAnyWorkspace drops a tile from a background workspace', () => {
+    store.switchWorkspaceTiles('/ws/a', []);
+    store.adoptTab('a-tab-1');
+    store.adoptTab('a-tab-2');
+    store.switchWorkspaceTiles('/ws/b', []);
+
+    store.removeTileFromAnyWorkspace('a-tab-1');
+
+    expect(
+      store
+        .tilesFor('/ws/a')()
+        .map((t) => t.tabId),
+    ).toEqual(['a-tab-2']);
+    expect(store.tiles()).toEqual([]);
   });
 });

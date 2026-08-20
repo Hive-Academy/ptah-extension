@@ -632,7 +632,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         enhancedPromptContent: 'EXTRA_GUIDANCE_BLOCK',
       });
@@ -659,7 +658,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: true,
         mcpServerRunning: false,
         pluginPaths: ['/plugins/a', '/plugins/b'],
       });
@@ -672,8 +670,14 @@ Default
       const callArgs = mockInternalQueryService.execute.mock.calls[0][0];
       expect(callArgs.systemPromptAppend).toContain('Available Plugin Skills');
       expect(callArgs.systemPromptAppend).toContain('FORMATTED_SKILLS_HERE');
-      expect(callArgs.pluginPaths).toEqual(['/plugins/a', '/plugins/b']);
-      expect(callArgs.isPremium).toBe(true);
+      // `pluginPaths` reaches the LLM as PROSE in the system prompt and by no
+      // other route. It used to be forwarded to `InternalQueryService` as well,
+      // where four services threaded it to a single log statement and nothing
+      // read it — deleted in TASK_2026_278 Batch 3 after a spike confirmed the
+      // SDK's real `plugins:` channel cannot be used additively (it re-registers
+      // every skill under a second, plugin-qualified name alongside the copies
+      // the harness reconciler writes).
+      expect(callArgs.pluginPaths).toBeUndefined();
     });
 
     it('should NOT add skills section when discoverPluginSkills returns empty array', async () => {
@@ -687,7 +691,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         pluginPaths: ['/plugins/empty'],
       });
@@ -723,7 +726,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         model: 'claude-opus-explicit',
       });
@@ -798,7 +800,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -840,7 +841,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent: jest.fn(),
       });
@@ -869,7 +869,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent: jest.fn(),
       });
@@ -920,7 +919,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -988,7 +986,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1028,7 +1025,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1068,7 +1064,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1109,7 +1104,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1159,7 +1153,6 @@ fallback body
       };
 
       const result = await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent: jest.fn(),
       });

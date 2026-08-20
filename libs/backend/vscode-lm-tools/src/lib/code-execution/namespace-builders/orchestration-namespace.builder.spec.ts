@@ -2,8 +2,9 @@
  * Specs for buildOrchestrationNamespace.
  *
  * The orchestration namespace persists workflow state to
- *   <workspaceRoot>/task-tracking/<taskId>/.orchestration-state.json
- * and drives a small state machine that decides the next action.
+ *   <workspaceRoot>/.ptah/specs/<taskId>/.orchestration-state.json
+ * and drives a small state machine that decides the next action. Phase-gating
+ * documents are read from that same folder.
  *
  * We use a real tmp workspace for each test (with `fs.mkdtemp`) so that the
  * real fs IO is exercised end-to-end. This matches the design of the SUT,
@@ -38,17 +39,29 @@ function makeDeps(): OrchestrationNamespaceDependencies {
   return { workspaceRoot: tmpRoot };
 }
 
+/** The one canonical task folder: `.ptah/specs/<taskId>/`. */
+function taskFolder(taskId: string): string {
+  return path.join(tmpRoot, '.ptah', 'specs', taskId);
+}
+
 async function writeState(
   taskId: string,
   state: OrchestrationState,
 ): Promise<void> {
-  const dir = path.join(tmpRoot, 'task-tracking', taskId);
+  const dir = taskFolder(taskId);
   await fs.promises.mkdir(dir, { recursive: true });
   await fs.promises.writeFile(
     path.join(dir, '.orchestration-state.json'),
     JSON.stringify(state, null, 2),
     'utf8',
   );
+}
+
+/** Write a phase-gating document into the task folder. */
+async function writeDoc(taskId: string, name: string): Promise<void> {
+  const dir = taskFolder(taskId);
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(path.join(dir, name), `# ${name}`, 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +202,7 @@ describe('buildOrchestrationNamespace — getNextAction', () => {
       metadata: {},
     });
     // Satisfy planning phase requirement
-    await fs.promises.writeFile(
-      path.join(tmpRoot, 'task-tracking', taskId, 'task-description.md'),
-      '# Desc',
-      'utf8',
-    );
+    await writeDoc(taskId, 'task-description.md');
 
     const ns = buildOrchestrationNamespace(makeDeps());
     const action = await ns.getNextAction(taskId);
@@ -222,5 +231,77 @@ describe('buildOrchestrationNamespace — getNextAction', () => {
     expect(action.action).toBe('invoke-agent');
     expect(action.agent).toBe('project-manager');
     expect(action.requiredInputs).toEqual(['task-context']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec-folder resolution + batches.md / tasks.md gating
+// ---------------------------------------------------------------------------
+
+describe('buildOrchestrationNamespace — .ptah/specs resolution', () => {
+  it('writes state under .ptah/specs/<taskId>/, not a legacy root', async () => {
+    const ns = buildOrchestrationNamespace(makeDeps());
+    await ns.setState('TASK_2026_300', { phase: 'design' });
+
+    const statePath = path.join(
+      taskFolder('TASK_2026_300'),
+      '.orchestration-state.json',
+    );
+    expect(fs.existsSync(statePath)).toBe(true);
+  });
+
+  /**
+   * The implementation phase is gated on the team-leader batch breakdown. That
+   * file was renamed `tasks.md` → `batches.md`; both names must satisfy the
+   * gate, or a task folder created under either name alone stalls forever.
+   */
+  it.each([['batches.md'], ['tasks.md']])(
+    'advances past implementation when %s is present',
+    async (docName) => {
+      const taskId = `TASK_IMPL_${docName.replace(/\W/g, '')}`;
+      await writeState(taskId, {
+        taskId,
+        phase: 'implementation',
+        currentAgent: null,
+        lastCheckpoint: {
+          type: 'batch-complete',
+          status: 'approved',
+          timestamp: '',
+        },
+        pendingActions: [],
+        strategy: 'BUGFIX',
+        metadata: {},
+      });
+      await writeDoc(taskId, docName);
+
+      const ns = buildOrchestrationNamespace(makeDeps());
+      const action = await ns.getNextAction(taskId);
+
+      // BUGFIX sequence: implementation → qa.
+      expect(action.context?.['nextPhase']).toBe('qa');
+    },
+  );
+
+  it('holds at implementation when neither batch document exists', async () => {
+    const taskId = 'TASK_IMPL_NONE';
+    await writeState(taskId, {
+      taskId,
+      phase: 'implementation',
+      currentAgent: null,
+      lastCheckpoint: {
+        type: 'batch-complete',
+        status: 'approved',
+        timestamp: '',
+      },
+      pendingActions: [],
+      strategy: 'BUGFIX',
+      metadata: {},
+    });
+
+    const ns = buildOrchestrationNamespace(makeDeps());
+    const action = await ns.getNextAction(taskId);
+
+    expect(action.action).toBe('invoke-agent');
+    expect(action.agent).toBe('team-leader');
   });
 });

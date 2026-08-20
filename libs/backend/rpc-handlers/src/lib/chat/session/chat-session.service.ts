@@ -21,8 +21,6 @@ import {
   TOKENS,
   ConfigManager,
   SubagentRegistryService,
-  LicenseService,
-  isPremiumTier,
   type SentryService,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
@@ -32,10 +30,18 @@ import {
   SmitheryInstalledManifestStore,
   SmitheryOverrideResolver,
   createSmitheryConfigSecretStore,
+  McpOAuthService,
+  McpOAuthInstalledManifestStore,
+  McpOAuthOverrideResolver,
+  createMcpOAuthTokenStore,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type WorkspaceProviderProfileResolver,
+} from '@ptah-extension/auth-providers';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionHistoryReaderService,
@@ -69,7 +75,7 @@ import type {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
-import type { ChatPremiumContextService } from './chat-premium-context.service';
+import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 import type {
   ChatStreamBroadcaster,
@@ -77,6 +83,10 @@ import type {
 } from '../streaming/chat-stream-broadcaster.service';
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
+import {
+  OUTPUT_STYLE_TOKENS,
+  type OutputStyleSessionActivationService,
+} from '@ptah-extension/output-styles';
 import { hasStopIntent } from './chat-stop-intent';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
@@ -119,8 +129,6 @@ export class ChatSessionService {
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
     private readonly slashCommandInterceptor: SlashCommandInterceptor,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
@@ -129,8 +137,8 @@ export class ChatSessionService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
-    @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
-    private readonly premiumContext: ChatPremiumContextService,
+    @inject(CHAT_TOKENS.SDK_CONTEXT)
+    private readonly sdkContext: ChatSdkContextService,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
     @inject(CHAT_TOKENS.STREAM_BROADCASTER)
@@ -143,6 +151,14 @@ export class ChatSessionService {
     private readonly modelSettings: ModelSettings,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
+    private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
+    /**
+     * Resolves the output-style activation ONCE per session, at the two
+     * `AISessionConfig` literals below, and never caches it (Req 5.6).
+     */
+    @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION)
+    private readonly outputStyleActivation: OutputStyleSessionActivationService,
   ) {}
 
   /**
@@ -187,6 +203,41 @@ export class ChatSessionService {
   }
 
   /**
+   * Lazily-built resolver that rebuilds session-time OAuth MCP overrides from
+   * the connected manifest, refreshing near-expiry tokens. Built once and
+   * reused; reads the manifest + token store on each `buildOverrides()` so new
+   * connections take effect on the next session start without restarting.
+   *
+   * Constructed WITHOUT the interactive `connect()` deps (loopback server /
+   * browser opener) — only the token paths are exercised here.
+   */
+  private oauthOverrideResolver?: McpOAuthOverrideResolver;
+
+  private getOAuthOverrideResolver(): McpOAuthOverrideResolver {
+    if (!this.oauthOverrideResolver) {
+      const tokenStore = createMcpOAuthTokenStore({
+        getProviderKey: (id) => this.authSecretsService.getProviderKey(id),
+        setProviderKey: (id, value) =>
+          this.authSecretsService.setProviderKey(id, value),
+        deleteProviderKey: (id) =>
+          this.authSecretsService.deleteProviderKey(id),
+      });
+      const manifest = new McpOAuthInstalledManifestStore();
+      const service = new McpOAuthService({
+        tokenStore,
+        manifest,
+        logger: this.logger,
+      });
+      this.oauthOverrideResolver = new McpOAuthOverrideResolver({
+        manifest,
+        service,
+        logger: this.logger,
+      });
+    }
+    return this.oauthOverrideResolver;
+  }
+
+  /**
    * Merge manifest-resolved Smithery overrides UNDER any caller-supplied
    * overrides (caller wins on key collision, matching the builder's
    * `mergeMcpOverride` contract). Never throws — Smithery contributes nothing on
@@ -204,13 +255,23 @@ export class ChatSessionService {
       });
     }
 
+    let oauth: Record<string, McpHttpServerOverride> = {};
+    try {
+      oauth = await this.getOAuthOverrideResolver().buildOverrides();
+    } catch (error: unknown) {
+      this.logger.warn('[RPC] chat:start - OAuth override build failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     const hasSmithery = Object.keys(smithery).length > 0;
+    const hasOAuth = Object.keys(oauth).length > 0;
     const hasCaller =
       !!callerOverride && Object.keys(callerOverride).length > 0;
-    if (!hasSmithery && !hasCaller) {
+    if (!hasSmithery && !hasOAuth && !hasCaller) {
       return callerOverride;
     }
-    return { ...smithery, ...(callerOverride ?? {}) };
+    return { ...smithery, ...oauth, ...(callerOverride ?? {}) };
   }
 
   /**
@@ -332,32 +393,23 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const licenseStatus = await this.licenseService.verifyLicense();
-      const isPremium = isPremiumTier(licenseStatus);
-      const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
-        tier: licenseStatus.tier,
-        isPremium,
         mcpServerRunning,
         mcpPort: this.codeExecutionMcp.getPort(),
       });
 
-      if (isPremium && mcpServerRunning) {
+      if (mcpServerRunning) {
         this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
 
       const enhancedPromptsContent =
-        await this.premiumContext.resolveEnhancedPromptsContent(
-          workspacePath,
-          isPremium,
-        );
-      const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+        await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
 
       this.logger.info('[ptah.main] chat:start - prompt config', {
         hasEnhancedPrompts: !!enhancedPromptsContent,
         enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-        pluginCount: pluginPaths?.length ?? 0,
       });
 
       const currentModel =
@@ -374,6 +426,22 @@ export class ChatSessionService {
       const mcpServersOverride = await this.buildMcpServersOverride(
         params.mcpServersOverride,
       );
+      // Resolve an isolated per-workspace provider profile so a session in
+      // workspace A runs against A's provider even when a different workspace's
+      // provider is currently the process-global active one. `undefined` → the
+      // session rides the global auth env (unchanged single-provider behavior).
+      const providerProfile =
+        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+          workspacePath,
+          currentModel,
+        );
+      // Output-style activation, resolved fresh for THIS session (Req 5.6).
+      // Spreads to at most one field — `outputStyleName` for the flag tier or
+      // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
+      // both (R3 / Req 5.3).
+      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
+        { workspaceRoot: workspacePath },
+      );
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
         workspaceId: workspacePath,
@@ -384,14 +452,15 @@ export class ChatSessionService {
         prompt,
         files,
         images, // inline pasted/dropped images
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         thinking: options?.thinking,
         effort: options?.effort,
+        workflowsDisabled: this.resolveWorkflowsDisabled(),
         includePartialMessages: options?.includePartialMessages,
         mcpServersOverride,
+        providerProfile,
+        ...outputStyle,
       });
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
@@ -456,11 +525,8 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      if (this.premiumContext.isMcpServerRunning()) {
-        const licenseCheck = await this.licenseService.verifyLicense();
-        if (isPremiumTier(licenseCheck)) {
-          this.codeExecutionMcp.ensureRegisteredForSubagents();
-        }
+      if (this.sdkContext.isMcpServerRunning()) {
+        this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
       const resumeOutcome = await this.autoResumeIfInactive(
         sessionId,
@@ -637,7 +703,7 @@ export class ChatSessionService {
       let activationError: string | undefined;
       let activationErrorCode: ChatResumeResult['activationErrorCode'];
       if (params.activate === true && params.tabId) {
-        if (!this.sdkAdapter.isSessionActive(sessionId)) {
+        if (!this.hasLiveSessionStream(sessionId, params.tabId)) {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
@@ -813,7 +879,7 @@ export class ChatSessionService {
    * already active. On a successful resume returns `{ resumed: true }`; on
    * failure returns `{ resumed: false, error }` so the caller can surface a
    * clean error and avoid an infinite resume-retry loop. Reuses the same
-   * premium-gated config + streaming code path as `chat:continue` auto-resume.
+   * config + streaming code path as `chat:continue` auto-resume.
    *
    * Public entry point — wraps the private `autoResumeIfInactive` helper.
    */
@@ -826,7 +892,7 @@ export class ChatSessionService {
     | { resumed: true }
     | { resumed: false; error: string }
   > {
-    if (this.sdkAdapter.isSessionActive(sessionId)) {
+    if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { alreadyActive: true };
     }
 
@@ -849,17 +915,38 @@ export class ChatSessionService {
       };
     }
     // outcome.justResumed is `boolean`; when `autoResumeIfInactive` returned
-    // `{ justResumed: false }` it meant "already active", which we already
-    // short-circuited above via `isSessionActive`. Coerce to `true`.
+    // `{ justResumed: false }` it meant "already live", which we already
+    // short-circuited above via `hasLiveSessionStream`. Coerce to `true`.
     return { resumed: true };
+  }
+
+  /**
+   * True when the session is both registered AND has a broadcast loop attached
+   * to it — the real "can this session receive a message right now" test.
+   *
+   * `isSessionActive` alone only proves a registry record exists. A record
+   * whose `streamEventsToWebview` loop has exited still answers true, and
+   * `sendMessageToSession` against it resolves happily onto a queue with no
+   * consumer: the turn hangs forever with no events and no error. The stream is
+   * keyed by tabId for a session started via `chat:start` and by the real
+   * session UUID once resumed, so both keys count as live.
+   */
+  private hasLiveSessionStream(sessionId: SessionId, tabId: string): boolean {
+    if (!this.sdkAdapter.isSessionActive(sessionId)) {
+      return false;
+    }
+    return (
+      this.streamBroadcaster.isStreaming(sessionId as string) ||
+      this.streamBroadcaster.isStreaming(tabId)
+    );
   }
 
   /**
    * Auto-resume an inactive SDK session before continuing. Returns
    * `{ justResumed: false }` when already active; otherwise resumes via
-   * premium-gated config and streams to the webview. `{ error }` carries a
-   * structured `ChatContinueResult` on failure. Log messages + payloads are
-   * byte-identical to the pre-extraction inline block.
+   * the resolved session config and streams to the webview. `{ error }`
+   * carries a structured `ChatContinueResult` on failure. Log messages +
+   * payloads are byte-identical to the pre-extraction inline block.
    */
   private async autoResumeIfInactive(
     sessionId: SessionId,
@@ -868,54 +955,83 @@ export class ChatSessionService {
     prompt: string,
     params: AutoResumePreflight,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
-    if (this.sdkAdapter.isSessionActive(sessionId)) {
+    if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { justResumed: false };
+    }
+    // Registered but with no attached stream: the record is a corpse whose
+    // consumer already exited. Continuing into it would silently queue the
+    // message against a dead query, so tear it down first and fall through to
+    // a real resume — otherwise `executeQuery` would re-register over the
+    // stale record and leave its abort controller dangling.
+    if (this.sdkAdapter.isSessionActive(sessionId)) {
+      this.logger.warn(
+        '[RPC] Session is registered but has no attached stream — ending the dead record before resume',
+        { sessionId, tabId },
+      );
+      try {
+        await this.sdkAdapter.endSession(sessionId);
+      } catch (cleanupError) {
+        this.logger.warn(
+          '[RPC] Failed to end dead session record before resume',
+          cleanupError instanceof Error
+            ? cleanupError
+            : new Error(String(cleanupError)),
+        );
+      }
     }
 
     this.logger.info(
       `[RPC] Session ${sessionId} not active, attempting resume...`,
     );
 
-    const licenseStatus = await this.licenseService.verifyLicense();
-    const isPremium = isPremiumTier(licenseStatus);
-    const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
     this.logger.info('[ptah.main] chat:continue resume - session config', {
-      tier: licenseStatus.tier,
-      isPremium,
       mcpServerRunning,
       mcpPort: this.codeExecutionMcp.getPort(),
       sessionId,
     });
 
     const enhancedPromptsContent =
-      await this.premiumContext.resolveEnhancedPromptsContent(
-        workspacePath,
-        isPremium,
-      );
-    const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
 
     this.logger.info('[ptah.main] chat:continue resume - prompt config', {
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      pluginCount: pluginPaths?.length ?? 0,
     });
 
     const currentModel =
       params.model || this.modelSettings.selectedModel.get() || 'default';
 
+    // Same per-workspace isolation as chat:start — the resumed turn must run
+    // against the session's own workspace provider, not whichever provider is
+    // globally active after a workspace switch.
+    const providerProfile =
+      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+        workspacePath,
+        currentModel,
+      );
+
+    // Re-resolved for the resumed turn rather than carried over from the
+    // original start: the provider or the style may have changed since, and
+    // Req 5.6 forbids caching the decision across sessions.
+    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
+      workspaceRoot: workspacePath,
+    });
+
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
         model: currentModel,
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
-        pluginPaths,
         tabId,
         thinking: params.thinking,
         effort: params.effort,
+        workflowsDisabled: this.resolveWorkflowsDisabled(),
         prompt,
+        providerProfile,
+        ...outputStyle,
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,
@@ -948,5 +1064,22 @@ export class ChatSessionService {
   private captureSentry(error: unknown, errorSource: string): void {
     const err = error instanceof Error ? error : new Error(String(error));
     this.sentryService.captureException(err, { errorSource });
+  }
+
+  /**
+   * Resolve the persisted `workflows.disabled` kill switch (default false =
+   * workflows ON). Threaded into the AISessionConfig so SdkQueryOptionsBuilder
+   * can inject `CLAUDE_CODE_DISABLE_WORKFLOWS=1` into the query env only when
+   * disabled. Read here (not in the builder) because this is where a workspace
+   * provider is available — the builder has no workspace-config access.
+   */
+  private resolveWorkflowsDisabled(): boolean {
+    return (
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'workflows.disabled',
+        false,
+      ) ?? false
+    );
   }
 }

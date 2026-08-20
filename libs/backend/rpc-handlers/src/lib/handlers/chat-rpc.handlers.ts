@@ -1,16 +1,18 @@
 /**
  * Chat RPC Handlers — thin facade.
  *
- * Registers the six `chat:*` / `agent:backgroundList` RPC methods and delegates
- * each call to one of the extracted chat sub-services:
+ * Registers the `chat:*` / `agent:backgroundList` RPC methods and delegates
+ * each call to one of the extracted chat sub-services (except
+ * `chat:pending-questions`, which is a direct read of the SDK permission
+ * handler's live registry and has no session-service counterpart):
  *
- *   - `ChatPremiumContextService` — MCP-running probe + premium prompt/plugin resolution.
+ *   - `ChatSdkContextService`     — MCP-running probe + prompt/plugin resolution.
  *   - `ChatPtahCliService`        — Ptah CLI dispatch + the two private session maps.
  *   - `ChatStreamBroadcaster`     — webview event loop + background-agent subscription.
  *   - `ChatSessionService`        — SDK orchestration for the six chat methods.
  *
- * The six-entry METHODS tuple is preserved verbatim so `SHARED_HANDLERS`
- * coverage + runtime disjoint-ness keep working.
+ * The METHODS tuple is the manifest's source of truth for this namespace, so
+ * `SHARED_HANDLERS` coverage + runtime disjoint-ness keep working.
  *
  * Error handling: each `ChatSessionService` method already wraps its body in
  * try/catch and returns a result-shaped failure (`{ success: false, error }`)
@@ -31,7 +33,15 @@ import {
   TOKENS,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { ModelNotAvailableError } from '@ptah-extension/agent-sdk';
+import {
+  PLATFORM_TOKENS,
+  type ISessionAttachmentGuard,
+} from '@ptah-extension/platform-core';
+import {
+  ModelNotAvailableError,
+  SDK_TOKENS,
+  type SdkPermissionHandler,
+} from '@ptah-extension/agent-sdk';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -39,6 +49,8 @@ import type {
   ChatContinueResult,
   ChatAbortParams,
   ChatAbortResult,
+  ChatPendingQuestionsParams,
+  ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
   ChatResumeParams,
@@ -56,6 +68,7 @@ import {
   ChatContinueParamsSchema,
   ChatResumeParamsSchema,
   ChatAbortParamsSchema,
+  ChatPendingQuestionsParamsSchema,
 } from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
@@ -75,6 +88,7 @@ export class ChatRpcHandlers {
     'chat:continue',
     'chat:resume',
     'chat:abort',
+    'chat:pending-questions',
     'chat:running-agents',
     'agent:backgroundList',
   ] as const satisfies readonly RpcMethodName[];
@@ -90,6 +104,10 @@ export class ChatRpcHandlers {
     private readonly streamBroadcaster: ChatStreamBroadcaster,
     @inject(CHAT_TOKENS.SESSION)
     private readonly session: ChatSessionService,
+    @inject(PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD)
+    private readonly attachmentGuard: ISessionAttachmentGuard,
+    @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+    private readonly permissionHandler: SdkPermissionHandler,
   ) {}
 
   /**
@@ -202,6 +220,22 @@ export class ChatRpcHandlers {
       'registerChatResume',
       (params) => {
         ChatResumeParamsSchema.parse(params);
+        // Contention backstop: when a session is attached to a messaging
+        // binding the gateway bridge is the SOLE legitimate driver of its
+        // JSONL, so a stale webview tab must not resume it concurrently. The
+        // guard is a platform-core port: in the Electron host it is the
+        // gateway's AttachedSessionRegistry; in the VS Code host (gateway
+        // absent) it is a no-op null-object that always returns `false`, so
+        // this check never blocks there. The bridge's own resume path
+        // (gateway-chat-bridge → IAgentAdapter.resumeSession) does NOT route
+        // through `chat:resume`, so it is unaffected. The frontend already
+        // renders attached tabs read-only; this is the enforcement backstop.
+        if (this.attachmentGuard.isAttached(params.sessionId)) {
+          throw new RpcUserError(
+            'This session is currently driven by a messaging binding and is read-only in the app. Detach it from the binding to resume it here.',
+            'SESSION_ATTACHED_TO_GATEWAY',
+          );
+        }
         return this.session.resumeSession(params);
       },
     );
@@ -211,6 +245,29 @@ export class ChatRpcHandlers {
       (params) => {
         ChatAbortParamsSchema.parse(params);
         return this.session.abortSession(params);
+      },
+    );
+    this.wire<ChatPendingQuestionsParams, ChatPendingQuestionsResult>(
+      'chat:pending-questions',
+      'registerChatPendingQuestions',
+      async (params) => {
+        ChatPendingQuestionsParamsSchema.parse(params);
+        // Reload recovery: the webview lost the rendered AskUserQuestion
+        // prompt but the SDK call is still parked on it. Replay whatever the
+        // permission handler is still holding for this session so the user
+        // can answer instead of waiting out the idle timeout.
+        try {
+          return {
+            success: true,
+            questions: this.permissionHandler.listPendingQuestions(
+              params.sessionId,
+            ),
+          };
+        } catch (error: unknown) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.error('RPC: chat:pending-questions lookup failed', err);
+          return { success: false, questions: [], error: err.message };
+        }
       },
     );
     this.wire<ChatRunningAgentsParams, ChatRunningAgentsResult>(
@@ -239,6 +296,7 @@ export class ChatRpcHandlers {
         'chat:continue',
         'chat:resume',
         'chat:abort',
+        'chat:pending-questions',
         'chat:running-agents',
         'agent:backgroundList',
         'agent:backgroundStop',

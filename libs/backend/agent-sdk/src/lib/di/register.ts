@@ -4,7 +4,7 @@
  * IMPORTANT: All SDK services are registered as singletons to ensure
  * the same instance is used across all consumers. This is critical for
  * SdkAgentAdapter - the initialized state must be shared between main.ts
- * (which calls initialize()) and RpcMethodRegistrationService (which uses it).
+ * (which calls initialize()) and `registerRpcSurface` (which uses it).
  *
  * Pattern: Services use @injectable() and @inject() decorators for auto-wiring.
  * Registration uses singleton pattern to ensure consistent state across consumers.
@@ -44,6 +44,7 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
   CompactionCallbackRegistry,
+  SessionIdResolvedCallbackRegistry,
   SessionEndCallbackRegistry,
   SessionActivityRegistry,
   SubagentStopCallbackRegistry,
@@ -61,6 +62,7 @@ import {
   StopHookHandler,
   StopFailureHookHandler,
   SubagentStopHookHandler,
+  TeammateLifecycleHookHandler,
   SessionEndHookCallbackRegistry,
   SessionEndHookHandler,
   ToolFailureCallbackRegistry,
@@ -69,14 +71,12 @@ import {
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
-  SdkWarmQueryManager,
   SessionForkService,
   SdkRuntimeStateService,
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
-import { SkillJunctionService } from '../helpers/skill-junction.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SDK_TOKENS } from './tokens';
@@ -276,6 +276,12 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER,
+    { useClass: TeammateLifecycleHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_SESSION_END_HOOK_CALLBACK_REGISTRY,
     { useClass: SessionEndHookCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
@@ -366,6 +372,12 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    { useClass: SessionIdResolvedCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,
     { useClass: CompactionHookHandler },
     { lifecycle: Lifecycle.Singleton },
@@ -435,12 +447,6 @@ export function registerSdkServices(
   );
 
   container.register(
-    SDK_TOKENS.SDK_SKILL_JUNCTION,
-    { useClass: SkillJunctionService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
     SDK_TOKENS.SDK_SETTINGS_EXPORT,
     { useClass: SettingsExportService },
     { lifecycle: Lifecycle.Singleton },
@@ -455,12 +461,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_WARM_QUERY_MANAGER,
-    { useClass: SdkWarmQueryManager },
     { lifecycle: Lifecycle.Singleton },
   );
 

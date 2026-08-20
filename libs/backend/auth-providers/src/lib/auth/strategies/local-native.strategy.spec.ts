@@ -13,8 +13,11 @@
  *   - Happy path: env vars set, active provider switched, dynamic model
  *     fetcher registered (local vs cloud variant selected by providerId).
  *   - Ollama Cloud API key branch:
- *       * key present â†’ `cloudMetadata.refresh(key)` is invoked.
- *       * key absent â†’ `cloudMetadata.clearCache()` is invoked.
+ *       * key present â†’ DIRECT mode: base URL flips to ollama.com, key becomes
+ *         the auth token, daemon version check skipped, `cloudMetadata.refresh(key)`
+ *         is invoked.
+ *       * key present + custom baseUrl override â†’ daemon path (escape hatch).
+ *       * key absent â†’ daemon path, `cloudMetadata.clearCache()` is invoked.
  *   - Cross-provider guard: copilot / codex / lm-studio proxies stopped
  *     before configuring.
  *   - teardown() clears both caches.
@@ -60,6 +63,7 @@ import type {
 } from '../../provider-models.service';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../../providers/local';
+import { OLLAMA_CLOUD_DIRECT_BASE_URL } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -302,12 +306,22 @@ describe('LocalNativeStrategy', () => {
   // -------------------------------------------------------------------------
 
   describe('configure() â€” Ollama Cloud branch', () => {
-    it('registers cloud fetcher and triggers a metadata refresh when API key exists', async () => {
+    it('API key present â†’ DIRECT mode: ollama.com base URL, key as auth token, no daemon checks', async () => {
       const harness = makeStrategy({
         providerKeys: { 'ollama-cloud': 'oc_key_abc' },
       });
 
-      await harness.strategy.configure(makeContext('ollama-cloud'));
+      const ctx = makeContext('ollama-cloud');
+      const result = await harness.strategy.configure(ctx);
+
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe(OLLAMA_CLOUD_DIRECT_BASE_URL);
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('oc_key_abc');
+      expect(process.env['ANTHROPIC_BASE_URL']).toBe(
+        OLLAMA_CLOUD_DIRECT_BASE_URL,
+      );
+
+      // Direct mode has no local-daemon dependency.
+      expect(harness.discovery.checkVersion).not.toHaveBeenCalled();
 
       const [registeredId, fetcher] =
         harness.providerModels.registerDynamicFetcher.mock.calls[0];
@@ -322,6 +336,32 @@ describe('LocalNativeStrategy', () => {
       // Key-present branch â†’ metadata refresh fires.
       expect(harness.cloudMetadata.refresh).toHaveBeenCalledWith('oc_key_abc');
       expect(harness.cloudMetadata.clearCache).not.toHaveBeenCalled();
+
+      expect(result.configured).toBe(true);
+      expect(result.details[0]).toContain('direct at');
+    });
+
+    it('API key present + custom baseUrl override â†’ daemon path (escape hatch)', async () => {
+      const harness = makeStrategy({
+        config: {
+          'provider.ollama-cloud.baseUrl': 'http://127.0.0.1:11435',
+        },
+        providerKeys: { 'ollama-cloud': 'oc_key_abc' },
+      });
+
+      const ctx = makeContext('ollama-cloud');
+      const result = await harness.strategy.configure(ctx);
+
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:11435');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+        OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+      );
+      expect(harness.discovery.checkVersion).toHaveBeenCalledWith(
+        'ollama-cloud',
+      );
+      // Daemon path still refreshes metadata with the stored key.
+      expect(harness.cloudMetadata.refresh).toHaveBeenCalledWith('oc_key_abc');
+      expect(result.configured).toBe(true);
     });
 
     it('clears cloud metadata cache when no API key is stored (key-absent branch)', async () => {

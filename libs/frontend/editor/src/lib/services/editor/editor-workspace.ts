@@ -34,8 +34,17 @@ export class EditorWorkspaceHelper {
   /** Counter for stale-response protection in loadFileTree(). */
   private loadFileTreeRequestId = 0;
 
-  /** Handler for backend file:tree-changed push events. */
-  private treeMessageHandler: ((event: MessageEvent) => void) | null = null;
+  /**
+   * Whether push events are currently being acted on.
+   *
+   * This helper is a plain class, not injectable, so it cannot register as
+   * a `MessageHandler` itself — `EditorService` owns the registration and
+   * delegates here (C1). The flag preserves the exact observable behaviour
+   * of the raw listener it replaced: events before
+   * {@link startFileTreeWatcher} or after {@link stopFileTreeWatcher} are
+   * ignored.
+   */
+  private watching = false;
 
   /** Debounce timer for frontend-side tree refresh coalescing. */
   private treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -49,8 +58,20 @@ export class EditorWorkspaceHelper {
     private readonly callbacks: {
       /** Re-open a file after a file:content-changed push for non-dirty tabs. */
       handleFileContentChanged(filePath: string): Promise<void>;
+      /** Revalidate working-tree diff tabs pointing at a changed file. */
+      refreshDiffTabsForFile(absolutePath: string): void;
       /** Close the split pane (used when the removed workspace was active). */
       closeSplit(): void;
+      /**
+       * Forget a recorded split-pane divergence (TASK_2026_214).
+       *
+       * A workspace switch is a reconciliation: the restore below derives BOTH
+       * pane surfaces from the tab record, so the two panes are identical the
+       * moment they come back. It is also a change of subject — the latch is
+       * not workspace-partitioned, so a divergence recorded in one workspace
+       * must not be allowed to describe another workspace's split.
+       */
+      clearSplitDiverged(): void;
     },
   ) {}
 
@@ -71,16 +92,40 @@ export class EditorWorkspaceHelper {
     }
     this.saveCurrentWorkspaceState();
     this.state.setActiveWorkspacePath(workspacePath);
+    // Before either branch: both of them rebuild the split from scratch, and
+    // neither can inherit the outgoing workspace's disagreement (TASK_2026_214).
+    this.callbacks.clearSplitDiverged();
     const cachedState = this.state.workspaceEditorState.get(workspacePath);
     if (cachedState) {
       this.state.fileTree.set(cachedState.fileTree);
       this.state.activeFilePath.set(cachedState.activeFilePath);
-      this.state.activeFileContent.set(cachedState.activeFileContent);
       this.state.openTabs.set(cachedState.openTabs);
 
+      // The cache holds THREE copies of the same text — the tab record, the
+      // cached `activeFileContent` and the cached `splitFileContent` — and only
+      // the tab record is updated on every edit. Restoring the pane copies
+      // verbatim therefore reinstates whatever they held when the file was last
+      // opened or switched to, silently reverting every edit made since and
+      // re-opening the divergence C2 closes. The tab record is the owner, so
+      // the panes are derived from it on restore and the cached pane copies are
+      // used only for a path with no tab (C2 AC1, dispatch §1.3 leg 4).
+      const tabs = cachedState.openTabs;
+      const activeTab = tabs.find(
+        (t) => t.filePath === cachedState.activeFilePath,
+      );
+      this.state.activeFileContent.set(
+        activeTab ? activeTab.content : cachedState.activeFileContent,
+      );
+
+      const splitPath = cachedState.splitFilePath;
+      const splitTab = splitPath
+        ? tabs.find((t) => t.filePath === splitPath)
+        : undefined;
       this.state.splitActive.set(cachedState.splitActive ?? false);
-      this.state.splitFilePath.set(cachedState.splitFilePath);
-      this.state.splitFileContent.set(cachedState.splitFileContent ?? '');
+      this.state.splitFilePath.set(splitPath);
+      this.state.splitFileContent.set(
+        splitTab ? splitTab.content : (cachedState.splitFileContent ?? ''),
+      );
       if (!cachedState.splitActive) {
         this.state.focusedPane.set('left');
       }
@@ -321,48 +366,21 @@ export class EditorWorkspaceHelper {
     return newTree.map(mergeNode);
   }
 
-  /** Start listening for file:tree-changed and file:content-changed pushes. */
+  /**
+   * Begin acting on `file:tree-changed`, `file:content-changed` and
+   * `editor:reread-open-tabs` pushes.
+   *
+   * Registration itself lives on `EditorService`, which implements
+   * `MessageHandler` and delegates to the three `on*` methods below. This
+   * method is now purely the enable half of the timer/gate lifecycle.
+   */
   public startFileTreeWatcher(): void {
-    if (this.treeMessageHandler) return;
-
-    this.treeMessageHandler = (event: MessageEvent) => {
-      const data = event.data;
-      if (data?.type === 'file:tree-changed') {
-        if (this.treeRefreshDebounceTimer) {
-          clearTimeout(this.treeRefreshDebounceTimer);
-        }
-        this.treeRefreshDebounceTimer = setTimeout(() => {
-          this.treeRefreshDebounceTimer = null;
-          void this.loadFileTree();
-        }, EditorWorkspaceHelper.TREE_REFRESH_DEBOUNCE_MS);
-      }
-
-      if (data?.type === 'file:content-changed' && data?.payload?.filePath) {
-        void this.callbacks.handleFileContentChanged(data.payload.filePath);
-      }
-      if (data?.type === 'editor:reread-open-tabs') {
-        if (this.rereadAllTabsDebounceTimer) {
-          clearTimeout(this.rereadAllTabsDebounceTimer);
-        }
-        this.rereadAllTabsDebounceTimer = setTimeout(() => {
-          this.rereadAllTabsDebounceTimer = null;
-          const tabs = this.state.openTabs();
-          for (const tab of tabs) {
-            if (tab.isDirty) continue;
-            void this.callbacks.handleFileContentChanged(tab.filePath);
-          }
-        }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);
-      }
-    };
-    window.addEventListener('message', this.treeMessageHandler);
+    this.watching = true;
   }
 
-  /** Stop listening and clean up the debounce timer. */
+  /** Stop acting on pushes and clear both pending debounce timers. */
   public stopFileTreeWatcher(): void {
-    if (this.treeMessageHandler) {
-      window.removeEventListener('message', this.treeMessageHandler);
-      this.treeMessageHandler = null;
-    }
+    this.watching = false;
     if (this.treeRefreshDebounceTimer) {
       clearTimeout(this.treeRefreshDebounceTimer);
       this.treeRefreshDebounceTimer = null;
@@ -371,6 +389,62 @@ export class EditorWorkspaceHelper {
       clearTimeout(this.rereadAllTabsDebounceTimer);
       this.rereadAllTabsDebounceTimer = null;
     }
+  }
+
+  /**
+   * Handle a `file:tree-changed` push. Coalesces bursts through the
+   * unchanged {@link TREE_REFRESH_DEBOUNCE_MS} window.
+   */
+  public onFileTreeChanged(): void {
+    if (!this.watching) return;
+
+    if (this.treeRefreshDebounceTimer) {
+      clearTimeout(this.treeRefreshDebounceTimer);
+    }
+    this.treeRefreshDebounceTimer = setTimeout(() => {
+      this.treeRefreshDebounceTimer = null;
+      void this.loadFileTree();
+    }, EditorWorkspaceHelper.TREE_REFRESH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Handle a `file:content-changed` push for a single path. Undebounced,
+   * exactly as before — the backend already debounces per file.
+   */
+  public onFileContentChanged(filePath: string): void {
+    if (!this.watching) return;
+    if (!filePath) return;
+
+    void this.callbacks.handleFileContentChanged(filePath);
+    // A working-tree diff reads the file on disk, so the same push that
+    // invalidates a file tab also invalidates that file's worktree diff.
+    this.callbacks.refreshDiffTabsForFile(filePath);
+  }
+
+  /**
+   * Handle an `editor:reread-open-tabs` push. Coalesces bursts through the
+   * unchanged {@link REREAD_OPEN_TABS_DEBOUNCE_MS} window, then re-reads
+   * every non-dirty open tab.
+   */
+  public onRereadOpenTabs(): void {
+    if (!this.watching) return;
+
+    if (this.rereadAllTabsDebounceTimer) {
+      clearTimeout(this.rereadAllTabsDebounceTimer);
+    }
+    this.rereadAllTabsDebounceTimer = setTimeout(() => {
+      this.rereadAllTabsDebounceTimer = null;
+      const tabs = this.state.openTabs();
+      for (const tab of tabs) {
+        if (tab.isDirty) continue;
+        // A1 AC5: a diff tab's key is `diff:<comparison>:<path>`, not a real
+        // file path. Issuing `editor:openFile` against it produced a
+        // guaranteed-failing RPC on every git operation; diff tabs revalidate
+        // through `git:status-update` -> refreshDiffTab instead.
+        if (tab.diff) continue;
+        void this.callbacks.handleFileContentChanged(tab.filePath);
+      }
+    }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);
   }
 }
 export type { EditorWorkspaceState };

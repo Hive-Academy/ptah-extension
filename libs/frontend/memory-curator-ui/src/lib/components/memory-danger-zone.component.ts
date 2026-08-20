@@ -23,7 +23,7 @@ export interface MemoryPurgeRequest {
   template: `
     <div class="rounded-xl border border-error/40 p-4">
       <h2 class="text-sm font-semibold text-error">Danger zone</h2>
-      <p class="mt-0.5 text-xs text-base-content/60">
+      <p class="mt-0.5 text-xs text-base-content-muted">
         Permanently delete memory entries whose subject matches a pattern. This
         cannot be undone.
       </p>
@@ -35,7 +35,7 @@ export interface MemoryPurgeRequest {
         <div class="flex flex-1 flex-col gap-1">
           <label
             for="memory-purge-pattern"
-            class="text-xs text-base-content/60"
+            class="text-xs text-base-content-muted"
           >
             Purge by subject pattern
           </label>
@@ -51,7 +51,10 @@ export interface MemoryPurgeRequest {
           />
         </div>
         <div class="flex flex-col gap-1">
-          <label for="memory-purge-mode" class="text-xs text-base-content/60">
+          <label
+            for="memory-purge-mode"
+            class="text-xs text-base-content-muted"
+          >
             Mode
           </label>
           <select
@@ -62,8 +65,10 @@ export interface MemoryPurgeRequest {
             [disabled]="purging()"
             aria-label="Pattern match mode"
           >
-            <option value="substring">substring</option>
-            <option value="like">like</option>
+            <option value="substring" [selected]="mode() === 'substring'">
+              substring
+            </option>
+            <option value="like" [selected]="mode() === 'like'">like</option>
           </select>
         </div>
         <button
@@ -83,7 +88,7 @@ export interface MemoryPurgeRequest {
       </section>
 
       @if (!hasWorkspace()) {
-        <p class="mt-2 text-xs text-base-content/60">
+        <p class="mt-2 text-xs text-base-content-muted">
           Open a workspace to purge memory.
         </p>
       }

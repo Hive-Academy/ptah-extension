@@ -1,7 +1,7 @@
 /**
  * Enhanced Prompts Module
  *
- * This module provides the Enhanced Prompts premium feature which generates
+ * This module provides the Enhanced Prompts feature which generates
  * project-specific guidance that is appended to Anthropic's built-in
  * claude_code system prompt.
  *

@@ -11,6 +11,9 @@
  * - git:discard          - Discard working tree changes (destructive)
  * - git:commit           - Create a commit with the provided message
  * - git:showFile         - Show file content from HEAD revision
+ * - git:diffFile         - Resolve both sides of a staged/worktree file diff
+ * - git:applyHunks       - Stage/unstage/revert selected hunks of one file
+ * - git:push             - Push the current branch to its upstream remote
  * - git:branches         - List local/remote branches with ahead/behind counts
  * - git:checkout         - Checkout a branch (with dirty-tree guard)
  * - git:stashList        - List all stash entries
@@ -34,7 +37,14 @@ import type {
   WebviewManager,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
+import {
+  parseGitApplyHunksParams,
+  parseGitDiffFileParams,
+} from './git-rpc.schema';
 import type {
   GitInfoParams,
   GitInfoResult,
@@ -53,6 +63,16 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitDiffFileParams,
+  GitDiffFileResult,
+  GitApplyHunksParams,
+  GitApplyHunksResult,
+  GitDiffComparison,
+  GitBlobRead,
+  GitReadErrorCode,
+  DiffSideRef,
+  GitPushParams,
+  GitPushResult,
   GitBranchesParams,
   GitBranchesResult,
   GitCheckoutParams,
@@ -84,6 +104,9 @@ export class GitRpcHandlers {
     'git:discard',
     'git:commit',
     'git:showFile',
+    'git:diffFile',
+    'git:applyHunks',
+    'git:push',
     'git:branches',
     'git:checkout',
     'git:stashList',
@@ -101,6 +124,8 @@ export class GitRpcHandlers {
     private readonly gitInfo: GitInfoService,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystem: IFileSystemProvider,
   ) {}
 
   register(): void {
@@ -113,6 +138,9 @@ export class GitRpcHandlers {
     this.registerGitDiscard();
     this.registerGitCommit();
     this.registerGitShowFile();
+    this.registerGitDiffFile();
+    this.registerGitApplyHunks();
+    this.registerGitPush();
     this.registerGitBranches();
     this.registerGitCheckout();
     this.registerGitStashList();
@@ -454,6 +482,192 @@ export class GitRpcHandlers {
         }
 
         return this.gitInfo.showFile(wsRoot, params.path);
+      },
+    );
+  }
+
+  /**
+   * git:diffFile - Resolve both sides of a file diff in one round trip.
+   *
+   * Replaces the two-call `git:showFile` + worktree-read pattern the editor
+   * used for a diff tab. Both sides come back as structured outcomes, so
+   * "absent at this revision" is never flattened into empty content.
+   *
+   * Failures answer with an `error` outcome on both sides rather than
+   * rejecting: a diff tab must be able to show a persistent error state, and
+   * a rejected RPC gives the renderer nothing to render.
+   */
+  private registerGitDiffFile(): void {
+    this.rpcHandler.registerMethod<GitDiffFileParams, GitDiffFileResult>(
+      'git:diffFile',
+      async (rawParams) => {
+        const params = parseGitDiffFileParams(rawParams);
+        if (!params) {
+          this.logger.warn('[GitRpc] git:diffFile called with invalid params');
+          return this.diffFileFailure(
+            '',
+            '',
+            'worktree',
+            'unknown',
+            'Invalid diff request.',
+          );
+        }
+
+        const originalPath = params.originalPath ?? params.path;
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:diffFile');
+        if (!wsRoot) {
+          return this.diffFileFailure(
+            params.path,
+            originalPath,
+            params.comparison,
+            'not-a-repo',
+            'No workspace folder open.',
+          );
+        }
+
+        try {
+          return await this.gitInfo.diffFile(
+            wsRoot,
+            {
+              path: params.path,
+              comparison: params.comparison,
+              originalPath: params.originalPath,
+            },
+            this.fileSystem,
+          );
+        } catch (error: unknown) {
+          // `GitInfoService.diffFile` rejects path traversal before spawning
+          // git. Surface that as a structured read error rather than an
+          // unmapped transport fault, and keep the detail in the log.
+          this.logger.error(
+            '[GitRpc] git:diffFile rejected the request',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return this.diffFileFailure(
+            params.path,
+            originalPath,
+            params.comparison,
+            'unknown',
+            'This file path cannot be diffed.',
+          );
+        }
+      },
+    );
+  }
+
+  /**
+   * A `git:diffFile` result whose two sides both failed.
+   *
+   * `snapshotToken` is empty because no snapshot was taken — a write path must
+   * treat an empty token as "never validated", not as a match.
+   */
+  private diffFileFailure(
+    filePath: string,
+    originalPath: string,
+    comparison: GitDiffComparison,
+    code: GitReadErrorCode,
+    message: string,
+  ): GitDiffFileResult {
+    const failure: GitBlobRead = { outcome: 'error', code, message };
+    const absent: DiffSideRef = { kind: 'absent' };
+    return {
+      path: filePath,
+      originalPath,
+      comparison,
+      original: failure,
+      modified: failure,
+      originalRef: absent,
+      modifiedRef: absent,
+      patch: null,
+      hunks: [],
+      snapshotToken: '',
+    };
+  }
+
+  /**
+   * git:applyHunks - Stage, unstage or revert selected hunks of one file.
+   *
+   * The only `git:*` method that writes to the index or the working tree.
+   * Everything that decides whether the write is safe — the operation matrix,
+   * the snapshot-staleness refusal, the dry run, the rollback — lives in
+   * `GitInfoService.applyHunks` rather than here, so a host that reaches the
+   * service directly cannot route around it. This method's job is the RPC
+   * boundary: validate the payload before git is touched, resolve the folder
+   * against the registered set, and keep raw failure detail out of the reply.
+   */
+  private registerGitApplyHunks(): void {
+    this.rpcHandler.registerMethod<GitApplyHunksParams, GitApplyHunksResult>(
+      'git:applyHunks',
+      async (rawParams) => {
+        // [NFR-3] Shape is proven before any subprocess is spawned.
+        const params = parseGitApplyHunksParams(rawParams);
+        if (!params) {
+          this.logger.warn(
+            '[GitRpc] git:applyHunks called with invalid params',
+          );
+          return {
+            success: false,
+            code: 'UNKNOWN',
+            message: 'Invalid request.',
+          };
+        }
+
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:applyHunks');
+        if (!wsRoot) {
+          return {
+            success: false,
+            code: 'NOT_A_REPO',
+            message: 'No workspace folder open.',
+          };
+        }
+
+        try {
+          return await this.gitInfo.applyHunks(
+            wsRoot,
+            {
+              path: params.path,
+              originalPath: params.originalPath,
+              comparison: params.comparison,
+              operation: params.operation,
+              hunkIndices: params.hunkIndices,
+              snapshotToken: params.snapshotToken,
+            },
+            this.fileSystem,
+          );
+        } catch (error: unknown) {
+          // `applyHunks` maps its own failures; reaching here means something
+          // escaped it entirely. Keep the detail in the log (NFR-8).
+          this.logger.error(
+            '[GitRpc] git:applyHunks rejected the request',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return {
+            success: false,
+            code: 'UNKNOWN',
+            message: 'The selected changes could not be applied.',
+          };
+        }
+      },
+    );
+  }
+
+  /**
+   * git:push - Push the current branch to its upstream remote.
+   */
+  private registerGitPush(): void {
+    this.rpcHandler.registerMethod<GitPushParams, GitPushResult>(
+      'git:push',
+      async (params) => {
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:push');
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+
+        this.logger.debug('[GitRpc] git:push', {
+          workspaceRoot: wsRoot,
+        } as unknown as Error);
+
+        return this.gitInfo.push(wsRoot);
       },
     );
   }

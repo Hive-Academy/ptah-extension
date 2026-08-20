@@ -201,8 +201,21 @@ export class EventDeduplicationService {
 
   /**
    * Get or create the set of processed message IDs for a session.
+   *
+   * An event whose session is not resolved yet gets a THROWAWAY set: nothing is
+   * recorded for it, so nothing is ever skipped as a duplicate. One shared
+   * unresolved bucket made two concurrent pre-init sessions collide — the
+   * second session's `message_start` looked like a duplicate of the first's and
+   * was dropped — and `cleanupSession(realUuid)` could never evict that bucket,
+   * so it also grew without bound. Not deduplicating is the safe direction: a
+   * duplicated event is visible, a dropped one is not.
+   *
+   * `undefined` is the canonical unresolved id since `FlatStreamEvent.sessionId`
+   * became optional. `''` is still rejected here because this method also takes
+   * bare strings from callers the type system does not constrain.
    */
-  getProcessedMessageIds(sessionId: string): Set<string> {
+  getProcessedMessageIds(sessionId: string | undefined): Set<string> {
+    if (!sessionId) return new Set<string>();
     let set = this.processedMessageIds.get(sessionId);
     if (!set) {
       set = new Set<string>();
@@ -213,8 +226,10 @@ export class EventDeduplicationService {
 
   /**
    * Get or create the set of processed tool call IDs for a session.
+   * Same unresolved-session contract as {@link getProcessedMessageIds}.
    */
-  getProcessedToolCallIds(sessionId: string): Set<string> {
+  getProcessedToolCallIds(sessionId: string | undefined): Set<string> {
+    if (!sessionId) return new Set<string>();
     let set = this.processedToolCallIds.get(sessionId);
     if (!set) {
       set = new Set<string>();
@@ -226,12 +241,16 @@ export class EventDeduplicationService {
   /**
    * Check if a message was already processed and finalized.
    * Skip deltas for already-finalized messages.
+   *
+   * An unresolved session can never have finalized anything — its ids go to a
+   * throwaway set — so the answer is `false` by construction, not by lookup.
    */
   isMessageAlreadyFinalized(
-    sessionId: string,
+    sessionId: string | undefined,
     messageId: string,
     state: StreamingState,
   ): boolean {
+    if (!sessionId) return false;
     const sessionMsgIds = this.processedMessageIds.get(sessionId);
     return (
       !!sessionMsgIds?.has(messageId) &&
@@ -242,12 +261,15 @@ export class EventDeduplicationService {
   /**
    * Check if a tool was already processed and finalized.
    * Skip deltas for already-finalized tools.
+   *
+   * Same unresolved-session contract as {@link isMessageAlreadyFinalized}.
    */
   isToolAlreadyFinalized(
-    sessionId: string,
+    sessionId: string | undefined,
     toolCallId: string,
     state: StreamingState,
   ): boolean {
+    if (!sessionId) return false;
     const sessionToolIds = this.processedToolCallIds.get(sessionId);
     return (
       !!sessionToolIds?.has(toolCallId) && !state.toolCallMap.has(toolCallId)
@@ -285,9 +307,13 @@ export class EventDeduplicationService {
    * Clean up deduplication state for a session.
    * MUST be called when closing/deleting a session to prevent memory leaks.
    *
+   * An unresolved session owns no bucket to evict (its ids went to throwaway
+   * sets), so there is nothing to do.
+   *
    * @param sessionId - Session ID to clean up
    */
-  cleanupSession(sessionId: string): void {
+  cleanupSession(sessionId: string | undefined): void {
+    if (!sessionId) return;
     this.processedMessageIds.delete(sessionId);
     this.processedToolCallIds.delete(sessionId);
   }

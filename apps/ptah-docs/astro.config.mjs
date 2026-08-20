@@ -8,6 +8,10 @@ const EDIT_BASE = `${GITHUB_REPO}/edit/main/apps/ptah-docs/`;
 
 export default defineConfig({
   site: 'https://docs.ptah.live',
+  redirects: {
+    // Setup Wizard moved out of the Agents section into its own Setup group.
+    '/agents/setup-wizard': '/setup/setup-wizard/',
+  },
   integrations: [
     starlight({
       title: 'Ptah Documentation',
@@ -43,6 +47,15 @@ export default defineConfig({
           autogenerate: { directory: 'agents' },
         },
         {
+          label: 'Setup',
+          items: [
+            { label: 'Setup Hub', slug: 'setup' },
+            { label: 'Setup Wizard', slug: 'setup/setup-wizard' },
+            { label: 'AI Team Builder', slug: 'setup/ai-team-builder' },
+            { label: 'New Project Setup', slug: 'setup/new-project' },
+          ],
+        },
+        {
           label: 'Sessions',
           autogenerate: { directory: 'sessions' },
         },
@@ -61,10 +74,23 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Tribunal',
+          items: [
+            { label: 'Overview', slug: 'tribunal' },
+            { label: 'Council', slug: 'tribunal/council' },
+            { label: 'Forge', slug: 'tribunal/forge' },
+            { label: 'Race', slug: 'tribunal/race' },
+            { label: 'Relay', slug: 'tribunal/relay' },
+            { label: 'Crucible', slug: 'tribunal/crucible' },
+          ],
+        },
+        {
           label: 'Skill Synthesis',
           items: [
             { label: 'Overview', slug: 'skill-synthesis' },
+            { label: 'The Skills Tab', slug: 'skill-synthesis/the-skills-tab' },
             { label: 'How It Works', slug: 'skill-synthesis/how-it-works' },
+            { label: 'Background Learning', slug: 'skill-synthesis/background-learning' },
             { label: 'Reviewing Candidates', slug: 'skill-synthesis/reviewing-candidates' },
             { label: 'SKILL.md Anatomy', slug: 'skill-synthesis/skill-md-anatomy' },
             { label: 'Settings', slug: 'skill-synthesis/settings' },
@@ -95,12 +121,23 @@ export default defineConfig({
           autogenerate: { directory: 'git' },
         },
         {
+          label: 'Marketplace',
+          items: [
+            { label: 'Overview', slug: 'marketplace' },
+            { label: 'MCP Registry', slug: 'marketplace/mcp-registry' },
+            { label: 'Connected Apps', slug: 'marketplace/connected-apps' },
+            { label: 'Smithery', slug: 'marketplace/smithery' },
+          ],
+        },
+        {
           label: 'Plugins',
           items: [
             { label: 'Overview', slug: 'plugins' },
-            { label: 'Marketplace', slug: 'plugins/marketplace' },
+            { label: 'Catalog', slug: 'plugins/marketplace' },
             { label: 'Installing', slug: 'plugins/installing' },
             { label: 'Managing', slug: 'plugins/managing' },
+            { label: 'Skill Toggles', slug: 'plugins/skill-toggles' },
+            { label: 'Harness Plugins', slug: 'plugins/harness-plugins' },
             { label: 'Plugin Storage', slug: 'plugins/plugin-storage' },
             { label: 'Creating Plugins', slug: 'plugins/creating-plugins' },
           ],

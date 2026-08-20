@@ -17,14 +17,16 @@ Ptah is multi-provider by design. You configure the AI services you want to use,
 
 ## Supported providers
 
-| Provider                              | Auth            | Best for                                                     | Cost tracking                          |
-| ------------------------------------- | --------------- | ------------------------------------------------------------ | -------------------------------------- |
-| [Claude](/providers/claude/)          | API key         | Reasoning-heavy work, long contexts, prompt caching.         | Anthropic published rates.             |
-| [GitHub Copilot](/providers/copilot/) | OAuth           | Code completion quality, bundled if you have Copilot.        | $0 (your subscription).                |
-| [OpenAI Codex](/providers/codex/)     | OAuth / API key | GPT-5 family, high-reasoning modes.                          | OpenAI published rates.                |
-| [Ollama](/providers/ollama/)          | Local / token   | Offline work, privacy, local models.                         | $0 for local, Cloud uses Ollama rates. |
-| [OpenRouter](/providers/openrouter/)  | API key         | Access hundreds of models with one key; live pricing feed.   | Live from OpenRouter registry.         |
-| [Ptah CLI](/providers/ptah-cli/)      | User-configured | Wrap any CLI-based agent. Highest priority in CLI detection. | Delegated to wrapped tool.             |
+| Provider                                | Auth            | Best for                                                     | Cost tracking                          |
+| --------------------------------------- | --------------- | ------------------------------------------------------------ | -------------------------------------- |
+| [Claude](/providers/claude/)            | API key         | Reasoning-heavy work, long contexts, prompt caching.         | Anthropic published rates.             |
+| [GitHub Copilot](/providers/copilot/)   | OAuth           | Code completion quality, bundled if you have Copilot.        | $0 (your subscription).                |
+| [OpenAI Codex](/providers/codex/)       | OAuth / API key | GPT-5 family, high-reasoning modes.                          | OpenAI published rates.                |
+| [Ollama](/providers/ollama/)            | Local / token   | Offline work, privacy, local models.                         | $0 for local, Cloud uses Ollama rates. |
+| [OpenRouter](/providers/openrouter/)    | API key         | Access hundreds of models with one key; live pricing feed.   | Live from OpenRouter registry.         |
+| [Moonshot (Kimi)](/providers/moonshot/) | API key         | 256K context, agentic coding flagship (`kimi-k2.7-code`).    | Moonshot published rates.              |
+| [Z.AI (GLM)](/providers/z-ai/)          | API key         | 1M context, open-source coding leader (`glm-5.2`).           | Z.AI published rates.                  |
+| [Ptah CLI](/providers/ptah-cli/)        | User-configured | Wrap any CLI-based agent. Highest priority in CLI detection. | Delegated to wrapped tool.             |
 
 And three web search providers for grounding:
 
@@ -47,12 +49,8 @@ API keys are encrypted on disk using [Electron `safeStorage`](https://www.electr
 
 Non-secret settings live in `~/.ptah/settings.json`. Secrets live in secure storage, managed from the Providers settings page inside the app.
 
-## Pro-tier gating
+## No provider gating
 
-A few provider integrations require a Ptah Pro subscription:
-
-- GitHub Copilot OAuth (enterprise SSO support).
-- OpenAI Codex OAuth flow.
-- OpenRouter with the Ptah-hosted cost registry.
-
-Every provider has a "bring your own key, no subscription required" path — see the individual provider pages.
+Every provider integration — API keys and OAuth flows alike — is part of the free, open-source
+Community tier. Bring your own key (or sign in via OAuth) and you're set; nothing here requires a
+subscription. See the individual provider pages for setup details.

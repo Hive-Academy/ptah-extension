@@ -144,11 +144,26 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
+  /**
+   * Backend → Frontend: a completed agent's record was dropped from the
+   * process manager's map after `COMPLETED_AGENT_TTL`. The card outlives the
+   * record, so without this the UI keeps offering `agent:continue` on an id the
+   * backend can only answer `not_found` for.
+   */
+  AGENT_MONITOR_EXPIRED: 'agent-monitor:expired',
   AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
   AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
-  AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
-  AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
+  /** Backend → Frontend: bindings list changed (new pending request, approve/reject/revoke). */
+  GATEWAY_BINDINGS_CHANGED: 'gateway:bindingsChanged',
+  /** Backend → Frontend: an existing Ptah session was attached to a binding. */
+  GATEWAY_SESSION_ATTACHED: 'gateway:sessionAttached',
+  /** Backend → Frontend: a binding's session link was cleared (detach). */
+  GATEWAY_SESSION_DETACHED: 'gateway:sessionDetached',
+  /** Backend → Frontend: Whisper voice model download progress tick (Electron only). */
+  VOICE_MODEL_DOWNLOAD_PROGRESS: 'voice:modelDownloadProgress',
+  /** Backend → Frontend: a cloud voice provider failed (auth/quota/network/provider-error). */
+  VOICE_PROVIDER_ERROR: 'voice:providerError',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
   /** Backend → Frontend: workspace indexing progress tick. */
@@ -168,6 +183,56 @@ export const MESSAGE_TYPES = {
   VEC_STATUS_CHANGED: 'db:vecStatusChanged',
   /** Backend → Frontend: embedder readiness/progress/error changed (Electron only). */
   EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
+  /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
+  SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
+  /**
+   * Backend → Frontend: the harness reconciler finished a pass whose SUMMARY
+   * differs from the last one pushed (TASK_2026_278 Batch 4).
+   *
+   * Deliberately edge-triggered, not per-pass. A preflight runs on every
+   * session start and a full pass on every activation, so pushing each would
+   * be a message per session for a badge that did not change.
+   */
+  HARNESS_HEALTH_CHANGED: 'harness:healthChanged',
+  /**
+   * Backend → Frontend: an interactive provider login produced a device code
+   * the user must enter in a browser (Copilot device-code flow, `codex login
+   * --device-auth`).
+   *
+   * Emitted as soon as the code is known — BEFORE the flow blocks on polling —
+   * so headless surfaces (the TUI) can render it. VS Code / Electron continue
+   * to rely on `IUserInteraction.showInformationMessage`; this event is purely
+   * additive for them.
+   */
+  AUTH_DEVICE_CODE: 'auth:deviceCode',
+  /**
+   * Backend → Frontend: a line of output from an interactive provider login
+   * subprocess. Only emitted by runtimes that drive the login command
+   * themselves (CLI/TUI) — VS Code hands the command to a real terminal and
+   * never produces these.
+   */
+  AUTH_LOGIN_OUTPUT: 'auth:loginOutput',
+  /**
+   * Backend → Frontend: git status changed for a workspace root.
+   *
+   * Pushed by the Electron git watcher after a debounced burst of `.git/*`
+   * or working-tree events. Carries the full `GitInfoResult` plus the
+   * `causes` set and the `workspaceRoot` the status was computed for.
+   */
+  GIT_STATUS_UPDATE: 'git:status-update',
+  /**
+   * Backend → Frontend: the workspace file tree changed structurally
+   * (create / delete / rename). Payload is empty — the renderer re-fetches.
+   */
+  FILE_TREE_CHANGED: 'file:tree-changed',
+  /** Backend → Frontend: a specific workspace file's content changed on disk. */
+  FILE_CONTENT_CHANGED: 'file:content-changed',
+  /**
+   * Backend → Frontend: re-read every open editor tab from disk. Emitted
+   * after a git operation, since git mutates files atomically via rename,
+   * which `fs.watch` does not reliably surface as a per-file change.
+   */
+  EDITOR_REREAD_OPEN_TABS: 'editor:reread-open-tabs',
 } as const;
 
 /**

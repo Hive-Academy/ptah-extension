@@ -20,8 +20,9 @@
  *
  */
 
+import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, GitInfoService } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   HookCallbackMatcher,
@@ -87,7 +88,10 @@ export type WorktreeRemovedCallback = (data: {
  */
 @injectable()
 export class WorktreeHookHandler {
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.GIT_INFO_SERVICE) private readonly gitInfo: GitInfoService,
+  ) {}
 
   /**
    * Create hooks configuration for SDK query options
@@ -144,10 +148,35 @@ export class WorktreeHookHandler {
                   );
                   return { continue: true };
                 }
+
+                const worktreePath = path.join(
+                  input.cwd,
+                  '.claude-worktrees',
+                  input.name,
+                );
+                const result = await this.gitInfo.addWorktree(input.cwd, {
+                  branch: input.name,
+                  path: worktreePath,
+                  createBranch: true,
+                });
+
+                if (!result.success || !result.worktreePath) {
+                  this.logger.warn(
+                    '[WorktreeHookHandler] Failed to create worktree — subagent will run without isolation',
+                    {
+                      sessionId: input.session_id,
+                      name: input.name,
+                      cwd: input.cwd,
+                      error: result.error,
+                    },
+                  );
+                  return { continue: true };
+                }
+
                 this.logger.info('[WorktreeHookHandler] Worktree created', {
                   sessionId: input.session_id,
                   name: input.name,
-                  cwd: input.cwd,
+                  worktreePath: result.worktreePath,
                 });
                 if (capturedCreatedCallback) {
                   const worktreeData = {
@@ -177,6 +206,13 @@ export class WorktreeHookHandler {
                   '[WorktreeHookHandler] WorktreeCreate processed successfully',
                   { sessionId: input.session_id },
                 );
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: 'WorktreeCreate',
+                    worktreePath: result.worktreePath,
+                  },
+                  continue: true,
+                };
               } catch (error) {
                 this.logger.error(
                   '[WorktreeHookHandler] Error in WorktreeCreate hook',

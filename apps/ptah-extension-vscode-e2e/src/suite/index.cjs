@@ -223,7 +223,7 @@ test('activation does not leave the host with pending unhandledRejections', asyn
   const onReject = (reason) => captured.push(reason);
   process.on('unhandledRejection', onReject);
   try {
-    // Give the extension's fire-and-forget paths (preloadSdk, prewarm,
+    // Give the extension's fire-and-forget paths (preloadSdk,
     // discovery watchers, indexer cold-start) a window to settle.
     await new Promise((r) => setTimeout(r, 1500));
   } finally {

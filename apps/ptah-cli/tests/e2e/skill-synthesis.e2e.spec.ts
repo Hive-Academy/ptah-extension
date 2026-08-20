@@ -9,10 +9,16 @@
  * SQLite via better-sqlite3; drive list/stats/promote/reject through real
  * CLI spawns. Promote asserts SKILL.md materialized under tmp
  * ~/.ptah/skills/<name>/.
+ *
+ * The database seeded here is `tmp.dbPath` — the one the harness exports to
+ * every spawn as `PTAH_DB_PATH`. Never rebuild it from a file-name literal:
+ * the CLI picks its file by NODE_ENV profile, and when `test` gained a file of
+ * its own these specs kept opening the old name, seeding an empty database
+ * that better-sqlite3 created for them. See `_harness/tmp-home.ts`.
  */
 
-import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import { CliRunner, createTmpHome, type TmpHome } from './_harness';
 
@@ -28,6 +34,19 @@ const openDatabase = require('better-sqlite3') as new (
   path: string,
   opts?: Record<string, unknown>,
 ) => SqliteDb;
+
+/**
+ * Open the database the CLI already created and migrated.
+ *
+ * `fileMustExist` is the point: without it better-sqlite3 conjures an empty
+ * file for a path nobody has booted, and the seed fails several lines later
+ * with `no such table` — a schema complaint about a database that was never
+ * the right one. Every test below spawns a real command first, so the file
+ * existing is a precondition these specs are entitled to assert.
+ */
+function openSeededDb(dbPath: string): SqliteDb {
+  return new openDatabase(dbPath, { fileMustExist: true });
+}
 
 jest.setTimeout(90_000);
 
@@ -87,7 +106,7 @@ async function seedSkillCandidates(
     status: 'candidate' | 'promoted' | 'rejected';
   }>,
 ): Promise<void> {
-  const db = new openDatabase(dbPath);
+  const db = openSeededDb(dbPath);
   const t = Date.now();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO skill_candidates
@@ -126,7 +145,7 @@ async function seedSkillInvocations(
     succeeded: number;
   }>,
 ): Promise<void> {
-  const db = new openDatabase(dbPath);
+  const db = openSeededDb(dbPath);
   const t = Date.now();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO skill_invocations
@@ -181,7 +200,7 @@ describe('skill synthesis e2e (TASK_2026_141 Batch 7 — direct DB seed)', () =>
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     const candidateId = '01SSKILL_E2E_CANDIDATE_001';
     await seedSkillCandidates(dbPath, [
       {
@@ -220,7 +239,7 @@ describe('skill synthesis e2e (TASK_2026_141 Batch 7 — direct DB seed)', () =>
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     const candidateId = '01SSKILL_E2E_PROMOTE_0001';
     const skillName = 'e2e-promotable-skill';
 
@@ -300,7 +319,7 @@ describe('skill synthesis e2e (TASK_2026_141 Batch 7 — direct DB seed)', () =>
     });
     expect(statsResult.exitCode).toBe(0);
 
-    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const dbPath = tmp.dbPath;
     const candidateId = '01SSKILL_E2E_REJECT_00001';
     await seedSkillCandidates(dbPath, [
       {

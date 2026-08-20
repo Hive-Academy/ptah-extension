@@ -57,11 +57,15 @@ When Autopilot delegates a subtask:
 
 `ptah-cli > codex > copilot`
 
-To keep a ptah-cli agent out of Autopilot but leave it available for manual selection, add its id to `agentOrchestration.disabledClis`:
+`agentOrchestration.disabledClis` does **not** apply to Ptah CLI agents. It is matched against CLI _types_ (`codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi`) — putting a ptah-cli agent id in it has no effect anywhere.
+
+To switch a Ptah CLI agent off, set `enabled: false` on the agent itself (see the table above). That removes it from Autopilot _and_ from manual selection; there is no "Autopilot-only" opt-out for these agents.
 
 ```json
-{ "agentOrchestration.disabledClis": ["my-agent"] }
+{ "agentOrchestration.disabledClis": ["codex", "copilot"] }
 ```
+
+Disabling a CLI type this way is a **hard disable** — it is skipped by automatic selection and an explicit `ptah_agent_spawn { cli: "codex" }` is rejected. Disabled CLIs still show up in `ptah_agent_list` with a `disabled` status.
 
 ## Verifying it works
 

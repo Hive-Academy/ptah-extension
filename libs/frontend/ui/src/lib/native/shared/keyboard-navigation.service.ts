@@ -83,7 +83,11 @@ export class KeyboardNavigationService {
 
   /**
    * Configure the keyboard navigation.
-   * Call this when the item count changes.
+   *
+   * Reconfiguring resets the active index to the first item (`0`), or `-1`
+   * when the list is empty. A consumer that must preserve a selection across
+   * a reconfigure re-applies it with `setActiveIndex()` after `configure()`
+   * returns.
    *
    * @param config - Navigation configuration
    *
@@ -99,13 +103,9 @@ export class KeyboardNavigationService {
    */
   configure(config: KeyboardNavigationConfig): void {
     this.config = config;
-    if (config.itemCount > 0 && this._activeIndex() === -1) {
+    if (config.itemCount > 0) {
       this._activeIndex.set(0);
-    }
-    if (config.itemCount > 0 && this._activeIndex() >= config.itemCount) {
-      this._activeIndex.set(config.itemCount - 1);
-    }
-    if (config.itemCount === 0) {
+    } else {
       this._activeIndex.set(-1);
     }
   }

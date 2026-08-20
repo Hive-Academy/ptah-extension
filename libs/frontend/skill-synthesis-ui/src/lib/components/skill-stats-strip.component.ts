@@ -31,7 +31,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content/60">Candidates</div>
+            <div class="stat-title text-base-content-muted">Candidates</div>
             <div
               class="stat-value text-2xl text-info"
               data-testid="skills-stat-candidates"
@@ -52,7 +52,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content/60">Promoted</div>
+            <div class="stat-title text-base-content-muted">Promoted</div>
             <div
               class="stat-value text-2xl text-success"
               data-testid="skills-stat-promoted"
@@ -73,7 +73,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content/60">Rejected</div>
+            <div class="stat-title text-base-content-muted">Rejected</div>
             <div class="stat-value text-2xl text-error">
               {{ s.totalRejected }}
             </div>
@@ -91,7 +91,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content/60">Active skills</div>
+            <div class="stat-title text-base-content-muted">Active skills</div>
             <div class="stat-value text-2xl text-secondary">
               {{ s.activeSkills }}
             </div>
@@ -109,7 +109,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content/60">Invocations</div>
+            <div class="stat-title text-base-content-muted">Invocations</div>
             <div class="stat-value text-2xl text-primary">
               {{ s.totalInvocations }}
             </div>

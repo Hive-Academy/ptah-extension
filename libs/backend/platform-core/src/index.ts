@@ -37,19 +37,46 @@ export type {
   IHttpServerHandle,
   HttpServerRequestHandler,
 } from './interfaces/http-server-provider.interface';
+export type {
+  IOAuthCallbackListener,
+  OAuthCallbackHandle,
+} from './interfaces/oauth-callback-listener.interface';
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
-export type { IMcpServerStatus } from './interfaces/mcp-server-status.interface';
+export type {
+  IMcpServerStatus,
+  McpSessionWiring,
+} from './interfaces/mcp-server-status.interface';
+export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
 export type { ITracer } from './interfaces/tracer.interface';
+export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
+export type {
+  IPtyHost,
+  PtySpawnRequest,
+  PtySpawnResult,
+  PtyKillResult,
+} from './interfaces/pty-host.interface';
+export type {
+  IAppUpdater,
+  AppUpdateState,
+} from './interfaces/app-updater.interface';
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,
   IModelDiscovery,
+  IFileDialog,
 } from './interfaces/platform-abstractions.interface';
 export { PLATFORM_TOKENS } from './di';
 export { createEvent } from './utils/event-emitter';
 export { isUnsafeWorkspacePath } from './utils/workspace-path-guards';
 export type { WorkspacePathSafety } from './utils/workspace-path-guards';
+export {
+  isAllowedShell,
+  WIN_SHELLS,
+  POSIX_SHELLS,
+} from './utils/shell-allowlist';
+export { isPathWithinRoots } from './utils/path-containment';
+export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {

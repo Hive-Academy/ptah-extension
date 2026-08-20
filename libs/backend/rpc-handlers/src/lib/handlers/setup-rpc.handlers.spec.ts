@@ -442,7 +442,7 @@ describe('SetupRpcHandlers', () => {
   });
 
   // -------------------------------------------------------------------------
-  // wizard:deep-analyze — premium+MCP gating
+  // wizard:deep-analyze — MCP gating
   // -------------------------------------------------------------------------
 
   describe('wizard:deep-analyze', () => {
@@ -457,16 +457,16 @@ describe('SetupRpcHandlers', () => {
       expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
 
-    it('throws when license service / MCP cannot be resolved (free tier)', async () => {
-      // No LicenseService or CodeExecutionMCP registered → resolveService
-      // throws, the handler catches and leaves isPremium=false, so the
-      // subsequent premium check fails with the user-facing message.
+    it('throws when the MCP server cannot be resolved', async () => {
+      // No CodeExecutionMCP registered → resolveService throws, the handler
+      // catches and leaves mcpServerRunning=false, so the subsequent MCP check
+      // fails with the user-facing message.
       const h = makeHarness();
       h.handlers.register();
 
       const response = await callRaw(h, 'wizard:deep-analyze', {});
       expect(response.success).toBe(false);
-      expect(response.error).toMatch(/Premium license and MCP server required/);
+      expect(response.error).toMatch(/MCP server required/);
     });
 
     it('returns UNAUTHORIZED_WORKSPACE error when renderer supplies an unauthorized workspacePath', async () => {
@@ -484,8 +484,8 @@ describe('SetupRpcHandlers', () => {
 
     it('does not gate when renderer does not supply workspacePath (backend fallback is trusted)', async () => {
       // When workspacePath is absent the backend uses getWorkspaceRoot() which
-      // is trusted — the auth gate must NOT fire. The license check fires next
-      // and fails with "Premium license required" (expected on free tier).
+      // is trusted — the auth gate must NOT fire. The MCP check fires next and
+      // fails with "MCP server required" (expected when MCP is unregistered).
       const h = makeHarness({ workspaceFolders: [WORKSPACE] });
       h.handlers.register();
 
@@ -556,7 +556,7 @@ describe('SetupRpcHandlers', () => {
       expect(response.error).toMatch(/Missing analysis input/);
     });
 
-    it('short-circuits to the full 13-agent catalog on isMultiPhase input', async () => {
+    it('short-circuits to the full agent catalog on isMultiPhase input', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -568,16 +568,24 @@ describe('SetupRpcHandlers', () => {
         }>
       >(h, 'wizard:recommend-agents', { isMultiPhase: true });
 
-      // All 13 canonical agents, all recommended with relevanceScore=100.
-      expect(result).toHaveLength(13);
-      expect(result.every((r) => r.recommended === true)).toBe(true);
+      // Every catalog agent at relevanceScore=100; all recommended except
+      // opt-in specialists (video-director), which are offered but not preselected.
+      expect(result.length).toBeGreaterThanOrEqual(15);
       expect(result.every((r) => r.relevanceScore === 100)).toBe(true);
+      expect(
+        result.every((r) =>
+          r.agentId === 'video-director' ? !r.recommended : r.recommended,
+        ),
+      ).toBe(true);
 
-      // Spot-check: anchor agents from each category.
+      // Spot-check: anchor agents from each category, including the agents
+      // that historically drifted out of the catalog.
       const ids = new Set(result.map((r) => r.agentId));
       expect(ids.has('backend-developer')).toBe(true);
       expect(ids.has('ui-ux-designer')).toBe(true);
       expect(ids.has('senior-tester')).toBe(true);
+      expect(ids.has('visual-reviewer')).toBe(true);
+      expect(ids.has('video-director')).toBe(true);
     });
 
     it('throws "Invalid analysis input" for malformed single-phase input', async () => {
@@ -900,14 +908,7 @@ acme-platform/
         },
       );
 
-      // Premium-gating services. Token names per vscode-core/src/di/tokens.ts.
-      h.container.__register(Symbol.for('LicenseService'), {
-        verifyLicense: jest.fn().mockResolvedValue({
-          valid: true,
-          plan: { isPremium: true },
-          tier: 'pro',
-        }),
-      });
+      // MCP gating service. Token name per vscode-core/src/di/tokens.ts.
       h.container.__register(Symbol.for('CodeExecutionMCP'), {
         getPort: () => 9999,
       });

@@ -1,7 +1,7 @@
 /**
  * Enhanced Prompts Service
  *
- * This premium feature:
+ * This feature:
  * 1. Analyzes the workspace to detect technology stack
  * 2. Uses PromptDesignerAgent to build prompts + InternalQueryService for SDK calls
  * 3. Caches the generated prompt with smart invalidation
@@ -9,7 +9,7 @@
  * 5. Provides toggle/regenerate functionality via settings
  *
  * Flow:
- * - User invokes "Setup Enhanced Prompts" from empty chat screen (premium feature)
+ * - User invokes "Setup Enhanced Prompts" from empty chat screen
  * - Wizard analyzes workspace and generates prompt via SDK (InternalQueryService)
  * - Generated prompt is cached and auto-applied to all future sessions
  * - Users can toggle on/off or regenerate via settings
@@ -64,7 +64,6 @@ import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
  * SDK configuration for internal query execution
  */
 export interface EnhancedPromptsSdkConfig {
-  isPremium: boolean;
   mcpServerRunning: boolean;
   mcpPort?: number;
   /** Model to use for generation. Overrides the `model.selected` config when provided. */
@@ -115,14 +114,21 @@ interface IWorkspaceIntelligence {
     fileStatistics: Record<string, number>;
     totalFiles: number;
   }>;
-  getCurrentWorkspaceInfo():
+  /**
+   * Async since TASK_2026_200 task 3.2 — `WorkspaceAnalyzerService` now
+   * computes per-root on a cache miss instead of returning one eagerly-built
+   * snapshot field, so this MUST be awaited. Reading `.frameworks` off the
+   * unawaited Promise silently yields `undefined`.
+   */
+  getCurrentWorkspaceInfo(root?: string): Promise<
     | {
         name: string;
         path: string;
         projectType: string;
         frameworks?: readonly string[];
       }
-    | undefined;
+    | undefined
+  >;
 }
 
 /**
@@ -293,7 +299,7 @@ export class EnhancedPromptsService {
    * @param config - Optional configuration overrides
    * @param onProgress - Optional progress callback
    * @param preComputedInput - Pre-computed PromptDesignerInput from wizard analysis
-   * @param sdkConfig - SDK configuration (isPremium, mcpServerRunning, mcpPort)
+   * @param sdkConfig - SDK configuration (mcpServerRunning, mcpPort)
    * @returns Wizard result with success status
    */
   async runWizard(
@@ -343,7 +349,8 @@ export class EnhancedPromptsService {
         let analysis: WorkspaceAnalysisResult;
         try {
           const projectInfo = await this.workspaceIntelligence.getProjectInfo();
-          const wsInfo = this.workspaceIntelligence.getCurrentWorkspaceInfo();
+          const wsInfo =
+            await this.workspaceIntelligence.getCurrentWorkspaceInfo();
           const languageMap: Record<string, string> = {
             '.ts': 'TypeScript',
             '.tsx': 'TypeScript',
@@ -673,7 +680,6 @@ export class EnhancedPromptsService {
     sdkConfig?: EnhancedPromptsSdkConfig,
     onProgress?: (progress: PromptGenerationProgress) => void,
   ): Promise<PromptDesignerOutput | null> {
-    const isPremium = sdkConfig?.isPremium ?? false;
     const mcpServerRunning = false;
     const mcpPort = undefined;
 
@@ -707,7 +713,6 @@ export class EnhancedPromptsService {
         model,
         prompt: userPrompt,
         systemPromptAppend: systemPrompt,
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: 10,
@@ -716,7 +721,6 @@ export class EnhancedPromptsService {
           type: 'json_schema',
           schema: outputSchema,
         },
-        pluginPaths: sdkConfig?.pluginPaths,
       });
 
       try {

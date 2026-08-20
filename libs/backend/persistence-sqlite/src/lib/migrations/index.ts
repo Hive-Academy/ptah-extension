@@ -50,6 +50,21 @@ import { sql as sql0021SkillInvocationEvents } from './0021_skill_invocation_eve
 import { sql as sql0022SkillRegistry } from './0022_skill_registry';
 import { sql as sql0023SkillRegistryPending } from './0023_skill_registry_pending';
 import { sql as sql0024GatewayConversations } from './0024_gateway_conversations';
+import { sql as sql0025SkillSuggestions } from './0025_skill_suggestions';
+import { sql as sql0026SkillResidency } from './0026_skill_residency';
+import { sql as sql0027SkillEventReconciliation } from './0027_skill_event_reconciliation';
+import { sql as sql0028GatewayConversationWorkspaceRoot } from './0028_gateway_conversation_workspace_root';
+import { sql as sql0029TaskSpecs } from './0029_task_specs';
+import { sql as sql0030SkillEventMetrics } from './0030_skill_event_metrics';
+import { sql as sql0031TaskSpecsMetadata } from './0031_task_specs_metadata';
+import { sql as sql0032SkillSynthesisQueue } from './0032_skill_synthesis_queue';
+import { sql as sql0033SkillCandidateVerdicts } from './0033_skill_candidate_verdicts';
+import { sql as sql0034SkillSessionVerdicts } from './0034_skill_session_verdicts';
+import { sql as sql0035SkillSynthesisBudgetStage } from './0035_skill_synthesis_budget_stage';
+import { sql as sql0036SkillEmpiricalGates } from './0036_skill_empirical_gates';
+import { sql as sql0037SkillInvocationSessionJoin } from './0037_skill_invocation_session_join';
+import { sql as sql0038GatewayMessageTurnState } from './0038_gateway_message_turn_state';
+import { sql as sql0039ReapOrphanedQueueRows } from './0039_reap_orphaned_queue_rows';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -214,5 +229,80 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 24,
     name: '0024_gateway_conversations',
     sql: sql0024GatewayConversations,
+  },
+  {
+    version: 25,
+    name: '0025_skill_suggestions',
+    sql: sql0025SkillSuggestions,
+  },
+  {
+    version: 26,
+    name: '0026_skill_residency',
+    sql: sql0026SkillResidency,
+  },
+  {
+    version: 27,
+    name: '0027_skill_event_reconciliation',
+    sql: sql0027SkillEventReconciliation,
+  },
+  {
+    version: 28,
+    name: '0028_gateway_conversation_workspace_root',
+    sql: sql0028GatewayConversationWorkspaceRoot,
+  },
+  {
+    version: 29,
+    name: '0029_task_specs',
+    sql: sql0029TaskSpecs,
+  },
+  {
+    version: 30,
+    name: '0030_skill_event_metrics',
+    sql: sql0030SkillEventMetrics,
+  },
+  {
+    version: 31,
+    name: '0031_task_specs_metadata',
+    sql: sql0031TaskSpecsMetadata,
+  },
+  {
+    version: 32,
+    name: '0032_skill_synthesis_queue',
+    sql: sql0032SkillSynthesisQueue,
+  },
+  {
+    version: 33,
+    name: '0033_skill_candidate_verdicts',
+    sql: sql0033SkillCandidateVerdicts,
+  },
+  {
+    version: 34,
+    name: '0034_skill_session_verdicts',
+    sql: sql0034SkillSessionVerdicts,
+  },
+  {
+    version: 35,
+    name: '0035_skill_synthesis_budget_stage',
+    sql: sql0035SkillSynthesisBudgetStage,
+  },
+  {
+    version: 36,
+    name: '0036_skill_empirical_gates',
+    sql: sql0036SkillEmpiricalGates,
+  },
+  {
+    version: 37,
+    name: '0037_skill_invocation_session_join',
+    sql: sql0037SkillInvocationSessionJoin,
+  },
+  {
+    version: 38,
+    name: '0038_gateway_message_turn_state',
+    sql: sql0038GatewayMessageTurnState,
+  },
+  {
+    version: 39,
+    name: '0039_reap_orphaned_queue_rows',
+    sql: sql0039ReapOrphanedQueueRows,
   },
 ];

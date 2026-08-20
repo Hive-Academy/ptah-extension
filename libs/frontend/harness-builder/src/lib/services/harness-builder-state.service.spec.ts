@@ -1,12 +1,56 @@
+import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   StreamRouter,
   StreamingSurfaceRegistry,
 } from '@ptah-extension/chat-routing';
+import { AppStateManager } from '@ptah-extension/core';
+import type { HarnessInitializeResponse } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
+import { HarnessRpcService } from './harness-rpc.service';
+
+/** Drain the microtask + macrotask queue so an async re-init settles. */
+function flushAsync(): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+/** A manually-resolvable promise, for ordering rapid re-init responses. */
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Minimal HarnessInitializeResponse for pin/reset assertions. */
+function initResponse(
+  overrides: Partial<HarnessInitializeResponse> = {},
+): HarnessInitializeResponse {
+  return {
+    workspaceContext: {
+      projectName: 'workspace-a',
+      projectType: 'nx-monorepo',
+      frameworks: [],
+      languages: ['TypeScript'],
+    },
+    availableAgents: [],
+    availableSkills: [],
+    existingPresets: [],
+    workspaceRoot: '/workspace/A',
+    ...overrides,
+  };
+}
 
 describe('HarnessBuilderStateService', () => {
   let service: HarnessBuilderStateService;
+  let workspaceInfo: WritableSignal<{ path: string } | null>;
   let mockStreamRouter: jest.Mocked<
     Pick<
       StreamRouter,
@@ -16,8 +60,18 @@ describe('HarnessBuilderStateService', () => {
   let mockSurfaceRegistry: jest.Mocked<
     Pick<StreamingSurfaceRegistry, 'register' | 'unregister' | 'getAdapter'>
   >;
+  let rpcMock: { initialize: jest.Mock };
 
   beforeEach(() => {
+    workspaceInfo = signal<{ path: string } | null>({ path: '/workspace/A' });
+    // The store re-runs `harness:initialize` on an idle workspace switch, so it
+    // injects HarnessRpcService. Stub only `initialize`; default it to resolve
+    // for '/workspace/A' — individual switch tests override per-call.
+    rpcMock = {
+      initialize: jest
+        .fn()
+        .mockResolvedValue(initResponse({ workspaceRoot: '/workspace/A' })),
+    };
     // HarnessBuilderStateService injects StreamRouter and
     // StreamingSurfaceRegistry to route per-operation stream events through
     // the canonical pipeline. Stub both with `jest.Mocked<Pick<...>>` to
@@ -39,10 +93,23 @@ describe('HarnessBuilderStateService', () => {
         HarnessBuilderStateService,
         { provide: StreamRouter, useValue: mockStreamRouter },
         { provide: StreamingSurfaceRegistry, useValue: mockSurfaceRegistry },
+        {
+          provide: HarnessRpcService,
+          useValue: rpcMock as unknown as HarnessRpcService,
+        },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: workspaceInfo.asReadonly(),
+          } as unknown as AppStateManager,
+        },
       ],
     });
 
     service = TestBed.inject(HarnessBuilderStateService);
+    // Let the constructor effect record its baseline workspace root so a later
+    // signal change registers as a genuine switch.
+    TestBed.flushEffects();
   });
 
   it('should be created', () => {
@@ -382,5 +449,238 @@ describe('HarnessBuilderStateService', () => {
       expect(service.isConversing()).toBe(false);
       expect(service.currentOperationId()).toBeNull();
     });
+  });
+
+  // ===========================================================================
+  // Workspace-switch safety (pin + idle-reset + in-progress-keep).
+  // ===========================================================================
+  describe('Workspace pinning + switch safety', () => {
+    it('initialize() pins workspaceRoot from the response for apply to read', () => {
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/A');
+      // This is exactly the value the view forwards as harness:apply's
+      // workspaceRoot param, keeping the write bound to the build's origin.
+    });
+
+    it('initialize() pins null when no workspace is open', () => {
+      service.initialize(initResponse({ workspaceRoot: null }));
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+    });
+
+    it('idle switch after init re-initializes for the new workspace and re-establishes the pin', async () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.updatePrompt({ systemPrompt: 'hello', enhancedSections: {} });
+      expect(service.buildInProgress()).toBe(false);
+
+      // The re-init triggered by the switch resolves for the new workspace B.
+      rpcMock.initialize.mockResolvedValueOnce(
+        initResponse({ workspaceRoot: '/workspace/B' }),
+      );
+
+      // Switch active workspace while IDLE.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      // Synchronously: the old workspace's state was wiped before the re-init
+      // response lands (no stale badge, config/pin cleared).
+      expect(service.config()).toEqual({});
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+      expect(service.workspaceSwitchedDuringBuild()).toBe(false);
+
+      // The switch auto-triggers a fresh harness:initialize for B.
+      await flushAsync();
+      expect(rpcMock.initialize).toHaveBeenCalledTimes(1);
+      // Pin re-established for the NEW workspace — apply now targets B.
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/B');
+    });
+
+    it('idle switch when the builder was never initialized fires no re-init RPC', () => {
+      // No initialize() call → nothing to follow.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      expect(rpcMock.initialize).not.toHaveBeenCalled();
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+    });
+
+    it('rapid A→B→C switch applies only the latest re-init (stale response discarded)', async () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+
+      const toB = deferred<HarnessInitializeResponse>();
+      const toC = deferred<HarnessInitializeResponse>();
+      rpcMock.initialize
+        .mockReturnValueOnce(toB.promise)
+        .mockReturnValueOnce(toC.promise);
+
+      // Switch to B, then quickly to C — two overlapping re-inits.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+      workspaceInfo.set({ path: '/workspace/C' });
+      TestBed.flushEffects();
+
+      expect(rpcMock.initialize).toHaveBeenCalledTimes(2);
+
+      // Resolve the LATEST (C) first — it wins and pins C.
+      toC.resolve(initResponse({ workspaceRoot: '/workspace/C' }));
+      await flushAsync();
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/C');
+
+      // The stale B response resolves later and must be ignored.
+      toB.resolve(initResponse({ workspaceRoot: '/workspace/B' }));
+      await flushAsync();
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/C');
+    });
+
+    it('re-init failure sets the error state so the view can offer a retry', async () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      rpcMock.initialize.mockRejectedValueOnce(new Error('backend down'));
+
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+      await flushAsync();
+
+      expect(service.error()).toBe('backend down');
+      // Pin stays cleared (the failed re-init never re-pinned).
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+    });
+
+    it('in-progress workspace switch KEEPS the pin, flags the switch, and fires no re-init', () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.setBuildInProgress(true);
+      service.updatePrompt({ systemPrompt: 'building', enhancedSections: {} });
+
+      // Switch active workspace mid-build.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      // Pin preserved → apply still targets the original workspace.
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/A');
+      // Config preserved (no reset).
+      expect(service.config().prompt?.systemPrompt).toBe('building');
+      // Non-blocking indicator raised for the view badge.
+      expect(service.workspaceSwitchedDuringBuild()).toBe(true);
+      // A mid-build switch must NOT re-initialize (the build keeps its pin).
+      expect(rpcMock.initialize).not.toHaveBeenCalled();
+    });
+
+    it('after a build ends, a later idle switch re-initializes (no badge)', async () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.setBuildInProgress(true);
+      service.setBuildInProgress(false);
+      rpcMock.initialize.mockResolvedValueOnce(
+        initResponse({ workspaceRoot: '/workspace/B' }),
+      );
+
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      expect(service.workspaceSwitchedDuringBuild()).toBe(false);
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+
+      await flushAsync();
+      expect(rpcMock.initialize).toHaveBeenCalledTimes(1);
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/B');
+    });
+
+    it('reset() stops the builder following the workspace (no re-init after close)', async () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+
+      // Hard teardown (page close).
+      service.reset();
+
+      // A later switch must NOT re-initialize — the page is gone.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+      await flushAsync();
+
+      expect(rpcMock.initialize).not.toHaveBeenCalled();
+    });
+
+    it('reset() clears the pin, build flag, and switch indicator', () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.setBuildInProgress(true);
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+      expect(service.workspaceSwitchedDuringBuild()).toBe(true);
+
+      service.reset();
+
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+      expect(service.buildInProgress()).toBe(false);
+      expect(service.workspaceSwitchedDuringBuild()).toBe(false);
+    });
+  });
+});
+
+// =============================================================================
+// Construction-baseline hole (review Issue 7).
+//
+// A dedicated suite because it needs control over the effect's FIRST flush —
+// the shared beforeEach above flushes eagerly, which the outer tests rely on.
+// Here we switch the workspace BEFORE the first flush to prove the baseline is
+// captured synchronously at construction (a differing value at first flush is a
+// real switch, not a silent baseline recording).
+// =============================================================================
+describe('HarnessBuilderStateService — construction baseline (Issue 7)', () => {
+  it('treats a workspace change before the first effect flush as a real switch', () => {
+    const workspaceInfo = signal<{ path: string } | null>({
+      path: '/workspace/A',
+    });
+    const rpcMock = {
+      initialize: jest
+        .fn()
+        .mockResolvedValue(initResponse({ workspaceRoot: '/workspace/A' })),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        HarnessBuilderStateService,
+        {
+          provide: StreamRouter,
+          useValue: {
+            onSurfaceCreated: jest.fn(),
+            onSurfaceClosed: jest.fn(),
+            routeStreamEventForSurface: jest.fn().mockReturnValue(null),
+          },
+        },
+        {
+          provide: StreamingSurfaceRegistry,
+          useValue: {
+            register: jest.fn(),
+            unregister: jest.fn(),
+            getAdapter: jest.fn().mockReturnValue(null),
+          },
+        },
+        {
+          provide: HarnessRpcService,
+          useValue: rpcMock as unknown as HarnessRpcService,
+        },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: workspaceInfo.asReadonly(),
+          } as unknown as AppStateManager,
+        },
+      ],
+    });
+
+    // Construct the service — baseline '/workspace/A' captured synchronously.
+    // Do NOT flush yet. A build is in-progress, which is the switch path that
+    // does not depend on `initialize()` (and so does not realign the baseline),
+    // letting us observe the first-flush comparison in isolation.
+    const service = TestBed.inject(HarnessBuilderStateService);
+    service.setBuildInProgress(true);
+
+    // Workspace switches BEFORE the effect's first flush.
+    workspaceInfo.set({ path: '/workspace/B' });
+    TestBed.flushEffects();
+
+    // The first flush compares against the construction baseline (A ≠ B) and
+    // treats it as a genuine mid-build switch — raising the badge. Under the
+    // old "first emission records the baseline" behaviour this would be missed.
+    expect(service.workspaceSwitchedDuringBuild()).toBe(true);
   });
 });

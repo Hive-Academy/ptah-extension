@@ -16,7 +16,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { access } from 'fs/promises';
-import { join } from 'path';
+import { join, relative } from 'path';
 import {
   Logger,
   TOKENS,
@@ -123,7 +123,6 @@ export class MultiPhaseAnalysisService {
     workspacePath: string,
     options?: MultiPhaseAnalysisOptions,
   ): Promise<Result<MultiPhaseManifest, Error>> {
-    const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
     const pluginPaths = options?.pluginPaths;
@@ -133,13 +132,12 @@ export class MultiPhaseAnalysisService {
     this.logger.info(`${SERVICE_TAG} Starting multi-phase analysis`, {
       workspace: workspacePath,
       model,
-      isPremium,
       mcpServerRunning,
     });
-    if (!isPremium || !mcpServerRunning) {
+    if (!mcpServerRunning) {
       return Result.err(
         new Error(
-          `Multi-phase analysis requires premium license and MCP server. isPremium=${isPremium}, mcpRunning=${mcpServerRunning}`,
+          `Multi-phase analysis requires the MCP server. mcpRunning=${mcpServerRunning}`,
         ),
       );
     }
@@ -207,7 +205,6 @@ export class MultiPhaseAnalysisService {
             slugDir,
             workspacePath,
             model,
-            isPremium,
             mcpServerRunning,
             mcpPort,
             masterAbortController,
@@ -376,7 +373,6 @@ export class MultiPhaseAnalysisService {
     slugDir: string,
     cwd: string,
     model: string,
-    isPremium: boolean,
     mcpServerRunning: boolean,
     mcpPort: number | undefined,
     masterAbortController: AbortController,
@@ -396,8 +392,14 @@ export class MultiPhaseAnalysisService {
       }
     }
 
+    // The prompts hand this path to the agent, and the agent reads earlier
+    // phases through `ptah.files.read`, which REJECTS absolute paths outright
+    // (`resolveWorkspacePath` — the sandbox is workspace-relative by design).
+    // An absolute slugDir made every phase after the first fail to read its
+    // predecessor's output. The agent's cwd is the workspace root, so the
+    // relative form is also correct for the Write tool.
     const { systemPrompt, userPrompt } = promptBuilder(
-      slugDir,
+      relative(cwd, slugDir).replace(/\\/g, '/'),
       pluginSkillsContext,
     );
 
@@ -407,7 +409,6 @@ export class MultiPhaseAnalysisService {
         phaseId: phaseConfig.id,
         model,
         cwd,
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,
@@ -430,12 +431,10 @@ export class MultiPhaseAnalysisService {
         model,
         prompt: userPrompt,
         systemPromptAppend: systemPrompt,
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,
         abortController: phaseAbortController,
-        pluginPaths,
       });
 
       this.logger.info(

@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   ChangeDetectionStrategy,
-  computed,
   signal,
   OnInit,
   viewChild,
@@ -11,14 +10,12 @@ import {
   LucideAngularModule,
   ArrowLeft,
   Sparkles,
-  Lock,
   Key,
   Cpu,
-  Puzzle,
-  ScanSearch,
   Download,
   Upload,
   ArrowLeftRight,
+  Globe,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
@@ -26,28 +23,23 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
+import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
+import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
 import {
-  PluginStatusWidgetComponent,
-  PluginBrowserModalComponent,
-  SetupStatusWidgetComponent,
-} from '@ptah-extension/chat-ui';
-import {
   AppStateManager,
   ClaudeRpcService,
   AuthStateService,
-  CommandDiscoveryFacade,
   VSCodeService,
 } from '@ptah-extension/core';
-import { ChatStore } from '../services/chat.store';
 
 /**
  * SettingsComponent - Main settings page container
  *
- * Complexity Level: 2 (Container with visibility logic based on auth and license status)
+ * Complexity Level: 2 (Container with visibility logic based on auth status)
  * Patterns: Signal-based navigation, conditional rendering
  *
  * Responsibilities:
@@ -55,10 +47,9 @@ import { ChatStore } from '../services/chat.store';
  * - Container for settings sections (authentication, model selection, autopilot)
  * - Navigate back to chat view on back button click
  * - Conditional visibility: Show additional sections only after auth configured
- * - Premium gating: Show MCP port and LLM settings only for premium users
  *
  * Child Components:
- * - LicenseStatusCardComponent: License tier, trial status, user profile, actions
+ * - LicenseStatusCardComponent: Membership status, user profile, actions
  * - EnhancedPromptsConfigComponent: System prompt mode, preview, regenerate
  * - AgentOrchestrationConfigComponent: CLI detection, model selectors, concurrency
  */
@@ -72,13 +63,12 @@ import { ChatStore } from '../services/chat.store';
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
     McpPortConfigComponent,
+    WorkflowsConfigComponent,
+    OutputStyleConfigComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,
     VoiceConfigComponent,
-    PluginStatusWidgetComponent,
-    PluginBrowserModalComponent,
-    SetupStatusWidgetComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -87,44 +77,33 @@ import { ChatStore } from '../services/chat.store';
 export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly vscodeService = inject(VSCodeService);
   readonly authState = inject(AuthStateService);
-  private readonly chatStore = inject(ChatStore);
   readonly agentOrchestrationConfig = viewChild(
     AgentOrchestrationConfigComponent,
   );
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
-  readonly LockIcon = Lock;
   readonly KeyIcon = Key;
   readonly CpuIcon = Cpu;
-  readonly PuzzleIcon = Puzzle;
-  readonly ScanSearchIcon = ScanSearch;
   readonly DownloadIcon = Download;
   readonly UploadIcon = Upload;
   readonly ArrowLeftRightIcon = ArrowLeftRight;
+  readonly GlobeIcon = Globe;
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
+    'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
-  readonly activePtahAiSubTab = signal<'orchestration' | 'pro-features'>(
-    'orchestration',
-  );
 
-  /** Whether the plugin browser modal is open */
-  readonly isPluginBrowserOpen = signal(false);
+  /**
+   * Provider id carried by a deep-link into the settings page (e.g. the
+   * tribunal panel's "Configure" action). Forwarded to PtahCliConfigComponent
+   * so it auto-opens the add form pre-selected to that provider.
+   */
+  readonly requestedProviderId = signal<string | undefined>(undefined);
 
   readonly isElectron = this.vscodeService.isElectron;
-
-  readonly isPremium = computed(
-    () => this.chatStore.licenseStatus()?.isPremium ?? false,
-  );
-
-  readonly isLoadingLicenseStatus = computed(
-    () => this.chatStore.licenseStatus() === null,
-  );
 
   /**
    * Computed: Whether provider model mapping section should be shown
@@ -133,26 +112,15 @@ export class SettingsComponent implements OnInit {
   readonly showProviderModels = this.authState.showProviderModels;
 
   /**
-   * Computed: Whether the user is fully authenticated (has credential + not loading)
-   */
-  readonly isAuthenticated = computed(
-    () => !this.authState.isLoading() && this.authState.hasAnyCredential(),
-  );
-
-  /**
-   * Computed: Whether to show premium-only sections
-   * Requires: authenticated + premium license
-   */
-  readonly showPremiumSections = computed(
-    () => this.isAuthenticated() && this.isPremium(),
-  );
-
-  /**
    * Initialize: Load auth status on component mount.
-   * Auth status is loaded via AuthStateService; license status comes from
-   * ChatStore (already fetched at app init).
+   * Auth status is loaded via AuthStateService.
    */
   async ngOnInit(): Promise<void> {
+    const pending = this.appState.consumePendingSettingsTab();
+    if (pending) {
+      this.setActiveTab(pending.tab);
+      this.requestedProviderId.set(pending.providerId);
+    }
     await this.authState.loadAuthStatus();
   }
 
@@ -160,32 +128,9 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab: 'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup',
+    tab: 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
   ): void {
     this.activeSettingsTab.set(tab);
-  }
-
-  /**
-   * Switch active Ptah AI sub-tab
-   */
-  setPtahAiSubTab(subTab: 'orchestration' | 'pro-features'): void {
-    this.activePtahAiSubTab.set(subTab);
-  }
-
-  /** Open the plugin browser modal */
-  openPluginBrowser(): void {
-    this.isPluginBrowserOpen.set(true);
-  }
-
-  /** Close the plugin browser modal */
-  closePluginBrowser(): void {
-    this.isPluginBrowserOpen.set(false);
-  }
-
-  /** Handle plugins saved event from modal */
-  onPluginsSaved(_enabledIds: string[]): void {
-    this.isPluginBrowserOpen.set(false);
-    this.commandDiscovery.clearCache();
   }
 
   /**
@@ -236,7 +181,9 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Open pricing page in browser (used by upsell sections)
+   * Open an external page (Ptah Builders / community) in the browser.
+   * Uses the `command:execute` RPC to run the host `ptah.openPricing` command;
+   * the target URL is resolved host-side. Reused by the Builders promotion card.
    */
   async openPricing(): Promise<void> {
     await this.rpcService.call('command:execute', {

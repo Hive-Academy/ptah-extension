@@ -6,6 +6,7 @@ export {
 export type {
   TransformerState,
   TransformerSessionId,
+  WorkflowRunInfo,
 } from './transformer-state';
 export type { TransformerHelpers } from './transformer-helpers';
 export { AssistantMessageTransformer } from './assistant-message.transformer';

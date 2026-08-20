@@ -50,10 +50,32 @@ function configure(mock: MockVSCodeService): ThemeService {
   return TestBed.inject(ThemeService);
 }
 
+/**
+ * Recreate the non-fetching marker `<link>` that `index.html` puts in `<head>`
+ * to carry the deferred sheet's host-resolved URL.
+ */
+function addDeferredSheetMarker(): void {
+  const marker = document.createElement('link');
+  marker.id = 'ptah-theme-extra';
+  marker.rel = 'ptah-deferred-stylesheet';
+  marker.href = 'theme-extra.css';
+  document.head.appendChild(marker);
+}
+
+function deferredSheetLink(): HTMLLinkElement | null {
+  return document.getElementById(
+    'ptah-theme-extra-sheet',
+  ) as HTMLLinkElement | null;
+}
+
 describe('ThemeService', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-theme-mode');
+    document.getElementById('ptah-theme-extra')?.remove();
+    deferredSheetLink()?.remove();
+    localStorage.removeItem('ptah-theme');
   });
 
   describe('initial theme resolution', () => {
@@ -143,6 +165,106 @@ describe('ThemeService', () => {
     });
   });
 
+  describe('deferred theme sheet (theme-extra.css)', () => {
+    it('mirrors the theme into localStorage so index.html can read it pre-paint', () => {
+      const service = configure(createMockVscode());
+
+      service.setTheme('anubis-light');
+
+      expect(localStorage.getItem('ptah-theme')).toBe('anubis-light');
+    });
+
+    it('re-arms the localStorage mirror from persisted state on construction', () => {
+      configure(createMockVscode({ persisted: 'nord' }));
+
+      expect(localStorage.getItem('ptah-theme')).toBe('nord');
+    });
+
+    it('never inserts the sheet for the two themes bundled in styles.css', () => {
+      addDeferredSheetMarker();
+      const service = configure(createMockVscode());
+
+      service.setTheme('anubis-light');
+      service.setTheme('anubis');
+
+      expect(deferredSheetLink()).toBeNull();
+      expect(service.currentTheme()).toBe('anubis');
+    });
+
+    it('holds the theme back until the sheet loads on the first deferred switch', async () => {
+      addDeferredSheetMarker();
+      const service = configure(createMockVscode());
+
+      service.setTheme('dracula');
+
+      // Sheet requested, but the theme has NOT been applied yet — applying it
+      // early would leave [data-theme=dracula] matching nothing.
+      const link = deferredSheetLink();
+      expect(link).not.toBeNull();
+      expect(link?.rel).toBe('stylesheet');
+      expect(service.currentTheme()).toBe('anubis');
+
+      link?.dispatchEvent(new Event('load'));
+      await Promise.resolve();
+
+      expect(service.currentTheme()).toBe('dracula');
+    });
+
+    it('applies later deferred switches synchronously and reuses one sheet', async () => {
+      addDeferredSheetMarker();
+      const service = configure(createMockVscode());
+
+      service.setTheme('dracula');
+      deferredSheetLink()?.dispatchEvent(new Event('load'));
+      await Promise.resolve();
+
+      service.setTheme('nord');
+
+      expect(service.currentTheme()).toBe('nord');
+      expect(document.querySelectorAll('#ptah-theme-extra-sheet')).toHaveLength(
+        1,
+      );
+    });
+
+    it('still applies the theme when the sheet fails to load', async () => {
+      addDeferredSheetMarker();
+      const service = configure(createMockVscode());
+
+      service.setTheme('sunset');
+      deferredSheetLink()?.dispatchEvent(new Event('error'));
+      await Promise.resolve();
+
+      expect(service.currentTheme()).toBe('sunset');
+    });
+
+    it('applies immediately when the document carries no deferred sheet at all', () => {
+      // No marker: the extension host fallback HTML, or a unit-test document.
+      const service = configure(createMockVscode());
+
+      service.setTheme('dracula');
+
+      expect(service.currentTheme()).toBe('dracula');
+      expect(deferredSheetLink()).toBeNull();
+    });
+
+    it('treats a sheet already inserted pre-paint as ready and applies synchronously', () => {
+      addDeferredSheetMarker();
+      const prePaint = document.createElement('link');
+      prePaint.id = 'ptah-theme-extra-sheet';
+      prePaint.rel = 'stylesheet';
+      prePaint.href = 'theme-extra.css';
+      document.head.appendChild(prePaint);
+
+      const service = configure(createMockVscode({ persisted: 'dracula' }));
+      service.setTheme('nord');
+
+      expect(service.currentTheme()).toBe('nord');
+      expect(document.querySelectorAll('#ptah-theme-extra-sheet')).toHaveLength(
+        1,
+      );
+    });
+  });
+
   describe('isDarkMode computed', () => {
     it('matches the dark-theme allowlist from DAISYUI_THEMES', () => {
       const mock = createMockVscode();
@@ -172,6 +294,23 @@ describe('ThemeService', () => {
       service.setTheme('night');
       appRef.tick();
       expect(document.documentElement.getAttribute('data-theme')).toBe('night');
+    });
+
+    it('writes data-theme-mode reflecting the light/dark classification', () => {
+      const mock = createMockVscode({ persisted: 'dracula' });
+      const service = configure(mock);
+      const appRef = TestBed.inject(ApplicationRef);
+
+      appRef.tick();
+      expect(document.documentElement.getAttribute('data-theme-mode')).toBe(
+        'dark',
+      );
+
+      service.setTheme('cupcake');
+      appRef.tick();
+      expect(document.documentElement.getAttribute('data-theme-mode')).toBe(
+        'light',
+      );
     });
   });
 });

@@ -66,7 +66,7 @@ export const AGENT_SELECTION_SERVICE = Symbol.for('AgentSelectionService');
 
 /**
  * AgentRecommendationService - Deep analysis-based agent recommendations
- * Responsibilities: Score all 13 agents based on project analysis, categorize agents, generate recommendations
+ * Responsibilities: Score all agent templates based on project analysis, categorize agents, generate recommendations
  */
 export const AGENT_RECOMMENDATION_SERVICE = Symbol.for(
   'AgentRecommendationService',
@@ -99,14 +99,6 @@ export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
  * Responsibilities: Write agents to .claude/agents/, overwrite existing in place
  */
 export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
-
-/**
- * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs
- * Responsibilities: Transform Claude agents to Copilot/Cursor format, write to user-level directories
- */
-export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
-  'MultiCliAgentWriterService',
-);
 
 /**
  * MigrationService - Agent upgrade and migration
@@ -195,7 +187,6 @@ export const AGENT_GENERATION_TOKENS = {
   AGENT_CUSTOMIZATION_SERVICE,
   OUTPUT_VALIDATION_SERVICE,
   AGENT_FILE_WRITER_SERVICE,
-  MULTI_CLI_AGENT_WRITER_SERVICE,
   MIGRATION_SERVICE,
   WIZARD_WEBVIEW_LIFECYCLE,
   AGENTIC_ANALYSIS_SERVICE,

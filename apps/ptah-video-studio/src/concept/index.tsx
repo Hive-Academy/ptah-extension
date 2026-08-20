@@ -1,0 +1,129 @@
+/**
+ * Concept-scene registry — animated explainer scenes a promo spec references by
+ * key (`{ "kind": "scene", "scene": "decision-tree" }`). Each scene demonstrates
+ * one idea from the Dyad-vs-Ptah narrative visually instead of describing it.
+ */
+import type React from 'react';
+import type { ConceptSceneProps } from '../PromoReel';
+import { ColdStart } from './ColdStart';
+import { TheFork } from './TheFork';
+import { Contenders } from './Contenders';
+import { Philosophy } from './Philosophy';
+import { DyadArchitecture } from './DyadArchitecture';
+import { DyadCeiling } from './DyadCeiling';
+import { PtahRoadmap } from './PtahRoadmap';
+import { PtahQuadrant } from './PtahQuadrant';
+import { PtahOrchestra } from './PtahOrchestra';
+import { DecisionTree } from './DecisionTree';
+import { ProviderOrbit } from '../concept3d/ProviderOrbit';
+import { McpRoundtrips } from '../concept3d/McpRoundtrips';
+import { McpOneTool } from '../concept3d/McpOneTool';
+import { McpSandbox } from '../concept3d/McpSandbox';
+import { McpResult } from '../concept3d/McpResult';
+import { AgentShowcase } from '../concept3d/AgentShowcase';
+import { AssetSheet } from '../concept3d/AssetSheet';
+import { StateOfArtProof } from './StateOfArtProof';
+import { GlassCoreScene } from './GlassCoreScene';
+import {
+  StoryHook,
+  StoryPositioning,
+  StoryWizard,
+  StoryOrchestration,
+  StoryFoundation,
+  StoryLifecycle,
+  StoryProof,
+  StoryCta,
+} from './story-scenes';
+import {
+  StoryHookV2,
+  StoryPositioningV2,
+  StoryWizardV2,
+  StoryOrchestrationV2,
+  StoryFoundationV2,
+  StoryLifecycleV2,
+  StoryProofV2,
+  StoryCtaV2,
+} from './story-scenes-v2';
+import {
+  AnswerSprawl,
+  AnswerSilo,
+  AnswerAsk,
+  AnswerIdent,
+  AnswerVendors,
+  AnswerStatement,
+  AnswerWipe,
+  AnswerEndCard,
+} from './answer-scenes';
+import {
+  BuildersHook,
+  BuildersPromise,
+  BuildersCohort,
+  BuildersCourse,
+  BuildersVault,
+  BuildersRoom,
+  BuildersProof,
+  BuildersOffer,
+} from './builders-scenes';
+
+export type ConceptScene = React.FC<ConceptSceneProps>;
+
+export const CONCEPT_SCENES: Record<string, ConceptScene> = {
+  'cold-start': ColdStart,
+  'the-fork': TheFork,
+  contenders: Contenders,
+  philosophy: Philosophy,
+  'dyad-arch': DyadArchitecture,
+  'dyad-ceiling': DyadCeiling,
+  'ptah-roadmap': PtahRoadmap,
+  'ptah-quadrant': PtahQuadrant,
+  'ptah-orchestra': PtahOrchestra,
+  'decision-tree': DecisionTree,
+  // 3D scenes (src/concept3d — R3F via @remotion/three, see three-kit).
+  'provider-orbit': ProviderOrbit,
+  'mcp-roundtrips': McpRoundtrips,
+  'mcp-one-tool': McpOneTool,
+  'mcp-sandbox': McpSandbox,
+  'mcp-result': McpResult,
+  'agent-showcase': AgentShowcase,
+  'asset-sheet': AssetSheet,
+  // State-of-the-art proof — remocn motion-design + high-fidelity abstract 3D.
+  'state-of-art-proof': StateOfArtProof,
+  // Elevated crisp-crystal glass hero (checkpoint + beat-5 spine).
+  'glass-hero': GlassCoreScene,
+  // "From Cold Clone to Scalable SaaS" — the 8-beat master reel.
+  'story-hook': StoryHook,
+  'story-positioning': StoryPositioning,
+  'story-wizard': StoryWizard,
+  'story-orchestration': StoryOrchestration,
+  'story-foundation': StoryFoundation,
+  'story-lifecycle': StoryLifecycle,
+  'story-proof': StoryProof,
+  'story-cta': StoryCta,
+  // v2 — 3D-enhanced visual upgrade of the 8-beat reel (story-scenes-v2).
+  'story-hook-v2': StoryHookV2,
+  'story-positioning-v2': StoryPositioningV2,
+  'story-wizard-v2': StoryWizardV2,
+  'story-orchestration-v2': StoryOrchestrationV2,
+  'story-foundation-v2': StoryFoundationV2,
+  'story-lifecycle-v2': StoryLifecycleV2,
+  'story-proof-v2': StoryProofV2,
+  'story-cta-v2': StoryCtaV2,
+  // "Ptah Builders" membership launch reel — capture-free, 8 beats.
+  'builders-hook': BuildersHook,
+  'builders-promise': BuildersPromise,
+  'builders-cohort': BuildersCohort,
+  'builders-course': BuildersCourse,
+  'builders-vault': BuildersVault,
+  'builders-room': BuildersRoom,
+  'builders-proof': BuildersProof,
+  'builders-offer': BuildersOffer,
+  // "Ptah answers Xirp" — flat 2D, hard cuts, no 3D (see answer-scenes.tsx).
+  'answer-sprawl': AnswerSprawl,
+  'answer-silo': AnswerSilo,
+  'answer-ask': AnswerAsk,
+  'answer-ident': AnswerIdent,
+  'answer-vendors': AnswerVendors,
+  'answer-statement': AnswerStatement,
+  'answer-wipe': AnswerWipe,
+  'answer-endcard': AnswerEndCard,
+};

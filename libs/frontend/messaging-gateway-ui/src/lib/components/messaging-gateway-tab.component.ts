@@ -64,11 +64,11 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
       >
         <lucide-angular
           [img]="MessagesSquareIcon"
-          class="size-8 text-base-content/30"
+          class="size-8 text-base-content-muted"
           aria-hidden="true"
         />
         <p class="text-sm font-medium">Messaging is desktop-only</p>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           The gateway runs adapters locally, so it needs the Ptah desktop app.
         </p>
         <a
@@ -94,10 +94,10 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </span>
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Messaging</h1>
-              <p class="mt-0.5 text-sm text-base-content/60">
+              <p class="mt-0.5 text-sm text-base-content-muted">
                 Drive Ptah agents from Telegram, Discord, and Slack.
               </p>
-              <p class="mt-0.5 text-xs text-base-content/50">
+              <p class="mt-0.5 text-xs text-base-content-muted">
                 {{
                   enabled()
                     ? 'Gateway running — per-platform adapters managed below.'
@@ -108,7 +108,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
           <div class="flex items-center gap-2">
             <span
-              class="inline-flex items-center gap-1.5 text-xs text-base-content/70"
+              class="inline-flex items-center gap-1.5 text-xs text-base-content-muted"
             >
               <span
                 class="inline-block size-1.5 rounded-full"
@@ -195,7 +195,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           aria-label="Gateway statistics"
         >
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-success">
@@ -205,7 +205,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">
+              <div class="stat-title text-base-content-muted">
                 Adapters running
               </div>
               <div class="stat-value text-2xl text-success">
@@ -215,7 +215,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
 
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-warning">
@@ -225,7 +225,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">
+              <div class="stat-title text-base-content-muted">
                 Pending approvals
               </div>
               <div class="stat-value text-2xl text-warning">
@@ -235,7 +235,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
 
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-primary">
@@ -245,7 +245,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">
+              <div class="stat-title text-base-content-muted">
                 Approved senders
               </div>
               <div class="stat-value text-2xl text-primary">
@@ -255,7 +255,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
 
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-info">
@@ -265,7 +265,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content/60">Voice</div>
+              <div class="stat-title text-base-content-muted">Voice</div>
               <div class="stat-value text-sm font-medium text-info">
                 {{ voiceEnabled() ? 'On' : 'Off' }}
               </div>
@@ -273,50 +273,66 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
         </div>
 
-        <ptah-gateway-platform-tabs
-          [platforms]="platforms()"
-          [selected]="selectedPlatform()"
-          (selectedChange)="selectedPlatform.set($event)"
-        />
-
-        @for (cfg of platformCards; track cfg.id) {
+        <section
+          class="overflow-hidden rounded-2xl border border-base-content/10 bg-base-200/30"
+          aria-label="Platform configuration"
+        >
           <div
-            role="tabpanel"
-            [id]="'gateway-pane-' + cfg.id"
-            [attr.aria-labelledby]="'gateway-tab-' + cfg.id"
-            [hidden]="selectedPlatform() !== cfg.id"
+            class="flex flex-wrap items-center justify-between gap-3 border-b border-base-content/10 bg-base-200/50 px-3 py-2.5 sm:px-4"
           >
-            <ptah-gateway-platform-pane [config]="cfg" />
+            <ptah-gateway-platform-tabs
+              [platforms]="platforms()"
+              [selected]="selectedPlatform()"
+              (selectedChange)="selectedPlatform.set($event)"
+            />
           </div>
-        }
 
-        <section class="space-y-1" aria-label="Voice and rate-limit settings">
-          <h2 class="text-sm font-semibold">Voice & rate limits</h2>
-          <p class="text-xs text-base-content/60">
-            Read-only — configure these in
-            <span class="font-mono">~/.ptah/settings.json</span>.
-          </p>
-          <div
-            class="mt-2 space-y-1 rounded-xl border border-base-300 bg-base-200/40 p-4"
-          >
-            <p class="font-mono text-xs">
-              gateway.voice.enabled =
-              <span class="text-base-content/70">{{ voiceEnabled() }}</span>
+          <div class="px-5 py-5 sm:px-6 sm:py-6">
+            @for (cfg of platformCards; track cfg.id) {
+              <div
+                role="tabpanel"
+                [id]="'gateway-pane-' + cfg.id"
+                [attr.aria-labelledby]="'gateway-tab-' + cfg.id"
+                [hidden]="selectedPlatform() !== cfg.id"
+              >
+                <ptah-gateway-platform-pane [config]="cfg" />
+              </div>
+            }
+          </div>
+        </section>
+
+        <section
+          class="rounded-2xl border border-base-content/10 bg-base-200/30 p-5 sm:p-6"
+          aria-label="Voice and rate-limit settings"
+        >
+          <div class="space-y-1">
+            <h2 class="text-sm font-semibold">Voice & rate limits</h2>
+            <p class="text-xs text-base-content-muted">
+              Read-only — configure these in
+              <span class="font-mono">~/.ptah/settings.json</span>.
             </p>
-            <p class="font-mono text-xs">
+          </div>
+          <div
+            class="mt-4 grid gap-x-8 gap-y-2 rounded-lg border border-base-content/10 bg-base-100/40 p-4 font-mono text-xs sm:grid-cols-2"
+          >
+            <p>
+              gateway.voice.enabled =
+              <span class="text-base-content-muted">{{ voiceEnabled() }}</span>
+            </p>
+            <p>
               gateway.rateLimit.minTimeMs =
-              <span class="text-base-content/70">{{
+              <span class="text-base-content-muted">{{
                 rateLimit().minTimeMs
               }}</span>
             </p>
-            <p class="font-mono text-xs">
+            <p>
               gateway.rateLimit.maxConcurrent =
-              <span class="text-base-content/70">{{
+              <span class="text-base-content-muted">{{
                 rateLimit().maxConcurrent
               }}</span>
             </p>
             <p
-              class="pt-1 text-xs text-base-content/50"
+              class="pt-1 text-base-content-muted sm:col-span-2"
               data-testid="gateway-voice-model-hint"
             >
               The Whisper voice model is configured in Settings.

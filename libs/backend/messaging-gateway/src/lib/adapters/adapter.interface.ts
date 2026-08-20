@@ -6,6 +6,7 @@
  * "Adapter contract: start(), stop(), sendMessage(), editMessage(), on('inbound', listener)."
  */
 import type { GatewayPlatform, ConversationKey } from '../types';
+import type { IGatewayCommandHandler } from '../commands/gateway-command.types';
 
 /**
  * An inbound message normalised across providers. The adapter is
@@ -42,6 +43,27 @@ export interface InboundMessage {
 export type InboundListener = (msg: InboundMessage) => void | Promise<void>;
 
 /**
+ * Live connection state of an adapter's transport, as opposed to the
+ * start/stop lifecycle. `'connected'` = messages flow; `'reconnecting'` = the
+ * client library is retrying on its own; `'invalidated'` = the platform
+ * revoked the session and the library will NOT retry — the gateway must
+ * destroy and re-login (TASK_2026_271 #3/#4).
+ */
+export type AdapterConnectionState =
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'invalidated';
+
+export interface AdapterConnectionEvent {
+  readonly state: AdapterConnectionState;
+  /** Human-readable cause when the transition was an error. */
+  readonly reason?: string;
+}
+
+export type ConnectionListener = (event: AdapterConnectionEvent) => void;
+
+/**
  * Outbound send result — `externalMsgId` is the provider's id for the
  * outbound message. `editMessage` requires this id to make in-place
  * edits work (Discord followup, Slack chat.update, Telegram editMessageText).
@@ -52,12 +74,31 @@ export interface SendResult {
 
 export interface IMessagingAdapter {
   readonly platform: GatewayPlatform;
+  /**
+   * Maximum characters the platform accepts in a single message body. When
+   * set, the gateway paginates longer cumulative replies across multiple
+   * messages instead of letting the platform reject the whole edit. Discord =
+   * 2000. Omit for platforms with no practical limit.
+   */
+  readonly maxMessageChars?: number;
   /** Open long-lived connection (long-polling / websocket / socket-mode). */
   start(token: string, opts?: { appToken?: string }): Promise<void>;
   /** Close all sockets, cancel timers. Idempotent. */
   stop(): Promise<void>;
-  /** True between successful start() and stop(). */
+  /**
+   * True between successful start() and stop() AND while the transport is
+   * usable. An adapter whose client library reports a disconnect or a
+   * revoked session must return false here even though stop() was never
+   * called — the Gateway tab renders this flag as the green/red dot.
+   */
   isRunning(): boolean;
+  /**
+   * Optional connection-state hook. Adapters whose client library surfaces
+   * transport events (discord.js shard events) forward them here so
+   * `GatewayService` can update status, record the error, and — on
+   * `'invalidated'` — restart the adapter. Exactly ONE listener per adapter.
+   */
+  onConnectionChange?(listener: ConnectionListener): void;
   /**
    * Send an outbound message. Rate-limited internally. When
    * `opts.conversationId` is provided the adapter routes into that
@@ -77,6 +118,25 @@ export interface IMessagingAdapter {
     externalMsgId: string,
     body: string,
   ): Promise<void>;
+  /**
+   * Optional "bot is working" signal (Discord `sendTyping`, Telegram
+   * `sendChatAction('typing')`, Slack has no equivalent → omit). Best-effort:
+   * failures are the adapter's to swallow and log; never throws to the caller.
+   * The bridge calls it when a turn starts and re-arms it while the turn runs
+   * so a long tool call or an approval wait does not look like a dead bot.
+   */
+  sendTyping?(
+    externalChatId: string,
+    opts?: { conversationId?: string },
+  ): Promise<void>;
   /** Register the inbound listener — exactly ONE listener per adapter. */
   on(event: 'inbound', listener: InboundListener): void;
+  /**
+   * Optional control-plane hook (TASK_2026_156). Adapters with a native
+   * command surface (Discord slash commands) route control commands and
+   * autocomplete requests to this handler instead of the inbound listener —
+   * a command never becomes an agent turn (AC-1.3). Adapters without a
+   * command surface simply omit this member.
+   */
+  setCommandHandler?(handler: IGatewayCommandHandler): void;
 }

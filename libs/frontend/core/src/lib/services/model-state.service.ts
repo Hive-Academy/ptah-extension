@@ -181,6 +181,21 @@ export class ModelStateService {
           this._currentModel.set(selected.id);
         }
 
+        // Workspace switch re-validation: `_currentModel` is a single global
+        // signal, so after switching to a workspace on a DIFFERENT provider the
+        // surviving model may no longer be offered by the freshly loaded list.
+        // Sending it verbatim makes the backend reject the turn ("Model X is not
+        // available for the configured provider"). If the current model is set
+        // but absent from the new list, reset it to a valid one. The happy path
+        // above (an `isSelected` model IS present) is untouched — that id is in
+        // the list, so this check is a no-op there.
+        const current = this._currentModel();
+        if (current && !models.some((m) => m.id === current)) {
+          const fallback =
+            selected ?? models.find((m) => m.id === 'default') ?? models[0];
+          this._currentModel.set(fallback?.id ?? '');
+        }
+
         this._isLoaded.set(true);
       } else {
         console.error(

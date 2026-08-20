@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { AppStateManager, ViewType } from './app-state.service';
+import { AppStateManager, SettingsTabId, ViewType } from './app-state.service';
 
 export interface NavigationState {
   currentView: ViewType;
@@ -48,7 +48,7 @@ export class WebviewNavigationService {
   readonly isNavigating = computed(() => this._navigationState().isNavigating);
   readonly canNavigate = computed(
     () =>
-      this.appState.canSwitchViews() && !this._navigationState().isNavigating
+      this.appState.canSwitchViews() && !this._navigationState().isNavigating,
   );
   readonly navigationReliability = computed(() => {
     const errors = this._navigationErrors();
@@ -134,8 +134,16 @@ export class WebviewNavigationService {
     this.appState.handleError(
       `Navigation failed: ${
         error instanceof Error ? error.message : 'Unknown error'
-      }`
+      }`,
     );
+  }
+
+  async navigateToSettingsTab(
+    tab: SettingsTabId,
+    providerId?: string,
+  ): Promise<boolean> {
+    this.appState.requestSettingsTab({ tab, providerId });
+    return this.navigateToView('settings');
   }
 
   /**

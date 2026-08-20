@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:cb94751eb77608b576fdf73b03aa5e7d53f82d010e401880581e0ba0b9d899a8",
-  "generatedAt": "2026-05-08T14:32:34.547Z",
+  "contentHash": "sha256:c4856e0ffb66bbfbe48513f8caaced833d2b3c5e499bea904a0f82e90a68611d",
+  "generatedAt": "2026-08-20T13:58:24.367Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -57,6 +57,11 @@
       "ptah-core/skills/ddd-architecture/references/entities-aggregates.md",
       "ptah-core/skills/ddd-architecture/references/repository-pattern.md",
       "ptah-core/skills/ddd-architecture/references/value-objects.md",
+      "ptah-core/skills/humanize-library/SKILL.md",
+      "ptah-core/skills/humanize-library/references/discover-the-repo.md",
+      "ptah-core/skills/humanize-library/references/quality-rubric.md",
+      "ptah-core/skills/humanize-library/references/refactor-recipes.md",
+      "ptah-core/skills/humanize-library/scripts/analyze_library.mjs",
       "ptah-core/skills/orchestration/SKILL.md",
       "ptah-core/skills/orchestration/examples/bugfix-trace.md",
       "ptah-core/skills/orchestration/examples/creative-trace.md",
@@ -83,6 +88,13 @@
       "ptah-core/skills/technical-content-writer/LANDING-PAGES.md",
       "ptah-core/skills/technical-content-writer/SKILL.md",
       "ptah-core/skills/technical-content-writer/VIDEO-SCRIPTS.md",
+      "ptah-core/skills/tribunal/SKILL.md",
+      "ptah-core/skills/tribunal/references/council.md",
+      "ptah-core/skills/tribunal/references/crucible.md",
+      "ptah-core/skills/tribunal/references/forge.md",
+      "ptah-core/skills/tribunal/references/race.md",
+      "ptah-core/skills/tribunal/references/relay.md",
+      "ptah-core/skills/tribunal/references/vendor-panel.md",
       "ptah-core/skills/ui-ux-designer/ASSET-GENERATION.md",
       "ptah-core/skills/ui-ux-designer/DESIGN-SYSTEM-BUILDER.md",
       "ptah-core/skills/ui-ux-designer/DEVELOPER-HANDOFF.md",
@@ -90,6 +102,12 @@
       "ptah-core/skills/ui-ux-designer/NICHE-DISCOVERY.md",
       "ptah-core/skills/ui-ux-designer/REFERENCE-LIBRARY.md",
       "ptah-core/skills/ui-ux-designer/SKILL.md",
+      "ptah-dotnet/.claude-plugin/plugin.json",
+      "ptah-dotnet/skills/dotnet-solution-architect/SKILL.md",
+      "ptah-dotnet/skills/dotnet-solution-architect/references/central-package-management.md",
+      "ptah-dotnet/skills/dotnet-solution-architect/references/clean-architecture-vs-vertical-slices.md",
+      "ptah-dotnet/skills/dotnet-solution-initializer/SKILL.md",
+      "ptah-dotnet/skills/nx-dotnet-workspace/SKILL.md",
       "ptah-nx-saas/.claude-plugin/plugin.json",
       "ptah-nx-saas/commands/init-saas.md",
       "ptah-nx-saas/commands/initialize-workspace.md",
@@ -207,7 +225,13 @@
       "ptah-react/skills/react-best-practices/rules/server-serialization.md",
       "ptah-react/skills/react-nx-patterns/SKILL.md",
       "ptah-react/skills/react-nx-patterns/references/client-components.md",
-      "ptah-react/skills/react-nx-patterns/references/server-components.md"
+      "ptah-react/skills/react-nx-patterns/references/server-components.md",
+      "ptah-video/.claude-plugin/plugin.json",
+      "ptah-video/skills/video-showcase/SKILL.md",
+      "ptah-video/skills/video-showcase/reference/brand-and-runtime.md",
+      "ptah-video/skills/video-showcase/reference/camera-and-render.md",
+      "ptah-video/skills/video-showcase/reference/install.md",
+      "ptah-video/skills/video-showcase/reference/scene-authoring.md"
     ]
   },
   "templates": {
@@ -226,6 +250,7 @@
       "team-leader.template.md",
       "technical-content-writer.template.md",
       "ui-ux-designer.template.md",
+      "video-director.template.md",
       "visual-reviewer.template.md"
     ]
   }

@@ -21,9 +21,7 @@
           "sqlite-vec",
           "grammy",
           "discord.js",
-          "@slack/bolt",
-          "ffmpeg-static",
-          "nodejs-whisper"
+          "@slack/bolt"
         ]
       }
     },

@@ -180,6 +180,7 @@ function makeSummary(overrides: Partial<PtahCliSummary> = {}): PtahCliSummary {
     providerName: 'OpenRouter',
     providerId: 'openrouter',
     hasApiKey: true,
+    hasStoredKey: true,
     status: 'available',
     enabled: true,
     modelCount: 3,

@@ -27,23 +27,50 @@ import type {
   AgentCompletedEvent,
   AgentStartEvent,
   CliSessionReference,
+  SubagentTranscriptMessage,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { agentVisibleInSession, knownSessionId } from './session-scope';
+
+/**
+ * TODO: remove once the shared agent lifecycle events (AgentStartEvent,
+ * AgentProgressEvent, AgentStatusEvent, AgentCompletedEvent) and
+ * AgentProcessInfo carry workflowRunId/workflowName (backend slice — the
+ * backend-developer owns those shared type changes). Until then we read the
+ * two fields structurally via this local extension + cast so the frontend
+ * slice can consume them without editing libs/shared.
+ */
+interface WorkflowRunFields {
+  readonly workflowRunId?: string;
+  readonly workflowName?: string;
+}
+
+/** Structurally read the (shimmed) workflow-run fields off any lifecycle event
+ *  or process-info payload. Returns undefined values for non-workflow agents. */
+function readWorkflowFields(src: unknown): WorkflowRunFields {
+  const s = (src ?? {}) as WorkflowRunFields;
+  return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
+}
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
 
 /** Maximum number of simultaneously expanded agent cards */
-const MAX_EXPANDED_AGENTS = 2;
-
-/** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
-const MAX_STREAM_EVENTS = 2000;
+const MAX_EXPANDED_AGENTS = 3;
 
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
 const MAX_COMPLETED_AGENTS = 20;
+
+/**
+ * Cap on {@link AgentMonitorStore._resumedAgentNodeIds}. A node id carries no
+ * session, so tab close and `/clear` cannot target its entries — the set is
+ * bounded by insertion order instead and the oldest ids fall out. 500 covers
+ * far more interrupted agents than one workspace ever accumulates.
+ */
+const MAX_RESUMED_NODE_IDS = 500;
 
 export interface MonitoredAgent {
   readonly agentId: string;
@@ -61,11 +88,21 @@ export interface MonitoredAgent {
   expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Codex, Copilot). */
   segments: CliOutputSegment[];
-  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
+  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering.
+   *  Mutated in place (appended) across deltas — never reassigned — so retention
+   *  is unbounded without an O(n) copy per event. `streamRevision` is the change
+   *  signal; consumers must depend on it, not on this array's identity. */
   streamEvents: FlatStreamEventUnion[];
+  /** Incremented on every streamEvents append. Because streamEvents is mutated
+   *  in place its reference is stable, so this counter is what tells the agent
+   *  card to recompute its execution tree. */
+  streamRevision: number;
   /** Parent Ptah Claude SDK session that spawned this agent.
    * Mutable: initially set to tab ID, resolved to real SDK UUID
-   * when SESSION_ID_RESOLVED fires. */
+   * when SESSION_ID_RESOLVED fires.
+   *
+   * INVARIANT: either a real id or `undefined` — never `''`. Writers normalize
+   * through `knownSessionId`; readers scope through `agentVisibleInSession`. */
   parentSessionId?: string;
   /**
    * CLI-native session ID (e.g., Codex UUID). Enables resume.
@@ -83,6 +120,27 @@ export interface MonitoredAgent {
   readonly displayName?: string;
   /** Model identifier used by the CLI agent (e.g., 'gpt-5-codex', 'gpt-4o'). */
   readonly model?: string;
+  readonly supportsContinuation?: boolean;
+  /**
+   * The backend dropped this agent's process record after its completed-agent
+   * TTL, so `agent:continue` can only answer `not_found` from here on. The
+   * conversation itself is NOT gone — `cliSessionId` still resumes it — so this
+   * marks WHICH path a follow-up has to take, never that follow-ups are over.
+   * Cleared when a spawn event re-opens the same id.
+   */
+  continuationExpired?: boolean;
+  /**
+   * Stable id grouping all agents spawned by one `Workflow` tool run. Present
+   * only for agents that belong to a workflow orchestration; undefined for
+   * ordinary standalone agents. The monitor panel partitions agents into
+   * collapsible run groups keyed by this id.
+   */
+  workflowRunId?: string;
+  /**
+   * Display name of the owning workflow run. May be undefined until the SDK
+   * reports it, so consumers must tolerate a missing name for a known run.
+   */
+  workflowName?: string;
 }
 
 /**
@@ -101,6 +159,23 @@ export interface SubagentRecord {
   readonly parentToolUseId: string;
   /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
   taskId?: string;
+  /**
+   * Short SDK agent identifier (e.g. `"adcecb2"`), captured from `agent_start`
+   * (`AgentStartEvent.agentId`). Distinct from `taskId` (steer/stop routing) and
+   * from `parentToolUseId` (the Task tool_use id / primary key). This is the id
+   * required to read the agent's full historical transcript via the
+   * `subagent:transcript` RPC — see {@link AgentMonitorStore.getSubagentTranscript}.
+   * Only `agent_start` carries it, so it is set there and preserved (never
+   * downgraded to undefined) across later progress/status/completed merges.
+   */
+  agentId?: string;
+  /**
+   * Human-legible subagent (teammate) name from `agent_start`
+   * (`AgentStartEvent.teammateName`). Preferred over the hex `agentId` for
+   * display. Only `agent_start` carries it, so it is set there and preserved
+   * (never downgraded to undefined) across later progress/status/completed merges.
+   */
+  teammateName?: string;
   /** Latest description from progress/status events */
   description?: string;
   /** AI-generated rolling summary from progress events (most recent) */
@@ -126,6 +201,28 @@ export interface SubagentRecord {
   errorMessage?: string;
   /** Final output file path if completed */
   outputFile?: string;
+  /**
+   * Owning session id, captured from the pushed SDK event's `sessionId`
+   * (`FlatStreamEvent.sessionId`). This is the session that spawned the
+   * subagent — NOT necessarily the focused tab. Steer / stop / background
+   * RPCs must target THIS session, otherwise they resolve the wrong Query
+   * backend-side when multiple canvas tiles are live. Optional because a
+   * record IS materialised before any event carries a resolved id.
+   *
+   * INVARIANT: either a real id or `undefined` — never `''`. The backend can
+   * send `''` on `FlatStreamEvent.sessionId`; every reducer below runs it
+   * through `knownSessionId` so an id that WAS captured is never downgraded by
+   * a later empty one.
+   */
+  parentSessionId?: string;
+  /**
+   * Stable id grouping all subagents of one `Workflow` tool run. Mirrors
+   * {@link MonitoredAgent.workflowRunId}. Undefined for ordinary (non-workflow)
+   * subagents so existing behavior is unchanged.
+   */
+  workflowRunId?: string;
+  /** Display name of the owning workflow run (may be undefined until known). */
+  workflowName?: string;
 }
 
 /**
@@ -138,7 +235,8 @@ export interface SubagentRpcError {
   readonly method:
     | 'subagent:send-message'
     | 'subagent:stop'
-    | 'subagent:interrupt';
+    | 'subagent:interrupt'
+    | 'subagent:background';
   readonly message: string;
   readonly code?: string;
   readonly timestamp: number;
@@ -256,9 +354,8 @@ export class AgentMonitorStore implements OnDestroy {
   readonly agentsById = computed(() => this._byId());
 
   /**
-   * Agents filtered to the active tab's session.
-   * Shows only agents whose parentSessionId matches the active tab's claudeSessionId.
-   * Agents with no parentSessionId are shown in all tabs (backward compatibility).
+   * Agents filtered to the active tab's session, per `agentVisibleInSession`:
+   * a known owner must match, an unknown owner is visible everywhere.
    * When no tab is active or the active tab has no session, all agents are shown.
    */
   readonly activeTabAgents = computed(() => {
@@ -266,17 +363,58 @@ export class AgentMonitorStore implements OnDestroy {
     const activeSessionId = this.tabManager.activeTabSessionId();
 
     if (!activeSessionId) return all;
-    return all.filter(
-      (a) => !a.parentSessionId || a.parentSessionId === activeSessionId,
+    return all.filter((a) =>
+      agentVisibleInSession(a.parentSessionId, activeSessionId),
     );
   });
 
   /**
    * Get agents for a specific session (scoped accessor for canvas tiles).
    * Unlike activeTabAgents, this doesn't depend on the global activeTab signal.
+   * Uses the SAME `agentVisibleInSession` rule — previously this was strict
+   * `===` while `activeTabAgents` was falsy-tolerant, so an agent with no
+   * resolved owner rendered in every tab by one view and in none by the other.
    */
   agentsForSession(sessionId: string): MonitoredAgent[] {
-    return this.agents().filter((a) => a.parentSessionId === sessionId);
+    return this.agents().filter((a) =>
+      agentVisibleInSession(a.parentSessionId, sessionId),
+    );
+  }
+
+  /**
+   * Workflow subagents — SubagentRecords carrying a `workflowRunId` — scoped to
+   * the active tab's session. Mirrors {@link activeTabAgents} scoping: when no
+   * tab is active all workflow subagents are returned; records without a
+   * `parentSessionId` are shown in every tab. Feeds the monitor panel's
+   * dedicated "watch running workflows" run groups. Unlike the background-agent
+   * tray (active-only), ALL statuses are included so a run's completed agents
+   * stay visible while it is being watched.
+   */
+  readonly activeWorkflowSubagents = computed<SubagentRecord[]>(() => {
+    const workflow = [...this._subagents().values()].filter(
+      (r) => !!r.workflowRunId,
+    );
+    const activeSessionId = this.tabManager.activeTabSessionId();
+    if (!activeSessionId) return workflow;
+    return workflow.filter((r) =>
+      agentVisibleInSession(r.parentSessionId, activeSessionId),
+    );
+  });
+
+  /**
+   * Workflow subagents owned by a specific session (scoped accessor for the
+   * embedded / canvas-tile panel — mirrors {@link agentsForSession}). Unlike
+   * {@link activeWorkflowSubagents} this doesn't depend on the global activeTab
+   * signal, so each tile's panel resolves its own run groups.
+   */
+  workflowSubagentsForSession(
+    sessionId: string | null | undefined,
+  ): SubagentRecord[] {
+    return [...this._subagents().values()].filter(
+      (r) =>
+        !!r.workflowRunId &&
+        agentVisibleInSession(r.parentSessionId, sessionId),
+    );
   }
 
   /** Whether any agent is running. Reads _agents() directly with primitive equality
@@ -321,6 +459,17 @@ export class AgentMonitorStore implements OnDestroy {
 
   readonly panelOpen = this._panelOpen.asReadonly();
 
+  /**
+   * Monotonic "open the panel" request counter. Bumped by {@link requestPanelOpen}.
+   * The global-mode panel reads `panelOpen()` directly, but the embedded panel
+   * in `ChatViewComponent` drives its own local open signal — it watches THIS
+   * counter so a deep-tree caller (the "Workflow launched" chip) can force the
+   * panel open reliably even after the user manually closed it (a plain
+   * `panelOpen` set would not re-notify when it is already `true`).
+   */
+  private readonly _panelOpenRequests = signal(0);
+  readonly panelOpenRequests = this._panelOpenRequests.asReadonly();
+
   ngOnDestroy(): void {
     this.stopTick();
     this._pendingPermissionBuffer.clear();
@@ -363,6 +512,19 @@ export class AgentMonitorStore implements OnDestroy {
     this._panelOpen.set(true);
   }
 
+  /**
+   * Force the monitor panel open from anywhere (global OR embedded mode).
+   * Sets `panelOpen` for global consumers, clears the "explicitly closed"
+   * latch, and bumps `panelOpenRequests` so the embedded `ChatViewComponent`
+   * panel re-opens even if it was previously dismissed. Used by the
+   * "Workflow launched" chat chip.
+   */
+  requestPanelOpen(): void {
+    this._userExplicitlyClosed = false;
+    this._panelOpen.set(true);
+    this._panelOpenRequests.update((n) => n + 1);
+  }
+
   closePanel(): void {
     this._userExplicitlyClosed = true;
     this._panelOpen.set(false);
@@ -372,28 +534,39 @@ export class AgentMonitorStore implements OnDestroy {
    * Check if a specific interrupted agent has been resumed.
    * Two matching strategies:
    * 1. SDK subagents: matches by specific node ID (nodeId or toolCallId)
-   * 2. CLI agents: matches by parentSessionId + task description
-   * Used by inline-agent-bubble to show 'Resumed' badge.
+   * 2. CLI agents: matches by owning session + task description
+   *
+   * The CLI lookup is SESSION-SCOPED. Keys are written as
+   * `${parentSessionId}::${task}`, but the read used to be
+   * `key.endsWith('::' + task)`, which threw the session prefix away — so one
+   * session resuming "Fix the tests" badged every other session's identically
+   * described agent as Resumed. `sessionId` is the record's owning session;
+   * callers that don't have one fall back to the focused tab, which is the
+   * surface they are rendering in.
    */
   isAgentResumed(
     nodeId: string | undefined,
     toolCallId: string | undefined,
     taskOrDescription: string,
+    sessionId?: string,
   ): boolean {
     const resumedIds = this._resumedAgentNodeIds();
     if (nodeId && resumedIds.has(nodeId)) return true;
     if (toolCallId && resumedIds.has(toolCallId)) return true;
-    const keys = this._resumedAgentKeys();
-    for (const key of keys) {
-      if (key.endsWith(`::${taskOrDescription}`)) return true;
-    }
-    return false;
+    const scope =
+      knownSessionId(sessionId) ?? this.tabManager.activeTabSessionId();
+    if (!scope) return false;
+    return this._resumedAgentKeys().has(`${scope}::${taskOrDescription}`);
   }
 
   /**
    * Mark specific agent node IDs as resumed.
    * Called by the streaming handler when a new agent_start arrives and
    * a specific interrupted agent of the same type is found.
+   *
+   * Bounded by MAX_RESUMED_NODE_IDS: a node id is not session-keyed, so no
+   * teardown path can evict it. Set iteration is insertion-ordered, so the
+   * oldest ids are the ones dropped.
    */
   markAgentNodesResumed(nodeIds: string[]): void {
     if (nodeIds.length === 0) return;
@@ -402,20 +575,55 @@ export class AgentMonitorStore implements OnDestroy {
       for (const id of nodeIds) {
         next.add(id);
       }
+      while (next.size > MAX_RESUMED_NODE_IDS) {
+        const oldest = next.values().next();
+        if (oldest.done) break;
+        next.delete(oldest.value);
+      }
       return next;
     });
   }
   onAgentSpawned(info: AgentProcessInfo): void {
     const hadAgents = this._agents().length > 0;
+    const wf = readWorkflowFields(info);
+    const parentSessionId = knownSessionId(info.parentSessionId);
 
     this._agents.update((list) => {
-      const oldCard = this.findReplacementCard(list, info);
+      const existingIndex = list.findIndex((a) => a.agentId === info.agentId);
+      if (existingIndex !== -1) {
+        const existing = list[existingIndex];
+        const reopened: MonitoredAgent = {
+          ...existing,
+          status: info.status,
+          completedAt: undefined,
+          exitCode: undefined,
+          cliSessionId: info.cliSessionId || existing.cliSessionId,
+          // Prefer-known, never downgrade: a respawn that arrives before the
+          // session UUID resolves must not erase an owner we already captured.
+          parentSessionId: parentSessionId ?? existing.parentSessionId,
+          supportsContinuation:
+            info.supportsContinuation ?? existing.supportsContinuation,
+          // The backend is tracking this id again, so whatever TTL sweep
+          // expired it is undone.
+          continuationExpired: false,
+          workflowRunId: wf.workflowRunId ?? existing.workflowRunId,
+          workflowName: wf.workflowName ?? existing.workflowName,
+        };
+        const next = [...list];
+        next[existingIndex] = reopened;
+        return next;
+      }
+
+      const oldCard = this.findReplacementCard(list, info, parentSessionId);
 
       if (oldCard) {
-        if (oldCard.parentSessionId && oldCard.task) {
+        // The replaced card may have been created before its owner resolved,
+        // so key the "resumed" marker off whichever session is known.
+        const resumeScope = oldCard.parentSessionId ?? parentSessionId;
+        if (resumeScope && oldCard.task) {
           this._resumedAgentKeys.update((set) => {
             const next = new Set(set);
-            next.add(`${oldCard.parentSessionId}::${oldCard.task}`);
+            next.add(`${resumeScope}::${oldCard.task}`);
             return next;
           });
         }
@@ -431,12 +639,16 @@ export class AgentMonitorStore implements OnDestroy {
           expandedAt: oldCard.expandedAt,
           segments: [],
           streamEvents: [],
-          parentSessionId: info.parentSessionId,
+          streamRevision: 0,
+          parentSessionId: parentSessionId ?? oldCard.parentSessionId,
           cliSessionId: info.cliSessionId,
           ptahCliId: info.ptahCliId,
           permissionQueue: [],
           displayName: info.displayName || info.ptahCliName,
           model: info.model,
+          supportsContinuation: info.supportsContinuation,
+          workflowRunId: wf.workflowRunId,
+          workflowName: wf.workflowName,
         };
         return [
           ...list.filter((a) => a.agentId !== oldCard.agentId),
@@ -457,12 +669,16 @@ export class AgentMonitorStore implements OnDestroy {
         expandedAt: order,
         segments: [],
         streamEvents: [],
-        parentSessionId: info.parentSessionId,
+        streamRevision: 0,
+        parentSessionId,
         cliSessionId: info.cliSessionId,
         ptahCliId: info.ptahCliId,
         permissionQueue: [],
         displayName: info.displayName || info.ptahCliName,
         model: info.model,
+        supportsContinuation: info.supportsContinuation,
+        workflowRunId: wf.workflowRunId,
+        workflowName: wf.workflowName,
       };
       return this.enforceMaxExpanded([...list, fresh]);
     });
@@ -536,12 +752,13 @@ export class AgentMonitorStore implements OnDestroy {
         }
       }
       if (delta.streamEvents && delta.streamEvents.length > 0) {
-        const combined = [...agent.streamEvents, ...delta.streamEvents];
-        if (combined.length > MAX_STREAM_EVENTS) {
-          updated.streamEvents = capStreamEvents(combined, MAX_STREAM_EVENTS);
-        } else {
-          updated.streamEvents = combined;
+        // Append in place — streamEvents shares its reference across deltas, so
+        // this is O(new events) with no whole-array copy. The bumped
+        // streamRevision is what drives the agent card to recompute.
+        for (const ev of delta.streamEvents) {
+          updated.streamEvents.push(ev);
         }
+        updated.streamRevision = agent.streamRevision + 1;
       }
 
       const next = [...list];
@@ -572,13 +789,39 @@ export class AgentMonitorStore implements OnDestroy {
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
+        // Last chance to attribute a card that was spawned before its session
+        // resolved — the exit payload often carries the id the spawn lacked.
+        parentSessionId:
+          knownSessionId(info.parentSessionId) ?? agent.parentSessionId,
         completedAt,
         permissionQueue: [],
+        supportsContinuation:
+          info.supportsContinuation ?? agent.supportsContinuation,
       };
       return this.evictOldCompletedAgents(next);
     });
 
     this.syncTick();
+  }
+
+  /**
+   * The backend dropped this agent's process record (completed-agent TTL).
+   *
+   * The card stays — its output is still worth reading and its session is still
+   * resumable. Only the in-process continuation is gone, which is exactly what
+   * the flag says. An unknown id is a no-op: the card may already have been
+   * evicted, and inventing one here would resurrect an agent nobody can see.
+   */
+  onAgentExpired(agentId: string): void {
+    this._agents.update((list) => {
+      const index = list.findIndex((a) => a.agentId === agentId);
+      if (index === -1) return list;
+      if (list[index].continuationExpired === true) return list;
+
+      const next = [...list];
+      next[index] = { ...next[index], continuationExpired: true };
+      return next;
+    });
   }
 
   /**
@@ -699,11 +942,21 @@ export class AgentMonitorStore implements OnDestroy {
    * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
    * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume â€”
    *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
-   *   ID is reused). Only matches non-running agents in the same parent session.
+   *   ID is reused). Only matches non-running agents.
+   *
+   * `cliSessionId` is the CLI-native conversation id, so equality on it already
+   * means "the same conversation". The owning-session check is only a guard
+   * against a stale card from a DIFFERENT session, and it therefore rejects a
+   * match ONLY when both sides know their owner and the two disagree. It used
+   * to be a plain `===`: an interrupted card created before the session UUID
+   * resolved never matched the resume spawn that carried the real UUID, so
+   * `onAgentSpawned` built a SECOND card, left the interrupted one behind, and
+   * never wrote the resume key — a duplicate instead of a resumption.
    */
   private findReplacementCard(
     list: readonly MonitoredAgent[],
     info: AgentProcessInfo,
+    parentSessionId: string | undefined,
   ): MonitoredAgent | null {
     if (info.resumedFromAgentId) {
       for (const a of list) {
@@ -712,13 +965,16 @@ export class AgentMonitorStore implements OnDestroy {
     }
     if (info.cliSessionId) {
       for (const a of list) {
+        if (a.cliSessionId !== info.cliSessionId) continue;
+        if (a.status === 'running') continue;
         if (
-          a.cliSessionId === info.cliSessionId &&
-          a.parentSessionId === info.parentSessionId &&
-          a.status !== 'running'
+          a.parentSessionId !== undefined &&
+          parentSessionId !== undefined &&
+          a.parentSessionId !== parentSessionId
         ) {
-          return a;
+          continue;
         }
+        return a;
       }
     }
 
@@ -760,9 +1016,10 @@ export class AgentMonitorStore implements OnDestroy {
    */
   loadCliSessions(
     cliSessions: CliSessionReference[],
-    parentSessionId?: string,
+    rawParentSessionId?: string,
   ): void {
     if (cliSessions.length === 0) return;
+    const parentSessionId = knownSessionId(rawParentSessionId);
 
     this._agents.update((list) => {
       let next: MonitoredAgent[] = list.filter((a) => {
@@ -790,6 +1047,7 @@ export class AgentMonitorStore implements OnDestroy {
             expanded: false,
             segments: ref.segments ? [...ref.segments] : [],
             streamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
+            streamRevision: 0,
             cliSessionId: ref.cliSessionId,
             parentSessionId,
             ptahCliId: ref.ptahCliId,
@@ -839,6 +1097,12 @@ export class AgentMonitorStore implements OnDestroy {
    * before the real SDK session UUID was resolved.
    * Called when SESSION_ID_RESOLVED fires, mirroring the backend's
    * AgentProcessManager.resolveParentSessionId().
+   *
+   * Only agents stamped with THIS tab's id are claimed. Agents with no owner at
+   * all are deliberately left alone — with several canvas tiles live, claiming
+   * every unattributed agent for whichever tab resolved first would misattribute
+   * them. They stay reachable regardless: `agentVisibleInSession` renders them
+   * in every session, and steer/stop fall back to the active tab.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
     this._agents.update((list) => {
@@ -893,12 +1157,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentStart(event: AgentStartEvent): void {
     const key = event.toolCallId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: event.agentId ?? existing?.agentId,
+        teammateName: event.teammateName ?? existing?.teammateName,
         description: event.agentDescription ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -913,6 +1180,10 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: existing?.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId:
+          knownSessionId(event.sessionId) ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -923,12 +1194,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentProgress(event: AgentProgressEvent): void {
     const key = event.parentToolUseId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
+        teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
@@ -938,6 +1212,10 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId:
+          knownSessionId(event.sessionId) ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -948,12 +1226,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentStatus(event: AgentStatusEvent): void {
     const key = event.parentToolUseId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
+        teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -963,6 +1244,10 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: existing?.durationMs,
         errorMessage: event.errorMessage ?? existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId:
+          knownSessionId(event.sessionId) ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -973,12 +1258,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentCompleted(event: AgentCompletedEvent): void {
     const key = event.parentToolUseId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
+        teammateName: existing?.teammateName,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -988,6 +1276,10 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs ?? existing?.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: event.outputFile ?? existing?.outputFile,
+        parentSessionId:
+          knownSessionId(event.sessionId) ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -995,20 +1287,123 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Send a follow-up message to a running subagent. Requires the parent
-   * SDK session ID — callers usually source this from `tabManager.activeTab`.
+   * Send a follow-up message to an agent the backend still holds in memory.
+   *
+   * `ok` means the CONTINUATION was accepted, not that the round trip landed.
+   * The handler answers a refusal (`not_found` / `busy` / `unsupported`) as a
+   * transport SUCCESS carrying `{ success: false, code }`, so reading
+   * `isSuccess()` alone reports every refusal as a sent message — the caller
+   * clears the user's draft and shows nothing while the follow-up went nowhere.
    */
+  async continueAgent(
+    agentId: string,
+    message: string,
+  ): Promise<{ ok: boolean; code?: string }> {
+    const result = await this.rpc.call('agent:continue', {
+      agentId,
+      message,
+    });
+    return {
+      ok: result.isSuccess() && result.data.success === true,
+      code: result.data?.code,
+    };
+  }
+
   /**
-   * Send a follow-up message to a running subagent. Returns `true` when the
-   * RPC call succeeded, `false` when an error was recorded. Callers use the
-   * return value to conditionally show success / keep-draft UX.
+   * Deliver a follow-up by RESUMING the agent's CLI-native session instead of
+   * continuing its process — the recovery path for an agent the backend no
+   * longer tracks (TTL sweep, host restart).
+   *
+   * The message is passed as the resumed run's `task`, which is what the
+   * conversation continues WITH; history comes from `cliSessionId`. A caller
+   * without one has nothing to resume and must not reach here.
+   */
+  async resumeAgentWithMessage(
+    agent: MonitoredAgent,
+    message: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!agent.cliSessionId) {
+      return { ok: false, error: 'This agent has no session to resume.' };
+    }
+
+    const result = await this.rpc.call('agent:resumeCliSession', {
+      cliSessionId: agent.cliSessionId,
+      cli: agent.cli,
+      task: message,
+      parentSessionId: agent.parentSessionId,
+      ptahCliId: agent.ptahCliId,
+      previousAgentId: agent.agentId,
+    });
+
+    if (!result.isSuccess()) {
+      return { ok: false, error: result.error };
+    }
+    return result.data.success
+      ? { ok: true }
+      : { ok: false, error: result.data.error };
+  }
+
+  /**
+   * Terminalise a foreground subagent from its Task tool_use `tool_result`.
+   *
+   * This is the DEFINITIVE completion signal for a normally-finishing
+   * foreground subagent. The SDK's `task_notification` (→ `agent_completed`)
+   * is skipped when `skip_transcript` is set and, per the SDK docs, reliably
+   * fires only for stopped/backgrounded tasks — so a foreground Task that
+   * completes normally may never produce one, which previously left the
+   * subagent badge stuck on 'running' forever. The Task tool_use's
+   * `tool_result` always fires, so we drive completion from it.
+   *
+   * Invariant (documented in {@link StreamingAccumulatorCore} too): status
+   * transitions ONLY from a non-terminal ('pending'/'running') state to
+   * 'completed' (or 'failed' when the tool_result is an error). A terminal
+   * status already set by a real `agent_completed` / `agent_status` / stop
+   * wins and is never overridden (last-writer-wins is wrong here). An unknown
+   * `toolCallId` (no record ⇒ this tool_result did not spawn a subagent) is a
+   * no-op. The CALLER must NOT invoke this for a backgrounded task — a
+   * mid-run-backgrounded agent receives an early "running in the background"
+   * tool_result while it keeps working, which must not terminalise it.
+   */
+  onTaskToolResult(toolCallId: string, isError: boolean): void {
+    this._subagents.update((map) => {
+      const existing = map.get(toolCallId);
+      if (!existing) return map;
+      if (existing.status !== 'pending' && existing.status !== 'running') {
+        return map;
+      }
+      const next = new Map(map);
+      next.set(toolCallId, {
+        ...existing,
+        status: isError ? 'failed' : 'completed',
+      });
+      return next;
+    });
+  }
+
+  /**
+   * Send a follow-up ("steer") message into a running subagent.
+   *
+   * `sessionId` is the session that OWNS the subagent. Callers that know it
+   * (e.g. the background-agent tray, which reads `SubagentRecord.parentSessionId`)
+   * must pass it so the RPC targets the right Query when multiple canvas tiles
+   * are live. It falls back to the active tab's session to preserve callers
+   * that render inside the focused session (e.g. inline-agent-bubble).
+   *
+   * The fallback runs through `knownSessionId` because callers hand us
+   * `SubagentRecord.parentSessionId` verbatim. When that was still `''` a plain
+   * `??` skipped the fallback (`''` is not nullish) and the `!sid` guard then
+   * refused the call — "No active session" reported while a perfectly good
+   * active session existed, which is why an interrupted subagent could not be
+   * steered or stopped.
    */
   async sendMessageToAgent(
     parentToolUseId: string,
     text: string,
+    sessionId?: string,
   ): Promise<boolean> {
-    const sessionId = this.tabManager.activeTabSessionId();
-    if (!sessionId) {
+    const sid =
+      knownSessionId(sessionId) ?? this.tabManager.activeTabSessionId();
+    if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId,
         method: 'subagent:send-message',
@@ -1018,7 +1413,7 @@ export class AgentMonitorStore implements OnDestroy {
       return false;
     }
     const result = await this.rpc.call('subagent:send-message', {
-      sessionId,
+      sessionId: sid,
       parentToolUseId,
       text,
     });
@@ -1036,13 +1431,60 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Read a subagent's full historical transcript on demand via the
+   * `subagent:transcript` RPC. Unlike the live execution tree (fed by streamed
+   * `forwardSubagentText` deltas), this returns the agent's COMPLETE saved
+   * conversation — usable after the agent has finished or to backfill output
+   * that was never streamed into the current tree.
+   *
+   * `agentId` is the SDK short-hex id (see `SubagentRecord.agentId`), NOT the
+   * Task `parentToolUseId`. `sessionId` is the OWNING parent session
+   * (`SubagentRecord.parentSessionId` / `BackgroundAgentEntry.sessionId`).
+   *
+   * Mirrors the RPC-call / error-handling shape of {@link sendMessageToAgent}:
+   * on `!result.isSuccess()` it returns `[]` rather than throwing. A missing or
+   * not-yet-flushed transcript ALSO comes back as `{ messages: [] }` from the
+   * backend (never a not-found error), so callers must treat an empty array as
+   * "no transcript yet", not as a failure. The shared `subagentRpcError`
+   * channel is deliberately NOT touched here — it is keyed by
+   * `parentToolUseId` for steer/stop/background toasts, and a read-only
+   * transcript fetch (agentId-scoped) is surfaced through the viewer's own
+   * empty/error state instead.
+   */
+  async getSubagentTranscript(
+    sessionId: string,
+    agentId: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<SubagentTranscriptMessage[]> {
+    const result = await this.rpc.call('subagent:transcript', {
+      sessionId,
+      agentId,
+      limit: opts?.limit,
+      offset: opts?.offset,
+    });
+    if (!result.isSuccess()) {
+      console.warn(
+        '[AgentMonitorStore] subagent:transcript failed:',
+        result.error ?? 'Unknown error',
+      );
+      return [];
+    }
+    return result.data.messages;
+  }
+
+  /**
    * Stop a running subagent identified by SDK task_id. The matching
    * `parentToolUseId` is looked up so error reporting stays scoped.
+   *
+   * `sessionId` is the OWNING session; callers that know it (background-agent
+   * tray) pass it so the stop resolves the right Query when several tiles are
+   * live. Falls back to the active tab's session for focused-surface callers.
    */
-  async stopAgent(taskId: string): Promise<void> {
-    const sessionId = this.tabManager.activeTabSessionId();
+  async stopAgent(taskId: string, sessionId?: string): Promise<void> {
+    const sid =
+      knownSessionId(sessionId) ?? this.tabManager.activeTabSessionId();
     const parentToolUseId = this.findParentToolUseIdByTaskId(taskId);
-    if (!sessionId) {
+    if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId: parentToolUseId ?? taskId,
         method: 'subagent:stop',
@@ -1052,7 +1494,7 @@ export class AgentMonitorStore implements OnDestroy {
       return;
     }
     const result = await this.rpc.call('subagent:stop', {
-      sessionId,
+      sessionId: sid,
       taskId,
     });
     if (!result.isSuccess()) {
@@ -1096,6 +1538,55 @@ export class AgentMonitorStore implements OnDestroy {
     }
   }
 
+  /**
+   * Move a running foreground subagent to the background. Follows the exact
+   * shape of {@link interruptSession}: fire-and-report the RPC, record any
+   * error on the shared channel, and never mutate state optimistically — the
+   * `background_agent_started` push event is the sole source of truth for the
+   * resulting background record.
+   *
+   * `sessionId` is the OWNING session; callers that know it (background-agent
+   * tray, inline bubble via `SubagentRecord.parentSessionId`) pass it, and it
+   * falls back to the active tab's session like the sibling commands. Returns
+   * `true` when the backend acknowledges the switch.
+   *
+   * Contract: RPC `subagent:background` with params `{ sessionId, toolUseId? }`
+   * → result `{ backgrounded: boolean }`.
+   */
+  async backgroundAgent(
+    rawSessionId: string | undefined,
+    toolUseId?: string,
+  ): Promise<boolean> {
+    const sessionId =
+      knownSessionId(rawSessionId) ??
+      this.tabManager.activeTabSessionId() ??
+      undefined;
+    if (!sessionId) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: 'No session — cannot background agent',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    const result = await this.rpc.call('subagent:background', {
+      sessionId,
+      toolUseId,
+    });
+    if (!result.isSuccess()) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: result.error ?? 'Unknown error',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    this._subagentRpcError.set(null);
+    return result.data?.backgrounded ?? true;
+  }
+
   private findParentToolUseIdByTaskId(taskId: string): string | undefined {
     for (const [key, rec] of this._subagents()) {
       if (rec.taskId === taskId) return key;
@@ -1118,46 +1609,4 @@ function capBuffer(str: string, max: number): string {
   const excess = str.length - max;
   const idx = str.indexOf('\n', excess);
   return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
-}
-
-/** Landmark event types that establish tree structure and must be preserved */
-const LANDMARK_EVENT_TYPES = new Set([
-  'message_start',
-  'tool_start',
-  'agent_start',
-  'thinking_start',
-  'message_complete',
-]);
-
-/**
- * Cap stream events buffer by dropping oldest delta events while preserving
- * landmark events that establish the tree structure.
- * When the buffer exceeds `max`, landmarks are always kept. The remaining
- * budget is filled with the most recent non-landmark (delta) events.
- * Events are returned in their original order.
- */
-function capStreamEvents(
-  events: FlatStreamEventUnion[],
-  max: number,
-): FlatStreamEventUnion[] {
-  if (events.length <= max) return events;
-  const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  for (let i = 0; i < events.length; i++) {
-    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
-      landmarks.push({ event: events[i], index: i });
-    } else {
-      deltas.push({ event: events[i], index: i });
-    }
-  }
-  const deltasBudget = max - landmarks.length;
-  if (deltasBudget <= 0) {
-    return landmarks.slice(-max).map((l) => l.event);
-  }
-
-  const keptDeltas = deltas.slice(-deltasBudget);
-  const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index,
-  );
-  return merged.map((m) => m.event);
 }

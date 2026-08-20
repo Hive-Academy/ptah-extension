@@ -5,6 +5,7 @@ export {
   type VscodeApiSlice,
 } from './settings/vscode-settings-adapter';
 export { VscodeFileSystemProvider } from './implementations/vscode-file-system-provider';
+export { VscodeFileDialog } from './implementations/vscode-file-dialog';
 export { VscodeStateStorage } from './implementations/vscode-state-storage';
 export { VscodeDiskStateStorage } from './implementations/vscode-disk-state-storage';
 export { VscodeSecretStorage } from './implementations/vscode-secret-storage';
@@ -15,3 +16,4 @@ export { VscodeOutputChannel } from './implementations/vscode-output-channel';
 export { VscodeCommandRegistry } from './implementations/vscode-command-registry';
 export { VscodeEditorProvider } from './implementations/vscode-editor-provider';
 export { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
+export { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';

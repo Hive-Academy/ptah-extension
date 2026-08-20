@@ -109,6 +109,12 @@ interface ChatChunkEvent {
   readonly sessionId?: string;
   readonly id?: string;
   readonly messageId?: string;
+  /**
+   * `'stream'` deltas are incremental; `'complete'` / `'history'` events repeat
+   * a whole text block and must REPLACE, not append.
+   */
+  readonly source?: 'stream' | 'complete' | 'history' | 'hook';
+  readonly blockIndex?: number;
   readonly delta?: string;
   readonly toolCallId?: string;
   readonly toolName?: string;
@@ -153,6 +159,26 @@ function asError(payload: unknown): ChatErrorPayload | null {
 }
 
 /**
+ * Fold one `text_delta` into its `messageId:blockIndex` bucket and return the
+ * full assistant text across all buckets, in the order they were first seen.
+ *
+ * `definitive` (`source: 'complete' | 'history'`) replaces the bucket, because
+ * those events carry the entire block rather than the next slice of it.
+ */
+function foldTextBlock(
+  blocks: Map<string, string>,
+  event: ChatChunkEvent,
+  text: string,
+  definitive: boolean,
+): string {
+  const key = `${event.messageId ?? event.id ?? ''}:${event.blockIndex ?? 0}`;
+  const previous = blocks.get(key) ?? '';
+  blocks.set(key, definitive ? text : previous + text);
+  // Map preserves insertion order, which is the block order here.
+  return [...blocks.values()].join('');
+}
+
+/**
  * Bridge backend chat broadcasts → spec-shaped `agent.*` JSON-RPC notifications,
  * with turn boundary detection via `chat:complete | chat:error`.
  */
@@ -179,6 +205,7 @@ export class ChatBridge {
     let resolvedSessionId: string = tabId;
     const turnId = `${tabId}:t1`;
     let aggregatedText = '';
+    const textBlocks = new Map<string, string>();
 
     let resolveOuter: (result: ChatTurnResult) => void = () => undefined;
     const outerPromise = new Promise<ChatTurnResult>((resolve) => {
@@ -257,7 +284,21 @@ export class ChatBridge {
         case 'text_delta': {
           const text = event.delta ?? event.text ?? '';
           if (text.length === 0) return;
-          aggregatedText += text;
+          // Every assistant text block is emitted twice: incrementally with
+          // `source: 'stream'`, then once more in full with
+          // `source: 'complete'`. Appending both doubled the assistant text in
+          // `aggregatedText` (and therefore in `task.complete.summary.text`)
+          // and re-notified the whole reply as a second `agent.message`.
+          // `source` is the discriminator the Angular accumulator has always
+          // used; honor it here too.
+          const definitive =
+            event.source === 'complete' || event.source === 'history';
+          aggregatedText = foldTextBlock(textBlocks, event, text, definitive);
+          if (definitive) {
+            // Already streamed to the client delta-by-delta; re-notifying the
+            // full block would duplicate it on the wire too.
+            return;
+          }
           void this.jsonrpc.notify('agent.message', {
             session_id: resolvedSessionId,
             turn_id: turnId,

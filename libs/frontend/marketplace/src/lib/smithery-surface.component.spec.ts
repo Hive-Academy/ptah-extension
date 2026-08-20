@@ -94,7 +94,6 @@ describe('SmitherySurfaceComponent', () => {
 
       const browseMethods = [
         'mcpDirectory:search',
-        'mcpDirectory:getPopular',
         'mcpDirectory:getDetails',
         'mcpDirectory:resolveSmithery',
       ];
@@ -103,11 +102,11 @@ describe('SmitherySurfaceComponent', () => {
       }
     });
 
-    it('saves the key, re-checks status, then loads popular with source:smithery', async () => {
+    it('saves the key, re-checks status, then browses with an empty smithery search', async () => {
       setResponder('mcpDirectory:setSmitheryApiKey', () =>
         ok({ success: true }),
       );
-      setResponder('mcpDirectory:getPopular', () => ok({ servers: [] }));
+      setResponder('mcpDirectory:search', () => ok({ servers: [] }));
       await createComponent();
 
       // After save, status flips to configured.
@@ -126,10 +125,9 @@ describe('SmitherySurfaceComponent', () => {
       expect(setCall?.params).toEqual({ apiKey: 'sk-test-key' });
       expect(component.keyStatus()).toBe('configured');
 
-      const popularCall = calls.find(
-        (c) => c.method === 'mcpDirectory:getPopular',
-      );
-      expect(popularCall?.params).toEqual({ source: 'smithery' });
+      // The unified browse path drives the popular list via search with q:''.
+      const searchCall = calls.find((c) => c.method === 'mcpDirectory:search');
+      expect(searchCall?.params).toEqual({ query: '', source: 'smithery' });
     });
 
     it('surfaces a set-key error in-view', async () => {
@@ -154,28 +152,27 @@ describe('SmitherySurfaceComponent', () => {
       );
     });
 
-    it('loads popular Smithery servers on mount with source:smithery', async () => {
-      setResponder('mcpDirectory:getPopular', () =>
+    it('loads popular Smithery servers on mount via an empty smithery search', async () => {
+      setResponder('mcpDirectory:search', () =>
         ok({
           servers: [
             { name: '@owner/server', verified: true, scanPassed: true },
           ],
+          nextCursor: undefined,
         }),
       );
       await createComponent();
 
-      const popularCall = calls.find(
-        (c) => c.method === 'mcpDirectory:getPopular',
-      );
-      expect(popularCall?.params).toEqual({ source: 'smithery' });
+      const searchCall = calls.find((c) => c.method === 'mcpDirectory:search');
+      // Initial browse uses the All category (q:'') — no cursor on page 1.
+      expect(searchCall?.params).toEqual({ query: '', source: 'smithery' });
       expect(component.displayServers().length).toBe(1);
       // Trust badges rendered.
       expect(hostElement.textContent).toContain('Verified');
       expect(hostElement.textContent).toContain('Scan passed');
     });
 
-    it('searches with source:smithery', async () => {
-      setResponder('mcpDirectory:getPopular', () => ok({ servers: [] }));
+    it('searches with source:smithery (free text resets to page 1)', async () => {
       setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/found' }] }),
       );
@@ -183,15 +180,80 @@ describe('SmitherySurfaceComponent', () => {
 
       await component['performSearch']('weather');
 
-      const searchCall = calls.find((c) => c.method === 'mcpDirectory:search');
+      const searchCall = calls.find(
+        (c) =>
+          c.method === 'mcpDirectory:search' &&
+          (c.params as { query?: string }).query === 'weather',
+      );
       expect(searchCall?.params).toEqual({
         query: 'weather',
         source: 'smithery',
       });
     });
 
+    it('appends the next page via loadMore using the prior cursor', async () => {
+      const pages = [
+        ok({ servers: [{ name: '@owner/a' }], nextCursor: 'cur-1' }),
+        ok({ servers: [{ name: '@owner/b' }], nextCursor: undefined }),
+      ];
+      let call = 0;
+      setResponder('mcpDirectory:search', () => pages[call++]);
+      await createComponent();
+
+      expect(component.servers().length).toBe(1);
+      expect(component.nextCursor()).toBe('cur-1');
+
+      await component.loadMore();
+      fixture.detectChanges();
+
+      const moreCall = calls.find(
+        (c) =>
+          c.method === 'mcpDirectory:search' &&
+          (c.params as { cursor?: string }).cursor === 'cur-1',
+      );
+      expect(moreCall?.params).toEqual({
+        query: '',
+        source: 'smithery',
+        cursor: 'cur-1',
+      });
+      expect(component.servers().map((s) => s.name)).toEqual([
+        '@owner/a',
+        '@owner/b',
+      ]);
+      expect(component.nextCursor()).toBeNull();
+    });
+
+    it('renders a server logo from icons[0].src', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({
+          servers: [
+            {
+              name: '@owner/with-icon',
+              icons: [{ src: 'https://cdn.smithery.ai/logo.png' }],
+            },
+          ],
+        }),
+      );
+      await createComponent();
+
+      const img = hostElement.querySelector('img');
+      expect(img).toBeTruthy();
+      expect(img?.getAttribute('src')).toBe('https://cdn.smithery.ai/logo.png');
+    });
+
+    it('renders a lettered fallback avatar when a server has no icons', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/exa', displayName: 'Exa' }] }),
+      );
+      await createComponent();
+
+      expect(hostElement.querySelector('img')).toBeFalsy();
+      // First letter of the display name renders as the fallback avatar.
+      expect(hostElement.textContent).toContain('E');
+    });
+
     it('renders the config form when a connection carries a configSchema with properties', async () => {
-      setResponder('mcpDirectory:getPopular', () =>
+      setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/server' }] }),
       );
       setResponder('mcpDirectory:getDetails', () =>
@@ -219,11 +281,11 @@ describe('SmitherySurfaceComponent', () => {
       expect(component.activeConfigSchema()).not.toBeNull();
       expect(hostElement.querySelector('ptah-json-schema-form')).toBeTruthy();
       // Required field unfilled → resolve gated.
-      expect(component.canResolve()).toBe(false);
+      expect(component.canSetup()).toBe(false);
     });
 
     it('skips the form for an empty / no-required-props configSchema (one-click)', async () => {
-      setResponder('mcpDirectory:getPopular', () =>
+      setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/simple' }] }),
       );
       setResponder('mcpDirectory:getDetails', () =>
@@ -239,11 +301,11 @@ describe('SmitherySurfaceComponent', () => {
 
       expect(component.activeConfigSchema()).toBeNull();
       expect(hostElement.querySelector('ptah-json-schema-form')).toBeFalsy();
-      expect(component.canResolve()).toBe(true);
+      expect(component.canSetup()).toBe(true);
     });
 
-    it('resolves a one-click server with empty config and marks it ready', async () => {
-      setResponder('mcpDirectory:getPopular', () =>
+    it('validates then PERSISTS a one-click server via installSmithery', async () => {
+      setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/simple' }] }),
       );
       setResponder('mcpDirectory:getDetails', () =>
@@ -255,12 +317,37 @@ describe('SmitherySurfaceComponent', () => {
       setResponder('mcpDirectory:resolveSmithery', () =>
         ok({ config: { type: 'http', url: 'https://server.smithery.ai/mcp' } }),
       );
+      setResponder('mcpDirectory:installSmithery', () =>
+        ok({ success: true, serverKey: 'smithery_owner_simple' }),
+      );
+      // Nothing installed on mount; the manifest reports it after install.
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({ servers: [] }),
+      );
+      const installedEvents: string[] = [];
       await createComponent();
+      component.serverInstalled.subscribe((k) => installedEvents.push(k));
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              source: 'smithery',
+              qualifiedName: '@owner/simple',
+              serverKey: 'smithery_owner_simple',
+              hasEncryptedConfig: false,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
 
       await component.toggleInstallPanel({ name: '@owner/simple' });
-      await component.resolve({ name: '@owner/simple' });
+      await component.setupServer({ name: '@owner/simple' });
       fixture.detectChanges();
 
+      // Pre-flight validation ran first...
       const resolveCall = calls.find(
         (c) => c.method === 'mcpDirectory:resolveSmithery',
       );
@@ -268,11 +355,77 @@ describe('SmitherySurfaceComponent', () => {
         qualifiedName: '@owner/simple',
         config: {},
       });
-      expect(component.resolvedNames().has('@owner/simple')).toBe(true);
+      // ...then the real persistence path.
+      const installCall = calls.find(
+        (c) => c.method === 'mcpDirectory:installSmithery',
+      );
+      expect(installCall?.params).toEqual({
+        qualifiedName: '@owner/simple',
+        config: {},
+      });
+      expect(
+        calls.findIndex((c) => c.method === 'mcpDirectory:resolveSmithery'),
+      ).toBeLessThan(
+        calls.findIndex((c) => c.method === 'mcpDirectory:installSmithery'),
+      );
+
+      expect(component.isInstalled('@owner/simple')).toBe(true);
+      expect(component.serverKeyOf('@owner/simple')).toBe(
+        'smithery_owner_simple',
+      );
+      expect(installedEvents).toEqual(['smithery_owner_simple']);
+      expect(component.setupPhase()).toBe('idle');
+      expect(hostElement.textContent).toContain(
+        'Installed — available in new chat sessions.',
+      );
     });
 
-    it('surfaces a resolve error in-view', async () => {
-      setResponder('mcpDirectory:getPopular', () =>
+    it('forwards the collected config to installSmithery', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/keyed' }] }),
+      );
+      setResponder('mcpDirectory:getDetails', () =>
+        ok({
+          name: '@owner/keyed',
+          connections: [
+            {
+              type: 'http',
+              configSchema: {
+                type: 'object',
+                required: ['apiKey'],
+                properties: { apiKey: { type: 'string' } },
+              },
+            },
+          ],
+        }),
+      );
+      setResponder('mcpDirectory:resolveSmithery', () =>
+        ok({ config: { type: 'http', url: 'https://server.smithery.ai/mcp' } }),
+      );
+      setResponder('mcpDirectory:installSmithery', () =>
+        ok({ success: true, serverKey: 'smithery_owner_keyed' }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({ servers: [] }),
+      );
+      await createComponent();
+
+      await component.toggleInstallPanel({ name: '@owner/keyed' });
+      component.configValue.set({ apiKey: 'sk-server-key' });
+      component.configValid.set(true);
+      await component.setupServer({ name: '@owner/keyed' });
+
+      const installCall = calls.find(
+        (c) => c.method === 'mcpDirectory:installSmithery',
+      );
+      expect(installCall?.params).toEqual({
+        qualifiedName: '@owner/keyed',
+        config: { apiKey: 'sk-server-key' },
+      });
+    });
+
+    it('surfaces a validation error and NEVER calls installSmithery', async () => {
+      setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/simple' }] }),
       );
       setResponder('mcpDirectory:getDetails', () =>
@@ -284,15 +437,118 @@ describe('SmitherySurfaceComponent', () => {
       await createComponent();
 
       await component.toggleInstallPanel({ name: '@owner/simple' });
-      await component.resolve({ name: '@owner/simple' });
+      await component.setupServer({ name: '@owner/simple' });
       fixture.detectChanges();
 
-      expect(component.resolveError()).toBe('missing api key');
-      expect(component.resolvedNames().has('@owner/simple')).toBe(false);
+      expect(component.setupError()).toBe('missing api key');
+      expect(methodsCalled()).not.toContain('mcpDirectory:installSmithery');
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+      expect(component.setupPhase()).toBe('idle');
+    });
+
+    it('surfaces an install failure in-view and stays uninstalled', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:getDetails', () =>
+        ok({ name: '@owner/simple', connections: [{ type: 'http' }] }),
+      );
+      setResponder('mcpDirectory:resolveSmithery', () =>
+        ok({ config: { type: 'http', url: 'https://server.smithery.ai/mcp' } }),
+      );
+      setResponder('mcpDirectory:installSmithery', () =>
+        ok({ success: false, error: 'disk full' }),
+      );
+      await createComponent();
+
+      await component.toggleInstallPanel({ name: '@owner/simple' });
+      await component.setupServer({ name: '@owner/simple' });
+      fixture.detectChanges();
+
+      expect(component.setupError()).toBe('disk full');
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+      expect(hostElement.textContent).not.toContain(
+        'Installed — available in new chat sessions.',
+      );
+    });
+
+    it('reflects manifest-installed servers on mount', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              source: 'smithery',
+              qualifiedName: '@owner/simple',
+              serverKey: 'smithery_owner_simple',
+              hasEncryptedConfig: true,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      await createComponent();
+
+      expect(component.isInstalled('@owner/simple')).toBe(true);
+      expect(hostElement.textContent).toContain('Installed');
+      expect(hostElement.textContent).toContain('Remove');
+    });
+
+    it('uninstalls by serverKey and clears the installed badge', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        ok({
+          servers: [
+            {
+              source: 'smithery',
+              qualifiedName: '@owner/simple',
+              serverKey: 'smithery_owner_simple',
+              hasEncryptedConfig: true,
+              installedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      setResponder('mcpDirectory:uninstallSmithery', () =>
+        ok({ success: true }),
+      );
+      const removedEvents: string[] = [];
+      await createComponent();
+      component.serverUninstalled.subscribe((k) => removedEvents.push(k));
+
+      await component.uninstall({ name: '@owner/simple' });
+      fixture.detectChanges();
+
+      const uninstallCall = calls.find(
+        (c) => c.method === 'mcpDirectory:uninstallSmithery',
+      );
+      expect(uninstallCall?.params).toEqual({
+        serverKey: 'smithery_owner_simple',
+      });
+      expect(component.isInstalled('@owner/simple')).toBe(false);
+      expect(removedEvents).toEqual(['smithery_owner_simple']);
+    });
+
+    it('keeps browsing usable when the installed manifest read fails', async () => {
+      setResponder('mcpDirectory:search', () =>
+        ok({ servers: [{ name: '@owner/simple' }] }),
+      );
+      setResponder('mcpDirectory:listSmitheryInstalled', () =>
+        fail('manifest unreadable'),
+      );
+      await createComponent();
+
+      expect(component.displayServers().length).toBe(1);
+      expect(component.installedByName().size).toBe(0);
+      expect(component.browseError()).toBeNull();
     });
 
     it('surfaces a getDetails RPC failure in-view', async () => {
-      setResponder('mcpDirectory:getPopular', () =>
+      setResponder('mcpDirectory:search', () =>
         ok({ servers: [{ name: '@owner/server' }] }),
       );
       setResponder('mcpDirectory:getDetails', () => fail('upstream 429'));

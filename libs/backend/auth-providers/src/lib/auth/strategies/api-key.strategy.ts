@@ -4,6 +4,15 @@
  * Handles authentication via direct API key for:
  * - Anthropic direct (ANTHROPIC_API_KEY from SecretStorage or env)
  * - Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI) using per-provider keys
+ * - User-defined provider entries from `provider.custom.entries`
+ *
+ * Custom entries take one of two existing paths, chosen by the registry's
+ * `requiresProxy` flag (itself derived from the entry's `lane`):
+ * - `lane: 'anthropic'` -> `requiresProxy: false` -> the direct-passthrough
+ *   path, identical to Moonshot/Z.AI (base URL + per-provider auth token).
+ * - `lane: 'openai'` -> `requiresProxy: true` -> a `CustomOpenAiTranslationProxy`
+ *   built for that id on demand, alongside the built-in OpenRouter/Sakana
+ *   proxy singletons.
  *
  * Extracted from AuthManager.configureAPIKey() and the API-key path
  * of configureAnthropicProvider().
@@ -17,7 +26,7 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { AuthEnv, AnthropicProvider } from '@ptah-extension/shared';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -26,6 +35,7 @@ import type {
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import {
+  isCustomProviderId,
   getAnthropicProvider,
   getProviderBaseUrl,
   getProviderAuthEnvVar,
@@ -34,9 +44,36 @@ import {
 } from '@ptah-extension/shared';
 import type { ITranslationProxy } from '../../translation';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
+import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../../providers/sakana';
+import {
+  createCustomOpenAiProxy,
+  CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+} from '../../providers/custom';
 
 /** Provider ID for OpenRouter — matches ANTHROPIC_PROVIDERS registry entry */
 const OPENROUTER_PROVIDER_ID = 'openrouter';
+
+/**
+ * Outcome of resolving a proxy instance for a `requiresProxy` provider.
+ *
+ * `unavailable` is distinct from "no result": it means this IS a user-defined
+ * OpenAI-lane entry that we must not silently downgrade. Falling through to the
+ * Anthropic passthrough path would point the SDK at an OpenAI-protocol endpoint
+ * and fail on the first turn with an opaque upstream error, so we surface the
+ * real reason instead.
+ */
+type ProxyResolution =
+  | { kind: 'proxy'; proxy: ITranslationProxy; placeholder: string }
+  | { kind: 'unavailable'; errorMessage: string };
+
+/**
+ * A dynamically-created custom-provider proxy, tagged with the base URL it was
+ * built against so an edited entry invalidates the cached instance.
+ */
+interface CustomProxyEntry {
+  proxy: ITranslationProxy;
+  baseUrl: string;
+}
 
 @injectable()
 export class ApiKeyStrategy implements IAuthStrategy {
@@ -53,9 +90,44 @@ export class ApiKeyStrategy implements IAuthStrategy {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PROXY)
     private readonly openRouterProxy: ITranslationProxy,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_SAKANA_PROXY)
+    private readonly sakanaProxy: ITranslationProxy,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
+
+  /**
+   * Live proxies for user-defined `lane: 'openai'` entries, keyed by provider
+   * id. Built on demand (the id set is not knowable at container build time)
+   * and cached for the lifetime of the strategy so re-selecting the same custom
+   * provider reuses its already-listening proxy instead of leaking a new one.
+   */
+  private readonly customProxies = new Map<string, CustomProxyEntry>();
+
+  /**
+   * Translation proxy + placeholder token for each BUILT-IN apiKey provider
+   * that requires a local proxy (`requiresProxy: true`). These are DI
+   * singletons; user-defined entries are resolved separately in
+   * {@link resolveProxyForProvider}.
+   */
+  private get builtInProxyProviders(): ReadonlyArray<{
+    providerId: string;
+    proxy: ITranslationProxy;
+    placeholder: string;
+  }> {
+    return [
+      {
+        providerId: OPENROUTER_PROVIDER_ID,
+        proxy: this.openRouterProxy,
+        placeholder: OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+      },
+      {
+        providerId: 'sakana',
+        proxy: this.sakanaProxy,
+        placeholder: SAKANA_PROXY_TOKEN_PLACEHOLDER,
+      },
+    ];
+  }
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv, envSnapshot } = context;
@@ -63,135 +135,331 @@ export class ApiKeyStrategy implements IAuthStrategy {
       providerId === ANTHROPIC_DIRECT_PROVIDER_ID ||
       providerId === 'apiKey'
     ) {
-      await this.stopOpenRouterProxyIfRunning();
+      await this.stopProxyIfRunning(providerId);
       return this.configureDirectApiKey(authEnv, envSnapshot);
     }
-    if (providerId === OPENROUTER_PROVIDER_ID) {
-      return this.configureOpenRouterProxy(providerId, authEnv);
+    // Any apiKey provider that requires a local translation proxy — built-in
+    // (OpenRouter, Sakana) or user-defined (`lane: 'openai'`) — shares the
+    // generalized proxy configure path, keyed off the registry `requiresProxy`
+    // flag rather than a hardcoded provider id.
+    if (getAnthropicProvider(providerId)?.requiresProxy === true) {
+      const resolved = await this.resolveProxyForProvider(providerId);
+      if (resolved?.kind === 'proxy') {
+        // Stop any OTHER apiKey proxy that may be running before starting ours.
+        await this.stopProxyIfRunning(providerId);
+        return this.configureProxyProvider(
+          providerId,
+          authEnv,
+          resolved.proxy,
+          resolved.placeholder,
+        );
+      }
+      if (resolved?.kind === 'unavailable') {
+        await this.stopProxyIfRunning();
+        return {
+          configured: false,
+          details: [],
+          errorMessage: resolved.errorMessage,
+        };
+      }
     }
-    await this.stopOpenRouterProxyIfRunning();
+    await this.stopProxyIfRunning(providerId);
     return this.configureProviderApiKey(providerId, authEnv, envSnapshot);
   }
 
-  async teardown(): Promise<void> {
-    await this.stopOpenRouterProxyIfRunning();
-  }
-
   /**
-   * Stop the OpenRouter proxy if running.
-   * Called when switching away from OpenRouter or on teardown.
-   */
-  private async stopOpenRouterProxyIfRunning(): Promise<void> {
-    if (!this.openRouterProxy.isRunning()) {
-      return;
-    }
-    this.logger.info(
-      `[${this.name}] Stopping OpenRouter proxy (switching to different provider)`,
-    );
-    try {
-      await this.openRouterProxy.stop();
-    } catch (error) {
-      this.sentryService.captureException(
-        error instanceof Error ? error : new Error(String(error)),
-        { errorSource: 'ApiKeyStrategy.stopOpenRouterProxyIfRunning' },
-      );
-      this.logger.warn(
-        `[${this.name}] Failed to stop OpenRouter proxy: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-  }
-
-  /**
-   * Configure OpenRouter via the local translation proxy.
+   * Resolve the proxy instance for a provider that declares
+   * `requiresProxy: true`.
    *
-   * Reads the OpenRouter API key from SecretStorage, starts the local HTTP
-   * proxy (if not already running), and points the SDK at 127.0.0.1:<port>
-   * instead of openrouter.ai. The proxy handles Anthropic↔OpenAI translation
-   * so every OpenRouter model (not just Anthropic-family) works with the SDK.
+   * Built-ins map to their DI singleton. Anything else is a user-defined
+   * `lane: 'openai'` entry: build a `CustomOpenAiTranslationProxy` bound to
+   * that id and cache it. A cached instance whose base URL no longer matches
+   * the resolved one (the user edited the entry, or set/cleared a
+   * `provider.<id>.baseUrl` override) is stopped and rebuilt — a live proxy is
+   * never re-pointed underneath an in-flight request.
+   *
+   * Returns `undefined` when this provider is not this strategy's to proxy, in
+   * which case {@link configure} falls through to the direct-passthrough path
+   * exactly as before. A user-defined entry that IS ours but cannot be built
+   * returns `unavailable` instead, so the failure surfaces rather than
+   * degrading into a protocol mismatch.
    */
-  private async configureOpenRouterProxy(
+  private async resolveProxyForProvider(
     providerId: string,
-    authEnv: AuthEnv,
-  ): Promise<AuthConfigureResult> {
-    const providerKey = await this.authSecrets.getProviderKey(providerId);
-    if (!providerKey?.trim()) {
-      this.logger.debug(
-        `[${this.name}] No OpenRouter API key found in SecretStorage`,
-      );
-      return { configured: false, details: [] };
+  ): Promise<ProxyResolution | undefined> {
+    const builtIn = this.builtInProxyProviders.find(
+      (p) => p.providerId === providerId,
+    );
+    if (builtIn) {
+      return {
+        kind: 'proxy',
+        proxy: builtIn.proxy,
+        placeholder: builtIn.placeholder,
+      };
+    }
+
+    // Only user-defined entries get a dynamically-built proxy. A BUILT-IN that
+    // requires a proxy but has no singleton above is owned by a different
+    // strategy (Copilot/Codex -> OAuthProxyStrategy, LM Studio ->
+    // LocalProxyStrategy), so return undefined and let the caller fall through
+    // exactly as it did before this path existed.
+    if (!isCustomProviderId(providerId)) {
+      return undefined;
     }
 
     const provider = getAnthropicProvider(providerId);
+    if (!provider) {
+      // requiresProxy was true a moment ago, so this is unreachable in
+      // practice; guard rather than assert so a registry race cannot throw.
+      return undefined;
+    }
+
+    const baseUrl = this.resolveCustomProviderBaseUrl(providerId, provider);
+    if (!baseUrl) {
+      this.logger.error(
+        `[${this.name}] Custom provider ${providerId} requires a translation proxy ` +
+          'but has no base URL configured.',
+      );
+      return {
+        kind: 'unavailable',
+        errorMessage: `No base URL configured for ${provider.name}. Edit the provider entry in Settings and set its base URL.`,
+      };
+    }
+
+    const cached = this.customProxies.get(providerId);
+    if (cached && cached.baseUrl === baseUrl) {
+      return {
+        kind: 'proxy',
+        proxy: cached.proxy,
+        placeholder: CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+      };
+    }
+    if (cached) {
+      this.logger.info(
+        `[${this.name}] Base URL for ${providerId} changed ` +
+          `(${cached.baseUrl} -> ${baseUrl}); rebuilding its translation proxy`,
+      );
+      await this.stopProxy(providerId, cached.proxy);
+      this.customProxies.delete(providerId);
+    }
+
+    try {
+      const proxy = createCustomOpenAiProxy({
+        provider,
+        baseUrl,
+        logger: this.logger,
+        authSecrets: this.authSecrets,
+      });
+      this.customProxies.set(providerId, { proxy, baseUrl });
+      return {
+        kind: 'proxy',
+        proxy,
+        placeholder: CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+      };
+    } catch (error: unknown) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'ApiKeyStrategy.resolveProxyForProvider',
+          activeProvider: providerId,
+        },
+      );
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[${this.name}] Cannot build a translation proxy for ${providerId}: ${message}`,
+      );
+      return {
+        kind: 'unavailable',
+        errorMessage: `Cannot start a translation proxy for ${provider.name}: ${message}`,
+      };
+    }
+  }
+
+  async teardown(): Promise<void> {
+    await this.stopProxyIfRunning();
+  }
+
+  /**
+   * Every apiKey proxy this strategy could have started — the built-in DI
+   * singletons plus any custom-provider proxies created during this session.
+   *
+   * Mutual exclusion is load-bearing: exactly one apiKey proxy may be
+   * listening at a time, because they all compete for the single global
+   * `ANTHROPIC_BASE_URL`. A dynamically-created proxy left running after a
+   * provider switch would keep a stale listener alive, so the custom instances
+   * must be part of this set, not just the built-ins.
+   */
+  private allKnownProxies(): ReadonlyArray<{
+    providerId: string;
+    proxy: ITranslationProxy;
+  }> {
+    return [
+      ...this.builtInProxyProviders.map(({ providerId, proxy }) => ({
+        providerId,
+        proxy,
+      })),
+      ...[...this.customProxies.entries()].map(([providerId, entry]) => ({
+        providerId,
+        proxy: entry.proxy,
+      })),
+    ];
+  }
+
+  /**
+   * Stop any apiKey-proxy that is currently running, except the one for
+   * `keepProviderId` (the provider being configured). Called when switching
+   * away from a proxy provider or on teardown. Mirrors
+   * `LocalProxyStrategy.stopProxyIfRunning` but iterates the full apiKey-proxy
+   * set so OpenRouter, Sakana and every custom-provider proxy are mutually
+   * torn down.
+   */
+  private async stopProxyIfRunning(keepProviderId?: string): Promise<void> {
+    for (const { providerId, proxy } of this.allKnownProxies()) {
+      if (providerId === keepProviderId) {
+        continue;
+      }
+      if (!proxy.isRunning()) {
+        continue;
+      }
+      this.logger.info(
+        `[${this.name}] Stopping ${this.providerDisplayName(
+          providerId,
+        )} proxy (switching to different provider)`,
+      );
+      await this.stopProxy(providerId, proxy);
+    }
+  }
+
+  /**
+   * Stop one proxy, best-effort. Teardown must never throw: a proxy that
+   * refuses to close cleanly is reported (Sentry + warning) but does not
+   * abort the provider switch that is already underway.
+   */
+  private async stopProxy(
+    providerId: string,
+    proxy: ITranslationProxy,
+  ): Promise<void> {
+    try {
+      await proxy.stop();
+    } catch (error: unknown) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'ApiKeyStrategy.stopProxyIfRunning' },
+      );
+      this.logger.warn(
+        `[${this.name}] Failed to stop ${this.providerDisplayName(
+          providerId,
+        )} proxy: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** Registry display name for a provider id, falling back to the id itself. */
+  private providerDisplayName(providerId: string): string {
+    return getAnthropicProvider(providerId)?.name ?? providerId;
+  }
+
+  /**
+   * Configure an apiKey provider via its local translation proxy
+   * (OpenRouter, Sakana).
+   *
+   * Reads the per-provider API key from SecretStorage, starts the local HTTP
+   * proxy (if not already running), and points the SDK at 127.0.0.1:<port>
+   * instead of the provider's remote endpoint. The proxy handles
+   * Anthropic↔OpenAI translation so every model works with the SDK.
+   */
+  private async configureProxyProvider(
+    providerId: string,
+    authEnv: AuthEnv,
+    proxy: ITranslationProxy,
+    placeholder: string,
+  ): Promise<AuthConfigureResult> {
+    const provider = getAnthropicProvider(providerId);
     const providerName = provider?.name ?? providerId;
+
+    const providerKey = await this.authSecrets.getProviderKey(providerId);
+    if (!providerKey?.trim()) {
+      this.logger.debug(
+        `[${this.name}] No ${providerName} API key found in SecretStorage`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `No ${providerName} API key configured. Add one in Settings, or choose a different provider.`,
+      };
+    }
+
     const keyLength = providerKey.length;
     const hasExpectedPrefix = provider?.keyPrefix
       ? providerKey.startsWith(provider.keyPrefix)
       : true;
 
     this.logger.info(
-      `[${this.name}] Found OpenRouter API key (length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
+      `[${this.name}] Found ${providerName} API key (length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
     );
 
     if (!hasExpectedPrefix && provider?.keyPrefix) {
       this.logger.warn(
-        `[${this.name}] WARNING: OpenRouter key does not start with "${provider.keyPrefix}". ` +
+        `[${this.name}] WARNING: ${providerName} key does not start with "${provider.keyPrefix}". ` +
           `Get valid keys from: ${provider.helpUrl}`,
       );
     }
     let proxyUrl: string;
     try {
-      if (this.openRouterProxy.isRunning()) {
-        proxyUrl = this.openRouterProxy.getUrl() ?? '';
+      if (proxy.isRunning()) {
+        proxyUrl = proxy.getUrl() ?? '';
         if (!proxyUrl) {
           this.logger.error(
-            `[${this.name}] OpenRouter proxy reports running but returned no URL`,
+            `[${this.name}] ${providerName} proxy reports running but returned no URL`,
           );
           return {
             configured: false,
             details: [],
-            errorMessage:
-              'OpenRouter translation proxy URL unavailable. Try restarting.',
+            errorMessage: `${providerName} translation proxy URL unavailable. Try restarting.`,
           };
         }
         this.logger.info(
-          `[${this.name}] OpenRouter translation proxy already running at ${proxyUrl}`,
+          `[${this.name}] ${providerName} translation proxy already running at ${proxyUrl}`,
         );
       } else {
-        const result = await this.openRouterProxy.start();
+        const result = await proxy.start();
         proxyUrl = result.url;
         this.logger.info(
-          `[${this.name}] OpenRouter translation proxy started at ${proxyUrl}`,
+          `[${this.name}] ${providerName} translation proxy started at ${proxyUrl}`,
         );
       }
     } catch (error) {
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),
         {
-          errorSource: 'ApiKeyStrategy.configureOpenRouterProxy',
+          errorSource: 'ApiKeyStrategy.configureProxyProvider',
           activeProvider: providerId,
         },
       );
       this.logger.error(
-        `[${this.name}] Failed to start OpenRouter translation proxy: ${
+        `[${this.name}] Failed to start ${providerName} translation proxy: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
       return {
         configured: false,
         details: [],
-        errorMessage:
-          'Failed to start OpenRouter translation proxy. Check if a local port is available.',
+        errorMessage: `Failed to start ${providerName} translation proxy. Check if a local port is available.`,
       };
     }
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    authEnv.ANTHROPIC_AUTH_TOKEN = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+    authEnv.ANTHROPIC_AUTH_TOKEN = placeholder;
     authEnv.ANTHROPIC_API_KEY = '';
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
-    process.env['ANTHROPIC_AUTH_TOKEN'] = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = placeholder;
     delete process.env['ANTHROPIC_API_KEY'];
-    this.providerModels.switchActiveProvider(providerId);
+    // The real key, not the proxy placeholder that just went into `authEnv`.
+    // A provider whose tiers can only come from its live catalogue needs an
+    // authenticated /v1/models call to get one, and this is the last point
+    // where the key is in hand (TASK_2026_262).
+    this.providerModels.switchActiveProvider(providerId, {
+      apiKey: providerKey.trim(),
+    });
     seedStaticModelPricing(providerId);
 
     this.logger.info(
@@ -282,7 +550,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
     this.logger.debug(
       `[${this.name}] No API key found in SecretStorage or environment`,
     );
-    return { configured: false, details: [] };
+    return {
+      configured: false,
+      details: [],
+      errorMessage:
+        'No Anthropic API key configured. Add an API key in Settings, or switch to Claude CLI.',
+    };
   }
 
   /**
@@ -321,7 +594,9 @@ export class ApiKeyStrategy implements IAuthStrategy {
         authEnv[authEnvVar as keyof AuthEnv] = trimmed;
         process.env['ANTHROPIC_BASE_URL'] = baseUrl;
         process.env[authEnvVar] = trimmed;
-        this.providerModels.switchActiveProvider(providerId);
+        this.providerModels.switchActiveProvider(providerId, {
+          apiKey: trimmed,
+        });
         seedStaticModelPricing(providerId);
 
         this.logger.info(
@@ -337,7 +612,11 @@ export class ApiKeyStrategy implements IAuthStrategy {
       this.logger.debug(
         `[${this.name}] No provider key found in SecretStorage or environment for ${providerId}`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `No API key configured for ${providerName}. Add one in Settings, or choose a different provider.`,
+      };
     }
 
     const keyLength = providerKey.length;
@@ -361,7 +640,9 @@ export class ApiKeyStrategy implements IAuthStrategy {
     authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
     process.env['ANTHROPIC_BASE_URL'] = baseUrl;
     process.env[authEnvVar] = providerKey.trim();
-    this.providerModels.switchActiveProvider(providerId);
+    this.providerModels.switchActiveProvider(providerId, {
+      apiKey: providerKey.trim(),
+    });
     seedStaticModelPricing(providerId);
 
     this.logger.info(
@@ -396,15 +677,47 @@ export class ApiKeyStrategy implements IAuthStrategy {
    * (in addition to the explicit `provider base-url clear` path).
    */
   private resolveProviderBaseUrl(providerId: string): string {
+    return (
+      this.readBaseUrlOverride(providerId) ?? getProviderBaseUrl(providerId)
+    );
+  }
+
+  /**
+   * Resolve the upstream base URL for a user-defined proxy entry.
+   *
+   * Same precedence as {@link resolveProviderBaseUrl} — a
+   * `provider.<id>.baseUrl` override wins over the entry's own `baseUrl`, so
+   * `ptah provider base-url set <custom-id> <url>` re-points a custom entry
+   * without editing it — but the fallback is the entry's OWN `baseUrl` rather
+   * than `getProviderBaseUrl()`. That matters: `getProviderBaseUrl()` silently
+   * returns the DEFAULT provider's URL (OpenRouter's) for an id it cannot
+   * find, which for a custom entry would mean quietly forwarding the user's
+   * key to the wrong vendor. Reading `provider.baseUrl` directly cannot
+   * mis-resolve.
+   */
+  private resolveCustomProviderBaseUrl(
+    providerId: string,
+    provider: AnthropicProvider,
+  ): string {
+    return this.readBaseUrlOverride(providerId) ?? provider.baseUrl.trim();
+  }
+
+  /**
+   * The user-supplied `provider.<id>.baseUrl` override, or `undefined` when
+   * absent/blank. Empty and whitespace-only values are treated as "no
+   * override" so users can clear one by blanking it, in addition to the
+   * explicit `provider base-url clear` path.
+   */
+  private readBaseUrlOverride(providerId: string): string | undefined {
     const override = this.config.get<string>(`provider.${providerId}.baseUrl`);
-    if (typeof override === 'string' && override.trim().length > 0) {
-      const trimmed = override.trim();
-      this.logger.info(
-        `[${this.name}] Using user-supplied base URL override for ${providerId}: ${trimmed}`,
-      );
-      return trimmed;
+    if (typeof override !== 'string' || override.trim().length === 0) {
+      return undefined;
     }
-    return getProviderBaseUrl(providerId);
+    const trimmed = override.trim();
+    this.logger.info(
+      `[${this.name}] Using user-supplied base URL override for ${providerId}: ${trimmed}`,
+    );
+    return trimmed;
   }
 
   private applyDirectProviderTiers(): void {

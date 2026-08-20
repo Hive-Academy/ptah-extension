@@ -1,5 +1,9 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  VSCodeService,
+  pickerWorkspaceScope,
+} from '@ptah-extension/core';
 
 /**
  * File information for inclusion in chat messages
@@ -51,12 +55,26 @@ export interface FileSuggestion {
  * - signal() for reactive state
  * - computed() for derived state
  * - asReadonly() for public signal exposure
+ *
+ * WORKSPACE SCOPING (TASK_2026_200):
+ * The cached list is global and holds exactly ONE workspace's files at a time —
+ * the frontend model is one active workspace (context.md §7.2), so a root-keyed
+ * cache is deliberately not built here. Correctness therefore rests on two
+ * things, and BOTH are required:
+ *   1. {@link switchWorkspace} — invoked by `WorkspaceCoordinatorService` on
+ *      every switch, it drops the cache AND invalidates every in-flight read so
+ *      a pre-switch response cannot repopulate it after the clear.
+ *   2. Every RPC carries the active `workspaceRoot`, so the backend answers for
+ *      the root this picker means rather than whatever the process-global
+ *      provider happens to report (the only disambiguator in VS Code, which has
+ *      no switch event at all).
  */
 @Injectable({
   providedIn: 'root',
 })
 export class FilePickerService {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly vscodeService = inject(VSCodeService);
   private readonly _workspaceFiles = signal<FileSuggestion[]>([]);
   private readonly _includedFiles = signal<ChatFile[]>([]);
   private readonly _isLoading = signal(false);
@@ -67,6 +85,24 @@ export class FilePickerService {
   private readonly _isRemoteSearching = signal(false);
   private _remoteSearchTimer: ReturnType<typeof setTimeout> | null = null;
   private _remoteSearchAbortId = 0; // Monotonic ID to discard stale responses
+
+  /**
+   * Monotonic workspace generation, bumped only by {@link switchWorkspace}.
+   *
+   * Same role as `_remoteSearchAbortId` (and `WorkspaceCoordinatorService`'s
+   * `switchGeneration`), applied to the `context:getAllFiles` read path, which
+   * had no stale-response guard at all: `_doFetchWorkspaceFiles` awaits the RPC
+   * and then writes `_workspaceFiles`/`_lastUpdate`, so a response for the
+   * pre-switch root could land AFTER the cache was cleared and re-publish the
+   * previous workspace's files — with a fresh `_lastUpdate`, arming the 5-minute
+   * TTL against the wrong root.
+   *
+   * The rule for every write below is not "is there a guard somewhere above?"
+   * but "is there an `await` between the nearest generation check and this
+   * write?". Each check is therefore placed in the same synchronous block as the
+   * writes it protects.
+   */
+  private _workspaceGeneration = 0;
 
   /** Last error from file fetch, exposed for UI display */
   readonly fetchError = this._fetchError.asReadonly();
@@ -154,27 +190,47 @@ export class FilePickerService {
    * Populates _workspaceFiles signal for @ autocomplete.
    */
   async fetchWorkspaceFiles(): Promise<void> {
-    if (this._isLoading() && this._pendingFetch) {
-      return this._pendingFetch;
+    const inFlight = this._pendingFetch;
+    if (this._isLoading() && inFlight) {
+      return inFlight;
     }
 
     this._isLoading.set(true);
     this._fetchError.set(null);
 
-    this._pendingFetch = this._doFetchWorkspaceFiles();
+    const pending = this._doFetchWorkspaceFiles(this._workspaceGeneration);
+    this._pendingFetch = pending;
     try {
-      await this._pendingFetch;
+      await pending;
     } finally {
-      this._pendingFetch = null;
+      // Only release the slot if it is still OURS. A switch (or a newer fetch
+      // started after one) may have replaced `_pendingFetch` while this call was
+      // awaiting; nulling it unconditionally would drop the newer fetch's
+      // de-duplication handle and let a redundant RPC through.
+      if (this._pendingFetch === pending) {
+        this._pendingFetch = null;
+      }
     }
   }
 
-  private async _doFetchWorkspaceFiles(): Promise<void> {
+  /**
+   * @param generation - {@link _workspaceGeneration} captured when this fetch was
+   * dispatched. Re-checked immediately before every state write, with no `await`
+   * in between, so a response for a workspace the user has already switched away
+   * from is dropped instead of repopulating the freshly-cleared cache.
+   */
+  private async _doFetchWorkspaceFiles(generation: number): Promise<void> {
     try {
       const result = await this.rpcService.call('context:getAllFiles', {
         includeImages: false,
         limit: 1000,
+        // Read at call time (synchronously, before the await) so the request
+        // carries the root that is active when it is issued.
+        ...pickerWorkspaceScope(this.vscodeService.config().workspaceRoot),
       });
+      if (generation !== this._workspaceGeneration) {
+        return;
+      }
       const backendData = result.data as
         | { success?: boolean; error?: { message: string }; files?: unknown[] }
         | undefined;
@@ -221,16 +277,77 @@ export class FilePickerService {
         );
         this._fetchError.set(errorMsg);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       console.error(
         '[FilePickerService] Failed to fetch workspace files:',
         error,
       );
-      this._fetchError.set(errorMsg);
+      // Same guard as the success path: a failure for the pre-switch root must
+      // not surface as an error banner for the workspace the user is now in.
+      if (generation === this._workspaceGeneration) {
+        this._fetchError.set(errorMsg);
+      }
     } finally {
-      this._isLoading.set(false);
+      // Guarded too — otherwise a stale fetch settling late would clear the
+      // loading flag of the CURRENT workspace's fetch that is still in flight.
+      if (generation === this._workspaceGeneration) {
+        this._isLoading.set(false);
+      }
     }
+  }
+
+  /**
+   * Drop every trace of the previous workspace's file list.
+   *
+   * Called by `WorkspaceCoordinatorService.switchWorkspace()` on every workspace
+   * switch, alongside the `TabManagerService` / `SessionLoaderService` /
+   * editor-trio fan-out. Signature matches that coordinator's
+   * `WorkspaceAwareService` shape.
+   *
+   * Two halves, and the ORDER matters:
+   *
+   * 1. **Invalidate first.** `_workspaceGeneration` and `_remoteSearchAbortId`
+   *    are bumped, the debounce timer is cleared and the `_pendingFetch` handle
+   *    is released BEFORE any signal is cleared. Every in-flight read captured
+   *    the old generation, so each one now fails its own pre-write check and
+   *    drops its result. Without this, a `context:getAllFiles` response for the
+   *    old root that was already awaiting would land after the clear and
+   *    re-publish workspace A's files — with a fresh `_lastUpdate`, so the
+   *    5-minute TTL would then serve them until it expired. That is the exact
+   *    user-reported symptom, just moved a few milliseconds later.
+   * 2. **Then clear.** `_lastUpdate` is reset to 0 so the TTL cannot vouch for
+   *    the emptied list, and `ensureFilesLoaded()` refetches on the next open.
+   *
+   * `_includedFiles` is deliberately NOT cleared: those are files the user
+   * explicitly attached to the message they are still composing, addressed by
+   * absolute path, and discarding them on a switch would destroy user input.
+   * Only the *discovery* cache is workspace-scoped.
+   *
+   * @param workspacePath - The workspace being switched to. The cache holds one
+   * workspace at a time and is emptied wholesale, so this is not needed to
+   * select what to drop; the active root for subsequent RPCs is read from
+   * `VSCodeService.config()` at call time (see {@link _doFetchWorkspaceFiles}).
+   */
+  switchWorkspace(workspacePath: string): void {
+    this._workspaceGeneration++;
+    this._remoteSearchAbortId++;
+    if (this._remoteSearchTimer) {
+      clearTimeout(this._remoteSearchTimer);
+      this._remoteSearchTimer = null;
+    }
+    this._pendingFetch = null;
+
+    this._workspaceFiles.set([]);
+    this._lastUpdate.set(0);
+    this._fetchError.set(null);
+    this._isLoading.set(false);
+    this._remoteResults.set([]);
+    this._isRemoteSearching.set(false);
+
+    console.debug(
+      `[FilePickerService] Cleared file cache for workspace switch to ${workspacePath}`,
+    );
   }
 
   /**
@@ -397,8 +514,17 @@ export class FilePickerService {
       try {
         const result = await this.rpcService.call(
           'context:getFileSuggestions',
-          { query: query.trim(), limit: 30 },
+          {
+            query: query.trim(),
+            limit: 30,
+            // Read at call time — the debounce means this fires up to 200ms
+            // after the keystroke, by which point the active root may differ.
+            ...pickerWorkspaceScope(this.vscodeService.config().workspaceRoot),
+          },
         );
+        // switchWorkspace() bumps `_remoteSearchAbortId`, so this existing guard
+        // also discards a pre-switch response. Everything between here and the
+        // `_remoteResults.set` below is synchronous.
         if (searchId !== this._remoteSearchAbortId) return;
 
         const backendData = result.data as

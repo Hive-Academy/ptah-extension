@@ -1,7 +1,8 @@
 /**
  * ChatRpcHandlers — thin facade specs. Locks five invariants:
- * 1. `register()` wires exactly the six `METHODS` entries, in order.
- * 2. Each method delegates to `ChatSessionService` on the happy path.
+ * 1. `register()` wires exactly the `METHODS` entries, in order.
+ * 2. Each method delegates to `ChatSessionService` on the happy path
+ *    (`chat:pending-questions` delegates to `SdkPermissionHandler` instead).
  * 3. `register()` subscribes the broadcaster to background-agent events.
  * 4. `runRpc` shape: emits `RPC: {method} called` /
  *    `success` debug logs on the happy path, and on a rejection logs
@@ -19,12 +20,19 @@ import type {
   RpcHandler,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { ZodError } from 'zod';
+
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   createMockSentryService,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
+
+import type { ISessionAttachmentGuard } from '@ptah-extension/platform-core';
+
+import type { SdkPermissionHandler } from '@ptah-extension/agent-sdk';
 
 import { ChatRpcHandlers } from './chat-rpc.handlers';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
@@ -41,9 +49,17 @@ interface Suite {
   ptahCli: Mocked<ChatPtahCliService>;
   streamBroadcaster: Mocked<ChatStreamBroadcaster>;
   session: Mocked<ChatSessionService>;
+  attachmentGuard: Mocked<ISessionAttachmentGuard>;
+  permissionHandler: Mocked<SdkPermissionHandler>;
 }
 
-function buildSuite(): Suite {
+/**
+ * Build a suite. By default the attachment guard reports nothing attached,
+ * matching the VS Code host (NullSessionAttachmentGuard) and the
+ * not-attached Electron case. Pass `attached: true` to simulate a session
+ * driven by a messaging binding.
+ */
+function buildSuite(opts: { attached?: boolean } = {}): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
   const sentry = createMockSentryService();
@@ -68,6 +84,14 @@ function buildSuite(): Suite {
     listBackgroundAgents: jest.fn().mockResolvedValue({ agents: [] }),
   } as unknown as Mocked<ChatSessionService>;
 
+  const attachmentGuard = {
+    isAttached: jest.fn().mockReturnValue(opts.attached ?? false),
+  } as unknown as Mocked<ISessionAttachmentGuard>;
+
+  const permissionHandler = {
+    listPendingQuestions: jest.fn().mockReturnValue([]),
+  } as unknown as Mocked<SdkPermissionHandler>;
+
   const handlers = new ChatRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -75,6 +99,8 @@ function buildSuite(): Suite {
     ptahCli,
     streamBroadcaster,
     session,
+    attachmentGuard,
+    permissionHandler,
   );
 
   return {
@@ -85,6 +111,8 @@ function buildSuite(): Suite {
     ptahCli,
     streamBroadcaster,
     session,
+    attachmentGuard,
+    permissionHandler,
   };
 }
 
@@ -107,18 +135,19 @@ const TAB_UUID = '11111111-2222-4333-8444-555555555555';
 const SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
-  it('METHODS tuple is the six pre-extraction RPC names, in order', () => {
+  it('METHODS tuple is the owned RPC names, in order', () => {
     expect([...ChatRpcHandlers.METHODS]).toEqual([
       'chat:start',
       'chat:continue',
       'chat:resume',
       'chat:abort',
+      'chat:pending-questions',
       'chat:running-agents',
       'agent:backgroundList',
     ]);
   });
 
-  it('register() wires exactly the six METHODS entries, in order', () => {
+  it('register() wires exactly the METHODS entries, in order', () => {
     const { handlers, rpc } = buildSuite();
     handlers.register();
     const registered = (rpc.registerMethod as jest.Mock).mock.calls.map(
@@ -177,6 +206,148 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
         expect(suite.session[delegate]).toHaveBeenCalledWith(params);
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:resume attach contention backstop (ISessionAttachmentGuard port).
+  // -------------------------------------------------------------------------
+
+  describe('chat:resume — session-attached-to-gateway backstop', () => {
+    const resumeParams = { sessionId: SESSION_UUID, tabId: TAB_UUID };
+
+    it('rejects resume with a typed RpcUserError when the session is attached', async () => {
+      const suite = buildSuite({ attached: true });
+      suite.handlers.register();
+
+      const rejection = getHandler(suite.rpc, 'chat:resume')(resumeParams);
+      await expect(rejection).rejects.toBeInstanceOf(RpcUserError);
+      await expect(rejection).rejects.toMatchObject({
+        errorCode: 'SESSION_ATTACHED_TO_GATEWAY',
+      });
+
+      expect(suite.attachmentGuard.isAttached).toHaveBeenCalledWith(
+        SESSION_UUID,
+      );
+      // The legitimate driver (gateway bridge) is the only resumer once
+      // attached — the webview resume must NOT reach ChatSessionService.
+      expect(suite.session.resumeSession).not.toHaveBeenCalled();
+    });
+
+    it('proceeds to ChatSessionService.resumeSession when not attached (default / VS Code host)', async () => {
+      const suite = buildSuite(); // guard reports nothing attached
+      suite.handlers.register();
+
+      await getHandler(suite.rpc, 'chat:resume')(resumeParams);
+
+      expect(suite.attachmentGuard.isAttached).toHaveBeenCalledWith(
+        SESSION_UUID,
+      );
+      expect(suite.session.resumeSession).toHaveBeenCalledWith(resumeParams);
+    });
+
+    it('does not leak internals — the user-facing message names the binding, not the registry', async () => {
+      const suite = buildSuite({ attached: true });
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:resume')(resumeParams),
+      ).rejects.toThrow(/messaging binding/i);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:pending-questions — webview-reload recovery of a live AskUserQuestion.
+  // -------------------------------------------------------------------------
+
+  describe('chat:pending-questions', () => {
+    const params = { sessionId: SESSION_UUID };
+
+    const pendingQuestion = {
+      id: 'q-1',
+      toolName: 'AskUserQuestion' as const,
+      questions: [
+        {
+          question: 'Which stack?',
+          header: 'Stack',
+          options: [{ label: 'Nx' }, { label: 'Plain Node' }],
+        },
+      ],
+      timestamp: 1,
+      timeoutAt: 0,
+      sessionId: SESSION_UUID,
+      tabId: TAB_UUID,
+    };
+
+    it('returns the still-pending questions from SdkPermissionHandler', async () => {
+      const suite = buildSuite();
+      (
+        suite.permissionHandler.listPendingQuestions as jest.Mock
+      ).mockReturnValueOnce([pendingQuestion]);
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'chat:pending-questions',
+      )(params);
+
+      expect(suite.permissionHandler.listPendingQuestions).toHaveBeenCalledWith(
+        SESSION_UUID,
+      );
+      expect(result).toEqual({ success: true, questions: [pendingQuestion] });
+    });
+
+    it('returns success with an empty list when nothing is pending', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:pending-questions')(params),
+      ).resolves.toEqual({ success: true, questions: [] });
+    });
+
+    it('rejects a non-UUID sessionId at the schema boundary', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:pending-questions')({ sessionId: 'sid' }),
+      ).rejects.toBeInstanceOf(ZodError);
+      expect(
+        suite.permissionHandler.listPendingQuestions,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('result-shapes a lookup failure instead of throwing at the webview', async () => {
+      const suite = buildSuite();
+      (
+        suite.permissionHandler.listPendingQuestions as jest.Mock
+      ).mockImplementationOnce(() => {
+        throw new Error('registry exploded');
+      });
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:pending-questions')(params),
+      ).resolves.toEqual({
+        success: false,
+        questions: [],
+        error: 'registry exploded',
+      });
+    });
+
+    it('uses errorSource ChatRpcHandlers.registerChatPendingQuestions on a boundary rejection', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:pending-questions')({ sessionId: 'sid' }),
+      ).rejects.toBeInstanceOf(ZodError);
+
+      expect(suite.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(ZodError),
+        { errorSource: 'ChatRpcHandlers.registerChatPendingQuestions' },
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

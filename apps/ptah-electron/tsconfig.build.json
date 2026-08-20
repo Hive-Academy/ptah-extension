@@ -34,6 +34,7 @@
         "../../libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/shared": ["../../libs/shared/src/index.ts"],
+      "@ptah-extension/shared/schemas": ["../../libs/shared/src/schemas.ts"],
       "@ptah-extension/vscode-core": [
         "../../libs/backend/vscode-core/src/index.ts"
       ],
@@ -52,8 +53,29 @@
       "@ptah-extension/memory-contracts": [
         "../../libs/backend/memory-contracts/src/index.ts"
       ],
+      "@ptah-extension/plugin-marketplace": [
+        "../../libs/backend/plugin-marketplace/src/index.ts"
+      ],
+      "@ptah-extension/voice-contracts": [
+        "../../libs/backend/voice-contracts/src/index.ts"
+      ],
+      "@ptah-extension/voice-providers": [
+        "../../libs/backend/voice-providers/src/index.ts"
+      ],
       "@ptah-extension/skill-synthesis": [
         "../../libs/backend/skill-synthesis/src/index.ts"
+      ],
+      "@ptah-extension/harness-sync": [
+        "../../libs/backend/harness-sync/src/index.ts"
+      ],
+      "@ptah-extension/task-specs": [
+        "../../libs/backend/task-specs/src/index.ts"
+      ],
+      "@ptah-extension/output-styles": [
+        "../../libs/backend/output-styles/src/index.ts"
+      ],
+      "@ptah-extension/thoth-runtime": [
+        "../../libs/backend/thoth-runtime/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler": [
         "../../libs/backend/cron-scheduler/src/index.ts"

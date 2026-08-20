@@ -26,6 +26,7 @@ describe('FileSystemService', () => {
       exists: jest.fn(),
       delete: jest.fn(),
       createDirectory: jest.fn(),
+      createDirectoryExclusive: jest.fn(),
       copy: jest.fn(),
       findFiles: jest.fn(),
       createFileWatcher: jest.fn(),
@@ -66,7 +67,7 @@ describe('FileSystemService', () => {
 
       await expect(service.readFile(filePath)).rejects.toThrow(FileSystemError);
       await expect(service.readFile(filePath)).rejects.toThrow(
-        `Failed to read file: ${filePath}`
+        `Failed to read file: ${filePath}`,
       );
     });
   });
@@ -104,10 +105,10 @@ describe('FileSystemService', () => {
       mockFsProvider.readDirectory.mockRejectedValue(originalError);
 
       await expect(service.readDirectory(dirPath)).rejects.toThrow(
-        FileSystemError
+        FileSystemError,
       );
       await expect(service.readDirectory(dirPath)).rejects.toThrow(
-        `Failed to read directory: ${dirPath}`
+        `Failed to read directory: ${dirPath}`,
       );
     });
 
@@ -168,7 +169,7 @@ describe('FileSystemService', () => {
 
       await expect(service.stat(filePath)).rejects.toThrow(FileSystemError);
       await expect(service.stat(filePath)).rejects.toThrow(
-        `Failed to stat: ${filePath}`
+        `Failed to stat: ${filePath}`,
       );
     });
   });
@@ -181,7 +182,7 @@ describe('FileSystemService', () => {
 
     it('should return true for vscode-vfs:// scheme', () => {
       const result = service.isVirtualWorkspace(
-        'vscode-vfs://github/owner/repo/file.ts'
+        'vscode-vfs://github/owner/repo/file.ts',
       );
       expect(result).toBe(true);
     });
@@ -193,7 +194,7 @@ describe('FileSystemService', () => {
 
     it('should return true for custom schemes', () => {
       const result = service.isVirtualWorkspace(
-        'custom-scheme://path/to/resource'
+        'custom-scheme://path/to/resource',
       );
       expect(result).toBe(true);
     });

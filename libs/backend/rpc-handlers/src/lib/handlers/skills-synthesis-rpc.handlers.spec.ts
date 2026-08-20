@@ -7,7 +7,9 @@
  */
 
 import 'reflect-metadata';
+import * as fs from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { container } from 'tsyringe';
 import {
   TOKENS,
@@ -17,8 +19,20 @@ import {
 import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
+  ProposalNotFoundError,
+  SKILL_LANE_IDS,
+  SKILL_LANE_FIELDS,
+  SKILL_LANE_KEYS,
+  SKILL_LANE_DEFAULTS,
+  SKILLS_ROOT_KEY,
+  resolveSkillsRoot,
 } from '@ptah-extension/skill-synthesis';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  FILE_BASED_SETTINGS_KEYS,
+  FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
+} from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
@@ -102,6 +116,25 @@ function makeEnhancer() {
       revertedFrom: '',
       newHistoryTs: null,
     }),
+    generateProposal: jest.fn().mockResolvedValue({
+      proposed: false,
+      slug: '',
+      kind: 'skill',
+      currentBody: null,
+      proposedBody: null,
+      judgeScore: null,
+      judgeReason: null,
+      proposalId: null,
+      skipReason: 'below-threshold',
+    }),
+    applyProposal: jest.fn().mockResolvedValue({
+      applied: true,
+      slug: '',
+      kind: 'skill',
+      judgeScore: null,
+      judgeReason: null,
+      historyTs: null,
+    }),
   };
 }
 
@@ -124,6 +157,12 @@ function makeMirror() {
     listHistory: jest.fn().mockResolvedValue([]),
     rebaseClone: jest.fn(),
     keepClone: jest.fn(),
+    // TASK_2026_278: the clone surface joins the registry row with the
+    // user-layer sidecar's `orphaned` flag, which the registry has no column
+    // for. Both reads degrade to "not orphaned" on failure, so these doubles
+    // answer the happy path and the failure path is asserted explicitly.
+    listClones: jest.fn().mockResolvedValue([]),
+    readCloneOrigin: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -133,15 +172,70 @@ function makeContentDownload() {
   };
 }
 
+function emptyScorecard(slug: string) {
+  return {
+    slug,
+    totalInvocations: 0,
+    gradedCount: 0,
+    gradedSuccessRate: null,
+    avgInputTokens: null,
+    avgOutputTokens: null,
+    avgCacheReadTokens: null,
+    totalInputTokens: null,
+    totalOutputTokens: null,
+    avgCostUsd: null,
+    avgDurationMs: null,
+    avgToolCount: null,
+    recentVerdicts: [],
+  };
+}
+
+function makeScorecard() {
+  return {
+    getScorecards: jest.fn().mockReturnValue({}),
+    // B4.4.3: `skillSynthesis:getScorecards` now merges the win-rate pass into
+    // the aggregate, so the double has to answer both calls.
+    getWinRates: jest.fn().mockReturnValue({}),
+    getScorecardDetail: jest
+      .fn()
+      .mockResolvedValue({ slug: '', rows: [], findingsExcerpt: null }),
+  };
+}
+
+/**
+ * The queue store is injected non-optionally (it ships with the same
+ * `registerSkillSynthesisServices` call as the candidate store), so every
+ * container that resolves the handler class must provide it. The queue method
+ * itself is exercised in `skills-synthesis-rpc.queue.spec.ts`.
+ */
+function makeQueueStore() {
+  return {
+    listRecent: jest.fn().mockReturnValue([]),
+  };
+}
+
+/**
+ * The budget store is injected non-optionally for the same reason as the queue
+ * store, so it too must be present in EVERY container in this file — including
+ * the two deliberately-sparse ones. There are four construction sites here plus
+ * one in `skills-synthesis-rpc.queue.spec.ts`; a new constructor parameter
+ * breaks all five, which is a known cost and a filed follow-up, not something
+ * to fix by consolidating them inside a feature batch.
+ */
+function makeBudgetStore() {
+  return {
+    todayStageUsage: jest.fn().mockReturnValue([]),
+  };
+}
+
 function makeDiagnostics() {
   return {
     getSnapshot: jest.fn().mockResolvedValue({
       lastAnalyzeRunAt: null,
       lastCuratorPassAt: null,
       eligibilityHistogram: {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       },
       byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
@@ -170,6 +264,8 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const registry = makeRegistry();
   const mirror = makeMirror();
   const contentDownload = makeContentDownload();
+  const scorecard = makeScorecard();
+  const queueStore = makeQueueStore();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -194,6 +290,15 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
   child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
   child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
+    scorecard,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+    makeBudgetStore(),
+  );
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
@@ -213,6 +318,8 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     registry,
     mirror,
     contentDownload,
+    scorecard,
+    queueStore,
     workspaceProvider,
     logger,
   };
@@ -225,9 +332,8 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       lastAnalyzeRunAt: 1700000000000,
       lastCuratorPassAt: 1699000000000,
       eligibilityHistogram: {
-        tooFewTurns: 1,
-        lowFidelity: 2,
-        insufficientAbstraction: 3,
+        prefilterTooThin: 1,
+        prefilterRejected: 5,
         accepted: 4,
       },
       byStatus: { candidate: 10, promoted: 3, rejected: 2, invocations: 12 },
@@ -643,6 +749,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       successRate: 0.7,
       historyCount: 2,
       lastEnhancedAt: 1700000000000,
+      enhanceMinInvocations: 5,
+      enhanceCooldownUntil: 1700000000000 + 24 * 60 * 60 * 1000,
     });
   });
 
@@ -668,6 +776,17 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     child.registerInstance(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
+    );
+    // The registry is what this test leaves unbound; the queue and budget
+    // stores are not optional, so both must be present even in a
+    // deliberately-sparse container.
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
     );
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
@@ -992,6 +1111,301 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(result).toMatchObject({ sourceHash: 'sha256:ccc' });
   });
 
+  /**
+   * TASK_2026_278 — E7's "rebase/keep works for plugin, synth AND agent
+   * clones".
+   *
+   * `resolveUpstreamSourceDir` used to bail on `!row.originPluginId`, so the
+   * Library offered a Rebase button on every diverged synth skill and agent
+   * that could only ever answer PERSISTENCE_UNAVAILABLE. The plugin branch had
+   * its own defect: it returned the commands/agents DIRECTORY where
+   * `rebaseFileClone` probes a FILE, so those two rebases reported
+   * `source-missing` no matter what was on disk.
+   */
+  describe('rebaseClone upstream resolution', () => {
+    function okRebase(kind: string, slug: string) {
+      return {
+        kind,
+        slug,
+        sourceHash: 'sha256:new',
+        snapshotPath: null,
+        failed: false,
+      };
+    }
+
+    it('resolves a SYNTH skill (no plugin origin) to <skillsRoot>/<slug>', async () => {
+      const { rpcHandler, registry, mirror, workspaceProvider } =
+        buildHandlers();
+      workspaceProvider.__state.config.set(
+        `ptah.${SKILLS_ROOT_KEY}`,
+        '/data/ptah-skills',
+      );
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        slug: 'synthesized-thing',
+        originPluginId: null,
+        cloneStatus: 'synth' as const,
+      });
+      mirror.rebaseClone.mockResolvedValue(
+        okRebase('skill', 'synthesized-thing'),
+      );
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'skill',
+        slug: 'synthesized-thing',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'synthesized-thing',
+        sourceDir: join('/data/ptah-skills', 'synthesized-thing'),
+      });
+    });
+
+    it('falls back to the default skills root when the setting is unset', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        slug: 'synthesized-thing',
+        originPluginId: null,
+      });
+      mirror.rebaseClone.mockResolvedValue(
+        okRebase('skill', 'synthesized-thing'),
+      );
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'skill',
+        slug: 'synthesized-thing',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'synthesized-thing',
+        sourceDir: join(resolveSkillsRoot(null), 'synthesized-thing'),
+      });
+    });
+
+    it('resolves an AGENT clone to {ws}/.claude/agents/<slug>.md', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'agent' as const,
+        slug: 'backend-developer',
+        originPluginId: null,
+      });
+      mirror.rebaseClone.mockResolvedValue(
+        okRebase('agent', 'backend-developer'),
+      );
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'agent',
+        slug: 'backend-developer',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'agent',
+        slug: 'backend-developer',
+        sourceDir: join(
+          '/workspace/project',
+          '.claude',
+          'agents',
+          'backend-developer.md',
+        ),
+      });
+    });
+
+    it('refuses an agent rebase with no workspace open (nothing to resolve against)', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers([]);
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'agent' as const,
+        slug: 'backend-developer',
+        originPluginId: null,
+      });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:rebaseClone', {
+          kind: 'agent',
+          slug: 'backend-developer',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      expect(mirror.rebaseClone).not.toHaveBeenCalled();
+    });
+
+    it('resolves a plugin COMMAND to the .md FILE, not the commands directory', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'command' as const,
+        slug: 'orchestrate',
+        originPluginId: 'ptah-core',
+      });
+      mirror.rebaseClone.mockResolvedValue(okRebase('command', 'orchestrate'));
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'command',
+        slug: 'orchestrate',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'command',
+        slug: 'orchestrate',
+        sourceDir: join(
+          '/home/.ptah/plugins',
+          'ptah-core',
+          'commands',
+          'orchestrate.md',
+        ),
+      });
+    });
+
+    it('resolves a plugin AGENT to the .md FILE too', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'agent' as const,
+        slug: 'senior-tester',
+        originPluginId: 'ptah-core',
+      });
+      mirror.rebaseClone.mockResolvedValue(okRebase('agent', 'senior-tester'));
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', {
+        kind: 'agent',
+        slug: 'senior-tester',
+      });
+
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'agent',
+        slug: 'senior-tester',
+        sourceDir: join(
+          '/home/.ptah/plugins',
+          'ptah-core',
+          'agents',
+          'senior-tester.md',
+        ),
+      });
+    });
+
+    it('a plugin-less COMMAND still has no upstream to name', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue({
+        ...sampleRow,
+        kind: 'command' as const,
+        slug: 'my-command',
+        originPluginId: null,
+      });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:rebaseClone', {
+          kind: 'command',
+          slug: 'my-command',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      expect(mirror.rebaseClone).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('orphaned flag on the clone surface', () => {
+    it('listClones joins the user-layer sidecar flag onto the registry row', async () => {
+      const { rpcHandler, registry, store, mirror } = buildHandlers();
+      registry.listAll.mockReturnValue([
+        sampleRow,
+        { ...sampleRow, slug: 'still-there' },
+      ]);
+      store.getInvocationStats.mockReturnValue({
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        distinctContexts: 0,
+      });
+      mirror.listClones.mockResolvedValue([
+        {
+          slug: 'deep-research',
+          kind: 'skill',
+          pluginId: 'research-pack',
+          sourceHash: 'sha256:aaa',
+          diverged: true,
+          lastEnhancedAt: null,
+          pendingSourceHash: null,
+          orphaned: true,
+        },
+        {
+          slug: 'still-there',
+          kind: 'skill',
+          pluginId: 'research-pack',
+          sourceHash: 'sha256:bbb',
+          diverged: false,
+          lastEnhancedAt: null,
+          pendingSourceHash: null,
+          orphaned: false,
+        },
+      ]);
+
+      const result = (await rpcHandler.call(
+        'skillSynthesis:listClones',
+        {},
+      )) as { clones: Array<Record<string, unknown>> };
+
+      expect(result.clones.map((c) => [c['slug'], c['orphaned']])).toEqual([
+        ['deep-research', true],
+        ['still-there', false],
+      ]);
+    });
+
+    it('degrades to "not orphaned" rather than failing the whole listing', async () => {
+      const { rpcHandler, registry, store, mirror } = buildHandlers();
+      registry.listAll.mockReturnValue([sampleRow]);
+      store.getInvocationStats.mockReturnValue({
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        distinctContexts: 0,
+      });
+      mirror.listClones.mockRejectedValue(new Error('sidecar read failed'));
+
+      const result = (await rpcHandler.call(
+        'skillSynthesis:listClones',
+        {},
+      )) as { clones: Array<Record<string, unknown>> };
+
+      expect(result.clones).toHaveLength(1);
+      expect(result.clones[0]['orphaned']).toBe(false);
+    });
+
+    it('getClone reads the ONE sidecar rather than walking every root', async () => {
+      const { rpcHandler, registry, store, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      store.getInvocationStats.mockReturnValue({
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        distinctContexts: 0,
+      });
+      mirror.readCloneOrigin.mockResolvedValue({
+        slug: 'deep-research',
+        kind: 'skill',
+        pluginId: 'research-pack',
+        sourceHash: 'sha256:aaa',
+        diverged: false,
+        lastEnhancedAt: null,
+        pendingSourceHash: null,
+        orphaned: true,
+      });
+
+      const result = (await rpcHandler.call('skillSynthesis:getClone', {
+        kind: 'skill',
+        slug: 'deep-research',
+      })) as { clone: Record<string, unknown> | null };
+
+      expect(mirror.readCloneOrigin).toHaveBeenCalledWith(
+        'skill',
+        'deep-research',
+      );
+      expect(mirror.listClones).not.toHaveBeenCalled();
+      expect(result.clone?.['orphaned']).toBe(true);
+    });
+  });
+
   it('invocationStats returns slug-keyed counts from the candidate store', async () => {
     const { rpcHandler, store } = buildHandlers();
     store.getInvocationStats.mockReturnValue({
@@ -1020,11 +1434,1855 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
   });
 });
 
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
+  it('passes validated slugs to the scorecard service and returns the map', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockReturnValue({
+      'backend-developer': {
+        ...emptyScorecard('backend-developer'),
+        totalInvocations: 12,
+      },
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['backend-developer'],
+    })) as { scorecards: Record<string, { totalInvocations: number }> };
+
+    expect(scorecard.getScorecards).toHaveBeenCalledWith(['backend-developer']);
+    expect(result.scorecards['backend-developer'].totalInvocations).toBe(12);
+  });
+
+  it('returns a typed empty scorecard for a no-data slug', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockReturnValue({
+      'idle-agent': emptyScorecard('idle-agent'),
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['idle-agent'],
+    })) as {
+      scorecards: Record<
+        string,
+        { totalInvocations: number; gradedSuccessRate: number | null }
+      >;
+    };
+
+    expect(result.scorecards['idle-agent']).toMatchObject({
+      totalInvocations: 0,
+      gradedSuccessRate: null,
+    });
+  });
+
+  // B4.4.3 — the win-rate merge. Three inputs, and the whole point is that they
+  // do NOT collapse into two: a measured `0` is a skill that lost every settled
+  // session, while both a stored `null` and an ABSENT row mean nobody measured
+  // it. `0` is falsy, so a `||` on this path retitles the measured loser as
+  // unmeasured and the dormancy ranking downstream then demotes the wrong skill.
+  // Asserted with toBe(0)/toBeNull(), never toBeFalsy(), which passes for both.
+  it('merges win rate onto the card, keeping a measured 0 distinct from unmeasured', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockReturnValue({
+      'measured-loser': emptyScorecard('measured-loser'),
+      'never-settled': emptyScorecard('never-settled'),
+      'no-events-at-all': emptyScorecard('no-events-at-all'),
+    });
+    scorecard.getWinRates.mockReturnValue({
+      'measured-loser': {
+        slug: 'measured-loser',
+        invocations: 3,
+        wins: 0,
+        unknown: 0,
+        winRate: 0,
+      },
+      'never-settled': {
+        slug: 'never-settled',
+        invocations: 2,
+        wins: 0,
+        unknown: 2,
+        winRate: null,
+      },
+      // 'no-events-at-all' is deliberately absent from the map.
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['measured-loser', 'never-settled', 'no-events-at-all'],
+    })) as { scorecards: Record<string, { winRate?: number | null }> };
+
+    expect(result.scorecards['measured-loser'].winRate).toBe(0);
+    expect(result.scorecards['never-settled'].winRate).toBeNull();
+    expect(result.scorecards['no-events-at-all'].winRate).toBeNull();
+    expect(scorecard.getWinRates).toHaveBeenCalledWith([
+      'measured-loser',
+      'never-settled',
+      'no-events-at-all',
+    ]);
+  });
+
+  it('returns {} scorecards when the scorecard service is unbound', async () => {
+    const logger = makeLogger();
+    const rpcHandler = makeRpcHandler();
+    const child = container.createChildContainer();
+    child.registerInstance(TOKENS.LOGGER, logger);
+    child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+    child.registerInstance(TOKENS.SENTRY_SERVICE, makeSentry());
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+      makeSynthesis(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
+      makeStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+      makeDiagnostics(),
+    );
+    child.registerInstance(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
+    );
+    // The scorecard service is what this test leaves unbound; the queue and
+    // budget stores are not optional, so both must be present even in a sparse
+    // container.
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
+    );
+    child.register(SkillsSynthesisRpcHandlers, {
+      useClass: SkillsSynthesisRpcHandlers,
+    });
+    child.resolve(SkillsSynthesisRpcHandlers).register();
+
+    const result = await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['a'],
+    });
+    expect(result).toEqual({ scorecards: {} });
+  });
+
+  it('rejects a non-array slugs param with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecards', { slugs: 'nope' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized slugs list (>500) with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    const slugs = Array.from({ length: 501 }, (_, i) => `agent-${i}`);
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecards', { slugs }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty-string slug entry with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecards', { slugs: [''] }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('wraps a scorecard-service throw without leaking the raw message', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockImplementation(() => {
+      throw new Error('SQLITE_CORRUPT: malformed disk image');
+    });
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:getScorecards', { slugs: ['a'] });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    expect((thrown as RpcUserError).message).not.toContain('SQLITE_CORRUPT');
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecardDetail', () => {
+  it('delegates to the scorecard service with slug + limit', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecardDetail.mockResolvedValue({
+      slug: 'backend-developer',
+      rows: [
+        {
+          taskId: 'TASK_2026_001',
+          succeeded: true,
+          exactAttribution: true,
+          inputTokens: 100,
+          outputTokens: 10,
+          costUsd: 0.2,
+          durationMs: 1000,
+          invokedAt: 1000,
+          reconciledAt: 5000,
+        },
+      ],
+      findingsExcerpt: 'findings',
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecardDetail', {
+      slug: 'backend-developer',
+      limit: 10,
+    })) as { slug: string; rows: unknown[]; findingsExcerpt: string | null };
+
+    expect(scorecard.getScorecardDetail).toHaveBeenCalledWith(
+      'backend-developer',
+      10,
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.findingsExcerpt).toBe('findings');
+  });
+
+  it('returns a typed empty detail for a no-data slug', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecardDetail.mockResolvedValue({
+      slug: 'idle-agent',
+      rows: [],
+      findingsExcerpt: null,
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:getScorecardDetail', {
+      slug: 'idle-agent',
+    });
+    expect(result).toEqual({
+      slug: 'idle-agent',
+      rows: [],
+      findingsExcerpt: null,
+    });
+  });
+
+  it('rejects an empty slug with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecardDetail', { slug: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecardDetail).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-integer limit with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecardDetail', {
+        slug: 'agent',
+        limit: 2.5,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecardDetail).not.toHaveBeenCalled();
+  });
+
+  it('rejects a limit above 100 with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecardDetail', {
+        slug: 'agent',
+        limit: 101,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecardDetail).not.toHaveBeenCalled();
+  });
+
+  it('wraps a scorecard-service throw without leaking the raw message', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecardDetail.mockRejectedValue(
+      new Error('EACCES: ~/.ptah/specs'),
+    );
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:getScorecardDetail', {
+        slug: 'agent',
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    expect((thrown as RpcUserError).message).not.toContain('EACCES');
+  });
+});
+
 describe('SkillsSynthesisRpcHandlers — dual-registration smoke', () => {
   it('every METHODS entry has a prefix listed in ALLOWED_METHOD_PREFIXES', () => {
     for (const method of SkillsSynthesisRpcHandlers.METHODS) {
       const ok = ALLOWED_METHOD_PREFIXES.some((p) => method.startsWith(p));
       expect(ok).toBe(true);
     }
+  });
+
+  // Correction C11. `skillSynthesis:` was already allowed before this batch,
+  // and the runtime guard is per PREFIX, not per method. A `getLanes` /
+  // `setLanes` entry appearing in that list would be a second, redundant way to
+  // say the same thing — and the next person to add a method would reasonably
+  // conclude they had to add one too.
+  it('adds no per-method entry to the runtime prefix guard', () => {
+    const perMethod = ALLOWED_METHOD_PREFIXES.filter(
+      (p) => p.startsWith('skillSynthesis:') && p !== 'skillSynthesis:',
+    );
+    expect(perMethod).toEqual([]);
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — lane settings keys (B1.8.1)', () => {
+  // `platform-core` cannot import `skill-synthesis` (it is the leaf that
+  // `skill-synthesis` depends on), so its lane key list and defaults are a
+  // literal restatement. `rpc-handlers` imports BOTH, which makes this the one
+  // place the restatement can be checked mechanically instead of by comment.
+  const laneEntries = SKILL_LANE_IDS.flatMap((id) =>
+    SKILL_LANE_FIELDS.map(
+      (field) =>
+        [id, field, SKILL_LANE_KEYS[id][field]] as [
+          (typeof SKILL_LANE_IDS)[number],
+          (typeof SKILL_LANE_FIELDS)[number],
+          string,
+        ],
+    ),
+  );
+
+  it('derives 32 dotted keys — four lanes × eight fields', () => {
+    expect(laneEntries).toHaveLength(32);
+  });
+
+  it.each(laneEntries)(
+    '%s.%s → routes %s to ~/.ptah/settings.json',
+    (_id, _field, key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    },
+  );
+
+  it.each(laneEntries)(
+    '%s.%s → platform-core default for %s equals SKILL_LANE_DEFAULTS',
+    (id, field, key) => {
+      expect(
+        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(
+        SKILL_LANE_DEFAULTS[id][field],
+      );
+    },
+  );
+
+  it('registers no lane key platform-core knows about and SKILL_LANE_KEYS does not', () => {
+    const declared = new Set(laneEntries.map(([, , key]) => key));
+    const stray = [...FILE_BASED_SETTINGS_KEYS].filter(
+      (key) =>
+        /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(key) &&
+        !declared.has(key),
+    );
+    expect(stray).toEqual([]);
+  });
+
+  it('defaults every lane to inherit — provider and model both empty', () => {
+    for (const id of SKILL_LANE_IDS) {
+      expect(SKILL_LANE_DEFAULTS[id].provider).toBe('');
+      expect(SKILL_LANE_DEFAULTS[id].model).toBe('');
+      expect(FILE_BASED_SETTINGS_DEFAULTS[SKILL_LANE_KEYS[id].provider]).toBe(
+        '',
+      );
+      expect(FILE_BASED_SETTINGS_DEFAULTS[SKILL_LANE_KEYS[id].model]).toBe('');
+    }
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getLanes / setLanes (B1.8.2)', () => {
+  it('returns the four inherit-by-default lanes when nothing is persisted', async () => {
+    const { rpcHandler } = buildHandlers();
+    const result = (await rpcHandler.call('skillSynthesis:getLanes', {})) as {
+      lanes: Record<string, Record<string, unknown>>;
+    };
+
+    expect(Object.keys(result.lanes).sort()).toEqual(
+      [...SKILL_LANE_IDS].sort(),
+    );
+    for (const id of SKILL_LANE_IDS) {
+      expect(result.lanes[id]).toEqual(SKILL_LANE_DEFAULTS[id]);
+    }
+  });
+
+  it('round-trips all 32 lane keys through setLanes → getLanes', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    // Deliberately no provider-id literal: `provider` is an opaque registry id
+    // and this spec must not become the place a vendor name leaks into a lane
+    // code path (global invariant 1).
+    const patch = {
+      archaeologist: {
+        provider: 'lane-provider-a',
+        model: 'lane-model-a',
+        defaultTier: 'opus' as const,
+        structuredOutput: 'parse' as const,
+        toolUse: 'none' as const,
+        timeoutMs: 111000,
+        maxInputChars: 11100,
+        maxPasses: 7,
+      },
+      synthesis: {
+        provider: 'lane-provider-b',
+        model: 'lane-model-b',
+        defaultTier: 'sonnet' as const,
+        structuredOutput: 'parse' as const,
+        toolUse: 'required' as const,
+        timeoutMs: 222000,
+        maxInputChars: 22200,
+        maxPasses: 2,
+      },
+      judge: {
+        provider: 'lane-provider-c',
+        model: 'lane-model-c',
+        defaultTier: 'haiku' as const,
+        structuredOutput: 'sdk' as const,
+        toolUse: 'required' as const,
+        timeoutMs: 33000,
+        maxInputChars: 3300,
+        maxPasses: 3,
+      },
+      replay: {
+        provider: 'lane-provider-d',
+        model: 'lane-model-d',
+        defaultTier: 'opus' as const,
+        structuredOutput: 'parse' as const,
+        toolUse: 'none' as const,
+        timeoutMs: 44000,
+        maxInputChars: 4400,
+        maxPasses: 4,
+      },
+    };
+
+    const setResult = (await rpcHandler.call('skillSynthesis:setLanes', {
+      lanes: patch,
+    })) as { lanes: Record<string, Record<string, unknown>> };
+
+    // Every one of the 32 dotted keys reached setConfiguration individually —
+    // per-key routing is what makes file-based settings work at all.
+    for (const id of SKILL_LANE_IDS) {
+      for (const field of SKILL_LANE_FIELDS) {
+        expect(setSpy).toHaveBeenCalledWith(
+          'ptah',
+          SKILL_LANE_KEYS[id][field],
+          patch[id][field],
+        );
+      }
+    }
+    expect(setSpy).toHaveBeenCalledTimes(32);
+
+    const getResult = (await rpcHandler.call(
+      'skillSynthesis:getLanes',
+      {},
+    )) as { lanes: Record<string, Record<string, unknown>> };
+
+    for (const id of SKILL_LANE_IDS) {
+      const expected = { id, ...patch[id] };
+      expect(setResult.lanes[id]).toEqual(expected);
+      expect(getResult.lanes[id]).toEqual(expected);
+    }
+  });
+
+  it('writes only the fields named in a sparse patch and leaves the rest alone', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = (await rpcHandler.call('skillSynthesis:setLanes', {
+      lanes: { judge: { timeoutMs: 60000 } },
+    })) as { lanes: Record<string, Record<string, unknown>> };
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      SKILL_LANE_KEYS.judge.timeoutMs,
+      60000,
+    );
+    expect(result.lanes['judge']).toEqual({
+      ...SKILL_LANE_DEFAULTS.judge,
+      timeoutMs: 60000,
+    });
+    expect(result.lanes['synthesis']).toEqual(SKILL_LANE_DEFAULTS.synthesis);
+  });
+
+  it('returns the READ-BACK state, not an echo of the patch', async () => {
+    // `readSkillLane` serves the default when a persisted value is unusable.
+    // Echoing the request would report a write that did not take effect.
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      SKILL_LANE_KEYS.judge.timeoutMs,
+      -5,
+    );
+    const result = (await rpcHandler.call('skillSynthesis:getLanes', {})) as {
+      lanes: Record<string, Record<string, unknown>>;
+    };
+    expect(result.lanes['judge']['timeoutMs']).toBe(
+      SKILL_LANE_DEFAULTS.judge.timeoutMs,
+    );
+  });
+
+  it('rejects a non-positive timeoutMs with INVALID_PARAMS and writes nothing', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { timeoutMs: 0 } },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown lane id with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { curator: { timeoutMs: 1000 } },
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects an unknown lane FIELD with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { temperature: 0.7 } },
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects an out-of-vocabulary structuredOutput mode', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { structuredOutput: 'yaml' } },
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects an empty patch that names no lane', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:setLanes', { lanes: {} }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('rejects unknown params on getLanes', async () => {
+    const { rpcHandler } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getLanes', { junk: 'value' } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('surfaces PERSISTENCE_UNAVAILABLE without leaking the underlying message', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers();
+    jest
+      .spyOn(workspaceProvider, 'setConfiguration')
+      .mockRejectedValue(new Error('EACCES: ~/.ptah/settings.json'));
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:setLanes', {
+        lanes: { judge: { timeoutMs: 60000 } },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    const rpcErr = thrown as RpcUserError;
+    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect(rpcErr.message).not.toContain('EACCES');
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)', () => {
+  function candidateRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'cand-1',
+      name: 'refactor-jest-configs',
+      description: 'Refactor jest configs into a shared preset',
+      bodyPath: '/tmp/cand-1/SKILL.md',
+      sourceSessionIds: ['s-1'],
+      trajectoryHash: 'hash-1',
+      embeddingRowid: null,
+      status: 'candidate' as const,
+      successCount: 3,
+      failureCount: 1,
+      createdAt: 1700000000000,
+      promotedAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      pinned: false,
+      residency: 'resident' as const,
+      judgeStatus: null,
+      judgeScore: null,
+      judgeReason: null,
+      judgeCriteria: {
+        novelty: null,
+        actionability: null,
+        scope: null,
+        generalization: null,
+        triggerClarity: null,
+      },
+      judgePanelRationales: null,
+      judgedAt: null,
+      displayName: null,
+      // ── 0036 empirical gates ───────────────────────────────────────────────
+      replayConfidence: null,
+      replayHoldoutSessionId: null,
+      replayAt: null,
+      triggerScore: null,
+      triggerPrecision: null,
+      triggerRecall: null,
+      triggerEvalAt: null,
+      ...overrides,
+    };
+  }
+
+  async function listOne(row: Record<string, unknown>) {
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([row]);
+    const result = (await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+    })) as { candidates: Array<Record<string, unknown>> };
+    return result.candidates[0];
+  }
+
+  it('projects a never-judged candidate as all-null, never zero', async () => {
+    const summary = await listOne(candidateRow());
+    expect(summary['judgeStatus']).toBeNull();
+    expect(summary['judgeScore']).toBeNull();
+    expect(summary['judgeScore']).not.toBe(0);
+    expect(summary['judgeReason']).toBeNull();
+    expect(summary['judgeCriteria']).toBeNull();
+    expect(summary['displayName']).toBeNull();
+  });
+
+  it('carries an unscored verdict as status + reason with a NULL score', async () => {
+    // The defect this replaces: a failed judge call used to fabricate
+    // `{passed: true, score: 10}`, which the UI rendered as a genuine verdict.
+    const summary = await listOne(
+      candidateRow({
+        judgeStatus: 'unscored',
+        judgeScore: null,
+        judgeReason: 'judge-call-threw',
+      }),
+    );
+    expect(summary['judgeStatus']).toBe('unscored');
+    expect(summary['judgeScore']).toBeNull();
+    expect(summary['judgeReason']).toBe('judge-call-threw');
+  });
+
+  it('carries a genuine zero score as 0, distinct from unscored', async () => {
+    const summary = await listOne(
+      candidateRow({
+        judgeStatus: 'scored',
+        judgeScore: 0,
+        judgeReason: 'no reusable workflow',
+        judgeCriteria: {
+          novelty: 0,
+          actionability: 0,
+          scope: 0,
+          generalization: 0,
+          triggerClarity: 0,
+        },
+      }),
+    );
+    expect(summary['judgeScore']).toBe(0);
+    expect(summary['judgeScore']).not.toBeNull();
+    expect(summary['judgeCriteria']).toEqual({
+      novelty: 0,
+      actionability: 0,
+      scope: 0,
+      generalization: 0,
+      triggerClarity: 0,
+    });
+  });
+
+  it('forwards a scored verdict with its five criteria and display name', async () => {
+    const summary = await listOne(
+      candidateRow({
+        displayName: 'Share one Jest preset across libs',
+        judgeStatus: 'scored',
+        judgeScore: 7.4,
+        judgeReason: 'reusable and well triggered',
+        judgeCriteria: {
+          novelty: 7,
+          actionability: 8,
+          scope: 7,
+          generalization: 7,
+          triggerClarity: 8,
+        },
+      }),
+    );
+    expect(summary['displayName']).toBe('Share one Jest preset across libs');
+    expect(summary['judgeStatus']).toBe('scored');
+    expect(summary['judgeScore']).toBe(7.4);
+    expect(summary['judgeCriteria']).toEqual({
+      novelty: 7,
+      actionability: 8,
+      scope: 7,
+      generalization: 7,
+      triggerClarity: 8,
+    });
+  });
+
+  it('reports a disabled gate as a status, not as an absent verdict', async () => {
+    const summary = await listOne(
+      candidateRow({ judgeStatus: 'disabled', judgeReason: 'judge gate off' }),
+    );
+    expect(summary['judgeStatus']).toBe('disabled');
+    expect(summary['judgeScore']).toBeNull();
+  });
+
+  it('collapses an all-null criteria block to null rather than five blanks', async () => {
+    const summary = await listOne(candidateRow({ judgeStatus: 'unscored' }));
+    expect(summary['judgeCriteria']).toBeNull();
+  });
+
+  // ── B3.5.3: the empirical gate block ──────────────────────────────────────
+
+  describe('empirical gate fields (B3.5.3)', () => {
+    function panelEntry(overrides: Record<string, unknown> = {}) {
+      return {
+        role: 'panellist-a',
+        status: 'scored',
+        score: 7,
+        criteria: {
+          novelty: 7,
+          actionability: 8,
+          scope: 6,
+          generalization: 7,
+          triggerClarity: 9,
+        },
+        reason: 'reusable and well triggered',
+        summary: 'panellist A read the body and the triggers',
+        ...overrides,
+      };
+    }
+
+    it('projects an ungated candidate as all-null, never zero', async () => {
+      const summary = await listOne(candidateRow());
+      expect(summary['replayConfidence']).toBeNull();
+      expect(summary['replayConfidence']).not.toBe(0);
+      expect(summary['triggerScore']).toBeNull();
+      expect(summary['triggerScore']).not.toBe(0);
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('carries a measured zero as 0, distinct from never-measured', async () => {
+      // `0` here is EVIDENCE — a replay that aligned with nothing, a
+      // description that retrieved nothing. `null` is the absence of evidence,
+      // and only the second leaves the candidate owed a retry.
+      const summary = await listOne(
+        candidateRow({ replayConfidence: 0, triggerScore: 0 }),
+      );
+      expect(summary['replayConfidence']).toBe(0);
+      expect(summary['replayConfidence']).not.toBeNull();
+      expect(summary['triggerScore']).toBe(0);
+      expect(summary['triggerScore']).not.toBeNull();
+    });
+
+    it('forwards measured gate values unchanged', async () => {
+      const summary = await listOne(
+        candidateRow({ replayConfidence: 0.82, triggerScore: 7.5 }),
+      );
+      expect(summary['replayConfidence']).toBe(0.82);
+      expect(summary['triggerScore']).toBe(7.5);
+    });
+
+    it('leaves the gate values alone when only one gate has run', async () => {
+      const summary = await listOne(candidateRow({ replayConfidence: 0.4 }));
+      expect(summary['replayConfidence']).toBe(0.4);
+      expect(summary['triggerScore']).toBeNull();
+    });
+
+    it('does not put the raw JSON string of the panel on the wire', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([panelEntry()]),
+        }),
+      );
+      expect(typeof summary['judgePanelRationales']).not.toBe('string');
+      expect(Array.isArray(summary['judgePanelRationales'])).toBe(true);
+    });
+
+    it('parses the whole panel, escalation included, in stored order', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ role: 'panellist-a', score: 8 }),
+            panelEntry({ role: 'panellist-b', score: 3 }),
+            panelEntry({
+              role: 'escalation',
+              score: 6,
+              reason: 'panellists disagreed on scope',
+              summary: 'escalation read both panellists',
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel).toHaveLength(3);
+      expect(panel.map((entry) => entry['role'])).toEqual([
+        'panellist-a',
+        'panellist-b',
+        'escalation',
+      ]);
+      expect(panel[2]).toEqual({
+        role: 'escalation',
+        status: 'scored',
+        score: 6,
+        criteria: {
+          novelty: 7,
+          actionability: 8,
+          scope: 6,
+          generalization: 7,
+          triggerClarity: 9,
+        },
+        reason: 'panellists disagreed on scope',
+        summary: 'escalation read both panellists',
+      });
+    });
+
+    it('carries an unscored panellist with a NULL score', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({
+              status: 'unscored',
+              score: null,
+              criteria: null,
+              reason: 'lane timed out',
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel[0]['status']).toBe('unscored');
+      expect(panel[0]['score']).toBeNull();
+      expect(panel[0]['criteria']).toBeNull();
+    });
+
+    it('voids the whole panel when one entry fabricates a score', async () => {
+      // `{status:'unscored', score:10}` is the exact defect phase 1 removed,
+      // stored one column to the left. A panel holding it is not a record to
+      // forward in part.
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ role: 'panellist-a' }),
+            panelEntry({ role: 'panellist-b', status: 'unscored', score: 10 }),
+          ]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('voids the whole panel on an out-of-vocabulary role', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ role: 'panellist-c' }),
+          ]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('voids the whole panel on an out-of-vocabulary status', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({ status: 'passed' }),
+          ]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('voids a scored entry whose score is not a finite number', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([panelEntry({ score: 'high' })]),
+        }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('reads unparseable panel JSON as null, not as an empty panel', async () => {
+      const summary = await listOne(
+        candidateRow({ judgePanelRationales: '{not json' }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+      expect(summary['judgePanelRationales']).not.toEqual([]);
+    });
+
+    it('reads a stored empty array as null — the store never writes one', async () => {
+      const summary = await listOne(
+        candidateRow({ judgePanelRationales: '[]' }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('reads a non-array panel payload as null', async () => {
+      const summary = await listOne(
+        candidateRow({ judgePanelRationales: JSON.stringify(panelEntry()) }),
+      );
+      expect(summary['judgePanelRationales']).toBeNull();
+    });
+
+    it('collapses an all-null panellist scorecard to null', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({
+              criteria: {
+                novelty: null,
+                actionability: null,
+                scope: null,
+                generalization: null,
+                triggerClarity: null,
+              },
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel[0]['criteria']).toBeNull();
+    });
+
+    it('keeps a genuine zero criterion inside a panellist scorecard', async () => {
+      const summary = await listOne(
+        candidateRow({
+          judgePanelRationales: JSON.stringify([
+            panelEntry({
+              score: 0,
+              criteria: {
+                novelty: 0,
+                actionability: 0,
+                scope: 0,
+                generalization: 0,
+                triggerClarity: 0,
+              },
+            }),
+          ]),
+        }),
+      );
+      const panel = summary['judgePanelRationales'] as Array<
+        Record<string, unknown>
+      >;
+      expect(panel[0]['score']).toBe(0);
+      expect(panel[0]['criteria']).toEqual({
+        novelty: 0,
+        actionability: 0,
+        scope: 0,
+        generalization: 0,
+        triggerClarity: 0,
+      });
+    });
+
+    it('carries the gate block onto the candidate DETAIL as well', async () => {
+      const { rpcHandler, store } = buildHandlers();
+      const row = candidateRow({
+        replayConfidence: 0,
+        triggerScore: 0.25,
+        judgePanelRationales: JSON.stringify([panelEntry()]),
+      });
+      store.findById.mockReturnValue(row);
+      const result = (await rpcHandler.call('skillSynthesis:getCandidate', {
+        id: 'cand-1',
+      })) as { candidate: Record<string, unknown> | null };
+
+      expect(result.candidate?.['replayConfidence']).toBe(0);
+      expect(result.candidate?.['triggerScore']).toBe(0.25);
+      expect(
+        (result.candidate?.['judgePanelRationales'] as unknown[]).length,
+      ).toBe(1);
+    });
+  });
+});
+
+const fakeSuggestionRow = {
+  id: 'sug-1',
+  name: 'My Skill',
+  description: 'does things',
+  body: '## Body\nStep 1.',
+  memberSessionIds: ['s-1'],
+  memberCandidateIds: ['c-1'],
+  clusterSize: 3,
+  technologyFingerprint: 'fp-abc',
+  judgeScore: 7.5,
+  status: 'pending' as const,
+  createdAt: 1700000000000,
+  decidedAt: null,
+};
+
+function makeSuggestionStore() {
+  return {
+    listByStatus: jest.fn().mockReturnValue([]),
+    hasExistingForCluster: jest.fn().mockReturnValue(false),
+    insertPending: jest.fn(),
+    findById: jest.fn().mockReturnValue(fakeSuggestionRow),
+    updatePending: jest.fn().mockReturnValue(fakeSuggestionRow),
+  };
+}
+
+function makeCurator() {
+  return {
+    runManual: jest.fn().mockResolvedValue({
+      reportPath: '/tmp/report.md',
+      changesQueued: 0,
+      skippedPinned: 0,
+    }),
+    start: jest.fn(),
+    stop: jest.fn(),
+    acceptSuggestion: jest.fn().mockReturnValue({
+      accepted: true,
+      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
+    }),
+    dismissSuggestion: jest.fn().mockReturnValue({ dismissed: true }),
+  };
+}
+
+function buildHandlersWithSuggestions(
+  workspaceFolders: string[] = ['/workspace/project'],
+) {
+  const logger = makeLogger();
+  const rpcHandler = makeRpcHandler();
+  const sentry = makeSentry();
+  const synthesis = makeSynthesis();
+  const store = makeStore();
+  const diagnostics = makeDiagnostics();
+  const enhancer = makeEnhancer();
+  const registry = makeRegistry();
+  const mirror = makeMirror();
+  const contentDownload = makeContentDownload();
+  const suggestionStore = makeSuggestionStore();
+  const curator = makeCurator();
+  const queueStore = makeQueueStore();
+  const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
+    folders: workspaceFolders,
+  });
+
+  const child = container.createChildContainer();
+  child.registerInstance(TOKENS.LOGGER, logger);
+  child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+  child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+    synthesis,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, store);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+    diagnostics,
+  );
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE,
+    enhancer,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
+  child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
+  child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
+  child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE,
+    suggestionStore,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, curator);
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+    makeBudgetStore(),
+  );
+  child.register(SkillsSynthesisRpcHandlers, {
+    useClass: SkillsSynthesisRpcHandlers,
+  });
+
+  const handlers = child.resolve(SkillsSynthesisRpcHandlers);
+  handlers.register();
+
+  return {
+    handlers,
+    rpcHandler,
+    sentry,
+    synthesis,
+    store,
+    diagnostics,
+    enhancer,
+    registry,
+    mirror,
+    contentDownload,
+    workspaceProvider,
+    logger,
+    suggestionStore,
+    curator,
+    queueStore,
+  };
+}
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:listSuggestions', () => {
+  it('happy path: calls suggestionStore.listByStatus with pending default and returns mapped suggestions', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    const fakeRow = {
+      id: 'sug-1',
+      name: 'My Skill',
+      description: 'does things',
+      body: '## Description\nx',
+      memberSessionIds: ['s-1'],
+      memberCandidateIds: ['c-1'],
+      clusterSize: 3,
+      technologyFingerprint: 'fp-abc',
+      judgeScore: 7.5,
+      status: 'pending' as const,
+      createdAt: 1700000000000,
+      decidedAt: null,
+    };
+    suggestionStore.listByStatus.mockReturnValue([fakeRow]);
+
+    const result = await rpcHandler.call('skillSynthesis:listSuggestions', {});
+
+    expect(suggestionStore.listByStatus).toHaveBeenCalledWith('pending');
+    expect(result).toMatchObject({
+      suggestions: [
+        {
+          id: 'sug-1',
+          name: 'My Skill',
+          description: 'does things',
+          clusterSize: 3,
+          technologyFingerprint: 'fp-abc',
+          judgeScore: 7.5,
+          memberSessionIds: ['s-1'],
+          status: 'pending',
+          createdAt: 1700000000000,
+        },
+      ],
+    });
+  });
+
+  it('happy path: forwards explicit status=accepted to listByStatus', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.listByStatus.mockReturnValue([]);
+
+    const result = await rpcHandler.call('skillSynthesis:listSuggestions', {
+      status: 'accepted',
+    });
+
+    expect(suggestionStore.listByStatus).toHaveBeenCalledWith('accepted');
+    expect(result).toMatchObject({ suggestions: [] });
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:listSuggestions', {}),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: invalid status value rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:listSuggestions', { status: 'bogus' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () => {
+  it('happy path: calls curator.acceptSuggestion with id + settings and returns accepted + filePath', async () => {
+    const { rpcHandler, curator, synthesis } = buildHandlersWithSuggestions();
+    const fakeSettings = {
+      enabled: true,
+      successesToPromote: 3,
+      dedupCosineThreshold: 0.85,
+      maxActiveSkills: 50,
+      candidatesDir: '',
+      eligibilityMinTurns: 5,
+      evictionDecayRate: 0.95,
+      generalizationContextThreshold: 3,
+      dedupClusterThreshold: 0.78,
+      prefilterMinEdits: 1,
+      prefilterMinChars: 800,
+      prefilterMinToolUses: 2,
+      judgeEnabled: true,
+      minJudgeScore: 6.0,
+      judgeModel: 'inherit',
+      maxPinnedSkills: 10,
+      curatorEnabled: true,
+      curatorIntervalHours: 24,
+      suggestionMinClusterSize: 2,
+      suggestionMaxCandidates: 200,
+    };
+    synthesis.readSettings.mockReturnValue(fakeSettings);
+    curator.acceptSuggestion.mockReturnValue({
+      accepted: true,
+      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:acceptSuggestion', {
+      id: 'sug-42',
+    });
+
+    expect(synthesis.readSettings).toHaveBeenCalled();
+    expect(curator.acceptSuggestion).toHaveBeenCalledWith(
+      'sug-42',
+      fakeSettings,
+    );
+    expect(result).toMatchObject({
+      accepted: true,
+      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
+    });
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when curator is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:acceptSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:acceptSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:acceptSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:dismissSuggestion', () => {
+  it('happy path: calls curator.dismissSuggestion with id and returns dismissed', async () => {
+    const { rpcHandler, curator } = buildHandlersWithSuggestions();
+    curator.dismissSuggestion.mockReturnValue({ dismissed: true });
+
+    const result = await rpcHandler.call('skillSynthesis:dismissSuggestion', {
+      id: 'sug-99',
+    });
+
+    expect(curator.dismissSuggestion).toHaveBeenCalledWith('sug-99');
+    expect(result).toMatchObject({ dismissed: true });
+  });
+
+  it('happy path: optional reason field is accepted and does not break dispatch', async () => {
+    const { rpcHandler, curator } = buildHandlersWithSuggestions();
+    curator.dismissSuggestion.mockReturnValue({ dismissed: true });
+
+    const result = await rpcHandler.call('skillSynthesis:dismissSuggestion', {
+      id: 'sug-99',
+      reason: 'not useful',
+    });
+
+    expect(curator.dismissSuggestion).toHaveBeenCalledWith('sug-99');
+    expect(result).toMatchObject({ dismissed: true });
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when curator is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: reason exceeding 500 chars rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', {
+        id: 'sug-1',
+        reason: 'x'.repeat(501),
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getSuggestion', () => {
+  it('happy path: calls suggestionStore.findById and returns suggestion with body', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.findById.mockReturnValue(fakeSuggestionRow);
+
+    const result = await rpcHandler.call('skillSynthesis:getSuggestion', {
+      id: 'sug-1',
+    });
+
+    expect(suggestionStore.findById).toHaveBeenCalledWith('sug-1');
+    expect(result).toMatchObject({
+      suggestion: {
+        id: 'sug-1',
+        name: 'My Skill',
+        description: 'does things',
+        body: '## Body\nStep 1.',
+        status: 'pending',
+      },
+    });
+  });
+
+  it('returns suggestion:null when findById returns null (not found)', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.findById.mockReturnValue(null);
+
+    const result = (await rpcHandler.call('skillSynthesis:getSuggestion', {
+      id: 'missing',
+    })) as { suggestion: null };
+
+    expect(result.suggestion).toBeNull();
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:updateSuggestion', () => {
+  it('happy path: calls updatePending with fields and returns updated=true when still pending', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    const updatedRow = {
+      ...fakeSuggestionRow,
+      name: 'New Name',
+      status: 'pending' as const,
+    };
+    suggestionStore.updatePending.mockReturnValue(updatedRow);
+
+    const result = await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'sug-1',
+      name: 'New Name',
+    });
+
+    expect(suggestionStore.updatePending).toHaveBeenCalledWith('sug-1', {
+      name: 'New Name',
+      description: undefined,
+      body: undefined,
+    });
+    expect(result).toMatchObject({
+      updated: true,
+      suggestion: expect.objectContaining({ name: 'New Name' }),
+    });
+  });
+
+  it('returns updated=false when the row is accepted (immutable)', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    // Store returns the accepted row unchanged (it was already accepted)
+    const acceptedRow = { ...fakeSuggestionRow, status: 'accepted' as const };
+    suggestionStore.updatePending.mockReturnValue(acceptedRow);
+
+    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'sug-1',
+      name: 'ignored',
+    })) as { updated: boolean; suggestion: unknown };
+
+    expect(result.updated).toBe(false);
+    expect(result.suggestion).not.toBeNull();
+  });
+
+  it('returns updated=false and suggestion=null when id not found', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.updatePending.mockReturnValue(null);
+
+    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'missing',
+      name: 'x',
+    })) as { updated: boolean; suggestion: null };
+
+    expect(result.updated).toBe(false);
+    expect(result.suggestion).toBeNull();
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', {
+        id: 'sug-1',
+        name: 'x',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', { name: 'x' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: name longer than 200 chars rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', {
+        id: 'sug-1',
+        name: 'x'.repeat(201),
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+// ─── Preview-before-apply RPC surface ──────────────────────────────────────
+
+describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', () => {
+  const PROPOSAL_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+  const cloneRow = {
+    slug: 'deep-research',
+    kind: 'skill' as const,
+    userPath: '/home/.ptah/user/skills/deep-research',
+    originPluginId: 'research-pack',
+    originVersion: '1.0.0',
+    sourceHash: 'sha256:aaa',
+    cloneStatus: 'clone' as const,
+    diverged: false,
+    historyDir: null,
+    lastEnhancedAt: null,
+    candidateId: null,
+    pendingSourceHash: null,
+    createdAt: 1690000000000,
+    updatedAt: 1700000000000,
+  };
+
+  it('previewEnhancement returns both bodies, judge verdict, and a proposalId', async () => {
+    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
+    enhancer.generateProposal.mockResolvedValue({
+      proposed: true,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: 'NEW',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      proposalId: PROPOSAL_ID,
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(enhancer.generateProposal).toHaveBeenCalledWith(
+      'deep-research',
+      { minJudgeScore: 6 },
+      { manual: true, kind: 'skill' },
+    );
+    expect(result).toEqual({
+      proposed: true,
+      skipReason: null,
+      currentBody: 'OLD',
+      proposedBody: 'NEW',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      proposalId: PROPOSAL_ID,
+    });
+  });
+
+  it('previewEnhancement never reaches the write path', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+
+    await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(enhancer.enhance).not.toHaveBeenCalled();
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement surfaces a skip verdict with a null proposalId', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    enhancer.generateProposal.mockResolvedValue({
+      proposed: false,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: 'NEW',
+      judgeScore: 3,
+      judgeReason: 'judge-verdict',
+      proposalId: null,
+      skipReason: 'judge-rejected',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(result).toMatchObject({
+      proposed: false,
+      skipReason: 'judge-rejected',
+      proposalId: null,
+      proposedBody: 'NEW',
+    });
+  });
+
+  it('previewEnhancement rejects an unknown slug with INVALID_PARAMS', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(null);
+
+    await expect(
+      rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'skill',
+        slug: 'missing',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.generateProposal).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement rejects an invalid kind with INVALID_PARAMS', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'bogus',
+        slug: 'deep-research',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.generateProposal).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement wraps an enhancer throw without leaking the message', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    enhancer.generateProposal.mockRejectedValue(
+      new Error('ENOENT: /home/secret/token.json'),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'skill',
+        slug: 'deep-research',
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect((thrown as Error).message).not.toContain('token.json');
+  });
+
+  it('applyProposal forwards kind/slug/proposalId and returns the history stamp', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+    enhancer.applyProposal.mockResolvedValue({
+      applied: true,
+      slug: 'deep-research',
+      kind: 'skill',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      historyTs: '1700000000000',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:applyProposal', {
+      kind: 'skill',
+      slug: 'deep-research',
+      proposalId: PROPOSAL_ID,
+    });
+
+    expect(enhancer.applyProposal).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      PROPOSAL_ID,
+    );
+    expect(result).toEqual({ applied: true, historyTs: '1700000000000' });
+  });
+
+  it('applyProposal maps an unknown proposalId to a clean INVALID_PARAMS', async () => {
+    const { rpcHandler, enhancer, sentry } = buildHandlers();
+    enhancer.applyProposal.mockRejectedValue(
+      new ProposalNotFoundError('not-found', PROPOSAL_ID),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+        proposalId: PROPOSAL_ID,
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect((thrown as Error).message).toContain('Preview again');
+    // A stale preview is user error, not a crash — no Sentry noise.
+    expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal maps an expired proposal the same way', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+    enhancer.applyProposal.mockRejectedValue(
+      new ProposalNotFoundError('expired', PROPOSAL_ID),
+    );
+
+    await expect(
+      rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+        proposalId: PROPOSAL_ID,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('applyProposal rejects a malformed proposalId before touching the enhancer', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+        proposalId: '../../etc/passwd',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal rejects a missing proposalId', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
+  let tmpRoot: string;
+  let skillsRoot: string;
+  let snapshotDir: string;
+  const TS = '1700000000000';
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(join(tmpdir(), 'ptah-history-'));
+    skillsRoot = join(tmpRoot, 'skills');
+    snapshotDir = join(skillsRoot, 'deep-research', '.history', TS);
+    fs.mkdirSync(snapshotDir, { recursive: true });
+    fs.writeFileSync(join(snapshotDir, 'SKILL.md'), 'SNAPSHOT BODY', 'utf8');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function withRealRoots() {
+    const built = buildHandlers();
+    built.mirror.getUserLayerRoots.mockReturnValue({
+      skills: skillsRoot,
+      agents: join(tmpRoot, 'agents'),
+      commands: join(tmpRoot, 'commands'),
+    });
+    return built;
+  }
+
+  it('returns the snapshot body for an enumerated timestamp', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: snapshotDir, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(mirror.listHistory).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(result).toEqual({ body: 'SNAPSHOT BODY', ts: TS });
+  });
+
+  it('returns null for a timestamp that history does not list', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: snapshotDir, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: '1600000000000',
+    });
+
+    expect(result).toEqual({ body: null, ts: '1600000000000' });
+  });
+
+  it('returns null when the snapshot carries no artifact file', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: snapshotDir, hasSkillMd: false },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(result).toEqual({ body: null, ts: TS });
+  });
+
+  it.each([
+    '../../../etc/passwd',
+    '..',
+    '1700000000000/../../..',
+    'a/../../b',
+    '.history',
+    '',
+  ])('rejects traversal-shaped ts %p with INVALID_PARAMS', async (ts) => {
+    const { rpcHandler, mirror } = withRealRoots();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getHistoryBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        ts,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(mirror.listHistory).not.toHaveBeenCalled();
+  });
+
+  it.each(['../evil', 'a/b', ''])(
+    'rejects traversal-shaped slug %p with INVALID_PARAMS',
+    async (slug) => {
+      const { rpcHandler, mirror } = withRealRoots();
+
+      await expect(
+        rpcHandler.call('skillSynthesis:getHistoryBody', {
+          kind: 'skill',
+          slug,
+          ts: TS,
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.listHistory).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses to read a listed snapshot that resolves outside the clone root', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    // Defense in depth: even if history enumeration handed back a path outside
+    // the clone root, the containment check must veto the read.
+    const outside = join(tmpRoot, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(join(outside, 'SKILL.md'), 'LEAKED', 'utf8');
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: outside, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(result).toEqual({ body: null, ts: TS });
+  });
+
+  it('reads the flat <slug>.md artifact for an agent clone', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    const agentSnapshot = join(
+      tmpRoot,
+      'agents',
+      '.history',
+      'deep-research',
+      TS,
+    );
+    fs.mkdirSync(agentSnapshot, { recursive: true });
+    fs.writeFileSync(
+      join(agentSnapshot, 'deep-research.md'),
+      'AGENT SNAPSHOT',
+      'utf8',
+    );
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: agentSnapshot, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'agent',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(result).toEqual({ body: 'AGENT SNAPSHOT', ts: TS });
+  });
+
+  it('wraps a listHistory throw in PERSISTENCE_UNAVAILABLE without leaking', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockRejectedValue(
+      new Error('EACCES: /home/secret/.ssh/id_rsa'),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:getHistoryBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        ts: TS,
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect((thrown as Error).message).not.toContain('id_rsa');
   });
 });

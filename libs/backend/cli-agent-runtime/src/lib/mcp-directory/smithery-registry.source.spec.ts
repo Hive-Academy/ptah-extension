@@ -57,6 +57,8 @@ describe('SmitheryRegistrySource', () => {
           iconUrl: 'https://icon/a.png',
           verified: true,
           useCount: 10,
+          bySmithery: true,
+          homepage: 'https://server-a.example',
         },
       ],
       pagination: { currentPage: 1, totalPages: 1 },
@@ -76,9 +78,16 @@ describe('SmitheryRegistrySource', () => {
 
     expect(result.servers).toHaveLength(1);
     expect(result.servers[0]?.name).toBe('@owner/server-a');
+    // displayName is the friendly name; description is the raw description
+    // (no longer concatenated into a single string).
+    expect(result.servers[0]?.displayName).toBe('Server A');
+    expect(result.servers[0]?.description).toBe('desc a');
     expect(result.servers[0]?.icons?.[0]?.src).toBe('https://icon/a.png');
     expect(result.servers[0]?.source).toBe('smithery');
     expect(result.servers[0]?.verified).toBe(true);
+    expect(result.servers[0]?.useCount).toBe(10);
+    expect(result.servers[0]?.bySmithery).toBe(true);
+    expect(result.servers[0]?.homepage).toBe('https://server-a.example');
   });
 
   it('translates page <-> cursor (decodes cursor to page, encodes next page)', async () => {
@@ -145,7 +154,11 @@ describe('SmitheryRegistrySource', () => {
     const fetchMock = mockFetchOnce({
       qualifiedName: '@owner/detailed',
       displayName: 'Detailed',
+      description: 'A detailed server',
       verified: true,
+      useCount: 42,
+      bySmithery: false,
+      homepage: 'https://detailed.example',
       security: { scanPassed: true },
       connections: [
         {
@@ -166,8 +179,14 @@ describe('SmitheryRegistrySource', () => {
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain('/servers/%40owner%2Fdetailed');
     expect(detail?.name).toBe('@owner/detailed');
+    // displayName and description are mapped separately (not concatenated).
+    expect(detail?.displayName).toBe('Detailed');
+    expect(detail?.description).toBe('A detailed server');
     expect(detail?.scanPassed).toBe(true);
     expect(detail?.verified).toBe(true);
+    expect(detail?.useCount).toBe(42);
+    expect(detail?.bySmithery).toBe(false);
+    expect(detail?.homepage).toBe('https://detailed.example');
     expect(detail?.connections?.[0]?.configSchema).toEqual({
       type: 'object',
       required: ['token'],

@@ -1,99 +1,28 @@
 /**
- * Dual-Registration Guard Test (test-strategy-plan.md §4.1)
+ * Manifest invariants + dual-registration guard (test-strategy-plan.md §4.1).
  *
- * Ensures every method registered by a SHARED_HANDLERS class has its prefix
- * present in ALLOWED_METHOD_PREFIXES (the runtime security allowlist in
- * vscode-core). Without this guard, a new handler class whose prefix is
- * missing from the allowlist silently fails at runtime — the RpcHandler
- * rejects the registration — rather than breaking CI.
+ * The manifest must partition `RPC_METHOD_NAMES` exactly — that is what makes
+ * every host's exclusion set derivable instead of hand-maintained.
+ *
+ * The allowlist half ensures every method's prefix is present in
+ * ALLOWED_METHOD_PREFIXES (the runtime security allowlist in vscode-core).
+ * Without it, a handler whose prefix is missing silently fails at runtime —
+ * the RpcHandler rejects the registration — rather than breaking CI.
  *
  * Failure message example:
  *   Missing prefixes detected:
- *     - NewFeatureRpcHandlers: newFeature:doSomething  (prefix: "newFeature:")
+ *     - newFeature: newFeature:doSomething  (prefix: "newFeature:")
  */
 
 // ---------------------------------------------------------------------------
 // Heavy transitive dependencies must be mocked before the SUT is imported.
 //
-// Importing `register-all` brings in every handler class; some of them
-// (SetupRpcHandlers via agent-generation, WorkspaceRpcHandlers via
-// workspace-intelligence) reach `TreeSitterParserService` whose module top-
-// level evaluates `import.meta.url` — a construct Jest's CJS transform cannot
-// parse. We mock both packages here so the module graph never reaches those
-// native/ESM-only files.
+// Importing the manifest brings in every handler class — see
+// `test-utils/heavy-module-mocks.ts` for why that needs stubbing.
 // ---------------------------------------------------------------------------
-jest.mock('@ptah-extension/workspace-intelligence', () => ({
-  ProjectType: {
-    Node: 'node',
-    React: 'react',
-    Vue: 'vue',
-    Angular: 'angular',
-    NextJS: 'nextjs',
-    Python: 'python',
-    Java: 'java',
-    Rust: 'rust',
-    Go: 'go',
-    DotNet: 'dotnet',
-    PHP: 'php',
-    Ruby: 'ruby',
-    General: 'general',
-    Unknown: 'unknown',
-  },
-  Framework: {
-    React: 'react',
-    Vue: 'vue',
-    Angular: 'angular',
-    NextJS: 'nextjs',
-    Nuxt: 'nuxt',
-    Express: 'express',
-    Django: 'django',
-    Laravel: 'laravel',
-    Rails: 'rails',
-    Svelte: 'svelte',
-    Astro: 'astro',
-    NestJS: 'nestjs',
-    Fastify: 'fastify',
-    Flask: 'flask',
-    FastAPI: 'fastapi',
-    Spring: 'spring',
-  },
-  MonorepoType: {
-    Nx: 'nx',
-    Lerna: 'lerna',
-    Rush: 'rush',
-    Turborepo: 'turborepo',
-    PnpmWorkspaces: 'pnpm-workspaces',
-    YarnWorkspaces: 'yarn-workspaces',
-  },
-  FileType: {
-    Source: 'source',
-    Test: 'test',
-    Config: 'config',
-    Documentation: 'docs',
-    Asset: 'asset',
-  },
-  TreeSitterParserService: class {},
-  AstAnalysisService: class {},
-  DependencyGraphService: class {},
-  WorkspaceAnalyzerService: class {},
-  ContextService: class {},
-  ContextOrchestrationService: class {},
-  WorkspaceService: class {},
-  TokenCounterService: class {},
-  FileSystemService: class {},
-  FileSystemError: class extends Error {},
-  ProjectDetectorService: class {},
-  FrameworkDetectorService: class {},
-  DependencyAnalyzerService: class {},
-  MonorepoDetectorService: class {},
-  PatternMatcherService: class {},
-  IgnorePatternResolverService: class {},
-  WorkspaceIndexerService: class {},
-  FileTypeClassifierService: class {},
-  FileRelevanceScorerService: class {},
-  ContextSizeOptimizerService: class {},
-  ContextEnrichmentService: class {},
-}));
+jest.mock('@ptah-extension/workspace-intelligence', () =>
+  require('../test-utils/heavy-module-mocks').workspaceIntelligenceMock(),
+);
 
 jest.mock('@ptah-extension/memory-curator', () => ({
   // Pass through the real module so MEMORY_TOKENS and other DI symbols are
@@ -106,23 +35,39 @@ jest.mock('@ptah-extension/memory-curator', () => ({
 import 'reflect-metadata';
 import { ALLOWED_METHOD_PREFIXES } from '@ptah-extension/vscode-core';
 import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
-import { SHARED_HANDLERS } from './register-all';
+import { RPC_HANDLER_MANIFEST, assertManifestInvariants } from './host-profile';
+
+describe('RPC handler manifest', () => {
+  it('claims every registry method exactly once', () => {
+    expect(() => assertManifestInvariants(RPC_METHOD_NAMES)).not.toThrow();
+  });
+
+  it('uses unique entry keys', () => {
+    const keys = RPC_HANDLER_MANIFEST.map((entry) => entry.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('only leaves `host.`-prefixed entries without a library implementation', () => {
+    const unowned = RPC_HANDLER_MANIFEST.filter(
+      (entry) => !('handler' in entry) && !entry.key.startsWith('host.'),
+    ).map((entry) => entry.key);
+    expect(unowned).toEqual([]);
+  });
+});
 
 describe('RPC allowlist dual-registration guard', () => {
-  it('every SHARED_HANDLERS method has its prefix in ALLOWED_METHOD_PREFIXES', () => {
+  it('every manifest method has its prefix in ALLOWED_METHOD_PREFIXES', () => {
     const missing: string[] = [];
 
-    for (const HandlerCtor of SHARED_HANDLERS) {
-      for (const method of HandlerCtor.METHODS) {
+    for (const entry of RPC_HANDLER_MANIFEST) {
+      for (const method of entry.methods) {
         const colonIndex = method.indexOf(':');
         // Methods without a colon have no valid prefix — flag them too.
         const prefix =
           colonIndex === -1 ? method : method.slice(0, colonIndex + 1);
 
         if (!(ALLOWED_METHOD_PREFIXES as readonly string[]).includes(prefix)) {
-          missing.push(
-            `  - ${HandlerCtor.name}: ${method}  (prefix: "${prefix}")`,
-          );
+          missing.push(`  - ${entry.key}: ${method}  (prefix: "${prefix}")`);
         }
       }
     }

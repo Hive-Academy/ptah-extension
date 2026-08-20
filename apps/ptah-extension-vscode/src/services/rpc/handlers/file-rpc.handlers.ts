@@ -1,19 +1,15 @@
 /**
- * File RPC Handlers — handles file:open, file:pick, file:pick-images.
+ * File RPC Handlers — `file:open` only.
  *
- * Opens files in VS Code editor with optional line navigation. Provides
- * native file picker dialogs for attaching files and images.
+ * Reveals a path in the VS Code editor, with optional line navigation.
+ * Picking and reading files moved to `@ptah-extension/rpc-handlers`; this
+ * remainder follows in the editor-family migration.
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import {
-  FileOpenParams,
-  FileOpenResult,
-  MAX_IMAGE_SIZE_BYTES,
-  resolveImageMediaType,
-} from '@ptah-extension/shared';
+import { FileOpenParams, FileOpenResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -35,11 +31,9 @@ export class FileRpcHandlers {
    */
   register(): void {
     this.registerFileOpen();
-    this.registerPick();
-    this.registerPickImages();
 
     this.logger.debug('File RPC handlers registered', {
-      methods: ['file:open', 'file:pick', 'file:pick-images'],
+      methods: ['file:open'],
     });
   }
 
@@ -90,146 +84,6 @@ export class FileRpcHandlers {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
-        }
-      },
-    );
-  }
-
-  /**
-   * file:pick - Open native file picker for workspace files
-   * Returns selected file paths with size metadata.
-   */
-  private registerPick(): void {
-    this.rpcHandler.registerMethod(
-      'file:pick',
-      async (params: { multiple?: boolean } | undefined) => {
-        try {
-          this.logger.debug('RPC: file:pick called', {
-            multiple: params?.multiple,
-          });
-
-          const fileUris = await vscode.window.showOpenDialog({
-            canSelectFiles: true,
-            canSelectFolders: false,
-            canSelectMany: params?.multiple !== false,
-            defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
-            title: 'Attach Files',
-          });
-
-          if (!fileUris || fileUris.length === 0) {
-            return { files: [] };
-          }
-
-          const files: Array<{ path: string; size: number }> = [];
-          for (const uri of fileUris) {
-            const stat = await fs.promises.stat(uri.fsPath).catch(() => null);
-            files.push({
-              path: uri.fsPath,
-              size: stat?.size ?? 0,
-            });
-          }
-
-          return { files };
-        } catch (error) {
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(String(error)),
-            { errorSource: 'FileRpcHandlers.registerPick' },
-          );
-          this.logger.error(
-            'RPC: file:pick failed',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-          return { files: [] };
-        }
-      },
-    );
-  }
-
-  /**
-   * file:pick-images - Open native file picker for images, returns base64 data
-   * Filters to common image formats and reads selected files as base64.
-   */
-  private registerPickImages(): void {
-    this.rpcHandler.registerMethod(
-      'file:pick-images',
-      async (params: { multiple?: boolean } | undefined) => {
-        try {
-          this.logger.debug('RPC: file:pick-images called', {
-            multiple: params?.multiple,
-          });
-          const imageUris = await vscode.window.showOpenDialog({
-            canSelectFiles: true,
-            canSelectFolders: false,
-            canSelectMany: params?.multiple !== false,
-            defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
-            title: 'Attach Images',
-            filters: {
-              Images: ['png', 'jpg', 'jpeg', 'gif', 'webp'],
-            },
-          });
-
-          if (!imageUris || imageUris.length === 0) {
-            return { images: [] };
-          }
-
-          const MAX_IMAGE_COUNT = 10;
-          if (imageUris.length > MAX_IMAGE_COUNT) {
-            return {
-              images: [],
-              error: `Too many images selected (${imageUris.length}). Maximum is ${MAX_IMAGE_COUNT}.`,
-            };
-          }
-
-          const images: Array<{
-            data: string;
-            mediaType: string;
-            name: string;
-          }> = [];
-
-          for (const uri of imageUris) {
-            const stat = await fs.promises.stat(uri.fsPath);
-            if (stat.size > MAX_IMAGE_SIZE_BYTES) {
-              this.logger.warn(
-                'RPC: file:pick-images skipping oversized file',
-                {
-                  path: uri.fsPath,
-                  size: stat.size,
-                } as unknown as Error,
-              );
-              continue;
-            }
-
-            const data = await fs.promises.readFile(uri.fsPath);
-            const base64 = data.toString('base64');
-            const mediaType = resolveImageMediaType(undefined, base64);
-            if (mediaType === null) {
-              this.logger.warn(
-                'RPC: file:pick-images skipping unsupported image (no matching magic bytes)',
-                {
-                  path: uri.fsPath,
-                } as unknown as Error,
-              );
-              continue;
-            }
-
-            images.push({
-              data: base64,
-              mediaType,
-              name: path.basename(uri.fsPath),
-            });
-          }
-
-          return { images };
-        } catch (error) {
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(String(error)),
-            { errorSource: 'FileRpcHandlers.registerPickImages' },
-          );
-          this.logger.error(
-            'RPC: file:pick-images failed',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-          return { images: [] };
         }
       },
     );

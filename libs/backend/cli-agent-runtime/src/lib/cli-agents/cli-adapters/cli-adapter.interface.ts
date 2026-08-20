@@ -33,7 +33,7 @@ export interface CliCommandOptions {
   readonly resumeSessionId?: string;
   /** Project-specific guidance to provide as system context. Adapters with native system prompt support handle this natively; others prepend to task prompt via buildTaskPrompt(). */
   readonly projectGuidance?: string;
-  /** Full system prompt content (prompt harness). Replaces projectGuidance for premium users.
+  /** Full system prompt content (prompt harness). Replaces projectGuidance when available.
    *  Includes core prompt, enhanced prompts, skill catalog, and MCP docs. */
   readonly systemPrompt?: string;
   /** Reasoning effort level for the CLI agent (adapter-specific values) */
@@ -70,6 +70,21 @@ export interface SdkHandle {
   /** Register a callback invoked when the real SDK session ID is resolved.
    *  Only Ptah CLI adapter implements this (session ID arrives via system init). */
   readonly onSessionResolved?: (callback: (sessionId: string) => void) => void;
+  readonly supportsContinuation?: () => boolean;
+  readonly continue?: (message: string) => Promise<ContinuationOutcome>;
+  /** Send a mid-run steering message to a still-running agent that owns a live
+   *  input channel (e.g. Pi RPC mode writes a {"type":"steer"} request to the
+   *  child's stdin). AgentProcessManager.steer() routes SDK-based agents here
+   *  in preference to the legacy `tracked.process.stdin` path.
+   *  No-op if the run no longer has a writable channel. */
+  readonly steer?: (message: string) => void;
+  /** PID of the live child process, if this handle spawned one. Lets the
+   *  manager tree-kill the real process group on abort/timeout. */
+  readonly getPid?: () => number | undefined;
+}
+
+export interface ContinuationOutcome {
+  readonly done: Promise<number>;
 }
 
 export interface CliAdapter {

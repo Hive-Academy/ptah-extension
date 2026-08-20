@@ -78,9 +78,13 @@ import {
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
+  type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
-import { SESSION_CONTEXT } from '../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_VISIBLE,
+} from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
 
 // ---------------------------------------------------------------------------
@@ -121,13 +125,42 @@ function makeHarness(
     sessionId?: string;
     sessionIsActive?: boolean;
     confirmResult?: boolean;
+    /**
+     * When true, wire the REAL `ActionBannerService` instead of the jest stub
+     * so the per-tile banner filtering computeds (`actionInfo`/`actionWarning`/
+     * `actionError`) are exercised end-to-end.
+     */
+    useRealBanner?: boolean;
+    /**
+     * Tile id for `SESSION_CONTEXT`. When provided, the component resolves its
+     * own tab id to this value (canvas/tile mode) instead of the global active
+     * tab — the scenario where a banner from another tile must NOT leak in.
+     */
+    sessionContextTabId?: string;
+    /**
+     * Initial value for the `SESSION_VISIBLE` signal (tile on-screen state).
+     * When provided, `SESSION_VISIBLE` is wired so `mainPanelShowing()` reflects
+     * it. Absent → token not provided (treated as always visible).
+     */
+    sessionVisible?: boolean;
+    /**
+     * When true, the component's own real `PanelResizeService` is used instead
+     * of the jest stub, so drag coalescing tests can read the live signal.
+     */
+    realPanelResize?: boolean;
   } = {},
 ) {
   const {
     sessionId = 'session-uuid-123',
     sessionIsActive = true,
     confirmResult = true,
+    useRealBanner = false,
+    sessionContextTabId,
+    sessionVisible,
+    realPanelResize = false,
   } = opts;
+  const sessionVisibleSig =
+    sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
 
   // Writable signals for reactive control from tests
   const sessionIdSig = signal<string | null>(sessionId);
@@ -135,7 +168,11 @@ function makeHarness(
   const showErrorMock = jest.fn();
   const suppressAnimateOnceSig = signal<boolean>(false);
 
+  // Interrupted subagents the "N interrupted agents — Resume" banner reads.
+  const resumableSubagentsSig = signal<SubagentRecord[]>([]);
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
+  const upsertSessionSummaryMock = jest.fn();
+  const removeSessionFromListMock = jest.fn();
   const chatStoreStub = {
     currentSessionId: sessionIdSig.asReadonly(),
     sessionIsActive: sessionIsActiveSig.asReadonly(),
@@ -147,7 +184,10 @@ function makeHarness(
     sessionStatus: signal(null),
     queueRestoreContent: signal(null),
     agentPanelOpen: signal(false),
+    resumableSubagents: resumableSubagentsSig.asReadonly(),
     switchSession: switchSessionMock,
+    upsertSessionSummary: upsertSessionSummaryMock,
+    removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
 
   // TabManagerService: resolvedTabId and resolvedSessionId depend on it
@@ -190,6 +230,11 @@ function makeHarness(
     findTabsBySessionId: findTabsBySessionIdMock,
     rebindTabSession: rebindTabSessionMock,
     closeTab: closeTabMock,
+    // Consumed by the component-scoped TranscriptRetentionService effects.
+    closedTab: signal(null).asReadonly(),
+    removedWorkspace$: signal(null).asReadonly(),
+    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    clearRemovedWorkspace: jest.fn(),
   } as unknown as TabManagerService;
 
   const vscodeStub = {
@@ -225,7 +270,9 @@ function makeHarness(
 
   const showInfoMock = jest.fn();
   const showWarningMock = jest.fn();
+  const realActionBanner = new ActionBannerService();
   const actionBannerStub = {
+    banner: signal<unknown>(null).asReadonly(),
     error: signal<string | null>(null).asReadonly(),
     info: signal<string | null>(null).asReadonly(),
     warning: signal<string | null>(null).asReadonly(),
@@ -233,6 +280,9 @@ function makeHarness(
     showInfo: showInfoMock,
     showWarning: showWarningMock,
   } as unknown as ActionBannerService;
+  const actionBannerProvider: ActionBannerService = useRealBanner
+    ? realActionBanner
+    : actionBannerStub;
 
   const compactionLifecycleStub = {
     suppressAnimateOnce: suppressAnimateOnceSig.asReadonly(),
@@ -259,7 +309,9 @@ function makeHarness(
     requestCanvasSession: requestCanvasSessionMock,
   } as unknown as AppStateManager;
 
-  const treeBuilderStub = {} as unknown as ExecutionTreeBuilderService;
+  const treeBuilderStub = {
+    clearForTab: jest.fn(),
+  } as unknown as ExecutionTreeBuilderService;
 
   const conversationRegistryStub = {
     getIsCompacting: jest.fn(() => false),
@@ -283,20 +335,35 @@ function makeHarness(
       { provide: VSCodeService, useValue: vscodeStub },
       { provide: ClaudeRpcService, useValue: rpcStub },
       { provide: ConfirmationDialogService, useValue: confirmDialogStub },
-      { provide: ActionBannerService, useValue: actionBannerStub },
+      { provide: ActionBannerService, useValue: actionBannerProvider },
       { provide: TabManagerService, useValue: tabManagerStub },
       {
         provide: CompactionLifecycleService,
         useValue: compactionLifecycleStub,
       },
       { provide: AgentMonitorStore, useValue: agentMonitorStoreStub },
-      { provide: PanelResizeService, useValue: panelResizeStub },
+      {
+        provide: PanelResizeService,
+        useValue: realPanelResize
+          ? new PanelResizeService()
+          : (panelResizeStub as unknown as PanelResizeService),
+      },
       { provide: AppStateManager, useValue: appStateStub },
       { provide: ExecutionTreeBuilderService, useValue: treeBuilderStub },
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
-      { provide: SESSION_CONTEXT, useValue: null },
+      {
+        provide: SESSION_CONTEXT,
+        useValue:
+          sessionContextTabId === undefined
+            ? null
+            : signal<string | null>(sessionContextTabId).asReadonly(),
+      },
+      {
+        provide: SESSION_VISIBLE,
+        useValue: sessionVisibleSig ? sessionVisibleSig.asReadonly() : null,
+      },
     ],
   });
 
@@ -319,14 +386,19 @@ function makeHarness(
     findTabsBySessionIdMock,
     rebindTabSessionMock,
     closeTabMock,
+    upsertSessionSummaryMock,
+    removeSessionFromListMock,
     requestCanvasSessionMock,
     layoutModeSig,
     showErrorMock,
     showInfoMock,
     showWarningMock,
+    realActionBanner,
     sessionIsActiveSig,
     sessionIdSig,
     activeTabIdSig,
+    sessionVisibleSig,
+    resumableSubagentsSig,
   };
 }
 
@@ -384,6 +456,7 @@ describe('ChatViewComponent — rewind flow (backend auto-resume)', () => {
     expect(h.showErrorMock).toHaveBeenCalledTimes(1);
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.rewindFilesMock).toHaveBeenCalledTimes(1);
     expect(h.confirmMock).not.toHaveBeenCalled();
@@ -462,16 +535,27 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
       activate: true,
     });
 
+    // Forked session optimistically surfaced in the sidebar before rebind.
+    expect(h.upsertSessionSummaryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'new-session-uuid-999',
+        name: 'Original Session (rewind)',
+        isActive: true,
+      }),
+    );
+
     // Success message — no rollback suffix
     expect(h.showInfoMock).toHaveBeenCalledTimes(1);
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
 
     // Original NOT deleted
     expect(h.findTabsBySessionIdMock).not.toHaveBeenCalled();
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.closeTabMock).not.toHaveBeenCalled();
+    expect(h.removeSessionFromListMock).not.toHaveBeenCalled();
   });
 
   it('delete-original path: checkbox checked + all tabs closed → findTabsBySessionId + closeTab + claudeRpc.deleteSession called in order', async () => {
@@ -496,11 +580,17 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     const firstDelete = h.deleteSessionMock.mock.invocationCallOrder[0];
     expect(firstClose).toBeLessThan(firstDelete);
 
+    // Original dropped from the sidebar immediately after a successful delete.
+    expect(h.removeSessionFromListMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+    );
+
     expect(h.switchSessionMock).toHaveBeenCalledWith('new-session-uuid-999', {
       activate: true,
     });
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -521,6 +611,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('original session left in place'),
+      'tab-abc',
     );
   });
 
@@ -541,6 +632,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.deleteSessionMock).toHaveBeenCalledWith('session-uuid-123');
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('original session delete failed'),
+      'tab-abc',
     );
   });
 
@@ -552,6 +644,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
@@ -586,6 +679,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.showWarningMock).toHaveBeenCalledTimes(1);
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('file rollback skipped'),
+      'tab-abc',
     );
   });
 
@@ -611,6 +705,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
@@ -637,6 +732,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
   });
@@ -661,6 +757,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.forkSessionMock).toHaveBeenCalled();
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -688,6 +785,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     );
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('file rollback skipped'),
+      'tab-abc',
     );
   });
 
@@ -720,6 +818,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
@@ -757,6 +856,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       'Cannot rewind to this point — no assistant reply exists yet.',
+      null,
     );
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
@@ -798,6 +898,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     });
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -816,8 +917,476 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.rebindTabSessionMock).toHaveBeenCalled();
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('activating it failed'),
+      'tab-abc',
     );
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.showInfoMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts when the originating tab cannot be found — does NOT rewire the active tab', async () => {
+    const h = makeHarness();
+    primeHappyPath(h);
+    // Simulate the originating tab having been closed mid-dialog (or a
+    // workspace-partition mismatch): the singular lookup returns null.
+    h.findTabBySessionIdMock.mockReturnValue(null);
+
+    await h.component.onRewindRequested('msg-no-origin-tab');
+
+    // The origin-tab check now runs BEFORE forkSession, so we abort without
+    // creating an orphaned fork on disk. The active tab is NOT silently
+    // rewired to the fork (the wrong-session-rewind regression).
+    expect(h.forkSessionMock).not.toHaveBeenCalled();
+    expect(h.rebindTabSessionMock).not.toHaveBeenCalled();
+    expect(h.switchSessionMock).not.toHaveBeenCalled();
+    expect(h.upsertSessionSummaryMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('originating tab could not be found'),
+      null,
+    );
+    expect(h.showInfoMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-tile banner scoping — the wrong-session-toast regression.
+//
+// Two sessions are mounted side by side in canvas/tile mode. A rewind fired on
+// session A surfaces its success/warning toast scoped to A's tab id. Before the
+// fix the banner signals were global, so B's `ChatViewComponent` rendered A's
+// toast too ("the success message showed in the other tab"). These tests wire
+// the REAL `ActionBannerService` and a tile `SESSION_CONTEXT` so the filtering
+// computeds are exercised end-to-end: a banner scoped to another tile must NOT
+// leak into this tile, a global (`null`) banner must, and the kind must match.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — per-tile banner scoping', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('surfaces a banner scoped to THIS tile', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showInfo('rewind complete', 'tile-A');
+    expect(h.component.actionInfo()).toBe('rewind complete');
+    h.realActionBanner.clear();
+  });
+
+  it('does NOT surface a banner scoped to ANOTHER tile (the wrong-session-toast bug)', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    // Banner fired by session B's rewind, scoped to tile-B.
+    h.realActionBanner.showInfo('rewind complete', 'tile-B');
+    expect(h.component.actionInfo()).toBeNull();
+    h.realActionBanner.clear();
+  });
+
+  it('surfaces a global (tabId: null) banner on every tile', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showError('No active session to rewind.', null);
+    expect(h.component.actionError()).toBe('No active session to rewind.');
+    h.realActionBanner.clear();
+  });
+
+  it('discriminates by kind — a warning does not leak into the info/error slots', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showWarning('rollback skipped', 'tile-A');
+    expect(h.component.actionWarning()).toBe('rollback skipped');
+    expect(h.component.actionInfo()).toBeNull();
+    expect(h.component.actionError()).toBeNull();
+    h.realActionBanner.clear();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mainPanelShowing() / SESSION_VISIBLE gating.
+//
+// `mainPanelShowing()` is the single computed that prevents the hidden main
+// panel from double-rendering a tab that a canvas tile already renders live
+// (plan risk 5), and freezes a hidden-workspace tile's transcript via the
+// injected SESSION_VISIBLE signal (plan §3.6). Direct coverage so a refactor
+// can't silently break the gate.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('main panel: true outside grid layout, false in grid layout', () => {
+    const h = makeHarness();
+    // Default single layout → main panel renders its transcript live.
+    expect(h.component.mainPanelShowing()).toBe(true);
+
+    // Grid layout → tiles own the live render; the hidden main panel must not.
+    h.layoutModeSig.set('grid');
+    expect(h.component.mainPanelShowing()).toBe(false);
+  });
+
+  it('tile mode: reflects the injected SESSION_VISIBLE signal', () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      sessionVisible: false,
+    });
+    // Hidden tile → frozen (not showing).
+    expect(h.component.mainPanelShowing()).toBe(false);
+
+    // Becomes visible → shows, independent of the global layout mode.
+    h.sessionVisibleSig!.set(true);
+    expect(h.component.mainPanelShowing()).toBe(true);
+  });
+
+  it('tile mode without SESSION_VISIBLE token defaults to showing', () => {
+    const h = makeHarness({ sessionContextTabId: 'tile-A' });
+    expect(h.component.mainPanelShowing()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// showBackgroundStrip() / traySessionId() — tray-on-tiles gating.
+//
+// The main panel (no SESSION_CONTEXT) always renders the background-agent
+// tray, scoped to every session (traySessionId === null). A canvas tile only
+// renders it once its own session has resolved (resolvedSessionId() !== null)
+// — otherwise an unscoped tray would flash before the tile is bound to a real
+// session — and scopes the tray to exactly that session once resolved.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// TASK_2026_295 — the "N interrupted agents — Resume" banner in tile mode.
+//
+// The filter was a strict `s.parentSessionId === sid`. An interrupted subagent
+// whose owning session was never resolved matched no tile at all, so the banner
+// never rendered for exactly the agents most likely to need resuming.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — resolvedResumableSubagents() scoping', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  function subagent(
+    parentToolUseId: string,
+    parentSessionId: string | undefined,
+  ): SubagentRecord {
+    return {
+      parentToolUseId,
+      status: 'stopped',
+      parentSessionId,
+    } as SubagentRecord;
+  }
+
+  it('surfaces an interrupted subagent whose owning session was never resolved', () => {
+    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
+    h.resumableSubagentsSig.set([subagent('toolu_ownerless', undefined)]);
+
+    expect(
+      h.component.resolvedResumableSubagents().map((s) => s.parentToolUseId),
+    ).toEqual(['toolu_ownerless']);
+  });
+
+  it('still hides another session`s interrupted subagent', () => {
+    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
+    h.resumableSubagentsSig.set([
+      subagent('toolu_mine', h.sessionId),
+      subagent('toolu_theirs', 'session-other'),
+    ]);
+
+    expect(
+      h.component.resolvedResumableSubagents().map((s) => s.parentToolUseId),
+    ).toEqual(['toolu_mine']);
+  });
+
+  it('leaves the main panel list untouched', () => {
+    const h = makeHarness();
+    h.resumableSubagentsSig.set([
+      subagent('toolu_mine', h.sessionId),
+      subagent('toolu_theirs', 'session-other'),
+    ]);
+
+    expect(h.component.resolvedResumableSubagents()).toHaveLength(2);
+  });
+});
+
+describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('main panel (no SESSION_CONTEXT): always shows the strip, unscoped (null) session', () => {
+    const h = makeHarness();
+    expect(h.component.showBackgroundStrip()).toBe(true);
+    expect(h.component.traySessionId()).toBeNull();
+  });
+
+  it('tile mode: hides the strip while the tile session is unresolved', () => {
+    // 'tile-unresolved' has no matching entry in the stubbed tabs() array
+    // (which only contains 'tab-abc'), so resolvedSessionId() returns null —
+    // mirroring a canvas tile whose tab has not yet been bound to a session.
+    const h = makeHarness({ sessionContextTabId: 'tile-unresolved' });
+    expect(h.component.resolvedSessionId()).toBeNull();
+    expect(h.component.showBackgroundStrip()).toBe(false);
+    expect(h.component.traySessionId()).toBeNull();
+  });
+
+  it('tile mode: shows the strip scoped to the resolved session once resolvedSessionId() is non-null', () => {
+    // 'tab-abc' matches the default tabs() stub entry, whose claudeSessionId
+    // is the harness sessionId — simulates a tile already bound to a live session.
+    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
+    expect(h.component.resolvedSessionId()).toBe(h.sessionId);
+    expect(h.component.showBackgroundStrip()).toBe(true);
+    expect(h.component.traySessionId()).toBe(h.sessionId);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// TASK_2026_176 — panel resize coalescing + blur/Escape teardown
+//
+// The pointer-move listener used to run inside the Angular zone and called
+// getBoundingClientRect() once per native pointer event, costing a change-
+// detection pass plus a forced synchronous layout each time. It now runs
+// outside the zone, records only the latest pointer event, and arms a single
+// requestAnimationFrame. The actual width write (and the template-bound
+// signal) only happens inside ngZone.run in the frame callback, so live visual
+// feedback is preserved while the per-event overhead is removed.
+// -----------------------------------------------------------------------------
+describe('ChatViewComponent — panel resize coalescing and teardown (TASK_2026_176)', () => {
+  let h: ReturnType<typeof makeHarness>;
+  let host: HTMLElement;
+  let handle: HTMLElement;
+  let setPointerCapture: jest.Mock;
+  let hasPointerCapture: jest.Mock;
+  let releasePointerCapture: jest.Mock;
+  let frames: Map<number, FrameRequestCallback>;
+  let nextFrameId: number;
+  let rafSpy: jest.SpyInstance;
+  let cafSpy: jest.SpyInstance;
+
+  function tickFrame(): void {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const cb of pending) cb(performance.now());
+  }
+
+  function pointerEvent(
+    type: string,
+    init: {
+      clientX?: number;
+      pointerId?: number;
+      button?: number;
+      bubbles?: boolean;
+      cancelable?: boolean;
+    } = {},
+  ): Event {
+    const event = new MouseEvent(type, {
+      bubbles: init.bubbles ?? true,
+      cancelable: init.cancelable ?? true,
+      clientX: init.clientX ?? 0,
+      button: init.button ?? 0,
+    });
+    Object.defineProperty(event, 'pointerId', {
+      value: init.pointerId ?? 0,
+      configurable: true,
+    });
+    return event;
+  }
+
+  function startDrag(clientX: number): void {
+    rafSpy.mockClear();
+    frames.clear();
+    const event = pointerEvent('pointerdown', {
+      button: 0,
+      clientX,
+      pointerId: 1,
+    });
+    Object.defineProperty(event, 'currentTarget', {
+      value: handle,
+      configurable: true,
+    });
+    h.component.onResizeStart(event as unknown as PointerEvent);
+  }
+
+  function moveTo(clientX: number): void {
+    handle.dispatchEvent(
+      pointerEvent('pointermove', { clientX, pointerId: 1 }),
+    );
+  }
+
+  function endDrag(): void {
+    handle.dispatchEvent(pointerEvent('pointerup', { pointerId: 1 }));
+  }
+
+  beforeEach(() => {
+    frames = new Map();
+    nextFrameId = 1;
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        const id = nextFrameId++;
+        frames.set(id, cb);
+        return id;
+      });
+    cafSpy = jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id: number) => {
+        frames.delete(id);
+      });
+
+    h = makeHarness({ realPanelResize: true });
+    host = h.fixture.nativeElement as HTMLElement;
+    Object.defineProperty(host, 'clientWidth', {
+      value: 1000,
+      configurable: true,
+    });
+    host.getBoundingClientRect = () => ({ right: 1000 }) as DOMRect;
+
+    handle = document.createElement('div');
+    host.appendChild(handle);
+    setPointerCapture = jest.fn();
+    hasPointerCapture = jest.fn().mockReturnValue(true);
+    releasePointerCapture = jest.fn();
+    Object.defineProperties(handle, {
+      setPointerCapture: { value: setPointerCapture, configurable: true },
+      hasPointerCapture: { value: hasPointerCapture, configurable: true },
+      releasePointerCapture: {
+        value: releasePointerCapture,
+        configurable: true,
+      },
+    });
+  });
+
+  afterEach(() => {
+    h.fixture.destroy();
+    rafSpy.mockRestore();
+    cafSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('coalesces pointermove to one setCustomWidth per frame and applies only the latest width', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+    const spy = jest.spyOn(service, 'setCustomWidth');
+
+    startDrag(600);
+    moveTo(700); // width 300 → min 300
+    moveTo(600); // width 400 → 400
+    moveTo(500); // width 500 → 500
+
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(spy).not.toHaveBeenCalled();
+
+    tickFrame();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(service.customWidth()).toBe(500);
+
+    moveTo(650); // width 350 → 350
+    moveTo(550); // width 450 → 450
+    expect(rafSpy).toHaveBeenCalledTimes(2);
+
+    tickFrame();
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(service.customWidth()).toBe(450);
+
+    endDrag();
+    spy.mockRestore();
+  });
+
+  it('cancels the pending frame on pointerup and still applies the release width', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+    const spy = jest.spyOn(service, 'setCustomWidth');
+
+    startDrag(600);
+    moveTo(700); // width 300 → min 300
+    expect(frames.size).toBe(1);
+
+    endDrag();
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(service.customWidth()).toBe(300);
+
+    moveTo(400);
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
+  });
+
+  it('preserves the 300px/600px panel clamp', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+
+    startDrag(600);
+    moveTo(0); // width 1000 → max 600
+    tickFrame();
+    expect(service.customWidth()).toBe(600);
+
+    moveTo(950); // width 50 → min 300
+    tickFrame();
+    expect(service.customWidth()).toBe(300);
+
+    endDrag();
+  });
+
+  it('restores the original width and ends the drag on window blur', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+
+    startDrag(600);
+    moveTo(500); // would become 500
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(service.customWidth()).toBe(400);
+    expect(service.dragging()).toBe(false);
+    expect(releasePointerCapture).toHaveBeenCalled();
+  });
+
+  it('restores the original width and ends the drag on Escape', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+
+    startDrag(600);
+    moveTo(500);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+
+    expect(frames.size).toBe(0);
+    expect(service.customWidth()).toBe(400);
+    expect(service.dragging()).toBe(false);
+  });
+
+  it('cancels a pending frame on destroy so no update lands after teardown', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+    const spy = jest.spyOn(service, 'setCustomWidth');
+
+    startDrag(600);
+    moveTo(500);
+    expect(frames.size).toBe(1);
+
+    h.fixture.destroy();
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
   });
 });

@@ -57,7 +57,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 
         <!-- Collapsed preview hint -->
         @if (isCollapsed()) {
-          <span class="text-[10px] text-base-content/30 ml-auto">
+          <span class="text-[10px] text-base-content-muted ml-auto">
             click to expand
           </span>
         }
@@ -73,7 +73,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
             class="divider my-0 before:bg-secondary/10 after:bg-secondary/10"
           ></div>
           <div
-            class="prose prose-sm prose-invert max-w-none text-base-content/70 leading-relaxed"
+            class="prose prose-sm prose-invert max-w-none text-base-content-muted leading-relaxed"
           >
             <markdown [data]="node().content || ''" />
           </div>

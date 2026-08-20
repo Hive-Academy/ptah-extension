@@ -64,11 +64,11 @@ Grep("<feature>", .ptah/specs/registry.md)
 Read(.ptah/specs/TASK_XXXX/context.md)
 
 # 3. Check design specs
-Read(.ptah/specs/TASK_2025_072/visual-design-specification.md)
-Read(.ptah/specs/TASK_2025_072/context.md)
+Read(.ptah/specs/TASK_2026_072/visual-design-specification.md)
+Read(.ptah/specs/TASK_2026_072/context.md)
 
 # 4. Review design assets
-Glob(.ptah/specs/TASK_2025_072/design-assets/*)
+Glob(.ptah/specs/TASK_2026_072/design-assets/*)
 ```
 
 ---
@@ -471,7 +471,7 @@ When generating landing page content, deliver:
 
 - Libraries reviewed: [list]
 - Tasks analyzed: [list]
-- Design spec reference: TASK_2025_072
+- Design spec reference: TASK_2026_072
 
 ## Design System Tokens Used
 
@@ -542,7 +542,7 @@ When generating landing page content, deliver:
 
 Before generating:
 
-- [ ] Read TASK_2025_072 visual design spec
+- [ ] Read TASK_2026_072 visual design spec
 - [ ] Review design assets in design-assets/
 - [ ] Understand color palette and typography
 - [ ] Know the animation patterns

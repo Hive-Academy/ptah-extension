@@ -1,77 +1,41 @@
 import 'reflect-metadata';
 
-const CLI_PLUGIN_SYNC_SERVICE_TOKEN = Symbol.for('CliPluginSyncService');
 const LOGGER_TOKEN = Symbol.for('Logger');
-const STATE_STORAGE_TOKEN = Symbol.for('IStateStorage');
-const CONTENT_DOWNLOAD_TOKEN = Symbol.for('ContentDownloadService');
-const USER_LAYER_MIRROR_TOKEN = Symbol.for('PtahUserLayerMirrorService');
+const PROPAGATION_TOKEN = Symbol.for('HarnessSyncPropagation');
 
 jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: {
-    CLI_PLUGIN_SYNC_SERVICE: Symbol.for('CliPluginSyncService'),
     LOGGER: Symbol.for('Logger'),
-  },
-}));
-
-jest.mock('@ptah-extension/platform-core', () => ({
-  PLATFORM_TOKENS: {
-    STATE_STORAGE: Symbol.for('IStateStorage'),
-    CONTENT_DOWNLOAD: Symbol.for('ContentDownloadService'),
-  },
-}));
-
-jest.mock('@ptah-extension/agent-generation', () => ({
-  AGENT_GENERATION_TOKENS: {
-    USER_LAYER_MIRROR_SERVICE: Symbol.for('PtahUserLayerMirrorService'),
   },
 }));
 
 jest.mock('@ptah-extension/skill-synthesis', () => ({}));
 
-const activateSkillJunctions = jest.fn();
-const syncCliAgentsOnActivation = jest.fn();
-
-jest.mock('./plugin-activation', () => ({
-  activateSkillJunctions: (...args: unknown[]) =>
-    activateSkillJunctions(...args),
-}));
-
-jest.mock('./cli-agent-sync', () => ({
-  syncCliAgentsOnActivation: (...args: unknown[]) =>
-    syncCliAgentsOnActivation(...args),
+jest.mock('@ptah-extension/harness-sync', () => ({
+  HARNESS_SYNC_TOKENS: {
+    PROPAGATION: Symbol.for('HarnessSyncPropagation'),
+  },
 }));
 
 import { ElectronSkillRepropagation } from './skill-repropagation';
 
 const WORKSPACE_ROOT = '/tmp/ws';
-const USER_ROOTS = {
-  skills: '/home/.ptah/user/skills',
-  commands: '/home/.ptah/user/commands',
-  agents: '/home/.ptah/user/agents',
-};
 
-interface Stubs {
-  syncForce: jest.Mock;
-  initialize: jest.Mock;
-  getUserLayerRoots: jest.Mock;
-  getPluginsPath: jest.Mock;
-  warn: jest.Mock;
+interface FakeContainer {
+  isRegistered: (token: symbol) => boolean;
+  resolve: <T>(token: symbol) => T;
 }
 
-function makeContainer(stubs: Stubs): {
-  resolve: <T>(token: symbol) => T;
-} {
+function makeContainer(
+  warn: jest.Mock,
+  propagate: jest.Mock | null,
+): FakeContainer {
   const map = new Map<symbol, unknown>([
-    [
-      CLI_PLUGIN_SYNC_SERVICE_TOKEN,
-      { initialize: stubs.initialize, syncForce: stubs.syncForce },
-    ],
-    [LOGGER_TOKEN, { debug: jest.fn(), warn: stubs.warn }],
-    [STATE_STORAGE_TOKEN, { get: jest.fn(), update: jest.fn() }],
-    [CONTENT_DOWNLOAD_TOKEN, { getPluginsPath: stubs.getPluginsPath }],
-    [USER_LAYER_MIRROR_TOKEN, { getUserLayerRoots: stubs.getUserLayerRoots }],
+    [LOGGER_TOKEN, { debug: jest.fn(), warn }],
   ]);
+  if (propagate !== null) map.set(PROPAGATION_TOKEN, { propagate });
   return {
+    isRegistered: (token: symbol) => map.has(token),
     resolve: <T>(token: symbol): T => {
       if (!map.has(token)) {
         throw new Error(`unregistered token: ${String(token)}`);
@@ -81,81 +45,56 @@ function makeContainer(stubs: Stubs): {
   };
 }
 
-function makeStubs(overrides: Partial<Stubs> = {}): Stubs {
-  return {
-    syncForce: jest.fn().mockResolvedValue([]),
-    initialize: jest.fn(),
-    getUserLayerRoots: jest.fn().mockReturnValue(USER_ROOTS),
-    getPluginsPath: jest.fn().mockReturnValue('/home/.ptah/plugins'),
-    warn: jest.fn(),
-    ...overrides,
-  };
-}
-
 describe('ElectronSkillRepropagation', () => {
-  beforeEach(() => {
-    activateSkillJunctions.mockReset();
-    syncCliAgentsOnActivation.mockReset();
-  });
+  // One road for all three kinds since TASK_2026_278 Batch 2. Before it, a
+  // skill enhancement that added or renamed a directory reached codex, copilot
+  // and cursor immediately and stayed invisible to Claude — the primary
+  // consumer — until the next activation, because the two fan-outs were
+  // separate code paths with separate triggers.
+  //
+  // Batch 3 moved the call from a bare reconcile onto propagation, which
+  // refreshes the user layer FIRST. `'agent'` is the case that proves it
+  // matters: `{ws}/.claude/agents` is a SOURCE the mirror reads FROM, so an
+  // enhanced agent file changed nothing the reconciler could see and the old
+  // pass propagated pre-enhancement content while reporting success.
+  it.each(['skill', 'command', 'agent'] as const)(
+    "kind '%s' propagates through the user layer to every harness target",
+    async (kind) => {
+      const propagate = jest.fn().mockResolvedValue(null);
+      const container = makeContainer(jest.fn(), propagate);
+      const repropagation = new ElectronSkillRepropagation(container as never);
 
-  it("kind 'skill' force-syncs rivals with the user-layer roots", async () => {
-    const stubs = makeStubs();
-    const container = makeContainer(stubs);
-    const repropagation = new ElectronSkillRepropagation(container as never);
+      await repropagation.repropagate(kind, 'caveman', WORKSPACE_ROOT);
 
-    await repropagation.repropagate('skill', 'caveman', WORKSPACE_ROOT);
+      expect(propagate).toHaveBeenCalledWith(
+        WORKSPACE_ROOT,
+        `skill-repropagation:${kind}`,
+      );
+    },
+  );
 
-    expect(stubs.initialize).toHaveBeenCalledTimes(1);
-    expect(stubs.syncForce).toHaveBeenCalledWith(
-      { skillsRoot: USER_ROOTS.skills, commandsRoot: USER_ROOTS.commands },
-      WORKSPACE_ROOT,
-    );
-    expect(activateSkillJunctions).not.toHaveBeenCalled();
-    expect(syncCliAgentsOnActivation).not.toHaveBeenCalled();
-  });
-
-  it("kind 'command' force-syncs rivals AND re-copies Claude commands", async () => {
-    const stubs = makeStubs();
-    const container = makeContainer(stubs);
-    const repropagation = new ElectronSkillRepropagation(container as never);
-
-    await repropagation.repropagate('command', 'deep-research', WORKSPACE_ROOT);
-
-    expect(stubs.syncForce).toHaveBeenCalledWith(
-      { skillsRoot: USER_ROOTS.skills, commandsRoot: USER_ROOTS.commands },
-      WORKSPACE_ROOT,
-    );
-    expect(activateSkillJunctions).toHaveBeenCalledWith(
-      container,
-      '/home/.ptah/plugins',
-      { skills: USER_ROOTS.skills, commands: USER_ROOTS.commands },
-    );
-  });
-
-  it("kind 'agent' invokes the agent distribution path", async () => {
-    const stubs = makeStubs();
-    const container = makeContainer(stubs);
-    const repropagation = new ElectronSkillRepropagation(container as never);
-
-    await repropagation.repropagate('agent', 'planner', WORKSPACE_ROOT);
-
-    expect(syncCliAgentsOnActivation).toHaveBeenCalledWith(
-      container,
-      WORKSPACE_ROOT,
-    );
-    expect(stubs.syncForce).not.toHaveBeenCalled();
-  });
-
-  it('swallows a thrown sync (non-fatal) and logs a warning', async () => {
-    const stubs = makeStubs({
-      syncForce: jest.fn().mockRejectedValue(new Error('boom')),
-    });
-    const container = makeContainer(stubs);
+  it('swallows a thrown propagation (non-fatal) and logs a warning', async () => {
+    const warn = jest.fn();
+    const propagate = jest.fn().mockRejectedValue(new Error('boom'));
+    const container = makeContainer(warn, propagate);
     const repropagation = new ElectronSkillRepropagation(container as never);
 
     await expect(
       repropagation.repropagate('skill', 'caveman', WORKSPACE_ROOT),
     ).resolves.toBeUndefined();
-    expect(stubs.warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('no-ops when the host registered no propagation service', async () => {
+    // A minimal container (a test host, an embedded consumer) must not turn a
+    // committed promotion into a thrown error.
+    const warn = jest.fn();
+    const container = makeContainer(warn, null);
+    const repropagation = new ElectronSkillRepropagation(container as never);
+
+    await expect(
+      repropagation.repropagate('skill', 'caveman', WORKSPACE_ROOT),
+    ).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

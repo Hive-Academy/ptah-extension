@@ -19,8 +19,6 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type {
-  CliTarget,
-  CliGenerationResult,
   GenerationStreamPayload,
   ProjectAnalysisResult,
 } from '@ptah-extension/shared';
@@ -34,7 +32,10 @@ import {
 } from '@ptah-extension/workspace-intelligence';
 import { IAgentSelectionService } from '../interfaces/agent-selection.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
-import { IContentGenerationService } from '../interfaces/content-generation.interface';
+import {
+  IContentGenerationService,
+  type ContentGenerationSdkConfig,
+} from '../interfaces/content-generation.interface';
 import { resolveProjectType } from './wizard/analysis-schema';
 import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
@@ -43,9 +44,9 @@ import {
   AgentTemplate,
   GeneratedAgent,
   GenerationSummary,
+  ValidationResult,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-import type { MultiCliAgentWriterService } from './cli-agent-transforms/multi-cli-agent-writer.service';
 
 /**
  * Generation options for orchestrator.
@@ -88,11 +89,6 @@ export interface OrchestratorGenerationOptions {
   preComputedAnalysis?: ProjectAnalysisResult;
 
   /**
-   * Whether user has premium features (enables MCP server + enhanced prompts in SDK calls).
-   */
-  isPremium?: boolean;
-
-  /**
    * Whether the Ptah MCP server is currently running.
    */
   mcpServerRunning?: boolean;
@@ -123,12 +119,6 @@ export interface OrchestratorGenerationOptions {
 
   /** Absolute paths to plugin directories (for SDK queries during content generation) */
   pluginPaths?: string[];
-
-  /**
-   * Target CLI platforms for agent distribution (premium only).
-   * When provided, Phase 5 transforms and writes agents to these CLI directories.
-   */
-  targetClis?: CliTarget[];
 }
 
 /**
@@ -186,7 +176,7 @@ export interface GenerationProgress {
  * ```typescript
  * const orchestrator = container.resolve(AgentGenerationOrchestratorService);
  * const result = await orchestrator.generateAgents(
- *   { workspaceUri, threshold: 70, isPremium: true, mcpServerRunning: true },
+ *   { workspaceUri, threshold: 70, mcpServerRunning: true },
  *   (progress) => console.log(`${progress.phase}: ${progress.percentComplete}%`)
  * );
  * if (result.isOk()) {
@@ -215,8 +205,6 @@ export class AgentGenerationOrchestratorService {
     private readonly frameworkDetector: FrameworkDetectorService,
     @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
     private readonly monorepoDetector: MonorepoDetectorService,
-    @inject(AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE)
-    private readonly multiCliWriter: MultiCliAgentWriterService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
     @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
@@ -250,7 +238,6 @@ export class AgentGenerationOrchestratorService {
         workspace: options.workspacePath,
         threshold: options.threshold ?? 50,
         hasOverrides: !!options.userOverrides,
-        isPremium: options.isPremium,
         mcpServerRunning: options.mcpServerRunning,
       });
       let projectContext: AgentProjectContext;
@@ -436,38 +423,14 @@ export class AgentGenerationOrchestratorService {
       if (writeFailures === renderedAgents.length) {
         return Result.err(new Error('All agent file writes failed'));
       }
-      let cliResults: CliGenerationResult[] | undefined;
-      if (options.targetClis && options.targetClis.length > 0) {
-        this.logger.info('Phase 5: Distributing agents to CLI targets', {
-          targets: options.targetClis,
-          agentCount: renderedAgents.length,
-        });
-
-        try {
-          cliResults = await this.multiCliWriter.writeForClis(
-            renderedAgents,
-            options.targetClis,
-            options.workspacePath,
-          );
-          for (const result of cliResults) {
-            if (result.errors.length > 0) {
-              warnings.push(
-                ...result.errors.map((e) => `[${result.cli}] ${e}`),
-              );
-            }
-          }
-        } catch (cliError) {
-          this.logger.warn('Phase 5 failed (non-fatal)', {
-            error:
-              cliError instanceof Error ? cliError.message : String(cliError),
-          });
-          warnings.push(
-            `Multi-CLI distribution failed: ${
-              cliError instanceof Error ? cliError.message : String(cliError)
-            }`,
-          );
-        }
-      }
+      // There is no Phase 5. Distributing agents to rival CLIs used to happen
+      // here, through `MultiCliAgentWriterService` and a caller-supplied list of
+      // detected CLIs. It moved out in TASK_2026_278 Batch 2: generation writes
+      // `{ws}/.claude/agents` and nothing else, the user-layer mirror picks
+      // those up, and `HarnessReconciler` fans them out to every detected
+      // target under one manifest. Generation no longer needs to know which
+      // CLIs exist, and a CLI installed after the wizard ran is populated by
+      // the next reconcile instead of never.
       const durationMs = Date.now() - startTime;
       progressCallback?.({
         phase: 'complete',
@@ -483,7 +446,6 @@ export class AgentGenerationOrchestratorService {
         warnings,
         agents: renderedAgents,
         enhancedPromptsUsed: !!options.enhancedPromptContent,
-        cliResults,
       };
 
       this.logger.info('Agent generation complete', {
@@ -723,7 +685,6 @@ export class AgentGenerationOrchestratorService {
     try {
       const rendered: GeneratedAgent[] = [];
       const sdkConfig = {
-        isPremium: options.isPremium ?? false,
         mcpServerRunning: options.mcpServerRunning ?? false,
         mcpPort: options.mcpPort,
         onStreamEvent: options.onStreamEvent,
@@ -744,7 +705,13 @@ export class AgentGenerationOrchestratorService {
         });
         const templateResult = await this.templateStorage.loadTemplate(agentId);
         if (templateResult.isErr()) {
-          this.logger.warn(`Failed to load template for ${agentId}, skipping`);
+          // Genuine "cannot produce": there is no template body to fall back
+          // to. This is the ONLY path that drops an agent — log loudly and
+          // aggregate the error so it is never swallowed silently.
+          this.logger.error(
+            `Cannot render ${agentId}: template failed to load — agent will be missing`,
+            templateResult.error!,
+          );
           warnings?.push(
             `Failed to load template for ${agentId}: ${templateResult.error?.message}`,
           );
@@ -752,83 +719,31 @@ export class AgentGenerationOrchestratorService {
         }
 
         const template = templateResult.value!;
-        const contentResult = await this.contentGenerator.generateContent(
+        // A template that parsed AND was selected must always yield a written
+        // agent file. LLM content generation and output validation are quality
+        // advisors here, not drop gates (see resolveAgentContent).
+        const finalContent = await this.resolveAgentContent(
           template,
           context,
           sdkConfig,
+          options,
+          warnings,
         );
 
-        if (contentResult.isOk()) {
-          const { content: rawContent, description: llmDescription } =
-            contentResult.value!;
-          const finalContent = this.buildAgentFileContent(
-            rawContent,
-            template,
-            context,
-            llmDescription,
-          );
-          const validationResult = await this.outputValidation.validate(
-            finalContent,
-            context,
-          );
-          if (validationResult.isErr()) {
-            this.logger.warn(
-              `Validation error for ${agentId}: ${validationResult.error!.message}`,
-            );
-            warnings?.push(
-              `Validation error for ${agentId}: ${validationResult.error!.message}`,
-            );
-            continue;
-          }
-          const validation = validationResult.value!;
-          if (!validation.isValid) {
-            const criticalIssues = validation.issues
-              .filter((i) => i.severity === 'error')
-              .map((i) => i.message)
-              .join('; ');
-            this.logger.warn(
-              `Generated content for ${agentId} failed validation (score ${validation.score}): ${criticalIssues}`,
-            );
-            warnings?.push(
-              `Skipped ${agentId}: content failed validation — ${criticalIssues}`,
-            );
-            continue;
-          }
-          if (validation.issues.length > 0) {
-            for (const issue of validation.issues) {
-              if (issue.severity === 'warning') {
-                warnings?.push(`[${agentId}] ${issue.message}`);
-              }
-            }
-          }
-          const generatedAgent: GeneratedAgent = {
-            sourceTemplateId: template.id,
-            sourceTemplateVersion: template.version,
-            content: finalContent,
-            variables: this.buildVariables(context, options.variableOverrides),
-            customizations: [],
-            generatedAt: new Date(),
-            filePath: path.join(
-              context.rootPath,
-              '.claude',
-              'agents',
-              `${template.id}.md`,
-            ),
-          };
-
-          rendered.push(generatedAgent);
-        } else {
-          this.logger.warn(
-            `Failed to generate content for ${agentId}: ${
-              contentResult.error!.message
-            }`,
-          );
-          warnings?.push(
-            `Content generation failed for ${agentId}: ${
-              contentResult.error!.message
-            }`,
-          );
-        }
+        rendered.push({
+          sourceTemplateId: template.id,
+          sourceTemplateVersion: template.version,
+          content: finalContent,
+          variables: this.buildVariables(context, options.variableOverrides),
+          customizations: [],
+          generatedAt: new Date(),
+          filePath: path.join(
+            context.rootPath,
+            '.claude',
+            'agents',
+            `${template.id}.md`,
+          ),
+        });
       }
 
       if (rendered.length === 0) {
@@ -841,6 +756,164 @@ export class AgentGenerationOrchestratorService {
         new Error(`Agent rendering failed: ${(error as Error).message}`),
       );
     }
+  }
+
+  /**
+   * Resolve the final file content for a single agent, guaranteeing output.
+   *
+   * Reliability contract (GOAL: nothing silently dropped): a template that
+   * parsed and was selected ALWAYS produces a written agent file. LLM
+   * customization and output validation are quality *advisors*, never drop
+   * gates:
+   * - generation error  → emit the authored static-template body (loud warn)
+   * - validator error   → emit the generated content anyway (loud warn)
+   * - validation warning → emit the generated content, surface the warning
+   * - validation invalid → emit the generated content anyway (loud warn)
+   * - validation invalid *for a critical safety reason* → the ONLY case that
+   *   substitutes the authored static body, so unsafe generated content is
+   *   never written to disk.
+   *
+   * @param template - Source template (already parsed + selected)
+   * @param context - Project analysis context
+   * @param sdkConfig - SDK configuration for content generation
+   * @param options - Generation options (for variable overrides)
+   * @param warnings - Aggregated warnings surfaced in the generation summary
+   * @returns Final file content, never empty
+   * @private
+   */
+  private async resolveAgentContent(
+    template: AgentTemplate,
+    context: AgentProjectContext,
+    sdkConfig: ContentGenerationSdkConfig,
+    options: OrchestratorGenerationOptions,
+    warnings?: string[],
+  ): Promise<string> {
+    const contentResult = await this.contentGenerator.generateContent(
+      template,
+      context,
+      sdkConfig,
+    );
+
+    if (contentResult.isErr()) {
+      this.logger.warn(
+        `Content generation failed for ${template.id}; writing authored template fallback`,
+        { error: contentResult.error!.message },
+      );
+      warnings?.push(
+        `Content generation failed for ${template.id} (wrote authored template fallback): ${contentResult.error!.message}`,
+      );
+      return this.renderStaticFallbackContent(template, context, options);
+    }
+
+    const { content: rawContent, description: llmDescription } =
+      contentResult.value!;
+    const candidate = this.buildAgentFileContent(
+      rawContent,
+      template,
+      context,
+      llmDescription,
+    );
+
+    const validationResult = await this.outputValidation.validate(
+      candidate,
+      context,
+    );
+    if (validationResult.isErr()) {
+      // A broken validator must not cost us the agent — ship the content.
+      this.logger.warn(
+        `Validation errored for ${template.id}; writing generated content anyway`,
+        { error: validationResult.error!.message },
+      );
+      warnings?.push(
+        `Validation error for ${template.id} (agent still written): ${validationResult.error!.message}`,
+      );
+      return candidate;
+    }
+
+    const validation = validationResult.value!;
+    for (const issue of validation.issues) {
+      if (issue.severity === 'warning') {
+        warnings?.push(`[${template.id}] ${issue.message}`);
+      }
+    }
+
+    if (validation.isValid) {
+      return candidate;
+    }
+
+    if (this.hasCriticalSafetyIssue(validation)) {
+      // Never write unsafe generated content — fall back to authored body.
+      this.logger.error(
+        `Generated content for ${template.id} failed SAFETY validation (score ${validation.score}); writing authored template fallback instead`,
+      );
+      warnings?.push(
+        `Unsafe generated content for ${template.id} — wrote authored template fallback`,
+      );
+      return this.renderStaticFallbackContent(template, context, options);
+    }
+
+    const criticalIssues = validation.issues
+      .filter((i) => i.severity === 'error')
+      .map((i) => i.message)
+      .join('; ');
+    this.logger.warn(
+      `Generated content for ${template.id} failed validation (score ${validation.score}) but will still be written (not dropped): ${criticalIssues}`,
+    );
+    warnings?.push(
+      `${template.id} written despite failing validation (score ${validation.score}): ${criticalIssues}`,
+    );
+    return candidate;
+  }
+
+  /**
+   * Determine whether a failed validation result was flagged for a critical
+   * safety reason (malicious code / leaked secrets), as opposed to a quality
+   * or factual shortcoming. Only safety failures cause the pipeline to discard
+   * the generated content in favour of the authored template body.
+   *
+   * @param validation - Validation result to inspect
+   * @returns True if any error-severity issue is safety related
+   * @private
+   */
+  private hasCriticalSafetyIssue(validation: ValidationResult): boolean {
+    return validation.issues.some(
+      (issue) =>
+        issue.severity === 'error' &&
+        /malicious|sensitive|credential|private key|secret|api[_\s-]?key|token|password/i.test(
+          issue.message,
+        ),
+    );
+  }
+
+  /**
+   * Render a safe, authored fallback body directly from the raw template when
+   * LLM generation is unavailable or produced unsafe output. Dynamic-section
+   * markers are stripped (their authored inner guidance is kept) so no raw
+   * `<!-- LLM:* -->` / `<!-- VAR:* -->` markers leak into the emitted file, and
+   * simple `{{VARIABLE}}` placeholders are substituted from the analysis
+   * context. The result is always non-empty for a valid template.
+   *
+   * @param template - Source template
+   * @param context - Project analysis context
+   * @param options - Generation options (for variable overrides)
+   * @returns Final file content built from the authored template body
+   * @private
+   */
+  private renderStaticFallbackContent(
+    template: AgentTemplate,
+    context: AgentProjectContext,
+    options: OrchestratorGenerationOptions,
+  ): string {
+    const withoutDynamicMarkers = template.content.replace(
+      /<!--\s*\/?(?:LLM|VAR):\w+\s*-->/g,
+      '',
+    );
+    const variables = this.buildVariables(context, options.variableOverrides);
+    let body = withoutDynamicMarkers;
+    for (const [key, value] of Object.entries(variables)) {
+      body = body.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), value);
+    }
+    return this.buildAgentFileContent(body, template, context);
   }
 
   /**
@@ -879,13 +952,16 @@ export class AgentGenerationOrchestratorService {
     const safeDescription = cappedDescription
       .replace(/\n/g, ' ')
       .replace(/"/g, '\\"');
-    const frontmatter = [
+    const frontmatterLines = [
       '---',
       `name: ${template.name}`,
       `description: "${safeDescription}"`,
-      '---',
-      '',
-    ].join('\n');
+    ];
+    if (template.model && template.model.trim().length > 0) {
+      frontmatterLines.push(`model: ${template.model.trim()}`);
+    }
+    frontmatterLines.push('---', '');
+    const frontmatter = frontmatterLines.join('\n');
 
     return frontmatter + strippedContent.trimStart();
   }

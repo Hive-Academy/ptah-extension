@@ -9,6 +9,7 @@
  */
 
 export * from './provider-registry';
+export * from './provider-base-url';
 export * from './proxy-token-placeholders';
 export {
   COPILOT_PROVIDER_ENTRY,
@@ -21,5 +22,11 @@ export {
 export {
   OLLAMA_PROVIDER_ENTRY,
   OLLAMA_CLOUD_PROVIDER_ENTRY,
+  OLLAMA_CLOUD_DIRECT_BASE_URL,
   LM_STUDIO_PROVIDER_ENTRY,
 } from './entries/local-provider-entry';
+export {
+  SAKANA_PROVIDER_ENTRY,
+  SAKANA_DEFAULT_TIERS,
+} from './entries/sakana-provider-entry';
+export { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';

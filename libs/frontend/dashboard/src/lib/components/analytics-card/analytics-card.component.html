@@ -1,5 +1,5 @@
 <section
-  class="card bg-base-200/40 border border-base-content/10 shadow-sm"
+  class="card bg-base-200/40 border border-base-content/10 shadow-sm mt-2"
   aria-label="Session analytics"
 >
   <div class="card-body p-4 space-y-4">
@@ -7,7 +7,7 @@
       <div class="flex items-center gap-2">
         <h3 class="card-title text-base">Session Analytics</h3>
         <span
-          class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content/50 border-base-content/20"
+          class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content-muted border-base-content/20"
         >
           Real costs from JSONL
         </span>
@@ -20,7 +20,7 @@
         aria-label="Loading session analytics"
       >
         <span class="loading loading-spinner loading-md"></span>
-        <p class="text-xs text-base-content/50 mt-3">
+        <p class="text-xs text-base-content-muted mt-3">
           Reading session history...
         </p>
       </div>
@@ -37,7 +37,7 @@
       </div>
     } @else if (displayedSessions().length === 0) {
       <div
-        class="flex flex-col items-center justify-center py-8 text-base-content/50"
+        class="flex flex-col items-center justify-center py-8 text-base-content-muted"
       >
         <lucide-angular
           [img]="ChartColumnIcon"
@@ -50,7 +50,7 @@
       <ptah-session-metrics-cards [aggregates]="aggregates()" />
 
       <div class="flex items-center gap-2 flex-wrap">
-        <span class="text-xs text-base-content/50">Range:</span>
+        <span class="text-xs text-base-content-muted">Range:</span>
         <div class="join" role="group" aria-label="Filter sessions by date range">
           @for (option of dateRangeOptions; track option.value) {
             <button
@@ -63,16 +63,24 @@
             </button>
           }
         </div>
-        <span class="text-[10px] text-base-content/40">
+        <span class="text-[10px] text-base-content-muted">
           {{ totalSessionCount() }} sessions
         </span>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         @for (session of displayedSessions(); track session.sessionId) {
-          <ptah-session-stats-card [session]="session" />
+          <ptah-session-stats-card
+            [session]="session"
+            (open)="openSession($event)"
+          />
         }
       </div>
     }
   </div>
+
+  <ptah-session-detail-modal
+    [session]="selectedSession()"
+    (closed)="closeSession()"
+  />
 </section>

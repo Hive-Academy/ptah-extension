@@ -14,8 +14,10 @@ import {
   FormGroup,
 } from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
+import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
+  SkillLanesDto,
   SkillSynthesisCandidateSummary,
   SkillSynthesisSettingsDto,
   SkillSynthesisRunCuratorResult,
@@ -27,20 +29,31 @@ import {
 } from '../services/skill-synthesis-state.service';
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
+import { SkillSynthesisLiveService } from '../services/skill-synthesis-live.service';
 import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
 import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
+import { SkillSuggestionsViewComponent } from './suggestions/skill-suggestions-view.component';
 import { SkillStatsStripComponent } from './skill-stats-strip.component';
 import { SkillPipelineStatusComponent } from './skill-pipeline-status.component';
+import { SkillDigestPanelComponent } from './skill-digest-panel.component';
 import {
   SkillCandidatesTableComponent,
   type SkillCandidateAction,
 } from './skill-candidates-table.component';
 import { SkillInvocationsPanelComponent } from './skill-invocations-panel.component';
-import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
+import {
+  SkillSettingsPanelComponent,
+  type SkillLaneSelectionChange,
+} from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
-type SkillSubView = 'candidates' | 'activity' | 'clones' | 'settings';
+type SkillSubView =
+  | 'candidates'
+  | 'suggestions'
+  | 'activity'
+  | 'clones'
+  | 'settings';
 
 interface ActionDialogState {
   readonly kind: ActionKind;
@@ -58,11 +71,14 @@ interface ActionDialogState {
     LucideAngularModule,
     SkillDiagnosticsAccordionComponent,
     SkillClonesViewComponent,
+    SkillSuggestionsViewComponent,
     SkillStatsStripComponent,
     SkillPipelineStatusComponent,
+    SkillDigestPanelComponent,
     SkillCandidatesTableComponent,
     SkillInvocationsPanelComponent,
     SkillSettingsPanelComponent,
+    MarkdownBlockComponent,
   ],
   template: `
     @if (!isElectron()) {
@@ -72,13 +88,13 @@ interface ActionDialogState {
       >
         <lucide-angular
           [img]="SparklesIcon"
-          class="size-8 text-base-content/30"
+          class="size-8 text-base-content-muted"
           aria-hidden="true"
         />
         <p class="text-sm font-medium">
           Skill synthesis is only available in the Ptah desktop app.
         </p>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-base-content-muted">
           Download Ptah desktop to let Thoth synthesize reusable skills from
           your sessions.
         </p>
@@ -92,7 +108,7 @@ interface ActionDialogState {
       </div>
     } @else {
       <div class="space-y-6">
-        <header class="flex flex-wrap items-start justify-between gap-3">
+        <header class="mb-2 flex flex-wrap items-start justify-between gap-3">
           <div class="flex items-start gap-3">
             <span
               class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"
@@ -105,12 +121,23 @@ interface ActionDialogState {
             </span>
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Skills</h1>
-              <p class="mt-0.5 text-sm text-base-content/60">
+              <p class="mt-0.5 text-sm text-base-content-muted">
                 Reusable skills Thoth synthesizes from successful sessions.
               </p>
             </div>
           </div>
           <div class="flex items-center gap-2">
+            @if (activity(); as label) {
+              <span
+                class="flex items-center gap-1.5 text-xs text-base-content-muted"
+                role="status"
+                aria-live="polite"
+                data-testid="skills-activity-indicator"
+              >
+                <span class="loading loading-spinner loading-xs"></span>
+                {{ label }}
+              </span>
+            }
             <button
               type="button"
               class="btn btn-primary btn-sm transition-colors duration-150"
@@ -137,11 +164,19 @@ interface ActionDialogState {
               type="button"
               role="tab"
               class="tab transition-colors duration-150"
+              [attr.data-testid]="'skills-subview-' + v.id"
               [class.tab-active]="subView() === v.id"
               [attr.aria-selected]="subView() === v.id"
               (click)="setSubView(v.id)"
             >
               {{ v.label }}
+              @if (v.id === 'suggestions' && pendingSuggestionCount() > 0) {
+                <span
+                  class="badge badge-secondary badge-xs ml-1.5"
+                  data-testid="suggestions-tab-count"
+                  >{{ pendingSuggestionCount() }}</span
+                >
+              }
             </button>
           }
         </div>
@@ -149,6 +184,11 @@ interface ActionDialogState {
         @switch (subView()) {
           @case ('candidates') {
             <div class="space-y-4">
+              <p class="text-xs text-base-content-muted">
+                Raw per-session captures. These feed the clustering that
+                produces Recommended skills — promote here only for one-off
+                power use.
+              </p>
               <nav
                 role="tablist"
                 aria-label="Status filter"
@@ -170,7 +210,81 @@ interface ActionDialogState {
               </nav>
 
               @if (ineligibleHint(); as hint) {
-                <p class="text-xs text-base-content/60">{{ hint }}</p>
+                <p class="text-xs text-base-content-muted">{{ hint }}</p>
+              }
+
+              <div
+                class="flex flex-wrap items-center gap-2"
+                data-testid="skills-maintenance-row"
+              >
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  data-testid="skills-reject-all-pending"
+                  [disabled]="loading()"
+                  (click)="onRejectAllPending()"
+                >
+                  Reject all pending
+                </button>
+                <div class="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    class="input input-bordered input-xs w-48"
+                    placeholder="name-pattern*"
+                    aria-label="Reject by name pattern"
+                    [(ngModel)]="patternInput"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    data-testid="skills-reject-by-pattern"
+                    [disabled]="loading()"
+                    (click)="onRejectByPattern()"
+                  >
+                    Reject matching
+                  </button>
+                </div>
+                <span class="text-xs text-base-content-muted">
+                  Supports * wildcard, e.g. looking-at-our-skills*
+                </span>
+              </div>
+
+              @if (selectedCount() > 0) {
+                <div
+                  class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+                  data-testid="skills-bulk-toolbar"
+                >
+                  <span class="text-sm font-medium">
+                    {{ selectedCount() }} selected
+                  </span>
+                  <div class="flex-1"></div>
+                  <button
+                    type="button"
+                    class="btn btn-sm transition-colors duration-150"
+                    data-testid="skills-bulk-promote"
+                    [disabled]="loading()"
+                    (click)="onBulkPromote()"
+                  >
+                    Promote selected
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-error btn-sm transition-colors duration-150"
+                    data-testid="skills-bulk-reject"
+                    [disabled]="loading()"
+                    (click)="onBulkReject()"
+                  >
+                    Reject selected
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    data-testid="skills-bulk-clear"
+                    (click)="clearSelection()"
+                  >
+                    Clear
+                  </button>
+                </div>
               }
 
               @if (error(); as msg) {
@@ -182,19 +296,130 @@ interface ActionDialogState {
               <ptah-skill-candidates-table
                 [candidates]="candidates()"
                 [selectedCandidateId]="selectedCandidateId()"
+                [selectedIds]="selectedIds()"
                 [loading]="loading()"
                 (selectRow)="onSelectRow($event)"
                 (promote)="onOpenAction('promote', $event)"
                 (reject)="onOpenAction('reject', $event)"
                 (togglePin)="onTogglePin($event)"
+                (toggleSelect)="onToggleSelect($event)"
+                (toggleSelectAll)="onToggleSelectAll()"
               />
 
               @if (selectedCandidate(); as sc) {
-                <ptah-skill-invocations-panel
-                  [candidate]="sc"
-                  [invocations]="invocations()"
-                  (closed)="onClearSelection()"
-                />
+                <dialog
+                  class="modal modal-open"
+                  role="dialog"
+                  aria-modal="true"
+                  [attr.aria-label]="'Candidate ' + sc.name"
+                  data-testid="skills-candidate-detail-modal"
+                >
+                  <div class="modal-box max-w-3xl">
+                    <header class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <h3 class="truncate text-base font-semibold">
+                          {{ sc.name }}
+                        </h3>
+                        <p class="mt-0.5 text-sm text-base-content-muted">
+                          {{ sc.description }}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-circle"
+                        aria-label="Close"
+                        (click)="onClearSelection()"
+                      >
+                        ✕
+                      </button>
+                    </header>
+
+                    <div
+                      class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content-muted"
+                    >
+                      <span
+                        >Status:
+                        <span class="font-medium">{{ sc.status }}</span></span
+                      >
+                      <span
+                        >Successes:
+                        <span class="font-medium">{{
+                          sc.successCount
+                        }}</span></span
+                      >
+                      <span
+                        >Failures:
+                        <span class="font-medium">{{
+                          sc.failureCount
+                        }}</span></span
+                      >
+                      @if (candidateDetail(); as d) {
+                        <span
+                          >Sources:
+                          <span class="font-medium">{{
+                            d.sourceSessionIds.length
+                          }}</span></span
+                        >
+                      }
+                    </div>
+
+                    <div class="mt-4 max-h-[55vh] overflow-y-auto">
+                      @if (candidateDetailLoading()) {
+                        <div class="flex flex-col gap-2 py-4">
+                          <div class="h-3 w-2/3 rounded bg-base-300/50"></div>
+                          <div class="h-3 w-1/2 rounded bg-base-300/40"></div>
+                          <div class="h-3 w-3/5 rounded bg-base-300/30"></div>
+                        </div>
+                      } @else if (candidateDetail()?.body; as body) {
+                        <ptah-markdown-block [content]="body" />
+                      } @else {
+                        <p class="py-4 text-sm text-base-content-muted">
+                          No content available for this candidate.
+                        </p>
+                      }
+                    </div>
+
+                    @if (invocations().length > 0) {
+                      <ptah-skill-invocations-panel
+                        class="mt-4 block"
+                        [candidate]="sc"
+                        [invocations]="invocations()"
+                        (closed)="onClearSelection()"
+                      />
+                    }
+
+                    <div class="modal-action">
+                      <button
+                        type="button"
+                        class="btn btn-success btn-sm"
+                        [disabled]="sc.status === 'promoted' || loading()"
+                        (click)="onActionFromDetail('promote', sc)"
+                      >
+                        Promote
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-error btn-sm"
+                        [disabled]="sc.status === 'rejected' || loading()"
+                        (click)="onActionFromDetail('reject', sc)"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm"
+                        (click)="onClearSelection()"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  <form method="dialog" class="modal-backdrop">
+                    <button type="button" (click)="onClearSelection()">
+                      close
+                    </button>
+                  </form>
+                </dialog>
               }
 
               @if (toast(); as t) {
@@ -209,14 +434,112 @@ interface ActionDialogState {
               }
             </div>
           }
+          @case ('suggestions') {
+            <div class="space-y-4">
+              <ptah-skill-suggestions-view />
+            </div>
+          }
           @case ('activity') {
             <div class="space-y-4">
               <ptah-skill-pipeline-status
                 [lastAnalyzeRunAt]="lastAnalyzeRunAt()"
                 [histogram]="eligibilityHistogram()"
                 [recentEvents]="recentEvents()"
+                [drainRuns]="drainRuns()"
+                [queueItems]="queueItems()"
+                [stageSpend]="stageSpend()"
+              />
+              <ptah-skill-digest-panel
+                [items]="digestItems()"
+                [loading]="digestLoading()"
               />
               <ptah-skill-diagnostics-accordion />
+
+              <div class="card border border-base-300 bg-base-200/40">
+                <div class="card-body gap-3 p-4">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 class="text-sm font-semibold">Orchestration specs</h3>
+                      <p class="text-xs opacity-70">
+                        Reconciles agent Success from
+                        <code>.ptah/specs</code> review verdicts and feeds them
+                        into Enhance. Clear archives harvested specs older than
+                        7 days.
+                      </p>
+                    </div>
+                    <div class="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="specsLoading()"
+                        (click)="onRefreshSpecs()"
+                      >
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-xs"
+                        [disabled]="specsLoading()"
+                        (click)="onHarvestSpecs()"
+                      >
+                        Harvest now
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-xs"
+                        [disabled]="specsLoading() || staleSpecCount() === 0"
+                        (click)="onClearStaleSpecs()"
+                      >
+                        Clear stale ({{ staleSpecCount() }})
+                      </button>
+                    </div>
+                  </div>
+
+                  @if (specs().length === 0) {
+                    <p class="text-xs opacity-60">
+                      No specs found under <code>.ptah/specs</code>.
+                    </p>
+                  } @else {
+                    <div class="overflow-x-auto">
+                      <table class="table table-xs">
+                        <thead>
+                          <tr>
+                            <th>Task</th>
+                            <th>Status</th>
+                            <th class="text-right">Batches</th>
+                            <th class="text-right">Age (d)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (spec of specs(); track spec.taskId) {
+                            <tr>
+                              <td class="font-mono">{{ spec.taskId }}</td>
+                              <td>
+                                <span
+                                  class="badge badge-xs"
+                                  [class.badge-info]="spec.status === 'active'"
+                                  [class.badge-warning]="
+                                    spec.status === 'complete-unharvested'
+                                  "
+                                  [class.badge-ghost]="
+                                    spec.status === 'harvested'
+                                  "
+                                >
+                                  {{ spec.status }}
+                                </span>
+                              </td>
+                              <td class="text-right">{{ spec.batchCount }}</td>
+                              <td class="text-right">
+                                {{ spec.ageDays ?? '—' }}
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                </div>
+              </div>
             </div>
           }
           @case ('clones') {
@@ -230,7 +553,10 @@ interface ActionDialogState {
                 [form]="settingsForm"
                 [loaded]="settingsLoaded()"
                 [saving]="loading()"
+                [lanes]="lanes()"
+                [isElectron]="isElectron()"
                 (save)="onSaveSettings()"
+                (laneChange)="onLaneChange($event)"
               />
               @if (toast(); as t) {
                 <div
@@ -266,6 +592,10 @@ interface ActionDialogState {
                 <p>
                   <span class="font-medium">Skipped (pinned):</span>
                   {{ report.skippedPinned }}
+                </p>
+                <p>
+                  <span class="font-medium">Recommended skills created:</span>
+                  {{ report.suggestionsCreated }}
                 </p>
               </div>
               @if (report.overlaps && report.overlaps.length > 0) {
@@ -305,14 +635,14 @@ interface ActionDialogState {
             <h3 class="text-base font-semibold">
               {{ dlg.kind === 'promote' ? 'Promote' : 'Reject' }} candidate
             </h3>
-            <p class="mt-1 text-sm text-base-content/70">
+            <p class="mt-1 text-sm text-base-content-muted">
               <span class="font-mono">{{ dlg.candidate.name }}</span>
             </p>
 
             <label class="mt-3 flex flex-col gap-1">
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-base-content-muted">
                 Reason
-                <span class="text-base-content/50">(optional)</span>
+                <span class="text-base-content-muted">(optional)</span>
               </span>
               <textarea
                 class="textarea textarea-bordered textarea-sm w-full"
@@ -354,9 +684,13 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly diagnostics = inject(SkillDiagnosticsStateService);
+  private readonly live = inject(SkillSynthesisLiveService);
   private readonly fb = inject(FormBuilder);
 
   protected readonly SparklesIcon = Sparkles;
+
+  /** Live background-activity label (curator pass / embedding backfill). */
+  protected readonly activity = this.live.activity;
 
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
@@ -370,10 +704,25 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly selectedCandidate = this.state.selectedCandidate;
   public readonly loading = this.state.loading;
   public readonly error = this.state.error;
+  public readonly pendingSuggestionCount = this.state.pendingSuggestionCount;
 
   public readonly lastAnalyzeRunAt = this.diagnostics.lastAnalyzeRunAt;
   public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
   public readonly recentEvents = this.diagnostics.recentEvents;
+
+  public readonly specs = this.state.specs;
+  public readonly specsLoading = this.state.specsLoading;
+  public readonly staleSpecCount = this.state.staleSpecCount;
+
+  public readonly drainRuns = this.state.drainRuns;
+  public readonly queueItems = this.state.queueItems;
+  public readonly stageSpend = this.state.stageSpend;
+
+  public readonly digestItems = this.state.digestItems;
+  public readonly digestLoading = this.state.digestLoading;
+
+  public readonly candidateDetail = this.state.candidateDetail;
+  public readonly candidateDetailLoading = this.state.candidateDetailLoading;
 
   public readonly ineligibleHint = computed<string | null>(() => {
     const events = this.recentEvents();
@@ -397,18 +746,51 @@ export class SkillSynthesisTabComponent implements OnInit {
     eligibilityMinTurns: [5],
     evictionDecayRate: [0.95],
     generalizationContextThreshold: [3],
-    minTrajectoryFidelityRatio: [0.4],
     dedupClusterThreshold: [0.78],
-    minAbstractionEditDistance: [0.3],
+    prefilterMinEdits: [1],
+    prefilterMinChars: [800],
+    prefilterMinToolUses: [2],
     judgeEnabled: [true],
     minJudgeScore: [6.0],
     judgeModel: ['inherit'],
     maxPinnedSkills: [10],
     curatorEnabled: [true],
     curatorIntervalHours: [24],
+    suggestionMinClusterSize: [2],
+    suggestionMaxCandidates: [200],
+    // Phase-0 drain / budget knobs.
+    //
+    // NESTED, not dotted. The wire keys really are dotted — `'drain.cronExpr'`
+    // IS the settings path `skillSynthesis.drain.cronExpr`, and renaming it
+    // would read and write a key no host stores — but Angular forbids `.` in a
+    // FormGroup key outright (`validateFormGroupControls`). Nesting keeps the
+    // correspondence mechanical: form path `drain.cronExpr` (which
+    // `form.get('drain.cronExpr')` resolves) maps to wire key
+    // `'drain.cronExpr'`. {@link SKILL_SETTINGS_MAPPERS} is the only place the
+    // two representations meet.
+    drain: this.fb.group({
+      cronExpr: ['*/15 * * * *'],
+      nightlyCronExpr: [''],
+      weeklyCronExpr: [''],
+      maxItemsPerRun: [4],
+      nightlyMaxItemsPerRun: [40],
+      weeklyMaxItemsPerRun: [400],
+      perWorkspaceBatch: [1],
+      foregroundBackoffMs: [300_000],
+      pauseOnBattery: [true],
+      maxAttempts: [3],
+      staleClaimTtlMs: [900_000],
+    }),
+    budget: this.fb.group({
+      maxTokensPerDay: [2_000_000],
+    }),
+    trayKeepalive: [false],
   });
 
   public readonly settingsLoaded = signal<boolean>(false);
+
+  /** All four lanes, `null` until `skillSynthesis:getLanes` resolves. */
+  public readonly lanes = signal<SkillLanesDto | null>(null);
 
   public readonly toast = signal<{
     message: string;
@@ -435,29 +817,71 @@ export class SkillSynthesisTabComponent implements OnInit {
     readonly id: SkillSubView;
     readonly label: string;
   }> = [
-    { id: 'candidates', label: 'Candidates' },
+    { id: 'suggestions', label: 'Recommended' },
+    { id: 'candidates', label: 'Sessions' },
+    { id: 'clones', label: 'Library' },
     { id: 'activity', label: 'Activity' },
-    { id: 'clones', label: 'Clones' },
     { id: 'settings', label: 'Settings' },
   ];
 
-  private readonly _subView = signal<SkillSubView>('candidates');
+  private readonly _subView = signal<SkillSubView>('suggestions');
   protected readonly subView = this._subView.asReadonly();
 
   public readonly actionDialog = signal<ActionDialogState | null>(null);
 
   public actionReason = '';
 
+  /** Ids of candidates currently selected for a bulk action. */
+  private readonly _selectedIds = signal<Set<string>>(new Set());
+  protected readonly selectedIds = this._selectedIds.asReadonly();
+  protected readonly selectedCount = computed(() => this._selectedIds().size);
+
+  /** Free-text pattern for the reject-by-pattern maintenance control. */
+  public patternInput = '';
+
+  /**
+   * First paint. Every call here is a READ.
+   *
+   * `refreshDigest` takes `allowRewrite: false` explicitly: the digest sweep can
+   * author its description rewrite on an LLM lane, that call sits under no
+   * budget (the `digest` queue stage has no handler and no producer, so the
+   * drain's daily token gate never sees one), and OPENING A TAB is not a request
+   * to spend. Only a control the user pressed may pass `true`.
+   */
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
+    void this.state.refreshSuggestions();
     void this.state.loadStats();
     void this.diagnostics.refresh();
+    void this.state.refreshQueue();
+    void this.state.refreshDigest({ allowRewrite: false });
+    void this.state.refreshSpecs();
     void this.loadSettings();
+    void this.loadLanes();
   }
 
   protected setSubView(view: SkillSubView): void {
     this._subView.set(view);
+  }
+
+  protected async onHarvestSpecs(): Promise<void> {
+    await this.state.harvestSpecs();
+  }
+
+  protected async onRefreshSpecs(): Promise<void> {
+    await this.state.refreshSpecs();
+  }
+
+  protected async onClearStaleSpecs(): Promise<void> {
+    const cleared = await this.state.clearStaleSpecs({ mode: 'archive' });
+    this.toast.set({
+      message:
+        cleared > 0
+          ? `Archived ${cleared} stale spec${cleared === 1 ? '' : 's'}.`
+          : 'No stale specs to clear.',
+      kind: 'success',
+    });
   }
 
   private async loadSettings(): Promise<void> {
@@ -465,9 +889,44 @@ export class SkillSynthesisTabComponent implements OnInit {
       await this.state.loadSettings();
       const s = this.state.settings();
       if (s) {
-        this.settingsForm.patchValue(s);
+        this.settingsForm.patchValue(skillSettingsDtoToForm(s));
       }
       this.settingsLoaded.set(true);
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  /**
+   * Read the lane configuration.
+   *
+   * A failure leaves `lanes()` null, which renders as "loading" rather than as
+   * four pickers showing invented defaults — an empty picker would look like a
+   * lane with no provider configured, which is a real and different state.
+   */
+  private async loadLanes(): Promise<void> {
+    try {
+      this.lanes.set(await this.rpc.getLanes());
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  /**
+   * Persist ONE lane's provider/model pair as a sparse patch.
+   *
+   * Only the edited lane and only its two edited fields are sent; the backend
+   * leaves every omitted field alone. Sending the whole `SkillLanesDto` back
+   * would rewrite all 32 keys on every keystroke.
+   */
+  protected async onLaneChange(
+    change: SkillLaneSelectionChange,
+  ): Promise<void> {
+    try {
+      const lanes = await this.rpc.setLanes({
+        [change.laneId]: { provider: change.provider, model: change.model },
+      });
+      this.lanes.set(lanes);
     } catch (err: unknown) {
       this.showToast(err instanceof Error ? err.message : String(err), 'error');
     }
@@ -476,7 +935,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   protected async onSaveSettings(): Promise<void> {
     if (!this.settingsForm.valid) return;
     try {
-      const sf = this.settingsForm.value as SkillSynthesisSettingsDto;
+      const sf = skillSettingsFormToDto(this.settingsForm.getRawValue());
       await this.rpc.updateSettings(sf);
       this.showToast('Settings saved.', 'success');
     } catch (err: unknown) {
@@ -526,14 +985,25 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected onSelectRow(id: string): void {
     if (this.selectedCandidateId() === id) {
-      void this.state.selectCandidate(null);
+      this.onClearSelection();
       return;
     }
     void this.state.selectCandidate(id);
+    void this.state.loadCandidateDetail(id);
   }
 
   protected onClearSelection(): void {
     void this.state.selectCandidate(null);
+    void this.state.loadCandidateDetail(null);
+  }
+
+  protected onActionFromDetail(
+    kind: ActionKind,
+    candidate: SkillSynthesisCandidateSummary,
+  ): void {
+    this.onClearSelection();
+    this.actionReason = '';
+    this.actionDialog.set({ kind, candidate });
   }
 
   protected onOpenAction(kind: ActionKind, action: SkillCandidateAction): void {
@@ -552,7 +1022,16 @@ export class SkillSynthesisTabComponent implements OnInit {
     if (!dlg) return;
     const reason = this.actionReason.trim() || undefined;
     if (dlg.kind === 'promote') {
-      await this.state.promote(dlg.candidate.id, reason);
+      const result = await this.state.promote(dlg.candidate.id, reason);
+      if (result?.promoted) {
+        this.showToast(`Promoted "${dlg.candidate.name}".`, 'success');
+      } else {
+        const reasonText = this.promoteReasonText(
+          result?.reason ?? null,
+          dlg.candidate,
+        );
+        this.showToast(`Not promoted: ${reasonText}`, 'error');
+      }
     } else {
       await this.state.reject(dlg.candidate.id, reason);
     }
@@ -560,4 +1039,224 @@ export class SkillSynthesisTabComponent implements OnInit {
     this.actionDialog.set(null);
     this.actionReason = '';
   }
+
+  /**
+   * Map a backend promote-gate reason code to friendly, human-readable text.
+   * The below-threshold case reads the active `successesToPromote` setting
+   * from the settings form (fallback 3) so the message matches the gate.
+   */
+  private promoteReasonText(
+    reason: string | null,
+    candidate: SkillSynthesisCandidateSummary,
+  ): string {
+    switch (reason) {
+      case 'below-threshold': {
+        const threshold =
+          (this.settingsForm.value.successesToPromote as number | undefined) ??
+          3;
+        return `needs ${threshold} successful runs (has ${candidate.successCount})`;
+      }
+      case 'duplicate':
+        return 'too similar to an existing active skill';
+      case 'below-judge-score':
+        return 'quality judge score too low';
+      case 'judge-unscored':
+        // NOT a verdict. Falling through to the default here would render
+        // "not eligible", which reads as a judgement when the truth is that
+        // no judgement exists — the same fail-open the unscored badge removes.
+        return 'the quality judge could not score this candidate — try again once it can';
+      case 'cap-rejected':
+        return 'active-skill cap reached';
+      case 'already-promoted':
+      case 'already-rejected':
+        return reason;
+      default:
+        return 'not eligible';
+    }
+  }
+
+  // --- Multi-select + bulk actions -----------------------------------------
+
+  protected onToggleSelect(id: string): void {
+    const next = new Set(this._selectedIds());
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    this._selectedIds.set(next);
+  }
+
+  protected onToggleSelectAll(): void {
+    const ids = this.candidates().map((c) => c.id);
+    const selected = this._selectedIds();
+    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+    this._selectedIds.set(allSelected ? new Set() : new Set(ids));
+  }
+
+  protected clearSelection(): void {
+    this._selectedIds.set(new Set());
+  }
+
+  protected async onBulkPromote(): Promise<void> {
+    const ids = [...this._selectedIds()];
+    if (ids.length === 0) return;
+    const result = await this.state.promoteBulk(ids);
+    if (result) {
+      const total = result.decisions.length;
+      let message = `${result.promoted}/${total} promoted`;
+      if (result.promoted < total) {
+        const reason = this.mostCommonFailureReason(result.decisions);
+        if (reason) message += ` — ${reason}`;
+      }
+      this.showToast(message, result.promoted > 0 ? 'success' : 'error');
+    }
+    this.clearSelection();
+    await this.state.loadStats();
+  }
+
+  protected async onBulkReject(): Promise<void> {
+    const ids = [...this._selectedIds()];
+    if (ids.length === 0) return;
+    const rejected = await this.state.rejectBulk(ids);
+    this.showToast(`${rejected} rejected`, 'success');
+    this.clearSelection();
+    await this.state.loadStats();
+  }
+
+  /** Find the most frequent failure reason across bulk-promote decisions. */
+  private mostCommonFailureReason(
+    decisions: ReadonlyArray<{ promoted: boolean; reason: string | null }>,
+  ): string | null {
+    const counts = new Map<string, number>();
+    for (const d of decisions) {
+      if (d.promoted || !d.reason) continue;
+      counts.set(d.reason, (counts.get(d.reason) ?? 0) + 1);
+    }
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [reason, count] of counts) {
+      if (count > bestCount) {
+        best = reason;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  // --- Maintenance actions -------------------------------------------------
+
+  protected async onRejectAllPending(): Promise<void> {
+    const ids = this.candidates()
+      .filter((c) => c.status === 'candidate')
+      .map((c) => c.id);
+    if (ids.length === 0) {
+      this.showToast('No pending candidates to reject.', 'error');
+      return;
+    }
+    const rejected = await this.state.rejectBulk(ids);
+    this.showToast(`${rejected} rejected`, 'success');
+    this.clearSelection();
+    await this.state.loadStats();
+  }
+
+  protected async onRejectByPattern(): Promise<void> {
+    const pattern = this.patternInput.trim();
+    if (!pattern) {
+      this.showToast('Enter a pattern to match.', 'error');
+      return;
+    }
+    const result = await this.state.rejectByPattern(pattern);
+    if (result) {
+      this.showToast(
+        `Rejected ${result.rejected} of ${result.matched} matching`,
+        'success',
+      );
+    }
+    this.patternInput = '';
+    await this.state.loadStats();
+  }
+}
+
+// ── Settings DTO ↔ form value ───────────────────────────────────────────────
+//
+// SKILL_SETTINGS_MAPPERS. The ONLY place the dotted wire keys and the nested
+// form paths meet.
+//
+// Every Phase-0 knob has two names for one setting: `'drain.cronExpr'` on the
+// wire (literally the settings path `skillSynthesis.drain.cronExpr`, built by
+// `skillSynthesis:getSettings` as `skillSynthesis.${schemaKey}`) and
+// `drain.cronExpr` as a nested form path, because Angular forbids `.` inside a
+// FormGroup key. Both directions are spelled out field by field rather than
+// derived, so a key that gains a third name shows up as a compile error here
+// instead of as a write silently handed to a store that does not own it.
+
+/** The nested shape the settings form holds for the Phase-0 knobs. */
+interface SkillSettingsFormValue {
+  readonly drain: {
+    readonly cronExpr: string;
+    readonly nightlyCronExpr: string;
+    readonly weeklyCronExpr: string;
+    readonly maxItemsPerRun: number;
+    readonly nightlyMaxItemsPerRun: number;
+    readonly weeklyMaxItemsPerRun: number;
+    readonly perWorkspaceBatch: number;
+    readonly foregroundBackoffMs: number;
+    readonly pauseOnBattery: boolean;
+    readonly maxAttempts: number;
+    readonly staleClaimTtlMs: number;
+  };
+  readonly budget: { readonly maxTokensPerDay: number };
+  readonly [flatKey: string]: unknown;
+}
+
+/** Wire DTO → the value `settingsForm.patchValue` expects. */
+export function skillSettingsDtoToForm(
+  dto: SkillSynthesisSettingsDto,
+): SkillSettingsFormValue {
+  return {
+    ...dto,
+    drain: {
+      cronExpr: dto['drain.cronExpr'],
+      nightlyCronExpr: dto['drain.nightlyCronExpr'],
+      weeklyCronExpr: dto['drain.weeklyCronExpr'],
+      maxItemsPerRun: dto['drain.maxItemsPerRun'],
+      nightlyMaxItemsPerRun: dto['drain.nightlyMaxItemsPerRun'],
+      weeklyMaxItemsPerRun: dto['drain.weeklyMaxItemsPerRun'],
+      perWorkspaceBatch: dto['drain.perWorkspaceBatch'],
+      foregroundBackoffMs: dto['drain.foregroundBackoffMs'],
+      pauseOnBattery: dto['drain.pauseOnBattery'],
+      maxAttempts: dto['drain.maxAttempts'],
+      staleClaimTtlMs: dto['drain.staleClaimTtlMs'],
+    },
+    budget: { maxTokensPerDay: dto['budget.maxTokensPerDay'] },
+  };
+}
+
+/**
+ * Form value → wire DTO.
+ *
+ * The nested `drain` / `budget` groups are DROPPED from the outgoing payload
+ * and replaced by their dotted equivalents — sending both would offer the
+ * backend two keys for one setting.
+ */
+export function skillSettingsFormToDto(
+  value: SkillSettingsFormValue,
+): SkillSynthesisSettingsDto {
+  const { drain, budget, ...flat } = value;
+  return {
+    ...(flat as unknown as SkillSynthesisSettingsDto),
+    'drain.cronExpr': drain.cronExpr,
+    'drain.nightlyCronExpr': drain.nightlyCronExpr,
+    'drain.weeklyCronExpr': drain.weeklyCronExpr,
+    'drain.maxItemsPerRun': drain.maxItemsPerRun,
+    'drain.nightlyMaxItemsPerRun': drain.nightlyMaxItemsPerRun,
+    'drain.weeklyMaxItemsPerRun': drain.weeklyMaxItemsPerRun,
+    'drain.perWorkspaceBatch': drain.perWorkspaceBatch,
+    'drain.foregroundBackoffMs': drain.foregroundBackoffMs,
+    'drain.pauseOnBattery': drain.pauseOnBattery,
+    'drain.maxAttempts': drain.maxAttempts,
+    'drain.staleClaimTtlMs': drain.staleClaimTtlMs,
+    'budget.maxTokensPerDay': budget.maxTokensPerDay,
+  };
 }

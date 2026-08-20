@@ -54,9 +54,8 @@ function makeSynthesis(opts: {
     getEligibilityHistogram: jest.fn(
       () =>
         opts.histogram ?? {
-          tooFewTurns: 0,
-          lowFidelity: 0,
-          insufficientAbstraction: 0,
+          prefilterTooThin: 0,
+          prefilterRejected: 0,
           accepted: 0,
         },
     ),
@@ -88,9 +87,8 @@ describe('SkillSynthesisDiagnosticsService', () => {
         lastAnalyzeRunAt: t,
         lastCuratorPassAt: t - 1000,
         histogram: {
-          tooFewTurns: 2,
-          lowFidelity: 1,
-          insufficientAbstraction: 1,
+          prefilterTooThin: 2,
+          prefilterRejected: 1,
           accepted: 4,
         },
         events,
@@ -107,9 +105,8 @@ describe('SkillSynthesisDiagnosticsService', () => {
     expect(snap.lastAnalyzeRunAt).toBe(t);
     expect(snap.lastCuratorPassAt).toBe(t - 1000);
     expect(snap.eligibilityHistogram).toEqual({
-      tooFewTurns: 2,
-      lowFidelity: 1,
-      insufficientAbstraction: 1,
+      prefilterTooThin: 2,
+      prefilterRejected: 1,
       accepted: 4,
     });
     expect(snap.byStatus).toEqual({

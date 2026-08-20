@@ -1,4 +1,4 @@
-import { Injectable, computed, signal, inject } from '@angular/core';
+import { Injectable, Signal, computed, signal, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
 import { CanvasLayoutService } from './canvas-layout.service';
@@ -19,12 +19,36 @@ export interface CanvasSeedTab {
 }
 
 /**
+ * Hard bound on the number of workspace grid sections kept mounted (keep-alive)
+ * at once. Beyond this cap the least-recently-active non-active workspace drops
+ * out of `workspacePaths` so its grid unmounts — its tile positions survive in
+ * the partition map and are restored on return. Single constant so profiling can
+ * dial it down without touching the eviction logic.
+ */
+export const RETAINED_WORKSPACE_CAP = 4;
+
+const EMPTY_TILES: readonly CanvasTile[] = [];
+
+/**
+ * Sentinel workspace key used only when the host never reports an active
+ * workspace path (e.g. a single-root shell that does not emit workspace:switch).
+ * Tiles created before any real path arrives land under this key and are
+ * migrated to the first real workspace on the initial switch.
+ */
+const IMPLICIT_WORKSPACE_PATH = '';
+
+/**
  * CanvasStore — scoped per OrchestraCanvasComponent (not providedIn: 'root').
  *
  * Manages the set of tiles visible in the Orchestra Canvas panel. Each tile
  * corresponds to a tab in TabManagerService. Tile positions are tracked here
  * for CSS Grid / Gridstack layout; focus state updates the global active tab
  * so message sending routes to the correct session.
+ *
+ * The per-workspace partition is signal-backed so every retained workspace's
+ * tiles stay reactive while its grid is hidden (keep-alive). `tiles` /
+ * `focusedTabId` are computeds over the active workspace's map entry, preserving
+ * the public API while background workspaces keep their own live tile state.
  */
 @Injectable()
 export class CanvasStore {
@@ -41,19 +65,59 @@ export class CanvasStore {
    */
   static readonly MAX_TILES = 9;
 
-  private readonly _tiles = signal<CanvasTile[]>([]);
-  private readonly _focusedTabId = signal<string | null>(null);
+  private readonly _workspaceTiles = signal<
+    ReadonlyMap<string, readonly CanvasTile[]>
+  >(new Map());
+  private readonly _workspaceFocusedTabId = signal<
+    ReadonlyMap<string, string | null>
+  >(new Map());
+  private readonly _activeWorkspacePath = signal<string | null>(null);
 
-  private readonly _workspaceTiles = new Map<string, CanvasTile[]>();
-  private readonly _workspaceFocusedTabId = new Map<string, string | null>();
-  private _activeWorkspacePath: string | null = null;
+  /** Insertion-ordered mounted workspaces (stable for `@for` track path). */
+  private readonly _workspacePaths = signal<readonly string[]>([]);
+  private readonly _workspaceRecency = new Map<string, number>();
+  private _workspaceClock = 0;
 
-  readonly tiles = this._tiles.asReadonly();
-  readonly focusedTabId = this._focusedTabId.asReadonly();
-  readonly tileCount = computed(() => this._tiles().length);
+  /** Memoized per-path tile signals so template calls keep a stable identity. */
+  private readonly _tilesForCache = new Map<
+    string,
+    Signal<readonly CanvasTile[]>
+  >();
+
+  readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
+  readonly workspacePaths = this._workspacePaths.asReadonly();
+
+  readonly tiles = computed<readonly CanvasTile[]>(() => {
+    const path = this._activeWorkspacePath();
+    return path !== null
+      ? (this._workspaceTiles().get(path) ?? EMPTY_TILES)
+      : EMPTY_TILES;
+  });
+  readonly focusedTabId = computed<string | null>(() => {
+    const path = this._activeWorkspacePath();
+    return path !== null
+      ? (this._workspaceFocusedTabId().get(path) ?? null)
+      : null;
+  });
+  readonly tileCount = computed(() => this.tiles().length);
   readonly canAddTile = computed(
-    () => this._tiles().length < CanvasStore.MAX_TILES,
+    () => this.tiles().length < CanvasStore.MAX_TILES,
   );
+
+  /**
+   * Reactive tile list for an arbitrary workspace path — used by each hidden
+   * workspace grid to render its own tiles independently of the active one.
+   * The returned signal has a stable identity per path so repeated template
+   * evaluation never creates new reactive nodes.
+   */
+  tilesFor(path: string): Signal<readonly CanvasTile[]> {
+    let sig = this._tilesForCache.get(path);
+    if (!sig) {
+      sig = computed(() => this._workspaceTiles().get(path) ?? EMPTY_TILES);
+      this._tilesForCache.set(path, sig);
+    }
+    return sig;
+  }
 
   /**
    * Add a tile for an existing session. If a tile for this session already
@@ -61,9 +125,9 @@ export class CanvasStore {
    * @returns The tabId, or null if the tile cap is reached.
    */
   addTileFromSession(sessionId: SessionId, name?: string): string | null {
-    if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
+    if (this.tiles().length >= CanvasStore.MAX_TILES) return null;
 
-    const existingTile = this._tiles().find((t) => {
+    const existingTile = this.tiles().find((t) => {
       const tab = this.tabManager.tabs().find((tab) => tab.id === t.tabId);
       return tab?.claudeSessionId === sessionId;
     });
@@ -85,10 +149,10 @@ export class CanvasStore {
    * @returns The tabId of the newly created tab, or null if cap reached.
    */
   addTile(name?: string): string | null {
-    if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
+    if (this.tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const tabId = this.tabManager.createTab(name);
-    if (this._tiles().some((t) => t.tabId === tabId)) return tabId;
+    if (this.tiles().some((t) => t.tabId === tabId)) return tabId;
 
     this.appendTile(tabId);
     return tabId;
@@ -102,8 +166,8 @@ export class CanvasStore {
    * @returns The tabId, or null if the tile cap is reached.
    */
   adoptTab(tabId: string): string | null {
-    if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
-    if (this._tiles().some((t) => t.tabId === tabId)) return tabId;
+    if (this.tiles().length >= CanvasStore.MAX_TILES) return null;
+    if (this.tiles().some((t) => t.tabId === tabId)) return tabId;
 
     this.appendTile(tabId);
     return tabId;
@@ -117,10 +181,8 @@ export class CanvasStore {
    * @param tabId The tabId of the orphaned tile to remove.
    */
   removeTileOnly(tabId: string): void {
-    this._tiles.update((tiles) => tiles.filter((t) => t.tabId !== tabId));
-    if (this._focusedTabId() === tabId) {
-      this._focusedTabId.set(null);
-    }
+    this.updateActiveTiles((tiles) => tiles.filter((t) => t.tabId !== tabId));
+    this.clearFocusIf(tabId);
   }
 
   /**
@@ -131,10 +193,8 @@ export class CanvasStore {
    */
   async removeTile(tabId: string): Promise<void> {
     await this.tabManager.closeTab(tabId);
-    this._tiles.update((tiles) => tiles.filter((t) => t.tabId !== tabId));
-    if (this._focusedTabId() === tabId) {
-      this._focusedTabId.set(null);
-    }
+    this.updateActiveTiles((tiles) => tiles.filter((t) => t.tabId !== tabId));
+    this.clearFocusIf(tabId);
   }
 
   /**
@@ -143,7 +203,7 @@ export class CanvasStore {
    * @param pos  New grid position { x, y, w, h }.
    */
   updateTilePosition(tabId: string, pos: CanvasTile['position']): void {
-    this._tiles.update((tiles) =>
+    this.updateActiveTiles((tiles) =>
       tiles.map((t) => (t.tabId === tabId ? { ...t, position: pos } : t)),
     );
   }
@@ -154,34 +214,50 @@ export class CanvasStore {
    * @param tabId The tabId of the tile receiving focus.
    */
   focusTile(tabId: string): void {
-    this._focusedTabId.set(tabId);
+    const path = this.ensureActivePath();
+    this._workspaceFocusedTabId.update((map) => new Map(map).set(path, tabId));
     this.tabManager.switchTab(tabId);
   }
 
   /**
-   * Swap tile state for a workspace switch, saving the outgoing workspace and
-   * either restoring saved tiles for the target or seeding fresh tiles.
+   * Swap tile state for a workspace switch. With the signal-backed partition the
+   * active workspace's tiles already live in the map, so switching only flips the
+   * active path and seeds the target the first time it is visited.
    */
   switchWorkspaceTiles(
     newPath: string,
     activeTabs: readonly CanvasSeedTab[],
   ): void {
-    if (this._activeWorkspacePath === newPath) return;
+    const prev = this._activeWorkspacePath();
+    if (prev === newPath) return;
 
-    if (this._activeWorkspacePath) {
-      this._workspaceTiles.set(this._activeWorkspacePath, this._tiles());
-      this._workspaceFocusedTabId.set(
-        this._activeWorkspacePath,
-        this._focusedTabId(),
-      );
-    }
+    this.setActivePath(newPath);
 
-    this._activeWorkspacePath = newPath;
+    if (this._workspaceTiles().has(newPath)) return;
 
-    const saved = this._workspaceTiles.get(newPath);
-    if (saved) {
-      this._tiles.set(saved);
-      this._focusedTabId.set(this._workspaceFocusedTabId.get(newPath) ?? null);
+    // First real workspace after bootstrap: migrate implicit tiles instead of
+    // seeding, so tiles created before any path arrived aren't orphaned.
+    if (
+      prev === IMPLICIT_WORKSPACE_PATH &&
+      (this._workspaceTiles().get(IMPLICIT_WORKSPACE_PATH)?.length ?? 0) > 0
+    ) {
+      const migratedTiles =
+        this._workspaceTiles().get(IMPLICIT_WORKSPACE_PATH) ?? EMPTY_TILES;
+      const migratedFocus =
+        this._workspaceFocusedTabId().get(IMPLICIT_WORKSPACE_PATH) ?? null;
+      this._workspaceTiles.update((map) => {
+        const next = new Map(map);
+        next.set(newPath, migratedTiles);
+        next.delete(IMPLICIT_WORKSPACE_PATH);
+        return next;
+      });
+      this._workspaceFocusedTabId.update((map) => {
+        const next = new Map(map);
+        next.set(newPath, migratedFocus);
+        next.delete(IMPLICIT_WORKSPACE_PATH);
+        return next;
+      });
+      this.unmount(IMPLICIT_WORKSPACE_PATH);
       return;
     }
 
@@ -197,23 +273,81 @@ export class CanvasStore {
       };
       seeded.push({ tabId: tab.id, position });
     }
-    this._tiles.set(seeded);
-    this._focusedTabId.set(null);
-    this._workspaceTiles.set(newPath, seeded);
-    this._workspaceFocusedTabId.set(newPath, null);
+    this._workspaceTiles.update((map) => new Map(map).set(newPath, seeded));
+    this._workspaceFocusedTabId.update((map) =>
+      new Map(map).set(newPath, null),
+    );
   }
 
   /**
-   * Drop saved tile state for a removed workspace; clears live signals when
+   * Remove a tile for `tabId` from whichever workspace partition holds it.
+   * Used for cross-workspace cleanup when a tab is closed in a background
+   * workspace (the active-workspace prune effect can't see those tiles).
+   */
+  removeTileFromAnyWorkspace(tabId: string): void {
+    this._workspaceTiles.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [path, tiles] of map) {
+        if (tiles.some((t) => t.tabId === tabId)) {
+          next.set(
+            path,
+            tiles.filter((t) => t.tabId !== tabId),
+          );
+          changed = true;
+        }
+      }
+      return changed ? next : map;
+    });
+    this._workspaceFocusedTabId.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [path, focused] of map) {
+        if (focused === tabId) {
+          next.set(path, null);
+          changed = true;
+        }
+      }
+      return changed ? next : map;
+    });
+  }
+
+  /**
+   * Every tabId across all retained workspace partitions. Used at teardown so
+   * `ngOnDestroy` force-closes tabs from background workspaces too, not just the
+   * active one.
+   */
+  allTabIds(): readonly string[] {
+    const ids: string[] = [];
+    for (const tiles of this._workspaceTiles().values()) {
+      for (const tile of tiles) {
+        ids.push(tile.tabId);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Drop saved tile state for a removed workspace; clears the active path when
    * the removed workspace is the currently active one.
    */
   removeWorkspaceTileState(workspacePath: string): void {
-    this._workspaceTiles.delete(workspacePath);
-    this._workspaceFocusedTabId.delete(workspacePath);
-    if (this._activeWorkspacePath === workspacePath) {
-      this._activeWorkspacePath = null;
-      this._tiles.set([]);
-      this._focusedTabId.set(null);
+    this._workspaceTiles.update((map) => {
+      if (!map.has(workspacePath)) return map;
+      const next = new Map(map);
+      next.delete(workspacePath);
+      return next;
+    });
+    this._workspaceFocusedTabId.update((map) => {
+      if (!map.has(workspacePath)) return map;
+      const next = new Map(map);
+      next.delete(workspacePath);
+      return next;
+    });
+    this._tilesForCache.delete(workspacePath);
+    this.unmount(workspacePath);
+    if (this._activeWorkspacePath() === workspacePath) {
+      this._activeWorkspacePath.set(null);
     }
   }
 
@@ -222,7 +356,7 @@ export class CanvasStore {
    * Centralizes the position calculation to avoid duplication.
    */
   private appendTile(tabId: string): void {
-    const newCount = this._tiles().length + 1;
+    const newCount = this.tiles().length + 1;
     const layout = this.layoutService.computeLayout(newCount);
     const position = layout.tiles[newCount - 1] ?? {
       x: 0,
@@ -231,6 +365,87 @@ export class CanvasStore {
       h: 6,
     };
 
-    this._tiles.update((tiles) => [...tiles, { tabId, position }]);
+    this.updateActiveTiles((tiles) => [...tiles, { tabId, position }]);
+  }
+
+  /**
+   * Apply an immutable transform to the active workspace's tile array. Seeds the
+   * active path lazily so tiles created before the first workspace switch still
+   * land in a mounted bucket.
+   */
+  private updateActiveTiles(
+    fn: (tiles: readonly CanvasTile[]) => readonly CanvasTile[],
+  ): void {
+    const path = this.ensureActivePath();
+    this._workspaceTiles.update((map) => {
+      const next = new Map(map);
+      next.set(path, fn(next.get(path) ?? EMPTY_TILES));
+      return next;
+    });
+  }
+
+  private clearFocusIf(tabId: string): void {
+    const path = this._activeWorkspacePath();
+    if (path === null) return;
+    if ((this._workspaceFocusedTabId().get(path) ?? null) === tabId) {
+      this._workspaceFocusedTabId.update((map) => new Map(map).set(path, null));
+    }
+  }
+
+  /**
+   * Resolve the active workspace path, seeding it from TabManager (or the
+   * implicit sentinel) when no switch has occurred yet.
+   */
+  private ensureActivePath(): string {
+    const active = this._activeWorkspacePath();
+    if (active !== null) return active;
+    const resolved = this.readWorkspacePath() ?? IMPLICIT_WORKSPACE_PATH;
+    this.setActivePath(resolved);
+    return resolved;
+  }
+
+  private readWorkspacePath(): string | null {
+    return this.tabManager.activeWorkspacePath$();
+  }
+
+  /** Flip the active path and (re)mount its grid section, refreshing recency. */
+  private setActivePath(path: string): void {
+    this._activeWorkspacePath.set(path);
+    this._workspaceRecency.set(path, ++this._workspaceClock);
+    if (!this._workspacePaths().includes(path)) {
+      this._workspacePaths.update((paths) => [...paths, path]);
+    }
+    this.evictWorkspacesOverCap(path);
+  }
+
+  /** Remove a workspace from the mounted set (its map entry is left untouched). */
+  private unmount(path: string): void {
+    if (this._workspacePaths().includes(path)) {
+      this._workspacePaths.update((paths) => paths.filter((p) => p !== path));
+    }
+    this._workspaceRecency.delete(path);
+  }
+
+  private evictWorkspacesOverCap(activePath: string): void {
+    while (this._workspacePaths().length > RETAINED_WORKSPACE_CAP) {
+      let lruPath: string | null = null;
+      let lruTick = Number.POSITIVE_INFINITY;
+      for (const path of this._workspacePaths()) {
+        if (path === activePath) continue;
+        const tick = this._workspaceRecency.get(path) ?? 0;
+        if (tick < lruTick) {
+          lruTick = tick;
+          lruPath = path;
+        }
+      }
+      if (lruPath === null) break;
+      // Drop from the mounted set only — the map entry (tile positions) persists
+      // so returning to the workspace restores its layout.
+      const evicted = lruPath;
+      this._workspacePaths.update((paths) =>
+        paths.filter((p) => p !== evicted),
+      );
+      this._workspaceRecency.delete(evicted);
+    }
   }
 }

@@ -291,6 +291,51 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       const ids = result.map((t) => t.id).sort();
       expect(ids).toEqual([tabA, tabB].sort());
     });
+
+    // Tribunal-conductor regression: the conversation is registered under the
+    // real SDK session id, but the binding points at a stale/placeholder tab id
+    // (the conductor streamed under its own tabId). The live tab carries the
+    // real id as `claudeSessionId`. Turn-end/session-stats arrive under the
+    // real id and MUST resolve to the live tab via the direct fallback, else
+    // markTabIdle/finalize never run and the streaming indicators freeze.
+    it('falls back to a direct claudeSessionId match when the bound conversation has no active tab', () => {
+      const registry = TestBed.inject(ConversationRegistry);
+      const binding = TestBed.inject(TabSessionBinding);
+
+      const liveTab = service.createTab('conductor');
+      service.attachSession(liveTab, SESS_X);
+
+      // Conversation knows the real session id but is bound to a stale tab id
+      // that no longer maps to any active tab.
+      const convId = registry.create(SESS_X as ClaudeSessionId);
+      binding.bind('tab_stale_placeholder' as unknown as TabId, convId);
+
+      const result = service.findTabsBySessionId(SESS_X);
+      expect(result.length).toBe(1);
+      expect(result[0]?.id).toBe(liveTab);
+    });
+  });
+
+  describe('first-message preamble (hidden prompt injection)', () => {
+    it('stamps a preamble and consumes it once (clearing it)', () => {
+      const id = service.createTab('conductor');
+      service.setFirstMessagePreamble(id, 'FRAMING');
+
+      expect(
+        service.tabs().find((t) => t.id === id)?.firstMessagePreamble,
+      ).toBe('FRAMING');
+      expect(service.consumeFirstMessagePreamble(id)).toBe('FRAMING');
+      // Cleared after consume.
+      expect(
+        service.tabs().find((t) => t.id === id)?.firstMessagePreamble,
+      ).toBeNull();
+      expect(service.consumeFirstMessagePreamble(id)).toBeNull();
+    });
+
+    it('returns null when no preamble is set', () => {
+      const id = service.createTab('plain');
+      expect(service.consumeFirstMessagePreamble(id)).toBeNull();
+    });
   });
 
   describe('reorder + duplicate + rename + view mode', () => {

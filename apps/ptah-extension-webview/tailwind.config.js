@@ -9,6 +9,27 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        /**
+         * `base-content-muted` — the secondary tier of the text ladder.
+         *
+         * TASK_2026_183 removed `text-base-content/40|50|60|80` because no
+         * single alpha is correct on every theme: composited in sRGB, anubis
+         * `/40` is 3.31:1 and the built-in daisyUI `dark` fails even at `/60`
+         * (3.45:1) because its base-content is only 7.03:1 at FULL opacity.
+         * Hierarchy therefore has to come from a value chosen per theme, which
+         * is what `--bcm` is. Values are computed, not eyeballed — see the
+         * ratio table in TASK_2026_186 and `src/app/base-content-muted.spec.ts`,
+         * which recomputes every theme from the literal theme source and fails
+         * if any drops below 4.5:1.
+         *
+         * The `var(--bc)` fallback is deliberate and load-bearing: a theme that
+         * has no measured `--bcm` renders at full base-content contrast. An
+         * unhandled theme therefore degrades to "not visually muted", never to
+         * "fails contrast".
+         */
+        'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Menlo', 'monospace'],
@@ -50,7 +71,7 @@ module.exports = {
           // PRIMARY: Bright Blue (visible on dark surfaces)
           primary: '#2563eb',
           'primary-focus': '#1d4ed8',
-          'primary-content': '#e8e6e1',
+          'primary-content': '#f8f7f4',
 
           // SECONDARY: Pharaoh's Gold (unchanged - brand anchor)
           secondary: '#d4af37',
@@ -72,6 +93,9 @@ module.exports = {
           'base-200': '#1a1a20',
           'base-300': '#242430',
           'base-content': '#e8e6e1',
+          // Secondary text tier. 40% toward base-100 in OKLCH → 5.29:1. See
+          // the `colors` block above and base-content-muted.spec.ts.
+          '--bcm': '63.048152% 0.00745 23.427972',
 
           // SEMANTIC COLORS
           info: '#3b82f6',
@@ -106,10 +130,12 @@ module.exports = {
           'primary-focus': 'oklch(80% 0.15 181)',
           'primary-content': 'oklch(43% 0.078 188.216)', // Dark text on light primary
 
-          // SECONDARY: Cupcake pink/rose (exact match)
-          secondary: 'oklch(89% 0.061 343.231)',
-          'secondary-focus': 'oklch(84% 0.08 343)',
-          'secondary-content': 'oklch(45% 0.187 3.815)', // Dark text on light secondary
+          // SECONDARY: Anubis gold — darkened for readable contrast on the
+          // cream base (brand anchor). The dark theme keeps bright #d4af37;
+          // here it is deepened so headings/accents keyed on --s stay legible.
+          secondary: 'oklch(58% 0.132 75)',
+          'secondary-focus': 'oklch(50% 0.12 72)',
+          'secondary-content': 'oklch(98% 0.015 80)', // Light text on gold secondary
 
           // ACCENT: Cupcake warm accent (exact match)
           accent: 'oklch(90% 0.076 70.697)',
@@ -126,6 +152,9 @@ module.exports = {
           'base-200': 'oklch(93.982% 0.007 61.449)', // Slightly darker cream
           'base-300': 'oklch(91.586% 0.006 53.44)', // Card/panel background
           'base-content': 'oklch(23.574% 0.066 313.189)', // Dark purple-gray text
+          // Secondary text tier. 40% toward base-100 in OKLCH → 5.01:1. See
+          // the `colors` block above and base-content-muted.spec.ts.
+          '--bcm': '53.2596% 0.0412 354.4634',
 
           // SEMANTIC COLORS (cupcake exact match)
           info: 'oklch(68% 0.169 237.323)',
@@ -152,39 +181,22 @@ module.exports = {
           '--tab-radius': '0.5rem',
         },
       },
-      // DaisyUI v4 prebuilt themes
-      'light',
-      'dark',
-      'cupcake',
-      'bumblebee',
-      'emerald',
-      'corporate',
-      'synthwave',
-      'retro',
-      'cyberpunk',
-      'valentine',
-      'halloween',
-      'garden',
-      'forest',
-      'aqua',
-      'lofi',
-      'pastel',
-      'fantasy',
-      'wireframe',
-      'black',
-      'luxury',
-      'dracula',
-      'cmyk',
-      'autumn',
-      'business',
-      'acid',
-      'lemonade',
-      'night',
-      'coffee',
-      'winter',
-      'dim',
-      'nord',
-      'sunset',
+      // The 32 daisyUI v4 prebuilt themes are DELIBERATELY ABSENT here.
+      //
+      // They are NOT deleted — `DAISYUI_THEMES` in
+      // libs/frontend/core/src/lib/services/theme.service.ts still exposes all
+      // 34 themes in the picker and they all still work. They are compiled
+      // into a SEPARATE, non-injected stylesheet (`theme-extra.css`, emitted
+      // from `node_modules/daisyui/dist/themes.css` — the same 32 themes, from
+      // the same daisyUI package) which is fetched only by users whose
+      // persisted theme is one of those 32. See:
+      //   - apps/ptah-extension-webview/project.json  (`styles` -> inject:false)
+      //   - apps/ptah-extension-webview/src/index.html (pre-paint loader)
+      //   - ThemeService.setTheme (runtime loader)
+      //
+      // Adding a prebuilt theme name back here re-inflates the initial bundle
+      // by ~800 B of raw CSS per theme and duplicates it against the deferred
+      // sheet. Don't.
     ],
     darkTheme: 'anubis',
     base: true,

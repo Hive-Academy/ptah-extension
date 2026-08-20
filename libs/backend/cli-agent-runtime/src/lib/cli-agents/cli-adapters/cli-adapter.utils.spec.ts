@@ -21,7 +21,22 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockCrossSpawn(...args),
 }));
 
-import { probeCliVersion } from './cli-adapter.utils';
+const mockReadFile = jest.fn();
+jest.mock('fs/promises', () => ({
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+}));
+
+const mockWhich = jest.fn();
+jest.mock('which', () => ({
+  __esModule: true,
+  default: (...args: unknown[]) => mockWhich(...args),
+}));
+
+import {
+  probeCliVersion,
+  resolveDirectSpawn,
+  withAsarUnpackedTwin,
+} from './cli-adapter.utils';
 
 interface FakeChild {
   stdout: EventEmitter & { setEncoding: jest.Mock };
@@ -138,5 +153,130 @@ describe('probeCliVersion', () => {
     await probe;
     const [, args] = mockCrossSpawn.mock.calls[0] as [string, string[]];
     expect(args).toEqual(['version', '--json']);
+  });
+});
+
+describe('resolveDirectSpawn', () => {
+  const realPlatform = process.platform;
+
+  function setPlatform(platform: NodeJS.Platform): void {
+    Object.defineProperty(process, 'platform', {
+      value: platform,
+      configurable: true,
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    setPlatform(realPlatform);
+  });
+
+  it('returns the binary unchanged on non-Windows even for a .cmd path', async () => {
+    setPlatform('linux');
+
+    const result = await resolveDirectSpawn('/usr/local/bin/copilot.cmd');
+
+    expect(result).toEqual({
+      command: '/usr/local/bin/copilot.cmd',
+      prefixArgs: [],
+    });
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('returns the binary unchanged on Windows for a non-.cmd path', async () => {
+    setPlatform('win32');
+
+    const result = await resolveDirectSpawn('C:\\bin\\copilot.exe');
+
+    expect(result).toEqual({ command: 'C:\\bin\\copilot.exe', prefixArgs: [] });
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('rewrites a Windows .cmd wrapper to a direct node + entrypoint spawn', async () => {
+    setPlatform('win32');
+    mockReadFile.mockResolvedValue(
+      'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & ' +
+        '"%_prog%"  "%dp0%\\node_modules\\@github\\copilot\\npm-loader.js" %*',
+    );
+    mockWhich.mockResolvedValue('C:\\Program Files\\nodejs\\node.exe');
+
+    const result = await resolveDirectSpawn(
+      'C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd',
+    );
+
+    expect(result.command).toBe('C:\\Program Files\\nodejs\\node.exe');
+    expect(result.prefixArgs).toHaveLength(1);
+    expect(result.prefixArgs[0]).toMatch(/npm-loader\.js$/);
+  });
+
+  it('falls back to bare "node" when the node binary cannot be resolved', async () => {
+    setPlatform('win32');
+    mockReadFile.mockResolvedValue(
+      '"%dp0%\\node_modules\\@github\\copilot\\npm-loader.js" %*',
+    );
+    mockWhich.mockRejectedValue(new Error('not found'));
+
+    const result = await resolveDirectSpawn('C:\\npm\\copilot.cmd');
+
+    expect(result.command).toBe('node');
+    expect(result.prefixArgs[0]).toMatch(/npm-loader\.js$/);
+  });
+
+  it('falls back to the original .cmd when the wrapper cannot be read', async () => {
+    setPlatform('win32');
+    mockReadFile.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    const result = await resolveDirectSpawn('C:\\npm\\copilot.cmd');
+
+    expect(result).toEqual({ command: 'C:\\npm\\copilot.cmd', prefixArgs: [] });
+  });
+});
+
+/**
+ * Pure string helper — no cross-spawn / fs / which mocking needed.
+ *
+ * A native binary inside `app.asar` satisfies existsSync through the asar shim
+ * but cannot be spawned; electron-builder's `asarUnpack` puts the spawnable
+ * copy in the sibling `app.asar.unpacked` tree. Codex and opencode both route
+ * their module-resolved candidates through this helper.
+ */
+describe('withAsarUnpackedTwin', () => {
+  const UNIX_CANDIDATE =
+    '/usr/local/lib/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex';
+  const ASAR_CANDIDATE =
+    'C:\\Users\\dev\\AppData\\Local\\Programs\\Ptah\\resources\\app.asar\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe';
+
+  it('returns the candidate alone when it is not inside an asar', () => {
+    expect(withAsarUnpackedTwin(UNIX_CANDIDATE)).toEqual([UNIX_CANDIDATE]);
+  });
+
+  it('appends the app.asar.unpacked twin, original first', () => {
+    const result = withAsarUnpackedTwin(ASAR_CANDIDATE);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(ASAR_CANDIDATE);
+    expect(result[1]).toBe(
+      ASAR_CANDIDATE.replace('app.asar\\', 'app.asar.unpacked\\'),
+    );
+    expect(result[1]).toContain('\\app.asar.unpacked\\node_modules\\');
+  });
+
+  it('does not re-rewrite a path that is already app.asar.unpacked', () => {
+    // What the `(?!\.unpacked)` lookahead exists for: without it this would
+    // yield an `app.asar.unpacked.unpacked` directory that never exists.
+    const unpacked = ASAR_CANDIDATE.replace(
+      'app.asar\\',
+      'app.asar.unpacked\\',
+    );
+
+    const result = withAsarUnpackedTwin(unpacked);
+
+    expect(result).toEqual([unpacked]);
+    expect(result[0]).not.toContain('app.asar.unpacked.unpacked');
   });
 });

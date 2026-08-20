@@ -26,3 +26,10 @@ api.ptah.live {
         format console
     }
 }
+
+# NOTE: `community.ptah.live` used to be served here, reverse-proxied to the
+# forum container. TASK_2026_177 removed it. Deploying this file REQUIRES that
+# the `community.ptah.live` DNS record be gone first — Caddy provisions
+# certificates on demand, so a name that still resolves to this host with no
+# matching site block produces repeated ACME failures in the log. See
+# .ptah/specs/task_2026_177/decommission-runbook.md for the ordered procedure.

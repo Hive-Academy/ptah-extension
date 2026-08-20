@@ -1,0 +1,320 @@
+<section class="flex flex-col gap-4">
+  <!-- Header -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <lucide-angular
+        [img]="WrenchIcon"
+        class="h-5 w-5 text-base-content-muted"
+        aria-hidden="true"
+      />
+      <h2 class="text-xl font-semibold">Failed Webhooks</h2>
+      <span class="text-sm text-base-content-muted">({{ total() }} total)</span>
+    </div>
+
+    <input
+      type="search"
+      class="input input-bordered input-sm w-72 max-w-full"
+      placeholder="Search event ID, type, error message…"
+      [value]="search()"
+      (input)="onSearchInput($event)"
+      aria-label="Search failed webhooks"
+    />
+  </header>
+
+  <!-- Resolved filter tabs -->
+  <div role="tablist" class="tabs tabs-boxed w-fit">
+    @for (tab of filterTabs; track tab.key) {
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        [class.tab-active]="resolvedFilter() === tab.key"
+        (click)="setFilter(tab.key)"
+      >
+        {{ tab.label }}
+      </button>
+    }
+  </div>
+
+  <!-- Bulk-action toolbar (contextual) -->
+  <ptah-selection-toolbar
+    [count]="selectedCount()"
+    itemNoun="webhook"
+    (cleared)="clearSelection()"
+  >
+    <button
+      type="button"
+      class="btn btn-primary btn-sm"
+      [disabled]="bulkRunning()"
+      (click)="bulkResolve()"
+    >
+      @if (bulkRunning()) {
+        <span class="loading loading-spinner loading-xs"></span>
+      }
+      Mark Resolved ({{ selectedCount() }})
+    </button>
+  </ptah-selection-toolbar>
+
+  @if (loadError(); as msg) {
+    <div class="alert alert-error">
+      <span>{{ msg }}</span>
+      <button type="button" class="btn btn-sm" (click)="retry()">Retry</button>
+    </div>
+  }
+
+  <!-- Table -->
+  <div class="overflow-x-auto rounded-lg border border-hairline">
+    <table class="table table-sm">
+      <thead>
+        <tr class="text-xs font-medium uppercase tracking-wide text-base-content-muted">
+          <th class="w-8"></th>
+          <th>Event Type</th>
+          <th>Error</th>
+          <th>Status</th>
+          <th>Retries</th>
+          <th>Attempted</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (loading()) {
+          @for (s of skeletonRows; track $index) {
+            <tr>
+              @for (i of [0, 1, 2, 3, 4, 5]; track i) {
+                <td>
+                  <div class="h-4 w-full animate-pulse rounded bg-base-200"></div>
+                </td>
+              }
+            </tr>
+          }
+        } @else {
+          @for (row of rows(); track rowId(row)) {
+            <tr
+              class="cursor-pointer hover:bg-base-200"
+              (click)="openDrawer(row)"
+            >
+              <td (click)="$event.stopPropagation()">
+                @if (!isResolved(row)) {
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm"
+                    [checked]="isSelected(rowId(row))"
+                    (change)="toggleRow(rowId(row), $event)"
+                    [attr.aria-label]="'Select ' + row['eventType']"
+                  />
+                }
+              </td>
+              <td class="whitespace-nowrap font-medium">{{ row['eventType'] ?? '—' }}</td>
+              <td>
+                <span class="block max-w-[280px] truncate text-base-content-muted">
+                  {{ truncate(row['errorMessage'], 280) }}
+                </span>
+              </td>
+              <td>
+                @if (isResolved(row)) {
+                  <ptah-status-badge variant="success" label="Resolved" size="sm" />
+                } @else {
+                  <ptah-status-badge variant="error" label="Unresolved" size="sm" />
+                }
+              </td>
+              <td>
+                <div class="flex items-center gap-2 whitespace-nowrap tabular-nums">
+                  <span>{{ retryCount(row) }}</span>
+                  @if (isHighRetry(row)) {
+                    <span class="badge badge-warning badge-outline badge-xs">
+                      High retries
+                    </span>
+                  }
+                </div>
+              </td>
+              <td class="whitespace-nowrap text-base-content-muted">
+                @if (asDate(row['attemptedAt']); as d) {
+                  {{ d | date: 'short' }}
+                } @else {
+                  —
+                }
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+
+    @if (isEmpty()) {
+      @if (resolvedFilter() === 'unresolved') {
+        <ptah-empty-state
+          [icon]="CheckCircle2Icon"
+          message="All webhooks resolved"
+          hint="Nothing needs a human right now — the ops queue is clear."
+        />
+      } @else if (search().trim()) {
+        <ptah-empty-state
+          [icon]="WrenchIcon"
+          message="No webhooks match your search"
+        />
+      } @else {
+        <ptah-empty-state
+          [icon]="WrenchIcon"
+          message="No webhooks to show"
+        />
+      }
+    }
+  </div>
+
+  <!-- Pagination -->
+  @if (!isEmpty() && !loadError()) {
+    <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div class="flex items-center gap-2 text-base-content-muted">
+        <span>Rows per page</span>
+        <select
+          class="select select-bordered select-xs"
+          [value]="pageSize()"
+          (change)="onPageSizeChange($event)"
+          aria-label="Rows per page"
+        >
+          @for (opt of pageSizeOptions; track opt) {
+            <option [value]="opt" [selected]="opt === pageSize()">
+              {{ opt }}
+            </option>
+          }
+        </select>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <span class="tabular-nums text-base-content-muted">
+          Page {{ page() }} of {{ totalPages() }}
+        </span>
+        <div class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() <= 1"
+            (click)="onPrev()"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() >= totalPages()"
+            (click)="onNext()"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Slide-over detail drawer -->
+  <ptah-detail-drawer
+    [open]="drawerOpen()"
+    [title]="drawerTitle()"
+    (closed)="closeDrawer()"
+  >
+    @if (selected(); as w) {
+      <div class="flex flex-col gap-4">
+        <!-- Metadata grid -->
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div class="col-span-2 flex flex-col">
+            <dt class="text-xs uppercase text-base-content-muted">Event ID</dt>
+            <dd class="break-all font-mono text-xs">{{ w['eventId'] ?? '—' }}</dd>
+          </div>
+          <div class="flex flex-col">
+            <dt class="text-xs uppercase text-base-content-muted">Status</dt>
+            <dd>
+              @if (isResolved(w)) {
+                <ptah-status-badge variant="success" label="Resolved" size="sm" />
+              } @else {
+                <ptah-status-badge variant="error" label="Unresolved" size="sm" />
+              }
+            </dd>
+          </div>
+          <div class="flex flex-col">
+            <dt class="text-xs uppercase text-base-content-muted">Retries</dt>
+            <dd class="tabular-nums">{{ retryCount(w) }}</dd>
+          </div>
+          <div class="flex flex-col">
+            <dt class="text-xs uppercase text-base-content-muted">Attempted</dt>
+            <dd>
+              @if (asDate(w['attemptedAt']); as d) {
+                {{ d | date: 'medium' }}
+              } @else {
+                —
+              }
+            </dd>
+          </div>
+          <div class="flex flex-col">
+            <dt class="text-xs uppercase text-base-content-muted">Resolved At</dt>
+            <dd>
+              @if (asDate(w['resolvedAt']); as d) {
+                {{ d | date: 'medium' }}
+              } @else {
+                —
+              }
+            </dd>
+          </div>
+        </dl>
+
+        <!-- Error message -->
+        <div class="flex flex-col gap-1">
+          <span class="text-xs uppercase text-base-content-muted">Error message</span>
+          <p class="rounded-md bg-base-300 p-3 text-sm text-error">
+            {{ w['errorMessage'] ?? 'No error message.' }}
+          </p>
+        </div>
+
+        <!-- Stack trace -->
+        <div class="flex flex-col gap-1">
+          <span class="text-xs uppercase text-base-content-muted">Stack trace</span>
+          <pre class="max-h-64 overflow-auto rounded-md bg-base-300 p-3 font-mono text-xs">{{ selectedStackTrace() }}</pre>
+        </div>
+
+        <!-- Raw payload (collapsible, rendered as TEXT) -->
+        <details class="rounded-md border border-hairline">
+          <summary class="cursor-pointer px-3 py-2 text-xs uppercase text-base-content-muted">
+            Raw payload
+          </summary>
+          <pre class="max-h-64 overflow-auto border-t border-hairline bg-base-300 p-3 font-mono text-xs">{{ prettyPayload() }}</pre>
+        </details>
+      </div>
+    }
+
+    <!-- Footer kept in its own @if so it is the sole projectable node (NG8011). -->
+    @if (selected(); as w) {
+      <div drawerFooter class="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          (click)="copyPayload(selected())"
+        >
+          Copy payload
+        </button>
+        @if (!isResolved(w)) {
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            (click)="markResolved(selected())"
+          >
+            Mark Resolved
+          </button>
+        }
+      </div>
+    }
+  </ptah-detail-drawer>
+
+  <!-- Toasts -->
+  @if (bulkTotal() > 0) {
+    <div class="toast toast-end z-50">
+      <div class="alert" [class.alert-success]="!bulkRunning()">
+        <span>Resolved {{ bulkDone() }}/{{ bulkTotal() }}…</span>
+      </div>
+    </div>
+  }
+  @if (resolveToast(); as t) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>{{ t }}</span>
+      </div>
+    </div>
+  }
+</section>

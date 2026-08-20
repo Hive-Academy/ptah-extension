@@ -2,10 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   inject,
   OnInit,
-  signal,
   viewChild,
 } from '@angular/core';
 import type { AnalysisPhase } from '@ptah-extension/shared';
@@ -24,7 +22,7 @@ import {
   Zap,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
-import { WizardRpcService } from '../services/wizard-rpc.service';
+import { WizardAnalysisRunner } from '../services/wizard-analysis-runner.service';
 import { AnalysisActivityIndicatorComponent } from './analysis-activity-indicator.component';
 import { AnalysisStatsDashboardComponent } from './analysis-stats-dashboard.component';
 import { AnalysisTranscriptComponent } from './analysis-transcript.component';
@@ -148,7 +146,7 @@ interface PhaseStep {
                     } @else {
                       <lucide-angular
                         [img]="phase.icon"
-                        class="w-4 h-4 text-base-content/30"
+                        class="w-4 h-4 text-base-content-muted"
                         aria-hidden="true"
                       />
                     }
@@ -157,7 +155,7 @@ interface PhaseStep {
                       [class]="
                         isPhaseCompleteOrCurrent(phase.id)
                           ? ''
-                          : 'text-base-content/40'
+                          : 'text-base-content-muted'
                       "
                     >
                       {{ phase.label }}
@@ -200,7 +198,7 @@ interface PhaseStep {
             <!-- Progress Bar -->
             <div class="shrink-0 mb-3">
               <div class="flex justify-between mb-1.5">
-                <span class="text-sm font-medium text-base-content/80">
+                <span class="text-sm font-medium text-base-content-muted">
                   Analyzing {{ progressData.filesScanned || 0 }} of
                   {{ progressData.totalFiles || 0 }} files...
                 </span>
@@ -231,7 +229,7 @@ interface PhaseStep {
               <span
                 class="loading loading-spinner loading-sm text-primary"
               ></span>
-              <span class="text-sm text-base-content/60"
+              <span class="text-sm text-base-content-muted"
                 >Initializing analysis...</span
               >
             </div>
@@ -305,13 +303,13 @@ interface PhaseStep {
                           aria-hidden="true"
                         />
                         <span
-                          class="text-sm font-medium text-base-content/90 whitespace-nowrap"
+                          class="text-sm font-medium text-base-content-muted whitespace-nowrap"
                         >
                           {{ detection }}
                         </span>
                       </div>
                     } @empty {
-                      <p class="text-base-content/50 text-xs italic">
+                      <p class="text-base-content-muted text-xs italic">
                         Scanning for project characteristics...
                       </p>
                     }
@@ -382,11 +380,7 @@ interface PhaseStep {
 })
 export class ScanProgressComponent implements OnInit {
   private readonly wizardState = inject(SetupWizardStateService);
-  private readonly wizardRpc = inject(WizardRpcService);
-  private readonly destroyRef = inject(DestroyRef);
-
-  /** Set to true when the component is destroyed, to prevent stale state mutations. */
-  private isDestroyed = false;
+  private readonly runner = inject(WizardAnalysisRunner);
 
   protected readonly XCircleIcon = XCircle;
   protected readonly InfoIcon = Info;
@@ -440,10 +434,14 @@ export class ScanProgressComponent implements OnInit {
   protected readonly hasStreamMessages = computed(() => {
     return this.wizardState.analysisStream().length > 0;
   });
-  protected readonly isCanceling = signal(false);
-  protected readonly errorMessage = signal<string | null>(null);
-  protected readonly statusText = signal('Initializing workspace scan...');
-  protected readonly isAnalyzing = signal(false);
+  /**
+   * Run state read straight off {@link WizardAnalysisRunner}. It is root-scoped,
+   * so these survive this component being destroyed by a view switch.
+   */
+  protected readonly isCanceling = this.runner.isCanceling;
+  protected readonly errorMessage = this.runner.errorMessage;
+  protected readonly statusText = this.runner.statusText;
+  protected readonly isAnalyzing = this.runner.isRunning;
 
   /**
    * Check if a phase is completed or is the current active phase.
@@ -493,84 +491,28 @@ export class ScanProgressComponent implements OnInit {
     return 'bg-base-200 border border-base-300/50 opacity-60';
   }
 
-  public constructor() {
-    this.destroyRef.onDestroy(() => {
-      this.isDestroyed = true;
-    });
-  }
-
-  public ngOnInit(): void {
-    this.startAnalysis();
-  }
-
   /**
-   * Trigger deep analysis and agent recommendations.
-   * Skips deep analysis if results are already cached (smart retry for partial failures).
-   * Guarded against re-entry and stale component mutations.
+   * Join the analysis run rather than owning it.
    *
-   * Handles both multi-phase and legacy analysis responses.
+   * Remounting after a view switch re-attaches to the run still in flight (or
+   * to its stored result); it never starts a second analysis.
    */
-  private async startAnalysis(): Promise<void> {
-    if (this.isAnalyzing()) {
-      return; // Prevent concurrent calls
-    }
-
-    this.isAnalyzing.set(true);
-    this.errorMessage.set(null);
-
-    try {
-      const existingMultiPhase = this.wizardState.multiPhaseResult();
-      if (existingMultiPhase) {
-        let recommendations = this.wizardState.recommendations();
-        if (recommendations.length === 0) {
-          this.statusText.set('Calculating agent recommendations...');
-          recommendations =
-            await this.wizardRpc.recommendAgents(existingMultiPhase);
-          if (this.isDestroyed) return;
-          this.wizardState.setRecommendations(recommendations);
-        }
-        this.wizardState.setCurrentStep('analysis');
-        return;
-      }
-      this.statusText.set('Analyzing project structure...');
-      const multiPhaseResult = await this.wizardRpc.deepAnalyze();
-      if (this.isDestroyed) return;
-
-      this.wizardState.setMultiPhaseResult(multiPhaseResult);
-      this.statusText.set('Calculating agent recommendations...');
-      const recommendations =
-        await this.wizardRpc.recommendAgents(multiPhaseResult);
-      if (this.isDestroyed) return;
-      this.wizardState.setRecommendations(recommendations);
-
-      this.wizardState.setCurrentStep('analysis');
-    } catch (error) {
-      if (this.isDestroyed) return;
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Analysis failed. Please try again.';
-      this.errorMessage.set(message);
-      this.statusText.set('Analysis failed');
-      console.error('[ScanProgressComponent] Analysis failed:', error);
-    } finally {
-      if (!this.isDestroyed) {
-        this.isAnalyzing.set(false);
-      }
-    }
+  public ngOnInit(): void {
+    void this.runner.ensureStarted();
   }
 
   /**
    * Handle "Retry" button — re-run the analysis flow.
    */
   protected onRetry(): void {
-    this.startAnalysis();
+    void this.runner.retry();
   }
 
   /**
    * Handle "Back" button — go back to welcome step (client-side only).
    */
   protected onGoBack(): void {
+    this.runner.reset();
     this.wizardState.reset();
   }
 
@@ -592,13 +534,7 @@ export class ScanProgressComponent implements OnInit {
    * to 90 seconds after the user has already cancelled in the UI.
    */
   protected onConfirmCancellation(): void {
-    this.isCanceling.set(true);
-    this.statusText.set('Canceling analysis...');
-    void this.wizardRpc.cancelAnalysis().finally(() => {
-      if (!this.isDestroyed) {
-        this.wizardState.reset();
-      }
-    });
+    void this.runner.cancel();
   }
 
   /**

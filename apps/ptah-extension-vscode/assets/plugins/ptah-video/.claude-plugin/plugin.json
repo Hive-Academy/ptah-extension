@@ -1,0 +1,11 @@
+{
+  "name": "ptah-video",
+  "description": "Marketing-video toolkit - narrated, captioned, camera-animated product demos from automated UI walkthroughs (Playwright capture, Remotion render)",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ptah"
+  },
+  "repository": "https://github.com/Hive-Academy/ptah-extension",
+  "homepage": "https://github.com/Hive-Academy/ptah-extension",
+  "license": "MIT"
+}

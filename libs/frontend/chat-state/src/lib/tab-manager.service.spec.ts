@@ -13,6 +13,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import { SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
   MODEL_REFRESH_CONTROL,
@@ -180,6 +181,55 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const stamp = tab?.lastCompactionAt as number;
       expect(stamp).toBeGreaterThanOrEqual(t0);
       expect(stamp).toBeLessThanOrEqual(t1);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Messaging-gateway attachment intents (markTabAttached / markTabDetached /
+  // findTabIdsBySessionId). These are the frontend-only read-only flag driven
+  // by backend gateway:sessionAttached / gateway:sessionDetached push events.
+  // ---------------------------------------------------------------------
+  describe('messaging attachment intents', () => {
+    it('markTabAttached stamps the binding onto the tab', () => {
+      const tabId = service.createTab('attach me');
+
+      service.markTabAttached(tabId, {
+        bindingId: 'binding-1',
+        platform: 'telegram',
+      });
+
+      const tab = service.tabs().find((t) => t.id === tabId);
+      expect(tab?.attachedBinding).toEqual({
+        bindingId: 'binding-1',
+        platform: 'telegram',
+      });
+    });
+
+    it('markTabDetached clears the binding', () => {
+      const tabId = service.createTab('detach me');
+      service.markTabAttached(tabId, {
+        bindingId: 'binding-1',
+        platform: 'discord',
+      });
+
+      service.markTabDetached(tabId);
+
+      const tab = service.tabs().find((t) => t.id === tabId);
+      expect(tab?.attachedBinding).toBeNull();
+    });
+
+    it('findTabIdsBySessionId resolves a tab by its claudeSessionId', () => {
+      const sessionId = SessionId.create();
+      const tabId = service.openSessionTab(sessionId, 'bound tab');
+
+      const ids = service.findTabIdsBySessionId(sessionId);
+
+      expect(ids).toContain(tabId);
+    });
+
+    it('findTabIdsBySessionId returns empty for an unknown session', () => {
+      const ids = service.findTabIdsBySessionId(SessionId.create());
+      expect(ids).toEqual([]);
     });
   });
 });

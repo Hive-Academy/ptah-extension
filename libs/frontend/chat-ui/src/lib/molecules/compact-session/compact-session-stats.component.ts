@@ -37,20 +37,20 @@ import { ModelStateService } from '@ptah-extension/core';
       <span
         class="inline-flex items-center gap-0.5 bg-base-content/5 border border-base-content/10 rounded px-1 py-0.5 whitespace-nowrap"
       >
-        <span class="text-base-content/50">Tokens</span>
+        <span class="text-base-content-muted">Tokens</span>
         <span class="tabular-nums">{{ formattedTokens() }}</span>
       </span>
       <span
         class="inline-flex items-center gap-0.5 bg-success/10 border border-success/20 rounded px-1 py-0.5 whitespace-nowrap"
       >
-        <span class="text-base-content/50">Cost</span>
+        <span class="text-base-content-muted">Cost</span>
         <span class="text-success tabular-nums">{{ formattedCost() }}</span>
       </span>
       @if (agentCount() > 0) {
         <span
           class="inline-flex items-center gap-0.5 bg-info/10 border border-info/20 rounded px-1 py-0.5 whitespace-nowrap"
         >
-          <span class="text-base-content/50">Agents</span>
+          <span class="text-base-content-muted">Agents</span>
           <span class="text-info tabular-nums">{{ agentCount() }}</span>
         </span>
       }

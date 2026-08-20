@@ -8,16 +8,43 @@
  *   - `libs/backend/rpc-handlers/src/lib/handlers/gateway-rpc.handlers.ts`
  *     (drives `gateway:*` RPC methods through the service).
  */
-export { GatewayService } from './lib/gateway.service';
+export { GatewayService, OutboundDeliveryError } from './lib/gateway.service';
 export type {
   GatewayInboundEvent,
   GatewayStatus,
   GatewayTestOverrides,
+  InterruptedInboundConversation,
 } from './lib/gateway.service';
+export { AdapterLifecycleService } from './lib/adapter-lifecycle.service';
+export { OutboundDeliveryService } from './lib/outbound-delivery.service';
 
 export { BindingStore } from './lib/binding.store';
 export { ConversationStore } from './lib/conversation.store';
 export { MessageStore } from './lib/message.store';
+export type { UnfinishedInboundTurn } from './lib/message.store';
+export { AttachedSessionRegistry } from './lib/attached-session-registry';
+export { JsonlSessionResumabilityChecker } from './lib/session-resumability';
+export type { ISessionResumabilityChecker } from './lib/session-resumability';
+export { ConversationTurnTracker } from './lib/turn-activity-tracker';
+export {
+  normalizeWorkspacePath,
+  isAllowlistedWorkspaceRoot,
+  resolveEffectiveWorkspaceRoot,
+  workspaceRootDigest,
+} from './lib/workspace-resolution';
+export type { EffectiveWorkspace } from './lib/workspace-resolution';
+export type {
+  IGatewaySessionLister,
+  GatewaySessionSummary,
+} from './lib/session-lister.interface';
+export type { ISessionActivityProbe } from './lib/session-activity.interface';
+export type {
+  GatewayCommand,
+  GatewayCommandInvocation,
+  GatewayCommandOutcome,
+  GatewayAutocompleteRequest,
+  IGatewayCommandHandler,
+} from './lib/commands/gateway-command.types';
 export { StreamCoalescer } from './lib/stream-coalescer';
 export type {
   CoalescerOptions,
@@ -56,27 +83,6 @@ export type {
   SlackAppFactory,
 } from './lib/adapters/slack/bolt.adapter';
 
-export { FfmpegDecoder } from './lib/voice/ffmpeg-decoder';
-export type { FfmpegBinaryResolver } from './lib/voice/ffmpeg-decoder';
-export {
-  VoiceAssetsUnavailableError,
-  VOICE_ASSETS_UNAVAILABLE,
-  VOICE_ASSETS_REMEDIATION,
-  isVoiceAssetsUnavailable,
-} from './lib/voice/voice-assets-error';
-export { WhisperTranscriber } from './lib/voice/whisper-transcriber';
-export type {
-  NodejsWhisperApi,
-  NodejsWhisperLoader,
-} from './lib/voice/whisper-transcriber';
-export {
-  resolveWhisperModel,
-  VOICE_WHISPER_MODEL_KEY,
-  LEGACY_GATEWAY_WHISPER_MODEL_KEY,
-  DEFAULT_WHISPER_MODEL,
-} from './lib/voice/resolve-whisper-model';
-export type { WhisperModelConfigReader } from './lib/voice/resolve-whisper-model';
-
 export { BindingId, ConversationKey, GatewayMessageId } from './lib/types';
 export type {
   ApprovalStatus,
@@ -86,6 +92,7 @@ export type {
   GatewayConversationId,
   GatewayMessage,
   GatewayPlatform,
+  GatewayTurnState,
 } from './lib/types';
 
 export { GATEWAY_TOKENS } from './lib/di/tokens';

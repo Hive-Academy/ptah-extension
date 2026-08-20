@@ -46,6 +46,7 @@ function makeAgent(overrides: Partial<PtahCliSummary> = {}): PtahCliSummary {
     providerName: 'ptah',
     providerId: 'ptah',
     hasApiKey: true,
+    hasStoredKey: true,
     status: 'available',
     enabled: true,
     modelCount: 1,

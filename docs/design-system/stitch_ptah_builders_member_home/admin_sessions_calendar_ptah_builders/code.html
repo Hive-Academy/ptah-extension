@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ptah Builders - Sessions</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary-container": "#00a6e0",
+                      "on-tertiary-fixed-variant": "#004c69",
+                      "primary-container": "#f5a524",
+                      "on-tertiary": "#003549",
+                      "on-surface": "#dce2f3",
+                      "tertiary-fixed": "#c4e7ff",
+                      "on-secondary-container": "#00374d",
+                      "inverse-primary": "#835400",
+                      "on-primary-fixed-variant": "#643f00",
+                      "tertiary-fixed-dim": "#7bd0ff",
+                      "outline": "#9f8e7a",
+                      "surface-bright": "#323946",
+                      "on-secondary-fixed-variant": "#004c69",
+                      "on-error-container": "#ffdad6",
+                      "on-background": "#dce2f3",
+                      "background": "#0c141f",
+                      "on-tertiary-container": "#004d69",
+                      "secondary-fixed-dim": "#7bd0ff",
+                      "surface-dim": "#0c141f",
+                      "surface-container-highest": "#2e3542",
+                      "surface-tint": "#ffb957",
+                      "on-primary-container": "#643f00",
+                      "error-container": "#93000a",
+                      "surface-container-lowest": "#070e1a",
+                      "secondary-fixed": "#c4e7ff",
+                      "on-secondary-fixed": "#001e2c",
+                      "tertiary-container": "#36c2ff",
+                      "primary-fixed": "#ffddb5",
+                      "surface-container-low": "#151c27",
+                      "outline-variant": "#524434",
+                      "on-error": "#690005",
+                      "surface-container": "#19202c",
+                      "on-tertiary-fixed": "#001e2c",
+                      "on-primary": "#462b00",
+                      "tertiary": "#9ad9ff",
+                      "secondary": "#7bd0ff",
+                      "primary": "#ffc77f",
+                      "primary-fixed-dim": "#ffb957",
+                      "surface": "#0c141f",
+                      "error": "#ffb4ab",
+                      "surface-container-high": "#232a36",
+                      "inverse-on-surface": "#2a313d",
+                      "on-secondary": "#00354a",
+                      "on-surface-variant": "#d7c3ae",
+                      "surface-variant": "#2e3542",
+                      "inverse-surface": "#dce2f3",
+                      "on-primary-fixed": "#2a1800"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-tight": "8px",
+                      "unit": "4px",
+                      "stack-loose": "32px",
+                      "gutter": "16px",
+                      "container-padding": "24px"
+              },
+              "fontFamily": {
+                      "label-caps": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "body-base": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "title-sm": [
+                              "Inter"
+                      ],
+                      "numeric-data": [
+                              "JetBrains Mono"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "code-sm": [
+                              "JetBrains Mono"
+                      ]
+              },
+              "fontSize": {
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.08em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-base": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "title-sm": [
+                              "18px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "numeric-data": [
+                              "14px",
+                              {
+                                      "lineHeight": "1",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "code-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "450"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .filled-icon {
+          font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Hide scrollbar for clean UI */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+        * {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+      </style>
+</head>
+<body class="bg-background text-on-surface font-body-base min-h-screen flex antialiased">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full flex flex-col z-40 h-screen w-64 border-r border-outline-variant bg-surface-container-low transition-all duration-150 ease-in-out hidden md:flex">
+<!-- Header -->
+<div class="p-gutter border-b border-outline-variant flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-surface-container-highest border border-outline-variant flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-xl">view_in_ar</span>
+</div>
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-primary">PTAH_OS</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant">V2.0.4-STABLE</span>
+</div>
+</div>
+<!-- Main Navigation -->
+<div class="flex-1 py-4 flex flex-col gap-1 overflow-y-auto px-2">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">dashboard</span>
+<span class="font-label-caps text-label-caps">Dashboard</span>
+</a>
+<div class="mt-4 mb-1 px-3">
+<span class="font-label-caps text-[9px] text-on-surface-variant/50 tracking-wider">BUILDERS CONTENT</span>
+</div>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">inventory_2</span>
+<span class="font-label-caps text-label-caps">Inventory</span>
+</a>
+<!-- Active State Navigation -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded bg-surface-container-highest text-primary border-l-2 border-primary" href="#">
+<span class="material-symbols-outlined text-[20px] filled-icon">calendar_month</span>
+<span class="font-label-caps text-label-caps">Sessions</span>
+</a>
+<div class="mt-4 mb-1 px-3">
+<span class="font-label-caps text-[9px] text-on-surface-variant/50 tracking-wider">PLATFORM</span>
+</div>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">groups</span>
+<span class="font-label-caps text-label-caps">Community</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">monitoring</span>
+<span class="font-label-caps text-label-caps">Analytics</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors text-on-surface-variant group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">account_balance</span>
+<span class="font-label-caps text-label-caps">Treasury</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors text-on-surface-variant group mt-auto" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">settings</span>
+<span class="font-label-caps text-label-caps">Settings</span>
+</a>
+</div>
+<!-- Footer / CTA -->
+<div class="p-4 border-t border-outline-variant flex flex-col gap-3">
+<button class="w-full py-2 bg-primary-container text-on-primary-container font-label-caps text-label-caps rounded hover:bg-[#ffbb4d] transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[16px]">rocket_launch</span>
+                Deploy Project
+            </button>
+<div class="flex justify-between items-center px-1">
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#" title="Documentation">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#" title="System Status">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</a>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-64 flex flex-col h-screen overflow-hidden bg-background">
+<!-- TOP BAR -->
+<header class="h-14 border-b border-outline-variant bg-surface/80 backdrop-blur-md flex justify-between items-center px-container-padding sticky top-0 z-30 shrink-0">
+<div class="flex items-center gap-4">
+<h1 class="font-title-sm text-title-sm text-on-surface">Sessions</h1>
+<div class="px-2 py-0.5 rounded border border-error text-error flex items-center gap-1 bg-error/10">
+<span class="material-symbols-outlined text-[12px]">lock</span>
+<span class="font-label-caps text-[10px]">RESTRICTED</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="font-code-sm text-code-sm text-on-surface-variant border border-outline-variant px-3 py-1 rounded bg-surface-container-low">admin@ptah.builders</span>
+<div class="flex gap-2">
+<button class="p-1.5 rounded hover:bg-surface-container-highest text-on-surface-variant transition-colors border border-transparent hover:border-outline-variant">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-highest text-on-surface-variant transition-colors border border-transparent hover:border-outline-variant">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+</button>
+</div>
+</div>
+</header>
+<!-- SCROLLABLE CONTENT -->
+<div class="flex-1 overflow-y-auto p-container-padding flex flex-col xl:flex-row gap-6">
+<!-- Left Column: Calendar Area -->
+<div class="flex-1 flex flex-col gap-6 min-w-[700px]">
+<!-- Session Types Palette -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<h2 class="font-label-caps text-label-caps text-on-surface-variant">SESSION TEMPLATES</h2>
+<span class="font-body-sm text-body-sm text-on-surface-variant italic">Drag onto the calendar, or click to schedule.</span>
+</div>
+<div class="flex gap-4 overflow-x-auto pb-2 -mx-2 px-2">
+<!-- Card 1 -->
+<div class="shrink-0 w-64 bg-surface-container-low border border-outline-variant rounded-lg p-3 relative overflow-hidden cursor-grab hover:border-primary/50 transition-colors group flex flex-col gap-2 shadow-[0_4px_12px_rgba(0,0,0,0.2)]">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex items-center justify-between pl-2">
+<span class="font-title-sm text-title-sm text-on-surface truncate">Founding Members</span>
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">drag_indicator</span>
+</div>
+<div class="flex items-center gap-3 pl-2">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-numeric-data">60m</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">group</span>
+<span class="font-numeric-data text-numeric-data">50 cap</span>
+</div>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="shrink-0 w-64 bg-surface-container-low border border-outline-variant rounded-lg p-3 relative overflow-hidden cursor-grab hover:border-secondary-container/50 transition-colors group flex flex-col gap-2 shadow-[0_4px_12px_rgba(0,0,0,0.2)]">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-secondary-container"></div>
+<div class="flex items-center justify-between pl-2">
+<span class="font-title-sm text-title-sm text-on-surface truncate">Office Hours</span>
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">drag_indicator</span>
+</div>
+<div class="flex items-center gap-3 pl-2">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-numeric-data">30m</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">group</span>
+<span class="font-numeric-data text-numeric-data">10 cap</span>
+</div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="shrink-0 w-64 bg-surface-container-low border border-outline-variant rounded-lg p-3 relative overflow-hidden cursor-grab hover:border-[#10b981]/50 transition-colors group flex flex-col gap-2 shadow-[0_4px_12px_rgba(0,0,0,0.2)]">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-[#10b981]"></div>
+<div class="flex items-center justify-between pl-2">
+<span class="font-title-sm text-title-sm text-on-surface truncate">Pack Review</span>
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">drag_indicator</span>
+</div>
+<div class="flex items-center gap-3 pl-2">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-numeric-data">45m</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">group</span>
+<span class="font-numeric-data text-numeric-data">15 cap</span>
+</div>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="shrink-0 w-64 bg-surface-container-low border border-outline-variant rounded-lg p-3 relative overflow-hidden cursor-grab hover:border-[#8b5cf6]/50 transition-colors group flex flex-col gap-2 shadow-[0_4px_12px_rgba(0,0,0,0.2)]">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-[#8b5cf6]"></div>
+<div class="flex items-center justify-between pl-2">
+<span class="font-title-sm text-title-sm text-on-surface truncate">Guest Session</span>
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">drag_indicator</span>
+</div>
+<div class="flex items-center gap-3 pl-2">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-numeric-data">90m</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">group</span>
+<span class="font-numeric-data text-numeric-data">100 cap</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Calendar Panel -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex-1 min-h-[600px] overflow-hidden">
+<!-- Calendar Toolbar -->
+<div class="p-4 border-b border-outline-variant flex items-center justify-between bg-surface-container-highest/50">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1 bg-surface-container border border-outline-variant rounded p-0.5">
+<button class="p-1 rounded hover:bg-surface-variant transition-colors text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant transition-colors text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+<button class="px-3 py-1.5 rounded border border-outline-variant hover:bg-surface-variant hover:border-outline transition-colors font-label-caps text-label-caps text-on-surface">
+                                Today
+                            </button>
+<h2 class="font-display-lg text-display-lg text-on-surface ml-4">September 2024</h2>
+</div>
+<div class="flex items-center bg-surface-container border border-outline-variant rounded p-0.5">
+<button class="px-4 py-1.5 rounded bg-primary text-on-primary font-label-caps text-label-caps">Month</button>
+<button class="px-4 py-1.5 rounded text-on-surface-variant hover:text-on-surface font-label-caps text-label-caps transition-colors">Week</button>
+<button class="px-4 py-1.5 rounded text-on-surface-variant hover:text-on-surface font-label-caps text-label-caps transition-colors">Day</button>
+</div>
+</div>
+<!-- Calendar Grid Header -->
+<div class="grid grid-cols-7 border-b border-outline-variant bg-surface-container-lowest">
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant border-r border-outline-variant">MON</div>
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant border-r border-outline-variant">TUE</div>
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant border-r border-outline-variant">WED</div>
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant border-r border-outline-variant">THU</div>
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant border-r border-outline-variant">FRI</div>
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant border-r border-outline-variant bg-surface-container-lowest/50">SAT</div>
+<div class="p-2 text-center font-label-caps text-label-caps text-on-surface-variant bg-surface-container-lowest/50">SUN</div>
+</div>
+<!-- Calendar Grid Body (7x6) -->
+<div class="flex-1 grid grid-cols-7 grid-rows-5 bg-surface-container-lowest">
+<!-- Row 1 -->
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] opacity-40">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface-variant">26</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] opacity-40">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface-variant">27</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] opacity-40">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface-variant">28</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] opacity-40">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface-variant">29</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] opacity-40">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface-variant">30</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] opacity-40 bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface-variant">31</div>
+</div>
+<div class="border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">1</div>
+</div>
+<!-- Row 2 -->
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">2</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-primary/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">10:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">K8s Operator Deep Dive</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">3</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">4</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-secondary-container/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-secondary-container shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">14:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Office Hours</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">5</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">6</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-[#10b981]/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-[#10b981] shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">09:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Pack Review Beta</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">7</div>
+</div>
+<div class="border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">8</div>
+</div>
+<!-- Row 3 -->
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">9</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">10</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-primary/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">10:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Founders Sync</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">11</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-secondary-container/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-secondary-container shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">13:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Office Hours</span>
+</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-[#8b5cf6]/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-[#8b5cf6] shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">15:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Guest: Web3 Security</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">12</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">13</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">14</div>
+</div>
+<div class="border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">15</div>
+</div>
+<!-- Row 4 -->
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">16</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">17</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-primary/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">10:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">K8s Operator Deep Dive</span>
+</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-secondary-container/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-secondary-container shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">13:30</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Office Hours</span>
+</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-[#10b981]/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-[#10b981] shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">16:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Pack Review</span>
+</div>
+<div class="text-center font-label-caps text-[9px] text-on-surface-variant py-0.5 hover:text-primary cursor-pointer">+2 more</div>
+</div>
+<!-- TODAY -->
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-highest/20">
+<div class="flex justify-end p-1">
+<div class="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-on-primary font-numeric-data text-numeric-data">18</div>
+</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-primary/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">10:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Stateful Sets Sync</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">19</div>
+</div>
+<!-- Drop Target Highlight (Simulating Drag) -->
+<div class="border-r border-b border-secondary-container/50 bg-secondary-container/10 p-1 flex flex-col gap-1 min-h-[100px] relative">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">20</div>
+<!-- Dragged Element Ghost -->
+<div class="absolute inset-x-1 top-8 bg-surface border border-secondary-container rounded px-1.5 py-1 flex items-center gap-1.5 shadow-lg opacity-80 pointer-events-none scale-105 z-10 rotate-1">
+<div class="w-2 h-2 rounded-full bg-secondary-container shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">14:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Office Hours</span>
+</div>
+</div>
+<div class="border-r border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">21</div>
+</div>
+<div class="border-b border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">22</div>
+</div>
+<!-- Row 5 -->
+<div class="border-r border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">23</div>
+</div>
+<div class="border-r border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">24</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-primary/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">10:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Founders Sync</span>
+</div>
+</div>
+<div class="border-r border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">25</div>
+</div>
+<div class="border-r border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">26</div>
+</div>
+<div class="border-r border-outline-variant p-1 flex flex-col gap-1 min-h-[100px]">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">27</div>
+<div class="bg-surface border border-outline-variant rounded px-1.5 py-1 flex items-center gap-1.5 hover:border-[#10b981]/50 cursor-pointer">
+<div class="w-2 h-2 rounded-full bg-[#10b981] shrink-0"></div>
+<span class="font-numeric-data text-[10px] text-on-surface-variant">09:00</span>
+<span class="font-body-sm text-[11px] text-on-surface truncate">Pack Review Final</span>
+</div>
+</div>
+<div class="border-r border-outline-variant p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">28</div>
+</div>
+<div class="p-1 flex flex-col gap-1 min-h-[100px] bg-surface-container-low/30">
+<div class="text-right p-1 font-numeric-data text-numeric-data text-on-surface">29</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Rail: Upcoming List -->
+<div class="w-full xl:w-[300px] shrink-0 flex flex-col gap-4">
+<div class="flex items-center justify-between pb-2 border-b border-outline-variant">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant">UPCOMING</h3>
+<button class="text-primary hover:text-primary-container transition-colors">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<div class="flex flex-col gap-3">
+<!-- Item 1 -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-3 hover:border-outline transition-colors cursor-pointer group">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+<span class="font-title-sm text-title-sm text-on-surface">Founders Sync</span>
+</div>
+<span class="font-numeric-data text-[11px] text-on-surface-variant bg-surface border border-outline-variant px-1.5 py-0.5 rounded">Sep 18</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-body-sm">10:00</span>
+</div>
+<div class="font-numeric-data text-[11px]">
+<span class="text-primary">24</span>/50 reg
+                            </div>
+</div>
+</div>
+<!-- Item 2 (Simulating Drop Target Data) -->
+<div class="bg-surface-container-low border border-secondary-container/30 rounded-lg p-3 hover:border-secondary-container transition-colors cursor-pointer group relative overflow-hidden">
+<div class="absolute inset-0 bg-secondary-container/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-2 relative z-10">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-secondary-container"></div>
+<span class="font-title-sm text-title-sm text-on-surface">Office Hours</span>
+</div>
+<span class="font-numeric-data text-[11px] text-on-surface-variant bg-surface border border-outline-variant px-1.5 py-0.5 rounded">Sep 20</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant relative z-10">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-body-sm">14:00</span>
+</div>
+<div class="font-numeric-data text-[11px]">
+<span>2</span>/10 reg
+                            </div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-3 hover:border-outline transition-colors cursor-pointer group">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+<span class="font-title-sm text-title-sm text-on-surface">Founders Sync</span>
+</div>
+<span class="font-numeric-data text-[11px] text-on-surface-variant bg-surface border border-outline-variant px-1.5 py-0.5 rounded">Sep 24</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-body-sm">10:00</span>
+</div>
+<div class="font-numeric-data text-[11px]">
+<span>12</span>/50 reg
+                            </div>
+</div>
+</div>
+<!-- Item 4 -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-3 hover:border-outline transition-colors cursor-pointer group">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-[#10b981]"></div>
+<span class="font-title-sm text-title-sm text-on-surface">Pack Review Final</span>
+</div>
+<span class="font-numeric-data text-[11px] text-on-surface-variant bg-surface border border-outline-variant px-1.5 py-0.5 rounded">Sep 27</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-body-sm">09:00</span>
+</div>
+<div class="font-numeric-data text-[11px]">
+<span class="text-error">15</span>/15 reg
+                            </div>
+</div>
+</div>
+<!-- Item 5 -->
+<div class="bg-surface-container-low border border-outline-variant rounded-lg p-3 hover:border-outline transition-colors cursor-pointer group opacity-60">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-[#8b5cf6]"></div>
+<span class="font-title-sm text-title-sm text-on-surface">Guest Session</span>
+</div>
+<span class="font-numeric-data text-[11px] text-on-surface-variant bg-surface border border-outline-variant px-1.5 py-0.5 rounded">Oct 2</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+<span class="font-numeric-data text-body-sm">13:00</span>
+</div>
+<div class="font-numeric-data text-[11px]">
+<span>45</span>/100 reg
+                            </div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -148,7 +148,7 @@ export class StreamEventTransformer {
     state.clearToolCallIdsForContext(context);
 
     if (state.activeSkillToolUseIdsCount() > 0) {
-      helpers.logger.info(
+      helpers.logger.debug(
         '[SdkMessageTransformer] Clearing activeSkillToolUseIds on assistant message_start',
         { clearedIds: state.snapshotActiveSkillToolUseIds() },
       );
@@ -159,7 +159,7 @@ export class StreamEventTransformer {
       id: generateEventId(),
       eventType: 'message_start',
       timestamp: Date.now(),
-      sessionId: sessionId || '',
+      sessionId,
       source: 'stream' as EventSource,
       messageId,
       role: 'assistant',
@@ -205,7 +205,7 @@ export class StreamEventTransformer {
       id: generateEventId(),
       eventType: 'message_delta',
       timestamp: Date.now(),
-      sessionId: sessionId || '',
+      sessionId,
       source: 'stream' as EventSource,
       messageId: currentMessageId,
       tokenUsage: {
@@ -232,7 +232,7 @@ export class StreamEventTransformer {
         id: generateEventId(),
         eventType: 'message_complete',
         timestamp: Date.now(),
-        sessionId: sessionId || '',
+        sessionId,
         source: 'stream' as EventSource,
         messageId: currentMessageId,
         parentToolUseId,
@@ -285,7 +285,7 @@ export class StreamEventTransformer {
         id: generateEventId(),
         eventType: 'thinking_start',
         timestamp: Date.now(),
-        sessionId: sessionId || '',
+        sessionId,
         source: 'stream' as EventSource,
         messageId: currentMessageId,
         blockIndex,
@@ -300,7 +300,7 @@ export class StreamEventTransformer {
 
       if (contentBlock.name === 'Skill') {
         state.addActiveSkillToolUseId(contentBlock.id);
-        helpers.logger.info(
+        helpers.logger.debug(
           '[SdkMessageTransformer] Tracking Skill tool_use (streaming) for content filtering',
           { toolCallId: contentBlock.id },
         );
@@ -312,7 +312,7 @@ export class StreamEventTransformer {
         id: generateEventId(),
         eventType: 'tool_start',
         timestamp: Date.now(),
-        sessionId: sessionId || '',
+        sessionId,
         source: 'stream' as EventSource,
         messageId: currentMessageId,
         toolCallId: contentBlock.id,
@@ -362,7 +362,7 @@ export class StreamEventTransformer {
           id: generateEventId(),
           eventType: 'text_delta',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'stream' as EventSource,
           messageId: currentMessageId,
           delta: delta.text,
@@ -384,7 +384,7 @@ export class StreamEventTransformer {
           id: generateEventId(),
           eventType: 'tool_delta',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'stream' as EventSource,
           messageId: currentMessageId,
           toolCallId: realToolCallId,
@@ -402,7 +402,7 @@ export class StreamEventTransformer {
           id: generateEventId(),
           eventType: 'thinking_delta',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'stream' as EventSource,
           messageId: currentMessageId,
           delta: delta.thinking,
@@ -421,7 +421,7 @@ export class StreamEventTransformer {
           id: generateEventId(),
           eventType: 'signature_delta',
           timestamp: Date.now(),
-          sessionId: sessionId || '',
+          sessionId,
           source: 'stream' as EventSource,
           messageId: currentMessageId,
           blockIndex,

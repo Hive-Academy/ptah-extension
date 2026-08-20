@@ -30,9 +30,29 @@ import {
   type TmpHome,
 } from './_harness';
 
-jest.setTimeout(90_000);
+jest.setTimeout(300_000);
 
 const FAKE_API_KEY = 'sk-ant-e2e-fake-key-not-real-do-not-call-upstream';
+
+/**
+ * How long a turn driven by the fake key may take to settle.
+ *
+ * This used to be 60s, which was ample while `isFatalUpstreamProviderError`
+ * still aborted a query the moment the CLI printed an auth signature on stderr
+ * — the turn settled in ~2.5s. TASK_2026_190 deleted that heuristic on purpose
+ * ("brittle in both directions") and replaced it with `NoActivityWatchdog`,
+ * whose window is `NO_ACTIVITY_TIMEOUT_MS` = 180s. So nothing on the Ptah side
+ * ends a silent turn before 180s any more, and the bundled CLI's own retry
+ * envelope for an invalid key measures ~183s before it emits the assistant text
+ * `Failed to authenticate. API Error: 401 API key is invalid.` and its `result`.
+ *
+ * The guardrails under test are unchanged — a terminal envelope on every settle
+ * path, and exactly one rejection when two submits race. Only the budget moved,
+ * and it has to clear BOTH ceilings (the 180s watchdog and the CLI's retry
+ * envelope) or the harness times the request out first and the winner looks
+ * like a hang.
+ */
+const TURN_SETTLE_BUDGET_MS = 240_000;
 
 describe('headless task lifecycle (Bug 1 + Bug 4)', () => {
   let tmp: TmpHome;
@@ -73,10 +93,10 @@ describe('headless task lifecycle (Bug 1 + Bug 4)', () => {
     // — the bridge's contract is kind-agnostic. Either is acceptable, but the
     // envelope shape must satisfy the schema in docs/jsonrpc-schema.md § 1.10.
     const requestPromise = client
-      .submitTask({ task: 'ping' }, 60_000)
+      .submitTask({ task: 'ping' }, TURN_SETTLE_BUDGET_MS)
       .catch(() => undefined);
 
-    const terminal = await client.awaitTaskTerminal(60_000);
+    const terminal = await client.awaitTaskTerminal(TURN_SETTLE_BUDGET_MS);
     expect(['complete', 'error']).toContain(terminal.kind);
     expect(terminal.params.command).toBe('task.submit');
 
@@ -126,8 +146,14 @@ describe('headless task lifecycle (Bug 1 + Bug 4)', () => {
     // test. Cork buffers; uncork-on-nextTick flushes the buffered queue in one
     // chunk after both write() calls have been issued.
     activeRunner.child.stdin.cork();
-    const firstP = client.submitTask({ task: 'first turn' }, 60_000);
-    const secondP = client.submitTask({ task: 'second turn' }, 60_000);
+    const firstP = client.submitTask(
+      { task: 'first turn' },
+      TURN_SETTLE_BUDGET_MS,
+    );
+    const secondP = client.submitTask(
+      { task: 'second turn' },
+      TURN_SETTLE_BUDGET_MS,
+    );
     process.nextTick(() => activeRunner.child.stdin.uncork());
     const [first, second] = await Promise.allSettled([firstP, secondP]);
 

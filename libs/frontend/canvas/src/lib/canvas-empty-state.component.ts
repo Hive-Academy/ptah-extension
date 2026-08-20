@@ -33,10 +33,10 @@ import { VSCodeService } from '@ptah-extension/core';
         width="64"
         height="64"
       />
-      <h2 class="text-lg font-semibold text-base-content/70 mb-2">
+      <h2 class="text-lg font-semibold text-base-content-muted mb-2">
         Orchestra Canvas
       </h2>
-      <p class="text-sm text-base-content/50 mb-6 max-w-sm">
+      <p class="text-sm text-base-content-muted mb-6 max-w-sm">
         Open multiple AI sessions side by side. Each tile runs independently
         with its own context.
       </p>

@@ -116,6 +116,32 @@ const ALL_THEME_NAMES: ReadonlySet<string> = new Set(
  */
 const THEME_STATE_KEY = 'theme';
 
+/**
+ * The two themes compiled into the initial `styles.css`. Every other entry of
+ * `DAISYUI_THEMES` lives in the deferred `theme-extra.css` sheet, which is
+ * emitted by the build but not linked from `index.html`.
+ */
+const EAGER_THEMES: ReadonlySet<string> = new Set(['anubis', 'anubis-light']);
+
+/**
+ * `localStorage` mirror of the persisted theme.
+ *
+ * `vscode.getState()` is the authoritative store, but it is unreachable from
+ * `index.html`'s pre-paint script inside the VS Code webview (the host injects
+ * `acquireVsCodeApi()` at the end of `<body>`). `localStorage` is readable
+ * synchronously in `<head>` in both hosts, so the pre-paint script uses this
+ * mirror to decide whether it must block the first paint on `theme-extra.css`.
+ *
+ * Must match the key read by `apps/ptah-extension-webview/src/index.html`.
+ */
+const THEME_HINT_KEY = 'ptah-theme';
+
+/** Non-fetching `<link>` in `index.html` that carries the deferred sheet URL. */
+const DEFERRED_SHEET_MARKER_ID = 'ptah-theme-extra';
+
+/** id of the real `<link rel="stylesheet">` once the deferred sheet is in. */
+const DEFERRED_SHEET_LINK_ID = 'ptah-theme-extra-sheet';
+
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   private readonly vscode = inject(VSCodeService);
@@ -137,12 +163,35 @@ export class ThemeService {
    */
   readonly isDarkMode = computed(() => DARK_THEMES.has(this._currentTheme()));
 
+  /**
+   * In-flight (or settled) load of `theme-extra.css`. `null` until something
+   * asks for a deferred theme.
+   */
+  private deferredSheetLoad: Promise<void> | null = null;
+
+  /** True once `theme-extra.css` is known to be applied to the document. */
+  private deferredSheetReady = false;
+
   constructor() {
+    // The pre-paint script in index.html inserts the sheet render-blocking, so
+    // if the link is already here the sheet has already been applied.
+    if (document.getElementById(DEFERRED_SHEET_LINK_ID)) {
+      this.deferredSheetReady = true;
+      this.deferredSheetLoad = Promise.resolve();
+    }
+
     this.initializeTheme();
 
     effect(() => {
       const theme = this._currentTheme();
-      document.documentElement.setAttribute('data-theme', theme);
+      const root = document.documentElement;
+      root.setAttribute('data-theme', theme);
+      // Expose a coarse light/dark marker so brand tokens (e.g. --ptah-gold)
+      // can adapt to ANY selected daisyUI theme without per-theme CSS.
+      root.setAttribute(
+        'data-theme-mode',
+        DARK_THEMES.has(theme) ? 'dark' : 'light',
+      );
     });
   }
 
@@ -158,13 +207,74 @@ export class ThemeService {
     const persisted = this.vscode.getState<string>(THEME_STATE_KEY);
     if (persisted && this.isValidTheme(persisted)) {
       this._currentTheme.set(persisted);
+      // Re-arm the pre-paint hint. On the first launch after upgrade the
+      // mirror does not exist yet, so a VS Code user on one of the 32 deferred
+      // themes gets one last frame of `anubis` — exactly what happens on every
+      // launch today. Writing it here means it does not happen again.
+      this.writeThemeHint(persisted);
+      if (!EAGER_THEMES.has(persisted)) {
+        // Sheet is normally already in the document (inserted render-blocking
+        // by index.html). This covers the upgrade path above, where it is not.
+        void this.loadDeferredThemeSheet();
+      }
       return;
     }
 
+    // Theme-kind fallback can only ever pick `anubis-light`, which is in
+    // styles.css — this path never needs the deferred sheet.
     const vscodeTheme = this.vscode.config().theme;
     if (vscodeTheme === 'light') {
       this._currentTheme.set('anubis-light');
     }
+  }
+
+  /**
+   * Mirror the theme into `localStorage` for the pre-paint script. Best effort:
+   * storage can be unavailable (disabled, quota, partitioned context) and a
+   * failure here only costs one frame of the default theme on the next launch.
+   */
+  private writeThemeHint(theme: ThemeName): void {
+    try {
+      localStorage.setItem(THEME_HINT_KEY, theme);
+    } catch {
+      /* storage unavailable — the hint is an optimisation, not the source */
+    }
+  }
+
+  /**
+   * Insert `theme-extra.css` if it is not already present.
+   *
+   * Returns `null` when this document carries no deferred sheet at all (unit
+   * tests, the extension host's fallback HTML) — callers must then apply the
+   * theme immediately rather than wait forever.
+   */
+  private loadDeferredThemeSheet(): Promise<void> | null {
+    if (this.deferredSheetLoad) {
+      return this.deferredSheetLoad;
+    }
+
+    const marker = document.getElementById(DEFERRED_SHEET_MARKER_ID);
+    const url = marker instanceof HTMLLinkElement ? marker.href : '';
+    if (!url) {
+      return null;
+    }
+
+    this.deferredSheetLoad = new Promise<void>((resolve) => {
+      const settle = (): void => {
+        // Resolve on error too: a missing sheet must not strand the picker on
+        // the old theme. The user gets `:root` (anubis) variables instead.
+        this.deferredSheetReady = true;
+        resolve();
+      };
+      const sheet = document.createElement('link');
+      sheet.id = DEFERRED_SHEET_LINK_ID;
+      sheet.rel = 'stylesheet';
+      sheet.href = url;
+      sheet.addEventListener('load', settle, { once: true });
+      sheet.addEventListener('error', settle, { once: true });
+      document.head.appendChild(sheet);
+    });
+    return this.deferredSheetLoad;
   }
 
   /**
@@ -175,11 +285,31 @@ export class ThemeService {
   }
 
   /**
-   * Set theme and persist preference
+   * Set theme and persist preference.
+   *
+   * Persistence is always synchronous. Application is synchronous too, except
+   * for the FIRST switch in a session to one of the 32 deferred themes: those
+   * live in `theme-extra.css`, and flipping `data-theme` before that sheet
+   * lands would leave `[data-theme=<x>]` matching nothing, so the UI would fall
+   * back to the `:root` (anubis) variables — a dark flicker for anyone
+   * switching between two light themes. Waiting for the sheet costs one local
+   * read; every later switch is synchronous again.
    */
   setTheme(theme: ThemeName): void {
-    this._currentTheme.set(theme);
     this.vscode.setState(THEME_STATE_KEY, theme);
+    this.writeThemeHint(theme);
+
+    if (EAGER_THEMES.has(theme) || this.deferredSheetReady) {
+      this._currentTheme.set(theme);
+      return;
+    }
+
+    const pending = this.loadDeferredThemeSheet();
+    if (!pending) {
+      this._currentTheme.set(theme);
+      return;
+    }
+    void pending.then(() => this._currentTheme.set(theme));
   }
 
   /**
