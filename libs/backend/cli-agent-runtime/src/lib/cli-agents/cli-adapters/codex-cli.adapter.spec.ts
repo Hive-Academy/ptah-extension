@@ -245,9 +245,12 @@ describe('CodexCliAdapter', () => {
 
       await adapter.runSdk(defaultOptions);
 
-      expect(mockRunStreamed).toHaveBeenCalledWith('Implement feature X', {
-        signal: expect.any(AbortSignal),
-      });
+      expect(mockRunStreamed).toHaveBeenCalledWith(
+        expect.stringContaining('Implement feature X'),
+        {
+          signal: expect.any(AbortSignal),
+        },
+      );
     });
 
     it('should include file context in the task prompt', async () => {

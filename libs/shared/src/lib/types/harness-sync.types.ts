@@ -42,8 +42,15 @@ export type HarnessFacet = 'skills' | 'commands' | 'agents' | 'mcp';
  * Antigravity documents no subagent format, so those artifacts genuinely cannot
  * be delivered — the health report says so instead of showing a permanent
  * `missing` count nobody can act on (defect 12 of the TASK_2026_278 inventory).
+ *
+ * `source-managed` means the target's directory is itself an editable source.
+ * Ptah intentionally does not write, track in its manifest, or reap that facet:
+ * doing so would feed derived output back into the source layer.
  */
-export type HarnessFacetSupport = 'supported' | 'unsupported';
+export type HarnessFacetSupport =
+  | 'supported'
+  | 'unsupported'
+  | 'source-managed';
 
 /** Per-facet capability of one target. */
 export type HarnessFacetMatrix = Readonly<

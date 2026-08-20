@@ -20,18 +20,20 @@ Replaces four separate fan-outs that each had their own idea of ownership:
 
 ## Target × facet matrix
 
-| Target          | skills                     | commands                     | agents                         | mcp                                |
-| --------------- | -------------------------- | ---------------------------- | ------------------------------ | ---------------------------------- |
-| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | — **unsupported**              | `{ws}/.mcp.json`                   |
-| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`      | `~/.codex/config.toml`             |
-| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md` | `~/.copilot/mcp-config.json`       |
-| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`       | `{ws}/.cursor/mcp.json`            |
-| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**              | `~/.gemini/config/mcp_config.json` |
-| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**              | `{ws}/.vscode/mcp.json`            |
+| Target          | skills                     | commands                     | agents                          | mcp                                |
+| --------------- | -------------------------- | ---------------------------- | ------------------------------- | ---------------------------------- |
+| **claude**      | `.claude/skills/<slug>/**` | `.claude/commands/<slug>.md` | source-managed `.claude/agents` | `{ws}/.mcp.json`                   |
+| **codex**       | `.agents/skills/<slug>/**` | — **unsupported**            | `.codex/agents/<id>.toml`       | `~/.codex/config.toml`             |
+| **copilot**     | `.github/skills/<slug>/**` | — **unsupported**            | `.github/agents/<id>.agent.md`  | `~/.copilot/mcp-config.json`       |
+| **cursor**      | `.cursor/skills/<slug>/**` | `.cursor/commands/<slug>.md` | `.cursor/agents/<id>.md`        | `{ws}/.cursor/mcp.json`            |
+| **antigravity** | `.agents/skills/<slug>/**` | — **unsupported**            | — **unsupported**               | `~/.gemini/config/mcp_config.json` |
+| **vscode**      | — **unsupported**          | — **unsupported**            | — **unsupported**               | `{ws}/.vscode/mcp.json`            |
 
 Every cell is reported per target in `HarnessTargetHealth.facets`, so an
 artifact a tool genuinely cannot accept reads as `unsupported` rather than as a
-permanently missing count nobody can act on (defect 12).
+permanently missing count nobody can act on (defect 12). `source-managed` is
+different: the target's directory is editable input, so Ptah deliberately does
+not write it, record it in a manifest, or reap it.
 
 **The whole `agents` COLUMN is gated on user consent (TASK_2026_286).** Skills
 and commands are content the user installed or authored on purpose — a plugin
@@ -49,12 +51,14 @@ REAPS it, because agents are manifest-owned:
 See "The agents consent gate and its migration" below for the absent-flag rule,
 which is the load-bearing half.
 
-**Why the unsupported cells are unsupported** — each is an upstream limit, not
-a gap to fill later:
+**Why unsupported and source-managed cells are not gaps** — `unsupported` is
+an upstream limit, while `source-managed` identifies editable input Ptah must
+leave alone:
 
-- **Claude agents.** `{ws}/.claude/agents` is a SOURCE the user-layer mirror
-  reads FROM. Writing generated agents back closes a source→target→source loop
-  where every reconcile re-mirrors its own output.
+- **Claude agents are source-managed.** `{ws}/.claude/agents` is a SOURCE the
+  user-layer mirror reads FROM. Writing generated agents back closes a
+  source→target→source loop where every reconcile re-mirrors its own output;
+  Ptah therefore never writes, manifests, or reaps it.
 - **Codex commands.** Codex rejects project-scoped prompts; the prompt
   directory is home-only upstream (openai/codex#9848).
 - **Copilot commands.** No documented project prompt directory
@@ -437,8 +441,9 @@ Four rules, and the reason for each:
   directories of skill/command/agent copies are listed. `IHarnessTarget.managedDirs()`
   is what each target declares, and no target's MCP facet contributes to it.
 
-`.claude/agents` is absent for the same reason it is `unsupported` in the
-matrix: it is a SOURCE holding files the user authored, and it must stay tracked.
+`.claude/agents` is absent because it is `source-managed` in the matrix: it is
+an editable SOURCE holding files the user authored, so Ptah must not write,
+manifest, reap, or ignore it.
 
 ## Settings
 

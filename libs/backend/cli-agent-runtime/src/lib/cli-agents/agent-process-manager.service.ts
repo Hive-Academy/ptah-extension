@@ -16,7 +16,6 @@ import {
 import { ChildProcess } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import { EventEmitter } from 'eventemitter3';
-import axios from 'axios';
 import {
   TOKENS,
   Logger,
@@ -24,7 +23,10 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IMcpServerStatus,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ReasoningSettings } from '@ptah-extension/settings-core';
 import {
@@ -239,13 +241,6 @@ export class AgentProcessManager {
     return configuredModel || requestModel;
   }
 
-  /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
-  private mcpHealthCache: {
-    port: number | undefined;
-    timestamp: number;
-  } | null = null;
-  private static readonly MCP_HEALTH_CACHE_TTL = 30_000;
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
@@ -266,6 +261,12 @@ export class AgentProcessManager {
      */
     @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
     private readonly harnessPreflight: IHarnessPreflight | null = null,
+    /**
+     * Optional because CLI-only hosts do not start Ptah's in-process MCP server.
+     * The port is the source of truth after deterministic fallback selection.
+     */
+    @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
+    private readonly mcpServerStatus: IMcpServerStatus | null = null,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -1398,50 +1399,28 @@ export class AgentProcessManager {
   }
 
   /**
-   * Resolve MCP server port for CLI agents, gated on server health only.
-   * Returns the port number if the MCP server is reachable, undefined otherwise.
+   * Resolve the actual MCP listener port.
    *
-   * Health check results are cached for 30 seconds to avoid repeated HTTP calls
-   * when spawning multiple agents in rapid succession.
+   * The status port is updated only after the server binds, so it reflects a
+   * deterministic fallback port rather than the configured port that collided.
    */
-  private async resolveMcpPort(): Promise<number | undefined> {
+  private resolveMcpPort(): number | undefined {
     try {
-      const configuredPort =
-        this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
-        51820;
-
-      if (
-        this.mcpHealthCache &&
-        Date.now() - this.mcpHealthCache.timestamp <
-          AgentProcessManager.MCP_HEALTH_CACHE_TTL
-      ) {
-        return this.mcpHealthCache.port;
-      }
-      try {
-        await axios.get(`http://localhost:${configuredPort}/health`, {
-          timeout: 2000,
-        });
-        this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
-        this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
-          port: configuredPort,
-        });
-        return configuredPort;
-      } catch (error) {
-        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
-        if (axios.isAxiosError(error) && error.response) {
-          this.logger.info(
-            `[AgentProcessManager] MCP health check failed: HTTP ${error.response.status}, disabling for CLI agent`,
-          );
-        } else {
-          this.logger.info(
-            '[AgentProcessManager] MCP server not reachable, disabling for CLI agent',
-          );
-        }
+      const port = this.mcpServerStatus?.getPort() ?? null;
+      if (port === null) {
+        this.logger.info(
+          '[AgentProcessManager] MCP server is not running, disabling for CLI agent',
+        );
         return undefined;
       }
-    } catch (err) {
+
+      this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
+        port,
+      });
+      return port;
+    } catch (error: unknown) {
       this.sentryService.captureException(
-        err instanceof Error ? err : new Error(String(err)),
+        error instanceof Error ? error : new Error(String(error)),
         { errorSource: 'AgentProcessManager.resolveMcpPort' },
       );
       this.logger.info('[AgentProcessManager] MCP port resolution failed');

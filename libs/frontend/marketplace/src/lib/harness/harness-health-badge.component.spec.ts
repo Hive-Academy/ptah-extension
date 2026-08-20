@@ -273,6 +273,34 @@ describe('HarnessHealthBadgeComponent', () => {
   });
 
   describe('per-target detail', () => {
+    it('shows source-managed facets as neutral source input', async () => {
+      await render(
+        makeHealth({
+          targets: [
+            makeTarget('claude', {
+              facets: {
+                skills: 'supported',
+                commands: 'supported',
+                agents: 'source-managed',
+                mcp: 'supported',
+              },
+            }),
+          ],
+        }),
+      );
+      await openPanel();
+
+      const agents = testId('harness-facet-claude-agents');
+
+      expect(agents?.className).toContain('text-base-content-muted');
+      expect(agents?.className).not.toContain('text-error');
+      expect(agents?.textContent).toContain('agents (source)');
+      expect(agents?.getAttribute('title')).toContain('source input');
+      expect(agents?.getAttribute('title')).toContain(
+        'does not write, manifest, or remove',
+      );
+    });
+
     it('distinguishes unsupported facets from missing entries', async () => {
       await render(
         makeHealth({

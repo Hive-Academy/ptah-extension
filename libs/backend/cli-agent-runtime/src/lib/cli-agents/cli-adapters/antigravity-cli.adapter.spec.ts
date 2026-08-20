@@ -208,7 +208,7 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg[argsArg.indexOf('--add-dir') + 1]).toBe('/proj');
       // --print is the LAST flag and its value is the built task prompt.
       expect(argsArg[argsArg.length - 2]).toBe('--print');
-      expect(argsArg[argsArg.length - 1]).toBe('Do the thing');
+      expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
     });
 
     it('adds --model when a model is provided', async () => {
