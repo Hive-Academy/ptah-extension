@@ -226,7 +226,7 @@ const SESSION_ROOT = 'D:\\session-root';
  * range, because a range would stop catching a namespace that silently lost
  * (or gained, unguarded) its session-aware capability.
  */
-const EXPECTED_ROOT_CAPABLE_SITES = 16;
+const EXPECTED_ROOT_CAPABLE_SITES = 17;
 
 function makeRawWorkspaceProvider(): IWorkspaceProvider {
   return {

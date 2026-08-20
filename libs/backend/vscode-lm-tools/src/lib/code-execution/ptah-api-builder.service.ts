@@ -221,9 +221,13 @@ interface PluginLoaderLike {
   resolveCurrentPluginPaths(): string[];
   discoverSkillsForPlugins(pluginPaths: string[]): Array<{
     skillId: string;
+    descriptorId: string;
+    invocationName: string;
     displayName: string;
     description: string;
     pluginId: string;
+    sourceId: string;
+    invocability: 'invocable' | 'not-invocable' | 'unknown';
   }>;
   getDisabledSkillIds(): string[];
 }
@@ -461,6 +465,7 @@ export class PtahAPIBuilder {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextOrchestration: this.contextOrchestration,
       workspaceProvider: sessionAwareWorkspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
     };
 
     const systemDeps = {
@@ -504,7 +509,10 @@ export class PtahAPIBuilder {
         buildSearchNamespace(coreDeps),
       ),
       diagnostics: this.buildNamespaceSafe('diagnostics', () =>
-        buildDiagnosticsNamespace(this.diagnosticsProvider),
+        buildDiagnosticsNamespace(
+          this.diagnosticsProvider,
+          sessionAwareWorkspaceProvider,
+        ),
       ),
       files: this.buildNamespaceSafe('files', () =>
         buildFilesNamespace(systemDeps),
