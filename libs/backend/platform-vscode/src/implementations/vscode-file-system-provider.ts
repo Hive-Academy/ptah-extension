@@ -154,15 +154,21 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
     pattern: string,
     exclude?: string[],
     maxResults?: number,
-    _cwd?: string,
+    cwd?: string,
   ): Promise<string[]> {
     let excludeGlob: string | undefined;
     if (exclude && exclude.length > 0) {
       excludeGlob =
         exclude.length === 1 ? exclude[0] : `{${exclude.join(',')}}`;
     }
+    // Scope the glob to `cwd` via RelativePattern when given (matching the
+    // watcher at line 179). This makes multi-root workspace searches return
+    // only files under the calling session's root.
+    const globPattern = cwd
+      ? new vscode.RelativePattern(cwd, pattern)
+      : pattern;
     const uris = await vscode.workspace.findFiles(
-      pattern,
+      globPattern,
       excludeGlob,
       maxResults,
     );

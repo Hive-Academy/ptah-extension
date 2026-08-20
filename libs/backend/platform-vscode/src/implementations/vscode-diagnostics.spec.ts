@@ -29,7 +29,7 @@ runDiagnosticsProviderContract('VscodeDiagnosticsProvider', () => {
 describe('VscodeDiagnosticsProvider — VS Code-specific behaviour', () => {
   beforeEach(() => __resetVscodeTestDouble());
 
-  it('maps vscode.DiagnosticSeverity enum to the severity union', () => {
+  it('maps vscode.DiagnosticSeverity enum to the severity union', async () => {
     __vscodeState.setDiagnostics([
       {
         file: '/tmp/multi.ts',
@@ -43,16 +43,20 @@ describe('VscodeDiagnosticsProvider — VS Code-specific behaviour', () => {
     ]);
 
     const provider = new VscodeDiagnosticsProvider();
-    const [entry] = provider.getDiagnostics();
-    expect(entry.diagnostics.map((d) => d.severity)).toEqual([
-      'error',
-      'warning',
-      'info',
-      'hint',
-    ]);
+    const result = await provider.getDiagnostics();
+    expect(result.status).toBe('available');
+    if (result.status === 'available') {
+      const [entry] = result.diagnostics;
+      expect(entry.diagnostics.map((d) => d.severity)).toEqual([
+        'error',
+        'warning',
+        'info',
+        'hint',
+      ]);
+    }
   });
 
-  it('skips files with an empty diagnostics array', () => {
+  it('skips files with an empty diagnostics array', async () => {
     __vscodeState.setDiagnostics([
       { file: '/tmp/empty.ts', diagnostics: [] },
       {
@@ -62,7 +66,30 @@ describe('VscodeDiagnosticsProvider — VS Code-specific behaviour', () => {
     ]);
 
     const provider = new VscodeDiagnosticsProvider();
-    const result = provider.getDiagnostics();
-    expect(result.map((r) => r.file)).toEqual(['/tmp/nonempty.ts']);
+    const result = await provider.getDiagnostics();
+    expect(result.status).toBe('available');
+    if (result.status === 'available') {
+      expect(result.diagnostics.map((r) => r.file)).toEqual([
+        '/tmp/nonempty.ts',
+      ]);
+    }
+  });
+
+  it('returns available with source vscode-languages', async () => {
+    const provider = new VscodeDiagnosticsProvider();
+    const result = await provider.getDiagnostics();
+    expect(result.status).toBe('available');
+    if (result.status === 'available') {
+      expect(result.source).toBe('vscode-languages');
+    }
+  });
+
+  it('returns available with empty diagnostics when nothing seeded', async () => {
+    const provider = new VscodeDiagnosticsProvider();
+    const result = await provider.getDiagnostics();
+    expect(result.status).toBe('available');
+    if (result.status === 'available') {
+      expect(result.diagnostics).toEqual([]);
+    }
   });
 });

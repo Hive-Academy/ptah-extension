@@ -1,27 +1,30 @@
 /**
  * IDiagnosticsProvider — Platform-agnostic workspace diagnostics access.
  *
- * Replaces: vscode.languages.getDiagnostics(), vscode.DiagnosticSeverity
- *
- * VS Code implementation: Wraps vscode.languages.getDiagnostics() with severity
- * enum-to-string conversion.
- * Electron implementation: Returns [] (no live language server). Future: could
- * run `tsc --noEmit --pretty false` and parse output.
+ * The contract is capability-aware and async: every implementation returns a
+ * `DiagnosticsResult` discriminated union so callers can distinguish "this
+ * runtime has no diagnostics source" (`unavailable`) from "the source was
+ * queried and reported zero issues" (`available` + empty `diagnostics`).
  */
 
+export type DiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
+
+export interface DiagnosticEntry {
+  message: string;
+  line: number;
+  severity: DiagnosticSeverity;
+  code?: string | number;
+}
+
+export interface FileDiagnostics {
+  file: string;
+  diagnostics: DiagnosticEntry[];
+}
+
+export type DiagnosticsResult =
+  | { status: 'available'; source: string; diagnostics: FileDiagnostics[] }
+  | { status: 'unavailable'; source: string; reason: string };
+
 export interface IDiagnosticsProvider {
-  /**
-   * Get all diagnostics across the workspace.
-   * Replaces: vscode.languages.getDiagnostics()
-   *
-   * @returns Array of file diagnostics. Each entry has a file path and its diagnostics.
-   */
-  getDiagnostics(): Array<{
-    file: string;
-    diagnostics: Array<{
-      message: string;
-      line: number;
-      severity: 'error' | 'warning' | 'info' | 'hint';
-    }>;
-  }>;
+  getDiagnostics(workspaceRoot?: string): Promise<DiagnosticsResult>;
 }

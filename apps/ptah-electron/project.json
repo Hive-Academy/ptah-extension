@@ -84,7 +84,8 @@
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "bottleneck"
+          "bottleneck",
+          "typescript"
         ],
         "assets": [
           {
