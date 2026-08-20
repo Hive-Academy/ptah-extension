@@ -68,7 +68,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          source: env.prod.tmp
+          source: env.prod.tmp,docker-compose.prod.yml,caddy/Caddyfile
           target: /opt/ptah-extension/
 
       - name: Deploy to Droplet
@@ -82,6 +82,6 @@ jobs:
             cd /opt/ptah-extension
             mv -f env.prod.tmp .env.prod
             chmod 600 .env.prod
-            docker compose -f docker-compose.prod.yml pull license-server
-            docker compose -f docker-compose.prod.yml up -d
+            docker compose --env-file .env.prod -f docker-compose.prod.yml pull license-server
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
             docker image prune -f
