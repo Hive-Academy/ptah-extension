@@ -62,7 +62,10 @@ import {
   WorkspaceAwareStateStorage,
   WorkspaceContextManager,
 } from '@ptah-extension/vscode-core';
-import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
+import {
+  registerWorkspaceIntelligenceServices,
+  TypeScriptDiagnosticsProvider,
+} from '@ptah-extension/workspace-intelligence';
 import {
   registerPluginMarketplaceServices,
   initializePluginMarketplace,
@@ -519,6 +522,18 @@ export class CliDIContainer {
     phaseEnd('1', phase1Start);
     const phase2Start = phaseStart('2');
     registerWorkspaceIntelligenceServices(container, logger);
+    // Override the Phase 0 diagnostics stub with the real TypeScript compiler
+    // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is
+    // registered. registerVsCodeLmToolsServices (Phase 4) runs later.
+    const tsDiagsProvider = new TypeScriptDiagnosticsProvider(
+      container.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
+    );
+    container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+      useValue: tsDiagsProvider,
+    });
+    logger.info(
+      '[CLI DI] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider',
+    );
     registerAuthProvidersServices(container, logger);
     // MUST precede registerSdkServices: PluginLoaderService injects the
     // external consent store as its allowlist source.
