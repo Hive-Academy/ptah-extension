@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_299
-status: in_review
+status: done
 type: bugfix
 title: 'Repair internal file search and diagnostics across runtimes'
 description: >-

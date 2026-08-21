@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_299
 
-**Total Tasks**: 22 | **Batches**: 8 | **Status**: 0/8 complete
+**Total Tasks**: 25 | **Batches**: 9 | **Status**: 9/9 complete — all batches verified, Batch 8 APPROVED on re-review. Uncommitted; awaiting user sign-off.
 
 Repair two internal MCP tools across runtimes: `ptah_search_files` (true glob)
 and `ptah_get_diagnostics` (honest available/unavailable contract + real TS
@@ -80,7 +80,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 1: Honest diagnostics contract (platform-core) ⏸️ PENDING
+## Batch 1: Honest diagnostics contract (platform-core) ✅ COMPLETE — commit `6f3f52a84`
 
 **Recommended Executor**: backend-developer
 **Fallback Executor**: senior-tester (if backend-developer unavailable)
@@ -161,7 +161,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 2: True glob search in `ptah_search_files` ⏸️ PENDING
+## Batch 2: True glob search in `ptah_search_files` ✅ COMPLETE — commits `980cfef77`, `044d69960`
 
 **Recommended Executor**: backend-developer
 **Fallback Executor**: senior-tester
@@ -261,7 +261,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 3: DiagnosticsNamespace + formatter + help/system-prompt wording ⏸️ PENDING
+## Batch 3: DiagnosticsNamespace + formatter + help/system-prompt wording ✅ COMPLETE — commit `044d69960`
 
 **Recommended Executor**: backend-developer
 **Fallback Executor**: senior-tester
@@ -339,7 +339,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 4: VS Code diagnostics adapter (async available result, root filtering) ⏸️ PENDING
+## Batch 4: VS Code diagnostics adapter (async available result, root filtering) ✅ COMPLETE — commit `980cfef77`
 
 **Recommended Executor**: backend-developer
 **Fallback Executor**: senior-tester
@@ -387,7 +387,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 5: Shared `TypeScriptDiagnosticsProvider` in workspace-intelligence ⏸️ PENDING
+## Batch 5: Shared `TypeScriptDiagnosticsProvider` in workspace-intelligence ✅ COMPLETE — impl `4df73f4a6`; Task 5.3 spec written (20 cases, 2 intentionally RED for Batch 9)
 
 **Recommended Executor**: backend-developer
 **Fallback Executor**: senior-tester
@@ -479,7 +479,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 6: Electron/CLI runtime composition + packaging ⏸️ PENDING
+## Batch 6: Electron/CLI runtime composition + packaging ✅ COMPLETE — wiring `8bec2d0a2`; Task 6.5 DI-override specs written for both hosts
 
 **Recommended Executor**: backend-developer
 **Fallback Executor**: senior-tester
@@ -563,7 +563,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 7: Verification (typechecks + Jest + builds + manual exercise) ⏸️ PENDING
+## Batch 7: Verification (typechecks + Jest + builds + manual exercise) ✅ COMPLETE — typecheck 9/9, builds 2/2, 0 unexpected failures (see `test-report.md`)
 
 **Recommended Executor**: senior-tester
 **Fallback Executor**: backend-developer
@@ -619,7 +619,7 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## Batch 8: code-logic-reviewer pass ⏸️ PENDING
+## Batch 8: code-logic-reviewer pass ✅ APPROVED on re-review (see `code-logic-review-2.md`) — pass 1 REJECTED with 3 blocking findings (`code-logic-review.md`), all fixed in Batch 9
 
 **Recommended Executor**: code-logic-reviewer
 **Fallback Executor**: senior-tester
@@ -655,4 +655,70 @@ compiler provider for Electron/CLI). Sub-agents only — NO CLI delegation.
 
 ---
 
-## NEXT BATCH ASSIGNED: Batch 1 / backend-developer / sequential
+## Batch 9: Rework from Batch 8 rejection ✅ IMPLEMENTED — 3/3 fixed, red baseline green (see `batch-9-report.md`); awaiting Batch 8 re-review
+
+**Recommended Executor**: backend-developer
+**Execution Mode**: sequential
+**Rationale**: Three confirmed defects, each independently verified against source by the orchestrator. Red baseline comes from the Batch 5/6 specs written in the reopened Batch 7.
+**Tasks**: 3 blocking + 3 tracked non-blocking | **Dependencies**: Batch 7 specs (red baseline)
+
+### Task 9.1: Traverse project references for solution-style configs ⏸️ PENDING
+
+**File**: libs\backend\workspace-intelligence\src\diagnostics\type-script-diagnostics-provider.ts:129
+
+`if (rootFileNames.length === 0) return;` fires before `program.getProjectReferences()`
+at line 148, making reference traversal dead code for `{ files: [], include: [], references: [...] }`
+— the shape used by every lib in this monorepo. Read `parsed.projectReferences` and recurse
+into `collectFromConfig(ref.path)` independent of whether the parent config has root files.
+Keep the `visitedConfigs` cycle guard.
+
+### Task 9.2: `available + []` must never mean "checked nothing" ⏸️ PENDING
+
+**File**: libs\backend\workspace-intelligence\src\diagnostics\type-script-diagnostics-provider.ts:167
+
+Guard is `if (visitedPrograms.size === 0 && errors.length > 0)`. When configs are discovered
+but zero programs are built and no error is recorded, it falls through to
+`{ status: 'available', diagnostics: [] }` → formatter renders "No issues found."
+Track "at least one program built" separately from "errors occurred"; return `unavailable`
+with a distinct reason when no program was ever created.
+
+### Task 9.3: `getRelevantFiles` must propagate `{ success: false }` ⏸️ PENDING
+
+**File**: libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\core-namespace.builders.ts:162
+
+`result.files` is consumed without checking `result.success`. `getFileSuggestions` catches
+internally and resolves with `{ success: false, error }` rather than throwing, so failures
+degrade to `[]`. Contradicts context.md §1 and Task 2.2, which require propagating BOTH
+thrown and resolved-failure paths.
+
+### Tracked non-blocking (do NOT fix in this batch unless trivial)
+
+- Moderate #6 — 200-cap on `**/tsconfig*.json` discovery truncates silently in a repo this size.
+- Moderate #7 — `flattenDiagnostic`'s `.next` walk is vestigial; `ts.Diagnostic` has no `.next`.
+  Real flattening already handled by `ts.flattenDiagnosticMessageText`.
+- Moderate #9 — both diagnostics adapters hand-roll case-sensitive `path.relative` containment
+  instead of reusing the tested `isPathWithinRoots` helper in platform-core.
+
+**Batch 9 Verification**:
+
+- The Batch 7 red specs turn green without any assertion being weakened.
+- `npx nx test workspace-intelligence vscode-lm-tools` passes.
+- Re-run Batch 8 logic review; requires APPROVED before the task leaves `in_review`.
+
+---
+
+## ALL BATCHES COMPLETE
+
+Batch 8 APPROVED on re-review. Work is complete and verified but **uncommitted** —
+commit requires explicit user sign-off.
+
+### Open non-blocking follow-ups — filed as tasks
+
+Both review passes rated all of these non-blocking for this task's release. Filed rather
+than folded in, to keep the Batch 9 fix diff reviewable.
+
+| Task              | Covers                                                                                                                                                                                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TASK_2026_301** | 200-result cap on `**/tsconfig*.json` discovery truncates silently in a repo this size                                                                                                                                                                     |
+| **TASK_2026_302** | DI-override specs MIRROR the override snippet instead of importing it — `phase-2-libraries.ts` and `cli-engine/container.ts` both throw at module-eval under Jest, so the composition layer has no end-to-end test in any host                             |
+| **TASK_2026_303** | Case-sensitive `path.relative` containment in both diagnostics adapters (latent Windows bug) · vestigial `.next` walk in `flattenDiagnostic` · two non-contract-shaped mocks at `core-namespace.builders.spec.ts:391,441` that forced `=== false` over `!` |
