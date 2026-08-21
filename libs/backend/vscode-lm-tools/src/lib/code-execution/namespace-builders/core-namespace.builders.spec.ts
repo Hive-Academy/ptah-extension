@@ -415,6 +415,27 @@ describe('buildSearchNamespace', () => {
     await expect(ns.getRelevantFiles('q')).rejects.toThrow('fuzzy fail');
   });
 
+  it('EXPECTED RED (Batch 8 finding #3) — getRelevantFiles() rejects when contextOrchestration resolves { success: false } (does NOT swallow to [])', async () => {
+    // `core-namespace.builders.ts:162` reads `result.files` unconditionally
+    // (`(result.files || [])...`) without checking `result.success`, so a
+    // RESOLVED `{ success: false, error }` — as opposed to a thrown/rejected
+    // failure, already covered by the previous test — degrades silently to
+    // `[]`. context.md: "propagate thrown and `{ success: false }` failures
+    // instead of swallowing to []." This spec asserts the correct contract
+    // and is expected to fail until the source is fixed.
+    const orchestration = createContextOrchestrationMock();
+    orchestration.getFileSuggestions.mockResolvedValue({
+      success: false,
+      error: { message: 'index unavailable' },
+    } as never);
+
+    const ns = buildSearchNamespace(
+      createDeps(createWorkspaceAnalyzerMock(), orchestration),
+    );
+
+    await expect(ns.getRelevantFiles('q')).rejects.toThrow();
+  });
+
   it('getRelevantFiles() forwards the session-aware root', async () => {
     const orchestration = createContextOrchestrationMock();
     orchestration.getFileSuggestions.mockResolvedValue({ files: [] } as never);

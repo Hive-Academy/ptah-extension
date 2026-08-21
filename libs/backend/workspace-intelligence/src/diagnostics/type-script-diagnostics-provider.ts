@@ -6,7 +6,9 @@
  * from workspace `tsconfig*.json` files. Returns an honest
  * available/unavailable contract:
  *
- * - `unavailable` for no root, no tsconfig, malformed config, or missing compiler.
+ * - `unavailable` for no root, no tsconfig, malformed config, missing compiler,
+ *   or when no discovered config produced a single compilable program (so
+ *   `available` + zero diagnostics can only ever mean "checked, and clean").
  * - `available` with zero diagnostics for a clean project.
  * - `available` with diagnostics for a project with errors.
  * - Throws only for genuine execution failures (e.g. filesystem read error).
@@ -126,31 +128,36 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
         return !rel.startsWith('..') && !path.isAbsolute(rel);
       });
 
-      if (rootFileNames.length === 0) return;
+      // A config with no in-root root files (the solution-style
+      // `{ files: [], include: [], references: [...] }` shape used by every
+      // lib in this monorepo) builds no program of its own — but it still
+      // owns a reference graph that must be walked.
+      if (rootFileNames.length > 0) {
+        visitedPrograms.add(normConfig);
 
-      const programKey = normConfig;
-      if (visitedPrograms.has(programKey)) return;
-      visitedPrograms.add(programKey);
+        const program = ts.createProgram({
+          rootNames: rootFileNames,
+          options: parsed.options,
+          projectReferences: parsed.projectReferences,
+        });
 
-      const program = ts.createProgram({
-        rootNames: rootFileNames,
-        options: parsed.options,
-        projectReferences: parsed.projectReferences,
-      });
+        const diags = ts.getPreEmitDiagnostics(program);
 
-      const diags = ts.getPreEmitDiagnostics(program);
-
-      for (const diag of diags) {
-        this.flattenDiagnostic(diag, ts, normRoot, allDiagnostics);
+        for (const diag of diags) {
+          this.flattenDiagnostic(diag, ts, normRoot, allDiagnostics);
+        }
       }
 
-      // Traverse project references once.
-      const refs = program.getProjectReferences();
-      if (refs) {
-        for (const ref of refs) {
-          if (ref && typeof ref === 'object' && 'path' in ref) {
-            collectFromConfig(ref.path);
-          }
+      // Traverse project references independent of whether this config has
+      // root files of its own. `parsed.projectReferences` is populated by
+      // `parseJsonConfigFileContent` regardless of `fileNames`, and
+      // `resolveProjectReferencePath` handles refs that point at a directory
+      // rather than a config file. `visitedConfigs` keeps each config to one
+      // visit and guards cycles.
+      for (const ref of parsed.projectReferences ?? []) {
+        const resolvedRefConfig = ts.resolveProjectReferencePath(ref);
+        if (resolvedRefConfig) {
+          collectFromConfig(resolvedRefConfig);
         }
       }
     };
@@ -164,11 +171,18 @@ export class TypeScriptDiagnosticsProvider implements IDiagnosticsProvider {
       }
     }
 
-    if (visitedPrograms.size === 0 && errors.length > 0) {
+    // "At least one program was created" is a condition distinct from "no
+    // errors occurred". If no program was ever built, nothing was type-checked
+    // — reporting `available` + `[]` here would render as "No issues found",
+    // a false clean. Report `unavailable`, distinguishing the two causes.
+    if (visitedPrograms.size === 0) {
       return {
         status: 'unavailable',
         source: SOURCE,
-        reason: errors.join('; '),
+        reason:
+          errors.length > 0
+            ? errors.join('; ')
+            : 'No tsconfig produced a compilable project (all discovered configs were reference-only with no resolvable root files).',
       };
     }
 

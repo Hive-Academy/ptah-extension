@@ -159,6 +159,15 @@ export function buildSearchNamespace(
         limit: maxFiles,
         workspaceRoot: resolveRootPerCall(workspaceProvider),
       });
+      // `getFileSuggestions` catches internally and RESOLVES with
+      // `{ success: false, error }` rather than throwing, so a resolved
+      // failure must be propagated explicitly or it degrades to `[]` —
+      // indistinguishable from "no relevant files" (TASK_2026_299).
+      if (result.success === false) {
+        throw new Error(
+          result.error?.message ?? 'getFileSuggestions failed for query.',
+        );
+      }
       return (result.files || [])
         .filter((s: { relativePath?: string }) => s != null)
         .map((s: { relativePath?: string }) => s.relativePath || String(s));
