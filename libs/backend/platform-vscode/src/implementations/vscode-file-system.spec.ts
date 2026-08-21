@@ -207,3 +207,75 @@ describe('findFiles — exclude brace expansion (TASK_2026_119)', () => {
     expect(capturedExclude).toBeUndefined();
   });
 });
+
+describe('findFiles — cwd scoping via RelativePattern (TASK_2026_299 Task 2.5)', () => {
+  let provider: VscodeFileSystemProvider;
+
+  beforeEach(() => {
+    __resetVscodeTestDouble();
+    provider = new VscodeFileSystemProvider();
+  });
+
+  it('wraps the pattern in vscode.RelativePattern(cwd, pattern) when cwd is given', async () => {
+    const { workspace, RelativePattern } = await import('vscode');
+    let capturedInclude: unknown;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (include: unknown) => {
+        capturedInclude = include;
+        return [];
+      },
+    );
+
+    await provider.findFiles(
+      '**/*.ts',
+      undefined,
+      10,
+      'D:/projects/session-root',
+    );
+
+    expect(capturedInclude).toBeInstanceOf(RelativePattern);
+    expect((capturedInclude as InstanceType<typeof RelativePattern>).base).toBe(
+      'D:/projects/session-root',
+    );
+    expect(
+      (capturedInclude as InstanceType<typeof RelativePattern>).pattern,
+    ).toBe('**/*.ts');
+  });
+
+  it('passes the bare glob string (no RelativePattern) when cwd is undefined', async () => {
+    const { workspace } = await import('vscode');
+    let capturedInclude: unknown;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (include: unknown) => {
+        capturedInclude = include;
+        return [];
+      },
+    );
+
+    await provider.findFiles('**/*.ts', undefined, 10);
+
+    expect(capturedInclude).toBe('**/*.ts');
+  });
+
+  it('returns absolute fsPath values from matched URIs regardless of cwd scoping', async () => {
+    const { workspace } = await import('vscode');
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(async () => [
+      { fsPath: 'D:/projects/session-root/src/a.ts' },
+      { fsPath: 'D:/projects/session-root/src/b.ts' },
+    ]);
+
+    const results = await provider.findFiles(
+      '**/*.ts',
+      undefined,
+      10,
+      'D:/projects/session-root',
+    );
+
+    expect(results).toEqual([
+      'D:/projects/session-root/src/a.ts',
+      'D:/projects/session-root/src/b.ts',
+    ]);
+  });
+});

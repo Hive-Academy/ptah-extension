@@ -92,4 +92,63 @@ describe('VscodeDiagnosticsProvider — VS Code-specific behaviour', () => {
       expect(result.diagnostics).toEqual([]);
     }
   });
+
+  it('filters diagnostics to files within the requested workspaceRoot (TASK_2026_299 Task 4.2)', async () => {
+    __vscodeState.setDiagnostics([
+      {
+        file: '/workspace/root/src/in-root.ts',
+        diagnostics: [{ message: 'in-root error', line: 0, severity: 'error' }],
+      },
+      {
+        file: '/workspace/other/out-of-root.ts',
+        diagnostics: [
+          { message: 'out-of-root error', line: 0, severity: 'error' },
+        ],
+      },
+    ]);
+
+    const provider = new VscodeDiagnosticsProvider();
+    const result = await provider.getDiagnostics('/workspace/root');
+
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].file).toBe('/workspace/root/src/in-root.ts');
+  });
+
+  it('returns all diagnostics (unfiltered) when no workspaceRoot is given', async () => {
+    __vscodeState.setDiagnostics([
+      {
+        file: '/workspace/root/src/a.ts',
+        diagnostics: [{ message: 'a', line: 0, severity: 'error' }],
+      },
+      {
+        file: '/workspace/other/b.ts',
+        diagnostics: [{ message: 'b', line: 0, severity: 'error' }],
+      },
+    ]);
+
+    const provider = new VscodeDiagnosticsProvider();
+    const result = await provider.getDiagnostics();
+
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    expect(result.diagnostics).toHaveLength(2);
+  });
+
+  it('preserves zero-based line numbers (does not add 1)', async () => {
+    __vscodeState.setDiagnostics([
+      {
+        file: '/tmp/lines.ts',
+        diagnostics: [{ message: 'first line', line: 0, severity: 'error' }],
+      },
+    ]);
+
+    const provider = new VscodeDiagnosticsProvider();
+    const result = await provider.getDiagnostics();
+
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') return;
+    expect(result.diagnostics[0].diagnostics[0].line).toBe(0);
+  });
 });
