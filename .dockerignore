@@ -5,3 +5,12 @@ dist
 .nx
 *.md
 !README.md
+
+# Environment files must never enter the build context. The Dockerfile uses
+# explicit COPY paths (never `COPY . .`), so nothing leaks into the image today
+# — this is defence in depth against that changing, and keeps secrets off the
+# wire to the daemon. `npx prisma generate` (Dockerfile:50) does not need them.
+.env
+.env.*
+**/.env
+**/.env.*
