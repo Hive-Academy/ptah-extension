@@ -643,7 +643,29 @@ export class HarnessReconcilerService {
       mode: health.mode,
       sources: health.sources,
       collisions: health.collisions.length,
+      // `scope` and `targetCount` exist so the six counters below cannot be
+      // read as a single target's numbers. They are SUMS over every target in
+      // this pass, and a host that prints one target's slice with the same
+      // field names produces a second line that can never agree with this one
+      // (`apps/ptah-electron/.../plugin-activation.ts` printed `found=14/27`
+      // beside this line's `found=106/119` for exactly that reason).
+      scope: 'all-targets',
+      targetCount: health.targets.length,
       ...totals,
+      // The breakdown the aggregate hides. A pass whose every gap sits on ONE
+      // target reads identically, in the summed counters, to a pass with the
+      // same number of gaps spread evenly — and which target owns the gaps is
+      // the first question anybody asks of this line.
+      perTarget: health.targets.map((target) => ({
+        target: target.target,
+        detected: target.detected,
+        expected: target.expected,
+        found: target.found,
+        missing: target.missing.length,
+        foreign: target.foreign.length,
+        removed: target.removed.length,
+        writeFailed: target.writeFailed.length,
+      })),
     };
 
     if (totals.writeFailed > 0 || totals.missing > 0) {
