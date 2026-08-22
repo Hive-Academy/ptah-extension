@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_306
 
-**Total Tasks**: 18 | **Batches**: 5 | **Status**: 4/5 complete — **Batch 2 is the only one outstanding**
+**Total Tasks**: 18 | **Batches**: 5 | **Status**: 5/5 implemented — **Batch 2 committed WITHOUT team-leader review, see below**
 **Branch**: `ak/boot-blocker-quota-gate` (already created and checked out — do NOT create or switch)
 **Scope**: Defects A–G from `research-report.md`. Defect H is noise — opportunistic only, no batch.
 **`cli_delegation`**: disabled. Every batch runs on a sub-agent `backend-developer`, sequentially.
@@ -154,7 +154,36 @@ spec breaks.
 
 ---
 
-## Batch 2: Provider quota gate (Defect B) ⏸️ PENDING
+## Batch 2: Provider quota gate (Defect B) ⚠️ IMPLEMENTED — COMMITTED UNREVIEWED
+
+> **State as of 2026-08-22.** The implementing agent was interrupted by a session
+> exit and then stopped, so it could not be resumed. Its work survived intact and
+> was committed on the user's explicit instruction ("commit all of our changes,
+> don't reset anything").
+>
+> **Verified by the orchestrator after the interrupt**: `nx run-many -t test -p
+auth-providers,skill-synthesis,agent-sdk` → 631 / 1043 / 1324 all passing;
+> `lint` → 0 errors, 35 warnings all of pre-existing kinds; `build` → pass.
+> The R1 fix is confirmed present and correct — `resolve()` computes
+> `providerId = requested || activeProviderId` and runs the cooldown check ABOVE
+> both early returns, so an inheriting lane on an exhausted active provider is
+> gated. `'quota-exhausted'` is classified TRANSPORT in
+> `SkillDrainService.applyLaneFailure`, not `markUnscored`.
+>
+> **NOT done, and outstanding:**
+>
+> 1. **No team-leader MODE 2 review.** Every other batch got one and every one of
+>    those reviews found something real — two wrong spec counts, a false comment,
+>    a rejected-then-corrected design argument. Batch 2 has the widest blast
+>    radius of the five and is the only one that skipped it.
+> 2. **`batch-2-implementation.md` was never written.** The interrupt cost the
+>    report, not the code.
+> 3. The `maxAttempts` decision is visible in code comments (quota appears
+>    exempt, matching `auth-unresolvable`) but was never stated for the record.
+> 4. Spec counts self-reported by the agent are unverified. Two earlier batches
+>    reported counts that were wrong in opposite directions.
+>
+> Nothing is pushed, so a review can still gate this before it leaves the branch.
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
