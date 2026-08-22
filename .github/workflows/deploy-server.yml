@@ -55,12 +55,19 @@ jobs:
       # NOTE: this overwrites the droplet copy on every deploy — never hand-edit
       # env on the droplet.
       - name: Write .env.prod from secret
+        env:
+          # Bound via `env:` rather than interpolated into `run:`. A direct
+          # `${{ secrets.X }}` inside the script splices the secret's raw text
+          # into the shell SOURCE before bash parses it, so a backtick, $(...)
+          # or trailing backslash in .env.prod gets executed or swallows the
+          # next line — silently corrupting the file written to the droplet.
+          ENV_PROD_FILE: ${{ secrets.ENV_PROD_FILE }}
         run: |
-          if [ -z "${{ secrets.ENV_PROD_FILE }}" ]; then
+          if [ -z "$ENV_PROD_FILE" ]; then
             echo "::error::ENV_PROD_FILE secret is not set — run: gh secret set ENV_PROD_FILE < .env.prod"
             exit 1
           fi
-          printf '%s' "${{ secrets.ENV_PROD_FILE }}" > env.prod.tmp
+          printf '%s' "$ENV_PROD_FILE" > env.prod.tmp
 
       - name: Copy .env.prod to Droplet
         uses: appleboy/scp-action@v1

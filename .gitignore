@@ -64,7 +64,10 @@ Thumbs.db
 .env.docker
 
 # Production environment (contains secrets)
-.env.prod
+# Glob so local derivatives are covered too — .env.prod.droplet (pulled off the
+# server), .env.prod.bak, etc. The committed template is negated back in.
+.env.prod*
+!.env.prod.example
 
 # Docker Compose local overrides (user-specific settings)
 docker-compose.override.yml
