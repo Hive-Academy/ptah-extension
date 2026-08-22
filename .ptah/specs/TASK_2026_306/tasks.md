@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_306
 
-**Total Tasks**: 18 | **Batches**: 5 | **Status**: 5/5 implemented — **Batch 2 committed WITHOUT team-leader review, see below**
+**Total Tasks**: 27 | **Batches**: 9 | **Status**: Batches 1–5 complete and reviewed; **Batches 6–9 (R2, task widened 2026-08-22) ⏸️ PENDING** — see the R2 section at the end of this file
 **Branch**: `ak/boot-blocker-quota-gate` (already created and checked out — do NOT create or switch)
 **Scope**: Defects A–G from `research-report.md`. Defect H is noise — opportunistic only, no batch.
 **`cli_delegation`**: disabled. Every batch runs on a sub-agent `backend-developer`, sequentially.
@@ -154,36 +154,72 @@ spec breaks.
 
 ---
 
-## Batch 2: Provider quota gate (Defect B) ⚠️ IMPLEMENTED — COMMITTED UNREVIEWED
+## Batch 2: Provider quota gate (Defect B) ✅ COMPLETE — REVIEWED (APPROVED WITH FINDINGS)
 
-> **State as of 2026-08-22.** The implementing agent was interrupted by a session
-> exit and then stopped, so it could not be resumed. Its work survived intact and
-> was committed on the user's explicit instruction ("commit all of our changes,
-> don't reset anything").
+**Commit**: `ca183174d` | **Review record**: `batch-2-implementation.md`
+
+> **State as of 2026-08-22, post-review.** The implementing agent was interrupted by a
+> session exit and then stopped, so it could not be resumed. Its work survived intact
+> and was committed on the user's explicit instruction ("commit all of our changes,
+> don't reset anything"). Team-leader then performed the missing MODE 2 review
+> **post-hoc, from the commit** — `batch-2-implementation.md` is a reconstructed
+> verification record, not a developer self-report.
 >
-> **Verified by the orchestrator after the interrupt**: `nx run-many -t test -p
-auth-providers,skill-synthesis,agent-sdk` → 631 / 1043 / 1324 all passing;
-> `lint` → 0 errors, 35 warnings all of pre-existing kinds; `build` → pass.
-> The R1 fix is confirmed present and correct — `resolve()` computes
-> `providerId = requested || activeProviderId` and runs the cooldown check ABOVE
-> both early returns, so an inheriting lane on an exhausted active provider is
-> gated. `'quota-exhausted'` is classified TRANSPORT in
-> `SkillDrainService.applyLaneFailure`, not `markUnscored`.
+> **Verdict: APPROVED WITH FINDINGS — 1 material (F1) + 3 minor.** Nothing blocking.
+> (F2 was raised as material and has since been **resolved with no defect**.)
 >
-> **NOT done, and outstanding:**
+> **What the review confirmed:**
 >
-> 1. **No team-leader MODE 2 review.** Every other batch got one and every one of
->    those reviews found something real — two wrong spec counts, a false comment,
->    a rejected-then-corrected design argument. Batch 2 has the widest blast
->    radius of the five and is the only one that skipped it.
-> 2. **`batch-2-implementation.md` was never written.** The interrupt cost the
->    report, not the code.
-> 3. The `maxAttempts` decision is visible in code comments (quota appears
->    exempt, matching `auth-unresolvable`) but was never stated for the record.
-> 4. Spec counts self-reported by the agent are unverified. Two earlier batches
->    reported counts that were wrong in opposite directions.
+> - **R1 correct, in the non-obvious way.** `provider-auth-resolver.ts:134` runs
+>   `assertNotCoolingDown(requested || activeProviderId)` with both early returns
+>   below at `:136` / `:139`. The early-return predicates were rewritten to test
+>   `requested` — this reads as diff noise but is load-bearing: without it, return #1
+>   would be unreachable. Pinned by two discriminating specs.
+> - **Spec integrity clean.** Exactly 4 removed lines commit-wide, all import
+>   widenings. Zero assertions weakened. `curator-proxy-manager.spec.ts` +3 is a
+>   compile-forced abstract stub. R6's compiled-body scan and the env-immutability
+>   spec untouched.
+> - **Counts recounted by team-leader** (item 4 below, closed): 46 `it(` blocks = 50
+>   Jest cases (one `it.each` of 5 rows); `auth-providers` 33 / `skill-synthesis` 12 /
+>   `agent-sdk` 5; ~37 discriminating; one new spec file.
+> - **`maxAttempts` — EXEMPT IS CORRECT, UPHELD** (item 3 below, closed, now on the
+>   record). The fail-open worry inverts: open ⇒ `retryAfterMs` returns 0 ⇒ no quota
+>   failure is produced at all. Fail-closed is the real loop risk and is bounded three
+>   ways — 6 h clamp, evict-on-read, in-process map. Worst case one free requeue per
+>   15 min, the same exposure already accepted for `auth-unresolvable`.
 >
-> Nothing is pushed, so a review can still gate this before it leaves the branch.
+> **Findings carried forward:**
+>
+> 1. **F1 (material, medium-high) — the curator stall destroys its own input.** Task
+>    2.6's no-throw constraint made "stop" into `runQuery → ''` → `extract() → []`,
+>    indistinguishable from "found nothing". `memory-trigger.service.ts:744-745` calls
+>    `markProcessed(ids)` on resolve inspecting nothing; `drainForSession` filters
+>    `processed_at IS NULL`; `episodes.reset` (`:696`) has already fired and a
+>    resolving run advances the boot-scan watermark. A plan gap inherited faithfully —
+>    needs a **decision** (stats discriminator vs. revisiting the no-throw
+>    constraint), not a patch.
+>    **No longer theoretical.** A real cold start
+>    (`tmp/logs/coldstart-306.log`) shows the gate firing 15× with
+>    `curatorProviderId: ""` — the empty-provider inherit path R1 exists to catch — in
+>    a tight `JsonlReader findSessionsDirectory` → skip-pass loop at lines 1232–1260.
+>    That is F1's predicted drain-and-discard, running _faster_ than before the gate.
+>    48 quota/429 lines total; Codex genuinely exhausted.
+> 2. **F2 — RESOLVED, no defect.** A clean re-run
+>    (`nx test skill-synthesis --skip-nx-cache`) gave **1324 passed / 37 skipped /
+>    1361 total, exit 0** — matching the commit message exactly. Team-leader's review
+>    run had shown 1307 passed / 1344 total: **17 fewer in both**, which is precisely
+>    `session-archaeologist.service.spec.ts` (17 tests) failing at module scope so its
+>    cases never registered (1344 + 17 = 1361). Matched offset in both numbers rules
+>    out a miscount and rules out a regression. That file is not among the 30 touched.
+>    Transient module-load failure; the 1324 figure is accurate and citable.
+> 3. Minor: hard-coded `OPENROUTER_PROVIDER_ID = 'openrouter'` unpinned; acceptance
+>    criterion 4 (no template candidate persisted during cooldown) unproven;
+>    `retry-after: 0` yields the 15-min default not 1 s — deliberate but undocumented.
+>
+> **Scope note:** Task 2.4 exceeds its spec — it introduced `isTransportLaneFailure`
+> and applied it at both seams including `lane-runner.service.ts:527`, which no task
+> listed and which is the change that actually makes quota rows requeue. Load-bearing
+> and correct; **recorded, not faulted**.
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
@@ -1325,3 +1361,619 @@ and cross-host claim. Neither touches the failure-kind union or the auth path.
 
 Note this diverges from `research-report.md` §"Suggested sequencing" only in that C/D are not
 privileged ahead of B; the brief states C–G have no ordering constraint among themselves.
+
+---
+
+# R2 — Legacy skill adoption (task widened 2026-08-22)
+
+**Source plan**: `r2-migration-plan.md` (software-architect). Batches 6–9 below are that plan's
+§6 breakdown turned into this file's batch format. **The design is not re-opened here** — only
+the batching, the executor recommendations, and the settled decisions are added.
+
+## The finding that reframes R2 — carry this into every batch
+
+Follow-up **R2** was recorded from Batch 5 (line 1271 above) on the premise that the 13 legacy
+skill directories are _Ptah's own orphaned output_, unadoptable only because
+`.claude/skills` never got a `.ptah-managed.json` sidecar. **That premise is false, and the
+architect made it falsifiable rather than merely doubtful.**
+
+> `SkillJunctionService` **linked** skills and only **copied** commands. It never wrote the 13
+> directories and could not have.
+
+Three independent facts, each sufficient alone:
+
+1. **No copy path existed for skills.** The only filesystem write for a skill is
+   `createJunction(sourcePath, linkPath)` — no `cp -r`, no fallback branch, no
+   "if junction fails, copy instead". A real directory is not a possible output of that function.
+   `git e107e6f89^:libs/backend/agent-sdk/src/lib/helpers/skill-junction.service.ts:304-356`
+2. **It refused to touch occupied paths**, logging
+   `Skipping ${skillName}: real directory exists (likely SDK-created)`. The legacy code already
+   suspected non-Ptah provenance and deferred to it.
+   `git e107e6f89^:.../skill-junction.service.ts:336-343`
+3. **Even a surviving junction would not be blocked today** — `claude-target.ts:480-486` migrates
+   one whose target resolves inside a declared source root, and `~/.ptah/plugins` /
+   `~/.ptah/skills` are declared (`plugin-config-source-resolver.ts:55`).
+
+So the sidecar-manifest story explains why _commands_ could go orphaned (a copy is
+indistinguishable from user work, so it needs an out-of-band record) but **not** the 13 skill
+directories. The asymmetry was correct design: a link is self-identifying.
+
+**The 13 are real directories of unknown provenance.** At least three non-Ptah candidates fit and
+the evidence does not discriminate: the Claude Code SDK itself; the pre-TASK_2026_288
+`npx skills add --agent claude-code` path, which wrote straight into `{ws}/.claude/skills`
+(`libs/backend/rpc-handlers/src/lib/harness/io/harness-skill-install.service.ts:17-25`); or the
+user, by hand. **Nothing shows any of them is Ptah's.**
+
+That is the load-bearing conclusion and it is why the R2 line at 1271 above is superseded: the
+bounded content/sidecar-heuristic migration it proposed is Option B/C in the plan, and both are
+**rejected on the veto discriminator** — a content match proves the _skill_ is the same skill,
+not that _Ptah wrote this directory_, and both non-Ptah install paths produce matching content
+by construction. **Consent is the only available proof of ownership**, which is what forces the
+A + D shape below.
+
+**The actual user-visible defect** is `missing=13` alongside `writeFailed=0`
+(`tmp/logs/coldstart-306.log:844`). Nothing failed — blocked paths are filtered out before
+`plan.writes` is built, so the failure counter can never see them. A 13-item shortfall with a
+perfect write record, forever, with no surface anywhere that says why.
+
+## Settled decisions — do NOT re-litigate
+
+Decided by the user, 2026-08-22, on the architect's §7. Recorded as binding; the developer
+implements them as stated and the reviewer checks the code matches.
+
+| #      | Decision                                                                                                                                                                                                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **U1** | **Build the repair.** Ship Batch A (report the blocked set) **and** Batch D (consent-gated repair). Reporting-alone was considered and **rejected** — a user who got these from the old `npx skills add` path currently has no route back to a managed state.                       |
+| **U2** | **Quarantine lives alongside the target**: `.claude/skills/.ptah-quarantine/<name>-<timestamp>`, same-volume, with a **documented ignore rule so the reconciler never scans it**. Not `~/.ptah/` (cross-volume move risk on Windows), not the recycle bin (opaque, not scriptable). |
+| **U3** | **Consent is one dialog with per-path checkboxes, defaulting to none selected.** Not one bulk approval (weakens the per-path ownership claim that is the entire justification), not 13 prompts (hostile).                                                                           |
+| **U4** | **The quarantine is never cleaned up automatically.** It is the undo; an expiry policy silently converts a reversible operation into a destructive one on a timer. No TTL, no sweep, no "older than N days" job.                                                                    |
+
+## Batching note
+
+**`cli_delegation` remains disabled for this task** (`context.md:101`), so every R2 batch runs on
+a **sub-agent developer, sequentially** — no CLI fan-out, matching Batches 1–5.
+
+The architect's Batch A and Batch D are each split in two here, because **A3 and D3 carry frontend
+work** and this file's rule is that backend and frontend never share a batch. The split is along
+the seam the architect already drew: A3 is explicitly derived client-side with **no RPC contract
+change**, so it does not even depend on Batch 6 landing first.
+
+**Batch 6 is unblocked and fully independent of Batches 8–9.** It changes no filesystem behaviour,
+needs no decision from anyone, and is the whole of the D2 fix. It is worth shipping even if the
+repair half were never approved. Batches 8–9 were gated on §7 and are now **ungated by U1–U4**.
+
+---
+
+## Batch 6: R2-A backend — make the blocked shortfall legible ⏸️ PENDING
+
+**Recommended Executor**: `backend-developer` (sub-agent)
+**Fallback Executor**: `backend-developer`
+**Execution Mode**: sequential
+**Rationale**: One lib (`harness-sync`) plus its own docs. Pure observability — a derivation, a
+log line, and a CLAUDE.md entry, with **zero filesystem writes added or removed**. Tightly
+coupled (6.2 logs what 6.1 derives) and reasoning-heavy about set semantics that Batch 5 already
+got wrong once, so it is the sub-agent shape, not the fan-out shape. Lowest risk in R2 and the
+largest legibility win.
+**Tasks**: 3 | **Dependencies**: None — **independent of Batches 8–9 and shippable alone**
+
+### Task 6.1: Derive the blocked set in the reconciler ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
+**Spec Reference**: `r2-migration-plan.md` §6 / A1
+
+**Acceptance Criteria**:
+
+- Compute `blocked = missing ∩ foreign` at the point where the plan is finalized.
+- Given the cold-start conditions at `tmp/logs/coldstart-306.log:844`, the derived set has
+  **exactly 13 members**.
+- **No change to `plan.writes`; `writeFailed` stays `0`.** This task adds no write and removes no
+  write.
+- Derivation is unit-tested against a fixture with **overlapping, disjoint, and empty**
+  `missing`/`foreign` sets.
+
+**Validation Notes**:
+
+- `blocked` is **already** computed one level down as
+  `foreign.filter(relPath => desiredRel.has(relPath))` (`claude-target.ts:277`), derived from
+  `foreign` after the adoption filter. Reuse the existing notion rather than inventing a second
+  one that can drift — "blocked is a subset of foreign" must keep holding structurally.
+- `blocked` is counted into `missing` **by design (E9)** — `health/harness-health.ts:112` and
+  `:71` both return `missing: [...missing, ...plan.blocked]`, which is what makes `reconcile` and
+  `verify` agree. **Do not change that.** See the explicit non-recommendation at line 1302 above:
+  excluding `blocked` from `missing` is the documented non-converging regression.
+- `writeFailed: 0` is **structurally incapable** of showing a blocked path —
+  `targets/claude-target.ts:189-194` does `scanned.push(relPath); continue;` on `outcome ===
+'foreign'` **before** `writes.push`. That is the fact the whole batch exists to explain, not a
+  bug to fix.
+- `harness-sync` must stay a **leaf lib**. No new dependency, and specifically not on `agent-sdk`.
+
+---
+
+### Task 6.2: Log the blocked set at reconcile time ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
+**Dependencies**: Task 6.1
+**Spec Reference**: `r2-migration-plan.md` §6 / A2 — implements follow-up **R1** (line 1263)
+
+**Acceptance Criteria**:
+
+- Emit **one structured line** naming each blocked path and the reason.
+- Reason text distinguishes **"occupied by a directory Ptah does not own"** from every other
+  cause of `missing`. A reader must be able to tell a refusal from a failure without reading code.
+- Include the one-line user action, per R1: move or delete these, then re-run
+  `ptah harness doctor --fix`.
+- **The existing one-line summary is unchanged** — no log-parsing regressions, and the
+  `writeFailed > 0 || missing > 0` warn gate (`:649`) stays intact.
+- **With zero blocked paths, no line is emitted.** Silence stays silent when correct.
+- `summarizeHarnessHealth` keeps returning `degraded` — the harness genuinely is incomplete. This
+  task stops spelling a refusal as a gap of unknown cause; it does not declare the gap closed.
+
+**Validation Notes**:
+
+- Counter construction is at `harness-reconciler.service.ts:622-639`; `missing` is a real list of
+  paths, so it already names the files. The warn is logged at `:650` from
+  `private log(health: HarnessHealth)` (`:621-654`).
+- Scope-labelling landed in Task 5.3 — do not undo it. The new line must state its scope the same
+  way the summary now does.
+
+---
+
+### Task 6.3: Document the blocked-path condition and kill the false premise ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\harness-sync\CLAUDE.md`
+**Dependencies**: none (independent of 6.1/6.2)
+**Spec Reference**: `r2-migration-plan.md` §6 / A4
+
+**Acceptance Criteria**:
+
+- Records the blocked-path condition and its cause: why `missing` can be non-zero while
+  `writeFailed` is `0`, and that this is a **correct refusal**, not a failure.
+- Records that **`SkillJunctionService` never produced real skill directories**, with the
+  `git e107e6f89^:.../skill-junction.service.ts:304-356` citation and the `:336-343`
+  skip-occupied-paths log text, **so the false premise is not rediscovered.** This is the
+  load-bearing half of the task — the premise has already cost one investigation.
+- Records that the 13 are of **unknown provenance**, naming the three candidates (SDK, pre-288
+  `npx skills add` at `harness-skill-install.service.ts:17-25`, the user).
+- States the quarantine ignore rule from U2 so Batch 8 has a written convention to implement
+  against.
+
+---
+
+**Batch 6 Verification**:
+
+- `npx nx build harness-sync` and `npx nx test harness-sync`
+- A real `nx serve ptah-electron` cold start shows the new blocked line naming 13 paths, and the
+  existing summary line byte-unchanged apart from that addition
+- `writeFailed` still `0`; `missing` still `13` (this batch explains the number, it does not
+  change it)
+- code-logic-reviewer approved
+
+---
+
+## Batch 7: R2-A frontend — blocked-paths disclosure on the harness health card ⏸️ PENDING
+
+**Recommended Executor**: `frontend-developer` (sub-agent)
+**Fallback Executor**: `frontend-developer`
+**Execution Mode**: sequential
+**Rationale**: Split from Batch 6 solely because backend and frontend never share a batch. One
+additive, purely presentational task with **no RPC contract change in the diff** — the architect's
+D5 discriminator holds that `blocked` is `missing ∩ foreign` over fields the payload **already
+carries**, so this derives client-side and needs nothing from Batch 6. Genuinely parallel-eligible
+with Batch 6 if the orchestrator wants it, but `cli_delegation` is disabled so it runs as a
+sub-agent either way.
+**Tasks**: 1 | **Dependencies**: **None** — derives from the existing payload; does not wait on 6.1
+
+### Task 7.1: Additive blocked-paths disclosure in the harness health card ⏸️ PENDING
+
+**File**: harness health card under `D:\projects\ptah-extension\libs\frontend\` — locate the
+existing card component before editing; this task does **not** create a new surface.
+**Spec Reference**: `r2-migration-plan.md` §6 / A3
+
+**Acceptance Criteria**:
+
+- Additive disclosure listing the blocked paths. **No layout rewrite** of the existing card.
+- The card **explains why `missing` can be non-zero while `writeFailed` is `0`** — this sentence
+  is the deliverable, not the list.
+- Derived **client-side from existing payload fields**; **no RPC contract change in the diff**.
+  If the task appears to need a new wire field, stop and report — that is a design change, not an
+  implementation detail.
+- **Hidden entirely when the blocked set is empty.** No empty-state chrome.
+- `ChangeDetectionStrategy.OnPush`, signals + `inject()`. No `[innerHTML]` on any path text.
+
+**Validation Notes**:
+
+- Health-card assertions in the e2e suite may need the new disclosure element — check before
+  assuming a green run means nothing moved.
+- Path strings come from the backend and are rendered as text only. They are filesystem paths from
+  the user's own machine, but they still route through normal Angular interpolation, never raw
+  HTML.
+
+---
+
+**Batch 7 Verification**:
+
+- `npx nx build` + `npx nx test` for the owning frontend lib
+- Card renders the disclosure with a non-empty blocked set and disappears entirely with an empty
+  one
+- `git diff` shows **no change** to `libs/shared/.../rpc.types.ts`
+- code-logic-reviewer approved
+
+---
+
+## Batch 8: R2-D backend — consent-gated repair with quarantine ⏸️ PENDING
+
+**Recommended Executor**: `backend-developer` (sub-agent)
+**Fallback Executor**: `backend-developer`
+**Execution Mode**: sequential
+**Rationale**: **Highest-risk surface in the whole task — it moves user directories.** Four tightly
+ordered tasks: the convention (8.1) defines what the operation (8.2) writes, which the RPC (8.3)
+gates, which the coverage (8.4) pins. Cross-file, cross-lib (`harness-sync` + `rpc-handlers` +
+`libs/shared`), and reasoning-heavy about failure ordering — the exact shape `cli_delegation`
+was disabled for. Medium-high risk, mitigated by consent and by the quarantine being
+non-negotiable.
+**Tasks**: 4 | **Dependencies**: Batch 6 (needs the derived blocked set as the authoritative
+input); **ungated by decisions U1–U4**
+
+### Task 8.1: Quarantine convention ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\` — new module; document in
+`D:\projects\ptah-extension\libs\backend\harness-sync\CLAUDE.md`
+**Spec Reference**: `r2-migration-plan.md` §6 / D1; decisions **U2**, **U4**
+
+**Acceptance Criteria**:
+
+- Location and naming are exactly **U2**: `.claude/skills/.ptah-quarantine/<name>-<timestamp>`.
+- **Quarantined content is never scanned as a source or as a target** — asserted by a test, not
+  just by a leading dot. A reconcile pass over a tree containing a populated quarantine must
+  produce identical health to the same tree without it.
+- **Same-volume by default**, with a documented fallback when the target is not on the same volume
+  (copy-then-delete, and the fallback must be as reversible as the move it replaces).
+- Timestamp format is collision-safe for two repairs of the same slug in the same second.
+- **No automatic cleanup, no TTL, no sweep** (U4). If a future reader looks for an expiry policy,
+  the docs must say why there deliberately is not one.
+
+---
+
+### Task 8.2: Repair operation — move-then-write ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\` — new repair entry point
+**Dependencies**: Task 8.1
+**Spec Reference**: `r2-migration-plan.md` §6 / D2
+
+**Acceptance Criteria**:
+
+- Single-path repair: **move** the occupant to quarantine, **then** write the managed copy.
+- **Never overwrites in place** — asserted by a test that **fails if the occupant's content is
+  destroyed**. This is discriminator D1 and it is a hard veto, not a preference.
+- If the write fails **after** the move, the occupant is **restored**; or, if restore itself
+  fails, the error **names the quarantine path explicitly** so the user can restore by hand. A
+  bare failure message that does not name the path is a failing implementation.
+- **Idempotent** — a second call on an already-repaired path is a no-op, not a second quarantine
+  entry.
+- Mirrors the move-not-overwrite policy at
+  `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-legacy-adoption.ts:98-147` — the in-repo
+  precedent that already survived review. Diverging from it needs a stated reason.
+- The repair entry point is **invoked only from an explicit request — never from activation
+  reconcile.** Enforced structurally, not by convention.
+
+**Validation Notes**:
+
+- Windows move semantics across drives/volumes is the named cross-platform risk. The same-volume
+  guarantee in 8.1 is what keeps the move atomic; the fallback path needs its own test.
+- Partial failure is the case that loses user data if it is wrong. It needs coverage of its own,
+  not a happy-path test with an error branch nobody executes.
+
+---
+
+### Task 8.3: Consent RPC — dual registration + Zod boundary ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\rpc-handlers\src\lib\harness\` (handler),
+`D:\projects\ptah-extension\libs\shared\` (`rpc.types.ts`),
+`D:\projects\ptah-extension\libs\backend\vscode-core\src\messaging\rpc-handler.ts`
+**Dependencies**: Task 8.2
+**Spec Reference**: `r2-migration-plan.md` §6 / D3 (backend half); decision **U3**
+
+**Acceptance Criteria**:
+
+- **Dual registration** — `libs/shared/.../rpc.types.ts` (compile-time) **and**
+  `ALLOWED_METHOD_PREFIXES` in `rpc-handler.ts:46` (runtime guard). Both, or the method is dead at
+  runtime with a green build.
+- **Zod validation on the path list at the RPC boundary.** Paths **outside the known blocked set
+  are rejected** — the RPC is not a general-purpose "move this directory" primitive and must not
+  become one.
+- Accepts a **per-path selection** (U3), not a boolean "repair everything".
+- Repair is **unreachable from activation reconcile**; only an explicit user action can invoke it.
+- Returns enough for the UI to report per-path outcome, including the quarantine destination for
+  each repaired path.
+
+---
+
+### Task 8.4: Repair coverage ⏸️ PENDING
+
+**File**: specs under `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\`
+**Dependencies**: Tasks 8.1–8.3
+**Spec Reference**: `r2-migration-plan.md` §6 / D4
+
+**Acceptance Criteria**:
+
+- End-to-end: blocked → consent → moved + written → **a subsequent reconcile reports `missing`
+  reduced by the repaired count, with `writeFailed=0`.**
+- **Declined consent leaves the filesystem byte-identical.** Not "approximately unchanged" —
+  byte-identical, asserted.
+- Partial-selection case: repairing 3 of 13 leaves the other 10 blocked and untouched.
+- The move-then-write failure path from 8.2 is exercised, not just declared.
+
+---
+
+**Batch 8 Verification**:
+
+- `npx nx build harness-sync rpc-handlers` and `npx nx test harness-sync rpc-handlers`
+- Manual: a real cold start after a partial repair shows `missing` reduced by exactly the repaired
+  count and `writeFailed` still `0`
+- The quarantine directory exists, contains the originals, and is **not** reported as `foreign`
+- code-logic-reviewer approved — with explicit attention to the move-then-write failure ordering
+
+---
+
+## Batch 9: R2-D frontend — consent dialog ⏸️ PENDING
+
+**Recommended Executor**: `frontend-developer` (sub-agent)
+**Fallback Executor**: `frontend-developer`
+**Execution Mode**: sequential
+**Rationale**: Split from Batch 8 under the never-mix rule. One task, but it is the surface that
+carries the entire ownership claim — the consent **is** the proof of ownership (discriminator D3),
+so its defaults and its wording are load-bearing, not cosmetic.
+**Tasks**: 1 | **Dependencies**: Batch 8 (needs the consent RPC), Batch 7 (the disclosure is where
+the user enters this flow)
+
+### Task 9.1: One dialog, per-path checkboxes, default none selected ⏸️ PENDING
+
+**File**: alongside the harness health card under `D:\projects\ptah-extension\libs\frontend\`
+**Spec Reference**: `r2-migration-plan.md` §6 / D3 (frontend half); decision **U3**
+
+**Acceptance Criteria**:
+
+- **One dialog listing all blocked paths with per-path checkboxes**, **defaulting to none
+  selected** (U3). Not a bulk approve-all default, not a sequence of prompts.
+- **The confirmation names the quarantine destination before the user consents** — the user must
+  see where their directory is going while they still have the option to decline.
+- Confirm is disabled with an empty selection.
+- States plainly that Ptah **cannot prove it created these directories** — that is the honest
+  framing of why consent is being asked for at all, and it is the reason the default is none.
+- Per-path outcome reported back after the call, including failures with their quarantine path.
+- `ChangeDetectionStrategy.OnPush`, signals + `inject()`.
+
+**Validation Notes**:
+
+- A select-all affordance is acceptable as an explicit user action; a select-all **default** is
+  not. The distinction is the whole of U3.
+- The dialog must not offer any "clean up quarantine" action — U4 is that we never do this, and a
+  button contradicting the docs is worse than no button.
+
+---
+
+**Batch 9 Verification**:
+
+- `npx nx build` + `npx nx test` for the owning frontend lib
+- Dialog opens with zero checkboxes selected on every open, including re-open after a partial
+  repair
+- Declining leaves the filesystem byte-identical (pairs with 8.4)
+- code-logic-reviewer approved
+
+---
+
+## R2 Execution Order
+
+1. **Batch 6** — first. Unblocked, no decision outstanding, zero filesystem change, and it is the
+   whole of the D2 fix. **Ships alone and is worth shipping even if 8–9 never land.**
+2. **Batch 7** — any time; no dependency on Batch 6 (derives client-side, no contract change).
+   Run it concurrently with Batch 6 if the orchestrator wants the reporting half complete in one
+   pass.
+3. **Batch 8** — after Batch 6, because the derived blocked set is the repair's authoritative
+   input. Highest risk in the task; do not start it in parallel with anything.
+4. **Batch 9** — last; needs Batch 8's RPC.
+
+**Explicitly out of scope for R2** (from `r2-migration-plan.md` §5): changing how `foreign` is
+classified; the commands/sidecar-manifest path (correctly designed); any change to
+`claude-target.ts:480-486` junction migration (already correct); bidirectional source/target sync
+(Option E — inverts the one-way reconciler invariant `harness-sync` exists to hold).
+
+## R2 Evidence Index (reused from `r2-migration-plan.md`, not re-derived)
+
+| Claim                                                         | Citation                                                                                  |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Skills were linked, never copied; no fallback                 | `git e107e6f89^:libs/backend/agent-sdk/src/lib/helpers/skill-junction.service.ts:304-356` |
+| Legacy code skipped occupied paths, suspected SDK provenance  | `git e107e6f89^:.../skill-junction.service.ts:336-343`                                    |
+| Surviving junctions are migrated, not blocked                 | `libs/backend/harness-sync/src/lib/targets/claude-target.ts:480-486`                      |
+| `~/.ptah/plugins`, `~/.ptah/skills` are declared source roots | `libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts:55`           |
+| Pre-288 installer wrote directly into `{ws}/.claude/skills`   | `libs/backend/rpc-handlers/src/lib/harness/io/harness-skill-install.service.ts:17-25`     |
+| Prior art: adopt via third-party record, move not overwrite   | `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-legacy-adoption.ts:98-147`         |
+| Live signature: `missing=13`, `writeFailed=0`                 | `D:/projects/ptah-extension/tmp/logs/coldstart-306.log:844`                               |
+| `blocked` counted into `missing` by design                    | `libs/backend/harness-sync/src/lib/health/harness-health.ts:71`, `:112`                   |
+| Blocked paths never enter `plan.writes`                       | `libs/backend/harness-sync/src/lib/targets/claude-target.ts:189-194`, `:277`              |
+
+---
+
+# F1 — Curator stall discards its own input (task widened 2026-08-22)
+
+> **Running totals after this section**: 30 tasks across 10 batches. (The header at the top of
+> this file predates Batch 10; it is stale by one batch and three tasks.)
+
+**Source**: **F1**, the material finding from the team-leader MODE 2 review of Batch 2 —
+`batch-2-implementation.md` §6, with live evidence in §8. Batch 10 below closes it.
+
+## The defect
+
+Decision **A2** told Task 2.6 to stop the curator entirely while its resolved provider is cooling
+down, and Task 2.6's **no-throw constraint** meant "stop" had to be expressed as a quiet return.
+The result:
+
+```
+runQuery → ''   →   extract() → []
+```
+
+An empty extraction from a **quota stall** is byte-identical to an empty extraction from a
+**successful pass that found nothing**. Downstream cannot tell them apart — and downstream acts:
+
+- `libs/backend/memory-curator/src/lib/memory-trigger.service.ts` **:744-745** calls
+  `markProcessed(ids)` on the resolve path, **inspecting nothing**. The episodes are marked
+  processed whether or not anything was extracted from them.
+- `drainForSession` filters on `processed_at IS NULL`, so once marked, those rows are **never
+  revisited**.
+- `episodes.reset` at **:696** has **already fired** by that point.
+- A resolving run **advances the boot-scan watermark**.
+
+Net: a stalled pass **consumes and discards its input**. The gate correctly prevents a doomed LLM
+call and then throws away the work that call was meant to do. When quota returns 15 minutes later,
+the material is gone.
+
+**Confirmed live, not theoretical.** `tmp/logs/coldstart-306.log` lines **1232–1260** show the gate
+firing **15 times** with `curatorProviderId: ""` in a tight
+`JsonlReader findSessionsDirectory` → skip-pass loop with nothing between. That is drain-and-discard
+running **faster than before the gate**, because the stall returns instantly where a real LLM call
+would have taken seconds. Fifteen passes' worth of episodes consumed and discarded on a single cold
+start.
+
+## Settled decisions — do NOT re-litigate
+
+Decided by the user, 2026-08-22, on the two directions the review offered.
+
+| #      | Decision                                                                                                                                                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **U5** | **Stats discriminator.** Return a result the caller can inspect — a stalled/skipped signal alongside the empty extraction — so `markProcessed` can distinguish "stalled, keep the rows" from "ran, found nothing". |
+| **U6** | **Task 2.6's no-throw constraint stays intact.** Letting the stall throw was considered and **rejected**: too wide a blast radius. Do not reach for the failure path as a shortcut to a discriminator.             |
+| **U7** | **Not deferred to a separate task.** Filing it as a follow-up was considered and **rejected**, because the data loss is happening **now, on every cooldown**.                                                      |
+
+---
+
+## Batch 10: Close F1 — make the curator stall distinguishable from an empty result ⏸️ PENDING
+
+**Recommended Executor**: `backend-developer` (sub-agent)
+**Fallback Executor**: `backend-developer`
+**Execution Mode**: sequential
+**Rationale**: `cli_delegation` is disabled (`context.md:101`). Three tightly ordered tasks in one
+lib — 10.1 produces the signal, 10.2 is the only consumer that matters, 10.3 pins both. Small in
+lines and large in consequence: it is a return-shape change on a path whose current ambiguity is
+actively destroying user data. Reasoning-heavy about which caller advances what state, which is
+precisely the shape that produced F1 in the first place.
+**Tasks**: 3 | **Dependencies**: Batch 2 (committed, `ca183174d`) — **independent of Batches 6–9**
+
+### ⚠️ Priority relative to Batches 6–9: **run Batch 10 FIRST, ahead of Batch 6**
+
+Stated plainly because the two are otherwise easy to order by size. **Batch 10 outranks every R2
+batch.**
+
+- **Batch 10 is live data loss.** Every cooldown discards episodes permanently. The cold-start log
+  shows 15 passes' worth destroyed in a few hundred lines on one boot, and the condition recurs on
+  a 15-minute clock for as long as the provider is exhausted.
+- **Batch 6 is a legibility fix for a state that is already correct.** `missing=13` is 13 correct
+  refusals; nothing is being lost while it goes unexplained. It is high-value and low-risk, but
+  **nothing degrades further while it waits**.
+
+Loss that compounds beats confusion that does not. If only one batch runs today, it is this one.
+
+---
+
+### Task 10.1: Return a discriminating result from the curator stall path ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\memory-curator\src\lib\` — the stall site added
+by Task 2.6 in `ca183174d`, and the result type it returns through
+**Spec Reference**: `batch-2-implementation.md` §6 (F1); decisions **U5**, **U6**
+
+**Acceptance Criteria**:
+
+- The curator pass returns a result the caller can **inspect** to tell **stalled** from **ran and
+  found nothing**. A `stalled`/`skipped` signal carried **alongside** the extraction, not encoded
+  into it.
+- **The no-throw constraint holds (U6).** The stall still returns; it does not throw, and the
+  existing `ProviderAuthError` fallback is untouched.
+- **The empty extraction stays empty.** This task adds a signal; it does not invent a non-empty
+  result to carry it. A stalled pass extracted nothing and must keep saying so.
+- The signal is **explicit and named** — not `null` vs `[]`, not a sentinel string, not an
+  overloaded count. A future caller must fail to compile or fail obviously if it ignores the
+  distinction, rather than silently taking the old branch.
+- The existing WARN line stays: `curator provider is rate-limited; skipping this curation pass
+until its quota refills`. Its `curatorProviderId: ""` field is the empty-provider inherit path
+  and is load-bearing evidence — do not "fix" it into a resolved id.
+
+**Validation Notes**:
+
+- The ambiguity is `runQuery → ''` → `extract() → []`. The empty **string** from `runQuery` is the
+  first point where the information is lost; the empty **array** from `extract()` is where it
+  becomes unrecoverable. Prefer carrying the signal from the earlier point rather than
+  reconstructing it later.
+- `sdk-internal-query.curator-llm.spec.ts` is in this blast radius (named in the Test Coverage
+  Summary for Batch 2). Check it before and after.
+
+---
+
+### Task 10.2: Stop marking episodes processed on a stalled pass ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\memory-curator\src\lib\memory-trigger.service.ts`
+**Dependencies**: Task 10.1
+**Spec Reference**: `batch-2-implementation.md` §6 (F1)
+
+**Acceptance Criteria**:
+
+- **`markProcessed(ids)` at `:744-745` inspects the signal from 10.1** and is **not** called when
+  the pass stalled. This call site is the whole defect — everything else in this batch exists to
+  let it make this one decision.
+- Rows left unmarked stay `processed_at IS NULL`, so `drainForSession` returns them on the next
+  pass. **The episodes survive the cooldown.**
+- **The boot-scan watermark is not advanced by a stalled pass.** A stall must not look like
+  progress to the scanner, or the rows are lost by a second route even with `markProcessed`
+  correctly skipped.
+- Reconcile with `episodes.reset` at **:696**, which has already fired by the time this decision
+  is made. Either the reset is deferred past the stall check, or its effect is undone on the stall
+  path — **state which and why in the implementation report.** Leaving the reset applied while
+  skipping `markProcessed` is a half-fix and does not close F1.
+- A **successful pass that genuinely found nothing keeps its current behaviour exactly** — marked
+  processed, watermark advanced. This batch must not turn "found nothing" into an infinite retry;
+  that would be F1 inverted.
+
+**Validation Notes**:
+
+- Three separate pieces of state advance on the resolve path — `markProcessed`, the
+  `episodes.reset` at `:696`, and the watermark. F1 exists because only one of them was examined.
+  Enumerate all three and decide each explicitly.
+
+---
+
+### Task 10.3: Pin the discriminator with a spec that fails if it is removed ⏸️ PENDING
+
+**File**: specs under `D:\projects\ptah-extension\libs\backend\memory-curator\src\lib\`
+**Dependencies**: Tasks 10.1, 10.2
+**Spec Reference**: `batch-2-implementation.md` §6 (F1)
+
+**Acceptance Criteria**:
+
+- **A spec that proves rows survive a cooldown pass**: drive a pass with the provider cooling
+  down, then assert the episodes are **still `processed_at IS NULL`** afterwards and are returned
+  by a subsequent `drainForSession`.
+- **The spec must FAIL if the discriminator is removed.** This is the acceptance criterion, not a
+  nicety — revert 10.1/10.2 locally and confirm red before calling the task done.
+- **An assertion that merely checks the extraction is empty is worthless here and does not
+  satisfy this task.** The extraction is empty both before and after the fix; such a spec passes
+  against the defect and proves nothing. The discriminating assertion is about the **rows'
+  survival**, not the extraction's emptiness.
+- Companion spec for the inverse: a **successful pass that found nothing** still marks processed
+  and still advances the watermark. Without this, 10.2 could be "fixed" by never marking anything.
+- Assert the watermark is unmoved after a stalled pass.
+
+**Validation Notes**:
+
+- Two discriminating specs minimum — stall-keeps-rows and empty-result-still-marks. Either one
+  alone can be satisfied by a wrong implementation; together they pin the branch.
+
+---
+
+**Batch 10 Verification**:
+
+- `npx nx test memory-curator` — and `npx nx run-many -t test -p auth-providers,skill-synthesis,agent-sdk`
+  to confirm Batch 2's 1324 baseline is intact
+- Revert-the-fix check: 10.3's specs go **red** with 10.1/10.2 backed out
+- Manual, against the live condition: a cold start with an exhausted provider shows the same
+  skip-pass WARN lines, but the episodes are **still pending** afterwards rather than consumed —
+  the tight `findSessionsDirectory` → skip loop at `coldstart-306.log:1232-1260` should no longer
+  drain the queue
+- code-logic-reviewer approved
