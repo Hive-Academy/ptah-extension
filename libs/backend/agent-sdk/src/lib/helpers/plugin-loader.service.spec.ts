@@ -233,6 +233,93 @@ describe('PluginLoaderService.discoverHarnessPluginPaths', () => {
   });
 });
 
+describe('PluginLoaderService.discoverSkillsForPlugins — deterministic descriptors', () => {
+  it('keeps the directory slug for both toggling and native invocation', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        skills: {
+          'ptah-core': [
+            {
+              dir: 'run-tests',
+              name: 'Frontmatter Display Name',
+              description: 'Runs the test suite',
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(
+      h.service.discoverSkillsForPlugins([
+        path.join(h.pluginsBasePath, 'ptah-core'),
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        skillId: 'run-tests',
+        invocationName: 'run-tests',
+        descriptorId: 'ptah-core:run-tests',
+        displayName: 'Frontmatter Display Name',
+        sourceId: 'ptah-core',
+        source: 'bundled',
+        invocability: 'invocable',
+      }),
+    ]);
+  });
+
+  it('qualifies external skills with their canonical source coordinate', async () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+    const pluginPath = path.join(
+      h.pluginsBasePath,
+      'external',
+      'dotnet',
+      'skills',
+      'dotnet-test',
+    );
+    fs.mkdirSync(path.join(pluginPath, 'skills', 'run-tests'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(pluginPath, 'skills', 'run-tests', 'SKILL.md'),
+      '---\nname: "Run Tests"\ndescription: "Runs tests"\n---\n',
+      'utf-8',
+    );
+    await h.externalStore.recordInstall(
+      externalRecord('external:dotnet/skills/dotnet-test', 'dotnet-test'),
+    );
+
+    expect(h.service.discoverSkillsForPlugins([pluginPath])).toEqual([
+      expect.objectContaining({
+        skillId: 'run-tests',
+        invocationName: 'run-tests',
+        descriptorId: 'external:dotnet/skills/dotnet-test:run-tests',
+        pluginId: 'external:dotnet/skills/dotnet-test',
+        sourceId: 'external:dotnet/skills/dotnet-test',
+        source: 'external',
+      }),
+    ]);
+  });
+
+  it('marks disabled local skills as not invocable without changing their toggle key', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        disabledSkillIds: ['run-tests'],
+        skills: { 'ptah-core': [{ dir: 'run-tests' }] },
+      }),
+    );
+
+    const [skill] = h.service.discoverSkillsForPlugins([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+    ]);
+    expect(skill).toMatchObject({
+      skillId: 'run-tests',
+      invocationName: 'run-tests',
+      invocability: 'not-invocable',
+    });
+  });
+});
+
 describe('PluginLoaderService.resolvePluginPaths (explicitly-named plugins)', () => {
   it('resolves enabled bundled plugin IDs and never appends harness dirs on its own', () => {
     const h = track(

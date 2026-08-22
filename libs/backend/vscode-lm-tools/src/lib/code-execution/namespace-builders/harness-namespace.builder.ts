@@ -19,6 +19,7 @@ import { HarnessConfigUpdatesSchema } from '@ptah-extension/shared/schemas';
 import {
   HARNESS_DEFAULT_MCP_TARGETS,
   MESSAGE_TYPES,
+  buildSkillDescriptorId,
   type HarnessConfig,
   type McpInstallResult,
   type McpInstallTarget,
@@ -120,12 +121,22 @@ const MCP_INSTALL_TARGET_NAMES = McpInstallTargetsSchema.element.options
  * A skill returned by searchSkills, tagged with its origin.
  */
 export interface HarnessSkillResult {
+  /** Existing bare directory slug; retained for selection and invocation. */
   skillId: string;
+  /** Stable descriptor identity, qualified by the supplying source. */
+  descriptorId: string;
+  /** Native invocation name; always the bare local directory slug when known. */
+  invocationName: string;
   displayName: string;
   description: string;
+  /** Stable parent/source identifier. Local entries use their canonical plugin ID. */
   pluginId: string;
+  /** Stable provenance identifier used to derive descriptorId. */
+  sourceId: string;
   isDisabled: boolean;
   source: 'local' | 'skills.sh';
+  /** Whether invocation can be verified from the result's source. */
+  invocability: 'invocable' | 'not-invocable' | 'unknown';
   installSource?: string;
   installs?: number;
 }
@@ -147,9 +158,13 @@ export interface HarnessNamespaceDependencies {
     resolveCurrentPluginPaths(): string[];
     discoverSkillsForPlugins(pluginPaths: string[]): Array<{
       skillId: string;
+      descriptorId: string;
+      invocationName: string;
       displayName: string;
       description: string;
       pluginId: string;
+      sourceId: string;
+      invocability: 'invocable' | 'not-invocable' | 'unknown';
     }>;
     getDisabledSkillIds(): string[];
   };
@@ -259,11 +274,15 @@ export function buildHarnessNamespace(
 
       const localResults: HarnessSkillResult[] = allSkills.map((skill) => ({
         skillId: skill.skillId,
+        descriptorId: skill.descriptorId,
+        invocationName: skill.invocationName,
         displayName: skill.displayName,
         description: skill.description,
         pluginId: skill.pluginId,
+        sourceId: skill.sourceId,
         isDisabled: disabledIds.has(skill.skillId),
         source: 'local',
+        invocability: skill.invocability,
       }));
 
       const trimmedQuery = query?.trim() ?? '';
@@ -288,11 +307,15 @@ export function buildHarnessNamespace(
         const entries = await skillsDirectory.search(trimmedQuery);
         remoteResults = entries.map((entry) => ({
           skillId: entry.skillId,
+          descriptorId: buildSkillDescriptorId(entry.source, entry.skillId),
+          invocationName: entry.skillId,
           displayName: entry.name,
           description: entry.description,
           pluginId: entry.source,
+          sourceId: entry.source,
           isDisabled: false,
           source: 'skills.sh',
+          invocability: 'unknown',
           installSource: entry.source,
           installs: entry.installs,
         }));

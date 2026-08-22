@@ -2,8 +2,7 @@
  * Unit tests for http-server.handler
  *
  * Uses a real http server on port 0 (OS-assigned) for lifecycle tests — mocking
- * Node's http module is brittle and hides wire-level bugs. For the EACCES
- * retry path we stub tryListen via a synthetic error.
+ * Node's http module is brittle and hides wire-level bugs.
  */
 
 import 'reflect-metadata';
@@ -19,6 +18,7 @@ import type {
 
 import {
   getConfiguredPort,
+  getMcpPortCandidates,
   startHttpServer,
   stopHttpServer,
 } from './http-server.handler';
@@ -113,6 +113,16 @@ describe('getConfiguredPort', () => {
   });
 });
 
+describe('getMcpPortCandidates', () => {
+  it('returns the configured port and next two valid ports', () => {
+    expect(getMcpPortCandidates(51820)).toEqual([51820, 51821, 51822]);
+  });
+
+  it('does not overflow the valid TCP port range', () => {
+    expect(getMcpPortCandidates(65535)).toEqual([65535]);
+  });
+});
+
 describe('HTTP server lifecycle', () => {
   let logger: jest.Mocked<Logger>;
   let state: jest.Mocked<IStateStorage>;
@@ -170,8 +180,8 @@ describe('HTTP server lifecycle', () => {
     expect(state.update).not.toHaveBeenCalled();
   });
 
-  it('retries with port 0 when configured port is already in use (EADDRINUSE)', async () => {
-    // Occupy a port first.
+  it('retries on the next deterministic port when configured port is already in use', async () => {
+    // Occupy a port first. An OS-assigned port has room for the next two candidates.
     const occupier = http.createServer();
     await new Promise<void>((resolve) =>
       occupier.listen(0, 'localhost', resolve),
@@ -187,13 +197,53 @@ describe('HTTP server lifecycle', () => {
       });
       server = result.server;
 
-      expect(result.port).not.toBe(occupiedPort);
-      expect(result.port).toBeGreaterThan(0);
+      expect(result.port).toBe(occupiedPort + 1);
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('unavailable'),
+        `MCP port ${occupiedPort} unavailable (EADDRINUSE), retrying with ${occupiedPort + 1}`,
       );
     } finally {
       await new Promise<void>((resolve) => occupier.close(() => resolve()));
+    }
+  });
+
+  it('tries no more than the configured port and next two ports after collisions', async () => {
+    const first = http.createServer();
+    await new Promise<void>((resolve) => first.listen(0, 'localhost', resolve));
+    const basePort = (first.address() as AddressInfo).port;
+    const second = http.createServer();
+    const third = http.createServer();
+    await new Promise<void>((resolve) =>
+      second.listen(basePort + 1, 'localhost', resolve),
+    );
+    await new Promise<void>((resolve) =>
+      third.listen(basePort + 2, 'localhost', resolve),
+    );
+
+    try {
+      await expect(
+        startHttpServer({
+          port: basePort,
+          logger,
+          workspaceState: state,
+          onMCPRequest: jest.fn(),
+        }),
+      ).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenNthCalledWith(
+        1,
+        `MCP port ${basePort} unavailable (EADDRINUSE), retrying with ${basePort + 1}`,
+      );
+      expect(logger.warn).toHaveBeenNthCalledWith(
+        2,
+        `MCP port ${basePort + 1} unavailable (EADDRINUSE), retrying with ${basePort + 2}`,
+      );
+    } finally {
+      await Promise.all(
+        [first, second, third].map(
+          (occupier) =>
+            new Promise<void>((resolve) => occupier.close(() => resolve())),
+        ),
+      );
     }
   });
 });

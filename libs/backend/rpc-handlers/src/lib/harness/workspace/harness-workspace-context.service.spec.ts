@@ -30,6 +30,83 @@ function buildService(workspaceRoot: string | undefined): {
   return { service };
 }
 
+describe('HarnessWorkspaceContextService.discoverAvailableSkills', () => {
+  it('preserves bare slug invocation while exposing source-qualified metadata', () => {
+    const workspaceProvider = {
+      getWorkspaceRoot: () => undefined,
+    } as unknown as IWorkspaceProvider;
+    const pluginLoader = {
+      resolveCurrentPluginPaths: () => ['D:/plugins/ptah-core'],
+      discoverSkillsForPlugins: () => [
+        {
+          skillId: 'run-tests',
+          descriptorId: 'ptah-core:run-tests',
+          invocationName: 'run-tests',
+          displayName: 'Run tests',
+          description: 'Runs tests',
+          pluginId: 'ptah-core',
+          sourceId: 'ptah-core',
+          source: 'bundled' as const,
+          invocability: 'invocable' as const,
+        },
+      ],
+      getDisabledSkillIds: () => [],
+    } as unknown as PluginLoaderService;
+    const service = new HarnessWorkspaceContextService(
+      createMockLogger() as unknown as Logger,
+      pluginLoader,
+      workspaceProvider,
+    );
+
+    expect(service.discoverAvailableSkills()).toEqual([
+      expect.objectContaining({
+        id: 'run-tests',
+        invocationName: 'run-tests',
+        descriptorId: 'ptah-core:run-tests',
+        source: 'plugin',
+        provenance: 'bundled',
+        sourceId: 'ptah-core',
+        invocability: 'invocable',
+      }),
+    ]);
+  });
+
+  it('reports a disabled skill as not invocable without changing its skill ID', () => {
+    const workspaceProvider = {
+      getWorkspaceRoot: () => undefined,
+    } as unknown as IWorkspaceProvider;
+    const pluginLoader = {
+      resolveCurrentPluginPaths: () => ['D:/plugins/ptah-core'],
+      discoverSkillsForPlugins: () => [
+        {
+          skillId: 'run-tests',
+          descriptorId: 'ptah-core:run-tests',
+          invocationName: 'run-tests',
+          displayName: 'Run tests',
+          description: 'Runs tests',
+          pluginId: 'ptah-core',
+          sourceId: 'ptah-core',
+          source: 'bundled' as const,
+          invocability: 'invocable' as const,
+        },
+      ],
+      getDisabledSkillIds: () => ['run-tests'],
+    } as unknown as PluginLoaderService;
+    const service = new HarnessWorkspaceContextService(
+      createMockLogger() as unknown as Logger,
+      pluginLoader,
+      workspaceProvider,
+    );
+
+    expect(service.discoverAvailableSkills()[0]).toMatchObject({
+      id: 'run-tests',
+      invocationName: 'run-tests',
+      invocability: 'not-invocable',
+      isActive: false,
+    });
+  });
+});
+
 describe('HarnessWorkspaceContextService.isWorkspaceEffectivelyEmpty', () => {
   let root: string;
 

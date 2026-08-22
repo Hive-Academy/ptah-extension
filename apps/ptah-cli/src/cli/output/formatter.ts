@@ -475,8 +475,10 @@ export class HumanFormatter implements Formatter {
    * The four facet columns say whether a target can carry that artifact family
    * AT ALL, independent of whether the CLI is installed — Codex and Copilot
    * reject project prompt directories upstream, so `n/a` there is a permanent,
-   * correct answer rather than a gap. Without those columns a reader would see
-   * `expected 0` and assume something failed.
+   * correct answer rather than a gap. A `source` cell is different: Ptah reads
+   * that facet as editable input and deliberately does not write, manifest, or
+   * reap it. Without those columns a reader would see `expected 0` and assume
+   * something failed.
    *
    * `overwritten` is `overwrittenLocalEdit`, abbreviated to keep the row on one
    * terminal line.
@@ -498,8 +500,12 @@ export class HumanFormatter implements Formatter {
         string,
         unknown
       > | null;
-      const facet = (name: string): string =>
-        facets !== null && facets[name] === 'supported' ? 'yes' : 'n/a';
+      const facet = (name: string): string => {
+        if (facets === null) return 'n/a';
+        if (facets[name] === 'supported') return 'yes';
+        if (facets[name] === 'source-managed') return 'source';
+        return 'n/a';
+      };
       return [
         stringField(target, 'target') || '(unknown)',
         booleanField(target, 'detected') ? 'yes' : 'no',

@@ -348,14 +348,22 @@ export class HarnessWorkspaceContextService {
 
       return pluginSkills.map((skill) => ({
         id: skill.skillId,
+        descriptorId: skill.descriptorId,
+        invocationName: skill.invocationName,
         name: skill.displayName,
         description: skill.description,
-        source: skill.pluginId.startsWith('ptah-harness-')
-          ? ('harness' as const)
-          : ('plugin' as const),
+        source:
+          skill.source === 'harness'
+            ? ('harness' as const)
+            : ('plugin' as const),
+        provenance: skill.source,
+        sourceId: skill.sourceId,
+        invocability: disabledSkillIds.has(skill.skillId)
+          ? 'not-invocable'
+          : skill.invocability,
         isActive: !disabledSkillIds.has(skill.skillId),
       }));
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.debug('Failed to discover skills for harness', {
         error: error instanceof Error ? error.message : String(error),
       });

@@ -193,10 +193,22 @@ export interface McpServerSuggestion {
 }
 
 export interface SkillSummary {
+  /** Existing bare skill slug, kept for native invocation and legacy consumers. */
   id: string;
+  /** Stable source-qualified descriptor identity. */
+  descriptorId: string;
+  /** Native Skill-tool invocation name; derived from the local folder slug. */
+  invocationName: string;
   name: string;
   description: string;
+  /** Existing broad UI category, retained for compatibility. */
   source: 'builtin' | 'plugin' | 'harness';
+  /** Precise source provenance for descriptor-aware consumers. */
+  provenance: 'bundled' | 'harness' | 'external' | 'skillssh';
+  /** Stable plugin/source root that supplied the descriptor. */
+  sourceId: string;
+  /** Whether the descriptor can be invoked in the current workspace. */
+  invocability: 'invocable' | 'not-invocable' | 'unknown';
   isActive: boolean;
 }
 

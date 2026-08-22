@@ -30,7 +30,6 @@ import {
   CompactionConfigProvider,
   assembleSystemPrompt,
   getActiveProviderId,
-  PTAH_MCP_PORT,
   type HookEvent,
   type HookCallbackMatcher,
   type McpHttpServerConfig,
@@ -143,7 +142,8 @@ export class PtahCliSpawnOptions {
     resolvedModel?: string,
     sessionContext?: PtahSpawnSessionContext,
   ): Promise<PtahSpawnAssembly> {
-    const mcpServerRunning = this.isMcpServerRunning();
+    const mcpPort = this.resolveMcpPort();
+    const mcpServerRunning = mcpPort !== undefined;
     const enhancedPromptsContent =
       await this.resolveEnhancedPromptsContent(cwd);
     const activeProviderId = getActiveProviderId(authEnv);
@@ -171,7 +171,7 @@ export class PtahCliSpawnOptions {
       ? {
           ptah: {
             type: 'http' as const,
-            url: `http://localhost:${PTAH_MCP_PORT}`,
+            url: `http://localhost:${mcpPort}`,
           },
         }
       : {};
@@ -272,16 +272,16 @@ export class PtahCliSpawnOptions {
     });
   }
 
-  private isMcpServerRunning(): boolean {
+  private resolveMcpPort(): number | undefined {
     try {
-      return this.mcpServerStatus?.getPort() != null;
-    } catch (error) {
+      return this.mcpServerStatus?.getPort() ?? undefined;
+    } catch (error: unknown) {
       this.logger.warn(
         `[PtahCliSpawnOptions] MCP server check failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return false;
+      return undefined;
     }
   }
 

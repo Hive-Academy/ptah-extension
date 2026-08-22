@@ -479,7 +479,6 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
   it('marks the always-eager core tools with _meta alwaysLoad === true', async () => {
     const tools = await listTools();
     for (const name of [
-      'execute_code',
       'ptah_search_files',
       'ptah_ast_analyze',
       'ptah_context_enrich_file',
@@ -488,6 +487,15 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
     ]) {
       expect(isEager(tools.find((t) => t.name === name))).toBe(true);
     }
+  });
+
+  it('keeps execute_code available but deferred behind tool search', async () => {
+    const tools = await listTools();
+    const executeCode = tools.find((tool) => tool.name === 'execute_code');
+
+    expect(executeCode).toBeDefined();
+    expect(isEager(executeCode)).toBe(false);
+    expect(executeCode?._meta).toBeUndefined();
   });
 
   it('does NOT mark non-eager tools (e.g. a browser tool) with _meta', async () => {

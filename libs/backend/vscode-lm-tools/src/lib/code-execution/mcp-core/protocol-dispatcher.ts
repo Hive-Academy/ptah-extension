@@ -346,7 +346,6 @@ function handleToolsList(
  * behind the SDK's built-in tool-search tool.
  */
 const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
-  'execute_code',
   'ptah_search_files',
   'ptah_ast_analyze',
   'ptah_context_enrich_file',

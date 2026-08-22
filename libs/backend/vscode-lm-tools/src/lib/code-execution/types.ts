@@ -136,44 +136,39 @@ export interface SearchNamespace {
 }
 
 /**
- * Diagnostic (errors/warnings) capabilities
- * Uses VS Code's language diagnostics API
+ * Diagnostic (errors/warnings) capabilities.
+ *
+ * Each method returns a `DiagnosticsPayload` that carries status/source/reason
+ * alongside the flattened diagnostics, so the formatter can distinguish
+ * "unavailable" from "available with zero issues" (TASK_2026_299).
  */
 export interface DiagnosticsNamespace {
-  /**
-   * Get all error-level diagnostics in workspace
-   * @returns Array of error diagnostics
-   */
-  getErrors: () => Promise<DiagnosticInfo[]>;
+  getErrors: () => Promise<DiagnosticsPayload>;
+  getWarnings: () => Promise<DiagnosticsPayload>;
+  getAll: () => Promise<DiagnosticsPayload>;
+}
 
-  /**
-   * Get all warning-level diagnostics in workspace
-   * @returns Array of warning diagnostics
-   */
-  getWarnings: () => Promise<DiagnosticInfo[]>;
-
-  /**
-   * Get all diagnostics (errors, warnings, info, hints) in workspace
-   * @returns Array of all diagnostics with severity labels
-   */
-  getAll: () => Promise<DiagnosticInfo[]>;
+/**
+ * Payload returned by diagnostics namespace methods. Preserves the
+ * available/unavailable contract from `IDiagnosticsProvider`.
+ */
+export interface DiagnosticsPayload {
+  status: 'available' | 'unavailable';
+  source: string;
+  reason?: string;
+  diagnostics: DiagnosticInfo[];
 }
 
 /**
  * Diagnostic information structure
  */
 export interface DiagnosticInfo {
-  /** File path containing diagnostic */
   file: string;
-
-  /** Diagnostic message */
   message: string;
-
-  /** Line number (0-indexed) */
   line: number;
-
-  /** Severity level (error, warning, info, hint) - only in getAll() */
   severity?: string;
+  code?: string | number;
+  source?: string;
 }
 
 /**

@@ -47,19 +47,6 @@ jest.mock('fs', () => {
   };
 });
 
-// Stub axios so resolveMcpPort()'s health check never performs a real HTTP
-// request. A rejection causes MCP to be disabled for the CLI agent, which
-// is the behavior we want in these unit tests (MCP wiring is out of scope
-// here — covered by the Copilot MCP installer specs).
-jest.mock('axios', () => ({
-  __esModule: true,
-  default: {
-    get: jest.fn().mockRejectedValue(new Error('mocked: MCP server down')),
-    isAxiosError: jest.fn(() => false),
-  },
-  isAxiosError: jest.fn(() => false),
-}));
-
 // Mock tsyringe decorators to no-ops
 jest.mock('tsyringe', () => ({
   injectable: () => (target: unknown) => target,
@@ -86,6 +73,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 jest.mock('@ptah-extension/platform-core', () => ({
   PLATFORM_TOKENS: {
     WORKSPACE_PROVIDER: Symbol('WORKSPACE_PROVIDER'),
+    MCP_SERVER_STATUS: Symbol('MCP_SERVER_STATUS'),
   },
 }));
 
@@ -331,6 +319,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   let sdkAdapter: jest.Mocked<CliAdapter>;
   let cliDetection: jest.Mocked<CliDetectionService>;
   let reasoningEffortGet: jest.Mock<string, []>;
+  let getMcpPort: jest.Mock<number | null, []>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -351,6 +340,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     const sentryService = createMockSentryService();
     reasoningEffortGet = jest.fn(() => '');
     const reasoningSettings = { effort: { get: reasoningEffortGet } };
+    getMcpPort = jest.fn<number | null, []>(() => null);
     manager = new AgentProcessManager(
       logger,
       cliDetection,
@@ -366,6 +356,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       reasoningSettings as unknown as ConstructorParameters<
         typeof AgentProcessManager
       >[5],
+      null,
+      { getPort: getMcpPort },
     );
   });
 
@@ -389,6 +381,39 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(result.agentId).toBeDefined();
       expect(sdkAdapter.runSdk).toHaveBeenCalledTimes(1);
       expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('propagates the actual MCP status port to MCP-capable adapters', async () => {
+      getMcpPort.mockReturnValue(51821);
+      setTimeout(() => sdkControls.resolve(0), 10);
+
+      await manager.spawn({
+        task: 'Use Ptah tools',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(getMcpPort).toHaveBeenCalledTimes(1);
+      expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].mcpPort).toBe(
+        51821,
+      );
+    });
+
+    it('does not resolve an MCP port for adapters that opt out', async () => {
+      Object.assign(sdkAdapter, { supportsMcp: false });
+      getMcpPort.mockReturnValue(51821);
+      setTimeout(() => sdkControls.resolve(0), 10);
+
+      await manager.spawn({
+        task: 'No MCP support',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(getMcpPort).not.toHaveBeenCalled();
+      expect(
+        (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].mcpPort,
+      ).toBeUndefined();
     });
 
     it('should pass unsanitized task to runSdk (SDK runs in-process, not via shell)', async () => {

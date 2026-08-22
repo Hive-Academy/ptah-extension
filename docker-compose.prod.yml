@@ -6,7 +6,7 @@
 #
 # INITIAL SETUP:
 #   1. Copy .env.prod.example to .env.prod and fill in secrets
-#   2. Run: docker compose -f docker-compose.prod.yml up -d
+#   2. Run: docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
 #   3. Caddy automatically obtains and renews SSL certificates via Let's Encrypt
 #
 # =============================================================================

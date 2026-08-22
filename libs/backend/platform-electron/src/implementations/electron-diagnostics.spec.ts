@@ -1,8 +1,7 @@
 /**
  * `electron-diagnostics.spec.ts` — runs `runDiagnosticsProviderContract`
- * against `ElectronDiagnosticsProvider`. The Electron impl is intentionally
- * a stub (no live language server) so the contract's `seed` is a no-op and
- * all assertions target the "returns a valid empty array" invariants.
+ * against `ElectronDiagnosticsProvider`. The Electron Phase 0 impl returns
+ * an explicit `unavailable` result (no live language server).
  */
 
 import 'reflect-metadata';
@@ -16,8 +15,6 @@ runDiagnosticsProviderContract('ElectronDiagnosticsProvider', () => {
   const provider = new ElectronDiagnosticsProvider();
   const setup: DiagnosticsProviderSetup = {
     provider,
-    // Electron has no language-server surface to seed — the contract's
-    // seed-then-read invariants are already guarded against empty returns.
   };
   return setup;
 });
@@ -29,17 +26,25 @@ describe('ElectronDiagnosticsProvider — Electron-specific behaviour', () => {
     provider = new ElectronDiagnosticsProvider();
   });
 
-  it('getDiagnostics returns an empty array (no language server available)', () => {
-    expect(provider.getDiagnostics()).toEqual([]);
+  it('getDiagnostics returns unavailable with source and reason', async () => {
+    const result = await provider.getDiagnostics();
+    expect(result.status).toBe('unavailable');
+    if (result.status === 'unavailable') {
+      expect(result.source).toBe('electron-phase0');
+      expect(typeof result.reason).toBe('string');
+      expect(result.reason.length).toBeGreaterThan(0);
+    }
   });
 
-  it('getDiagnostics is stable — repeat calls return equivalent results', () => {
-    expect(provider.getDiagnostics()).toEqual(provider.getDiagnostics());
+  it('getDiagnostics is stable — repeat calls return equivalent results', async () => {
+    const a = await provider.getDiagnostics();
+    const b = await provider.getDiagnostics();
+    expect(a).toEqual(b);
   });
 
-  it('getDiagnostics never throws even when called many times', () => {
+  it('getDiagnostics never throws even when called many times', async () => {
     for (let i = 0; i < 50; i++) {
-      expect(() => provider.getDiagnostics()).not.toThrow();
+      await expect(provider.getDiagnostics()).resolves.not.toThrow();
     }
   });
 });

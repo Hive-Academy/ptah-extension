@@ -55,9 +55,13 @@ import type { SkillShEntry } from '@ptah-extension/shared';
 
 type DiscoveredSkill = {
   skillId: string;
+  descriptorId: string;
+  invocationName: string;
   displayName: string;
   description: string;
   pluginId: string;
+  sourceId: string;
+  invocability: 'invocable' | 'not-invocable' | 'unknown';
 };
 
 interface PluginLoaderMock {
@@ -425,15 +429,23 @@ describe('buildHarnessNamespace — searchSkills', () => {
   const sample: DiscoveredSkill[] = [
     {
       skillId: 'lint',
+      descriptorId: 'core:lint',
+      invocationName: 'lint',
       displayName: 'Linter',
       description: 'runs lint',
       pluginId: 'core',
+      sourceId: 'core',
+      invocability: 'invocable',
     },
     {
       skillId: 'test',
+      descriptorId: 'core:test',
+      invocationName: 'test',
       displayName: 'Tester',
       description: 'runs jest tests',
       pluginId: 'core',
+      sourceId: 'core',
+      invocability: 'invocable',
     },
   ];
 
@@ -443,6 +455,12 @@ describe('buildHarnessNamespace — searchSkills', () => {
     expect(out).toHaveLength(2);
     expect(out.find((s) => s.skillId === 'lint')?.isDisabled).toBe(true);
     expect(out.find((s) => s.skillId === 'test')?.isDisabled).toBe(false);
+    expect(out.find((s) => s.skillId === 'lint')).toMatchObject({
+      descriptorId: 'core:lint',
+      invocationName: 'lint',
+      sourceId: 'core',
+      invocability: 'invocable',
+    });
   });
 
   it('filters results case-insensitively across id/name/description', async () => {
@@ -502,6 +520,12 @@ describe('buildHarnessNamespace — searchSkills', () => {
     const remote = out.find((s) => s.source === 'skills.sh');
     expect(remote).toBeDefined();
     expect(remote?.skillId).toBe('react-best-practices');
+    expect(remote).toMatchObject({
+      descriptorId: 'vercel-labs/agent-skills:react-best-practices',
+      invocationName: 'react-best-practices',
+      sourceId: 'vercel-labs/agent-skills',
+      invocability: 'unknown',
+    });
     expect(remote?.installSource).toBe('vercel-labs/agent-skills');
     expect(remote?.installs).toBe(1000);
     expect(out.some((s) => s.source === 'local')).toBe(false);
