@@ -1,7 +1,7 @@
 # Handoff — TASK_2026_306
 
 **As of**: 2026-08-22 · **Branch**: `ak/boot-blocker-quota-gate` · **Status**: `in_progress`
-**Batches**: 4 of 5 committed. Batch 2 is code-complete and green but **uncommitted and unreviewed**.
+**Batches**: 5 of 5 committed. Batch 2 landed green but **without a team-leader review** — see §4.
 
 ---
 
@@ -27,6 +27,8 @@ Two independent S1 defects sat underneath the symptom:
 ## 2. Current git state
 
 ```
+d1a534fae  docs(task-specs): record batch 2 state and add a handoff for TASK_2026_306
+ca183174d  feat(auth-providers): gate background LLM work on provider quota   ← UNREVIEWED
 5f082759e  docs(harness-sync): record task 4.4 + batch 5, correct research-report §F
 5c2090bdf  fix(harness-sync): report harness health at a scope both boot lines agree on
 44c29592c  fix(task-specs): skip the predictably-offline index write instead of warning
@@ -44,14 +46,14 @@ Nothing is pushed. No stashes.
 
 ## 3. Batch status
 
-| Batch | Defects                             | State                                         | Commit      |
-| ----- | ----------------------------------- | --------------------------------------------- | ----------- |
-| 1     | A — boot blocker                    | ✅ committed                                  | `a1c9f9335` |
-| 3     | C, G — session import + double init | ✅ committed                                  | `3da9b4431` |
-| 4     | D, E — index abort + early write    | ✅ committed                                  | `fd23a1108` |
-| 4.4   | E — closes the last criterion       | ✅ committed                                  | `44c29592c` |
-| 5     | F — harness-sync                    | ✅ committed                                  | `5c2090bdf` |
-| **2** | **B — provider quota gate**         | ⚠️ **code-complete, uncommitted, unreviewed** | —           |
+| Batch | Defects                             | State                                      | Commit      |
+| ----- | ----------------------------------- | ------------------------------------------ | ----------- |
+| 1     | A — boot blocker                    | ✅ committed                               | `a1c9f9335` |
+| 3     | C, G — session import + double init | ✅ committed                               | `3da9b4431` |
+| 4     | D, E — index abort + early write    | ✅ committed                               | `fd23a1108` |
+| 4.4   | E — closes the last criterion       | ✅ committed                               | `44c29592c` |
+| 5     | F — harness-sync                    | ✅ committed                               | `5c2090bdf` |
+| **2** | **B — provider quota gate**         | ⚠️ **committed, green, NOT peer-reviewed** | `ca183174d` |
 
 Plus `8358528ff`, an unplanned prerequisite — see §5.
 
@@ -60,9 +62,12 @@ Plus `8358528ff`, an unplanned prerequisite — see §5.
 ## 4. Batch 2 — exactly where it stands
 
 The implementing agent was **interrupted by a session exit**, then stopped, so
-it cannot be resumed. Its work survived intact in the working tree: 27 modified
-files plus three new ones (`provider-quota.error.ts`, `provider-quota.store.ts`,
-`provider-quota.store.spec.ts`). Roughly +1345/−61 lines.
+it could not be resumed. Its work survived intact and was **committed as
+`ca183174d`** on the user's explicit instruction (30 files, +1711/−61, including
+the three new files `provider-quota.error.ts`, `provider-quota.store.ts` and
+`provider-quota.store.spec.ts`). The full pre-commit chain passed: format,
+`nx affected` lint across the widened set, the electron `validate-deps` gate,
+and commitlint. No `--no-verify`.
 
 ### Verified green by the orchestrator, after the interrupt
 
@@ -90,22 +95,25 @@ through to `markUnscored`, with the family docs updated at `:110`, `:125`,
 
 ### What is missing
 
-1. **`batch-2-implementation.md` was never written** — the interrupt cost the
+1. **No team-leader MODE 2 review.** This is the real gap. Every other batch got
+   one and every one of those reviews found something material — two wrong spec
+   counts, a knowingly-false comment, a design argument that was upheld on its
+   conclusion but rejected on its reasoning. Batch 2 has the widest blast radius
+   of the five and is the only one that skipped it.
+2. **`batch-2-implementation.md` was never written** — the interrupt cost the
    report, not the code.
-2. **No team-leader review and no commit.** Every other batch was reviewed
-   before landing, and that review caught real problems in all four (§7).
 3. The `maxAttempts` decision is visible in code comments but was never stated
    explicitly for the record.
 4. Spec counts are unverified — every other batch's self-reported counts were
    checked, and two were wrong in opposite directions.
 
-### To finish it
+### To close it out
 
-Do not re-implement. Spawn a fresh `backend-developer` to (a) re-read the
-existing diff, (b) confirm R1 explicitly, (c) state the `maxAttempts` decision,
-and (d) write the report — then hand to `team-leader` MODE 2 to verify and
-commit. `tasks.md` Batch 2 holds the full six-task spec and the three answered
-open questions. Do not relaunch the stopped agent's work from scratch.
+**Do not re-implement.** The code is committed and green. What is owed is a
+`team-leader` MODE 2 pass over `ca183174d` — verify the six tasks against the
+`tasks.md` Batch 2 spec, confirm no existing spec assertion was edited to fit,
+count the new spec cases, and record the `maxAttempts` decision. Nothing is
+pushed, so that review can still gate this before it leaves the branch.
 
 ---
 
@@ -131,16 +139,20 @@ import.
 
 ## 6. Decisions needed from the user
 
-1. **`f40cc4e4f` (`.do/app.yaml`) does not belong on this branch.** It was an
-   uncommitted working-tree change at session start, unrelated to this task, and
-   a team-leader committed it during Batch 1. Nothing is pushed, so
-   `git reset --soft` lifts it off cleanly. Still unanswered.
-2. **Follow-up R2 — legacy skill adoption migration.** Needs a product decision,
+1. ~~**`f40cc4e4f` (`.do/app.yaml`)**~~ — **RESOLVED 2026-08-22: the user chose to
+   keep it.** ("don't reset anything all is needed.") It stays on the branch. It
+   is still an unrelated CI change riding a bugfix branch, so anyone splitting
+   this into PRs should know it is there deliberately, not by accident.
+2. **A team-leader review of `ca183174d`** — the only real gap left in the task.
+   See §4.
+3. **Follow-up R2 — legacy skill adoption migration.** Needs a product decision,
    not a bugfix call: the migration **can overwrite a hand-authored skill**. See
    §7 on defect F for why it exists. Recommended as its own task.
-3. **Whether to run a real `nx serve ptah-electron` cold start.** Several
+4. **Whether to run a real `nx serve ptah-electron` cold start.** Several
    acceptance criteria across Batches 1, 3 and 4 are proven at spec level only
-   and need one boot to confirm — including whether the window now opens at all.
+   and need one boot to confirm — including whether the window now opens at all,
+   which is the original complaint and the one thing nothing here has actually
+   observed.
 
 ---
 
