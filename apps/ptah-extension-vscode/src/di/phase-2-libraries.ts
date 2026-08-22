@@ -71,15 +71,27 @@ export function registerPhase2Libraries(
   logger: Logger,
 ): void {
   registerWorkspaceIntelligenceServices(container, logger);
-  // task-specs registered in all three hosts (G1). The SQLite-backed index
-  // store is selected lazily inside registerTaskSpecsServices via
-  // isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION) — VS Code registers the
-  // connection later in wire-runtime, so the store choice is deferred to first
-  // resolution (wire-runtime.ts:176 precedent).
+  // task-specs registered in all three hosts (G1). The index store is selected
+  // lazily inside registerTaskSpecsServices via
+  // isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION).
+  //
+  // In THIS host that check is always false: nothing under
+  // apps/ptah-extension-vscode calls registerPersistenceSqliteServices, and the
+  // one helper that does (cli-engine's registerThothLibraries) is structurally
+  // off-limits here — the Thoth-free invariant is lint-enforced. VS Code
+  // therefore runs on InMemoryTaskIndexStore. (Corrected TASK_2026_306 task
+  // 4.3; the previous comment claimed the connection was registered later in
+  // wire-runtime, which reads SQLITE_CONNECTION but never registers it.)
   registerTaskSpecsServices(container, logger);
   // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
   // README.md` lands even for a user who never opens the Tasks board. Non-
   // blocking and failure-swallowing by contract — see startTaskSpecsIndex.
+  //
+  // Unaffected by TASK_2026_306 defect E: the in-memory store needs no open
+  // step, so the warm-up here writes successfully on the first attempt. The
+  // ordering fix is entirely lib-side (startTaskSpecsIndex subscribes to the
+  // connection's onDidOpen), so this call site needs no change and none of the
+  // three hosts got a bespoke remedy.
   startTaskSpecsIndex(container, logger);
   // output-styles registered in all three hosts: OutputStyleRpcHandlers is a
   // `requires: []` manifest entry, so every host resolves it. Its services

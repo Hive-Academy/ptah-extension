@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_306
 
-**Total Tasks**: 17 | **Batches**: 5 | **Status**: 2/5 complete
+**Total Tasks**: 18 | **Batches**: 5 | **Status**: 3/5 complete
 **Branch**: `ak/boot-blocker-quota-gate` (already created and checked out — do NOT create or switch)
 **Scope**: Defects A–G from `research-report.md`. Defect H is noise — opportunistic only, no batch.
 **`cli_delegation`**: disabled. Every batch runs on a sub-agent `backend-developer`, sequentially.
@@ -693,7 +693,52 @@ the equivalent case for `configureAuthentication`. No existing spec is expected 
 
 ---
 
-## Batch 4: Activation-time subsystem failures (Defects D, E) ⏸️ PENDING
+## Batch 4: Activation-time subsystem failures (Defects D, E) ✅ COMPLETE
+
+**Commit**: see `fix(workspace-intelligence,task-specs): make activation-time subsystem failures
+local` on `ak/boot-blocker-quota-gate`.
+
+**Acceptance-criterion ruling (team-leader, MODE 2).** One criterion below is knowingly NOT met
+literally: `[WARN] [task-specs] index rebuild write failed: Persistence is offline` still appears
+ONCE on a clean Electron/CLI boot. The defect's consequence — the index being lost for the whole
+session — is closed; the log line is not. Ruling and reasoning:
+
+1. **The developer's objection is sound for the fix they were asked to weigh, and I upheld it.**
+   Deferring the whole first warm-up to `onDidOpen` would cost `.ptah/specs/README.md` on any host
+   where `openAndMigrate` genuinely fails (ABI mismatch / missing native binary — both documented
+   real modes in `persistence-sqlite/CLAUDE.md`). The event never fires there, so the contract doc
+   never lands. That is a permanent data-plane loss traded for a cosmetic log line. Bad trade.
+2. **Separating `ensureSpecsReadme` from the index rebuild is NOT small — I checked.**
+   `ensureSpecsReadme` early-returns on `state.specsDirExists` (`task-index.service.ts:232`), and
+   that flag is written by `rebuild` (`:518-519`). So the README cannot run without the scan, and
+   deferring "only the index rebuild" saves nothing, because the scan — not the
+   `replaceWorkspace` write — is the cost. The separation would mean splitting `rebuild` into
+   scan/write phases and caching scan results across the open, or re-scanning. A real
+   restructure, not a small change. The hypothesis is rejected on evidence.
+3. **But the developer's own follow-up proposal defeats their own objection, and IS small.** It is
+   therefore promoted from "recorded follow-up" to **Task 4.4 below**, and the criterion is
+   DEFERRED, not waived.
+
+### Task 4.4: Silence the predictable offline write via `ITaskIndexStore.isReady()` ⏸️ PENDING
+
+**Closes**: the one Batch 4 acceptance criterion left unmet.
+**Size**: ~4 files, ~15 lines + specs. Verified small during Batch 4 review.
+
+- `SqliteTaskIndexStore` already holds `connection` (`task-index.store.ts:231-235`), so
+  `isReady(): boolean { return this.connection.isOpen; }` is a one-liner.
+  `InMemoryTaskIndexStore.isReady()` returns `true`.
+- In `rebuild` (`task-index.service.ts:499-517`), skip the write when `!this.store.isReady()`:
+  set `indexWritten = false` and log at DEBUG, not WARN. **Keep the `try`/`catch`** — an
+  unexpected failure on a store that claimed readiness must still WARN. The guard removes only
+  the _predicted_ failure.
+- Net effect: no WARN on a clean boot, README still lands on the first warm-up (the scan is
+  untouched), the `ensureStarted` un-latch at `:186` still fires, and the `onDidOpen` re-warm
+  still does the real rebuild. No trade-off against the README at all.
+- `task-index.service.ts:504-513` carries a comment pointing here; update it when this lands.
+
+---
+
+## Batch 4 (original spec) ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
@@ -704,7 +749,7 @@ Both fixes are "make the failure local instead of total". Grouped by size and by
 rather than by lib: three one-file changes reviewed as one resilience pass.
 **Tasks**: 3 | **Dependencies**: None
 
-### Task 4.1: Per-entry `ENOENT` must not abort the whole workspace index ⏸️ PENDING
+### Task 4.1: Per-entry `ENOENT` must not abort the whole workspace index ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-indexer.service.ts`
 **Spec Reference**: `research-report.md` §D
@@ -739,7 +784,7 @@ others; a fully unstatable workspace yields nothing without throwing; the skip i
 
 ---
 
-### Task 4.2: Defer the `task-specs` index rebuild until SQLite is open (Electron) ⏸️ PENDING
+### Task 4.2: Defer the `task-specs` index rebuild until SQLite is open (Electron) ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\di\phase-2-libraries.ts`
 **Spec Reference**: `research-report.md` §E
@@ -777,7 +822,7 @@ others; a fully unstatable workspace yields nothing without throwing; the skip i
 
 ---
 
-### Task 4.3: Same ordering in the VS Code and CLI hosts ⏸️ PENDING
+### Task 4.3: Same ordering in the VS Code and CLI hosts ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\di\phase-2-libraries.ts`
 **Dependencies**: Task 4.2
@@ -804,6 +849,48 @@ others; a fully unstatable workspace yields nothing without throwing; the skip i
 - `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts`
 
 ---
+
+**Batch 4 verification (team-leader)**:
+
+- `lint` on all 4 libs: pass (13 pre-existing warnings, none in changed code, 0 errors).
+- `build` on `ptah-electron` + `ptah-extension-vscode`: pass.
+- **Ordering of the lib-side fix confirmed in both affected hosts** — the fix is a no-op unless
+  `PERSISTENCE_TOKENS.SQLITE_CONNECTION` is registered before `startTaskSpecsIndex` runs.
+  Electron: register `:297` → start `:332` ✓. cli-engine `register-thoth-libraries.ts`:
+  `:81` → `:130` ✓. (Electron's registration sits inside the memory-curator `try`; if that block
+  throws early the token is absent, the store falls back to in-memory, and there is no failure to
+  fix. Consistent degradation.)
+- **No new lib edge**: `task-specs/CLAUDE.md` already declares `persistence-sqlite` as an internal
+  dependency ("Batch B store"), and `ptah-extension-vscode` already imported it
+  (`wire-runtime.ts:17`). `better-sqlite3` loads via a lazy `require` inside the factory, so no
+  native binding is pulled into any bundle. No cycle — `persistence-sqlite` imports nothing.
+- **Test counts audited and confirmed exact**: 20 new cases (indexer 10 incl. a 3-way `it.each`,
+  `start-index` 5, `sqlite-connection` 5). Of these ~16 fail against the pre-fix tree; the
+  report's "14 discriminate" is if anything _understated_. No existing assertion was edited to fit
+  new behaviour — the only edits to existing spec code are three mechanical constructor-arg
+  additions forced by the `Logger` injection.
+- **DI signature change is zero-risk**: `register.ts:67` already hard-asserts `TOKENS.LOGGER` is
+  registered before this lib, and 16 sibling services already inject it. The only manual
+  `new WorkspaceIndexerService(...)` sites are the three in its own spec; all three were updated.
+
+**Team-leader scrutiny findings (accepted, recorded as follow-ups — none blocking)**:
+
+- `MISSING_ENTRY_CODES` omits `EPERM` and `EBUSY`. On Windows — the primary platform — a file
+  locked by another process commonly surfaces as `EPERM`, not `EACCES`, and one locked file in a
+  scanned tree will still abort the whole index. The `EACCES` exclusion is defensible (the
+  developer's "environment, not entry" split is a reasonable conservative default, and the new
+  `reportSkipped` WARN means an all-skipped workspace is no longer silent), and behaviour for
+  these codes is _unchanged_ from before the fix, so this is a gap rather than a regression.
+  Revisit if a locked-file abort is ever observed.
+- `start-index.ts`: `subscriptions.length > 0` is always true, since
+  `subscribeToPersistenceOpen` always pushes at least `NOOP_DISPOSABLE`. The `: NOOP_DISPOSABLE`
+  branch is dead. Harmless; tidy opportunistically.
+- `isMissingEntryError` requires each link to be `instanceof Error`, so a driver throwing a plain
+  `{ code: 'ENOENT' }` object would not match. No such thrower exists today (Node fs and
+  VS Code's `FileSystemError` are both `Error`s). Depth bound of 5 is safe: the real chain is
+  `FileSystemError` → errno error, depth 2.
+- `persistence-sqlite/CLAUDE.md` "Cross-Lib Rules" lists consumers and does not yet name
+  `task-specs`. Doc drift only.
 
 **Batch 4 Acceptance Criteria**:
 

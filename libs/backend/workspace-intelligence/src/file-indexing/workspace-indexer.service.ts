@@ -7,9 +7,12 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type {
+  FileStat,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
@@ -17,6 +20,53 @@ import { IgnorePatternResolverService } from './ignore-pattern-resolver.service'
 import { DEFAULT_WORKSPACE_EXCLUDES } from './workspace-default-excludes';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileIndex, IndexedFile } from '../types/workspace.types';
+
+/**
+ * Error codes that mean "this path does not resolve to a file right now".
+ *
+ * TASK_2026_306 defect D. `discoverFiles()` and the per-entry `stat()` are two
+ * separate trips to disk, so anything that vanishes, or never resolved in the
+ * first place, lands here:
+ *
+ *  - `ENOENT`  — a broken symlink, or a file deleted between the two trips.
+ *  - `ENOTDIR` — an ancestor directory was replaced by a file mid-scan, so a
+ *                path component no longer resolves.
+ *  - `ELOOP`   — a symlink cycle; the entry can never be statted.
+ *
+ * All three are ordinary conditions in a live workspace, not defects, and all
+ * three are per-entry. Codes NOT listed here (`EACCES`, `EMFILE`, `EIO`, …)
+ * describe the environment rather than the entry and are still propagated —
+ * "the whole index aborted" is the honest outcome for those.
+ */
+const MISSING_ENTRY_CODES: ReadonlySet<string> = new Set([
+  'ENOENT',
+  'ENOTDIR',
+  'ELOOP',
+]);
+
+/**
+ * Whether `error` (or anything in its `cause` chain) is a per-entry
+ * "path does not resolve" failure.
+ *
+ * Walks the chain because `FileSystemService.stat()` re-throws every driver
+ * failure as a `FileSystemError` whose message is a fixed
+ * `Failed to stat: <path>` string — the errno lives only on the wrapped cause
+ * (`services/file-system.service.ts:69-78`). Matching on `code` rather than on
+ * that message keeps the check working if the wrapper's wording ever changes,
+ * and keeps it from matching a genuine error that merely mentions "ENOENT".
+ */
+function isMissingEntryError(error: unknown): boolean {
+  let current: unknown = error;
+  // Bounded so a self-referential `cause` cannot spin here.
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && MISSING_ENTRY_CODES.has(code)) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
 
 /**
  * Workspace indexing options
@@ -89,7 +139,55 @@ export class WorkspaceIndexerService {
     private readonly tokenCounter: TokenCounterService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fsProvider: IFileSystemProvider,
+    @inject(TOKENS.LOGGER)
+    private readonly logger: Logger,
   ) {}
+
+  /**
+   * `stat` one discovered entry, yielding `null` instead of throwing when the
+   * entry simply is not there.
+   *
+   * TASK_2026_306 defect D: an unguarded `stat` made one missing file abort the
+   * index for the ENTIRE workspace — the caller
+   * (`WorkspaceFileIndexService.doStart`) logged it non-fatally, so the app then
+   * ran with no file index at all and no further signal. A single broken
+   * symlink under `.claude/skills/` did exactly that in the captured boot.
+   *
+   * Only the per-entry codes in {@link MISSING_ENTRY_CODES} are absorbed;
+   * everything else still propagates, because a failure that is not about this
+   * one entry will not be about the next one either.
+   */
+  private async statOrNull(filePath: string): Promise<FileStat | null> {
+    try {
+      return await this.fileSystemService.stat(filePath);
+    } catch (error: unknown) {
+      if (isMissingEntryError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Emit the per-run summary of entries skipped by {@link statOrNull}.
+   *
+   * Silence here would reproduce the defect this fix exists to remove, one
+   * level down: an index quietly missing 40% of a workspace is as useless as no
+   * index, and just as invisible. Logged once per run rather than per entry —
+   * a workspace with thousands of stale entries must not flood the output.
+   */
+  private reportSkipped(
+    operation: string,
+    workspaceFolder: string,
+    skipped: number,
+    discovered: number,
+  ): void {
+    if (skipped === 0) return;
+    this.logger.warn(
+      `[WorkspaceIndexer] ${operation}: skipped entries that could not be statted`,
+      { workspaceFolder, skipped, discovered },
+    );
+  }
 
   /**
    * Index all files in a workspace folder
@@ -131,6 +229,7 @@ export class WorkspaceIndexerService {
     );
     const indexedFiles: IndexedFile[] = [];
     let filesIndexed = 0;
+    let skippedMissing = 0;
 
     for (const filePath of allFiles) {
       const relativePath = path.relative(workspaceFolder, filePath);
@@ -152,7 +251,11 @@ export class WorkspaceIndexerService {
           continue; // Skip excluded files
         }
       }
-      const stat = await this.fileSystemService.stat(filePath);
+      const stat = await this.statOrNull(filePath);
+      if (!stat) {
+        skippedMissing++;
+        continue;
+      }
       if (stat.size > maxFileSize) {
         continue;
       }
@@ -186,6 +289,12 @@ export class WorkspaceIndexerService {
         });
       }
     }
+    this.reportSkipped(
+      'indexWorkspace',
+      workspaceFolder,
+      skippedMissing,
+      allFiles.length,
+    );
     const totalSize = indexedFiles.reduce((sum, file) => sum + file.size, 0);
 
     return {
@@ -229,48 +338,67 @@ export class WorkspaceIndexerService {
       options.includePatterns,
     );
 
-    for (const filePath of allFiles) {
-      const relativePath = path.relative(workspaceFolder, filePath);
-      if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
-        const ignoreResult = await this.ignoreResolver.isIgnored(
+    let skippedMissing = 0;
+    // `finally` rather than a trailing statement: the consumer
+    // (`WorkspaceFileIndexService.build`) `return`s out of its `for await` when
+    // the workspace root changes mid-stream, which closes the generator without
+    // running the loop to completion. The summary must still be emitted for the
+    // work that did happen.
+    try {
+      for (const filePath of allFiles) {
+        const relativePath = path.relative(workspaceFolder, filePath);
+        if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
+          const ignoreResult = await this.ignoreResolver.isIgnored(
+            relativePath,
+            parsedIgnoreFiles,
+          );
+          if (ignoreResult.ignored) {
+            continue;
+          }
+        }
+        if (options.excludePatterns && options.excludePatterns.length > 0) {
+          const excluded = this.patternMatcher.matchFiles(
+            [relativePath],
+            options.excludePatterns,
+          );
+          if (excluded && excluded.length > 0) {
+            continue;
+          }
+        }
+        const stat = await this.statOrNull(filePath);
+        if (!stat) {
+          skippedMissing++;
+          continue;
+        }
+        if (stat.size > maxFileSize) {
+          continue;
+        }
+        const classification = this.fileClassifier.classifyFile(relativePath);
+        let estimatedTokens = 0;
+        if (options.estimateTokens) {
+          try {
+            const content = await this.fileSystemService.readFile(filePath);
+            estimatedTokens = await this.tokenCounter.countTokens(content);
+          } catch {
+            continue;
+          }
+        }
+        yield {
+          path: filePath,
           relativePath,
-          parsedIgnoreFiles,
-        );
-        if (ignoreResult.ignored) {
-          continue;
-        }
+          type: classification.type,
+          size: stat.size,
+          language: classification.language,
+          estimatedTokens,
+        };
       }
-      if (options.excludePatterns && options.excludePatterns.length > 0) {
-        const excluded = this.patternMatcher.matchFiles(
-          [relativePath],
-          options.excludePatterns,
-        );
-        if (excluded && excluded.length > 0) {
-          continue;
-        }
-      }
-      const stat = await this.fileSystemService.stat(filePath);
-      if (stat.size > maxFileSize) {
-        continue;
-      }
-      const classification = this.fileClassifier.classifyFile(relativePath);
-      let estimatedTokens = 0;
-      if (options.estimateTokens) {
-        try {
-          const content = await this.fileSystemService.readFile(filePath);
-          estimatedTokens = await this.tokenCounter.countTokens(content);
-        } catch {
-          continue;
-        }
-      }
-      yield {
-        path: filePath,
-        relativePath,
-        type: classification.type,
-        size: stat.size,
-        language: classification.language,
-        estimatedTokens,
-      };
+    } finally {
+      this.reportSkipped(
+        'indexWorkspaceStream',
+        workspaceFolder,
+        skippedMissing,
+        allFiles.length,
+      );
     }
   }
 

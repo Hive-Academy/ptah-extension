@@ -173,11 +173,16 @@ export class TaskIndexService implements ITaskIndexNotifier {
     try {
       const indexWritten = await start;
       if (!indexWritten) {
-        // The README landed but the derived index did not — the store is
-        // chosen lazily and its SQLite connection opens LATER in the Electron
-        // and CLI boot than DI registration does. Un-latch so the next caller
+        // The README landed but the derived index did not — most often a store
+        // whose SQLite connection is not open yet. Un-latch so the next caller
         // performs a real warm-up instead of inheriting an empty index for the
         // rest of the session.
+        //
+        // TASK_2026_306 defect E gave that "next caller" a trigger rather than
+        // leaving it to chance: `startTaskSpecsIndex` re-warms on the
+        // connection's `onDidOpen`. This latch is still what makes that second
+        // call do real work, and it remains the only recovery for hosts and
+        // paths with no open signal — do not remove it as redundant.
         state.started = false;
       }
     } catch (error: unknown) {
@@ -496,10 +501,19 @@ export class TaskIndexService implements ITaskIndexNotifier {
       this.store.replaceWorkspace(root, summaries, scan.excluded);
     } catch (error: unknown) {
       indexWritten = false;
-      // WARN, not ERROR: the commonest cause is a store whose SQLite
-      // connection has not been opened yet (Electron/CLI open it well after DI
-      // registration). `ensureStarted` treats this as "not started" and retries
-      // on the next call, so it is recoverable rather than a defect.
+      // WARN, not ERROR: this is recoverable, not a defect. `ensureStarted`
+      // treats it as "not started" and a later call performs a real rebuild.
+      //
+      // Both Electron and the CLI register the store in the same DI pass as the
+      // activation warm-up but open the SQLite connection much later, so the
+      // first warm-up STILL reaches this branch once on a clean boot.
+      // TASK_2026_306 defect E closed the consequence, not the log line:
+      // `startTaskSpecsIndex` re-warms on the connection's `onDidOpen`, so the
+      // index is rebuilt for real moments later instead of being lost for the
+      // session. Silencing the remaining line needs an `ITaskIndexStore.isReady()`
+      // so a predictably-offline store is skipped rather than attempted — see
+      // TASK_2026_306 task 4.4. Until then, one WARN per Electron/CLI boot is
+      // expected and is NOT evidence of a broken index.
       this.logger.warn('[task-specs] index rebuild write failed', {
         error: error instanceof Error ? error.message : String(error),
       });

@@ -15,6 +15,7 @@ import {
   createEvent,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TASK_SPECS_TOKENS } from './tokens';
 import { startTaskSpecsIndex } from './start-index';
@@ -34,6 +35,10 @@ interface Harness {
   ensureStarted: jest.Mock;
   fireFolderChange: () => void;
   setRoot: (root: string | undefined) => void;
+  /** Simulate `SqliteConnectionService.openAndMigrate()` completing. */
+  fireConnectionOpen: () => void;
+  /** How many `onDidOpen` subscriptions are currently live. */
+  openSubscriberCount: () => number;
 }
 
 function makeHarness(options?: {
@@ -41,6 +46,12 @@ function makeHarness(options?: {
   ensureStarted?: jest.Mock;
   omitIndex?: boolean;
   throwingFolderEvent?: boolean;
+  /**
+   * Register a fake shared SQLite connection (the Electron / CLI shape).
+   * Omitted by default, which is the VS Code shape — that host never calls
+   * `registerPersistenceSqliteServices`, so the token is simply absent.
+   */
+  connection?: 'present' | 'throwing';
 }): Harness {
   const container = rootContainer.createChildContainer();
   const logger = makeLogger();
@@ -69,6 +80,24 @@ function makeHarness(options?: {
     });
   }
 
+  const openListeners = new Set<() => void>();
+  if (options?.connection) {
+    container.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
+      useValue: {
+        isOpen: false,
+        onDidOpen:
+          options.connection === 'throwing'
+            ? () => {
+                throw new Error('connection is mid-teardown');
+              }
+            : (listener: () => void) => {
+                openListeners.add(listener);
+                return { dispose: () => openListeners.delete(listener) };
+              },
+      },
+    });
+  }
+
   return {
     container,
     logger,
@@ -77,6 +106,10 @@ function makeHarness(options?: {
     setRoot: (next) => {
       root = next;
     },
+    fireConnectionOpen: () => {
+      for (const listener of [...openListeners]) listener();
+    },
+    openSubscriberCount: () => openListeners.size,
   };
 }
 
@@ -172,5 +205,82 @@ describe('startTaskSpecsIndex', () => {
     // The warm-up still happened; only the re-attempt hook was lost.
     expect(h.ensureStarted).toHaveBeenCalledWith('d:/ws');
     expect(() => disposable.dispose()).not.toThrow();
+  });
+
+  /**
+   * TASK_2026_306 defect E. Electron and the CLI register the SQLite connection
+   * in the same DI pass as this helper but open it hundreds of log lines later,
+   * so the activation warm-up's index write landed on an offline store and was
+   * lost for the rest of the session.
+   */
+  describe('re-warms when persistence comes online (TASK_2026_306 defect E)', () => {
+    it('warms again once the connection opens', async () => {
+      const h = makeHarness({ connection: 'present' });
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+      expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+
+      h.fireConnectionOpen();
+      await settle();
+
+      expect(h.ensureStarted).toHaveBeenCalledTimes(2);
+      expect(h.ensureStarted).toHaveBeenNthCalledWith(2, 'd:/ws');
+    });
+
+    it('warms again on a REOPEN, not only the first open', async () => {
+      // The database-reset RPC closes and re-opens the shared connection; the
+      // derived index has to be rebuilt against the new file too.
+      const h = makeHarness({ connection: 'present' });
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+
+      h.fireConnectionOpen();
+      h.fireConnectionOpen();
+      await settle();
+
+      expect(h.ensureStarted).toHaveBeenCalledTimes(3);
+    });
+
+    it('is a no-op on a host that registers no connection (VS Code)', async () => {
+      const h = makeHarness();
+      startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+
+      // One warm-up, no second trigger, and no warning about a missing token —
+      // an absent connection is the normal VS Code shape, not a degradation.
+      expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+      expect(h.logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('survives a connection that refuses the subscription', async () => {
+      const h = makeHarness({ connection: 'throwing' });
+
+      let disposable!: ReturnType<typeof startTaskSpecsIndex>;
+      expect(() => {
+        disposable = startTaskSpecsIndex(h.container, h.logger);
+      }).not.toThrow();
+      await settle();
+
+      expect(h.ensureStarted).toHaveBeenCalledWith('d:/ws');
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[task-specs] persistence-open subscription unavailable',
+        expect.objectContaining({ error: 'connection is mid-teardown' }),
+      );
+      expect(() => disposable.dispose()).not.toThrow();
+    });
+
+    it('unsubscribes from the connection when disposed', async () => {
+      const h = makeHarness({ connection: 'present' });
+      const disposable = startTaskSpecsIndex(h.container, h.logger);
+      await settle();
+      expect(h.openSubscriberCount()).toBe(1);
+
+      disposable.dispose();
+      expect(h.openSubscriberCount()).toBe(0);
+
+      h.fireConnectionOpen();
+      await settle();
+      expect(h.ensureStarted).toHaveBeenCalledTimes(1);
+    });
   });
 });
