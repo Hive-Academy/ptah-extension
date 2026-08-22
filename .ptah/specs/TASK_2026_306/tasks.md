@@ -1977,3 +1977,209 @@ until its quota refills`. Its `curatorProviderId: ""` field is the empty-provide
   the tight `findSessionsDirectory` → skip loop at `coldstart-306.log:1232-1260` should no longer
   drain the queue
 - code-logic-reviewer approved
+
+---
+
+# Promote the disclosure to a boot-visible surface (task widened 2026-08-23)
+
+**Source**: **O3**, recorded during the team-leader MODE 2 review of Batch 7 — the disclosure is
+reachable only at Marketplace → Plugins, one click deep, on a page a user may never open. R2-A's
+stated objective is "make the shortfall legible"; legible in exactly one unvisited place only
+partly meets it.
+
+## Settled decision — do NOT re-litigate
+
+| #      | Decision                                                                                                                                                                                                                                              |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **U8** | **Promote the disclosure to a boot-visible surface**, and make Batch 9's consent dialog reachable directly from it — including from the boot WARN line Batch 6 added. Chosen by the user over keeping it at Marketplace → Plugins and over deferring. |
+
+## Where "boot-visible" actually is — named, not left as a placeholder
+
+The spec must name a component, so this was resolved against the code rather than assumed:
+
+- **Harness health has no startup UI today.** `HarnessHealthBadgeComponent` mounts in exactly one
+  place — `libs/frontend/marketplace/src/lib/plugins-surface.component.ts:70`
+  (`<ptah-harness-health-badge />`) — and nowhere else in `libs` or `apps`. At startup the health
+  report reaches only the **log**: Batch 6's reconciler WARN plus the host boot lines.
+- **The boot-visible UI surface is the Dashboard home** — `libs/frontend/dashboard`, the
+  card-driven home, whose grid is
+  `libs/frontend/dashboard/src/lib/components/dashboard-grid/dashboard-grid.component.ts` and
+  which already hosts `analytics-card` and `builders-card`.
+- **No polling is needed.** `harness:healthChanged`
+  (`libs/shared/src/lib/types/messages/message-constants.ts:196`) is an existing edge-triggered
+  push, and `harness:health` already exists as the pull. The card is a new consumer of a stream
+  that already runs; **no RPC contract change**.
+
+## Shape: a new batch, not folded into Batch 9 — and why
+
+The user's answer implies one placement decision, but the work is not one surface:
+
+|            | Batch 9 (consent dialog)            | This work                       |
+| ---------- | ----------------------------------- | ------------------------------- |
+| Lib        | `libs/frontend/marketplace`         | `libs/frontend/dashboard`       |
+| Surface    | the popover the user already opened | the home the user lands on      |
+| Depends on | Batch 8's RPC                       | nothing but Batch 7's component |
+
+Folding would make Batch 9 own two libs and two unrelated placement questions, and would couple a
+dialog that **cannot ship before Batch 8** to a card that can ship today. Kept separate so the
+promotion is not held hostage by the repair.
+
+The `dashboard → marketplace` import edge is new but **acyclic** — `marketplace` does not import
+`dashboard`, and `dashboard` already imports five sibling frontend libs (`core`,
+`memory-curator-ui`, `cron-scheduler-ui`, `messaging-gateway-ui`, `skill-synthesis-ui`). Verified
+before writing this.
+
+The boot-WARN entry point is **backend**, so it is Batch 12 rather than a task inside Batch 11 —
+this file's rule is that backend and frontend never share a batch, and a one-line log string does
+not earn an exception.
+
+---
+
+## Batch 11: Harness card on the Dashboard home ⏸️ PENDING
+
+**Recommended Executor**: `frontend-developer` (sub-agent)
+**Fallback Executor**: `frontend-developer`
+**Execution Mode**: sequential
+**Rationale**: `cli_delegation` is disabled (`context.md:101`). One lib, three ordered tasks —
+11.1 places the card, 11.2 wires the route into Batch 9, 11.3 pins both. Mostly reuse: the
+disclosure component and the derivation both already exist and are already reviewed, so the risk
+here is placement and reachability, not logic.
+**Tasks**: 3 | **Dependencies**: Batch 7 (committed component). **Task 11.2's target requires
+Batch 9**; see its criteria for the ordering escape.
+
+### Task 11.1: Harness card in the dashboard grid ⏸️ PENDING
+
+**File**: new component under
+`D:\projects\ptah-extension\libs\frontend\dashboard\src\lib\components\harness-card\`, mounted in
+`D:\projects\ptah-extension\libs\frontend\dashboard\src\lib\components\dashboard-grid\dashboard-grid.component.ts`
+**Spec Reference**: decision **U8**; Batch 7 report O3
+
+**Acceptance Criteria**:
+
+- A harness card on the Dashboard home renders the blocked-paths disclosure, reusing
+  **`HarnessBlockedPathsComponent`** and **`harnessBlockedPaths`** from the `marketplace` barrel.
+  **Do not re-implement either.**
+- **`blockedTargetPaths` from `@ptah-extension/shared` remains the single derivation.** A third
+  surface must not become a third intersection — this is the F-A failure mode, caught before
+  Batch 7 and verified closed in it. No `missing.filter(...)`, no `foreign.includes(...)`, no
+  `new Set(missing)` anywhere in `libs/frontend/dashboard`.
+- Driven by the existing `harness:healthChanged` push and/or `harness:health`. **No RPC contract
+  change in the diff**; if the task appears to need one, stop and report.
+- **Hidden entirely when the blocked set is empty**, like the popover disclosure. The home must
+  not grow a permanent empty card.
+- Consistent with the badge: undetected targets excluded, same count the popover and the boot WARN
+  report. The three surfaces must never disagree on the number.
+- `ChangeDetectionStrategy.OnPush`, signals + `inject()`, standalone. No `[innerHTML]` on any path.
+- Additive to `dashboard-grid` — no layout rewrite of the existing cards.
+
+---
+
+### Task 11.2: Route from the card into the consent dialog ⏸️ PENDING
+
+**File**: the Batch 11.1 card, plus whatever navigation seam the dashboard already uses
+**Dependencies**: Task 11.1; **Batch 9** for the dialog itself
+**Spec Reference**: decision **U8**
+
+**Acceptance Criteria**:
+
+- The card offers **one** explicit route to Batch 9's consent dialog. Reaching it must not require
+  finding Marketplace → Plugins first.
+- **The card itself still performs no repair and captures no consent** — it routes, and Batch 9's
+  dialog remains the only place a claim of ownership is made. Every constraint from Task 9.1
+  (per-path checkboxes, default none selected, quarantine destination named before consent)
+  belongs to the dialog and is not duplicated or pre-answered here.
+- **Ordering escape**: if Batch 9 has not landed, ship 11.1 alone and leave 11.2 pending rather
+  than stubbing a dead control. A button that opens nothing is worse than no button.
+
+---
+
+### Task 11.3: Pin the promotion ⏸️ PENDING
+
+**File**: specs alongside the Batch 11.1 card
+**Dependencies**: Tasks 11.1, 11.2
+**Spec Reference**: this task's standard — every batch ships a discriminating spec
+
+**Acceptance Criteria**:
+
+- **A discriminating spec that fails if the card is removed from the dashboard grid** — mount the
+  home with a blocked-bearing health report and assert the disclosure is present and names the
+  blocked paths. Mutation-check it red by removing the card from the grid.
+- A spec asserting the card is **absent on a clean report**.
+- A spec asserting the card's count **equals the popover's count** for the same report — the
+  cross-surface agreement that the single-derivation rule exists to guarantee.
+- **A spec asserting no second intersection**: the dashboard renders paths obtained via the shared
+  function, so a naive `foreign` passthrough renders the wrong set and fails. Batch 7's mutation B
+  is the model.
+- Where 11.2 landed: a spec that the route reaches the dialog and that the card itself exposes no
+  consent control.
+
+---
+
+**Batch 11 Verification**:
+
+- `npx nx run-many -t test,lint -p dashboard,marketplace --skip-nx-cache`
+- `npx nx build ptah-extension-webview` (`dashboard` is a non-buildable lib; the app is the gate)
+- `grep -rnE "\.foreign|\.missing" libs/frontend/dashboard` shows no intersection
+- `git diff` shows no change under `libs/shared`
+- code-logic-reviewer approved
+
+---
+
+## Batch 12: The boot WARN names the surface ⏸️ PENDING
+
+**Recommended Executor**: `backend-developer` (sub-agent)
+**Fallback Executor**: `backend-developer`
+**Execution Mode**: sequential
+**Rationale**: One task, kept out of Batch 11 only because it is backend and this file does not
+mix. It is small enough to ride along with another backend batch — **if Batch 8 has not committed
+when this is picked up, the orchestrator should fold it into that commit** rather than raise a
+one-file commit of its own.
+**Tasks**: 1 | **Dependencies**: Batch 6 (committed, `e1851b34a`); Batch 11.1 for the surface name
+
+### Task 12.1: Point the boot WARN at the card ⏸️ PENDING
+
+**File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
+(`logBlocked` / its `action` field)
+**Spec Reference**: decision **U8**
+
+**Acceptance Criteria**:
+
+- The blocked WARN's `action` names the **Dashboard harness card** as a route, alongside the
+  existing CLI instruction. A log line cannot be clicked; naming the destination is the entry
+  point.
+- **The move-first wording survives intact.** It must still lead with "Move the occupant aside",
+  still carry "may be your own work", and still never say "delete" — Batch 6's F-B fix is not to
+  be undone by a rewrite. Re-assert this in the existing
+  `harness-reconciler.blocked-logging.spec.ts` case rather than adding a parallel one.
+- The `full`-only gate (Batch 6, m3) and the unchanged summary line both stay as they are.
+- Consider the same pointer on the host boot lines
+  (`apps/ptah-electron/src/activation/plugin-activation.ts`,
+  `apps/ptah-extension-vscode/src/activation/plugin-activation.ts:286-294`). **State a decision
+  either way** — those two already disagree with each other per Batch 5's finding, and this is not
+  the task that fixes that.
+
+---
+
+**Batch 12 Verification**:
+
+- `npx nx test harness-sync` — the existing blocked-logging case updated, not duplicated
+- The move-first / no-"delete" assertions still present and still passing
+- code-logic-reviewer approved
+
+---
+
+## Follow-ups recorded from Batch 7 — NOT scheduled
+
+**m1 — the delete-word ban covers only the literal "delete".** `harness-blocked-paths.spec.ts`
+asserts `not.toContain('delete')` over the rendered section, so "remove", "erase", "trash" or
+"rm" would pass. A narrow hole: the three positive assertions in the same case — the anchored
+`/^Move the occupant aside/`, "may be your own work", and "read it before you discard anything" —
+carry the weight, and a message satisfying all three is not destructive in framing. Recorded, not
+worth a change.
+
+**O2 — the disclosure card has no e2e coverage.** Checked during review: no e2e spec references
+`harness-health-badge` or any sibling harness identifier, and
+`apps/ptah-electron-e2e/src/specs/marketplace/marketplace.spec.ts` contains no `harness` reference
+at all. So a green e2e run genuinely means nothing moved — and equally, e2e would not catch the
+card disappearing. Batch 11 adds a second uncovered surface. Worth a decision when someone next
+touches the e2e marketplace suite.
