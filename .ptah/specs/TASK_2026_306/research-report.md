@@ -303,8 +303,53 @@ connection-open rather than firing during registration.
 
 The counts are **identical** across the pre-network and post-download passes, so
 the second pass — which exists specifically to correct a cold or cached first
-pass — closes nothing. `writeFailed: 0` rules out permissions. The 13 files are
-expected by the manifest and are not being produced by either source.
+pass — closes nothing. ~~`writeFailed: 0` rules out permissions. The 13 files are
+expected by the manifest and are not being produced by either source.~~
+
+> ### ⚠️ CORRECTED 2026-08-22 by Task 5.1 — the struck sentence above is wrong
+>
+> The struck text is kept rather than deleted because it is what the batch was
+> planned against, and Task 5.1 exists because of it.
+>
+> **The 13 files are produced fine and every one of them already exists on
+> disk.** They are not a production failure at all. All 13 are on the `claude`
+> target, all `kind: skill`, all under `{ws}/.claude/skills/<slug>`, and all are
+> legacy `SkillJunctionService`-era copies (mtime 2026-07-08/09, predating
+> `harness-sync`) that **no manifest owns**. `ClaudeTarget.planEntry` therefore
+> returns `'foreign'`, `blocked = foreign.filter(p => desiredRel.has(p))` puts
+> them in `plan.blocked`, and `appliedTargetHealth` reports
+> `missing = [...writeFailedPaths, ...plan.blocked]`. With `writeFailed` empty,
+> **`missing` IS `plan.blocked`, exactly.** They are 13 correct refusals (E9)
+> being reported through a counter that reads like a failure.
+>
+> Three consequences for anyone reading the original text:
+>
+> - **`writeFailed: 0` never ruled anything in or out.** A blocked path is
+>   classified before `plan.writes` is built (`claude-target.ts` `continue`s
+>   past the `writes.push`), so it is _structurally incapable_ of appearing in
+>   `writeFailed`. Reading it as "permissions are fine" is true and irrelevant —
+>   the gap sits one phase earlier, in `plan`.
+> - **Identical counts across both passes is convergence, not a stuck retry.**
+>   The download pass corrects a cold or cached SOURCE; all 20 sources were
+>   present and hashed fine on pass 1. No number of passes can close a blocked
+>   path — only the user moving the file, or an adoption proof succeeding, can.
+>   The one field that DID differ is the tell: `removed: 4` then `removed: 0`.
+> - **The workspace is not this repo.** The capture is from
+>   `D:\projects\property-hub`. Every number reproduces there to the unit:
+>   `27+36+36+20 = 119` expected, `14+36+36+20 = 106` manifest entries,
+>   `missing: 13`, and `foreign: 19` = 13 blocked + 6 undesired legacy dirs.
+>
+> Adoption could not rescue them: all 13 have drifted from their user-layer
+> source so byte identity fails; `.claude/skills/.ptah-managed.json` does not
+> exist and never could (`SkillJunctionService` had nowhere to put one for
+> skills — which is exactly why all 7 legacy _commands_ adopted cleanly and 0
+> legacy _skills_ did); and `isPtahOutput` is agents-only.
+>
+> **No fix was made to the classification, deliberately.** Excluding `blocked`
+> from `missing` is the documented non-converging regression in
+> `harness-sync/CLAUDE.md`. What Batch 5 fixed is the _reporting_; making the
+> refusal user-actionable is follow-up R1. Full working in
+> `batch-5-implementation.md`.
 
 The per-target summary disagrees with the reconciler's own numbers and is worth
 checking while here:

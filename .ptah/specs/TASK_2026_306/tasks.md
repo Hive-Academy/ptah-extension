@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2026_306
 
-**Total Tasks**: 18 | **Batches**: 5 | **Status**: 3/5 complete
+**Total Tasks**: 18 | **Batches**: 5 | **Status**: 4/5 complete — **Batch 2 is the only one outstanding**
 **Branch**: `ak/boot-blocker-quota-gate` (already created and checked out — do NOT create or switch)
 **Scope**: Defects A–G from `research-report.md`. Defect H is noise — opportunistic only, no batch.
 **`cli_delegation`**: disabled. Every batch runs on a sub-agent `backend-developer`, sequentially.
@@ -39,7 +39,7 @@ report implies and one of them would not have fired at all in the captured scena
 | R2  | **The proxy has no provider id to record against.** `TranslationProxyConfig` (`translation-proxy-base.ts:50-59`) carries a display `name` only (`'Codex'`, `'Copilot'`) — not a registry id (`openai-codex`). Six concrete subclasses, and two of them (`CustomOpenAiTranslationProxy`, `LocalModelTranslationProxy`) serve _dynamic_ provider ids that cannot be a constructor literal                                                                                                                                    | **HIGH**                                   | Task 2.1 threads a provider-id source through the base. This is the step §B most understates — it is not a one-line record call                                                               |
 | R3  | **A new failure kind silently defaults to the wrong family.** `SkillDrainService.applyLaneFailure` (`skill-drain.service.ts:886`) is a hardcoded whitelist: `kind !== 'timeout' && kind !== 'auth-unresolvable'` → `markUnscored`. Add `'quota-exhausted'` to the union and it compiles, passes type-check, and lands as a JUDGE verdict on the Activity surface — the exact conflation the header at `:855-878` exists to prevent                                                                                         | **HIGH**                                   | Task 2.4 widens the condition and extends `skill-drain.failures.spec.ts`                                                                                                                      |
 | R4  | **Defect E's fix site is not where the report implies.** The rebuild is dispatched from `apps/ptah-electron/src/di/phase-2-libraries.ts:332` (`startTaskSpecsIndex`), not from `wire-runtime.ts` — which contains no task-specs reference at all. SQLite opens far later via `wire-runtime.ts:373 → :145 → boot-thoth-runtime.ts:76`. **Two more hosts have the identical shape**: `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:83` and `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts:130` | **MEDIUM**                                 | Task 4.2 + 4.3. A reorder inside `wire-runtime.ts` alone cannot close this                                                                                                                    |
-| R5  | **Defect F's 13 missing files have no known cause yet.** The denominator mismatch IS root-caused (see below) but that is a _reporting_ bug and does not explain `missing:13`. `writeFailed:0` rules out permissions; identical counts across both passes rule out a cold cache                                                                                                                                                                                                                                             | **MEDIUM**                                 | Task 5.1 is a diagnosis task with an explicit "report back before fixing" instruction. **Batch 5 may grow once 5.1 lands**                                                                    |
+| R5  | ~~**Defect F's 13 missing files have no known cause yet.** … `writeFailed:0` rules out permissions; identical counts across both passes rule out a cold cache~~ **CLOSED — and the risk statement itself was wrong on both counts.** `writeFailed:0` ruled out nothing (a blocked path can never enter `writeFailed`), and identical counts are the signature of a CONVERGED steady state, not a stuck retry. The 13 are 13 correct refusals of unowned legacy files — see the Batch 5 block                               | **CLOSED**                                 | Task 5.1 diagnosed it and **Batch 5 did not grow**. No fix to the classification, deliberately. Follow-ups R1–R4 recorded under Batch 5                                                       |
 | R6  | `lane-resolver.providers.spec.ts:221` (`names no registry provider anywhere in the model-resolution chain`) reads **compiled function bodies** via `Function.prototype.toString`, covering `LaneResolverService.{resolve,readConfig,readConfigs}` plus `resolveLaneModel` / `resolveJudgeModel`. Any provider-id literal introduced into the quota branch fails it                                                                                                                                                         | **LOW** (it is a working guard, not a gap) | Flagged on Task 2.5. Do not weaken the spec to pass                                                                                                                                           |
 | R7  | B's third open question (user-facing signal) has **no existing wire representation** — grepping `libs/shared` for `auth-unresolvable` / `laneFailure` returns nothing. Building one means a response-shape change plus frontend work, which is a different developer type from the rest of Batch 2                                                                                                                                                                                                                         | **MEDIUM**                                 | Open Question 3 on Batch 2. Recommended: defer the UI to a follow-up task and land the backend-observable half only                                                                           |
 
@@ -63,7 +63,7 @@ Record these; do not re-derive them.
 - [ ] Genuinely corrupt JSONL (not just truncated) → Task 3.1 must not turn a real parse failure into silent success for every line
 - [ ] `ENOENT` on a broken symlink vs. a file deleted mid-scan → Task 4.1 treats both as skip-and-count
 - [ ] Two auth-file change events arriving inside one `initialize()` flight → Task 3.2
-- [ ] A host with zero `claude` target in `health.targets` → Task 5.2 must not print `0/0` as if it were a healthy pass
+- [x] A host with zero `claude` target in `health.targets` → Task 5.2 must not print `0/0` as if it were a healthy pass. **Closed** — `formatClaudeSlice` renders `not-registered` / `undetected` / `0/0` as three distinct states. Not pinned by a spec; see follow-up R4
 
 ### Blockers Found
 
@@ -719,10 +719,69 @@ session — is closed; the log line is not. Ruling and reasoning:
    therefore promoted from "recorded follow-up" to **Task 4.4 below**, and the criterion is
    DEFERRED, not waived.
 
-### Task 4.4: Silence the predictable offline write via `ITaskIndexStore.isReady()` ⏸️ PENDING
+### Task 4.4: Silence the predictable offline write via `ITaskIndexStore.isReady()` ✅ COMPLETE
 
-**Closes**: the one Batch 4 acceptance criterion left unmet.
-**Size**: ~4 files, ~15 lines + specs. Verified small during Batch 4 review.
+**Commit**: `44c29592c` — `fix(task-specs): skip the predictably-offline index write instead of warning`
+**Closes**: the one Batch 4 acceptance criterion left unmet. **Batch 4 is now fully met** —
+`[WARN] [task-specs] index rebuild write failed: Persistence is offline` no longer fires on a
+clean Electron/CLI boot, and it is replaced by one `debug` line plus the real `onDidOpen` rebuild.
+**Size**: 3 source files (39 net lines, mostly comments) + 2 spec files, 11 new cases. As estimated.
+
+**Verified (team-leader, MODE 2)**:
+
+- `nx run-many -t lint -p task-specs,persistence-sqlite,harness-sync` PASS. The one warning
+  (`'MockFileSystemProvider' is defined but never used`) is in `task-writer.create-race.spec.ts`,
+  a file this task does not touch and `git status` confirms unmodified. Pre-existing.
+- `nx run-many -t build -p ptah-electron,ptah-extension-vscode` PASS.
+- Tests (orchestrator): `task-specs` 440 passed, up from 429 — matching 11 new cases exactly.
+- **No existing spec assertion edited.** `git diff -U0 -- '*.spec.ts'` has exactly one removed
+  line and it is an `import` widened to also pull in `type ITaskIndexStore`.
+
+**The "no WARN on a clean boot" argument is a proof, and the proof holds — checked term by term:**
+
+1. `Persistence is offline` has exactly one throwing producer: `SqliteConnectionService`'s `db`
+   getter (`sqlite-connection.service.ts:347-355`), which throws when
+   `!this.database || !this.database.open`. The only other `buildUnavailableMessage()` caller
+   (`:425`) is the vec-extension diagnostic and returns an object; it does not throw and is not on
+   this path.
+2. `isOpen` (`:434-436`) is `Boolean(this.database?.open)` — the exact negation of that same
+   two-term predicate across all three states (no database / closed / open). So
+   `isReady() === true` ⟺ the `db` getter does not throw.
+3. `SqliteTaskIndexStore.replaceWorkspace` reaches `this.db` on its **first** statement
+   (`const del = this.db.prepare(...)`) and is fully synchronous through `txn()`.
+4. **No intervening code can await.** In `rebuild` the guard and the call are literally adjacent —
+   `if (!this.store.isReady()) { … } else { try { this.store.replaceWorkspace(…) } … }` — with no
+   statement, no `await` and no microtask boundary between them. `isReady(): boolean` is
+   synchronous by its own type signature, so no implementation can introduce one. The
+   check-then-act window is closed by construction, not by timing luck.
+
+**The warn channel survives.** The `try`/`catch` is kept verbatim around `replaceWorkspace` in the
+ready branch and still WARNs. Reaching it now means a store that reported READY failed anyway —
+`SQLITE_FULL`, a corrupt page, a connection closed by a later reset — which is the unpredicted
+class the channel exists for. Pinned by the spec case
+`still WARNs when a store that reported READY fails the write anyway`.
+
+**The `ensureStarted` latch is untouched.** It now sits at `task-index.service.ts:173-186`
+(`if (!indexWritten) state.started = false;`) and is byte-identical — `git diff` shows no change
+in that range. `indexWritten: false` from the skip branch un-latches it exactly as the failure
+branch did, which is what makes the `onDidOpen` re-warm do real work.
+
+**Mutation numbers — the framing is honest, and the framing is the point.** 3 of 7 service cases
+fail against the reverted guard; the other 4 are named in the report as deliberate regression
+guards on properties 4.4 promised to PRESERVE (README still lands, `specsDirExists` still set from
+the scan, ready path unchanged, warn channel survives), and their titles confirm it. A guard that
+only worked in one direction would be worthless for this fix, so those 4 passing both ways is
+correct rather than padding. The 4 store cases genuinely **cannot compile** against the pre-4.4
+tree — `isReady` does not exist on `ITaskIndexStore` there — so they were checked against an
+always-true implementation instead (2 of 4 fail). Declining to invent a number for an
+uncompilable comparison is the right call and is stated as such rather than buried.
+
+**Report**: `task-4-4-implementation.md`.
+
+---
+
+**Batch 4 is now ✅ COMPLETE with all acceptance criteria met.** The criterion deferred at the
+Batch 4 review is closed by this task, not waived.
 
 - `SqliteTaskIndexStore` already holds `connection` (`task-index.store.ts:231-235`), so
   `isReady(): boolean { return this.connection.isOpen; }` is a one-liner.
@@ -918,25 +977,52 @@ neither should need changing, which is itself the signal that the fix stayed in 
 
 ---
 
-## Batch 5: `harness-sync` — 13 unclosed gaps and a mis-scoped summary (Defect F) ⏸️ PENDING
+## Batch 5: `harness-sync` — 13 unclosed gaps and a mis-scoped summary (Defect F) ✅ COMPLETE
 
+**Commit**: `5c2090bdf` — `fix(harness-sync): report harness health at a scope both boot lines agree on`
+**Report**: `batch-5-implementation.md`
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
 **Execution Mode**: sequential
 **Rationale**: One lib plus its Electron reporting seam. **This batch may grow.** Task 5.1 is a
 diagnosis, not a fix — the 13 missing files have no known cause, and the remedy cannot be
 specified until it is found.
-**Tasks**: 3 (+N pending 5.1) | **Dependencies**: None
+**Tasks**: 3 | **Dependencies**: None
 
-### ⚠️ Batch 5 may expand
+### ✅ Batch 5 did NOT expand — because 5.1 overturned the premise
 
-The orchestration brief flagged F as expandable and that is correct, but the _reporting_ half is
-now root-caused (see Correction 2) and is fixed by Tasks 5.2/5.3. What remains genuinely
-unknown is why 13 manifest-expected files are produced by neither source on either pass.
-**Task 5.1 must report back before any fix is written for it.** Expect this batch to gain
-1–3 tasks at that point.
+**Task 5.1's diagnosis is UPHELD by team-leader review.** This is the important outcome of the
+batch and it is worth more than the two code changes.
 
-### Task 5.1: Root-cause the 13 missing files (DIAGNOSIS — report before fixing) ⏸️ PENDING
+**The 13 "missing" files are not production failures.** They all exist on disk, all on the
+`claude` target, all `kind: skill`, all legacy `SkillJunctionService`-era copies under
+`{ws}/.claude/skills/<slug>` (mtime 2026-07-08/09, predating `harness-sync`) that **no manifest
+owns**. They are therefore `foreign` → `blocked` → counted `missing` **by design (E9)**. 13
+correct refusals reported through a counter that reads like a failure. The capture came from the
+live `property-hub` workspace, not this repo, and every number reproduces there to the unit.
+
+**All three load-bearing claims re-verified independently at source, because the whole conclusion
+moves if any one of them is wrong:**
+
+| Claim                                                                    | Verified at                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `blocked` is counted into `missing` **by design**                        | `health/harness-health.ts:112` — `appliedTargetHealth` returns `missing: [...missing, ...plan.blocked]`; `plannedTargetHealth` `:71` does the same, which is what makes `reconcile` and `verify` agree. `harness-sync/CLAUDE.md` states the rule in prose and in the health-semantics table. **UPHELD**                                                                                                                       |
+| `writeFailed: 0` is **structurally incapable** of showing a blocked path | `targets/claude-target.ts:189-194` — `outcome === 'foreign'` does `scanned.push(relPath); continue;` **before** `writes.push`. A blocked path never enters `plan.writes`, `apply()` never sees it, and `appliedTargetHealth.writeFailed` is `[...result.writeFailed]` from that apply. **UPHELD**                                                                                                                             |
+| `106/119` came from `appliedTargetHealth`, not `plannedTargetHealth`     | `plannedTargetHealth` has exactly two callers, both `IHarnessTarget.verify` (`claude-target.ts:432`, `workspace-target.ts:303`). In `reconcileTarget`, `verify()` is reachable only from the `mode === 'preflight'` no-drift branch. Both captured passes are `mode: 'full'`, so every detected target returns through `appliedTargetHealth` — including the `isNoOp` branch, which calls it with an empty result. **UPHELD** |
+
+Also re-derived: `blocked = foreign.filter(relPath => desiredRel.has(relPath))` (`claude-target.ts:277`),
+derived from `foreign` after the adoption filter, so "blocked is a subset of foreign" holds
+structurally. `foreign: 19` = 13 blocked + 6 undesired legacy dirs closes independently.
+
+**No remedy was implemented for the classification, and that is correct.** Excluding `blocked`
+from `missing` is the documented non-converging regression (`harness doctor --fix` says "in sync",
+`harness doctor` over the same tree says "23 missing", neither converging). See the follow-ups
+block below for what SHOULD happen instead.
+
+`research-report.md` §F has been corrected in place, marked as corrected, with the original
+assertion struck rather than deleted.
+
+### Task 5.1: Root-cause the 13 missing files (DIAGNOSIS — report before fixing) ✅ COMPLETE (diagnosis only, no code)
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
 **Spec Reference**: `research-report.md` §F
@@ -970,7 +1056,7 @@ unknown is why 13 manifest-expected files are produced by neither source on eith
 
 ---
 
-### Task 5.2: The Electron summary reports a per-target slice as if it were the whole ⏸️ PENDING
+### Task 5.2: The Electron summary reports a per-target slice as if it were the whole ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\activation\plugin-activation.ts`
 **Dependencies**: none (independent of 5.1)
@@ -1001,7 +1087,7 @@ unknown is why 13 manifest-expected files are produced by neither source on eith
 
 ---
 
-### Task 5.3: Make the reconciler's own summary state its scope ⏸️ PENDING
+### Task 5.3: Make the reconciler's own summary state its scope ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
 **Dependencies**: Task 5.2 (same decision, applied on the other side)
@@ -1027,11 +1113,140 @@ unknown is why 13 manifest-expected files are produced by neither source on eith
 
 **Batch 5 Acceptance Criteria**:
 
-- Task 5.1 has produced a written root cause naming the 13 files and why neither pass produces
-  them, plus a proposed remedy — **returned to the orchestrator before implementation**.
-- The Electron line and the reconciler warn are reconcilable by a reader without reading source.
-- No host reports `0/0` as a healthy pass.
-- Counters themselves unchanged, so a re-run is comparable against `tmp/logs/log.log`.
+- ✅ Task 5.1 has produced a written root cause naming the 13 files and why neither pass produces
+  them, plus a proposed remedy — **returned to the orchestrator before implementation**. The
+  premise was overturned rather than confirmed; see the block above.
+- ✅ The Electron line and the reconciler warn are reconcilable by a reader without reading source.
+  Both now print `found=106/119` for the same scope, and the Electron line labels the claude slice.
+- ✅ No host reports `0/0` as a healthy pass — `formatClaudeSlice` splits `not-registered`,
+  `undetected` and a genuine `0/0`.
+- ✅ Counters themselves unchanged. `totals` is the same reduce over the same fields; only
+  `scope`, `targetCount` and `perTarget` were added to `detail`. A re-run stays directly
+  comparable to `tmp/logs/log.log`.
+- ⏳ **PENDING MANUAL VERIFICATION** — the two lines observed agreeing in a real boot log. Both
+  were hand-evaluated against the captured health object; neither was seen in a live run.
+
+**Batch 5 verification (team-leader, MODE 2)**:
+
+- `nx run-many -t lint -p task-specs,persistence-sqlite,harness-sync` PASS — harness-sync clean.
+- `nx run-many -t build -p ptah-electron,ptah-extension-vscode` PASS.
+- Tests (orchestrator): `harness-sync` 233, **unchanged** — consistent with 0 new cases and 0
+  edited assertions.
+- **No existing spec assertion edited**, in either unit. `git diff --stat` for Batch 5 lists only
+  the two source files; no spec file is touched at all.
+- **`harness-sync` gained no dependency and is still a leaf.** `git diff` on the reconciler shows
+  no import line added — only the `detail` object changed. `libs/backend/harness-sync/package.json`
+  is unmodified. Internal deps remain `@ptah-extension/shared` + `@ptah-extension/vscode-core`.
+- **Warn gate at `:649` unchanged** — still `if (totals.writeFailed > 0 || totals.missing > 0)`.
+  `this.log(health)` has exactly one call site (`:366`, inside `reconcile`), so no `verify()`
+  result ever reaches it.
+
+**5.2's two structural claims — both confirmed:**
+
+1. **The shared formatter genuinely prevents drift.** `reconcileHarness` and `propagateHarness`
+   now each contain a single `console.log(formatHarnessLine(...))`; there is one formatter and one
+   `formatClaudeSlice`, so the two sites cannot disagree with each other again. `propagate`'s
+   `HarnessHealth | null` is handled in the formatter as `no health report produced` rather than
+   being run through the summarizer, which would have printed `sources=sources-missing` — a fact
+   not in evidence.
+2. **The aggregate equals the reconciler's `totals`.** `summarizeHarnessHealth` sums only
+   `detected` targets while `log()`'s reduce sums all of them. They agree because every undetected
+   target on the reconcile path comes from `undetectedTargetHealth`, which zeroes
+   `expected`/`found`/`missing`/`foreign`/`removed`/`writeFailed` (`harness-health.ts:33-45`).
+   `reconcileTarget` early-returns it before any plan is built. Agreement is structural on this
+   path, as claimed. **One caveat recorded, not a defect**: `plannedTargetHealth` takes `detected`
+   as a parameter and `WorkspaceHarnessTarget.verify` passes a real `detect()` result, so in
+   general a `verify()` report CAN carry an undetected target with non-zero counts, and there the
+   two sums would differ. That report never reaches `log()` and never reaches `formatHarnessLine`,
+   so it cannot produce the disagreement this task fixed — but "agree by construction" is true of
+   the reconcile path specifically, not of `HarnessHealth` universally.
+
+**`?? 0` split into three states — no state unreachable or mislabelled, with one honest caveat:**
+
+| State                            | Renders          | Reachable?                                                                                                                                                      |
+| -------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no claude target in `targets`    | `not-registered` | **Yes** — `reconcile({ targets: [...] })` narrows `selected` via `selectTargets`, so a scoped repair omits claude entirely                                      |
+| registered but `detected: false` | `undetected`     | **Not on this path today.** `ClaudeTarget.detect()` is unconditionally `true` (Claude Code reads `{ws}/.claude` in any workspace). Defensive, correct, and free |
+| detected, nothing desired        | `0/0`            | **Yes** — the original requirement                                                                                                                              |
+
+The middle row is dead-but-harmless rather than mislabelled: the label is accurate for the state
+it names, and it becomes live the day `ClaudeTarget` grows a real `detect()`. The report's claim
+that it is "a real environment fact the old spelling also hid" slightly overstates it for the
+claude target specifically. Recorded, not held against the change.
+
+**0 new spec cases — accepted for 5.3, thin for 5.2. Ruling: correct enough to ship.**
+
+- **5.3: agreed, and the reasoning is right.** The 10 reconciler specs that stub `logger.warn`
+  (`concurrency`, `foreign-edits`, `idempotency-removal`, `migration`, `overlay-and-disabled`,
+  `preflight`, `remove`, `sources-health`, `workspace-isolation`, `write-failure`) all discard the
+  payload. Pinning the key set of a diagnostic log object is a change-detector test over a string
+  nothing consumes. Padding the count here would have been worse than not padding it.
+- **5.2: the weaker half.** `formatClaudeSlice` is a pure three-branch function with no
+  dependencies — it is not a change-detector risk, and the `0/0` state it exists to split was an
+  explicit Batch 5 acceptance criterion AND a named edge case in this plan's Edge Cases list. One
+  spec over three inputs would have pinned it for ~15 lines. It is currently module-private, so
+  pinning it needs an export. **Not blocking**: the behaviour was read and verified branch by
+  branch at review, the function has no state and no I/O, and the honesty of declining to pad
+  elsewhere is worth more than a forced case here. Recorded as follow-up **R4**.
+
+---
+
+## Follow-ups recorded from Batch 5 — NOT scheduled in this task
+
+None of these blocks the commit. All are recorded so the diagnosis is not paid for twice.
+
+**R1 — log the blocked set as a distinct, user-actionable message. Risk: LOW. Value: HIGH.**
+The primary recommendation and the one that actually cost the diagnosis its time. When `missing`
+is non-empty, `writeFailed` is empty, and every missing entry is also in `blocked`, the current
+warn says "gaps" for a state Ptah is _correctly_ maintaining, with no path to the fix. Split the
+log: a distinct message naming the blocked paths plus the one-line user action ("move or delete
+these, then re-run `ptah harness doctor --fix`"). Keep `summarizeHarnessHealth` at `degraded` —
+the harness genuinely is incomplete — but stop spelling a refusal as a gap of unknown cause.
+
+**R2 — bounded legacy-skill adoption migration. Risk: MEDIUM. NEEDS A PRODUCT DECISION.**
+**Its own task, with its own review. Explicitly NOT scheduled here.** Legacy skill copies are
+unadoptable only because `.claude/skills` never got a `.ptah-managed.json` sidecar — an accident
+of the deleted `SkillJunctionService` implementation, not a safety property. A bounded one-shot
+migration could adopt an unowned `.claude/skills/<slug>` when the slug is in the desired state
+**and** a legacy `.claude/commands/.ptah-managed.json` proves the legacy pipeline ran in this
+workspace. **This can overwrite a skill a user genuinely authored by hand at a colliding slug.**
+That is a product call about whose content wins, not an engineering detail, and it must not be
+folded into a logging fix.
+
+**R3 — name the blocked paths in the boot line. Risk: LOW.**
+`ptah harness doctor` already lists the paths; the Electron and VS Code boot lines print counts
+only. Task 5.3's `perTarget` narrows the gap to "which target"; naming the first few paths would
+close it to "which file".
+
+**R4 — pin `formatClaudeSlice`'s three branches with one spec. Risk: NONE.**
+See the 5.2 ruling above. Export the function and assert `not-registered` / `undetected` / `0/0`.
+
+**VS Code host carries the identical 5.2 defect — and now disagrees with everything.**
+`apps/ptah-extension-vscode/src/activation/plugin-activation.ts:286-294` does the same
+`health.targets.find(t => t.target === 'claude')` and logs `expected`/`found`/`foreign`/
+`writeFailed` with `?? 0` under the same bare field names the reconciler uses for all-target sums.
+Outside Batch 5's assigned files, correctly reported rather than silently fixed. **It is now
+strictly worse than before this batch**: the VS Code line disagrees with the Electron line AND
+with the reconciler warn, where previously the two hosts at least agreed with each other. Fixing
+it is mechanical — the shared formatter already exists in the Electron host and the obvious move
+is to lift `formatHarnessLine`/`formatClaudeSlice` somewhere both hosts can import. One
+correction to the batch report: `:337` (`propagateHarness`) logs only `reason` and `sources` — it
+has no claude slice and no `?? 0`, so it is an information gap, not the same defect. The defect
+is at `:286-294` only.
+
+**Explicitly NOT recommended: excluding `blocked` from `missing`.**
+This is the documented non-converging regression — `harness doctor --fix` reporting "in sync" and
+exiting 0 while `harness doctor` over the identical untouched tree reports "23 missing" and exits
+1, forever. `missing` must stay "desired but not owned on disk, regardless of why", and `blocked`
+must stay reported as both `foreign` and `missing`. Recorded here so a future reader who finds the
+`missing: 13` line confusing does not reach for the obvious fix.
+
+**Unrelated observation, pre-existing, not actioned.**
+`libs/backend/harness-sync/src/lib/targets/workspace-target.ts` contains two literal NUL bytes
+(offsets 33696 and 33733) — deliberate sentinels written as raw `\0` characters rather than the
+`'\0'` escape, inside `transformer.relPathFor('\0')`. Harmless at runtime, but it makes `grep`
+classify the file as binary and skip it, which is a real cost during exactly this kind of
+investigation. Unmodified from `HEAD`, outside both units' scope.
 
 **What the reviewer should check**:
 
