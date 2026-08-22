@@ -15,7 +15,7 @@ Home/dashboard surface for Ptah. The dashboard grid renders the session analytic
 
 From `src/index.ts`:
 
-- Components: `DashboardGridComponent`, `AnalyticsCardComponent`.
+- Components: `DashboardGridComponent`, `AnalyticsCardComponent`, `BuildersCardComponent`, `HarnessCardComponent`.
 - Services: `ThothStatusService`, `SessionAnalyticsStateService`.
 - Functions: `deriveThothPillars(summary)` — pure summary → per-pillar display tiles (consumed by the `thoth-shell` sidebar).
 - Types: `ThothStatusSummary`, `ThothMemorySummary`, `ThothSkillsSummary`, `ThothCronSummary`, `ThothGatewaySummary`, `ThothGatewayPlatformSummary`, `ThothGatewayBadge`, `ThothPillarStatus`, `DashboardSessionEntry`, `AggregateTotals`.
@@ -23,6 +23,7 @@ From `src/index.ts`:
 ## Internal Structure
 
 - `src/lib/components/dashboard-grid/` — top-level page layout
+- `src/lib/components/harness-card/` — blocked harness paths, hidden unless blocked
 - `src/lib/components/analytics-card/` — session analytics card
 - `src/lib/components/session-analytics/` — detail view sub-components
 - `src/lib/services/` — `thoth-status.service.ts`, `session-analytics-state.service.ts`
@@ -30,7 +31,8 @@ From `src/index.ts`:
 
 ## Key Files
 
-- `src/lib/components/dashboard-grid/dashboard-grid.component.ts` — page chrome; navigates back to chat via `AppStateManager.setCurrentView('chat')`. Hosts only `<ptah-analytics-card />`.
+- `src/lib/components/dashboard-grid/dashboard-grid.component.ts` — page chrome; navigates back to chat via `AppStateManager.setCurrentView('chat')`. Hosts `<ptah-harness-card />`, `<ptah-analytics-card />` and `<ptah-builders-card />`.
+- `src/lib/components/harness-card/harness-card.component.ts` — the boot-visible half of the harness blocked-paths disclosure. Renders nothing unless `missing ∩ foreign` is non-empty. Reuses `HarnessBlockedPathsComponent` + `harnessBlockedPaths` from `@ptah-extension/marketplace/harness` (the NARROW barrel — the wide one is dynamic-import-only and costs ~14.5 kB of initial transfer here) and reads `HarnessHealthStore` from `@ptah-extension/marketplace/services`. Disclosure only: no button, no consent, no write.
 - `src/lib/services/thoth-status.service.ts:1` — aggregates state from `MemoryRpcService`, `SkillSynthesisRpcService`, `CronRpcService`, `GatewayRpcService` to compute pillar summaries with `available: false` fallbacks (`'desktop-only' | 'error'`). Exposes `pillars` (computed display tiles) and the pure `deriveThothPillars(summary)` it delegates to.
 - `src/lib/services/session-analytics-state.service.ts` — signal state for session aggregate totals.
 

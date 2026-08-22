@@ -1,5 +1,7 @@
+import { blockedTargetPaths } from '@ptah-extension/shared';
 import type {
   HarnessFacet,
+  HarnessHealth,
   HarnessHealthLevel,
   HarnessTargetHealth,
   HarnessTargetId,
@@ -105,4 +107,68 @@ export function harnessTargetNeedsAttention(
     target.writeFailed.length > 0 ||
     target.overwrittenLocalEdit.length > 0
   );
+}
+
+/** One target's blocked paths, ready to render. */
+export interface HarnessBlockedGroup {
+  target: HarnessTargetId;
+  /** Display name, so the template never re-derives it. */
+  label: string;
+  paths: readonly string[];
+}
+
+/** Flattened blocked set across a whole report. */
+export interface HarnessBlockedDisclosure {
+  /** Total blocked paths across every detected target. */
+  count: number;
+  /** Non-empty groups only, in the order the backend reported its targets. */
+  groups: readonly HarnessBlockedGroup[];
+}
+
+const NO_BLOCKED: HarnessBlockedDisclosure = { count: 0, groups: [] };
+
+/**
+ * Group the blocked set for the panel — flattening only, no set logic.
+ *
+ * The intersection itself comes from {@link blockedTargetPaths} in
+ * `@ptah-extension/shared`, which is the same function the reconciler's
+ * blocked-path WARN is built from. It is imported rather than reimplemented
+ * on purpose: a frontend lib cannot import `harness-sync`, so writing
+ * `missing.filter(p => foreign.includes(p))` here would put a second producer
+ * of one set on the other side of the wire, free to drift from the log the
+ * user is comparing this card against. Everything below is presentation —
+ * which groups exist, what they are called, how many there are.
+ *
+ * UNDETECTED TARGETS ARE EXCLUDED, matching `summarizeHarnessHealth`. That
+ * reducer drops them from `missing` because an uninstalled Codex is not a gap
+ * (E17), so counting their blocked paths here would let the disclosure claim a
+ * larger shortfall than the badge above it reports — the one arithmetic the
+ * user is guaranteed to check.
+ */
+export function harnessBlockedPaths(
+  health: HarnessHealth | null,
+): HarnessBlockedDisclosure {
+  if (health === null) {
+    return NO_BLOCKED;
+  }
+
+  const groups: HarnessBlockedGroup[] = [];
+  let count = 0;
+  for (const target of health.targets) {
+    if (!target.detected) {
+      continue;
+    }
+    const paths = blockedTargetPaths(target);
+    if (paths.length === 0) {
+      continue;
+    }
+    count += paths.length;
+    groups.push({
+      target: target.target,
+      label: harnessTargetLabel(target.target),
+      paths,
+    });
+  }
+
+  return count === 0 ? NO_BLOCKED : { count, groups };
 }
