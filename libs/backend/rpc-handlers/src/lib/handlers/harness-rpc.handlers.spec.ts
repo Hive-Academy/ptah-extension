@@ -72,9 +72,14 @@ type Mocked<T> = jest.Mocked<T>;
 function installedSkills(...ids: string[]): SkillSummary[] {
   return ids.map((id) => ({
     id,
+    descriptorId: `ptah-nx-saas:${id}`,
+    invocationName: id,
     name: id,
     description: id,
     source: 'plugin' as const,
+    provenance: 'bundled' as const,
+    sourceId: 'ptah-nx-saas',
+    invocability: 'invocable' as const,
     isActive: true,
   }));
 }

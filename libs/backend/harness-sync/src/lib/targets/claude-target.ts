@@ -84,17 +84,16 @@ export class ClaudeTarget implements IHarnessTarget {
   readonly id: HarnessTargetId = 'claude';
 
   /**
-   * Agents are `unsupported` here on purpose, and it is not a gap.
-   * `{ws}/.claude/agents` is a SOURCE — the user-layer mirror reads
-   * hand-authored subagents FROM it — so writing generated agents back would
-   * close a source→target→source loop in which every reconcile re-mirrors its
-   * own output. Rival CLIs get agents from the user layer, into their own
-   * directories.
+   * `{ws}/.claude/agents` is source-managed, not unsupported: the user-layer
+   * mirror reads hand-authored subagents FROM it. Ptah therefore never writes
+   * agents there, adds them to its manifest, or reaps them; doing any of those
+   * would close a source→target→source loop. Rival CLIs get generated agents
+   * from the user layer into their own directories.
    */
   readonly facets: HarnessFacetMatrix = {
     skills: 'supported',
     commands: 'supported',
-    agents: 'unsupported',
+    agents: 'source-managed',
     mcp: 'supported',
   };
 

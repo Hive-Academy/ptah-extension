@@ -23,6 +23,8 @@ import {
  *  - `unsupported` — grey, an em dash. The target genuinely cannot carry that
  *    facet (Codex has no project-command directory). Not actionable, and no
  *    number of reconciles would change it.
+ *  - `source-managed` — grey, marked as a source. The target directory is
+ *    editable input, so Ptah deliberately does not write, manifest, or reap it.
  *  - `missing` — red, a count. Ptah should have put files there and they are
  *    not there. Actionable; this is what "Reconcile now" fixes.
  *
@@ -161,15 +163,21 @@ export class HarnessTargetRowComponent {
   protected readonly facets = computed(() => {
     const target = this.target();
     return HARNESS_FACET_ORDER.map((facet) => {
-      const supported = target.facets[facet] === 'supported';
+      const support = target.facets[facet];
+      const supported = support === 'supported';
+      const sourceManaged = support === 'source-managed';
       return {
         id: facet,
-        label: harnessFacetLabel(facet),
+        label: sourceManaged
+          ? `${harnessFacetLabel(facet)} (source)`
+          : harnessFacetLabel(facet),
         supported,
         chipClass: chipClassFor(supported, target.detected),
         title: supported
           ? `${harnessTargetLabel(target.target)} carries ${facet}`
-          : `${harnessTargetLabel(target.target)} cannot carry ${facet} — nothing to install`,
+          : sourceManaged
+            ? `${harnessTargetLabel(target.target)} manages ${facet} as source input — Ptah does not write, manifest, or remove it`
+            : `${harnessTargetLabel(target.target)} cannot carry ${facet} — nothing to install`,
       };
     });
   });

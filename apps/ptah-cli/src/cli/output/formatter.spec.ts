@@ -245,6 +245,40 @@ describe('HumanFormatter', () => {
     // eslint-disable-next-line no-control-regex
     expect(text).not.toMatch(/\x1b\[/);
   });
+
+  it('renders a source-managed harness facet as source rather than n/a', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('harness.doctor', {
+      health: {
+        sources: 'ok',
+        collisions: [],
+        targets: [
+          {
+            target: 'claude',
+            detected: true,
+            facets: {
+              skills: 'supported',
+              commands: 'supported',
+              agents: 'source-managed',
+              mcp: 'supported',
+            },
+            expected: 0,
+            found: 0,
+            missing: [],
+            foreign: [],
+            writeFailed: [],
+            overwrittenLocalEdit: [],
+          },
+        ],
+      },
+      summary: { level: 'ok', label: 'Harness in sync across 1 target' },
+    });
+    const text = await cap.read();
+
+    expect(text).toContain('agents');
+    expect(text).toMatch(/claude\s+yes\s+yes\s+yes\s+source\s+yes/);
+  });
 });
 
 describe('shouldUseColor', () => {

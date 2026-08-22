@@ -67,7 +67,8 @@
           "@slack/bolt",
           "ffmpeg-static",
           "nodejs-whisper",
-          "bottleneck"
+          "bottleneck",
+          "typescript"
         ],
         "assets": [
           {

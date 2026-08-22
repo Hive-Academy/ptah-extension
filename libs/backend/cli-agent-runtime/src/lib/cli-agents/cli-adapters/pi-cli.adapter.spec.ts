@@ -325,7 +325,7 @@ describe('PiCliAdapter (RPC mode)', () => {
       const requests = writtenRequests(currentChild!);
       expect(requests[0]).toEqual({
         type: 'prompt',
-        message: 'Do the thing',
+        message: expect.stringContaining('Do the thing'),
         id: 'p1',
       });
       expect(requests[1]).toEqual({ type: 'get_state', id: 's0' });

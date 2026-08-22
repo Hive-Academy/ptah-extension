@@ -42,11 +42,14 @@ const AUTH_ENV = {
 
 function buildService(
   fields: { outputStyleName?: string; outputStyleBody?: string } | 'absent',
+  mcpPort: number | null = null,
 ): {
   service: PtahCliSpawnOptions;
   resolveSessionFields: jest.Mock;
+  getMcpPort: jest.Mock;
 } {
   const resolveSessionFields = jest.fn().mockResolvedValue(fields);
+  const getMcpPort = jest.fn(() => mcpPort);
   const activation =
     fields === 'absent'
       ? undefined
@@ -62,11 +65,11 @@ function buildService(
     {
       getProjectGuidanceContent: jest.fn().mockResolvedValue(undefined),
     } as never,
-    undefined,
+    { getPort: getMcpPort },
     activation,
   );
 
-  return { service, resolveSessionFields };
+  return { service, resolveSessionFields, getMcpPort };
 }
 
 describe('PtahCliSpawnOptions — output style', () => {
@@ -114,5 +117,19 @@ describe('PtahCliSpawnOptions — output style', () => {
     const assembly = await service.assembleSpawnOptions(AUTH_ENV, '/repo');
 
     expect(assembly.outputStyleName).toBeUndefined();
+  });
+
+  it('uses the actual MCP status port in the spawned server URL', async () => {
+    const { service, getMcpPort } = buildService({}, 51821);
+
+    const assembly = await service.assembleSpawnOptions(AUTH_ENV, '/repo');
+
+    expect(getMcpPort).toHaveBeenCalledTimes(1);
+    expect(assembly.mcpServers).toEqual({
+      ptah: {
+        type: 'http',
+        url: 'http://localhost:51821',
+      },
+    });
   });
 });

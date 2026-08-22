@@ -27,10 +27,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  PluginInfo,
-  PluginConfigState,
-  PluginSkillEntry,
+import {
+  buildSkillDescriptorId,
+  type PluginInfo,
+  type PluginConfigState,
+  type PluginSkillEntry,
+  type PluginSource,
 } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
@@ -856,9 +858,11 @@ export class PluginLoaderService {
    */
   discoverSkillsForPlugins(pluginPaths: string[]): PluginSkillEntry[] {
     const skills: PluginSkillEntry[] = [];
+    const disabledSkillIds = new Set(this.getDisabledSkillIds());
 
     for (const pluginPath of pluginPaths) {
-      const pluginId = path.basename(pluginPath);
+      const pluginId = this.pluginIdForPath(pluginPath);
+      const source = this.pluginSourceForPath(pluginPath, pluginId);
       const skillsDir = path.join(pluginPath, 'skills');
 
       let entries: string[];
@@ -900,14 +904,58 @@ export class PluginLoaderService {
 
         skills.push({
           skillId: entry,
+          descriptorId: buildSkillDescriptorId(pluginId, entry),
+          invocationName: entry,
           displayName: name || entry,
           description: description || name || entry,
           pluginId,
+          sourceId: pluginId,
+          source,
+          invocability: disabledSkillIds.has(entry)
+            ? 'not-invocable'
+            : 'invocable',
         });
       }
     }
 
     return skills;
+  }
+
+  /**
+   * Resolve the stable parent plugin identifier for a discovered path.
+   *
+   * External plugin ids are coordinates rather than directory basenames, so
+   * preserve their canonical `external:owner/repo/plugin` identity.
+   */
+  private pluginIdForPath(pluginPath: string): string {
+    if (!this.pluginsBasePath) return path.basename(pluginPath);
+
+    const externalRoot = path.join(this.pluginsBasePath, 'external');
+    const relative = path.relative(externalRoot, pluginPath);
+    const segments = relative.split(path.sep);
+    if (
+      !relative.startsWith('..') &&
+      !path.isAbsolute(relative) &&
+      segments.length === 3 &&
+      segments.every((segment) => segment.length > 0)
+    ) {
+      return `external:${segments.join('/')}`;
+    }
+
+    return path.basename(pluginPath);
+  }
+
+  /** Derive source semantics from the owned plugin path and canonical id. */
+  private pluginSourceForPath(
+    pluginPath: string,
+    pluginId: string,
+  ): PluginSource {
+    if (isExternalPluginId(pluginId)) return 'external';
+
+    const basename = path.basename(pluginPath);
+    if (basename.startsWith(HARNESS_PLUGIN_PREFIX)) return 'harness';
+    if (basename.startsWith(SKILLS_SH_PLUGIN_PREFIX)) return 'skillssh';
+    return 'bundled';
   }
 
   /**

@@ -33,6 +33,7 @@ jest.mock('which', () => ({
 }));
 
 import {
+  buildTaskPrompt,
   probeCliVersion,
   resolveDirectSpawn,
   withAsarUnpackedTwin,
@@ -54,6 +55,33 @@ function createFakeChild(): FakeChild & EventEmitter {
   child.kill = jest.fn();
   return child;
 }
+
+describe('buildTaskPrompt', () => {
+  const toolPolicy =
+    'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
+
+  it('includes the shared native-agent policy without enhanced guidance', () => {
+    const prompt = buildTaskPrompt({
+      task: 'Implement the requested change.',
+      workingDirectory: 'D:\\workspace',
+    });
+
+    expect(prompt).toBe(`${toolPolicy}\n\nImplement the requested change.`);
+  });
+
+  it('includes the policy exactly once independently of system guidance', () => {
+    const prompt = buildTaskPrompt({
+      task: 'Implement the requested change.',
+      workingDirectory: 'D:\\workspace',
+      systemPrompt: 'Existing system guidance.',
+      projectGuidance: 'Ignored fallback guidance.',
+    });
+
+    expect(prompt).toContain('Existing system guidance.\n\n---\n\n');
+    expect(prompt).not.toContain('Ignored fallback guidance.');
+    expect(prompt.split(toolPolicy)).toHaveLength(2);
+  });
+});
 
 describe('probeCliVersion', () => {
   beforeEach(() => {

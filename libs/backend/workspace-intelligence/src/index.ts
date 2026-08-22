@@ -113,3 +113,4 @@ export {
   registerWorkspaceIntelligenceServices,
   CODE_SYMBOL_INDEXER,
 } from './di';
+export { TypeScriptDiagnosticsProvider } from './diagnostics/type-script-diagnostics-provider';

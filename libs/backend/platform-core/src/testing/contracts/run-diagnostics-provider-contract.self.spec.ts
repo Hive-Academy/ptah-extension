@@ -9,5 +9,8 @@ runDiagnosticsProviderContract('createMockDiagnosticsProvider', () => {
     seed(diagnostics): void {
       provider.__state.setDiagnostics(diagnostics);
     },
+    makeUnavailable(reason: string): void {
+      provider.__state.setUnavailable(reason);
+    },
   };
 });

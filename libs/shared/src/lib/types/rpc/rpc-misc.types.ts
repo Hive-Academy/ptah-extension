@@ -388,14 +388,49 @@ export interface PluginConfigState {
   lastUpdated?: string;
 }
 
-/** Skill metadata for per-skill toggling UI */
+/**
+ * Invocation confidence for a skill descriptor.
+ *
+ * `invocable` means Ptah discovered a local `SKILL.md` directory and therefore
+ * knows the native Skill-tool invocation name. `not-invocable` means that
+ * local descriptor is explicitly disabled in the current workspace. `unknown`
+ * is reserved for directory-search records whose bytes are not local yet.
+ */
+export type SkillInvocability = 'invocable' | 'not-invocable' | 'unknown';
+
+/**
+ * Stable, source-qualified identity for a skill descriptor.
+ *
+ * `skillId` intentionally remains the bare directory slug because it is both
+ * the existing toggle key and the native Skill-tool invocation name. It is not
+ * globally unique across independent plugin sources, so consumers that need a
+ * descriptor identity must use this value instead.
+ */
+export function buildSkillDescriptorId(
+  sourceId: string,
+  invocationName: string,
+): string {
+  return `${sourceId}:${invocationName}`;
+}
+
+/** Skill metadata for per-skill toggling UI and discovery surfaces. */
 export interface PluginSkillEntry {
-  /** Skill directory name (globally unique, used as ID) */
+  /** Existing toggle key: the bare directory slug. */
   skillId: string;
-  /** Human-readable skill name from SKILL.md frontmatter */
+  /** Stable identity qualified by the plugin/source that supplied this skill. */
+  descriptorId: string;
+  /** Native Skill-tool name: always the bare skill directory slug. */
+  invocationName: string;
+  /** Human-readable skill name from SKILL.md frontmatter. */
   displayName: string;
-  /** Skill description from SKILL.md frontmatter */
+  /** Skill description from SKILL.md frontmatter. */
   description: string;
-  /** Parent plugin ID (e.g., "ptah-core") */
+  /** Parent plugin ID (e.g., "ptah-core"); stable within its source. */
   pluginId: string;
+  /** Stable source identifier; local descriptors use their parent plugin ID. */
+  sourceId: string;
+  /** Origin and activation semantics of the parent plugin. */
+  source: PluginSource;
+  /** Whether this descriptor can be invoked through the native Skill tool. */
+  invocability: SkillInvocability;
 }

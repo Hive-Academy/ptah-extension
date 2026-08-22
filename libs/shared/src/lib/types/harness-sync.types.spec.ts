@@ -23,7 +23,7 @@ function target(
     facets: {
       skills: 'supported',
       commands: 'supported',
-      agents: 'unsupported',
+      agents: 'source-managed',
       mcp: 'supported',
     },
     expected: 4,

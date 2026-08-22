@@ -27,6 +27,7 @@ import { createStaticSourceResolver } from '../sources/plugin-config-source-reso
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { HarnessReconcilerService } from './harness-reconciler.service';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { HarnessSourceState } from '../sources/harness-source.port';
 
 interface FakeLogger {
@@ -58,6 +59,11 @@ function writeSkill(skillsRoot: string, slug: string): void {
 function writeCommand(commandsRoot: string, name: string): void {
   mkdirSync(commandsRoot, { recursive: true });
   writeFileSync(join(commandsRoot, `${name}.md`), `command ${name}`, 'utf-8');
+}
+
+function writeAgent(agentsRoot: string, name: string): void {
+  mkdirSync(agentsRoot, { recursive: true });
+  writeFileSync(join(agentsRoot, `${name}.md`), `agent ${name}`, 'utf-8');
 }
 
 function newReconciler(
@@ -132,6 +138,36 @@ describe('HarnessReconcilerService — idempotency and no-deactivate (E1)', () =
     // Byte content, not mtime — mtime granularity makes an mtime comparison
     // flaky on some filesystems even when nothing was written.
     expect(readFileSync(manifestPath, 'utf-8')).toBe(manifestBytesAfterFirst);
+  });
+
+  it('reports Claude agents as source-managed and never writes, manifests, or reaps them', async () => {
+    const sourceState = sourceStateWith(['foo'], ['baz']);
+    const sourceAgent = join(sourcesRoot, 'agents', 'source-agent.md');
+    writeAgent(join(sourcesRoot, 'agents'), 'source-agent');
+    const workspaceAgent = join(ws, '.claude', 'agents', 'workspace-agent.md');
+    mkdirSync(join(ws, '.claude', 'agents'), { recursive: true });
+    writeFileSync(workspaceAgent, 'workspace-authored agent', 'utf-8');
+    new HarnessStateStore().save(ws, { version: 1, agentSyncEnabled: true });
+
+    const health = await newReconciler(sourceState).reconcile(ws, {
+      mode: 'full',
+      reason: 'source-managed agents',
+    });
+
+    const claude = health.targets.find((target) => target.target === 'claude');
+    const manifest = new ManagedManifestStore().load(ws, 'claude');
+    expect(claude?.facets.agents).toBe('source-managed');
+    expect(existsSync(sourceAgent)).toBe(true);
+    expect(readFileSync(workspaceAgent, 'utf-8')).toBe(
+      'workspace-authored agent',
+    );
+    expect(claude?.removed).not.toContain('.claude/agents/workspace-agent.md');
+    expect(Object.keys(manifest.entries)).not.toContain(
+      '.claude/agents/source-agent.md',
+    );
+    expect(Object.keys(manifest.entries)).not.toContain(
+      '.claude/agents/workspace-agent.md',
+    );
   });
 
   it('[E1] a full reconcile is followed by a no-op from a COMPLETELY INDEPENDENT second reconciler instance, leaving every file present and identical', async () => {

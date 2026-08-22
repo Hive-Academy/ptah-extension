@@ -77,6 +77,7 @@
     "reflect-metadata": "^0.2.2",
     "sqlite-vec": "0.1.6",
     "tsyringe": "^4.10.0",
+    "typescript": "^5.9.0",
     "ulid": "^2.3.0",
     "uuid": "^11.1.0",
     "web-tree-sitter": "^0.26.8",

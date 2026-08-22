@@ -219,7 +219,7 @@ describe('OpencodeCliAdapter', () => {
       expect(argsArg.slice(0, 3)).toEqual(['run', '--format', 'json']);
       expect(argsArg).toContain('--auto');
       expect(argsArg[argsArg.indexOf('--dir') + 1]).toBe('/proj');
-      expect(argsArg[argsArg.length - 1]).toBe('Do the thing');
+      expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
     });
 
     it('adds --model when a model is provided', async () => {

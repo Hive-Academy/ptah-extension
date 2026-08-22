@@ -338,10 +338,15 @@ function makeHarnessPluginInfo(id: string, name = id): PluginInfo {
 function makeSkillEntry(skillId: string, pluginId: string): PluginSkillEntry {
   return {
     skillId,
+    descriptorId: `${pluginId}:${skillId}`,
+    invocationName: skillId,
     pluginId,
+    sourceId: pluginId,
+    source: 'bundled',
+    invocability: 'invocable',
     displayName: skillId,
     description: `desc ${skillId}`,
-  } as unknown as PluginSkillEntry;
+  };
 }
 
 // ---------------------------------------------------------------------------

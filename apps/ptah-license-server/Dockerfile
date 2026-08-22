@@ -108,12 +108,6 @@ COPY --from=builder /app/dist/apps/ptah-license-server ./
 COPY --from=builder /app/apps/ptah-license-server/prisma ./prisma/
 COPY --from=builder /app/apps/ptah-license-server/prisma.config.ts ./
 
-# Copy generated Prisma client
-COPY --from=builder /app/apps/ptah-license-server/src/generated-prisma-client ./src/generated-prisma-client/
-
-# Generate Prisma client in production image (ensures engine binaries are correct)
-RUN npx prisma generate --schema=prisma/schema.prisma
-
 # Change ownership to non-root user
 RUN chown -R nestjs:nodejs /app
 

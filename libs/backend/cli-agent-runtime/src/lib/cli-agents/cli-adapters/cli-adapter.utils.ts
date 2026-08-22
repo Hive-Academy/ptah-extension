@@ -229,11 +229,15 @@ export function probeCliVersion(
   });
 }
 
+const NATIVE_AGENT_TOOL_POLICY =
+  'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.';
+
 /**
  * Build a task prompt string from CLI command options.
  * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
  * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
- * Appends file context and task folder instructions to the base task.
+ * Appends the shared native-agent tool policy, file context, and task folder
+ * instructions to the base task.
  *
  * Adapters with native system prompt support (Copilot via systemMessage)
  * should strip both systemPrompt and projectGuidance
@@ -246,7 +250,7 @@ export function buildTaskPrompt(options: CliCommandOptions): string {
     taskPrompt += systemContext + '\n\n---\n\n';
   }
 
-  taskPrompt += options.task;
+  taskPrompt += `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
 
   if (options.files && options.files.length > 0) {
     taskPrompt += `\n\nFocus on these files:\n${options.files

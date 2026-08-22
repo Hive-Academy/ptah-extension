@@ -23,7 +23,10 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
-import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
+import {
+  registerWorkspaceIntelligenceServices,
+  TypeScriptDiagnosticsProvider,
+} from '@ptah-extension/workspace-intelligence';
 import {
   registerSdkServices,
   wireAgentAdapterAliases,
@@ -161,6 +164,18 @@ export function registerPhase2Libraries(
   logger: Logger,
 ): void {
   registerWorkspaceIntelligenceServices(container, logger);
+  // Override the Phase 0 diagnostics stub with the real TypeScript compiler
+  // provider. Must come AFTER workspace-intelligence so IFileSystemProvider is
+  // registered. PtahAPIBuilder resolves DIAGNOSTICS_PROVIDER in Phase 4 (later).
+  const tsDiagsProvider = new TypeScriptDiagnosticsProvider(
+    container.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
+  );
+  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+    useValue: tsDiagsProvider,
+  });
+  logger.info(
+    '[Phase 2] Overrode DIAGNOSTICS_PROVIDER with TypeScriptDiagnosticsProvider',
+  );
   registerAuthProvidersServices(container, logger);
   // MUST precede registerSdkServices: PluginLoaderService injects the external
   // consent store as its allowlist source. Its late `initialize()` runs from

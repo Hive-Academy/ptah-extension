@@ -20,6 +20,7 @@ import {
 import type { SdkHandle } from '../cli-agents/cli-adapters';
 import {
   SDK_TOKENS,
+  HARNESS_PREFLIGHT_TOKEN,
   SdkError,
   SdkModuleLoader,
   SdkMessageTransformer,
@@ -34,6 +35,7 @@ import {
   buildSafeEnv,
   buildFlagSettings,
   type AnthropicProvider,
+  type IHarnessPreflight,
   type ModelTier,
   type Options,
 } from '@ptah-extension/agent-sdk';
@@ -98,6 +100,13 @@ export class PtahCliRegistry {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    /**
+     * A raw Ptah CLI reads its harness from disk at process startup. Keep this
+     * optional so hosts that have not bound harness-sync keep their existing
+     * spawn behavior.
+     */
+    @inject(HARNESS_PREFLIGHT_TOKEN, { isOptional: true })
+    private readonly harnessPreflight: IHarnessPreflight | null = null,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -566,6 +575,7 @@ export class PtahCliRegistry {
       );
     }
     const cwd = options?.workingDirectory || require('os').homedir();
+    await this.runHarnessPreflight(cwd);
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(
       authEnv,
       cwd,
@@ -752,6 +762,26 @@ export class PtahCliRegistry {
         agentIdHolder.value = agentId;
       },
     };
+  }
+
+  /**
+   * Verifies the on-disk harness before a raw Ptah CLI query begins.
+   *
+   * The preflight port promises a bounded, non-throwing operation, but a
+   * defensive boundary is necessary because a rejected implementation must not
+   * prevent an otherwise valid agent spawn.
+   */
+  private async runHarnessPreflight(cwd: string): Promise<void> {
+    if (this.harnessPreflight === null) return;
+    try {
+      await this.harnessPreflight.ensure(cwd);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[PtahCliRegistry] Harness preflight failed (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /**

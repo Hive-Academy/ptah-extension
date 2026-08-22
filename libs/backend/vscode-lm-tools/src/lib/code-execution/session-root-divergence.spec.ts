@@ -31,6 +31,15 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   },
   TreeSitterParserService: class TreeSitterParserServiceStub {},
   AstAnalysisService: class AstAnalysisServiceStub {},
+  DEFAULT_WORKSPACE_EXCLUDES: [
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/.git/**',
+    '**/build/**',
+    '**/.next/**',
+    '**/out/**',
+    '**/coverage/**',
+  ],
 }));
 
 import * as path from 'path';
@@ -142,6 +151,7 @@ describe('MCP surface — session/root divergence (TASK_2026_200 criteria 1-5)',
         workspaceAnalyzer: analyzer as unknown as WorkspaceAnalyzerService,
         contextOrchestration: {} as unknown as ContextOrchestrationService,
         workspaceProvider: provider,
+        fileSystemProvider: mockFileSystemProvider(),
       });
 
       await runWithMcpRequestContext({ callerSessionId: 'tab-1' }, () =>
@@ -173,6 +183,7 @@ describe('MCP surface — session/root divergence (TASK_2026_200 criteria 1-5)',
         workspaceAnalyzer: analyzer as unknown as WorkspaceAnalyzerService,
         contextOrchestration: {} as unknown as ContextOrchestrationService,
         workspaceProvider: provider,
+        fileSystemProvider: mockFileSystemProvider(),
       });
       const astNs = buildAstNamespace({
         treeSitterParser: {} as never,
@@ -234,6 +245,7 @@ describe('MCP surface — session/root divergence (TASK_2026_200 criteria 1-5)',
         workspaceAnalyzer: analyzer as unknown as WorkspaceAnalyzerService,
         contextOrchestration: {} as unknown as ContextOrchestrationService,
         workspaceProvider: provider,
+        fileSystemProvider: mockFileSystemProvider(),
       });
 
       const callFrom = (sessionId: string) =>
@@ -254,21 +266,21 @@ describe('MCP surface — session/root divergence (TASK_2026_200 criteria 1-5)',
   // ---------------------------------------------------------------------
   // Criterion 4 — ptah_search_files scoped to the calling session, R5.
   // ---------------------------------------------------------------------
-  describe('criterion 4 — ptah_search_files (ptah.search.findFiles -> searchFiles) returns the calling session’s root only', () => {
-    it('forwards the session-aware root on the searchFiles request and returns that session’s files', async () => {
-      const orchestration = {
-        searchFiles: jest.fn().mockResolvedValue({
-          results: [{ relativePath: 'b-only.ts' }],
-        }),
+  describe('criterion 4 — ptah_search_files (ptah.search.findFiles -> fileSystemProvider.findFiles) returns the calling session’s root only', () => {
+    it('forwards the session-aware root as cwd to fileSystemProvider.findFiles and returns workspace-relative paths', async () => {
+      const fsProvider = {
+        findFiles: jest
+          .fn()
+          .mockResolvedValue([path.join(SESSION_B_ROOT, 'b-only.ts')]),
       };
       const { provider } = buildSessionAwareProvider(IDE_ROOT, {
         'tab-1': SESSION_B_ROOT,
       });
       const ns = buildSearchNamespace({
         workspaceAnalyzer: {} as unknown as WorkspaceAnalyzerService,
-        contextOrchestration:
-          orchestration as unknown as ContextOrchestrationService,
+        contextOrchestration: {} as unknown as ContextOrchestrationService,
         workspaceProvider: provider,
+        fileSystemProvider: fsProvider as unknown as IFileSystemProvider,
       });
 
       const files = await runWithMcpRequestContext(
@@ -276,47 +288,33 @@ describe('MCP surface — session/root divergence (TASK_2026_200 criteria 1-5)',
         () => ns.findFiles('*.ts'),
       );
 
-      expect(orchestration.searchFiles.mock.calls[0][0].workspaceRoot).toBe(
-        SESSION_B_ROOT,
-      );
+      // The session root (SESSION_B_ROOT) must be passed as cwd, NOT IDE_ROOT.
+      expect(fsProvider.findFiles.mock.calls[0][3]).toBe(SESSION_B_ROOT);
+      // Results are normalized to workspace-relative paths.
       expect(files).toEqual(['b-only.ts']);
     });
 
-    it('never surfaces the other root’s files when the shared index cannot serve the requested root — degrades to empty instead', async () => {
-      // R5 (context.md §7.2 / plan risk R5): `WorkspaceFileIndexService` is
-      // single-active-root by design — two roots cannot be served at the same
-      // instant. `ContextService.assertIndexServes()` throws
-      // `WorkspaceRootMismatchError` when the built root doesn't match the
-      // request rather than returning the other root's files (covered
-      // directly by Batch 2's `context.service.spec.ts`). This test proves
-      // that contract survives to the MCP tool boundary: `findFiles`'s
-      // catch-all degrades to `[]` — it must NEVER let an index-mismatch
-      // error fall through to stale or wrong-root data reaching the caller.
-      const orchestration = {
-        searchFiles: jest
+    it('propagates filesystem errors instead of swallowing to [] (TASK_2026_299)', async () => {
+      const fsProvider = {
+        findFiles: jest
           .fn()
-          .mockRejectedValue(
-            new Error(
-              'WorkspaceRootMismatchError: index is not serving the requested root',
-            ),
-          ),
+          .mockRejectedValue(new Error('filesystem access denied')),
       };
       const { provider } = buildSessionAwareProvider(IDE_ROOT, {
         'tab-1': SESSION_B_ROOT,
       });
       const ns = buildSearchNamespace({
         workspaceAnalyzer: {} as unknown as WorkspaceAnalyzerService,
-        contextOrchestration:
-          orchestration as unknown as ContextOrchestrationService,
+        contextOrchestration: {} as unknown as ContextOrchestrationService,
         workspaceProvider: provider,
+        fileSystemProvider: fsProvider as unknown as IFileSystemProvider,
       });
 
-      const files = await runWithMcpRequestContext(
-        { callerSessionId: 'tab-1' },
-        () => ns.findFiles('*.ts'),
-      );
-
-      expect(files).toEqual([]);
+      await expect(
+        runWithMcpRequestContext({ callerSessionId: 'tab-1' }, () =>
+          ns.findFiles('*.ts'),
+        ),
+      ).rejects.toThrow('filesystem access denied');
     });
   });
 
@@ -340,6 +338,7 @@ describe('MCP surface — session/root divergence (TASK_2026_200 criteria 1-5)',
         workspaceAnalyzer: analyzer as unknown as WorkspaceAnalyzerService,
         contextOrchestration: {} as unknown as ContextOrchestrationService,
         workspaceProvider: provider,
+        fileSystemProvider: mockFileSystemProvider(),
       });
 
       const result = await ns.analyze();

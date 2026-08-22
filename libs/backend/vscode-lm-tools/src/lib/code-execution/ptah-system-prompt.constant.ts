@@ -22,10 +22,10 @@ export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Reference
 Full project analysis: type, frameworks, directory structure, architecture.
 
 ### ptah_search_files { pattern, limit? }
-Find files by glob pattern. Respects .gitignore, workspace-indexed.
+Find files by glob pattern. True filesystem glob — not a fuzzy index. Returns workspace-relative paths.
 
 ### ptah_get_diagnostics { severity? }
-Get TypeScript/JS errors and warnings. severity: "error" | "warning" | "all" (default: "all").
+Get TypeScript/JS errors and warnings. Returns status (available/unavailable), source, and diagnostics. severity: "error" | "warning" | "all" (default: "all").
 
 ### ptah_lsp_references { file, line, col } (VS Code only)
 Find all references to symbol at position. Essential before refactoring.
