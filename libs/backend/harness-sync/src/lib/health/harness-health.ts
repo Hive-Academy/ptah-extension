@@ -118,3 +118,10 @@ export function appliedTargetHealth(
     durationMs,
   };
 }
+
+/**
+ * `blockedTargetPaths` — the `missing ∩ foreign` derivation — deliberately does
+ * NOT live here. It is in `@ptah-extension/shared` beside
+ * `summarizeHarnessHealth`, because the webview health card reads it too and a
+ * frontend lib cannot import this one. Two consumers, one rule, one place.
+ */

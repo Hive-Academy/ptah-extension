@@ -271,7 +271,9 @@ Wiring: `createPluginConfigSourceResolver`, `createStaticSourceResolver`,
 Wire types (`HarnessHealth`, `HarnessTargetHealth`, `HarnessTargetId`,
 `HARNESS_TARGET_IDS`, `HarnessCollision`) live in `@ptah-extension/shared`
 because the `harness:health` RPC and the Marketplace badge cross into the
-webview. So does **`summarizeHarnessHealth()`** — a pure reducer from a report
+webview. So do **`summarizeHarnessHealth()`** and **`blockedTargetPaths()`**
+(the `missing ∩ foreign` derivation — see the blocked-path condition below).
+`summarizeHarnessHealth()` is a pure reducer from a report
 to `{ level: 'ok' | 'degraded' | 'error' | 'unknown', …counts }`. It is in
 `shared` and not here because three consumers must never disagree about what
 "healthy" means: the Marketplace badge, `ptah harness doctor`'s exit code, and
@@ -314,7 +316,8 @@ permanently amber badge nobody can clear.
 - `workspace/workspace-root.ts` — `resolveHarnessWorkspaceRoot` (E14)
 - `health/harness-health.ts` — the ONE plan → `HarnessTargetHealth` reduction,
   in two flavours: `plannedTargetHealth` (no apply happened) and
-  `appliedTargetHealth` (plan + apply result)
+  `appliedTargetHealth` (plan + apply result). The `missing ∩ foreign`
+  derivation is NOT here — see `blockedTargetPaths` below
 - `gitignore/gitignore-writer.ts` — the managed `.gitignore` block (E23)
 - `gitignore/harness-state-store.ts` — `{ws}/.ptah/harness/state.json`, the
   per-workspace memory of decisions the USER made (as opposed to the manifests
@@ -507,6 +510,120 @@ Only a COLLISION is — the user already has a server under a key the desired
 state asks for. `.vscode/mcp.json` holding four servers a user installed by hand
 is an ordinary config file, and listing them opened `ptah harness doctor` with
 four findings nobody could action.
+
+### `missing` with `writeFailed: 0` — the blocked-path condition (TASK_2026_306)
+
+A steady-state pass can report a permanent shortfall and a perfect write record
+at the same time. That is not a contradiction and it is not a bug:
+
+```
+[WARN] [harness-sync] Reconcile finished with gaps: … missing=13, foreign=19, writeFailed=0
+```
+
+`tmp/logs/coldstart-306.log:844`, a real Electron cold start, twice in one boot
+with identical counts — the signature of a CONVERGED state, not a stuck retry.
+
+**`writeFailed: 0` was never evidence that those writes succeeded.** A blocked
+path is filtered out BEFORE `plan.writes` is built: `targets/claude-target.ts:189-194`
+does `scanned.push(relPath); continue;` on a `foreign` outcome, and
+`workspace-target.ts:164-166` and `targets/mcp/mcp-facet-planner.ts:107-108` do
+the same. Nothing was ever enqueued, so the failure counter is structurally
+incapable of ever counting one. The thirteen are REFUSALS — Ptah declining to
+overwrite a file it cannot prove it wrote (E9) — reported as `missing` because
+the artifact genuinely is not installed.
+
+The condition is made legible by a second log line, emitted from
+`HarnessReconcilerService.logBlocked` only when the set is non-empty, naming
+every blocked path, its per-path reason, and the one user action that clears it
+(move or delete the occupant, then re-run `ptah harness doctor --fix`). The
+summary line above it is unchanged, and `summarizeHarnessHealth` still reads
+`degraded` — the harness really is incomplete. Nothing about this closes the
+gap; it stops spelling a refusal as a gap of unknown cause.
+
+**`blocked` is DERIVED, never transmitted, and the derivation lives in
+`@ptah-extension/shared`.** `blockedTargetPaths()` sits in
+`shared/.../harness-sync.types.ts` beside `summarizeHarnessHealth`, for that
+function's exact reason: more than one consumer reads it and they must never
+disagree. This lib's reconcile log is one consumer and the webview health card
+is another, and a frontend lib cannot import a backend lib — so a copy here
+would have forced the card to write a second intersection, which is the whole
+failure mode being avoided. It is `missing ∩ foreign` over the existing payload,
+which is exactly `plan.blocked` because every planner pushes into both lists in
+one step and a desired path is either written or blocked, never both. There is
+no `blocked` wire field and there should not be one: adding it would be a second
+producer of a set the consumers already agree on. Import the function — the
+reconcile log, `ptah harness doctor` and the health card must not each grow
+their own intersection.
+
+**Do NOT "fix" this by excluding `blocked` from `missing`.** That is the
+documented non-converging regression: `harness doctor --fix` reports "in sync"
+and exits 0 while `harness doctor` over the identical untouched tree reports the
+same paths as gaps and exits 1, forever. See the four-term table above.
+
+#### The 13 are of UNKNOWN provenance — `SkillJunctionService` did not write them
+
+The obvious hypothesis is wrong, and it has already cost one investigation. The
+premise "these are Ptah's own orphaned copies, unadoptable only because
+`.claude/skills` never got a `.ptah-managed.json` sidecar" is **false**. Three
+independent facts, each sufficient alone:
+
+1. **`SkillJunctionService` LINKED skills and only COPIED commands.** The one
+   filesystem write for a skill was `createJunction(sourcePath, linkPath)` — no
+   `cp -r`, no fallback branch, no "if the junction fails, copy instead". A real
+   directory is not a possible output of that function.
+   `git e107e6f89^:libs/backend/agent-sdk/src/lib/helpers/skill-junction.service.ts:304-356`
+2. **It refused to touch occupied paths**, logging
+   `Skipping ${skillName}: real directory exists (likely SDK-created)`. The
+   legacy code already suspected non-Ptah provenance and deferred to it.
+   `git e107e6f89^:.../skill-junction.service.ts:336-343`
+3. **Even a surviving junction would not be blocked today.**
+   `targets/claude-target.ts:480-486` migrates one whose target resolves inside a
+   declared source root, and `~/.ptah/plugins` / `~/.ptah/skills` are declared
+   (`sources/plugin-config-source-resolver.ts:55`).
+
+The asymmetry was correct design, not an accident: a link is self-identifying,
+so only the copied COMMANDS needed an out-of-band ownership record. That is why
+the sidecar story explains `.claude/commands` and explains nothing about the 13
+skill directories.
+
+At least three non-Ptah candidates fit and the evidence does not discriminate
+between them: the Claude Code SDK itself; the pre-TASK_2026_288
+`npx skills add --agent claude-code` path, which wrote straight into
+`{ws}/.claude/skills`
+(`libs/backend/rpc-handlers/src/lib/harness/io/harness-skill-install.service.ts:17-25`);
+or the user, by hand. **Nothing shows any of them is Ptah's.**
+
+Consequently **content matching is not a valid ownership proof here** and must
+not be added as one. A content match proves the _skill_ is the same skill, not
+that _Ptah wrote this directory_ — and both non-Ptah install paths produce
+matching content by construction, so the heuristic would be maximally confident
+exactly where it is least entitled to be. Consent is the only ownership proof
+available, which is why the planned repair is gated on it.
+
+Until that repair exists, the honest remedy is the manual one, and the reconcile
+log states it: **move** the occupant aside — not delete it — then re-run
+`ptah harness doctor --fix`. Move is reversible and delete is not, and `--fix`
+writes Ptah's copy into whatever gap the move leaves.
+
+#### Quarantine convention — **PLANNED (Batches 8–9), NOT YET IMPLEMENTED**
+
+**Nothing in this section exists in the code today.** There is no repair
+operation, no quarantine directory, and no consent surface anywhere in this lib;
+a blocked path is reported and otherwise left alone, permanently. This is
+written down now, ahead of the implementation, so Batch 8 has a settled
+convention to build against instead of inventing one — and so a reader does not
+go looking for a `.ptah-quarantine` that no code has ever created.
+
+Decided by the user on 2026-08-22 (TASK_2026_306 / U2–U4). When the repair is
+built it will MOVE the occupant aside and then write the managed copy, never
+overwriting in place, with the move as the undo:
+
+| Rule     | Value                                                                                                                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Location | `.claude/skills/.ptah-quarantine/<name>-<timestamp>` — alongside the target directory, so the move is same-volume. Not `~/.ptah/` (cross-volume move risk on Windows), not the recycle bin (opaque, not scriptable)          |
+| Scanning | **The reconciler must never scan it.** A quarantined directory is neither a source nor a target: it must not appear in the desired state, must not be manifest-owned, must not be reported `foreign`, and must not be reaped |
+| Cleanup  | **Never automatic.** No TTL, no sweep, no "older than N days" job — an expiry policy silently converts a reversible operation into a destructive one on a timer                                                              |
+| Consent  | One dialog, per-path checkboxes, defaulting to none selected. Not one bulk approval (it weakens the per-path ownership claim that is the whole justification), not one prompt per path                                       |
 
 ### Legacy adoption
 
@@ -878,6 +995,8 @@ a patch at the site where it was found.
   bespoke target has to remember. Never return an MCP config path from it.
 - Never re-derive "is the harness healthy". Call `summarizeHarnessHealth` from
   `@ptah-extension/shared`. Three consumers depend on that rule being one rule.
+  Same rule, same place, for **`blockedTargetPaths`** (`missing ∩ foreign`):
+  never write the intersection inline, here or in a webview.
 - **Never let a spec touch the real home directory.** Every facet and rival
   target factory takes a `homeDir` override; pass a temp one. A spec that
   writes to `~/.codex/config.toml` or `~/.claude/skills` corrupts the developer's

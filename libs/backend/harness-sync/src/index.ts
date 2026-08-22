@@ -196,6 +196,9 @@ export {
 } from './lib/sources/plugin-config-source-resolver';
 
 // Health.
+// `blockedTargetPaths` (the `missing ∩ foreign` derivation) is NOT re-exported
+// here — it lives in `@ptah-extension/shared` with `summarizeHarnessHealth`,
+// and a second export path would be a second place to import it from.
 export {
   appliedTargetHealth,
   undetectedTargetHealth,

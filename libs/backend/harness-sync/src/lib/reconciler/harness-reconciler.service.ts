@@ -27,10 +27,11 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import EventEmitter from 'eventemitter3';
-import type {
-  HarnessHealth,
-  HarnessTargetHealth,
-  HarnessTargetId,
+import {
+  blockedTargetPaths,
+  type HarnessHealth,
+  type HarnessTargetHealth,
+  type HarnessTargetId,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
@@ -670,10 +671,101 @@ export class HarnessReconcilerService {
 
     if (totals.writeFailed > 0 || totals.missing > 0) {
       this.logger.warn('[harness-sync] Reconcile finished with gaps', detail);
-      return;
+    } else {
+      this.logger.debug('[harness-sync] Reconcile complete', detail);
     }
-    this.logger.debug('[harness-sync] Reconcile complete', detail);
+
+    // A SECOND line, deliberately. The summary above is unchanged so nothing
+    // that parses it regresses; the shortfall it reports is explained here.
+    this.logBlocked(health);
   }
+
+  /**
+   * The blocked set, as its own line, because `missing` alone cannot say why.
+   *
+   * `missing=13` beside `writeFailed=0` on a real cold start
+   * (`tmp/logs/coldstart-306.log:844`) is the state this exists to explain, and
+   * it is not the contradiction it reads as. A blocked path is filtered out
+   * BEFORE `plan.writes` is built (`targets/claude-target.ts:189-194` does
+   * `scanned.push(relPath); continue;` on a foreign outcome), so the failure
+   * counter is STRUCTURALLY incapable of ever counting one. `writeFailed: 0`
+   * was never evidence that the writes succeeded — those writes were never
+   * attempted, on purpose, because an unowned file occupies the path and Ptah
+   * does not overwrite what it cannot prove it wrote (E9).
+   *
+   * What this line does NOT do: it does not close the gap. The harness really
+   * is incomplete, so `summarizeHarnessHealth` still reads `degraded` and the
+   * badge stays amber. It stops spelling a refusal as a gap of unknown cause.
+   *
+   * Emitted only when the set is non-empty — silence stays silent when correct
+   * — and labelled with the same `scope` the summary carries, so the two lines
+   * cannot be read as one target's numbers beside another's.
+   *
+   * **`full` passes only, and `verify()` never.** Three surfaces could emit
+   * this and only one should:
+   *
+   *   - `full` — activation, workspace change, content download, a plugin
+   *     toggle, `harness:reconcile`, `ptah harness doctor --fix`. Bounded, and
+   *     each one is either once per boot or something the user just asked for.
+   *     This is the surface that logs.
+   *   - `preflight` — every session start, throttled to 60 s per workspace
+   *     root. The blocked set is a permanent steady state, so a session-start
+   *     pass would repeat the identical multi-path object for every one of the
+   *     skill-synthesis drain's nightly one-shot sessions and bury the
+   *     activation line this one exists to accompany. Same rule, and the same
+   *     reasoning, as `maintainGitignore` being `full`-only.
+   *   - `verify()` — never reaches `log()` at all. It is what the health badge
+   *     polls and what `ptah harness doctor` (without `--fix`) calls, and the
+   *     doctor already prints these paths grouped by kind.
+   *
+   * Nothing is lost by the restriction: every host's boot line comes from an
+   * activation `full` pass, and the manual repair path defaults to `full`.
+   */
+  private logBlocked(health: HarnessHealth): void {
+    if (health.mode !== 'full') return;
+
+    const paths = health.targets.flatMap((target) =>
+      blockedTargetPaths(target).map((relPath) => ({
+        target: target.target,
+        relPath,
+        reason: blockedReason(relPath),
+      })),
+    );
+    if (paths.length === 0) return;
+
+    this.logger.warn(
+      '[harness-sync] Blocked: desired paths an unowned file occupies — refused, not failed',
+      {
+        reason: health.reason,
+        mode: health.mode,
+        scope: 'all-targets',
+        targetCount: health.targets.length,
+        blocked: paths.length,
+        note: 'Counted in `missing` because the artifact is not installed, and in `foreign` because Ptah will not touch a file it cannot prove it wrote. A blocked path never enters the write plan, so `writeFailed` can never report one.',
+        // Leads with MOVE, on purpose. Nothing about these paths proves Ptah
+        // wrote them — see the blocked-path condition in this lib's CLAUDE.md —
+        // so telling a user to delete them is telling them to destroy work that
+        // may be their own, and `--fix` then writes Ptah's version over the
+        // gap. Move is reversible; delete is not.
+        action:
+          'Move the occupant aside — the file or directory at each path, or the conflicting key in each config file — then re-run `ptah harness doctor --fix`. Nothing here proves Ptah wrote these, so they may be your own work: keep what you move, and read it before you discard anything.',
+        paths,
+      },
+    );
+  }
+}
+
+/**
+ * Why one blocked path could not be written, in words a user can act on.
+ *
+ * Two shapes, because a blocked MCP entry is not a file at all: it is a server
+ * key inside a config file the user also writes, so telling them to move or
+ * delete a path would name something that does not exist.
+ */
+function blockedReason(relPath: string): string {
+  return isMcpFragmentKey(relPath)
+    ? 'the config file already defines this server key, and Ptah did not write it'
+    : 'occupied by a file or directory Ptah does not own';
 }
 
 function sortKeys(entries: ManagedEntries): ManagedEntries {

@@ -302,6 +302,53 @@ function harnessHealthLabel(
   }
 }
 
+/**
+ * The BLOCKED set for one target: desired paths an unowned file occupies.
+ *
+ * `blocked = missing ∩ foreign`, DERIVED from the payload rather than carried
+ * as a field. Both terms are already computed and already transmitted, so every
+ * consumer can answer "which of these gaps are refusals?" with no contract
+ * change at all — and a new field would be a second producer of a set two sides
+ * already agree on.
+ *
+ * It lives HERE, beside {@link summarizeHarnessHealth}, for that function's
+ * exact reason: more than one consumer reads it and they must never disagree.
+ * The reconciler's blocked-path log line is one; the webview health card's
+ * blocked disclosure is another, and a frontend lib cannot import
+ * `harness-sync`, so a derivation on the backend side would have forced the
+ * card to write a second intersection. One rule, one place.
+ *
+ * The intersection IS the reconciler's `plan.blocked`, structurally, and it
+ * cannot drift from it:
+ *
+ *   - every planner pushes a blocked path into BOTH lists in one step
+ *     (`harness-sync/.../claude-target.ts:277`, `workspace-target.ts:164-166`,
+ *     `mcp/mcp-facet-planner.ts:107-108`), so `blocked ⊆ foreign` holds by
+ *     construction rather than by two lists being kept in step;
+ *   - `missing` is the planned (or failed) writes PLUS `plan.blocked`, and a
+ *     desired path is either written or blocked and never both — so the only
+ *     members of `missing` that can also be `foreign` are the blocked ones.
+ *
+ * Deriving it rather than reading `plan.blocked` is also what makes the same
+ * answer available on the read-only `verify()` path, which never sees a plan.
+ *
+ * Order follows `missing`, which is the order the target planned its desired
+ * entries in. Duplicates are collapsed; nothing else is reordered.
+ */
+export function blockedTargetPaths(target: HarnessTargetHealth): string[] {
+  if (target.missing.length === 0 || target.foreign.length === 0) return [];
+
+  const foreign = new Set(target.foreign);
+  const seen = new Set<string>();
+  const blocked: string[] = [];
+  for (const relPath of target.missing) {
+    if (!foreign.has(relPath) || seen.has(relPath)) continue;
+    seen.add(relPath);
+    blocked.push(relPath);
+  }
+  return blocked;
+}
+
 // ---------------------------------------------------------------------------
 // RPC wire shapes (TASK_2026_278 Batch 4)
 // ---------------------------------------------------------------------------
