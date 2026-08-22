@@ -69,6 +69,16 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
   }
 
   /**
+   * The other DYNAMIC case: the id arrives as a constructor argument
+   * (`'lm-studio'` for {@link LmStudioTranslationProxy}) and is already the
+   * registry id, so the quota gate keys on the string
+   * `ProviderAuthResolver` resolves rather than on the `'LMStudio'` log label.
+   */
+  protected getProviderId(): string {
+    return this.providerId;
+  }
+
+  /**
    * Local providers require no authentication headers.
    * Return minimal headers for OpenAI-compatible API.
    */

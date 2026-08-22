@@ -107,10 +107,13 @@
  *
  * The mapping itself (`applyLaneFailure`):
  *
- *  - `timeout` / `auth-unresolvable` are TRANSPORT — nothing ran, so there is no
- *    verdict. The row goes back to `queued` behind `failure.retryAfterMs`
- *    (30 min for auth, exponential for a timeout) carrying the lane's own
- *    user-facing reason.
+ *  - `timeout` / `auth-unresolvable` / `quota-exhausted` are TRANSPORT — nothing
+ *    ran, so there is no verdict. The row goes back to `queued` behind
+ *    `failure.retryAfterMs` (30 min for auth, the provider's own cooldown for
+ *    quota, exponential for a timeout) carrying the lane's own user-facing
+ *    reason. The membership test is `isTransportLaneFailure`, which lives with
+ *    the union in `lane.types.ts` — see `applyLaneFailure` for why an inline
+ *    list of names was the wrong shape.
  *  - `structured-output-unsupported` / `tool-use-unsupported` are CAPABILITY —
  *    the endpoint answered, we just cannot use the answer. That is `unscored`,
  *    which is what the judge half of the same transition writes onto the
@@ -119,14 +122,18 @@
  * ## The attempt ceiling applies to `timeout` ONLY — the asymmetry is deliberate
  *
  * A timed-out lane is marked terminally failed once `attempt_count >=
- * maxAttempts`. An `auth-unresolvable` lane is NOT: it requeues on its 30-minute
- * backoff forever, with no ceiling and no terminal path.
+ * maxAttempts`. `auth-unresolvable` and `quota-exhausted` are NOT: they requeue
+ * on their backoff forever, with no ceiling and no terminal path.
  *
- * The two failures differ in WHO CAN FIX THEM, and that is what decides it. A
+ * The failures differ in WHO CAN FIX THEM, and that is what decides it. A
  * timeout is a transport fault nobody may ever clear — an endpoint that is gone,
  * a model that cannot answer inside the lane's budget — so retrying it without
  * end is work that never lands. Unresolvable auth is a CONFIGURATION fault the
- * user can fix, and will, the moment they notice the stalled rows.
+ * user can fix, and will, the moment they notice the stalled rows. Quota is
+ * further still from a timeout: it clears on a CLOCK, with nobody doing
+ * anything, so a ceiling would land the terminal mark before the refill and
+ * destroy work that was about to become runnable. Quota is exempt for
+ * `auth-unresolvable`'s reason, only more so.
  *
  * Killing those rows means the fix arrives too late to recover them.
  * `markFailed` is terminal, and a failed row re-opens ONLY through `enqueue`
@@ -153,7 +160,10 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
-import type { SkillLaneFailure } from '../lanes/lane.types';
+import {
+  isTransportLaneFailure,
+  type SkillLaneFailure,
+} from '../lanes/lane.types';
 import {
   maxLaneTimeoutMs,
   readSkillLanes,
@@ -201,9 +211,9 @@ export interface DrainSummary {
   skippedItems: number;
   /**
    * Rows put back to `queued` by a TRANSPORT lane failure (`timeout` /
-   * `auth-unresolvable`). Counted apart from `unscored` because they are the
-   * Q2 stall: nothing ran, no quota was borrowed from the foreground, and the
-   * row is eligible again after its backoff.
+   * `auth-unresolvable` / `quota-exhausted`). Counted apart from `unscored`
+   * because they are the Q2 stall: nothing ran, no quota was borrowed from the
+   * foreground, and the row is eligible again after its backoff.
    */
   stalled: number;
   /** Token-spending items deferred because the budget ran out mid-tick. */
@@ -857,20 +867,25 @@ export class SkillDrainService {
    * Two families, and the split is "did the endpoint answer at all", not "how
    * bad was it":
    *
-   *  - TRANSPORT (`timeout`, `auth-unresolvable`) — nothing ran. `requeue`, so
-   *    the row is `queued` again behind the lane's own `retryAfterMs` with the
-   *    lane's user-facing reason. Never `markUnscored`: `unscored` is the
-   *    JUDGE's verdict ("we ran and we do not know"), and spending it on an
-   *    endpoint that never answered would make one status mean two unrelated
-   *    things on the Activity surface.
+   *  - TRANSPORT (`timeout`, `auth-unresolvable`, `quota-exhausted` — the set
+   *    is `TRANSPORT_LANE_FAILURE_KINDS`, declared with the union it
+   *    partitions) — nothing ran. `requeue`, so the row is `queued` again
+   *    behind the lane's own `retryAfterMs` with the lane's user-facing reason.
+   *    Never `markUnscored`: `unscored` is the JUDGE's verdict ("we ran and we
+   *    do not know"), and spending it on an endpoint that never answered would
+   *    make one status mean two unrelated things on the Activity surface.
+   *    `quota-exhausted` is the newest member and the one most at risk of being
+   *    filed wrong: an exhausted subscription answered 429 and nothing else, so
+   *    there is no verdict to record.
    *  - CAPABILITY (`structured-output-unsupported`, `tool-use-unsupported`) —
    *    the endpoint answered and the answer is unusable. That IS `unscored`,
    *    and it is the same transition the judge writes onto the candidate.
    *
-   * Only `timeout` carries the attempt ceiling. `auth-unresolvable` requeues
-   * unconditionally — see the asymmetry section in this file's header: the row
-   * is waiting on a fix the USER makes, and a terminal mark would land before
-   * the fix does, with no way to bring the work back.
+   * Only `timeout` carries the attempt ceiling. `auth-unresolvable` and
+   * `quota-exhausted` requeue unconditionally — see the asymmetry section in
+   * this file's header: the auth row is waiting on a fix the USER makes and the
+   * quota row on a clock nobody controls, and in both cases a terminal mark
+   * would land before the fix does, with no way to bring the work back.
    *
    * There is deliberately no third branch that retries the work somewhere else.
    * An unresolvable lane STALLS (Q2); falling back to the foreground provider
@@ -883,7 +898,13 @@ export class SkillDrainService {
     failure: SkillLaneFailure,
     summary: DrainSummary,
   ): void {
-    if (failure.kind !== 'timeout' && failure.kind !== 'auth-unresolvable') {
+    // The membership test is `isTransportLaneFailure`, not an inline list of
+    // the transport kinds. This was `kind !== 'timeout' && kind !==
+    // 'auth-unresolvable'`, and a NEW union member falls through that negation
+    // into `markUnscored` with no type error at all — which is exactly how
+    // `quota-exhausted` would have landed a stall that never ran as a judge
+    // verdict. The set lives with the union it partitions.
+    if (!isTransportLaneFailure(failure.kind)) {
       this.queue.markUnscored(row.id, {
         reason: failure.reason,
         notBefore:
@@ -897,11 +918,12 @@ export class SkillDrainService {
     // was incremented by the CAS claim, so the claimed row already carries THIS
     // attempt's number.
     //
-    // Do not widen this condition to `auth-unresolvable` without re-reading the
-    // asymmetry section in this file's header — an auth stall is waiting on a
-    // user's configuration fix, and `markFailed` is terminal for a session that
-    // may never grow again. `skill-drain.failures.spec.ts` asserts the row
-    // survives well past `maxAttempts`, so a re-widening breaks a test rather
+    // Do not widen this condition to `auth-unresolvable` or `quota-exhausted`
+    // without re-reading the asymmetry section in this file's header — an auth
+    // stall is waiting on a user's configuration fix and a quota stall on the
+    // provider's refill clock, and `markFailed` is terminal for a session that
+    // may never grow again. `skill-drain.failures.spec.ts` asserts BOTH rows
+    // survive well past `maxAttempts`, so a re-widening breaks a test rather
     // than quietly discarding work.
     if (failure.kind === 'timeout' && row.attemptCount >= cfg.maxAttempts) {
       this.failTerminally(row, failure, summary);

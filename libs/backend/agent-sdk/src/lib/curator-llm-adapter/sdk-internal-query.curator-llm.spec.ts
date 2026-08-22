@@ -21,6 +21,21 @@ class FakeProviderAuthError extends Error {
   }
 }
 
+/**
+ * The sibling throw the curator must answer DIFFERENTLY. Matched by `name`,
+ * like the real one, because `ProviderQuotaError` lives in `auth-providers`.
+ */
+class FakeProviderQuotaError extends Error {
+  readonly providerId: string;
+  readonly retryAfterMs: number;
+  constructor(providerId: string, retryAfterMs: number, message: string) {
+    super(message);
+    this.name = 'ProviderQuotaError';
+    this.providerId = providerId;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 function makeLogger(): Logger {
   return {
     info: jest.fn(),
@@ -417,6 +432,129 @@ describe('SdkInternalQueryCuratorLlm — curator auth routing', () => {
     await expect(adapter.extract(EXTRACT_TRANSCRIPT)).rejects.toBeInstanceOf(
       CuratorLlmQueryError,
     );
+  });
+});
+
+/**
+ * The quota branch (TASK_2026_306 defect B, decision A2).
+ *
+ * The curator STOPS while its resolved provider is cooling down. It does not
+ * inherit the `ProviderAuthError` fallback, and the reason is not symmetry: an
+ * unpinned curator (`''`) resolves TO the active provider, so "fall back to the
+ * active provider" would mean "immediately retry the one that just said no",
+ * and where a separate curator provider IS pinned the fallback moves an
+ * exhausted provider's work onto the user's foreground quota.
+ *
+ * It also does not THROW. `ICuratorLLM`'s contract grows no failure mode — the
+ * curator degrades to the same empty shape every other unusable-reply path
+ * here already produces.
+ */
+describe('SdkInternalQueryCuratorLlm — the quota gate (A2)', () => {
+  const quotaResolver = () =>
+    makeResolver(async () => {
+      throw new FakeProviderQuotaError(
+        'openai-codex',
+        900_000,
+        'Provider quota exhausted; retrying in about 15 min.',
+      );
+    });
+
+  function makeAdapter(logger: Logger, internalQuery: InternalQueryService) {
+    return new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': '',
+        authMethod: 'apiKey',
+      }),
+      quotaResolver(),
+    );
+  }
+
+  it('runs NO query at all while the provider is cooling down', async () => {
+    // The point of gating before dispatch: the second and later passes cost
+    // zero upstream requests. Falling back would have cost one each.
+    const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
+    const adapter = makeAdapter(makeLogger(), internalQuery);
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('extracts nothing rather than riding the active provider', async () => {
+    // The stubbed query would return a PERFECTLY VALID draft. Getting `[]` back
+    // therefore proves the query never happened, not that the reply was
+    // unparseable — a weaker fixture here would pass either way.
+    const adapter = makeAdapter(
+      makeLogger(),
+      makeInternalQuery({
+        text: '{"memories":[{"kind":"fact","content":"the build uses esbuild"}]}',
+      }),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual([]);
+  });
+
+  it('does not throw — ICuratorLLM grows no new failure mode', async () => {
+    const adapter = makeAdapter(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}' }),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.not.toThrow;
+    await expect(
+      adapter.resolve(
+        [{ content: 'a draft' } as never],
+        [{ id: '1', subject: null, content: 'related' }],
+      ),
+    ).resolves.toEqual([{ content: 'a draft', mergeTargetId: null }]);
+  });
+
+  it('warns with a message about the quota, distinct from the auth fallback line', async () => {
+    const logger = makeLogger();
+    const adapter = makeAdapter(
+      logger,
+      makeInternalQuery({ text: '{"memories":[]}' }),
+    );
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('rate-limited'),
+      expect.objectContaining({ curatorProviderId: '' }),
+    );
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[memory-curator] curator provider auth unavailable; riding active provider',
+      expect.anything(),
+    );
+  });
+
+  it('leaves the ProviderAuthError fallback exactly as it was', async () => {
+    // The documented divergence from lanes stays. Only the quota case is new.
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'claude-sonnet-4-5-20250101',
+        'memory.curatorProvider': 'github-copilot',
+        authMethod: 'apiKey',
+      }),
+      makeResolver(async () => {
+        throw new FakeProviderAuthError('github-copilot', 'not authenticated');
+      }),
+    );
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(internalQuery.execute).toHaveBeenCalledTimes(1);
+    expect(capture.auth).toBeUndefined();
   });
 });
 

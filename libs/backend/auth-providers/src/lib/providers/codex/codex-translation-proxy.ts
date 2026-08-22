@@ -39,6 +39,15 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   }
 
   /**
+   * The registry id, taken from the provider entry rather than re-typed, so the
+   * quota gate keys on the same string `ProviderAuthResolver` resolves. The
+   * config's `name` above is a log label and would key nothing.
+   */
+  protected getProviderId(): string {
+    return CODEX_PROVIDER_ENTRY.id;
+  }
+
+  /**
    * Get the Codex API base URL from the auth service.
    * Returns auth-mode-appropriate endpoint:
    *   API key â†’ https://api.openai.com/v1

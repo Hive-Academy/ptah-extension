@@ -45,6 +45,15 @@ export class SakanaTranslationProxy extends TranslationProxyBase {
   }
 
   /**
+   * The registry id, taken from the provider entry rather than re-typed, so the
+   * quota gate keys on the same string `ProviderAuthResolver` resolves. The
+   * config's `name` above is a log label and would key nothing.
+   */
+  protected getProviderId(): string {
+    return SAKANA_PROVIDER_ENTRY.id;
+  }
+
+  /**
    * Sakana's API endpoint is static — no auth-state-driven overrides.
    */
   protected async getApiEndpoint(): Promise<string> {

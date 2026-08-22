@@ -13,7 +13,11 @@ import {
   LaneRunnerService,
   timeoutBackoffMs,
 } from './lane-runner.service';
-import { LANE_AUTH_RETRY_MS, SKILL_LANE_IDS } from './lane.types';
+import {
+  LANE_AUTH_RETRY_MS,
+  LANE_QUOTA_RETRY_MS,
+  SKILL_LANE_IDS,
+} from './lane.types';
 import type { IInternalQuery } from '../internal-query.interface';
 import {
   assistantText,
@@ -55,6 +59,37 @@ describe('LaneRunnerService — auth-unresolvable stalls (Q2)', () => {
     expect(out.failure.reason).toBe('Lane judge: endpoint unreachable');
     expect(out.failure.retryAfterMs).toBe(LANE_AUTH_RETRY_MS);
     // Q2: it stalls. It does NOT quietly ride the user's active provider.
+    expect(query.execute).not.toHaveBeenCalled();
+  });
+
+  it('forwards a quota failure verbatim and never calls the LLM either', async () => {
+    // The gate's whole value: the second and later rows cost ZERO upstream
+    // requests. A runner that dispatched anyway would re-pay the discovery
+    // cost per row, which is the defect.
+    const query = makeQueryStub([]);
+    const resolver = makeFailingResolverStub({
+      ok: false,
+      failure: {
+        kind: 'quota-exhausted',
+        reason:
+          'Lane judge: Provider quota exhausted; retrying in about 15 min.',
+        retryAfterMs: LANE_QUOTA_RETRY_MS,
+      },
+    });
+    const runner = new LaneRunnerService(
+      makeLogger(),
+      resolver.service,
+      makeBudgetStub().store,
+      query.query,
+    );
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'hi' });
+
+    expect(out.status).toBe('failed');
+    if (out.status !== 'failed') return;
+    expect(out.failure.kind).toBe('quota-exhausted');
+    expect(out.failure.retryAfterMs).toBe(LANE_QUOTA_RETRY_MS);
+    expect(out.failure.reason).not.toMatch(/timed out/i);
     expect(query.execute).not.toHaveBeenCalled();
   });
 
@@ -440,6 +475,40 @@ describe('LaneRunnerService — the queue write on a transport failure', () => {
     ).run({ laneId: 'judge', prompt: 'x' });
 
     expect(queue.requeue).not.toHaveBeenCalled();
+  });
+
+  it('requeues a quota-exhausted row behind the provider cooldown too', async () => {
+    // `quota-exhausted` is TRANSPORT: nothing ran. It earns the same queue
+    // write as the other two, and it must not be `markUnscored`.
+    const queue = makeQueueStub();
+    const before = Date.now();
+
+    const out = await new LaneRunnerService(
+      makeLogger(),
+      makeFailingResolverStub({
+        ok: false,
+        failure: {
+          kind: 'quota-exhausted',
+          reason: 'Lane judge: Provider quota exhausted.',
+          retryAfterMs: LANE_QUOTA_RETRY_MS,
+        },
+      }).service,
+      makeBudgetStub().store,
+      makeQueryStub([]).query,
+      queue.store,
+    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
+
+    expect(out.status).toBe('failed');
+    expect(queue.requeue).toHaveBeenCalledTimes(1);
+    const [id, notBefore, reason] = queue.requeue.mock.calls[0] as [
+      string,
+      number,
+      string,
+    ];
+    expect(id).toBe('row-1');
+    expect(notBefore).toBeGreaterThanOrEqual(before + LANE_QUOTA_RETRY_MS);
+    expect(notBefore).toBeLessThan(before + LANE_AUTH_RETRY_MS);
+    expect(reason).toBe('Lane judge: Provider quota exhausted.');
   });
 
   it('leaves structured-output-unsupported for the drain to map', async () => {

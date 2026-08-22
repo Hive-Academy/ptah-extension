@@ -39,11 +39,12 @@
  * If you ever find yourself needing to "clean up" the env here, the answer is
  * no.
  *
- * ## The four failure modes (plan §3.4)
+ * ## The five failure modes (plan §3.4, plus the quota gate)
  *
  * | kind                            | how it is produced here                                              |
  * | ------------------------------- | -------------------------------------------------------------------- |
  * | `auth-unresolvable`             | forwarded verbatim from the resolver; the run never starts (Q2)      |
+ * | `quota-exhausted`               | likewise: the resolved provider is rate-limited, so nothing is sent  |
  * | `structured-output-unsupported` | the ladder below exhausted BOTH attempts without parseable JSON      |
  * | `tool-use-unsupported`          | reported as a DEGRADATION on a successful run, never as a failure    |
  * | `timeout`                       | our own timer fired; `abort()` + `close()`, backoff by attempt count |
@@ -59,10 +60,12 @@
  * ## The queue write, and the two kinds that earn one
  *
  * `SkillLaneFailure` is DATA — every caller gets it back and may act on it. On
- * top of that, a caller that hands over its `queueItemId` gets the two TRANSPORT
- * failures written straight through to `SkillQueueStore.requeue`: `timeout` and
- * `auth-unresolvable` both mean "nothing ran, try later", and both need the row
- * back at `queued` behind a backoff before the next tick can see it.
+ * top of that, a caller that hands over its `queueItemId` gets the TRANSPORT
+ * failures written straight through to `SkillQueueStore.requeue`: `timeout`,
+ * `auth-unresolvable` and `quota-exhausted` all mean "nothing ran, try later",
+ * and all need the row back at `queued` behind a backoff before the next tick
+ * can see it. Membership is `isTransportLaneFailure`, shared with the drain so
+ * the two seams cannot disagree about which kinds those are.
  *
  * `requeue`, never `markUnscored`: `unscored` is the JUDGE's verdict ("we ran and
  * we do not know"), and spending it on an endpoint that never answered would make
@@ -98,11 +101,12 @@ import type {
 import type { SkillQueueStore } from '../queue/skill-queue.store';
 import type { LaneResolverService } from './lane-resolver.service';
 import { extractJsonObject } from './lane-json';
-import type {
-  ResolvedSkillLane,
-  SkillLaneFailure,
-  SkillLaneFailureKind,
-  SkillLaneId,
+import {
+  isTransportLaneFailure,
+  type ResolvedSkillLane,
+  type SkillLaneFailure,
+  type SkillLaneFailureKind,
+  type SkillLaneId,
 } from './lane.types';
 
 /**
@@ -520,8 +524,7 @@ export class LaneRunnerService {
    * a row and its candidate end up disagreeing.
    */
   private fail(req: LaneRunRequest, failure: SkillLaneFailure): LaneRunResult {
-    const shouldRequeue =
-      failure.kind === 'timeout' || failure.kind === 'auth-unresolvable';
+    const shouldRequeue = isTransportLaneFailure(failure.kind);
     if (req.queueItemId && this.queue && shouldRequeue) {
       // A row this worker no longer holds returns `false` — expected after a
       // reap, and not something to fail the run over.

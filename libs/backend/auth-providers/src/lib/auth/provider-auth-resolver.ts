@@ -25,6 +25,8 @@ import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
 import { CuratorProxyManager } from './curator-proxy-manager';
 import { ProviderAuthError } from './provider-auth.error';
+import { ProviderQuotaError } from './provider-quota.error';
+import type { ProviderQuotaStore } from './provider-quota.store';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
@@ -76,6 +78,15 @@ const CHAT_AUTH_KEYS: ReadonlyArray<keyof AuthEnv> = [
  * caller-specific — the only caller-visible knob is `scope`, which selects
  * WHICH persisted tier mapping is read. Provider behaviour is driven entirely
  * off `resolveStrategy` and the registry entry, never off a caller identity.
+ *
+ * ## Two throws, and they are not the same fault
+ *
+ * `ProviderAuthError` — the provider is configured but unusable (no key, not
+ * signed in, proxy would not start). A USER fixes it.
+ * `ProviderQuotaError` — the provider is fine and its upstream is rate-limiting
+ * it. A CLOCK fixes it, which is why it carries `retryAfterMs`. See
+ * {@link ProviderAuthResolver.assertNotCoolingDown}, which runs before every
+ * other line of `resolve()` for a reason stated there.
  */
 @injectable()
 export class ProviderAuthResolver implements IProviderAuthResolver {
@@ -94,24 +105,42 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     private readonly codexAuth: ICodexAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_AUTH)
     private readonly openRouterAuth: IOpenRouterAuthService,
+    /**
+     * The shared 429 record written by the translation proxies. Registered as
+     * an INSTANCE, so this is the same object they import.
+     */
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_QUOTA_STORE)
+    private readonly quota: ProviderQuotaStore,
   ) {}
 
   /**
    * @param scope defaults to `'mainAgent'` so the pre-existing curator call
    *   site, which passes nothing, reads exactly the mapping it always read.
+   * @throws ProviderQuotaError when the RESOLVED provider is still cooling down
+   *   from a 429. See {@link assertNotCoolingDown} for why that check runs
+   *   before anything else in this method.
    */
   async resolve(
     requestedProviderId: string,
     scope: ProviderTierScope = 'mainAgent',
   ): Promise<OneShotAuthOverride | null> {
-    const providerId = (requestedProviderId ?? '').trim();
-    if (providerId.length === 0) {
+    const requested = (requestedProviderId ?? '').trim();
+    const activeProviderId = this.providerModels.resolveActiveProviderId();
+    // `''` means "inherit", so the provider that would actually be dialled is
+    // the active one. Resolving it HERE, above the two early returns, is the
+    // whole of the fix — see `assertNotCoolingDown`.
+    const providerId = requested || activeProviderId;
+
+    this.assertNotCoolingDown(providerId);
+
+    if (requested.length === 0) {
       return null;
     }
-    if (providerId === this.providerModels.resolveActiveProviderId()) {
+    if (requested === activeProviderId) {
       return null;
     }
 
+    // Past both returns `providerId === requested`, non-empty and not active.
     const provider = getAnthropicProvider(providerId);
     const isDirectAnthropic =
       providerId === ANTHROPIC_DIRECT_PROVIDER_ID || providerId === 'apiKey';
@@ -136,6 +165,44 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
       return this.resolveLocalNative(providerId, scope);
     }
     return this.resolveThirdPartyApiKey(providerId, scope);
+  }
+
+  /**
+   * Refuse to hand out credentials for a provider whose upstream is still
+   * cooling down from a 429.
+   *
+   * ## Why this runs ABOVE the two `return null` branches
+   *
+   * `resolve()` answers `null` — "ride the active provider" — in two cases: the
+   * caller named nothing, and the caller named the provider that is already
+   * active. Both are the COMMON case for background work: every skill-synthesis
+   * lane ships `provider: ''` by default, and in the run that produced this
+   * check the exhausted subscription WAS the active provider. A quota check
+   * placed after those returns is therefore dead code on precisely the path
+   * that needs it — the caller would be told "ride the active provider", ride
+   * it, and burn a full lane timeout against a dead endpoint, once per queued
+   * row.
+   *
+   * So the gate is keyed on the provider that would actually be DIALLED
+   * (`requested || active`), not on the one that was requested. Keying on a
+   * resolved id is what the lane contract permits; naming a provider in a
+   * branch is what it forbids, and there is no provider id in this method.
+   *
+   * Throwing rather than returning `null` is deliberate and matches
+   * `ProviderAuthError`: `null` means "usable, just inherit", and a caller that
+   * inherited here would put background work straight onto the exhausted
+   * foreground quota — the exact defect the gate exists to stop.
+   */
+  private assertNotCoolingDown(providerId: string): void {
+    if (!providerId) return;
+    const retryAfterMs = this.quota.retryAfterMs(providerId);
+    if (retryAfterMs <= 0) return;
+    const minutes = Math.max(1, Math.ceil(retryAfterMs / 60_000));
+    throw new ProviderQuotaError(
+      providerId,
+      retryAfterMs,
+      `Provider quota exhausted; retrying in about ${minutes} min.`,
+    );
   }
 
   private async resolveDirectAnthropic(): Promise<OneShotAuthOverride> {
