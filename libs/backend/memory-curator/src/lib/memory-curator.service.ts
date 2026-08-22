@@ -29,7 +29,7 @@ import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
 import type {
   ICuratorLLM,
-  ExtractedMemoryDraft,
+  CuratorExtraction,
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
@@ -44,7 +44,23 @@ const AUTO_REBUILD_THROTTLE_MS = 30_000;
 const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
 
+/**
+ * Whether the pass reached the model at all — TASK_2026_306 Batch 10 (F1).
+ *
+ * `'ran'` covers every pass that dialled the curator LLM, including one that
+ * found nothing and one whose call failed: in both cases the input was consumed
+ * and the caller may advance its state. `'stalled'` means the provider quota
+ * gate stopped the pass BEFORE dispatch, so the input is untouched and the
+ * caller must leave it exactly where it found it.
+ *
+ * Required, not optional, so every construction site has to answer. The zero
+ * counts on the two arms are identical, which is precisely why the counts
+ * cannot carry this distinction themselves.
+ */
+export type CuratorRunOutcome = 'ran' | 'stalled';
+
 export interface CuratorRunStats {
+  readonly outcome: CuratorRunOutcome;
   readonly extracted: number;
   readonly merged: number;
   readonly created: number;
@@ -314,6 +330,7 @@ export class MemoryCuratorService {
 
     if (transcript === TRANSCRIPT_PLACEHOLDER) {
       const emptyStats: CuratorRunStats = {
+        outcome: 'ran',
         extracted: 0,
         merged: 0,
         created: 0,
@@ -329,14 +346,19 @@ export class MemoryCuratorService {
       return emptyStats;
     }
 
-    let drafts: readonly ExtractedMemoryDraft[];
+    let extraction: CuratorExtraction;
     try {
-      drafts = await this.llm.extract(transcript, input.signal);
+      extraction = await this.llm.extract(transcript, input.signal);
     } catch (error: unknown) {
       return this.recordCuratorError(input.sessionId, error, 'extract');
     }
+    if (extraction.status === 'stalled') {
+      return this.recordCuratorStall(input.sessionId, extraction);
+    }
+    const drafts = extraction.drafts;
     if (drafts.length === 0) {
       const emptyStats: CuratorRunStats = {
+        outcome: 'ran',
         extracted: 0,
         merged: 0,
         created: 0,
@@ -454,6 +476,7 @@ export class MemoryCuratorService {
     }
 
     const stats: CuratorRunStats = {
+      outcome: 'ran',
       extracted: drafts.length,
       merged,
       created,
@@ -476,6 +499,56 @@ export class MemoryCuratorService {
     return stats;
   }
 
+  /**
+   * The provider quota gate stopped this pass before it reached the model.
+   *
+   * Three things this deliberately does NOT do, each of which would re-open F1
+   * through a different route:
+   *
+   *  - it does not touch `lastRunAtMs` / `lastRunStatsCache`. "Last run" means
+   *    the last pass that ran; a stall would otherwise overwrite a real run's
+   *    stats with zeroes and make the diagnostics panel report a clean empty
+   *    pass while nothing had happened.
+   *  - it does not push `curator-run`. That event is the Activity surface's
+   *    record of work performed. `rate-limited` already exists in the event
+   *    union, already renders as a warning, and already means exactly this.
+   *  - it does not persist anything, so the auto-rebuild hook never fires.
+   *
+   * The returned `outcome: 'stalled'` is the whole product of this method. Its
+   * only consumer that matters is `MemoryTriggerService.invokeCurate`, which
+   * uses it to keep the drained `observation_queue` rows unprocessed.
+   */
+  private recordCuratorStall(
+    sessionId: string,
+    extraction: Extract<CuratorExtraction, { status: 'stalled' }>,
+  ): CuratorRunStats {
+    this.pushEvent({
+      kind: 'rate-limited',
+      timestamp: Date.now(),
+      sessionId,
+      stats: {
+        source: 'curator-llm',
+        reason: extraction.reason,
+        providerId: extraction.providerId,
+      },
+    });
+    this.logger.info(
+      '[memory-curator] curation pass stalled before dispatch; input left untouched',
+      {
+        sessionId,
+        reason: extraction.reason,
+        providerId: extraction.providerId,
+      },
+    );
+    return {
+      outcome: 'stalled',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    };
+  }
+
   private recordCuratorError(
     sessionId: string,
     error: unknown,
@@ -487,7 +560,12 @@ export class MemoryCuratorService {
       stage === 'extract'
         ? `memory extraction failed: ${detail}`
         : `memory resolution failed (${extractedCount} extracted): ${detail}`;
+    // `'ran'`, not `'stalled'`: the call was dispatched and failed. Whether a
+    // FAILED pass should also preserve its input is a separate question from
+    // F1 (which is about a pass that never ran) and is deliberately left at its
+    // pre-existing behaviour here.
     const zeroedStats: CuratorRunStats = {
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,

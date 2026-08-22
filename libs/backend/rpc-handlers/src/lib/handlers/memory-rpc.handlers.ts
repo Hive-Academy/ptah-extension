@@ -543,27 +543,48 @@ export class MemoryRpcHandlers {
             sessionId: validated.sessionId,
             workspaceRoot: validated.workspaceRoot,
           });
+          // `outcome` rides both the event and the response — TASK_2026_306
+          // Batch 10, F-1.
+          //
+          // This is the one curate call site a HUMAN drives and waits on. The
+          // four counts are all zero both when the pass ran and learned nothing
+          // and when the provider quota gate stopped it before dispatch, so
+          // reporting counts alone hands the user the exact "ran and found
+          // nothing" reading this batch exists to eliminate — at the surface
+          // where a wrong reading is most expensive, because the user is
+          // standing there deciding whether the feature works.
+          //
+          // `success` stays `true`: the RPC completed and the false branch
+          // below is reserved for a thrown failure. Conflating "the gate
+          // stopped a background pass" with "your request errored" would trade
+          // one ambiguity for another. `stats.outcome` is the discriminator,
+          // and `MemoryRunNowResult.stats` is already
+          // `Record<string, number | string | boolean | null>`, so carrying it
+          // needs no wire-contract change and no frontend change.
+          const runStats = {
+            outcome: stats.outcome,
+            extracted: stats.extracted,
+            merged: stats.merged,
+            created: stats.created,
+            skipped: stats.skipped,
+          };
+          if (stats.outcome === 'stalled') {
+            this.logger.info(
+              '[memory] runNow — pass stalled before dispatch; nothing was consumed',
+              { sessionId: validated.sessionId },
+            );
+          }
           this.curator.pushEvent({
             kind: 'manual-run',
             timestamp: Date.now(),
             sessionId: validated.sessionId,
-            stats: {
-              extracted: stats.extracted,
-              merged: stats.merged,
-              created: stats.created,
-              skipped: stats.skipped,
-            },
+            stats: runStats,
           });
           return {
             success: true,
             startedAt,
             completedAt: Date.now(),
-            stats: {
-              extracted: stats.extracted,
-              merged: stats.merged,
-              created: stats.created,
-              skipped: stats.skipped,
-            },
+            stats: runStats,
           };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);

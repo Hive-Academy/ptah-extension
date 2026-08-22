@@ -3,6 +3,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   type ICuratorLLM,
+  type CuratorExtraction,
   type ExtractedMemoryDraft,
   type ResolvedMemoryDraft,
 } from '@ptah-extension/memory-contracts';
@@ -60,8 +61,11 @@ const CURATOR_PROVIDER_KEY = 'memory.curatorProvider';
  * quota, which is the defect the gate exists to stop.
  *
  * Stopping means returning nothing for this pass, never throwing:
- * `ICuratorLLM`'s contract does not grow a failure mode, and
- * `MemoryCuratorService` sees the same shape it sees for an empty transcript.
+ * `ICuratorLLM`'s contract does not grow a failure mode. It DOES grow a
+ * discriminator — `extract` resolves `{ status: 'stalled' }` rather than an
+ * empty draft list (TASK_2026_306 Batch 10) — because "stopped" and "ran and
+ * found nothing" are the same bytes otherwise, and the caller destroys its own
+ * input when it cannot tell them apart. Still a resolve, still no throw.
  */
 const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
 const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
@@ -79,6 +83,20 @@ const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
 type CuratorAuthDecision =
   | { readonly kind: 'ride-active' }
   | { readonly kind: 'override'; readonly auth: OneShotAuthOverride }
+  | { readonly kind: 'cooling-down'; readonly providerId: string };
+
+/**
+ * What one `runQuery` call produced.
+ *
+ * `runQuery` used to answer `''` for the quota stall, which is the exact point
+ * where the information was lost: `''` is also what a model that replied with
+ * nothing produces, and by the time `parseDrafts` has turned both into `[]` the
+ * distinction is unrecoverable. Carrying it here — the earliest point it
+ * exists — is what lets `extract` publish `status: 'stalled'` without
+ * reconstructing anything.
+ */
+type CuratorQueryOutcome =
+  | { readonly kind: 'text'; readonly text: string }
   | { readonly kind: 'cooling-down'; readonly providerId: string };
 
 /**
@@ -187,15 +205,28 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   async extract(
     transcript: string,
     signal?: AbortSignal,
-  ): Promise<readonly ExtractedMemoryDraft[]> {
-    const text = await this.runQuery(
+  ): Promise<CuratorExtraction> {
+    const outcome = await this.runQuery(
       EXTRACT_SYSTEM_PROMPT,
       buildExtractUserPrompt(transcript),
       signal,
     );
-    return this.parseDrafts(text);
+    if (outcome.kind === 'cooling-down') {
+      return {
+        status: 'stalled',
+        reason: 'provider-cooling-down',
+        providerId: outcome.providerId,
+      };
+    }
+    return { status: 'extracted', drafts: this.parseDrafts(outcome.text) };
   }
 
+  /**
+   * No stalled arm here, deliberately — see the note on `ICuratorLLM.resolve`.
+   * A cooldown that starts between `extract` and `resolve` degrades to "store
+   * the drafts unmerged", which loses no input, so there is nothing for the
+   * caller to decide.
+   */
   async resolve(
     drafts: readonly ExtractedMemoryDraft[],
     related: readonly { id: string; subject: string | null; content: string }[],
@@ -205,19 +236,22 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     if (related.length === 0) {
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
     }
-    const text = await this.runQuery(
+    const outcome = await this.runQuery(
       RESOLVE_SYSTEM_PROMPT,
       buildResolveUserPrompt(drafts, related),
       signal,
     );
-    return this.parseResolved(text, drafts);
+    if (outcome.kind === 'cooling-down') {
+      return drafts.map((d) => ({ ...d, mergeTargetId: null }));
+    }
+    return this.parseResolved(outcome.text, drafts);
   }
 
   private async runQuery(
     systemPromptAppend: string,
     prompt: string,
     signal?: AbortSignal,
-  ): Promise<string> {
+  ): Promise<CuratorQueryOutcome> {
     const abortController = new AbortController();
     if (signal) {
       if (signal.aborted) abortController.abort();
@@ -230,12 +264,15 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       const decision = await this.resolveCuratorAuth();
       if (decision.kind === 'cooling-down') {
         // Stop, before the query rather than after it — the point of the gate
-        // is that the second and later passes cost zero upstream requests. An
-        // empty reply is the shape every other "nothing usable came back" path
-        // already produces here (`parseDrafts` yields `[]`, `parseResolved`
-        // yields the drafts unmerged), so `ICuratorLLM` grows no new failure
-        // mode and `MemoryCuratorService` needs no change.
-        return '';
+        // is that the second and later passes cost zero upstream requests.
+        //
+        // This used to `return ''`, collapsing the stall into the same value a
+        // model that said nothing produces. That collapse is finding F1: the
+        // trigger service marks its drained observations processed on every
+        // resolve, so a stalled pass discarded the episodes it was gated from
+        // curating and they never came back. The named outcome is what the
+        // caller inspects instead.
+        return { kind: 'cooling-down', providerId: decision.providerId };
       }
       const auth = decision.kind === 'override' ? decision.auth : undefined;
       const handle = await this.internalQuery.execute({
@@ -266,7 +303,7 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         }
         if (msg.type === 'result') break;
       }
-      return collected;
+      return { kind: 'text', text: collected };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn('[memory-curator] curator LLM query failed', {

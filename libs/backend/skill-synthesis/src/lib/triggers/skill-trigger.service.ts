@@ -791,11 +791,19 @@ export class SkillTriggerService {
         // instead of behind a 200 ms sleep. `source: 'boot'` rides the row, so
         // the stage handler still reaches `analyzeSession` with the boot
         // source and its template-only, no-LLM behaviour is preserved.
-        run: (sessionId, workspaceRoot, runSignal) =>
-          this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
+        //
+        // Always `'ran'`. Enqueueing is a local INSERT and spends nothing
+        // upstream, so no provider gate can stall it — the `'stalled'` outcome
+        // belongs to the memory pipeline, which dials the curator LLM inline
+        // (TASK_2026_306 Batch 10). Returning it here would stop the scan for
+        // a condition that cannot arise.
+        run: async (sessionId, workspaceRoot, runSignal) => {
+          await this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
             source: 'boot',
             signal: runSignal,
-          }),
+          });
+          return 'ran';
+        },
       });
       this.synthesis.pushEvent({
         kind: 'boot-scan',

@@ -5,10 +5,26 @@ import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite
 
 export type BootScanPipeline = 'memory' | 'skills';
 
+/**
+ * What one scanned session's `run` callback reported.
+ *
+ * `'stalled'` means the callback did no work and consumed no input because a
+ * process-wide gate stopped it — today, the provider quota cooldown. It is NOT
+ * a failure: nothing went wrong, and nothing was spent. The distinction matters
+ * because the watermark is the scan's memory of what it has already handled,
+ * and a session that was never handled must not be recorded as one that was
+ * (TASK_2026_306 Batch 10, F1).
+ *
+ * Required rather than optional so a new pipeline has to answer the question.
+ */
+export type BootScanItemOutcome = 'ran' | 'stalled';
+
 export interface BootScanResult {
   readonly scanned: number;
   readonly succeeded: number;
   readonly skipped: number;
+  /** Items the gate stopped. Non-zero means the scan ended early, on purpose. */
+  readonly stalled: number;
 }
 
 export interface BootScanRunnerOptions {
@@ -22,7 +38,7 @@ export interface BootScanRunnerOptions {
     sessionId: string,
     workspaceRoot: string,
     signal?: AbortSignal,
-  ) => Promise<unknown>;
+  ) => Promise<BootScanItemOutcome>;
   readonly signal?: AbortSignal;
   readonly throttleMs?: number;
 }
@@ -42,7 +58,7 @@ export class BootScanRunner {
         '[memory-curator] boot-scan skipped — sessions directory missing',
         { pipeline: options.pipeline },
       );
-      return { scanned: 0, succeeded: 0, skipped: 0 };
+      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0 };
     }
 
     const watermark = this.readWatermark(
@@ -61,7 +77,7 @@ export class BootScanRunner {
         sessionsDir,
         error: message,
       });
-      return { scanned: 0, succeeded: 0, skipped: 0 };
+      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0 };
     }
 
     const jsonlFiles = entries.filter((e) => e.endsWith('.jsonl'));
@@ -89,6 +105,7 @@ export class BootScanRunner {
 
     let succeeded = 0;
     let skipped = 0;
+    let stalled = 0;
     let maxMtime = watermark;
 
     for (let i = 0; i < eligible.length; i++) {
@@ -102,11 +119,32 @@ export class BootScanRunner {
       }
       const item = eligible[i];
       try {
-        await options.run(
+        const outcome = await options.run(
           item.sessionId,
           options.workspaceRoot,
           options.signal,
         );
+        if (outcome === 'stalled') {
+          // Stop the whole scan, and do not move the watermark past this item.
+          //
+          // Both halves matter. Continuing would run every remaining session
+          // into the same gate — the tight `findSessionsDirectory` → skip loop
+          // at `coldstart-306.log:1232-1260`, 15 passes in a few hundred lines.
+          // And `eligible` is sorted by mtime ascending while the watermark is
+          // the MAX over handled items, so letting a later item succeed past a
+          // stalled one would jump the watermark over the stalled session and
+          // lose it exactly as `markProcessed` did.
+          stalled++;
+          options.logger.info(
+            '[memory-curator] boot-scan stopped early — a gate stalled the pass',
+            {
+              pipeline: options.pipeline,
+              sessionId: item.sessionId,
+              remaining: eligible.length - i,
+            },
+          );
+          break;
+        }
         succeeded++;
         if (item.mtime > maxMtime) maxMtime = item.mtime;
       } catch (err: unknown) {
@@ -133,7 +171,7 @@ export class BootScanRunner {
       );
     }
 
-    return { scanned: eligible.length, succeeded, skipped };
+    return { scanned: eligible.length, succeeded, skipped, stalled };
   }
 
   private readWatermark(

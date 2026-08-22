@@ -66,6 +66,7 @@ export {
 export { BootScanRunner } from './lib/triggers/boot-scan-runner';
 export type {
   BootScanPipeline,
+  BootScanItemOutcome,
   BootScanResult,
   BootScanRunnerOptions,
 } from './lib/triggers/boot-scan-runner';
@@ -79,11 +80,14 @@ export type {
 } from './lib/diagnostics.types';
 export { MemoryCuratorService } from './lib/memory-curator.service';
 export type {
+  CuratorRunOutcome,
   CuratorRunStats,
   MemoryCuratorEventListener,
 } from './lib/memory-curator.service';
 export type {
   ICuratorLLM,
+  CuratorExtraction,
+  CuratorStallReason,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
 } from './lib/curator-llm/curator-llm.interface';

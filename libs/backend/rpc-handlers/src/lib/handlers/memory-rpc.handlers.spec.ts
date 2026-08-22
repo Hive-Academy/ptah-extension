@@ -98,6 +98,7 @@ function makeMemorySearch() {
 function makeMemoryCurator() {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -669,6 +670,7 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
   it('calls curator.curate with sessionId+workspaceRoot and returns wire result', async () => {
     const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
     curator.curate.mockResolvedValue({
+      outcome: 'ran',
       extracted: 4,
       merged: 1,
       created: 3,
@@ -694,6 +696,85 @@ describe('MemoryRpcHandlers — memory:runNow', () => {
         sessionId: 'sess-1',
       }),
     );
+  });
+
+  /**
+   * TASK_2026_306 Batch 10, F-1 — the one curate call site a HUMAN drives.
+   *
+   * Every count is zero both when the pass ran and learned nothing and when
+   * the provider quota gate stopped it before dispatch. Reporting counts alone
+   * hands the user `success: true, extracted: 0` during a cooldown — the exact
+   * "ran and found nothing" reading this batch exists to eliminate, at the
+   * surface where the user is actively waiting on the answer.
+   *
+   * The pair below is the discriminating one: identical counts, opposite
+   * `outcome`. Drop the field from the handler and the first case fails.
+   */
+  describe('the stall discriminator reaches the user-driven surface', () => {
+    it('reports outcome "stalled" on the response AND the manual-run event', async () => {
+      const { rpcHandler, curator, logger } = buildHandlers([
+        '/workspace/project',
+      ]);
+      curator.curate.mockResolvedValue({
+        outcome: 'stalled',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      });
+
+      const result = await rpcHandler.call('memory:runNow', {
+        sessionId: 'sess-cooldown',
+        workspaceRoot: '/workspace/project',
+      });
+
+      expect(result).toMatchObject({
+        // The RPC itself succeeded — `success: false` is reserved for a thrown
+        // failure, and conflating the two would swap one ambiguity for another.
+        success: true,
+        stats: { outcome: 'stalled', extracted: 0 },
+      });
+      expect(curator.pushEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'manual-run',
+          sessionId: 'sess-cooldown',
+          stats: expect.objectContaining({ outcome: 'stalled' }),
+        }),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        '[memory] runNow — pass stalled before dispatch; nothing was consumed',
+        expect.objectContaining({ sessionId: 'sess-cooldown' }),
+      );
+    });
+
+    it('reports outcome "ran" for a pass that dispatched and found nothing', async () => {
+      // Byte-identical counts to the case above. `outcome` is the only thing
+      // that separates them, which is the whole point.
+      const { rpcHandler, curator } = buildHandlers(['/workspace/project']);
+      curator.curate.mockResolvedValue({
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      });
+
+      const result = await rpcHandler.call('memory:runNow', {
+        sessionId: 'sess-empty',
+        workspaceRoot: '/workspace/project',
+      });
+
+      expect(result).toMatchObject({
+        success: true,
+        stats: { outcome: 'ran', extracted: 0 },
+      });
+      expect(curator.pushEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'manual-run',
+          stats: expect.objectContaining({ outcome: 'ran' }),
+        }),
+      );
+    });
   });
 
   it('rejects empty sessionId with INVALID_PARAMS', async () => {

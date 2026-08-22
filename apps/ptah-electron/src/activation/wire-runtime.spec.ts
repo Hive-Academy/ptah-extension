@@ -226,6 +226,7 @@ function buildTestContainer(): DependencyContainer {
       start: jest.fn(),
       stop: jest.fn(),
       curate: jest.fn().mockResolvedValue({
+        outcome: 'ran',
         success: true,
         memoriesUpserted: 0,
         topMemoryIds: [],

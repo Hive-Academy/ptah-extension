@@ -74,7 +74,12 @@ describe('BootScanRunner', () => {
       logger: makeLogger(),
       run: jest.fn(),
     });
-    expect(result).toEqual({ scanned: 0, succeeded: 0, skipped: 0 });
+    expect(result).toEqual({
+      scanned: 0,
+      succeeded: 0,
+      skipped: 0,
+      stalled: 0,
+    });
   });
 
   it('scans ALL JSONL files when watermark is 0', async () => {
@@ -212,6 +217,7 @@ describe('BootScanRunner', () => {
     const controller = new AbortController();
     const run = jest.fn(async () => {
       controller.abort();
+      return 'ran' as const;
     });
     const result = await new BootScanRunner().run({
       pipeline: 'memory',
@@ -248,6 +254,97 @@ describe('BootScanRunner', () => {
       signal: controller.signal,
     });
     expect(run).toHaveBeenCalledWith('s1', '/ws', controller.signal);
+  });
+
+  /**
+   * TASK_2026_306 Batch 10 (F1) — a stalled item is not a scanned item.
+   *
+   * The watermark is the scan's memory of what it has already handled. A pass
+   * the provider quota gate stopped read the session and curated nothing from
+   * it, so recording it would lose it permanently at the next boot's
+   * `mtime > watermark` filter — the second route by which F1 destroys data,
+   * independent of `markProcessed`.
+   */
+  describe('a stalled run (TASK_2026_306 F1)', () => {
+    it('does NOT advance the watermark past the stalled session', async () => {
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 's1.jsonl', mtime: now - 5000 },
+        { name: 's2.jsonl', mtime: now - 1000 },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run: jest.fn().mockResolvedValue('stalled'),
+        throttleMs: 0,
+      });
+      // Nothing ran, so nothing may be remembered as run. `0` is the untouched
+      // watermark: both sessions are still eligible on the next boot.
+      expect(state.value).toBe(0);
+      expect(result.stalled).toBe(1);
+      expect(result.succeeded).toBe(0);
+    });
+
+    it('keeps the watermark at the last session that actually ran', async () => {
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'a.jsonl', mtime: now - 9000 },
+        { name: 'b.jsonl', mtime: now - 6000 },
+        { name: 'c.jsonl', mtime: now - 3000 },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const run = jest
+        .fn()
+        .mockResolvedValueOnce('ran')
+        .mockResolvedValueOnce('stalled')
+        .mockResolvedValueOnce('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run,
+        throttleMs: 0,
+      });
+      // `eligible` is mtime-ascending and the watermark is the MAX over handled
+      // items, so letting `c` run after `b` stalled would jump the watermark
+      // over `b` and lose it. Stopping at the stall is what keeps the watermark
+      // monotonic AND complete.
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(result.succeeded).toBe(1);
+      expect(result.stalled).toBe(1);
+      expect(Math.floor(state.value)).toBeLessThan(now - 6000);
+    });
+
+    it('a run that reports "ran" but extracted nothing still advances the watermark', async () => {
+      // The inverse guard. Without it, "never advance" would satisfy the case
+      // above — and turn every empty session into a permanent re-scan.
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'a.jsonl', mtime: now - 4000 },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run: jest.fn().mockResolvedValue('ran'),
+        throttleMs: 0,
+      });
+      expect(result.succeeded).toBe(1);
+      expect(result.stalled).toBe(0);
+      expect(Math.floor(state.value)).toBeGreaterThanOrEqual(now - 4000 - 1);
+    });
   });
 
   it('logs a warning when the watermark write throws (Moderate-4)', async () => {

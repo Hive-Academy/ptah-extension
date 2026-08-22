@@ -483,10 +483,16 @@ describe('SdkInternalQueryCuratorLlm — the quota gate (A2)', () => {
     expect(internalQuery.execute).not.toHaveBeenCalled();
   });
 
-  it('extracts nothing rather than riding the active provider', async () => {
-    // The stubbed query would return a PERFECTLY VALID draft. Getting `[]` back
-    // therefore proves the query never happened, not that the reply was
-    // unparseable — a weaker fixture here would pass either way.
+  it('reports status "stalled" — NOT an empty extraction (TASK_2026_306 F1)', async () => {
+    // The stubbed query would return a PERFECTLY VALID draft, so a `[]`-shaped
+    // answer proves the query never happened rather than that the reply was
+    // unparseable.
+    //
+    // But `[]` was ALSO the pre-fix answer, and that is the defect: it is what
+    // a pass that ran and found nothing produces, so `MemoryTriggerService`
+    // marked the drained observations processed and discarded them. This
+    // asserts the DISCRIMINATOR, which is the only part that distinguishes the
+    // fixed behaviour from the broken one.
     const adapter = makeAdapter(
       makeLogger(),
       makeInternalQuery({
@@ -494,7 +500,41 @@ describe('SdkInternalQueryCuratorLlm — the quota gate (A2)', () => {
       }),
     );
 
-    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual([]);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-cooling-down',
+      providerId: '',
+    });
+  });
+
+  it('carries no drafts on the stalled arm — the signal does not invent a result', async () => {
+    // The stalled arm has no `drafts` property at all. A stalled pass extracted
+    // nothing and the type says so; there is no empty array for a future caller
+    // to mistake for a real answer.
+    const adapter = makeAdapter(
+      makeLogger(),
+      makeInternalQuery({
+        text: '{"memories":[{"kind":"fact","content":"x"}]}',
+      }),
+    );
+
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result).not.toHaveProperty('drafts');
+  });
+
+  it('a pass that RAN and found nothing reports status "extracted" with an empty list', async () => {
+    // The inverse. Same zero drafts, opposite status — this is the pair the
+    // pre-fix code collapsed into one value.
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      makeInternalQuery({ text: '{"memories":[]}' }),
+      makeWorkspace(''),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
   });
 
   it('does not throw — ICuratorLLM grows no new failure mode', async () => {
@@ -573,23 +613,31 @@ describe('SdkInternalQueryCuratorLlm — error vs empty', () => {
     );
   });
 
-  it('returns [] (does not throw) when model output is empty', async () => {
+  it('returns an EXTRACTED status with no drafts (does not throw) when model output is empty', async () => {
+    // `status: 'extracted'` even though the list is empty: the query ran and
+    // the model said nothing. Only the quota gate produces `'stalled'`.
     const internalQuery = makeInternalQuery({ text: '' });
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
       makeWorkspace(''),
     );
-    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual([]);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
   });
 
-  it('returns [] when model output is non-JSON garbage', async () => {
+  it('returns an EXTRACTED status with no drafts when model output is non-JSON garbage', async () => {
     const internalQuery = makeInternalQuery({ text: 'not json at all' });
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
       makeWorkspace(''),
     );
-    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual([]);
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
   });
 });

@@ -128,6 +128,7 @@ function makeWorkspace(
 function makeCurator(): MemoryCuratorService {
   return {
     curate: jest.fn().mockResolvedValue({
+      outcome: 'ran',
       extracted: 0,
       merged: 0,
       created: 0,
