@@ -738,7 +738,8 @@ session — is closed; the log line is not. Ruling and reasoning:
 
 ---
 
-## Batch 4 (original spec) ✅ COMPLETE
+**Tasks 4.1–4.3 as originally specified — all ✅ COMPLETE and committed in `fd23a1108`.**
+(Task 4.4 above is new, added by this review; it is the only Batch 4 work still open.)
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
