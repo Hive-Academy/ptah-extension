@@ -23,8 +23,9 @@
  *     signal (TASK_2026_306 defect E). Electron and the CLI both register the
  *     SQLite connection in the same DI pass as this helper but `openAndMigrate`
  *     it far later — 464 log lines later in the captured Electron boot — so the
- *     first attempt's `replaceWorkspace` write hits an offline store and is
- *     lost. Subscribing to `onDidOpen` covers that for EVERY host at once,
+ *     first attempt cannot write the index at all (since task 4.4 the store
+ *     reports `isReady() === false` and the write is skipped rather than
+ *     attempted). Subscribing to `onDidOpen` covers that for EVERY host at once,
  *     which re-ordering each host's boot sequence would not: the two affected
  *     hosts open the connection from two different places
  *     (`thoth-runtime/boot-thoth-runtime.ts` vs
@@ -133,9 +134,10 @@ export function startTaskSpecsIndex(
  *
  * `warm()` stays fire-and-forget — this adds a second trigger for it, never an
  * `await` on anyone's boot path. It relies on the recovery latch in
- * `TaskIndexService.ensureStarted` (`task-index.service.ts:181`): the first,
- * too-early attempt un-latches `state.started` when the index write failed, so
- * this second call performs a real rebuild rather than joining a hollow one.
+ * `TaskIndexService.ensureStarted`: the first, too-early attempt un-latches
+ * `state.started` when the index was not written — whether the write was skipped
+ * as predictably-offline (task 4.4) or attempted and failed — so this second
+ * call performs a real rebuild rather than joining a hollow one.
  * That latch remains the safety net for the watcher path and for any host that
  * never opens a connection at all — this subscription narrows how often it is
  * needed, it does not replace it.

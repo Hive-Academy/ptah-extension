@@ -455,6 +455,57 @@ function runContract(makeStore: () => ITaskIndexStore): void {
   });
 }
 
+/**
+ * TASK_2026_306 task 4.4 — `isReady()`.
+ *
+ * `TaskIndexService.rebuild` asks this before writing, so that the ONE
+ * predictable offline case (registered-but-not-yet-opened SQLite during the
+ * activation warm-up) is skipped rather than attempted and warned about. These
+ * cases need no native module: `isReady` reads the connection's own `isOpen`
+ * and never touches `db`.
+ */
+describe('ITaskIndexStore.isReady', () => {
+  function sqliteStoreOver(isOpen: boolean): SqliteTaskIndexStore {
+    // No `db` at all — reaching for one here would be the bug.
+    const connection = { isOpen } as unknown as SqliteConnectionService;
+    return new SqliteTaskIndexStore(makeLogger(), connection);
+  }
+
+  it('is false while the SQLite connection has not opened', () => {
+    expect(sqliteStoreOver(false).isReady()).toBe(false);
+  });
+
+  it('is true once the SQLite connection is open', () => {
+    expect(sqliteStoreOver(true).isReady()).toBe(true);
+  });
+
+  /**
+   * Forwarded, not cached: `openAndMigrate` happens hundreds of log lines after
+   * the store is constructed, so a value captured in the constructor would be
+   * permanently `false` and the index would never be written at all.
+   */
+  it('tracks the connection rather than snapshotting it at construction', () => {
+    const connection = { isOpen: false } as unknown as SqliteConnectionService;
+    const store = new SqliteTaskIndexStore(makeLogger(), connection);
+    expect(store.isReady()).toBe(false);
+
+    (connection as unknown as { isOpen: boolean }).isOpen = true;
+    expect(store.isReady()).toBe(true);
+  });
+
+  /**
+   * The no-SQLite fallback has no open/closed transition — a Map is writable
+   * from construction. Reporting anything else would make the VS Code host skip
+   * writes it can perform perfectly well.
+   */
+  it('is unconditionally true for the in-memory store', () => {
+    const store = new InMemoryTaskIndexStore(makeLogger());
+    expect(store.isReady()).toBe(true);
+    store.replaceWorkspace(ROOT, SEED, []);
+    expect(store.isReady()).toBe(true);
+  });
+});
+
 describe('InMemoryTaskIndexStore', () => {
   runContract(() => new InMemoryTaskIndexStore(makeLogger()));
 
