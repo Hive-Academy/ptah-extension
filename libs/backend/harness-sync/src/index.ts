@@ -37,6 +37,27 @@ export {
   type IUserLayerRefresher,
 } from './lib/sources/user-layer-refresher.port';
 
+// The consent-gated repair of a blocked path, and the quarantine convention it
+// writes into (TASK_2026_306 Batch 8). The repair is exported for the
+// `harness:repairBlocked` RPC and for nothing else — no activation path holds
+// it, which is what makes "never runs without an explicit user action"
+// structural. `isQuarantineEntry` is exported because the ignore rule is a
+// documented convention other readers of these directories must honour.
+export {
+  HarnessBlockedRepairService,
+  REPAIR_REASON,
+  type HarnessBlockedRepairReport,
+} from './lib/repair/blocked-repair.service';
+export {
+  formatQuarantineTimestamp,
+  isQuarantineEntry,
+  moveToQuarantine,
+  quarantineDirFor,
+  restoreFromQuarantine,
+  QUARANTINE_DIR_NAME,
+  type QuarantinedOccupant,
+} from './lib/quarantine/quarantine';
+
 // Desired state.
 export {
   HarnessManifestBuilder,

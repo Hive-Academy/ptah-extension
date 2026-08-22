@@ -462,6 +462,8 @@ import type {
   HarnessReconcileResult,
   HarnessRemoveParams,
   HarnessRemoveResult,
+  HarnessRepairBlockedParams,
+  HarnessRepairBlockedResult,
 } from './harness-sync.types';
 
 import type {
@@ -1550,6 +1552,17 @@ export interface RpcMethodRegistry {
   'harness:remove': {
     params: HarnessRemoveParams;
     result: HarnessRemoveResult;
+  };
+  /**
+   * The consent-gated repair of a blocked path (TASK_2026_306 Batch 8).
+   *
+   * Per-path only. Nothing proves Ptah wrote the directories that occupy these
+   * paths, so the user's explicit selection IS the ownership claim and there is
+   * deliberately no bulk shape to weaken it.
+   */
+  'harness:repairBlocked': {
+    params: HarnessRepairBlockedParams;
+    result: HarnessRepairBlockedResult;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -3484,6 +3497,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:health': true,
   'harness:reconcile': true,
   'harness:remove': true,
+  'harness:repairBlocked': true,
 
   'memory:list': true,
   'memory:search': true,

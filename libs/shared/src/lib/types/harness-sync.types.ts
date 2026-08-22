@@ -406,6 +406,87 @@ export interface HarnessRemoveResult {
   removed: number;
 }
 
+// ---------------------------------------------------------------------------
+// Consent-gated repair of a blocked path (TASK_2026_306, Batch 8)
+// ---------------------------------------------------------------------------
+
+/** One path the user has explicitly consented to repair. */
+export interface HarnessRepairBlockedPath {
+  target: HarnessTargetId;
+  /** Workspace-relative POSIX path, exactly as it appears in `blocked`. */
+  relPath: string;
+}
+
+/**
+ * Params for `harness:repairBlocked`.
+ *
+ * **Per-path, and only per-path.** There is deliberately no `all: true`, no
+ * `target:` filter and no "repair everything" shape. The entire justification
+ * for touching one of these paths is that the user claimed it, and a claim over
+ * a set they did not enumerate is not a claim. An empty list is the default and
+ * is a complete no-op: no move, no reconcile, not one byte written.
+ */
+export interface HarnessRepairBlockedParams {
+  paths: HarnessRepairBlockedPath[];
+}
+
+/**
+ * What happened to one consented path.
+ *
+ * - `repaired` — the occupant reached quarantine and the managed copy landed.
+ * - `restored` — the occupant reached quarantine, the managed copy did NOT
+ *   land, and the occupant was put back. The path is blocked again, which is
+ *   the state it started in.
+ * - `move-failed` — the occupant could not be moved. **Nothing was written at
+ *   this path**; the occupant is untouched.
+ * - `restore-failed` — the occupant reached quarantine, the write did not land,
+ *   and it could not be put back. The user's directory exists at
+ *   {@link HarnessRepairPathResult.quarantinePath} and nowhere else, so that
+ *   field is always populated for this outcome.
+ * - `not-blocked` — the path is not in the reconciler's current blocked set.
+ *   Refused, untouched. This is what stops the RPC being a general-purpose
+ *   "move this directory" primitive.
+ * - `not-a-path` — a blocked MCP fragment key (`.mcp.json#github`). It is a key
+ *   inside a config file the user also writes, not a file, so there is nothing
+ *   to move aside and this repair does not apply to it.
+ */
+export type HarnessRepairOutcome =
+  | 'repaired'
+  | 'restored'
+  | 'move-failed'
+  | 'restore-failed'
+  | 'not-blocked'
+  | 'not-a-path';
+
+/** Per-path outcome, one entry per requested path, in request order. */
+export interface HarnessRepairPathResult {
+  target: HarnessTargetId;
+  relPath: string;
+  outcome: HarnessRepairOutcome;
+  /**
+   * Absolute path of the quarantined occupant. Present whenever a move
+   * happened — including every failure after the move — so the user is always
+   * told where their directory went.
+   */
+  quarantinePath?: string;
+  /** Short, user-facing. Present for every outcome other than `repaired`. */
+  reason?: string;
+}
+
+/** Result of `harness:repairBlocked`. */
+export interface HarnessRepairBlockedResult {
+  paths: HarnessRepairPathResult[];
+  /** Count of `repaired` outcomes — what `missing` should have dropped by. */
+  repaired: number;
+  /**
+   * Health AFTER the repair, or `null` when no pass ran (an empty or fully
+   * rejected selection). `null` is the honest answer there: nothing changed, so
+   * the caller's existing report is still current.
+   */
+  health: HarnessHealth | null;
+  summary: HarnessHealthSummary;
+}
+
 /**
  * Payload of the `harness:healthChanged` push.
  *

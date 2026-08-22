@@ -50,6 +50,7 @@ import type {
   HarnessPlanWrite,
   IHarnessTarget,
 } from './harness-target.port';
+import { isQuarantineEntry } from '../quarantine/quarantine';
 import { isMigratableLink } from './link-ownership';
 import { createMcpFacet } from './mcp/mcp-facet.registry';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
@@ -540,6 +541,11 @@ export class ClaudeTarget implements IHarnessTarget {
 
       for (const entry of entries) {
         if (entry === LEGACY_COMMANDS_MANIFEST) continue;
+        // Quarantined originals are neither a source nor a target. Without this
+        // the repair's own `.ptah-quarantine` would be reported `foreign` on
+        // the very next pass, which would tell the user their rescued directory
+        // is a finding to clear (`quarantine/quarantine.ts`).
+        if (isQuarantineEntry(entry)) continue;
         if (onlyMarkdown && !entry.toLowerCase().endsWith('.md')) continue;
 
         const relPath = `${dirRel}/${entry}`;

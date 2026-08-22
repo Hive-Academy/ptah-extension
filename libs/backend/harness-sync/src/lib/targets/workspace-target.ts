@@ -51,6 +51,7 @@ import {
   type ManagedEntries,
   type ManagedManifest,
 } from '../manifest-store/managed-manifest';
+import { isQuarantineEntry } from '../quarantine/quarantine';
 import type { IHarnessCliDetector } from '../sources/harness-source.port';
 import {
   copyDirectoryTransformed,
@@ -605,6 +606,10 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       }
       for (const name of names) {
         if (name === LEGACY_RIVAL_MANIFEST) continue;
+        // Same rule as `ClaudeTarget.scanTargetDirs`: a quarantined original is
+        // neither a source nor a target and must never be reported `foreign`
+        // (`quarantine/quarantine.ts`).
+        if (isQuarantineEntry(name)) continue;
         if (onlyMarkdown && !name.toLowerCase().endsWith('.md')) continue;
         const relPath = `${dirRel}/${name}`;
         if (desiredEntries.has(relPath)) continue;
@@ -943,8 +948,8 @@ function basenameWithoutSuffix(
   relPath: string,
   transformer: IHarnessAgentTransformer,
 ): string {
-  const probe = transformer.relPathFor(' ');
-  const marker = probe.indexOf(' ');
+  const probe = transformer.relPathFor('\u0000');
+  const marker = probe.indexOf('\u0000');
   const prefix = probe.slice(0, marker);
   const suffix = probe.slice(marker + 1);
   return relPath.slice(prefix.length, relPath.length - suffix.length);

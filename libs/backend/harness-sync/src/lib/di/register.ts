@@ -32,6 +32,7 @@ import {
   type IUserLayerRefresher,
 } from '../sources/user-layer-refresher.port';
 import { HarnessPropagationService } from '../propagation/harness-propagation.service';
+import { HarnessBlockedRepairService } from '../repair/blocked-repair.service';
 import {
   HarnessPreflightService,
   type HarnessPreflightDeps,
@@ -177,11 +178,22 @@ export function registerHarnessSyncServices(
   container.register(HARNESS_SYNC_TOKENS.USER_LAYER_REFRESHER, {
     useValue: refresher,
   });
+  const propagation = new HarnessPropagationService(
+    reconcilerLogger,
+    reconciler,
+    refresher,
+  );
   container.register(HARNESS_SYNC_TOKENS.PROPAGATION, {
-    useValue: new HarnessPropagationService(
+    useValue: propagation,
+  });
+  // Registered for every host, and reachable from none of them by accident:
+  // nothing on the activation path holds this token, and the repair depends on
+  // the reconciler rather than the other way round.
+  container.register(HARNESS_SYNC_TOKENS.BLOCKED_REPAIR, {
+    useValue: new HarnessBlockedRepairService(
       reconcilerLogger,
       reconciler,
-      refresher,
+      propagation,
     ),
   });
   container.register(HARNESS_SYNC_TOKENS.PREFLIGHT, {

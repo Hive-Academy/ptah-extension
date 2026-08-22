@@ -86,6 +86,8 @@ import type {
   HarnessReconcileResult,
   HarnessRemoveParams,
   HarnessRemoveResult,
+  HarnessRepairBlockedParams,
+  HarnessRepairBlockedResult,
   RpcMethodName,
   ExternalPluginRef,
   StackProfile,
@@ -107,6 +109,7 @@ import {
   HarnessHealthParamsSchema,
   HarnessReconcileParamsSchema,
   HarnessRemoveParamsSchema,
+  HarnessRepairBlockedParamsSchema,
   HarnessStartNewProjectParamsSchema,
   HarnessWorkflowPromptParamsSchema,
   HarnessWorkspacePinParamsSchema,
@@ -182,6 +185,11 @@ export class HarnessRpcHandlers {
     'harness:health',
     'harness:reconcile',
     'harness:remove',
+    // The consent-gated repair (TASK_2026_306 Batch 8). `harness:` is already
+    // in `ALLOWED_METHOD_PREFIXES` (`vscode-core/.../rpc-handler.ts:70`), so
+    // the runtime half of the dual registration is satisfied by the namespace
+    // and only the compile-time half in `rpc.types.ts` was new.
+    'harness:repairBlocked',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -331,6 +339,7 @@ export class HarnessRpcHandlers {
     this.registerHealth();
     this.registerReconcile();
     this.registerRemove();
+    this.registerRepairBlocked();
 
     this.logger.debug('Harness RPC handlers registered', {
       methods: HarnessRpcHandlers.METHODS,
@@ -936,6 +945,26 @@ export class HarnessRpcHandlers {
       'registerRemove',
       async (params) =>
         this.healthService.remove(HarnessRemoveParamsSchema.parse(params)),
+    );
+  }
+
+  /**
+   * The consent-gated repair (TASK_2026_306 Batch 8).
+   *
+   * `params` is parsed without a `?? {}` default, unlike `harness:health` and
+   * `harness:reconcile` above. Those two are safe to call with nothing; this
+   * one moves a directory the user may have written by hand, so a caller that
+   * sends no params at all is a bug and must be rejected rather than quietly
+   * turned into an empty selection.
+   */
+  private registerRepairBlocked(): void {
+    this.wire<HarnessRepairBlockedParams, HarnessRepairBlockedResult>(
+      'harness:repairBlocked',
+      'registerRepairBlocked',
+      async (params) =>
+        this.healthService.repairBlocked(
+          HarnessRepairBlockedParamsSchema.parse(params),
+        ),
     );
   }
 }

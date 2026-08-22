@@ -18,7 +18,10 @@ import {
   STACK_PROFILES,
 } from '@ptah-extension/shared';
 import type { NewProjectIntake } from '@ptah-extension/shared';
-import { NewProjectIntakeSchema } from './harness-rpc.schema';
+import {
+  HarnessRepairBlockedParamsSchema,
+  NewProjectIntakeSchema,
+} from './harness-rpc.schema';
 
 const BASE = {
   what: 'A booking tool for physiotherapy clinics',
@@ -118,5 +121,89 @@ describe('NewProjectIntakeSchema — assignability', () => {
     expect(() =>
       NewProjectIntakeSchema.parse({ ...BASE, what: '   ' }),
     ).toThrow();
+  });
+});
+
+/**
+ * `HarnessRepairBlockedParamsSchema` — the boundary of the one RPC in this lib
+ * that MOVES a directory the user may have written by hand (TASK_2026_306
+ * Batch 8 / Task 8.3).
+ *
+ * The schema is not the authorization gate — `HarnessBlockedRepairService`
+ * re-derives the blocked set and refuses anything outside it. What these cases
+ * pin is the SHAPE: no bulk selection, an empty list that is legal rather than
+ * an error, and nothing that could not be a workspace-relative POSIX path.
+ */
+describe('HarnessRepairBlockedParamsSchema', () => {
+  const path = (relPath: string) => ({
+    paths: [{ target: 'claude', relPath }],
+  });
+
+  it('accepts a per-path selection', () => {
+    expect(
+      HarnessRepairBlockedParamsSchema.parse(path('.claude/skills/alpha'))
+        .paths,
+    ).toEqual([{ target: 'claude', relPath: '.claude/skills/alpha' }]);
+  });
+
+  it('accepts an EMPTY selection — a declined dialog is a no-op, not an error', () => {
+    // `.min(1)` here would force the UI to special-case "the user ticked
+    // nothing", and the service treats an empty list as "run no pass at all".
+    expect(HarnessRepairBlockedParamsSchema.parse({ paths: [] }).paths).toEqual(
+      [],
+    );
+  });
+
+  it('has no bulk shape at all: an "all" flag is REJECTED, not quietly stripped', () => {
+    // The selection IS the ownership claim (U3). Stripping would let a caller
+    // who believes they asked for "repair everything" get a silent no-op and
+    // never learn the method has no such mode; `.strict()` makes the
+    // misconception an error.
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse({ paths: [], all: true }),
+    ).toThrow();
+  });
+
+  it('rejects an unknown key on an individual path entry too', () => {
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse({
+        paths: [
+          { target: 'claude', relPath: '.claude/skills/alpha', force: true },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a traversal segment', () => {
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse(path('.claude/skills/../../etc')),
+    ).toThrow();
+  });
+
+  it('rejects an absolute path, POSIX or Windows', () => {
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse(path('/etc/passwd')),
+    ).toThrow();
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse(path('C:/Windows/System32')),
+    ).toThrow();
+  });
+
+  it('rejects a backslash separator, which no `relPath` in a health report uses', () => {
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse(path('.claude\\skills\\alpha')),
+    ).toThrow();
+  });
+
+  it('rejects an unknown target id', () => {
+    expect(() =>
+      HarnessRepairBlockedParamsSchema.parse({
+        paths: [{ target: 'gemini', relPath: '.claude/skills/alpha' }],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a missing `paths` — a caller that sends nothing is a bug, not a decline', () => {
+    expect(() => HarnessRepairBlockedParamsSchema.parse({})).toThrow();
   });
 });

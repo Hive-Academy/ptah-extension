@@ -126,3 +126,58 @@ export const HarnessReconcileParamsSchema = z.object({
 export const HarnessRemoveParamsSchema = z.object({
   confirm: z.literal(true),
 });
+
+/**
+ * `harness:repairBlocked` — the consent-gated repair (TASK_2026_306 Batch 8).
+ *
+ * This is the only RPC in the lib that MOVES a directory the user may have
+ * written by hand, so the boundary is deliberately narrow:
+ *
+ * - **No bulk shape.** `paths` is a list the user ticked, and there is no
+ *   `all`, no `target`-wide filter and no "repair everything". The selection IS
+ *   the ownership claim (decision U3); a claim over a set the user never
+ *   enumerated would be the automatic adoption this whole design rejects.
+ * - **An empty list is legal and is a complete no-op**, which is what makes
+ *   "declined consent leaves the filesystem byte-identical" expressible at all.
+ *   `.min(1)` would turn a decline into an error the UI has to special-case.
+ * - **`relPath` is shape-checked, not authorized, here.** The real gate is in
+ *   `HarnessBlockedRepairService`, which re-derives the blocked set from a
+ *   fresh `verify()` and refuses anything outside it. This schema only rejects
+ *   what could not be a workspace-relative POSIX path in the first place, so a
+ *   traversal attempt dies at the boundary as well as at the gate rather than
+ *   relying on either alone.
+ * - **`.strict()`, not the default strip.** Stripping an unknown key is the
+ *   right default almost everywhere and is the wrong one here: a caller that
+ *   sends `{ paths: [], all: true }` has a MISCONCEPTION about this method, and
+ *   silently honouring the `paths` half tells them nothing. There is no bulk
+ *   entry point, so the honest answer to a request for one is an error rather
+ *   than a quietly narrower result.
+ */
+const HarnessRepairBlockedRelPathSchema = z
+  .string()
+  .min(1)
+  .max(400)
+  .refine((value) => !value.split('/').includes('..'), {
+    message: 'relPath must not traverse outside the workspace',
+  })
+  .refine((value) => !value.startsWith('/') && !/^[A-Za-z]:/.test(value), {
+    message: 'relPath must be workspace-relative',
+  })
+  .refine((value) => !value.includes('\\'), {
+    message: 'relPath must use POSIX separators',
+  });
+
+export const HarnessRepairBlockedParamsSchema = z
+  .object({
+    paths: z
+      .array(
+        z
+          .object({
+            target: HarnessTargetIdSchema,
+            relPath: HarnessRepairBlockedRelPathSchema,
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();

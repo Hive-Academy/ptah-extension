@@ -600,30 +600,61 @@ matching content by construction, so the heuristic would be maximally confident
 exactly where it is least entitled to be. Consent is the only ownership proof
 available, which is why the planned repair is gated on it.
 
-Until that repair exists, the honest remedy is the manual one, and the reconcile
-log states it: **move** the occupant aside — not delete it — then re-run
-`ptah harness doctor --fix`. Move is reversible and delete is not, and `--fix`
-writes Ptah's copy into whatever gap the move leaves.
+The reconcile log still states the manual remedy, and it is still the right one
+for a user who does not want the repair: **move** the occupant aside — not
+delete it — then re-run `ptah harness doctor --fix`. Move is reversible and
+delete is not, and `--fix` writes Ptah's copy into whatever gap the move leaves.
 
-#### Quarantine convention — **PLANNED (Batches 8–9), NOT YET IMPLEMENTED**
+#### Consent-gated repair + the quarantine convention — BACKEND SHIPPED (Batch 8), consent UI PLANNED (Batch 9)
 
-**Nothing in this section exists in the code today.** There is no repair
-operation, no quarantine directory, and no consent surface anywhere in this lib;
-a blocked path is reported and otherwise left alone, permanently. This is
-written down now, ahead of the implementation, so Batch 8 has a settled
-convention to build against instead of inventing one — and so a reader does not
-go looking for a `.ptah-quarantine` that no code has ever created.
+**The repair is real code.** `HarnessBlockedRepairService`
+(`lib/repair/blocked-repair.service.ts`) is the repair; the convention it writes
+into is `lib/quarantine/quarantine.ts`. Decided by the user on 2026-08-22
+(TASK_2026_306 / U1–U4). **The consent DIALOG does not exist yet** — see the
+Consent row below. Every other row in this table describes shipped behaviour.
 
-Decided by the user on 2026-08-22 (TASK_2026_306 / U2–U4). When the repair is
-built it will MOVE the occupant aside and then write the managed copy, never
-overwriting in place, with the move as the undo:
+| Rule     | Value                                                                                                                                                                                                                                                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Location | `.claude/skills/.ptah-quarantine/<name>-<timestamp>` — alongside the occupant, so the move is same-volume. Not `~/.ptah/` (a workspace on `D:` and a home on `C:` is the common Windows case), not the recycle bin (opaque)                                                                                               |
+| Naming   | UTC compact to the MILLISECOND (`alpha-20260823T141530123`), with a `-2`, `-3` … suffix for a residual collision. The timestamp is what a human reads to find their directory, so a collision suffixes rather than re-rolls                                                                                               |
+| Scanning | **Never scanned.** `isQuarantineEntry` is called from `ClaudeTarget.scanTargetDirs` and `WorkspaceHarnessTarget.scanForeignDirs`, and `QUARANTINE_DIR_NAME` is in `IGNORED_ENTRY_NAMES` so no source walk or hash sees it either                                                                                          |
+| Cleanup  | **Never automatic.** No TTL, no sweep, no "older than N days" job, and no UI button offering one — an expiry policy silently converts a reversible operation into a destructive one on a timer                                                                                                                            |
+| Git      | Already ignored: the quarantine lives inside a directory `managedDirs()` puts in the managed `.gitignore` block (E23)                                                                                                                                                                                                     |
+| Consent  | **PLANNED (Batch 9) — there is no dialog.** The BACKEND half is shipped: `harness:repairBlocked` takes a per-path selection and has no bulk shape. The surface that collects it — one dialog, per-path checkboxes, defaulting to none selected — is unstarted. Until it lands, the only caller is a direct RPC invocation |
 
-| Rule     | Value                                                                                                                                                                                                                        |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Location | `.claude/skills/.ptah-quarantine/<name>-<timestamp>` — alongside the target directory, so the move is same-volume. Not `~/.ptah/` (cross-volume move risk on Windows), not the recycle bin (opaque, not scriptable)          |
-| Scanning | **The reconciler must never scan it.** A quarantined directory is neither a source nor a target: it must not appear in the desired state, must not be manifest-owned, must not be reported `foreign`, and must not be reaped |
-| Cleanup  | **Never automatic.** No TTL, no sweep, no "older than N days" job — an expiry policy silently converts a reversible operation into a destructive one on a timer                                                              |
-| Consent  | One dialog, per-path checkboxes, defaulting to none selected. Not one bulk approval (it weakens the per-path ownership claim that is the whole justification), not one prompt per path                                       |
+**The order, and why every step is where it is.** Move the occupant to
+quarantine and PROVE it moved (destination present, source gone), then run one
+ordinary full pass. The write is the reconciler's, not a second writer — which
+is what makes "a failed move means no write at that path" STRUCTURAL rather than
+a branch somebody has to remember: an occupant still in place is still unowned,
+so `planEntry` returns `'foreign'` and `targets/claude-target.ts:189-194` drops
+the path before `plan.writes` is built. **The refusal that caused the defect is
+the same refusal that makes the repair safe.** A path the pass did not write —
+`missing` after the apply — gets its occupant back; if the restore itself fails,
+the error names the quarantine path, because at that point the directory exists
+in exactly one place.
+
+**There is no `rm` on the repair path.** The move phase takes the workspace lock
+and RELEASES it before the write pass — it has to, or it would deadlock the pass
+— so the restore window is not exclusive by construction. Rather than delete
+whatever sits on the destination on the strength of an argument about a lock
+that is not held, the restore MOVES the obstruction aside into the quarantine
+exactly as the original occupant was, and reports it as `supersededPath`. The
+restore phase re-takes the lock, so the window is both narrow and non-lethal.
+The one surviving deletion is the second half of the cross-volume `EXDEV`
+fallback, which deletes only what it has already copied.
+
+**Every per-path step is in its own `try`.** On Windows an `EPERM`/`EBUSY` from
+an editor or an antivirus scanner holding one directory open is the expected
+failure, not an exotic one, and a repair of thirteen paths that dies on the
+third is worse than one that repairs twelve and names the one it could not.
+
+**Unreachable from activation.** The dependency runs repair → reconciler, so
+nothing on the activation path can arrive here. `HARNESS_SYNC_TOKENS.BLOCKED_REPAIR`
+is held by exactly one caller: `harness:repairBlocked`, in
+`rpc-handlers/.../harness-health-rpc.service.ts`. A blocked MCP fragment key
+(`.mcp.json#github`) is refused — it is a key inside a config file the user also
+writes, not a file, so there is nothing to move aside.
 
 ### Legacy adoption
 
@@ -673,6 +704,15 @@ out of the way. That is the correct answer, not a gap in the mechanism.
 - **`harness:remove`** `{ confirm: true }` → `{ health, summary, removed }`.
   `confirm` is `z.literal(true)` at the schema, so reaching the method IS the
   confirmation.
+- **`harness:repairBlocked`** `{ paths: [{ target, relPath }] }` →
+  `{ paths, repaired, health, summary }`. The consent-gated repair (Batch 8).
+  Per-path only — there is deliberately no bulk shape, because the selection IS
+  the ownership claim. An empty list is legal and is a complete no-op: no move,
+  no pass, not one byte written. A path outside the reconciler's CURRENT blocked
+  set is refused, re-derived here rather than trusted from the caller's report,
+  which is what stops this being a general-purpose "move this directory"
+  primitive. `harness:` was already in `ALLOWED_METHOD_PREFIXES`, so the runtime
+  half of the dual registration came free with the namespace.
 - **`harness:healthChanged`** push, payload `HarnessHealthChangedPayload`.
   Edge-triggered on the SUMMARY, not per pass: preflight runs on every session
   start, so a per-pass push would be a webview message per session for a badge

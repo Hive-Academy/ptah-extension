@@ -53,6 +53,17 @@ export const HARNESS_SYNC_TOKENS = {
    * no reconciler to reach through.
    */
   AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
+  /**
+   * `HarnessBlockedRepairService` — the consent-gated repair of a blocked path
+   * (TASK_2026_306 Batch 8).
+   *
+   * Registered under its own token and NOT reachable from the reconciler, the
+   * propagation service or the preflight service. That is the structural half
+   * of "unreachable from activation reconcile": the dependency runs
+   * repair → reconciler, so no activation path can arrive here by accident.
+   * The one caller is the `harness:repairBlocked` RPC.
+   */
+  BLOCKED_REPAIR: Symbol.for('HarnessSyncBlockedRepair'),
 } as const;
 
 export type HarnessSyncDIToken = keyof typeof HARNESS_SYNC_TOKENS;
