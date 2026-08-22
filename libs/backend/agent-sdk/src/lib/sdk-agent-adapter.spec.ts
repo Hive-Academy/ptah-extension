@@ -525,6 +525,110 @@ describe('SdkAgentAdapter', () => {
     });
   });
 
+  // TASK_2026_306 Defect G — `initialize()` had no in-flight guard of any kind.
+  // `initialized` is only assigned AFTER `configureAuthentication` and
+  // `findExecutable()` have both returned, so the whole expensive window was
+  // re-entrant. The boot OAuth token refresh writes `~/.codex/auth.json` while
+  // the first pass is running, so the adapter raced itself on every cold start
+  // with an expired token: `Initializing SDK adapter...` and `Detecting Claude
+  // CLI installation...` each appeared twice.
+  //
+  // Shape mirrored from `AuthManager.configureAuthentication` — which is why
+  // only the AUTH half of that race was already de-duplicated.
+  describe('initialize() in-flight guard (TASK_2026_306)', () => {
+    /** The auth result shape the adapter awaits, taken from the port itself. */
+    type AuthConfigureResult = Awaited<
+      ReturnType<IAuthEnvProvider['configureAuthentication']>
+    >;
+
+    interface Deferred<T> {
+      promise: Promise<T>;
+      resolve: (value: T) => void;
+      reject: (reason: unknown) => void;
+    }
+
+    function deferred<T>(): Deferred<T> {
+      let resolve!: (value: T) => void;
+      let reject!: (reason: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    function countInfoLines(h: AdapterHarness, fragment: string): number {
+      return (h.logger.info as jest.Mock).mock.calls.filter(
+        ([message]: [unknown]) =>
+          typeof message === 'string' && message.includes(fragment),
+      ).length;
+    }
+
+    it('collapses two concurrent calls into one pass, resolving both to the same result', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      const first = h.adapter.initialize();
+      const second = h.adapter.initialize();
+
+      gate.resolve({ configured: true, details: [] });
+      const [a, b] = await Promise.all([first, second]);
+
+      expect(a).toBe(true);
+      expect(b).toBe(true);
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+      expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(1);
+      // The two doubled lines from the captured boot log.
+      expect(countInfoLines(h, 'Initializing SDK adapter')).toBe(1);
+      expect(countInfoLines(h, 'Detecting Claude CLI installation')).toBe(1);
+    });
+
+    it('is a concurrency guard, not a memo — sequential calls each run a real pass', async () => {
+      const h = makeAdapter();
+
+      await h.adapter.initialize();
+      await h.adapter.initialize();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not latch after a failed pass — the guard is cleared in a finally', async () => {
+      const h = makeAdapter();
+      h.authManager.configureAuthentication.mockRejectedValueOnce(
+        new Error('auth exploded'),
+      );
+
+      await expect(h.adapter.initialize()).resolves.toBe(false);
+      // A `then`-cleared guard would hold the rejected promise forever and
+      // every later caller would inherit the failure.
+      await expect(h.adapter.initialize()).resolves.toBe(true);
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+
+    it('reset() still forces a genuine re-init even when a pass is in flight', async () => {
+      const h = makeAdapter();
+      const gate = deferred<AuthConfigureResult>();
+      h.authManager.configureAuthentication.mockReturnValueOnce(gate.promise);
+
+      const first = h.adapter.initialize();
+      const resetting = h.adapter.reset();
+
+      gate.resolve({ configured: true, details: [] });
+      await first;
+      await resetting;
+
+      // Two real passes: the in-flight one, then the reset's own. A reset
+      // answered by the guard would leave the adapter on pre-reset state.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.authManager.clearAuthentication).toHaveBeenCalledTimes(1);
+      expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+  });
+
   describe('startChatSession()', () => {
     it('throws SdkError before initialize()', async () => {
       const { adapter } = makeAdapter();

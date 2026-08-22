@@ -108,6 +108,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private initialized = false;
 
+  /**
+   * The in-flight `initialize()` pass, or `null` when none is running.
+   *
+   * `initialized` is a LATCH, not a flight marker: it is only assigned after
+   * `configureAuthentication` and `findExecutable()` have both returned, so
+   * the whole expensive window used to be re-entrant. Four call sites can
+   * re-enter it — the config-change and auth-file watchers, `reset()`, and
+   * host activation — and the boot OAuth token refresh writes `~/.codex/auth.json`
+   * while the first pass is still running, so the adapter raced itself on
+   * every cold start with an expired token.
+   *
+   * Same shape as `AuthManager.configureAuthentication`: hold the promise,
+   * hand it to the second caller, clear it in a `finally` so a FAILED init
+   * does not latch permanently.
+   */
+  private initInFlight: Promise<boolean> | null = null;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -267,6 +284,30 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   async initialize(): Promise<boolean> {
+    if (this.initInFlight) {
+      this.logger.debug(
+        '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
+      );
+      return this.initInFlight;
+    }
+
+    this.initInFlight = this.doInitialize();
+    try {
+      return await this.initInFlight;
+    } finally {
+      this.initInFlight = null;
+    }
+  }
+
+  /**
+   * The real initialization pass, guarded by the in-flight mutex above.
+   *
+   * The guard de-duplicates CONCURRENT callers only; it never memoizes a
+   * result, so every sequential call runs a real pass. `reset()` additionally
+   * drains any in-flight pass before disposing, so it can never be answered by
+   * the guard.
+   */
+  private async doInitialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
@@ -455,6 +496,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async reset(): Promise<void> {
     this.logger.info('[SdkAgentAdapter] Resetting adapter...');
+    // A reset must produce a genuinely fresh pass, so it must never be
+    // ANSWERED by the in-flight guard. Let a running pass settle first (its
+    // result is discarded), then dispose and initialize from a clean slate.
+    if (this.initInFlight) {
+      await this.initInFlight.catch(() => false);
+    }
     this.dispose();
     await this.initialize();
   }

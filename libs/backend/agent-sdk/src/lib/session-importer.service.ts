@@ -57,6 +57,33 @@ interface SessionsIndex {
 }
 
 /**
+ * Bytes read from the head of a session `.jsonl` when probing it for metadata.
+ *
+ * This is a BYTE bound, not a record bound: the prefix is cut wherever byte
+ * 8192 lands, which for a JSONL file is almost always mid-token. Anything
+ * reading this prefix must treat its trailing line as incomplete — see
+ * `splitCompleteRecords`.
+ */
+const METADATA_PREFIX_BYTES = 8192;
+
+/**
+ * Split a byte-bounded file prefix into the JSONL records that are certainly
+ * complete, dropping a trailing record that the byte bound cut in half.
+ *
+ * The tail is dropped only when the read actually hit the bound AND the
+ * content does not end on a newline. A short read means the whole file is in
+ * hand, so its final line is complete even without a trailing newline and must
+ * be kept.
+ */
+function splitCompleteRecords(content: string, bytesRead: number): string[] {
+  const lines = content.split('\n');
+  if (bytesRead >= METADATA_PREFIX_BYTES && !content.endsWith('\n')) {
+    lines.pop();
+  }
+  return lines.filter((line) => line.trim());
+}
+
+/**
  * Service to import existing Claude sessions
  */
 @injectable()
@@ -170,14 +197,14 @@ export class SessionImporterService {
   private async isTitleOnlySidecar(filePath: string): Promise<boolean> {
     try {
       const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(8192);
-      const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
+      const buffer = Buffer.alloc(METADATA_PREFIX_BYTES);
+      const { bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0);
       await fd.close();
 
       if (bytesRead === 0) return false;
 
       const content = buffer.toString('utf-8', 0, bytesRead);
-      const lines = content.split('\n').filter((line) => line.trim());
+      const lines = splitCompleteRecords(content, bytesRead);
 
       let sawAiTitle = false;
       for (const line of lines) {
@@ -467,6 +494,13 @@ export class SessionImporterService {
    * Reads only the first few KB to find:
    * - Session ID from system init message
    * - Name from first user message (first 50 chars)
+   *
+   * Truncation is expected, not exceptional. The prefix is bounded by BYTES,
+   * so its last line is normally cut mid-token; `splitCompleteRecords` drops
+   * that tail and a per-record `try` tolerates any remaining bad line. A file
+   * whose complete records ALL fail to parse is genuinely corrupt and still
+   * yields `null` — the tolerance is for the known-truncated tail, not for
+   * everything.
    */
   private async extractMetadata(
     filePath: string,
@@ -475,21 +509,35 @@ export class SessionImporterService {
   ): Promise<SessionMetadata | null> {
     try {
       const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(8192);
-      const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
+      const buffer = Buffer.alloc(METADATA_PREFIX_BYTES);
+      const { bytesRead } = await fd.read(buffer, 0, METADATA_PREFIX_BYTES, 0);
       await fd.close();
 
       if (bytesRead === 0) return null;
 
       const content = buffer.toString('utf-8', 0, bytesRead);
-      const lines = content.split('\n').filter((line) => line.trim());
+      const lines = splitCompleteRecords(content, bytesRead);
 
       let sessionId: string | null = null;
       let sessionName: string | null = null;
       let sawSessionContent = false;
+      let parsedRecords = 0;
 
       for (const line of lines) {
-        const msg = JSON.parse(line);
+        let msg: {
+          type?: string;
+          subtype?: string;
+          session_id?: string;
+          message?: {
+            content?: string | Array<{ type: string; text?: string }>;
+          };
+        };
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        parsedRecords++;
         if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
           sessionId = msg.session_id;
         }
@@ -506,11 +554,27 @@ export class SessionImporterService {
         if (sessionId && sessionName) break;
       }
 
+      // Complete records were present and none of them was JSON: the file is
+      // corrupt rather than merely truncated. Warn — a whole directory failing
+      // this way is exactly what stayed invisible behind `imported: 0`.
+      if (lines.length > 0 && parsedRecords === 0) {
+        this.logger.warn(
+          '[SessionImporter] No parseable records in session file prefix',
+          { filePath, completeLines: lines.length },
+        );
+        return null;
+      }
+
       // Skip sidecar files that hold no conversation — e.g. the CLI's
       // title-only `{"type":"ai-title",...}` files. They carry no system
       // init or user turn, so importing them produces phantom
       // "Session <date>" entries in the session list.
-      if (!sawSessionContent) return null;
+      //
+      // Gated on having actually read a record: when the first record alone
+      // exceeds the prefix there is nothing to judge from, and a real session
+      // must not be discarded as a sidecar on no evidence. Sidecars are tiny,
+      // so they are always read whole and always reach this guard.
+      if (parsedRecords > 0 && !sawSessionContent) return null;
 
       if (!sessionId) {
         sessionId = this.extractSessionIdFromFilename(path.basename(filePath));
@@ -528,7 +592,9 @@ export class SessionImporterService {
         totalTokens: { input: 0, output: 0 },
       };
     } catch (error) {
-      this.logger.debug('[SessionImporter] Failed to extract metadata', {
+      // Only I/O now reaches here — per-record parse failures are handled
+      // above. A file we could open but not read is worth more than debug.
+      this.logger.warn('[SessionImporter] Failed to extract metadata', {
         filePath,
         error: error instanceof Error ? error.message : String(error),
       });

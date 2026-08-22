@@ -340,6 +340,156 @@ describe('SessionImporterService', () => {
       expect(ids).toEqual(['sess-flat']);
     });
 
+    // -----------------------------------------------------------------------
+    // TASK_2026_306 Defect C — the 8 KB metadata prefix is a BYTE bound, so
+    // its trailing line is normally cut mid-token. `JSON.parse`ing every split
+    // line therefore threw on almost every real file and the method-level
+    // catch dropped it: 11 of 11 files discarded, `Import complete:
+    // {"imported":0}` the only visible signal.
+    //
+    // The four cases below are the boundary: tolerate the truncated tail,
+    // fall back to the filename when NOTHING complete is in the prefix, and
+    // still refuse both genuine corruption and title-only sidecars.
+    // -----------------------------------------------------------------------
+    describe('8 KB prefix truncation (TASK_2026_306)', () => {
+      // These cases need PERSISTENT (`mockResolvedValue`) fs stubs — the
+      // post-import prune pass re-opens every imported file, so a `...Once`
+      // queue runs dry mid-scan. The outer `jest.clearAllMocks()` clears call
+      // records but NOT implementations, so drop them here rather than leaking
+      // an always-succeeding `access` into the specs that follow.
+      afterEach(() => {
+        fsPromises.access.mockReset();
+        fsPromises.open.mockReset();
+        fsPromises.readdir.mockReset();
+        fsPromises.stat.mockReset();
+      });
+
+      /**
+       * A faithful positional `fd.read`: honours the caller's length bound and
+       * reports the real `bytesRead`, so a file longer than 8192 bytes yields a
+       * prefix cut wherever byte 8192 lands. The existing helper above copies
+       * the whole file in regardless, which is exactly the condition the defect
+       * could not occur under.
+       *
+       * Not `...Once` — `pruneTitleOnlySessions` re-opens every imported file
+       * afterwards, and that pass must see the same bytes.
+       */
+      function mockPositionalRead(fileContent: Buffer): void {
+        fsPromises.open.mockResolvedValue({
+          read: jest.fn(
+            async (buf: Buffer, off: number, len: number, pos: number) => {
+              const end = Math.min(fileContent.length, pos + len);
+              const bytesRead = Math.max(0, end - pos);
+              if (bytesRead > 0) fileContent.copy(buf, off, pos, end);
+              return { bytesRead, buffer: buf };
+            },
+          ),
+          close: jest.fn(async () => undefined),
+        } as unknown as Awaited<ReturnType<typeof fsPromises.open>>);
+      }
+
+      /** Prime the flat-`.jsonl` fallback for exactly one file. */
+      function primeFlatScan(filename: string): void {
+        primeFindSessionsDir();
+        fsPromises.access.mockRejectedValueOnce(new Error('ENOENT')); // no index
+        fsPromises.readdir.mockResolvedValueOnce([
+          filename,
+        ] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
+        fsPromises.stat.mockResolvedValueOnce({
+          mtimeMs: 1_700_000_000_000,
+        } as unknown as Awaited<ReturnType<typeof fsPromises.stat>>);
+        // pruneTitleOnlySessions: the backing file still exists.
+        fsPromises.access.mockResolvedValue(undefined);
+      }
+
+      it('imports a session whose prefix is cut mid-token (the reported case)', async () => {
+        // Record 1 carries the session id; record 2 is long enough that byte
+        // 8192 lands inside its string. Nothing resolves a name, so the loop
+        // does reach the truncated record — which is what used to throw.
+        const content = Buffer.from(
+          JSON.stringify({
+            type: 'system',
+            subtype: 'init',
+            session_id: 'sess-trunc',
+          }) +
+            '\n' +
+            JSON.stringify({
+              type: 'assistant',
+              message: { content: 'A'.repeat(9000) },
+            }) +
+            '\n',
+        );
+        expect(content.length).toBeGreaterThan(8192);
+
+        primeFlatScan('sess-trunc.jsonl');
+        mockPositionalRead(content);
+
+        const imported = await importer.scanAndImport(WORKSPACE);
+
+        expect(imported).toBe(1);
+        const all = await store.getForWorkspace(WORKSPACE);
+        expect(all.map((m) => m.sessionId)).toEqual(['sess-trunc']);
+        expect(all[0].name).toMatch(/^Session /);
+      });
+
+      it('falls back to the filename when the first record alone exceeds the prefix', async () => {
+        // One 12 KB record: the prefix contains no newline at all, so after
+        // dropping the cut tail there is no complete record to judge from.
+        // `session_id` is not reachable and the filename is the only source —
+        // the primary path for large modern CLI files, not a corner case.
+        const content = Buffer.from(
+          JSON.stringify({
+            type: 'system',
+            subtype: 'init',
+            session_id: 'unreachable',
+            payload: 'B'.repeat(12000),
+          }) + '\n',
+        );
+
+        primeFlatScan('big-first-record.jsonl');
+        mockPositionalRead(content);
+
+        const imported = await importer.scanAndImport(WORKSPACE);
+
+        expect(imported).toBe(1);
+        const all = await store.getForWorkspace(WORKSPACE);
+        expect(all.map((m) => m.sessionId)).toEqual(['big-first-record']);
+      });
+
+      it('still returns nothing for a genuinely corrupt file, and warns', async () => {
+        // Short read, ends on a newline: every record here is COMPLETE and
+        // none is JSON. That is corruption, not truncation, and tolerating it
+        // would turn a real failure into a silent phantom session.
+        const content = Buffer.from('not json at all\nalso not json\n');
+
+        primeFlatScan('corrupt-session.jsonl');
+        mockPositionalRead(content);
+
+        const imported = await importer.scanAndImport(WORKSPACE);
+
+        expect(imported).toBe(0);
+        expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('No parseable records'),
+          expect.objectContaining({ completeLines: 2 }),
+        );
+      });
+
+      it('still skips an ai-title sidecar (no phantom "Session <date>" entry)', async () => {
+        const content = Buffer.from(
+          JSON.stringify({ type: 'ai-title', title: 'Some title' }) + '\n',
+        );
+
+        primeFlatScan('title-only.jsonl');
+        mockPositionalRead(content);
+
+        const imported = await importer.scanAndImport(WORKSPACE);
+
+        expect(imported).toBe(0);
+        expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
+      });
+    });
+
     it('does not re-import sessions already in the metadata store', async () => {
       await store.create('pre-existing', WORKSPACE, 'already here');
 
