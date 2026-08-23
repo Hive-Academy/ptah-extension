@@ -21,8 +21,9 @@
  *          re-spinning the server.
  *        - `stop()` tears the server down via `stopHttpServer` and clears
  *          internal state.
- *        - `ensureRegisteredForSubagents()` is idempotent and writes the
- *          `.mcp.json` config only once.
+ *        - `ensureRegisteredForSubagents()` is idempotent per (path, port):
+ *          repeated calls against the same workspace write once, but a
+ *          workspace switch MOVES the entry (section 5).
  *        - `setToolResultCallback` / `clearToolResultCallback` forward the
  *          callback to the dispatch context on the NEXT `start()`.
  *
@@ -90,6 +91,7 @@ jest.mock('fs', () => ({
 
 import * as http from 'http';
 import * as fs from 'fs';
+import * as path from 'path';
 import { container } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
@@ -696,5 +698,172 @@ describe('CodeExecutionMCP — unregister idempotency', () => {
 
     expect(fsReadFileSyncMock).not.toHaveBeenCalled();
     expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// 5. .mcp.json path symmetry across a workspace switch — TASK_2026_315 A3
+// ===========================================================================
+
+/**
+ * The A3 defect had two halves and both are pinned here.
+ *
+ *   1. `ensureRegisteredForSubagents` was one-shot behind a boolean, so the
+ *      SECOND workspace of a session never got an entry at all and subagents
+ *      spawned there could not discover the Ptah MCP server.
+ *   2. `unregisterFromMcpJson` resolved its target through `getMcpJsonPath()` —
+ *      the CURRENT workspace root — instead of the path it had actually
+ *      written, so the first repository kept a `ptah` entry pointing at a dead
+ *      port indefinitely.
+ *
+ * The write is into a USER-OWNED file, so the read-merge-write contract gets
+ * its own assertions: a hand-authored server, and unrelated top-level keys,
+ * must survive both register and unregister untouched.
+ */
+describe('CodeExecutionMCP — .mcp.json path symmetry across a workspace switch', () => {
+  const ROOT_A = path.join('/wsA', '.mcp.json');
+  const ROOT_B = path.join('/wsB', '.mcp.json');
+
+  /** Back `fs` with a path-keyed in-memory disk so per-file state is real. */
+  function useVirtualDisk(
+    seed: Record<string, string> = {},
+  ): Map<string, string> {
+    const disk = new Map<string, string>(Object.entries(seed));
+    fsExistsSyncMock.mockImplementation((p) => disk.has(String(p)));
+    fsReadFileSyncMock.mockImplementation((p) => {
+      const content = disk.get(String(p));
+      if (content === undefined) {
+        throw new Error(
+          `ENOENT: no such file or directory, open '${String(p)}'`,
+        );
+      }
+      return content;
+    });
+    fsWriteFileSyncMock.mockImplementation((p, data) => {
+      disk.set(String(p), String(data));
+    });
+    return disk;
+  }
+
+  function serversIn(disk: Map<string, string>, file: string): unknown {
+    const raw = disk.get(file);
+    if (raw === undefined) return undefined;
+    return (JSON.parse(raw) as { mcpServers?: Record<string, unknown> })
+      .mcpServers;
+  }
+
+  it("stop() after a workspace switch removes ptah from the ORIGINAL root's .mcp.json", async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    service.ensureRegisteredForSubagents();
+    expect(serversIn(disk, ROOT_A)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+
+    // Workspace root moves A -> B.
+    workspaceProvider.__state.setFolders(['/wsB']);
+
+    await service.stop();
+
+    // The whole point: A must not keep a dead-port entry.
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+    expect(JSON.stringify(serversIn(disk, ROOT_A))).not.toContain('ptah');
+  });
+
+  it('a hand-authored .mcp.json survives register + unregister with only the ptah key touched', async () => {
+    const handAuthored =
+      JSON.stringify(
+        {
+          $schema: 'https://example.invalid/mcp.schema.json',
+          mcpServers: {
+            'my-own-server': { type: 'stdio', command: 'node', args: ['x.js'] },
+          },
+        },
+        null,
+        2,
+      ) + '\n';
+    const disk = useVirtualDisk({ [ROOT_A]: handAuthored });
+
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    service.ensureRegisteredForSubagents();
+    expect(serversIn(disk, ROOT_A)).toEqual({
+      'my-own-server': { type: 'stdio', command: 'node', args: ['x.js'] },
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+
+    workspaceProvider.__state.setFolders(['/wsB']);
+    await service.stop();
+
+    const after = JSON.parse(disk.get(ROOT_A) as string) as Record<
+      string,
+      unknown
+    >;
+    expect(after['mcpServers']).toEqual({
+      'my-own-server': { type: 'stdio', command: 'node', args: ['x.js'] },
+    });
+    // Unrelated top-level keys are preserved too — this is a read-merge-write,
+    // not a rewrite.
+    expect(after['$schema']).toBe('https://example.invalid/mcp.schema.json');
+  });
+
+  it('moves the entry into the second workspace on a switch (subagents there can discover it)', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    service.ensureRegisteredForSubagents();
+
+    workspaceProvider.__state.setFolders(['/wsB']);
+
+    expect(serversIn(disk, ROOT_B)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+  });
+
+  it('ensureRegisteredForSubagents() after a switch registers in the new root', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    service.ensureRegisteredForSubagents();
+
+    workspaceProvider.__state.setFolders(['/wsB']);
+    // The one-shot boolean used to make this a no-op forever.
+    service.ensureRegisteredForSubagents();
+
+    expect(serversIn(disk, ROOT_B)).toEqual({
+      ptah: { type: 'http', url: 'http://localhost:51820' },
+    });
+  });
+
+  it('unregisters from the written path when the LAST folder is removed, and stop() is then clean', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    service.ensureRegisteredForSubagents();
+
+    // Zero folders open — getMcpJsonPath() resolves to null.
+    workspaceProvider.__state.setFolders([]);
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+
+    fsWriteFileSyncMock.mockClear();
+    await service.stop();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('a workspace change without a prior registration never touches disk', async () => {
+    useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    // No ensureRegisteredForSubagents() — we own no entry, so the switch must
+    // not start writing into the user's repositories (the Bug #9 rule).
+    workspaceProvider.__state.setFolders(['/wsB']);
+
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+    expect(fsReadFileSyncMock).not.toHaveBeenCalled();
   });
 });
