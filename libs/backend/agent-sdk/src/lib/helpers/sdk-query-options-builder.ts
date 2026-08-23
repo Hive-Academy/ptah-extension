@@ -17,6 +17,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
+import type { ActivityHold } from './no-activity-watchdog';
 import {
   AISessionConfig,
   AuthEnv,
@@ -462,6 +463,30 @@ export interface QueryOptionsInput {
    * by non-interactive callers, which fall back to the global default.
    */
   permissionLevelResolver?: () => PermissionLevel;
+  /**
+   * The session's no-stream-activity watchdog, as a hold handle.
+   *
+   * Every blocking branch of `canUseTool` — permission prompt, AskUserQuestion,
+   * ExitPlanMode — parks the turn with zero SDK messages in flight, which is
+   * indistinguishable from a wedged provider to a timer that only watches the
+   * stream. Wrapping the callback in hold/release makes the distinction
+   * explicit: time a human spends reading a prompt is never counted against the
+   * provider, so a 3-minute deliberation can no longer kill the session
+   * (TASK_2026_317). Omitted by callers with no watchdog, which behave exactly
+   * as before.
+   */
+  activityHold?: ActivityHold;
+  /**
+   * Resolves the session's REAL SDK id, read live when a prompt is raised.
+   *
+   * The routing ids below are fixed at build time, and for a NEW session the
+   * SDK UUID does not exist yet — so they fall back to `sessionConfig.tabId`.
+   * That is the correlation id for a surface workflow, which makes the prompt
+   * unroutable to anything but a chat tab. Supplied by `SessionQueryExecutor`
+   * bound to the SessionRecord so the id is correct by the first tool call.
+   * See `SdkPermissionHandler.createCallback`'s `sessionIdResolver`.
+   */
+  sessionIdResolver?: () => string | undefined;
 }
 
 /**
@@ -586,6 +611,8 @@ export class SdkQueryOptionsBuilder {
       initialUserQuery,
       authEnvOverride,
       permissionLevelResolver,
+      activityHold,
+      sessionIdResolver,
     } = input;
 
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
@@ -660,14 +687,29 @@ export class SdkQueryOptionsBuilder {
         { tabId: sessionConfig.tabId },
       );
     }
-    const canUseToolCallback: CanUseTool =
-      this.permissionHandler.createCallback(
-        routingSessionId ?? undefined,
-        undefined,
-        routingTabId ?? undefined,
-        permissionLevelResolver,
-        sessionConfig?.tabId,
-      );
+    const gateToolCall: CanUseTool = this.permissionHandler.createCallback(
+      routingSessionId ?? undefined,
+      undefined,
+      routingTabId ?? undefined,
+      permissionLevelResolver,
+      sessionConfig?.tabId,
+      sessionIdResolver,
+    );
+    // Silence while `canUseTool` is parked is Ptah's own doing, not the
+    // provider's — see `QueryOptionsInput.activityHold`. The hold is taken for
+    // every tool call, not just the blocking ones: an auto-approved tool
+    // resolves in the same tick, so the cost is a matched hold/release pair,
+    // and there is no list of "which branches block" to keep in step.
+    const canUseToolCallback: CanUseTool = activityHold
+      ? async (toolName, input_, options) => {
+          activityHold.hold();
+          try {
+            return await gateToolCall(toolName, input_, options);
+          } finally {
+            activityHold.release();
+          }
+        }
+      : gateToolCall;
     const hooks = this.createHooks(
       cwd,
       sessionId,

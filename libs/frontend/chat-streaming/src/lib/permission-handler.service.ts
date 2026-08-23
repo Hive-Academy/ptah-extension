@@ -620,22 +620,33 @@ export class PermissionHandlerService {
    * Remove all permission and question requests for a specific session.
    * Called when the backend notifies that a session has been aborted.
    * Prevents stale permission/question cards from lingering in the UI.
+   *
+   * Matches on `tabId` as well as `sessionId`, mirroring the backend's own
+   * `PendingResponseRegistry.cleanupBySession`. The broadcast carries the
+   * record's TAB id, while a prompt now carries the resolved SDK session id
+   * (see `SdkPermissionHandler.createCallback`'s `sessionIdResolver`) — so the
+   * two only coincide when the caller had no separate tab id. Filtering on
+   * `sessionId` alone left every prompt of an aborted surface workflow on
+   * screen, still answerable, against a session that no longer exists.
    */
   cleanupSession(sessionId: string): void {
+    const owns = (r: { sessionId?: string; tabId?: string }): boolean =>
+      r.sessionId === sessionId || r.tabId === sessionId;
+
     const removedIds = this._permissionRequests()
-      .filter((r) => r.sessionId === sessionId)
+      .filter(owns)
       .map((r) => r.id);
 
     const removedQuestionIds = this._questionRequests()
-      .filter((r) => r.sessionId === sessionId)
+      .filter(owns)
       .map((r) => r.id);
 
     this._permissionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId),
+      requests.filter((r) => !owns(r)),
     );
 
     this._questionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId),
+      requests.filter((r) => !owns(r)),
     );
 
     for (const id of removedIds) {

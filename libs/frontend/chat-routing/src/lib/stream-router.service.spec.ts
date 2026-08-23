@@ -53,6 +53,7 @@ import type {
 } from '@ptah-extension/shared';
 import { StreamRouter } from './stream-router.service';
 import { StreamingSurfaceRegistry } from './streaming-surface-registry.service';
+import { WorkflowSessionClaimService } from './workflow-session-claim.service';
 
 // ---------- Helpers --------------------------------------------------------
 
@@ -1938,6 +1939,116 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       );
       expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
       warnSpy.mockRestore();
+    });
+
+    // ---- correlation-id routing (TASK_2026_317) -------------------------
+    //
+    // A surface workflow hands `chat:start` a correlation id as `tabId`, and
+    // the backend derives BOTH prompt routing ids from it — for a new session
+    // the SDK UUID does not exist yet. So the prompt arrives carrying an id
+    // that is neither a bound TabId nor a session the ConversationRegistry
+    // knows. The claim map is the only thing that can resolve it, and until
+    // now only the stream-event path consulted it: questions fell through to
+    // the chat view's active-tile net and appeared on an unrelated canvas
+    // session while the workflow's own panel stayed empty.
+
+    it('routes a question carrying ONLY a correlation id to the claimed interactive surface', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      const correlationId = TabId.create() as string;
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        correlationId,
+        probe.surfaceId,
+      );
+      // Deliberately NOT bound to any conversation: this is the pre-`init`
+      // state where the real session id does not exist yet.
+      router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-correlation',
+          tabId: correlationId,
+          sessionId: correlationId,
+        }),
+      );
+
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-correlation',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+    });
+
+    it('routes a permission prompt carrying ONLY a correlation id to the claimed interactive surface', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      const correlationId = TabId.create() as string;
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        correlationId,
+        probe.surfaceId,
+      );
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({
+          id: 'perm-correlation',
+          tabId: correlationId,
+          sessionId: correlationId,
+        }),
+      );
+
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-correlation',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+    });
+
+    it('ignores a claim whose surface is NOT interactive — full-auto surfaces keep auto-answering', () => {
+      const probe = makeSurfaceProbe(); // registered without { interactive: true }
+      const correlationId = TabId.create() as string;
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        correlationId,
+        probe.surfaceId,
+      );
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-correlation-noninteractive',
+          tabId: correlationId,
+          sessionId: SESSION_A as unknown as string,
+        }),
+      );
+
+      expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.handleQuestionResponse).toHaveBeenCalledWith({
+        id: 'q-correlation-noninteractive',
+        answers: {},
+      });
+      warnSpy.mockRestore();
+    });
+
+    it('prefers a live bound TAB over a claim — a chat tile still wins its own prompts', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      const tabId = TabId.create();
+      const convId = router.onTabCreated(tabId, SESSION_A);
+      expect(convId).toBeTruthy();
+      TestBed.inject(WorkflowSessionClaimService).claim(
+        tabId as string,
+        probe.surfaceId,
+      );
+
+      const targets = router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-tab-wins',
+          tabId: tabId as string,
+          sessionId: SESSION_A as unknown as string,
+        }),
+      );
+
+      expect(targets).toEqual([tabId]);
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-tab-wins',
+        [tabId],
+      );
     });
 
     it('non-interactive surface keeps auto-deny behavior unchanged', () => {

@@ -29,6 +29,7 @@ export {
 export {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
+  type ActivityHold,
 } from './no-activity-watchdog';
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';

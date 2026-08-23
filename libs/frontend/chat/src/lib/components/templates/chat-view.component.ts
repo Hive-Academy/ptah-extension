@@ -54,6 +54,7 @@ import {
   TabId,
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
@@ -141,6 +142,13 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _appState = inject(AppStateManager);
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
+  /**
+   * Asked one question only: "does an interactive workflow surface already own
+   * this prompt?" — see the fallback ladder in
+   * {@link resolvedQuestionRequests}. The verdict lives on the router so this
+   * view and the routing itself can never disagree about who owns a prompt.
+   */
+  private readonly _streamRouter = inject(StreamRouter);
   /**
    * Read the one-tick auto-animate suppression flag set by
    * `CompactionLifecycleService.handleCompactionComplete`. Combined with
@@ -707,6 +715,15 @@ export class ChatViewComponent implements OnDestroy {
    *      silent drops; the backend's `awaitQuestionResponse` has
    *      `timeoutAt: 0` (block indefinitely) so a dropped question hangs
    *      the tool call forever.
+   *
+   * Rung 2 is a safety net for questions NOBODY owns, and it must stay that
+   * way. A workflow surface (New Project, harness builder) raises questions
+   * whose `tabId`/`sessionId` is its own correlation id, which resolves to a
+   * `SurfaceId` rather than a tab — so rung 1 misses by construction and the
+   * net used to fire, painting the workflow's question onto whichever canvas
+   * tile happened to be focused while the workflow's own panel stayed empty.
+   * A claimed correlation id means the prompt HAS an owner and this tile is
+   * not it; showing it here is a mis-route, not a rescue (TASK_2026_317).
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
@@ -729,9 +746,28 @@ export class ChatViewComponent implements OnDestroy {
       const legacyMatch =
         tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
       if (legacyMatch) return true;
+      if (this.isClaimedByWorkflowSurface(q)) return false;
       return isActiveTile;
     });
   });
+
+  /**
+   * True when an INTERACTIVE workflow surface owns this question — it has a
+   * panel of its own to render the card on, so the active-tile safety net in
+   * {@link resolvedQuestionRequests} must stand down rather than adopt it.
+   *
+   * Delegated to the router rather than reading the claim map directly. A raw
+   * claim lookup is not the same question: Tribunal claims its CONDUCTOR TAB's
+   * id against a surface it never registers, and treating that as "owned
+   * elsewhere" would have hidden the conductor's own prompts from every tile
+   * but the one already matching by id.
+   */
+  private isClaimedByWorkflowSurface(q: {
+    readonly tabId?: string;
+    readonly sessionId?: string;
+  }): boolean {
+    return this._streamRouter.interactiveSurfaceOwning(q) !== null;
+  }
 
   readonly resolvedQueuedContent = computed(() => {
     const tab = this.resolvedTab();

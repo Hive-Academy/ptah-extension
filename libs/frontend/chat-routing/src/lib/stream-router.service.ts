@@ -55,6 +55,7 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import { StreamingSurfaceRegistry } from './streaming-surface-registry.service';
+import { WorkflowSessionClaimService } from './workflow-session-claim.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamRouter {
@@ -65,6 +66,7 @@ export class StreamRouter {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+  private readonly claims = inject(WorkflowSessionClaimService);
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
   private readonly sessionManager = inject(SessionManager);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -414,6 +416,14 @@ export class StreamRouter {
       }
     }
 
+    if (tabs.length === 0) {
+      const claimed = this.interactiveSurfaceOwning(prompt);
+      if (claimed) {
+        this.permissionHandler.attachPromptTargets(prompt.id, [claimed]);
+        return tabs;
+      }
+    }
+
     if (tabs.length === 0 && prompt.sessionId) {
       tabs = this.tabsForSession(prompt.sessionId as ClaudeSessionId);
     }
@@ -483,6 +493,14 @@ export class StreamRouter {
       }
     }
 
+    if (tabs.length === 0) {
+      const claimed = this.interactiveSurfaceOwning(question);
+      if (claimed) {
+        this.permissionHandler.attachQuestionTargets(question.id, [claimed]);
+        return tabs;
+      }
+    }
+
     if (tabs.length === 0 && question.sessionId) {
       tabs = this.tabsForSession(question.sessionId as ClaudeSessionId);
     }
@@ -537,6 +555,62 @@ export class StreamRouter {
     });
 
     return tabs;
+  }
+
+  /**
+   * The workflow surface that CLAIMED this prompt's correlation id, if any.
+   *
+   * There are three identities in play, not two, and this is the one the
+   * router used to be blind to:
+   *   1. `TabId` — a chat tab, resolvable through `TabSessionBinding`.
+   *   2. `ClaudeSessionId` — the SDK's UUID, resolvable through
+   *      `ConversationRegistry` once the session has reported it.
+   *   3. A workflow CORRELATION id — minted by a surface host (New Project,
+   *      harness builder, tribunal) and handed to `chat:start` as `tabId`.
+   *
+   * The backend puts the correlation id on BOTH `tabId` and `sessionId` of
+   * every prompt it raises: `SdkQueryOptionsBuilder` derives its routing ids
+   * from `sessionConfig.tabId ?? sessionId`, so for a surface run the real SDK
+   * session id never reaches the prompt at all. A chat tab is unaffected —
+   * there the correlation id IS a bound `TabId`, which is exactly why this
+   * only ever broke on the non-tab surfaces. On a surface, both lookups above
+   * miss, the router attaches nothing, and `chat-view`'s "show it on the
+   * active tile" safety net drops the card on an unrelated canvas session
+   * while the workflow's own panel shows nothing (TASK_2026_317).
+   *
+   * `WorkflowSessionClaimService` already holds correlation id → `SurfaceId`,
+   * and the stream-event path has consulted it all along
+   * (`ChatMessageHandler.renderedSurfaceFor`). Prompts never did. This closes
+   * that asymmetry: same map, same claim, same surface.
+   *
+   * Returns null unless the claimed surface is also registered INTERACTIVE —
+   * a background surface has no card to render on, and the existing
+   * auto-answer / auto-deny guards below must keep owning that case. Two live
+   * claimants depend on that gate:
+   *   - the setup wizard's analysis phases register non-interactive surfaces
+   *     (their queries run `bypassPermissions` with no `canUseTool`, so they
+   *     cannot raise a prompt at all);
+   *   - Tribunal claims its CONDUCTOR TAB's id against a `SurfaceId` it never
+   *     registers an adapter for — the claim is a marker, and the conductor is
+   *     a normal chat tab that must keep routing as one.
+   *
+   * Public because `chat-view` needs the same verdict to decide whether its
+   * active-tile fallback should stand down. One rule, one implementation:
+   * duplicating the gate is how Tribunal's tab-shaped claim would have started
+   * suppressing cards that only the tab could show.
+   */
+  interactiveSurfaceOwning(prompt: {
+    readonly tabId?: string;
+    readonly sessionId?: string;
+  }): SurfaceId | null {
+    for (const correlationId of [prompt.tabId, prompt.sessionId]) {
+      if (!correlationId) continue;
+      const surfaceId = this.claims.surfaceFor(correlationId);
+      if (!surfaceId) continue;
+      if (!this.surfaceRegistry.isInteractive(surfaceId)) continue;
+      return surfaceId;
+    }
+    return null;
   }
 
   /**
