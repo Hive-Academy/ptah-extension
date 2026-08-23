@@ -19,9 +19,27 @@ Each skill row shows its display name and description, both read from the `SKILL
 The chevron only renders when the plugin is enabled **and** its skills were successfully listed. A plugin whose files have not been downloaded yet shows its count badge but nothing to expand.
 :::
 
+## Skill copies reach every detected AI tool, not only Claude's
+
+Ptah keeps one editable copy of each skill under `~/.ptah/user/skills`, then
+reconciles it out to a manifest-owned copy in every AI tool it detects on your
+machine — not a link, a real file. For skills, that means up to four target
+directories inside the workspace:
+
+| Target(s)             | Directory                         |
+| --------------------- | --------------------------------- |
+| Claude                | `.claude/skills/<slug>/`          |
+| Codex and Antigravity | `.agents/skills/<slug>/` (shared) |
+| Copilot               | `.github/skills/<slug>/`          |
+| Cursor                | `.cursor/skills/<slug>/`          |
+
+Only the tools you have installed get a copy — an undetected tool is not a gap.
+Turning a skill off or on affects all of them together; there's no per-tool
+switch.
+
 ## What a disabled skill means
 
-Disabled skills are recorded per workspace as `disabledSkillIds`, a list of skill **directory names** — `orchestration`, `tribunal`, `ui-ux-designer`. When junctions are rebuilt on save, a disabled skill is skipped: no junction is created under `<workspace>/.claude/skills/`, and any junction left from a previous configuration is removed as stale.
+Disabled skills are recorded per workspace as `disabledSkillIds`, a list of skill **directory names** — `orchestration`, `tribunal`, `ui-ux-designer`. On the next reconcile, a disabled skill drops out of the desired state: its copy is removed from every target directory listed above, and it is never recreated while it stays disabled.
 
 The effect is that the skill stops being visible to agents in that workspace. The plugin stays enabled, its other skills stay live, and its slash commands are unaffected — command files come from `commands/`, not `skills/`, and skill toggles do not touch them.
 
@@ -33,10 +51,10 @@ The two switches are independent lists in the same saved record, and they compos
 
 | Plugin state | Skill state | Result                                                                 |
 | ------------ | ----------- | ---------------------------------------------------------------------- |
-| Enabled      | Enabled     | The skill is junctioned and available                                  |
+| Enabled      | Enabled     | The skill is copied out and available                                  |
 | Enabled      | Disabled    | The skill is skipped; the rest of the plugin still works               |
-| Disabled     | Enabled     | Nothing is junctioned — plugin enablement is the outer gate            |
-| Disabled     | Disabled    | Nothing is junctioned; the toggle is remembered for when you re-enable |
+| Disabled     | Enabled     | Nothing is copied out — plugin enablement is the outer gate            |
+| Disabled     | Disabled    | Nothing is copied out; the toggle is remembered for when you re-enable |
 
 Unchecking a whole plugin does **not** clear the per-skill toggles you set inside it. They stay in `disabledSkillIds` and take effect again the moment you re-enable the plugin.
 

@@ -15,6 +15,16 @@
  *      mirrored copy is the expected case and is NOT reported; a plugin skill
  *      losing to a DIFFERENT plugin's skill is a real shadowing and is.
  *
+ * One clause of (1) was wrong for skills and was corrected in TASK_2026_316:
+ * the base is not admitted unconditionally. `~/.ptah/user/skills` is one
+ * directory per MACHINE that only ever grows, so a workspace that enabled
+ * nothing was inheriting the union of every plugin ever enabled anywhere on it.
+ * Each clone's `.ptah-origin.json` names the plugin it came from, and
+ * `plugin-origin-gate.ts` applies this workspace's plugin enablement to the base
+ * loop as well as the overlay. Read that file before changing anything here:
+ * every one of its rules exists to stop a plausible-looking filter from
+ * deleting user data.
+ *
  * Flat namespace, first-wins, no auto-namespacing. Renaming `run-tests` to
  * `dotnet-skills--run-tests` on copy would desynchronize the directory from the
  * frontmatter `name` that other skills reference in prose, and would invalidate
@@ -43,6 +53,7 @@ import type {
   HarnessDesiredSkill,
   HarnessDesiredState,
 } from './desired-state.types';
+import { createPluginOriginGate } from './plugin-origin-gate';
 import { canonicalSlug, isReservedSlug } from './slug-rules';
 
 /** Ids the reconciler knows how to route an MCP intent to. */
@@ -172,24 +183,47 @@ export class HarnessManifestBuilder {
 
   // ---------------------------------------------------------------- skills
 
+  /**
+   * Skills, gated twice over.
+   *
+   * 1. `disabledSkillIds` drops individual slugs — the per-skill toggle, keyed
+   *    by directory name, unchanged since this lib was written.
+   * 2. Plugin enablement is the OUTER gate, and until TASK_2026_316 it applied
+   *    only to the overlay loop below. The user layer is the BASE, and it is one
+   *    directory per MACHINE that accumulates a clone the first time any
+   *    workspace enables a plugin — so unchecking that plugin removed it from
+   *    the overlay and changed nothing, because the clone underneath still
+   *    claimed the slug. `createPluginOriginGate` reads each clone's
+   *    `.ptah-origin.json` and applies the same enablement question to it.
+   *
+   * A slug the gate rejects is NOT recorded in `userLayerSlugs`, deliberately.
+   * That set exists to stop an overlay plugin's own mirrored copy being reported
+   * as a collision; a rejected clone has vacated the slot, so a DIFFERENT
+   * enabled plugin shipping the same slug should be free to claim it.
+   *
+   * Dropping a slug here is a REAP, not a skip — skills are manifest-owned, so
+   * the removal sweep deletes the per-workspace copies. That is the intended fix
+   * (the user unchecked the plugin), and it is why the gate fails open in every
+   * case where it cannot prove enablement. The user-layer CLONE is untouched by
+   * any of this: this lib never writes under `~/.ptah/user`, and the mirror's
+   * reaper keeps a disabled plugin's clones on purpose, which is what makes
+   * re-checking the box instant and offline.
+   */
   private buildSkills(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
   ): HarnessDesiredSkill[] {
     const disabled = new Set(sources.disabledSkillIds);
+    const pluginGate = createPluginOriginGate(sources);
     const claimed = new Map<string, HarnessDesiredSkill>();
     const userLayerSlugs = new Set<string>();
 
     for (const slug of this.listSkillSlugs(sources.layout.skillsRoot)) {
       if (disabled.has(slug)) continue;
+      const cloneDir = join(sources.layout.skillsRoot, slug);
+      if (!pluginGate(cloneDir)) continue;
       userLayerSlugs.add(canonicalSlug(slug));
-      this.claimSkill(
-        claimed,
-        collisions,
-        slug,
-        join(sources.layout.skillsRoot, slug),
-        undefined,
-      );
+      this.claimSkill(claimed, collisions, slug, cloneDir, undefined);
     }
 
     const disabledPlugins = new Set(sources.disabledPluginIds);

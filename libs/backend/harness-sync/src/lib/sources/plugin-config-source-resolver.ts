@@ -80,6 +80,12 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
 
   resolve(): HarnessSourceState {
     const mcpIntents = this.readMcpIntents();
+    // Every `return empty` below is a READ FAILURE, not an observation that the
+    // user has nothing enabled. It therefore deliberately omits
+    // `overlayPluginPathsKnown`, which is what tells the manifest builder to
+    // filter nothing: an empty overlay presented as authoritative would assert
+    // "every plugin is disabled here" and reap every skill copy in the
+    // workspace. Adding the flag to this literal is the whole failure mode.
     const empty: HarnessSourceState = {
       layout: this.layout,
       mcpIntents,
@@ -106,6 +112,9 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
         layout: this.layout,
         mcpIntents,
         overlayPluginPaths: reader.resolveCurrentPluginPaths(),
+        // The one path that actually asked the plugin loader and got an answer,
+        // so the one path entitled to say the overlay is authoritative.
+        overlayPluginPathsKnown: true,
         disabledSkillIds: reader.getDisabledSkillIds(),
         disabledPluginIds: config.disabledPluginIds ?? [],
         disabledAgentIds: config.disabledAgentIds ?? [],

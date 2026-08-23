@@ -29,6 +29,8 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   buildSkillDescriptorId,
+  HARNESS_PLUGIN_ID_PREFIX,
+  SKILLS_SH_PLUGIN_ID_PREFIX,
   type PluginInfo,
   type PluginConfigState,
   type PluginSkillEntry,
@@ -194,8 +196,13 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
  * are not part of AVAILABLE_PLUGINS and are not required to appear in
  * `enabledPluginIds`, so they can only be found by scanning the plugins base
  * directory.
+ *
+ * The literal moved to `@ptah-extension/shared` in TASK_2026_316 — it had
+ * already been spelled twice (here and in `agent-generation`'s sidecar types),
+ * and `harness-sync` needed a third to filter user-layer clones by origin
+ * plugin. This is a local alias over the one definition, not a fourth copy.
  */
-const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
+const HARNESS_PLUGIN_PREFIX = HARNESS_PLUGIN_ID_PREFIX;
 
 /**
  * Directory-name prefix used by skills.sh source roots.
@@ -211,8 +218,11 @@ const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
  * asked for this specific skill by clicking Install, which is the same
  * "authored on purpose" signal, so it is active on discovery and stays active
  * until its id lands in `disabledPluginIds`.
+ *
+ * Defined once in `@ptah-extension/shared`, alongside the harness prefix and the
+ * `isOptOutPluginId` predicate that spells out what the two have in common.
  */
-const SKILLS_SH_PLUGIN_PREFIX = 'ptah-skillssh-';
+const SKILLS_SH_PLUGIN_PREFIX = SKILLS_SH_PLUGIN_ID_PREFIX;
 
 /**
  * Fallback description for a harness plugin whose skills carry no frontmatter
