@@ -5,6 +5,11 @@
 **Scope**: Task 9.1 (the dialog) and Task 11.2 (the route), plus one narrow, explicitly-authorised
 line in `libs/backend/harness-sync/CLAUDE.md`.
 
+**Revision 2** — the batch was reviewed **APPROVED WITH FINDINGS** and committed as **`f505c652a`**.
+This revision closes **F1** (no store-level spec for `repairBlocked`) and records **m1**. Changes
+from revision 1 are marked **[R2]** and sit **on top of** `f505c652a`; the commit was not amended.
+The only file changed in this revision is `harness-health.store.spec.ts` — no production code moved.
+
 ---
 
 ## 1. What shipped, in one paragraph
@@ -83,6 +88,11 @@ is **indistinguishable on the wire** from one fired when it was given:
 Layer 1 is a rendering; layer 2 is the decision; layer 3 covers any future second caller. Mutation
 **M2** removes layers 2 and 3 together and kills exactly the two cases that own the property — one
 at the component, one at the store.
+
+**[R2]** Layer 3 now also has a store-level case of its own, and mutation **M12** removes it in
+isolation. The review's point was exact: revision 1's three-layer claim was true of the code and
+only two-thirds true of the evidence, because layer 3 is unreachable from the dialog and nothing
+exercised it alone. **A layer that is never exercised is not verified to be a layer.** See §12.
 
 ---
 
@@ -270,23 +280,31 @@ cell.
 | `libs/frontend/dashboard/.../harness-card/harness-card.component.ts`           | one route button, sibling dialog mount, new `RECONCILE_STEP`, docblock       |
 | `libs/frontend/dashboard/.../harness-card/harness-card.spec.ts`                | case 9 replaced; 3 route cases added; action sentence pinned exact (11 → 14) |
 | `libs/backend/harness-sync/CLAUDE.md`                                          | **one claim** — see §9. No source change in `libs/backend/**`.               |
+| `libs/frontend/marketplace/src/lib/harness/harness-health.store.spec.ts`       | **[R2]** F1 — four `repairBlocked` cases (26 → 30). Only file in revision 2. |
 
 No change under `libs/shared`. No RPC contract change — `harness:repairBlocked` shipped in Batch 8
-and this is its first caller.
+and this is its first caller. **[R2]** Revision 2 touches nothing under `libs/backend/**` at all —
+the one authorised exception there is already in `f505c652a`.
 
 ---
 
 ## 8. Verification — actual output
 
+**[R2]** Re-run after the F1 fix. Marketplace moved 158 → **162** (the four new store cases);
+dashboard is unchanged at 37, as it must be, since revision 2 touched no dashboard file.
+
 ```
 $ npx nx run-many -t test,lint,typecheck -p dashboard,marketplace --skip-nx-cache
 Test Suites: 10 passed, 10 total      (marketplace)
-Tests:       158 passed, 158 total
+Tests:       162 passed, 162 total
 Test Suites: 3 passed, 3 total        (dashboard)
 Tests:       37 passed, 37 total
 ✖ 2 problems (0 errors, 2 warnings)
 NX  Successfully ran targets test, lint, typecheck for 2 projects
 ```
+
+Revision 1's figure at the same command was `158 passed` / `37 passed`, with identical lint and
+typecheck results.
 
 The two lint warnings are **pre-existing** `max-lines` on `external-marketplaces.component.ts` (753)
 and `smithery-surface.component.ts` (940), neither touched here. The new component is 512 lines,
@@ -318,22 +336,29 @@ $ grep -c "    it(" libs/frontend/marketplace/src/lib/harness/harness-repair-dia
 24
 $ grep -c "    it(" libs/frontend/dashboard/src/lib/components/harness-card/harness-card.spec.ts
 14
-$ grep -c "test(" <both files>
+$ grep -c "    it(" libs/frontend/marketplace/src/lib/harness/harness-health.store.spec.ts
+30
+$ grep -c "test(" <all three files>
+0
 0
 0
 ```
 
-**24 new** (dialog) + **3 new and 1 replaced** (card, 11 → 14) = **27 new cases, 1 rewritten**.
-Jest agrees: the dialog suite reports `Tests: 24 passed, 24 total`, the card suite `14 passed`.
+**Revision 1**: 24 new (dialog) + 3 new and 1 replaced (card, 11 → 14) = **27 new, 1 rewritten**.
+Confirmed by the reviewer's recount.
 
-| Dialog block               | cases  |
-| -------------------------- | ------ |
-| what the dialog arrives in | 4      |
-| what leaves the dialog     | 8      |
-| what it says               | 6      |
-| what it reports back       | 3      |
-| the store call itself      | 3      |
-| **total**                  | **24** |
+**[R2] Revision 2**: **4 new** in `harness-health.store.spec.ts` (26 → 30). Batch running total:
+**31 new cases, 1 rewritten.** Jest agrees at every file — dialog `24 passed`, card `14 passed`,
+store `30 passed`.
+
+| Dialog block               | cases  |     | Store block (`repairBlocked`) **[R2]** | cases |
+| -------------------------- | ------ | --- | -------------------------------------- | ----- |
+| what the dialog arrives in | 4      |     | empty-list guard                       | 1     |
+| what leaves the dialog     | 8      |     | re-entrancy guard                      | 1     |
+| what it says               | 6      |     | handler-refusal path                   | 1     |
+| what it reports back       | 3      |     | thrown-error path + `finally`          | 1     |
+| the store call itself      | 3      |     | **added**                              | **4** |
+| **total**                  | **24** |     | **file total**                         | 30    |
 
 ---
 
@@ -361,7 +386,9 @@ was touched.
 
 ---
 
-## 10. Mutation testing — 11 mutations, fail/pass per mutation
+## 10. Mutation testing — 15 mutations, fail/pass per mutation
+
+**[R2]** M12–M15 were added with the F1 fix and are in the second table.
 
 Every mutation was applied to source, the affected suite run, then the file restored from a
 pre-mutation copy. "Revert it and it does not compile" was not accepted as evidence anywhere —
@@ -393,6 +420,29 @@ nothing checked sends nothing), M3 (exactly the checked paths), M4 (cannot send 
 blocked set) and M5 (move-not-delete over the whole dialog). Each is killed by the mutation written
 against it.
 
+### **[R2]** M12–M15 — the four store guards, each removed alone
+
+Suite: `harness-health.store.spec.ts`, 30 cases.
+
+| #       | Mutation                                                                        | Result               | Cases killed                                            |
+| ------- | ------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------- |
+| **M12** | Drop `paths.length === 0` from the guard (empty list reaches the wire)          | **1 fail / 29 pass** | `refuses an empty list before it reaches the wire`      |
+| **M13** | Drop `this._repairing()` from the guard (second press sends a second move)      | **1 fail / 29 pass** | `drops a second repair while one is in flight…`         |
+| **M14** | Delete the `_error.set` on the `isSuccess()`-false branch (refusal goes silent) | **1 fail / 29 pass** | `reports a handler refusal without claiming…`           |
+| **M15** | Remove the `finally`, resetting `_repairing` on the two non-throwing paths only | **1 fail / 29 pass** | `narrows a thrown transport error and frees the guard…` |
+
+Four mutations, four kills, **one case each** — no crowd, no overlap, and every guard has exactly
+one owner. M15 is the one worth reading twice: it keeps the flag correct on both paths a test would
+naturally take and wedges it **only** on the throw, so a case that ended at "the error message is
+right" would pass. It is the retry at the end of that case — a second `repairBlocked` that must
+actually reach the wire — which fails.
+
+M12 is likewise deliberately narrow. Removing the guard does not make the call _succeed_; it makes
+it go out, find no responder, and come back a failure, so `repairBlocked([])` still resolves `null`.
+A case asserting only the return value would pass under the mutation. The assertions that fail are
+`calls` being empty and `error()` still being `null` — the difference between "no request" and "a
+request that failed", which is the entire distinction the layer exists to make.
+
 ---
 
 ## 11. Left for the reviewer
@@ -405,3 +455,61 @@ against it.
    the same full pass that runs at every activation, so it adds no exposure the user does not
    already have several times a day — but if the reviewer wants that disclosed here, it is one
    sentence, and it would be the honest place to put it.
+
+---
+
+## 12. **[R2]** F1 closed — `repairBlocked` now has store-level specs
+
+**The finding, restated so the fix is judged against it**: `harness-health.store.spec.ts` contained
+zero references to `repairBlocked` and stayed at 26 cases while the store gained 77 lines, for the
+method that issues the RPC that **moves user files**. Not a defect — the behaviour is correct by
+inspection and Batch 8 defends itself independently — but three behaviours had no direct evidence,
+and one of them is a layer this report itself claimed as defence-in-depth.
+
+Four cases added, `repairBlocked` block, **26 → 30**:
+
+| Case                                                                          | Behaviour covered                                     | Killed by |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------- | --------- |
+| `refuses an empty list before it reaches the wire`                            | the empty-list guard — layer 3 of §2.3                | M12       |
+| `drops a second repair while one is in flight, and says so by returning null` | `this._repairing()` re-entrancy on a file-moving call | M13       |
+| `reports a handler refusal without claiming anything moved`                   | the `isSuccess()`-false branch                        | M14       |
+| `narrows a thrown transport error and frees the guard for the retry`          | the `catch` **and** the `finally`                     | M15       |
+
+### Why each is discriminating rather than decorative
+
+The instruction was explicit that a re-entrancy case which passes whether or not the guard exists is
+worse than none, so each case was written against the mutation that removes its guard, and each was
+run red before being accepted.
+
+- **Empty list.** Asserts `calls` is empty and `error()` is still `null`, not just the `null`
+  return. Under M12 the call goes out and fails, so the return value alone is unchanged — see §10.
+- **Re-entrancy.** The RPC is gated on an unresolved promise, so the second call happens while the
+  first is genuinely in flight; a case that awaited the first would pass under M13 for the wrong
+  reason. It asserts both the call count **and** that the second call resolved `null` — a guard that
+  silently returned the first call's result would let a caller believe its own request landed. It
+  also asserts the first call still resolves with `repaired: 1`, so "the guard works" cannot be
+  achieved by breaking the call it guards.
+- **Handler refusal.** Adopts a real report via `refresh` first, then asserts it **survives** the
+  failed repair. A case run from a null starting state could not tell "left the report alone" from
+  "never had one".
+- **Thrown error + `finally`.** Ends with a second, successful `repairBlocked` and asserts
+  `calls` reaches 2. That retry is the assertion M15 fails — the error message alone is unaffected
+  by removing the `finally`.
+
+Nothing in production code changed to close this finding; `git status` shows one modified file.
+
+### m1 — recorded, not changed
+
+`busy = _loading || _reconciling || _repairing`, and the Plugins panel disables its actions on
+`busy`. So **an in-flight repair now disables Refresh and Reconcile across the whole harness panel**,
+not only the dialog.
+
+This is intended and is left as it is. While the repair holds the workspace lock and is moving
+directories, a concurrent `harness:reconcile` from the panel is precisely the call that should not
+be starting — and the repair's own write phase runs a full pass anyway, so the disabled Reconcile
+button would be asking for work that is already happening. The window is the length of one repair.
+
+Recorded here so a later reader does not diagnose it as a bug: if the panel ever looks frozen during
+a repair, that is this line, and the fix would be to narrow the panel's disable predicate rather
+than to drop `_repairing` from `busy`. The behaviour is asserted in passing by the re-entrancy case
+(`store.busy()` true during the call, false after).

@@ -1,6 +1,36 @@
 # Development Tasks - TASK_2026_306
 
-**Total Tasks**: 27 | **Batches**: 9 | **Status**: Batches 1–5 complete and reviewed; **Batches 6–9 (R2, task widened 2026-08-22) ⏸️ PENDING** — see the R2 section at the end of this file
+**Total Tasks**: 30 | **Batches**: 12 | **Status**: ✅ **ALL 12 BATCHES COMPLETE, REVIEWED AND COMMITTED** (2026-08-23)
+
+## Final state
+
+Every batch got a team-leader MODE 2 review and a `code-logic-reviewer`-equivalent pass before
+commit. Batch 2 is the one that was committed before its review; the review was reconstructed
+post-hoc from the commit and is at `batch-2-implementation.md`.
+
+| Batch    | Subject                                                       | Commit            |
+| -------- | ------------------------------------------------------------- | ----------------- |
+| 1        | Boot blocker — cold-start catchup off the activation path (A) | earlier on branch |
+| 2        | Provider quota gate (B)                                       | `ca183174d`       |
+| 3        | `agent-sdk` — silent import failure + boot double-init (C, G) | earlier on branch |
+| 4        | Activation-time subsystem failures (D, E)                     | earlier on branch |
+| 5        | `harness-sync` — mis-scoped summary (F)                       | `5c2090bdf`       |
+| 10       | Close F1 — curator stall distinguishable from empty           | `5dfedc09c`       |
+| 6        | R2-A backend — blocked shortfall legible                      | `e1851b34a`       |
+| 8        | R2-D backend — consent-gated repair + quarantine              | `12cc37071`       |
+| 7 + 11   | R2-A frontend disclosure + Dashboard promotion                | `f03e0cfd0`       |
+| 12       | Boot WARN names the card                                      | `29f754070`       |
+| 9 + 11.2 | Consent dialog + the route into it                            | `f505c652a`       |
+| —        | F1 follow-up: `repairBlocked` store guards pinned             | `70ba25ff2`       |
+
+Docs commits: `d1a534fae`, `df7a6ee55`, `c79cc5fb3`, `440f3e4a0`, `2d3e2b807`.
+
+**Nothing is pushed.** See `HANDOFF.md` for what is unclaimed, the follow-ups, and the
+deliberate `.do/app.yaml` commit that also rides this branch.
+
+**Two verifications remain unclaimed** — both need conditions that cannot be manufactured on
+demand, and neither is a batch: Batch 10's live cold start against a genuinely exhausted
+provider, and Batch 8's manual repair walkthrough.
 **Branch**: `ak/boot-blocker-quota-gate` (already created and checked out — do NOT create or switch)
 **Scope**: Defects A–G from `research-report.md`. Defect H is noise — opportunistic only, no batch.
 **`cli_delegation`**: disabled. Every batch runs on a sub-agent `backend-developer`, sequentially.
@@ -283,7 +313,7 @@ a `frontend-developer` batch after it rather than growing a frontend task inside
 
 ---
 
-### Task 2.1: Record quota state at the proxy chokepoint ⏸️ PENDING
+### Task 2.1: Record quota state at the proxy chokepoint ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\translation\translation-proxy-base.ts`
 **Spec Reference**: `research-report.md` §B "Proposed gate", step 1
@@ -327,7 +357,7 @@ a `frontend-developer` batch after it rather than growing a frontend task inside
 
 ---
 
-### Task 2.2: `ProviderQuotaError`, matched by name ⏸️ PENDING
+### Task 2.2: `ProviderQuotaError`, matched by name ✅ COMPLETE
 
 **File**: new, alongside `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\auth\provider-auth.error.ts`
 **Dependencies**: Task 2.1
@@ -358,7 +388,7 @@ identically here.
 
 ---
 
-### Task 2.3: Throw `ProviderQuotaError` from the resolver — ABOVE the early returns ⏸️ PENDING
+### Task 2.3: Throw `ProviderQuotaError` from the resolver — ABOVE the early returns ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\auth-providers\src\lib\auth\provider-auth-resolver.ts`
 **Dependencies**: Tasks 2.1, 2.2
@@ -389,7 +419,7 @@ identically here.
 
 ---
 
-### Task 2.4: `'quota-exhausted'` failure kind + drain transport classification ⏸️ PENDING
+### Task 2.4: `'quota-exhausted'` failure kind + drain transport classification ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\skill-synthesis\src\lib\lanes\lane.types.ts`
 **Dependencies**: Task 2.2 (for the mirror constant only — no import)
@@ -428,7 +458,7 @@ identically here.
 
 ---
 
-### Task 2.5: Convert the quota throw into a lane stall ⏸️ PENDING
+### Task 2.5: Convert the quota throw into a lane stall ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\skill-synthesis\src\lib\lanes\lane-resolver.service.ts`
 **Dependencies**: Tasks 2.3, 2.4
@@ -467,7 +497,7 @@ identically here.
 
 ---
 
-### Task 2.6: Apply the gate to the memory curator directly ⏸️ PENDING
+### Task 2.6: Apply the gate to the memory curator directly ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\curator-llm-adapter\sdk-internal-query.curator-llm.ts`
 **Dependencies**: Tasks 2.2, 2.3, and **Open Question Q2 answered**
@@ -1444,7 +1474,7 @@ repair half were never approved. Batches 8–9 were gated on §7 and are now **u
 
 ---
 
-## Batch 6: R2-A backend — make the blocked shortfall legible ⏸️ PENDING
+## Batch 6: R2-A backend — make the blocked shortfall legible ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
@@ -1456,7 +1486,7 @@ got wrong once, so it is the sub-agent shape, not the fan-out shape. Lowest risk
 largest legibility win.
 **Tasks**: 3 | **Dependencies**: None — **independent of Batches 8–9 and shippable alone**
 
-### Task 6.1: Derive the blocked set in the reconciler ⏸️ PENDING
+### Task 6.1: Derive the blocked set in the reconciler ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
 **Spec Reference**: `r2-migration-plan.md` §6 / A1
@@ -1489,7 +1519,7 @@ largest legibility win.
 
 ---
 
-### Task 6.2: Log the blocked set at reconcile time ⏸️ PENDING
+### Task 6.2: Log the blocked set at reconcile time ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
 **Dependencies**: Task 6.1
@@ -1518,7 +1548,7 @@ largest legibility win.
 
 ---
 
-### Task 6.3: Document the blocked-path condition and kill the false premise ⏸️ PENDING
+### Task 6.3: Document the blocked-path condition and kill the false premise ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\CLAUDE.md`
 **Dependencies**: none (independent of 6.1/6.2)
@@ -1550,7 +1580,7 @@ largest legibility win.
 
 ---
 
-## Batch 7: R2-A frontend — blocked-paths disclosure on the harness health card ⏸️ PENDING
+## Batch 7: R2-A frontend — blocked-paths disclosure on the harness health card ✅ COMPLETE
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `frontend-developer`
@@ -1563,7 +1593,7 @@ with Batch 6 if the orchestrator wants it, but `cli_delegation` is disabled so i
 sub-agent either way.
 **Tasks**: 1 | **Dependencies**: **None** — derives from the existing payload; does not wait on 6.1
 
-### Task 7.1: Additive blocked-paths disclosure in the harness health card ⏸️ PENDING
+### Task 7.1: Additive blocked-paths disclosure in the harness health card ✅ COMPLETE
 
 **File**: harness health card under `D:\projects\ptah-extension\libs\frontend\` — locate the
 existing card component before editing; this task does **not** create a new surface.
@@ -1600,7 +1630,7 @@ existing card component before editing; this task does **not** create a new surf
 
 ---
 
-## Batch 8: R2-D backend — consent-gated repair with quarantine ⏸️ PENDING
+## Batch 8: R2-D backend — consent-gated repair with quarantine ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
@@ -1614,7 +1644,7 @@ non-negotiable.
 **Tasks**: 4 | **Dependencies**: Batch 6 (needs the derived blocked set as the authoritative
 input); **ungated by decisions U1–U4**
 
-### Task 8.1: Quarantine convention ⏸️ PENDING
+### Task 8.1: Quarantine convention ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\` — new module; document in
 `D:\projects\ptah-extension\libs\backend\harness-sync\CLAUDE.md`
@@ -1634,7 +1664,7 @@ input); **ungated by decisions U1–U4**
 
 ---
 
-### Task 8.2: Repair operation — move-then-write ⏸️ PENDING
+### Task 8.2: Repair operation — move-then-write ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\` — new repair entry point
 **Dependencies**: Task 8.1
@@ -1665,7 +1695,7 @@ input); **ungated by decisions U1–U4**
 
 ---
 
-### Task 8.3: Consent RPC — dual registration + Zod boundary ⏸️ PENDING
+### Task 8.3: Consent RPC — dual registration + Zod boundary ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\rpc-handlers\src\lib\harness\` (handler),
 `D:\projects\ptah-extension\libs\shared\` (`rpc.types.ts`),
@@ -1688,7 +1718,7 @@ input); **ungated by decisions U1–U4**
 
 ---
 
-### Task 8.4: Repair coverage ⏸️ PENDING
+### Task 8.4: Repair coverage ✅ COMPLETE
 
 **File**: specs under `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\`
 **Dependencies**: Tasks 8.1–8.3
@@ -1715,7 +1745,7 @@ input); **ungated by decisions U1–U4**
 
 ---
 
-## Batch 9: R2-D frontend — consent dialog ⏸️ PENDING
+## Batch 9: R2-D frontend — consent dialog ✅ COMPLETE
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `frontend-developer`
@@ -1726,7 +1756,7 @@ so its defaults and its wording are load-bearing, not cosmetic.
 **Tasks**: 1 | **Dependencies**: Batch 8 (needs the consent RPC), Batch 7 (the disclosure is where
 the user enters this flow)
 
-### Task 9.1: One dialog, per-path checkboxes, default none selected ⏸️ PENDING
+### Task 9.1: One dialog, per-path checkboxes, default none selected ✅ COMPLETE
 
 **File**: alongside the harness health card under `D:\projects\ptah-extension\libs\frontend\`
 **Spec Reference**: `r2-migration-plan.md` §6 / D3 (frontend half); decision **U3**
@@ -1846,7 +1876,7 @@ Decided by the user, 2026-08-22, on the two directions the review offered.
 
 ---
 
-## Batch 10: Close F1 — make the curator stall distinguishable from an empty result ⏸️ PENDING
+## Batch 10: Close F1 — make the curator stall distinguishable from an empty result ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
@@ -1874,7 +1904,7 @@ Loss that compounds beats confusion that does not. If only one batch runs today,
 
 ---
 
-### Task 10.1: Return a discriminating result from the curator stall path ⏸️ PENDING
+### Task 10.1: Return a discriminating result from the curator stall path ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\memory-curator\src\lib\` — the stall site added
 by Task 2.6 in `ca183174d`, and the result type it returns through
@@ -1907,7 +1937,7 @@ until its quota refills`. Its `curatorProviderId: ""` field is the empty-provide
 
 ---
 
-### Task 10.2: Stop marking episodes processed on a stalled pass ⏸️ PENDING
+### Task 10.2: Stop marking episodes processed on a stalled pass ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\memory-curator\src\lib\memory-trigger.service.ts`
 **Dependencies**: Task 10.1
@@ -1939,7 +1969,7 @@ until its quota refills`. Its `curatorProviderId: ""` field is the empty-provide
 
 ---
 
-### Task 10.3: Pin the discriminator with a spec that fails if it is removed ⏸️ PENDING
+### Task 10.3: Pin the discriminator with a spec that fails if it is removed ✅ COMPLETE
 
 **File**: specs under `D:\projects\ptah-extension\libs\backend\memory-curator\src\lib\`
 **Dependencies**: Tasks 10.1, 10.2
@@ -2035,7 +2065,7 @@ not earn an exception.
 
 ---
 
-## Batch 11: Harness card on the Dashboard home ⏸️ PENDING
+## Batch 11: Harness card on the Dashboard home ✅ COMPLETE
 
 **Recommended Executor**: `frontend-developer` (sub-agent)
 **Fallback Executor**: `frontend-developer`
@@ -2047,7 +2077,7 @@ here is placement and reachability, not logic.
 **Tasks**: 3 | **Dependencies**: Batch 7 (committed component). **Task 11.2's target requires
 Batch 9**; see its criteria for the ordering escape.
 
-### Task 11.1: Harness card in the dashboard grid ⏸️ PENDING
+### Task 11.1: Harness card in the dashboard grid ✅ COMPLETE
 
 **File**: new component under
 `D:\projects\ptah-extension\libs\frontend\dashboard\src\lib\components\harness-card\`, mounted in
@@ -2074,7 +2104,7 @@ Batch 9**; see its criteria for the ordering escape.
 
 ---
 
-### Task 11.2: Route from the card into the consent dialog ⏸️ PENDING
+### Task 11.2: Route from the card into the consent dialog ✅ COMPLETE
 
 **File**: the Batch 11.1 card, plus whatever navigation seam the dashboard already uses
 **Dependencies**: Task 11.1; **Batch 9** for the dialog itself
@@ -2093,7 +2123,7 @@ Batch 9**; see its criteria for the ordering escape.
 
 ---
 
-### Task 11.3: Pin the promotion ⏸️ PENDING
+### Task 11.3: Pin the promotion ✅ COMPLETE
 
 **File**: specs alongside the Batch 11.1 card
 **Dependencies**: Tasks 11.1, 11.2
@@ -2125,7 +2155,7 @@ Batch 9**; see its criteria for the ordering escape.
 
 ---
 
-## Batch 12: The boot WARN names the surface ⏸️ PENDING
+## Batch 12: The boot WARN names the surface ✅ COMPLETE
 
 **Recommended Executor**: `backend-developer` (sub-agent)
 **Fallback Executor**: `backend-developer`
@@ -2136,7 +2166,7 @@ when this is picked up, the orchestrator should fold it into that commit** rathe
 one-file commit of its own.
 **Tasks**: 1 | **Dependencies**: Batch 6 (committed, `e1851b34a`); Batch 11.1 for the surface name
 
-### Task 12.1: Point the boot WARN at the card ⏸️ PENDING
+### Task 12.1: Point the boot WARN at the card ✅ COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\harness-sync\src\lib\reconciler\harness-reconciler.service.ts`
 (`logBlocked` / its `action` field)

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_306
-status: in_progress
+status: in_review
 type: BUGFIX
 title: >-
   Electron dev boot never opens a window: cron cold-start catchup is awaited on
