@@ -245,20 +245,67 @@ describe('HarnessReconcilerService — the blocked-path line', () => {
     expect(byPath.get('.vscode/mcp.json#wanted')?.target).toBe('vscode');
   });
 
-  it('leads the user action with MOVE, warns the occupant may be their own, and never presents deletion as the remedy', async () => {
+  it('leads the user action with MOVE, warns the occupant may be their own, and never presents destruction as the remedy anywhere in the line', async () => {
+    const reconciler = buildReconciler(writeSources());
+    writeOccupants();
+
+    await reconciler.reconcile(ws, { mode: 'full', reason: 'activation' });
+
+    const detail = blockedDetail(logger);
+    const { action } = detail;
+    // Nothing about these paths proves Ptah wrote them, and `--fix` writes over
+    // whatever the move leaves behind. Advising deletion would trade the user's
+    // possibly-irreplaceable work for a tidier count.
+    expect(action).toMatch(/^Move the occupant aside/);
+    expect(action).toContain('may be your own work');
+    expect(action).toContain('read it before you discard anything');
+    expect(action).toContain('ptah harness doctor --fix');
+
+    // Over the WHOLE line, not just the action clause. Task 12.1 inserted a
+    // sentence into the middle of this paragraph, and the destructive-verb ban
+    // is worth exactly as much as the surface it covers: a rewrite that moved
+    // "delete the occupant" into `note` or into a per-path `reason` would have
+    // passed the action-only check this case used to make.
+    //
+    // The synonym list closes Batch 7's recorded m1 hole. `not.toContain('delete')`
+    // alone let "remove", "erase", "trash" and "rm" through, and any of the four
+    // reads as the same instruction to a user.
+    const wholeLine = `${BLOCKED_MESSAGE} ${JSON.stringify(detail)}`;
+    // The original substring form, kept verbatim and widened to the whole line
+    // so nothing this case used to assert is traded away for the regex set.
+    expect(wholeLine.toLowerCase()).not.toContain('delete');
+    for (const verb of [
+      /\bdelete[ds]?\b/i,
+      /\bdeleting\b/i,
+      /\bdeletion\b/i,
+      /\bremove[ds]?\b/i,
+      /\bremoving\b/i,
+      /\berase[ds]?\b/i,
+      /\btrash\b/i,
+      /\brm\b/i,
+    ]) {
+      expect(wholeLine).not.toMatch(verb);
+    }
+  });
+
+  it('names the Dashboard harness card, so the line is not a dead end for a user without a terminal', async () => {
     const reconciler = buildReconciler(writeSources());
     writeOccupants();
 
     await reconciler.reconcile(ws, { mode: 'full', reason: 'activation' });
 
     const { action } = blockedDetail(logger);
-    // Nothing about these paths proves Ptah wrote them, and `--fix` writes over
-    // whatever the move leaves behind. Advising deletion would trade the user's
-    // possibly-irreplaceable work for a tidier count.
-    expect(action).toMatch(/^Move the occupant aside/);
-    expect(action).toContain('may be your own work');
+    // A log line cannot be clicked, so naming the destination IS the entry
+    // point. The card's own heading is the label, verbatim — a user reading
+    // the log and then opening the home must find the words they just read.
+    expect(action).toContain('Your harness is short');
+    expect(action).toContain('Dashboard');
+    // Both routes, not one instead of the other: the CLI still clears it and
+    // the card only shows it.
     expect(action).toContain('ptah harness doctor --fix');
-    expect(action.toLowerCase()).not.toContain('delete');
+    // The card discloses; it does not repair. Describing it as a fix would
+    // claim an ownership of these paths that nothing here establishes.
+    expect(action.toLowerCase()).not.toMatch(/\bfix (it|them|this)\b/);
   });
 
   it('says a refusal is not a write failure, and labels its scope like the summary', async () => {

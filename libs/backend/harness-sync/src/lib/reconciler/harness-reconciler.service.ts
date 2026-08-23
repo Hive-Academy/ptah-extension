@@ -746,9 +746,19 @@ export class HarnessReconcilerService {
         // wrote them — see the blocked-path condition in this lib's CLAUDE.md —
         // so telling a user to delete them is telling them to destroy work that
         // may be their own, and `--fix` then writes Ptah's version over the
-        // gap. Move is reversible; delete is not.
+        // gap. Move is reversible; delete is not. The same framing — move
+        // first, "may be your own work", never a destructive verb — is carried
+        // by the Marketplace popover and the Dashboard card word for word.
+        // Only the middle clause, the one naming WHERE to go, differs between
+        // the three, because the three are read in three different places.
+        //
+        // The Dashboard card is named because a log line cannot be clicked and
+        // this one is otherwise a dead end for anyone not holding a terminal.
+        // It is named as a place to READ the same list, which is all that card
+        // does: it has no repair control, and it must not be described as one
+        // while the provenance of these paths is unknown.
         action:
-          'Move the occupant aside — the file or directory at each path, or the conflicting key in each config file — then re-run `ptah harness doctor --fix`. Nothing here proves Ptah wrote these, so they may be your own work: keep what you move, and read it before you discard anything.',
+          'Move the occupant aside — the file or directory at each path, or the conflicting key in each config file — then re-run `ptah harness doctor --fix`. The same list is on the Dashboard home, in the "Your harness is short" card. Nothing here proves Ptah wrote these, so they may be your own work: keep what you move, and read it before you discard anything.',
         paths,
       },
     );
