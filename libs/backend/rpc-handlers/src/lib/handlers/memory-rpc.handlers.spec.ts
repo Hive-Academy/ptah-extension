@@ -86,6 +86,7 @@ function makeCodeSymbolStore() {
     deleteByFile: jest.fn().mockReturnValue(0),
     insertBatch: jest.fn().mockResolvedValue(undefined),
     purgeWorkspace: jest.fn().mockReturnValue(0),
+    search: jest.fn().mockReturnValue({ items: [], total: 0 }),
   };
 }
 
@@ -1167,6 +1168,203 @@ describe('MemoryRpcHandlers — nested triggers (userPromptSubmit / postToolUse 
         maxCuratesPerHour: 20,
       },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// workspaceRoot scoping at the RPC boundary — TASK_2026_315 A4
+//
+// The defect was `params?.workspaceRoot ?? undefined`: `??` treats null as
+// nullish, so the webview's explicit `null` ("global/unscoped memories")
+// collapsed into `undefined` ("no filter") and the store answered with the
+// union of every workspace in the shared database.
+// ---------------------------------------------------------------------------
+
+describe('MemoryRpcHandlers — memory:stats workspace scoping', () => {
+  it('never passes undefined to the stores when the param is omitted (no cross-workspace union)', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([
+      '/workspace/project',
+    ]);
+
+    await rpcHandler.call('memory:stats', {});
+
+    expect(store.stats).toHaveBeenCalledWith('/workspace/project');
+    expect(codeSymbols.count).toHaveBeenCalledWith('/workspace/project');
+    expect(store.stats).not.toHaveBeenCalledWith(undefined);
+    expect(codeSymbols.count).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it('scopes an omitted param to null (global/unscoped) when no folder is open', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:stats', {});
+
+    expect(store.stats).toHaveBeenCalledWith(null);
+    expect(codeSymbols.count).toHaveBeenCalledWith(null);
+  });
+
+  it('preserves an explicit null as null — global memories stay a distinct query', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:stats', { workspaceRoot: null });
+
+    expect(store.stats).toHaveBeenCalledWith(null);
+    expect(codeSymbols.count).toHaveBeenCalledWith(null);
+  });
+
+  it('forwards an explicit workspaceRoot unchanged', async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([
+      '/workspace/project',
+    ]);
+
+    await rpcHandler.call('memory:stats', { workspaceRoot: '/other/ws' });
+
+    expect(store.stats).toHaveBeenCalledWith('/other/ws');
+    expect(codeSymbols.count).toHaveBeenCalledWith('/other/ws');
+  });
+
+  // The Memory tab's "All workspaces" toggle. Passing `null` alone used to mean
+  // this by accident and now means "global/unscoped rows only" — `scope: 'all'`
+  // is the only way to ask for the cross-workspace total.
+  it("scope:'all' produces the cross-workspace union (undefined = no predicate)", async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([
+      '/workspace/project',
+    ]);
+
+    await rpcHandler.call('memory:stats', {
+      workspaceRoot: null,
+      scope: 'all',
+    });
+
+    expect(store.stats).toHaveBeenCalledWith(undefined);
+    expect(codeSymbols.count).toHaveBeenCalledWith(undefined);
+  });
+
+  it("scope:'all' ignores an explicit workspaceRoot rather than narrowing", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:stats', {
+      workspaceRoot: '/workspace/project',
+      scope: 'all',
+    });
+
+    expect(store.stats).toHaveBeenCalledWith(undefined);
+  });
+
+  it("scope:'workspace' with no folder open still means global/unscoped, not a union", async () => {
+    const { rpcHandler, store, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:stats', { scope: 'workspace' });
+
+    expect(store.stats).toHaveBeenCalledWith(null);
+    expect(codeSymbols.count).toHaveBeenCalledWith(null);
+  });
+
+  it('rejects an unknown scope value', async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:stats', { scope: 'everything' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(store.stats).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryRpcHandlers — memory:searchSymbols workspace scoping', () => {
+  it('scopes an omitted workspaceRoot to the current root instead of every workspace', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:searchSymbols', { query: 'login' });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: '/workspace/project' }),
+    );
+  });
+
+  it('scopes to null when no folder is open', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:searchSymbols', { query: 'login' });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: null }),
+    );
+  });
+
+  // The Memory tab's "All workspaces" toggle omits `workspaceRoot`. Without an
+  // explicit scope that is indistinguishable from "no folder open", and an
+  // all-workspaces symbol search silently narrowed to the active workspace.
+  it("scope:'all' spans every workspace (undefined = no predicate)", async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await rpcHandler.call('memory:searchSymbols', {
+      query: 'login',
+      scope: 'all',
+    });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: undefined }),
+    );
+  });
+
+  it("scope:'all' spans every workspace even with no folder open", async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers([]);
+
+    await rpcHandler.call('memory:searchSymbols', { scope: 'all' });
+
+    expect(codeSymbols.search).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: undefined }),
+    );
+  });
+
+  it('rejects an unknown scope value', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:searchSymbols', { scope: 'everything' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(codeSymbols.search).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoryRpcHandlers — memory:purgeJunk workspace refusal', () => {
+  it('refuses an omitted workspaceRoot (purgeBySubjectPattern precedent)', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(rpcHandler.call('memory:purgeJunk', {})).rejects.toMatchObject(
+      { errorCode: 'INVALID_PARAMS' },
+    );
+    expect(codeSymbols.purgeJunk).not.toHaveBeenCalled();
+  });
+
+  it('refuses an explicit null workspaceRoot', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:purgeJunk', { workspaceRoot: null }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(codeSymbols.purgeJunk).not.toHaveBeenCalled();
+  });
+
+  it('still refuses an unauthorized workspace', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+
+    await expect(
+      rpcHandler.call('memory:purgeJunk', { workspaceRoot: '/somewhere/else' }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(codeSymbols.purgeJunk).not.toHaveBeenCalled();
+  });
+
+  it('purges an authorized workspace', async () => {
+    const { rpcHandler, codeSymbols } = buildHandlers(['/workspace/project']);
+    codeSymbols.purgeJunk.mockReturnValue(7);
+
+    const result = await rpcHandler.call('memory:purgeJunk', {
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(codeSymbols.purgeJunk).toHaveBeenCalledWith('/workspace/project');
+    expect(result).toEqual({ deleted: 7 });
   });
 });
 

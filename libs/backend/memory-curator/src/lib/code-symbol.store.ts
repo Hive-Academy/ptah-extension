@@ -48,6 +48,32 @@ export interface CodeSymbolSearchResult {
   readonly total: number;
 }
 
+/**
+ * Tri-state workspace predicate, matching `MemoryStore.stats`:
+ *
+ *   - `string`    → that workspace only (`workspace_root IS ?`)
+ *   - `null`      → unscoped rows only (`workspace_root IS NULL`)
+ *   - `undefined` → no predicate at all, i.e. EVERY workspace
+ *
+ * `null` used to be folded into `undefined` here (`!== undefined && !== null`),
+ * which is exactly why a no-workspace `memory:stats` reported the code-symbol
+ * count of every workspace in `~/.ptah/state/ptah-dev.sqlite`: the caller said
+ * "global/unscoped" and the store heard "unfiltered". `code_symbols.workspace_root`
+ * is never NULL (see `CodeSymbolInsert`), so `null` correctly matches nothing.
+ *
+ * A caller that genuinely means "every workspace" must now say `undefined`, and
+ * no RPC path does — `MemoryRpcHandlers` resolves the tri-state at the boundary.
+ */
+function workspaceClause(workspaceRoot: string | null | undefined): {
+  readonly sql: string;
+  readonly values: readonly unknown[];
+} {
+  if (workspaceRoot === undefined) return { sql: '', values: [] };
+  if (workspaceRoot === null)
+    return { sql: 'workspace_root IS NULL', values: [] };
+  return { sql: 'workspace_root IS ?', values: [workspaceRoot] };
+}
+
 interface CodeSymbolRow {
   id: string;
   workspace_root: string;
@@ -176,17 +202,13 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     }
   }
 
+  /** Count indexed symbols. See `workspaceClause` for the tri-state contract. */
   count(workspaceRoot?: string | null): number {
-    const sql =
-      workspaceRoot !== undefined && workspaceRoot !== null
-        ? `SELECT COUNT(*) AS n FROM code_symbols WHERE workspace_root IS ?`
-        : `SELECT COUNT(*) AS n FROM code_symbols`;
-    const row =
-      workspaceRoot !== undefined && workspaceRoot !== null
-        ? (this.connection.db.prepare(sql).get(workspaceRoot) as
-            | { n: number }
-            | undefined)
-        : (this.connection.db.prepare(sql).get() as { n: number } | undefined);
+    const clause = workspaceClause(workspaceRoot);
+    const whereSql = clause.sql ? `WHERE ${clause.sql}` : '';
+    const row = this.connection.db
+      .prepare(`SELECT COUNT(*) AS n FROM code_symbols ${whereSql}`)
+      .get(...clause.values) as { n: number } | undefined;
     return row?.n ?? 0;
   }
 
@@ -195,9 +217,10 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const clauses: string[] = [];
     const values: unknown[] = [];
 
-    if (params.workspaceRoot !== undefined && params.workspaceRoot !== null) {
-      clauses.push('workspace_root = ?');
-      values.push(params.workspaceRoot);
+    const wsClause = workspaceClause(params.workspaceRoot);
+    if (wsClause.sql) {
+      clauses.push(wsClause.sql);
+      values.push(...wsClause.values);
     }
 
     const trimmedQuery =
@@ -433,20 +456,17 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       '/tmp/',
     ];
     let totalDeleted = 0;
-    const sql =
-      workspaceRoot !== undefined && workspaceRoot !== null
-        ? `DELETE FROM code_symbols WHERE file_path LIKE ? ESCAPE '\\' AND workspace_root IS ?`
-        : `DELETE FROM code_symbols WHERE file_path LIKE ? ESCAPE '\\'`;
+    const clause = workspaceClause(workspaceRoot);
+    const sql = `DELETE FROM code_symbols WHERE file_path LIKE ? ESCAPE '\\'${
+      clause.sql ? ` AND ${clause.sql}` : ''
+    }`;
     const stmt = this.connection.db.prepare(sql);
     for (const segment of junkSegments) {
       const escaped = segment
         .replace(/\\/g, '\\\\')
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_');
-      const result =
-        workspaceRoot !== undefined && workspaceRoot !== null
-          ? stmt.run(`%${escaped}%`, workspaceRoot)
-          : stmt.run(`%${escaped}%`);
+      const result = stmt.run(`%${escaped}%`, ...clause.values);
       totalDeleted += result.changes;
     }
     return totalDeleted;

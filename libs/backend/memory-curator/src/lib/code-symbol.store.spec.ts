@@ -55,6 +55,117 @@ function makeEntry(over: Partial<CodeSymbolInsert> = {}): CodeSymbolInsert {
   };
 }
 
+/**
+ * SQL-level cover for the workspaceRoot tri-state (TASK_2026_315 A4).
+ *
+ * The behavioural tests at the bottom of this file are native-gated and skip
+ * wherever `better-sqlite3` is built for Electron's ABI rather than the local
+ * Node — which is every developer machine in this repo after `postinstall`.
+ * These stub-DB tests run everywhere, so the rule "null means
+ * `workspace_root IS NULL`, only `undefined` means no predicate" is pinned by
+ * something that actually executes in CI.
+ */
+describe('CodeSymbolStore — workspaceRoot tri-state (SQL shape)', () => {
+  function makeSqlCapturingStore(): {
+    store: CodeSymbolStore;
+    prepared: string[];
+    boundArgs: unknown[][];
+  } {
+    const prepared: string[] = [];
+    const boundArgs: unknown[][] = [];
+    const connection = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn((sql: string) => {
+          prepared.push(sql);
+          return {
+            get: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return { n: 0 };
+            }),
+            all: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return [];
+            }),
+            run: jest.fn((...args: unknown[]) => {
+              boundArgs.push(args);
+              return { changes: 0 };
+            }),
+          };
+        }),
+        exec: jest.fn(),
+        transaction: jest.fn(),
+      },
+    } as unknown as SqliteConnectionService;
+
+    const store = new CodeSymbolStore(
+      makeLogger(),
+      connection,
+      makeDeterministicEmbedder(),
+      { available: false } as unknown as VecStatusService,
+    );
+    return { store, prepared, boundArgs };
+  }
+
+  describe('count', () => {
+    it('a string binds workspace_root IS ?', () => {
+      const { store, prepared, boundArgs } = makeSqlCapturingStore();
+      store.count('/ws/a');
+      expect(prepared[0]).toContain('WHERE workspace_root IS ?');
+      expect(boundArgs[0]).toEqual(['/ws/a']);
+    });
+
+    it('null emits workspace_root IS NULL with no bound value', () => {
+      const { store, prepared, boundArgs } = makeSqlCapturingStore();
+      store.count(null);
+      expect(prepared[0]).toContain('WHERE workspace_root IS NULL');
+      expect(boundArgs[0]).toEqual([]);
+    });
+
+    it('undefined emits no predicate at all', () => {
+      const { store, prepared, boundArgs } = makeSqlCapturingStore();
+      store.count();
+      expect(prepared[0]).not.toContain('WHERE');
+      expect(boundArgs[0]).toEqual([]);
+    });
+  });
+
+  describe('search', () => {
+    it('null filters to unscoped rows rather than dropping the predicate', () => {
+      const { store, prepared } = makeSqlCapturingStore();
+      store.search({ workspaceRoot: null });
+      expect(prepared[0]).toContain('WHERE workspace_root IS NULL');
+    });
+
+    it('undefined leaves the query unfiltered', () => {
+      const { store, prepared } = makeSqlCapturingStore();
+      store.search({});
+      expect(prepared[0]).not.toContain('workspace_root');
+    });
+  });
+
+  describe('purgeJunk', () => {
+    it('null scopes the DELETE to unscoped rows', () => {
+      const { store, prepared } = makeSqlCapturingStore();
+      store.purgeJunk(null);
+      expect(prepared[0]).toContain('AND workspace_root IS NULL');
+    });
+
+    it('a string scopes the DELETE to that workspace', () => {
+      const { store, prepared, boundArgs } = makeSqlCapturingStore();
+      store.purgeJunk('/ws/a');
+      expect(prepared[0]).toContain('AND workspace_root IS ?');
+      expect(boundArgs[0][1]).toBe('/ws/a');
+    });
+
+    it('undefined deletes across every workspace (raw store capability)', () => {
+      const { store, prepared } = makeSqlCapturingStore();
+      store.purgeJunk();
+      expect(prepared[0]).not.toContain('workspace_root');
+    });
+  });
+});
+
 describe('CodeSymbolStore (native-gated)', () => {
   let nativeAvailable = false;
   try {
@@ -451,4 +562,91 @@ describe('CodeSymbolStore (native-gated)', () => {
       service.close();
     }
   });
+
+  // -------------------------------------------------------------------------
+  // workspaceRoot tri-state — TASK_2026_315 A4
+  //
+  // `null` used to be folded into `undefined` in count/search/purgeJunk, so a
+  // caller saying "global/unscoped" got EVERY workspace in the shared database
+  // back. `null` now means `workspace_root IS NULL` — which matches nothing,
+  // because `code_symbols.workspace_root` is never NULL — and only `undefined`
+  // still means "no predicate".
+  // -------------------------------------------------------------------------
+
+  async function seedTwoWorkspaces(store: CodeSymbolStore): Promise<void> {
+    await store.insertBatch([
+      makeEntry({
+        workspaceRoot: '/ws/a',
+        symbolName: 'alpha',
+        subject: 'code:/ws/a/src/a.ts#alpha',
+        filePath: '/ws/a/src/a.ts',
+      }),
+      makeEntry({
+        workspaceRoot: '/ws/b',
+        symbolName: 'beta',
+        subject: 'code:/ws/b/src/b.ts#beta',
+        filePath: '/ws/b/src/b.ts',
+      }),
+    ]);
+  }
+
+  maybe('count() distinguishes string / null / undefined', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      await seedTwoWorkspaces(store);
+
+      expect(store.count('/ws/a')).toBe(1);
+      // null = global/unscoped rows only; there are none.
+      expect(store.count(null)).toBe(0);
+      // undefined = no predicate — the raw whole-database capability.
+      expect(store.count()).toBe(2);
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe('search() distinguishes string / null / undefined', async () => {
+    const { service, store } = await bootstrap();
+    try {
+      await seedTwoWorkspaces(store);
+
+      expect(store.search({ workspaceRoot: '/ws/a' }).total).toBe(1);
+      expect(store.search({ workspaceRoot: null }).total).toBe(0);
+      expect(store.search({}).total).toBe(2);
+    } finally {
+      service.close();
+    }
+  });
+
+  maybe(
+    'purgeJunk(null) deletes nothing across workspaces; a scoped call deletes only its own',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertBatch([
+          makeEntry({
+            workspaceRoot: '/ws/a',
+            symbolName: 'junkA',
+            subject: 'code:/ws/a/node_modules/x/i.ts#junkA',
+            filePath: '/ws/a/node_modules/x/i.ts',
+          }),
+          makeEntry({
+            workspaceRoot: '/ws/b',
+            symbolName: 'junkB',
+            subject: 'code:/ws/b/node_modules/y/i.ts#junkB',
+            filePath: '/ws/b/node_modules/y/i.ts',
+          }),
+        ]);
+
+        expect(store.purgeJunk(null)).toBe(0);
+        expect(store.count()).toBe(2);
+
+        expect(store.purgeJunk('/ws/a')).toBe(1);
+        expect(store.count('/ws/a')).toBe(0);
+        expect(store.count('/ws/b')).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
 });
