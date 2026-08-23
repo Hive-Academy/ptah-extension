@@ -10,6 +10,7 @@ export { MarketplaceStateService } from './lib/marketplace-state.service';
 export { HarnessHealthBadgeComponent } from './lib/harness/harness-health-badge.component';
 export { HarnessTargetRowComponent } from './lib/harness/harness-target-row.component';
 export { HarnessBlockedPathsComponent } from './lib/harness/harness-blocked-paths.component';
+export { HarnessRepairDialogComponent } from './lib/harness/harness-repair-dialog.component';
 export { HarnessHealthStore } from './lib/harness/harness-health.store';
 export {
   HARNESS_FACET_ORDER,

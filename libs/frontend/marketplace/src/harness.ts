@@ -26,12 +26,22 @@
  *   import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
  *   import { HarnessBlockedPathsComponent } from '@ptah-extension/marketplace/harness';
  *
+ * `HarnessRepairDialogComponent` joined this barrel for Batch 9's Task 11.2:
+ * the Dashboard harness card is the ONE route into the consent dialog, and the
+ * card is eager, so the dialog has to be reachable without the wide barrel. It
+ * `inject()`s `HarnessHealthStore` through a RELATIVE import inside this lib
+ * rather than through `./services.ts` — same `providedIn: 'root'` class, same
+ * single instance, and re-exporting it here would be the two-singleton
+ * confusion the paragraph above exists to prevent.
+ *
  * @see TASK_2026_187 — the split this preserves
  * @see TASK_2026_306 Batch 11 — the eager consumer that made a second narrow
  *      barrel necessary
+ * @see TASK_2026_306 Batch 9 / Task 11.2 — the dialog the card routes into
  */
 
 export { HarnessBlockedPathsComponent } from './lib/harness/harness-blocked-paths.component';
+export { HarnessRepairDialogComponent } from './lib/harness/harness-repair-dialog.component';
 export { harnessBlockedPaths } from './lib/harness/harness-health.model';
 export type {
   HarnessBlockedDisclosure,

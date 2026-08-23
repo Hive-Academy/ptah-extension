@@ -535,8 +535,17 @@ the artifact genuinely is not installed.
 The condition is made legible by a second log line, emitted from
 `HarnessReconcilerService.logBlocked` only when the set is non-empty, naming
 every blocked path, its per-path reason, and the one user action that clears it
-(move or delete the occupant, then re-run `ptah harness doctor --fix`). The
-summary line above it is unchanged, and `summarizeHarnessHealth` still reads
+(**move** the occupant aside — never delete it — then re-run
+`ptah harness doctor --fix`). That action also names the Dashboard home's
+**"Your harness is short"** card, because a log line cannot be clicked and the
+card is where the same list can be read without a terminal. The card is named
+as a place to READ, and it carries exactly ONE control: a route into the
+consent dialog (TASK_2026_306 Batch 9 / Task 11.2). The card itself still
+performs no repair and captures no consent — the per-path checkboxes live in
+the dialog, they arrive with nothing ticked, and `harness:repairBlocked` is
+sent only the paths the user actually ticked. The card had no control at all
+until the dialog existed, on the rule that a button opening nothing is worse
+than no button. The summary line above it is unchanged, and `summarizeHarnessHealth` still reads
 `degraded` — the harness really is incomplete. Nothing about this closes the
 gap; it stops spelling a refusal as a gap of unknown cause.
 

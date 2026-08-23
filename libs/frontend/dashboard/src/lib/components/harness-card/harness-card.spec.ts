@@ -372,10 +372,12 @@ describe('dashboard harness card', () => {
       ).not.toContain('delete');
     });
 
-    it('names where Reconcile lives, since this surface has no such button', async () => {
+    it('names both places the user can act, and neither of them is a Reconcile button here', async () => {
       // The popover's wording ("then run Reconcile now") points at a button
       // eight pixels below it. Reused verbatim here it would name a control
-      // that does not exist on this surface.
+      // that does not exist on this surface. Doing it by hand is still named
+      // FIRST: it is the route that requires no claim of ownership from
+      // anybody.
       push(blockedHealth(2));
 
       const card = await mountCard();
@@ -383,24 +385,136 @@ describe('dashboard harness card', () => {
         card.querySelector('[data-testid="harness-blocked-action"]'),
       );
 
-      expect(action).toContain('then reconcile from Marketplace → Plugins.');
+      // Pinned WHOLE and EXACT rather than by substring. This is the fifth
+      // phrasing of one instruction across the repo and the first to offer an
+      // action rather than only a location, so the clause that changed is the
+      // one most worth reading in a diff — and the four fixed properties
+      // (opens on MOVE, names where to act, claims no ownership, hands the
+      // judgement back) are all visible in one literal.
+      expect(action).toBe(
+        'Move the occupant aside — the file or directory at each path, or the ' +
+          'conflicting key in each config file — then reconcile from ' +
+          'Marketplace → Plugins, or let Ptah move it for you with the button ' +
+          'below. Nothing here proves Ptah wrote these, so they may be your ' +
+          'own work: keep what you move, and read it before you discard ' +
+          'anything.',
+      );
       expect(action).not.toContain('Reconcile now');
     });
 
-    it('discloses only — it offers no repair, consent or quarantine control', async () => {
-      // Consent-gated repair is separate work. A one-click fix for a file
-      // whose provenance is unknown makes the exact claim this card is
-      // careful not to make, so the assertion covers the WHOLE card and not
-      // just the disclosure block inside it.
+    it('offers exactly one control, and it is a route rather than an action', async () => {
+      // REPLACES Batch 11's "zero buttons, zero inputs, zero anchors". That
+      // assertion was right while `harness:repairBlocked` had no dialog — a
+      // control opening nothing is worse than no control. Now that the dialog
+      // exists, the property worth pinning is not "no controls" but "one
+      // control, and it captures nothing": the count is still exact, the
+      // forbidden element types are still forbidden, and the one permitted
+      // button is named so a second one cannot be added quietly.
+      //
+      // The card must own NO consent affordance in particular. Ticking happens
+      // in the dialog, which is rendered as a SIBLING of this section, so
+      // `input` stays at zero here whether the dialog is open or not — the
+      // next case proves that rather than assuming it.
       push(blockedHealth(3));
 
       const card = await mountCard();
       const section = card.querySelector('[data-testid="harness-card"]');
+      const buttons = Array.from(section?.querySelectorAll('button') ?? []);
 
-      expect(section?.querySelectorAll('button')).toHaveLength(0);
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0].getAttribute('data-testid')).toBe(
+        'harness-card-repair',
+      );
+      expect(textOf(buttons[0])).toBe('Move these aside…');
       expect(section?.querySelectorAll('input')).toHaveLength(0);
       expect(section?.querySelectorAll('a')).toHaveLength(0);
+      expect(section?.querySelectorAll('[type="checkbox"]')).toHaveLength(0);
       expect(section?.getAttribute('aria-label')).toBe('Harness blocked paths');
+      expect(rpcMock.call).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the route into the consent dialog (Task 11.2)', () => {
+    /** Click the card's one control and let the dialog mount. */
+    const openDialog = async (card: HTMLElement): Promise<void> => {
+      card
+        .querySelector<HTMLButtonElement>('[data-testid="harness-card-repair"]')
+        ?.click();
+      // The card fixture is the one that owns the `@if`; re-running detection
+      // through a fresh query is enough because `mountCard` already settled.
+      await Promise.resolve();
+    };
+
+    it('reaches the consent dialog without going through Marketplace → Plugins', async () => {
+      // The whole of U8: the dialog must be reachable from the surface the
+      // user lands on, not only from one click deep inside a page they may
+      // never open.
+      push(blockedHealth(4));
+      const fixture = TestBed.createComponent(HarnessCardComponent);
+      await settle(fixture);
+      const card = fixture.nativeElement as HTMLElement;
+
+      expect(card.querySelector('[data-testid="harness-repair"]')).toBeNull();
+
+      await openDialog(card);
+      await settle(fixture);
+
+      expect(
+        card.querySelector('[data-testid="harness-repair"]'),
+      ).not.toBeNull();
+      expect(
+        card.querySelectorAll('[data-testid="harness-repair-checkbox"]'),
+      ).toHaveLength(4);
+    });
+
+    it('opens the dialog with nothing ticked and fires no request on the way in', async () => {
+      // The card routes; it does not pre-answer. If opening the dialog
+      // consented to anything, the claim would have been made by a component
+      // that never showed the user a list.
+      push(blockedHealth(4));
+      const fixture = TestBed.createComponent(HarnessCardComponent);
+      await settle(fixture);
+      const card = fixture.nativeElement as HTMLElement;
+
+      await openDialog(card);
+      await settle(fixture);
+
+      const boxes = Array.from(
+        card.querySelectorAll<HTMLInputElement>(
+          '[data-testid="harness-repair-checkbox"]',
+        ),
+      );
+      expect(boxes.some((box) => box.checked)).toBe(false);
+      expect(
+        card.querySelector<HTMLButtonElement>(
+          '[data-testid="harness-repair-confirm"]',
+        )?.disabled,
+      ).toBe(true);
+      expect(rpcMock.call).not.toHaveBeenCalled();
+    });
+
+    it('keeps the ticking out of the card even while the dialog is open', async () => {
+      // The dialog is a sibling of the card section, not a child. That is what
+      // lets the "one control, no consent" assertion above keep meaning
+      // something once a dialog full of checkboxes exists in the same
+      // component.
+      push(blockedHealth(4));
+      const fixture = TestBed.createComponent(HarnessCardComponent);
+      await settle(fixture);
+      const card = fixture.nativeElement as HTMLElement;
+
+      await openDialog(card);
+      await settle(fixture);
+
+      const section = card.querySelector('[data-testid="harness-card"]');
+      expect(section?.querySelectorAll('input')).toHaveLength(0);
+      expect(section?.querySelectorAll('button')).toHaveLength(1);
+      expect(
+        section?.querySelector('[data-testid="harness-repair"]'),
+      ).toBeNull();
+      expect(
+        card.querySelectorAll('[data-testid="harness-repair-checkbox"]').length,
+      ).toBeGreaterThan(0);
     });
   });
 
