@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_316
-status: in_progress
+status: in_review
 type: FEATURE
 title: >-
   Every workspace inherits every skill in the user layer, and disabling a

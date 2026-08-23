@@ -45,18 +45,23 @@ The effect is that the skill stops being visible to agents in that workspace. Th
 
 Skill IDs are a **flat, global namespace**. `disabledSkillIds` holds a bare directory name with no plugin prefix, so disabling a name disables it wherever it comes from. In practice this doesn't bite, because two plugins can't both contribute the same skill name anyway — [the first one wins](/plugins/installing/#when-two-plugins-define-the-same-skill).
 
-## How it interacts with plugin enablement
+## How it interacts with the other two gates
 
-The two switches are independent lists in the same saved record, and they compose in one direction only:
+Plugin enablement and this per-skill toggle aren't the whole picture. A third, outer gate decides — per project — whether a skill can reach this workspace at all: see [Per-project skill selection](/plugins/skill-selection/). All three compose as a conjunction, evaluated outermost first, and every level has to say yes:
 
-| Plugin state | Skill state | Result                                                                 |
-| ------------ | ----------- | ---------------------------------------------------------------------- |
-| Enabled      | Enabled     | The skill is copied out and available                                  |
-| Enabled      | Disabled    | The skill is skipped; the rest of the plugin still works               |
-| Disabled     | Enabled     | Nothing is copied out — plugin enablement is the outer gate            |
-| Disabled     | Disabled    | Nothing is copied out; the toggle is remembered for when you re-enable |
+1. **Per-project selection** — does this workspace's `state.json` allow the skill in at all?
+2. **Plugin enablement** — is the plugin the skill belongs to checked, here in this modal?
+3. **This per-skill toggle** — is the individual skill unticked?
 
-Unchecking a whole plugin does **not** clear the per-skill toggles you set inside it. They stay in `disabledSkillIds` and take effect again the moment you re-enable the plugin.
+| Selection    | Plugin state | Skill state | Result                                                                 |
+| ------------ | ------------ | ----------- | ---------------------------------------------------------------------- |
+| Allowed      | Enabled      | Enabled     | The skill is copied out and available                                  |
+| Allowed      | Enabled      | Disabled    | The skill is skipped; the rest of the plugin still works               |
+| Allowed      | Disabled     | Enabled     | Nothing is copied out — plugin enablement is the outer gate here       |
+| Allowed      | Disabled     | Disabled    | Nothing is copied out; the toggle is remembered for when you re-enable |
+| Not selected | (any)        | (any)       | Nothing is copied out — the selection gate never lets it through       |
+
+Unchecking a whole plugin does **not** clear the per-skill toggles you set inside it. They stay in `disabledSkillIds` and take effect again the moment you re-enable the plugin. The same is true of the selection gate: narrowing your selection later doesn't touch your plugin or per-skill toggles, and widening it again brings back whatever those two still allow.
 
 There is one cleanup rule worth knowing: on save, Ptah validates your disabled-skill list against the skills it can actually find — those in the enabled plugins plus every harness-authored plugin. A name that matches nothing is dropped from the record. So if you disable a skill and then permanently remove the plugin that supplied it, the orphaned entry quietly disappears rather than lingering forever.
 
@@ -72,6 +77,7 @@ The second half only appears when at least one skill is switched off — a quick
 
 ## Next steps
 
+- [Per-project skill selection](/plugins/skill-selection/)
 - [Enable and disable plugins](/plugins/installing/)
 - [Change your selection later](/plugins/managing/)
 - [Skills you authored yourself](/plugins/harness-plugins/)

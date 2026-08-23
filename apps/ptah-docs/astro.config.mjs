@@ -137,6 +137,7 @@ export default defineConfig({
             { label: 'Installing', slug: 'plugins/installing' },
             { label: 'Managing', slug: 'plugins/managing' },
             { label: 'Skill Toggles', slug: 'plugins/skill-toggles' },
+            { label: 'Per-Project Skill Selection', slug: 'plugins/skill-selection' },
             { label: 'Harness Plugins', slug: 'plugins/harness-plugins' },
             { label: 'Plugin Storage', slug: 'plugins/plugin-storage' },
             { label: 'Creating Plugins', slug: 'plugins/creating-plugins' },

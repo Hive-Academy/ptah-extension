@@ -1,6 +1,6 @@
 # Development Tasks — TASK_2026_316
 
-**Total Tasks**: 27 | **Batches**: 6 | **Status**: 4/6 complete
+**Total Tasks**: 27 | **Batches**: 6 | **Status**: 6/6 complete
 
 Two sequenced halves (U1). Batch 1 ships alone and needs no new state. Batches
 2–6 add the per-workspace gate and its surfaces.
@@ -676,7 +676,7 @@ a user-layer slug with no bundled plugin above it; switching to `'all'` sends
 
 ---
 
-## Batch 5 — CLI parity ⏸️ PENDING
+## Batch 5 — CLI parity ✅ COMPLETE (52f10871e)
 
 **Recommended Executor**: `backend-developer`
 **Fallback Executor**: `general-purpose`
@@ -744,7 +744,7 @@ Pin: `skill select --all` and `skill select <slug...>` hit the right RPC;
 
 ---
 
-## Batch 6 — Docs + CLAUDE.md ⏸️ PENDING
+## Batch 6 — Docs + CLAUDE.md ✅ COMPLETE
 
 **Recommended Executor**: `technical-content-writer`
 **Fallback Executor**: `general-purpose`
