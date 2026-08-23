@@ -243,6 +243,33 @@ Both are covered by specs. Neither has been seen working end to end on a real ma
 | **`EPERM`/`EBUSY` missing from `MISSING_ENTRY_CODES`**            | On Windows a file locked by another process usually surfaces as `EPERM`, so one locked file still aborts a whole index. **Note:** the quarantine/repair code does _not_ have this bug — it retries all four codes and fails per-path.                                  |
 | **`onDidOpen` ordering is unenforced**                            | The fix silently no-ops unless the SQLite token is registered before `startTaskSpecsIndex`. Both hosts order correctly today; nothing enforces it.                                                                                                                     |
 
+**All thirteen are now filed as tasks (2026-08-23), status `backlog`.** Grouped by
+concern, never by convenience — items share a folder only when they share a file or a
+lib. None is large; only TASK_2026_310 is more than a small change.
+
+| Task          | Type        | Covers                                                                   |
+| ------------- | ----------- | ------------------------------------------------------------------------ |
+| TASK_2026_307 | BUGFIX      | `EPERM`/`EBUSY` missing from `MISSING_ENTRY_CODES`                       |
+| TASK_2026_308 | BUGFIX      | F3-1, F3-2, F3-3 — all three in `agent-sdk`                              |
+| TASK_2026_309 | BUGFIX      | The destructive-verb denylist → exact-match allowlist                    |
+| TASK_2026_310 | REFACTORING | `MemoryTriggerService` collaborator extraction                           |
+| TASK_2026_311 | BUGFIX      | The un-refunded hourly rate-limit token on a stalled pass                |
+| TASK_2026_312 | BUGFIX      | The two host boot lines disagreeing on scope, **and R4**                 |
+| TASK_2026_313 | BUGFIX      | No e2e on either disclosure surface, **and** the uncapped Dashboard list |
+| TASK_2026_314 | BUGFIX      | `onDidOpen` ordering unenforced                                          |
+
+Two ordering constraints are recorded in the carriers rather than here:
+**311 before 310** (a behavioural fix is cheaper before the file moves than after),
+and **313 must not touch the action wording** that **309** is hardening.
+
+Filing turned up one thing the table above had understated. The destructive-verb
+guard is not merely a denylist: only **two** of the five surfaces carry the eight-regex
+synonym set at all. `harness-card.spec.ts:367` and `harness-blocked-paths.spec.ts:275`
+still make the bare `not.toContain('delete')` check that Batch 7 recorded as hole m1, so
+"remove the occupant" would ship on the Dashboard card and the Marketplace popover today
+with a green suite. That is an open hole, not a hardening opportunity, and it is why
+TASK_2026_309 leads with it.
+
 **Closed since the last handoff:** R1 (the blocked WARN, Batch 6.2), R2 (became Batches 6–9),
 R3 (the WARN names the paths), and the `workspace-target.ts` NUL bytes — fixed in Batch 8
 along with the same problem in `content-hash.ts`, which had been hiding two of the three

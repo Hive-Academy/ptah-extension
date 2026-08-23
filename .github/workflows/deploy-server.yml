@@ -46,6 +46,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     steps:
+      # Required: the scp step below ships docker-compose.prod.yml and
+      # caddy/Caddyfile from the runner workspace. Without a checkout those
+      # files are absent, the copy silently ships nothing but env.prod.tmp,
+      # and the droplet keeps running whatever compose/Caddy config it already
+      # had — compose and proxy changes never deploy.
+      # Must stay the FIRST step: checkout cleans the workspace, which would
+      # delete env.prod.tmp if it ran after the write step.
+      - uses: actions/checkout@v4
+
       - name: Set image name (lowercase)
         run: echo "IMAGE_NAME=$(echo '${{ github.repository }}/license-server' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
@@ -69,6 +78,18 @@ jobs:
           fi
           printf '%s' "$ENV_PROD_FILE" > env.prod.tmp
 
+      # scp-action tars whatever of `source` it finds and succeeds on a partial
+      # match, so a missing or renamed file here ships nothing and still shows a
+      # green deploy. Assert the set explicitly instead.
+      - name: Verify deploy payload exists
+        run: |
+          for f in env.prod.tmp docker-compose.prod.yml caddy/Caddyfile; do
+            if [ ! -f "$f" ]; then
+              echo "::error::deploy payload missing: $f"
+              exit 1
+            fi
+          done
+
       - name: Copy .env.prod to Droplet
         uses: appleboy/scp-action@v1
         with:
@@ -91,4 +112,10 @@ jobs:
             chmod 600 .env.prod
             docker compose --env-file .env.prod -f docker-compose.prod.yml pull license-server
             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+            # Caddyfile is a SINGLE-FILE bind mount, so the container binds its
+            # inode, not its path. The scp above extracts via tar, which unlinks
+            # and recreates the file — new inode. `up -d` leaves caddy alone
+            # (image and service config unchanged), so it would keep serving the
+            # pre-deploy config forever. Recreate to re-resolve the mount.
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate caddy
             docker image prune -f
