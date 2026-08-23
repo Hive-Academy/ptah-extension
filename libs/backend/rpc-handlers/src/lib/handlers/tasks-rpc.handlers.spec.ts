@@ -807,8 +807,14 @@ describe('tasks:board exclusions — SqliteTaskIndexStore', () => {
         db.exec(MIGRATIONS.find((m) => m.version === version)?.sql ?? '');
       }
       return new SqliteTaskIndexStore(
+        // `isOpen` is not decoration. These suites drive the store through
+        // `TaskIndexService.rebuild`, which since TASK_2026_306 task 4.4 asks
+        // `store.isReady()` first and SKIPS the write when it is false —
+        // `SqliteTaskIndexStore.isReady()` forwards this exact property. A
+        // double carrying only `db` reports `undefined`, the rebuild writes
+        // nothing, and the board comes back with zero exclusions.
         createMockLogger() as unknown as Logger,
-        { db } as unknown as SqliteConnectionService,
+        { db, isOpen: true } as unknown as SqliteConnectionService,
       );
     });
   });
@@ -1946,8 +1952,10 @@ describe('tasks:list filter parity (FR-C1.5) — SqliteTaskIndexStore', () => {
         db.exec(MIGRATIONS.find((m) => m.version === version)?.sql ?? '');
       }
       return new SqliteTaskIndexStore(
+        // `isOpen: true` for the same reason as the exclusions fixture above:
+        // `TaskIndexService.rebuild` consults `store.isReady()` before writing.
         createMockLogger() as unknown as Logger,
-        { db } as unknown as SqliteConnectionService,
+        { db, isOpen: true } as unknown as SqliteConnectionService,
       );
     });
   });
