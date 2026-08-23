@@ -22,31 +22,79 @@ import { FileTypeClassifierService } from '../context-analysis/file-type-classif
 import { FileIndex, IndexedFile } from '../types/workspace.types';
 
 /**
- * Error codes that mean "this path does not resolve to a file right now".
+ * Error codes that mean "THIS entry cannot be read right now" — as opposed to
+ * "this machine cannot be read at all".
  *
- * TASK_2026_306 defect D. `discoverFiles()` and the per-entry `stat()` are two
- * separate trips to disk, so anything that vanishes, or never resolved in the
- * first place, lands here:
+ * The rule is about SCOPE, not about absence. A code belongs here when the
+ * condition it reports is a property of one directory entry at one moment, so
+ * that the very next entry, and this same entry on the next pass, may well
+ * succeed. A code stays out when the condition is a property of the process or
+ * the machine, because then the next entry will fail the same way and grinding
+ * through thousands of them to build an empty index is worse than aborting.
+ *
+ * Absence (TASK_2026_306 defect D). `discoverFiles()` and the per-entry `stat()`
+ * are two separate trips to disk, so anything that vanishes between them, or
+ * never resolved in the first place, lands here:
  *
  *  - `ENOENT`  — a broken symlink, or a file deleted between the two trips.
  *  - `ENOTDIR` — an ancestor directory was replaced by a file mid-scan, so a
  *                path component no longer resolves.
  *  - `ELOOP`   — a symlink cycle; the entry can never be statted.
  *
- * All three are ordinary conditions in a live workspace, not defects, and all
- * three are per-entry. Codes NOT listed here (`EACCES`, `EMFILE`, `EIO`, …)
- * describe the environment rather than the entry and are still propagated —
- * "the whole index aborted" is the honest outcome for those.
+ * Windows file LOCKING (TASK_2026_307). This is the half the original set got
+ * wrong, so do not re-remove these two:
+ *
+ *  - `EPERM`   — Windows reports a sharing violation as a permission error. A
+ *                file held open by an editor, an antivirus scanner, the running
+ *                Electron host, or the Claude CLI writing a session file is
+ *                `EPERM`, NOT `ENOENT`.
+ *  - `EBUSY`   — the same class of lock, reported while the file is actively
+ *                being written.
+ *
+ * `ENOENT` was the Unix-shaped assumption, and it made the guard nearly useless
+ * on the platform Ptah primarily ships to: the workspace being indexed is by
+ * definition the one the user has open in an editor, so a locked entry is the
+ * expected case rather than an exotic one. Both codes are per-entry and
+ * TRANSIENT — the lock is released moments later — so one of them escaping the
+ * absorb emptied the entire index, and the next pass then succeeded with
+ * nothing correlating the two. The in-repo precedent for this hazard is
+ * `harness-sync`'s `fs/windows-retry.ts` `RETRYABLE_ERROR_CODES`, written for
+ * exactly these Windows semantics.
+ *
+ * `EACCES` is DELIBERATELY EXCLUDED, and that is a real divergence from the
+ * `harness-sync` set rather than an oversight. On Windows a transient lock is
+ * `EPERM`/`EBUSY`; `EACCES` is a durable ACL decision about a path this process
+ * has no right to read, and it will be just as true for the next entry and on
+ * the next pass. Absorbing it would convert a permanent, actionable "you cannot
+ * read this tree" into a permanently and silently partial index, which is the
+ * exact failure this whole guard exists to prevent, one level down. The
+ * divergence is also smaller than it looks: `harness-sync` RETRIES `EACCES` on a
+ * WRITE and then still fails that path — it never decides the failure did not
+ * matter. Absorbing is the stronger claim and `EACCES` does not earn it.
+ * `EMFILE`, `EIO` and everything else unlisted stay out for the same
+ * scope reason, and still abort the pass.
+ *
+ * There is deliberately no per-entry RETRY here, unlike `withWindowsRetry`. That
+ * function guards a one-shot destructive move where a failure loses the user's
+ * only undo, so three attempts with backoff over a handful of paths is cheap
+ * insurance. This is a read-only pass over every file in a workspace: the cost
+ * of a backoff is multiplied by the entry count, and the recovery is already
+ * free, because the index is derived and is rebuilt on the next activation or
+ * session preflight. Skipping the entry and reporting the count via
+ * {@link WorkspaceIndexerService.reportSkipped} gets the same durable outcome
+ * without turning a bounded walk into an unbounded one during a scanner sweep.
  */
-const MISSING_ENTRY_CODES: ReadonlySet<string> = new Set([
+const UNREADABLE_ENTRY_CODES: ReadonlySet<string> = new Set([
   'ENOENT',
   'ENOTDIR',
   'ELOOP',
+  'EPERM',
+  'EBUSY',
 ]);
 
 /**
  * Whether `error` (or anything in its `cause` chain) is a per-entry
- * "path does not resolve" failure.
+ * "cannot read this entry right now" failure.
  *
  * Walks the chain because `FileSystemService.stat()` re-throws every driver
  * failure as a `FileSystemError` whose message is a fixed
@@ -55,12 +103,12 @@ const MISSING_ENTRY_CODES: ReadonlySet<string> = new Set([
  * that message keeps the check working if the wrapper's wording ever changes,
  * and keeps it from matching a genuine error that merely mentions "ENOENT".
  */
-function isMissingEntryError(error: unknown): boolean {
+function isUnreadableEntryError(error: unknown): boolean {
   let current: unknown = error;
   // Bounded so a self-referential `cause` cannot spin here.
   for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
     const code = (current as { code?: unknown }).code;
-    if (typeof code === 'string' && MISSING_ENTRY_CODES.has(code)) {
+    if (typeof code === 'string' && UNREADABLE_ENTRY_CODES.has(code)) {
       return true;
     }
     current = (current as { cause?: unknown }).cause;
@@ -144,16 +192,18 @@ export class WorkspaceIndexerService {
   ) {}
 
   /**
-   * `stat` one discovered entry, yielding `null` instead of throwing when the
-   * entry simply is not there.
+   * `stat` one discovered entry, yielding `null` instead of throwing when that
+   * one entry cannot be read right now.
    *
    * TASK_2026_306 defect D: an unguarded `stat` made one missing file abort the
    * index for the ENTIRE workspace — the caller
    * (`WorkspaceFileIndexService.doStart`) logged it non-fatally, so the app then
    * ran with no file index at all and no further signal. A single broken
    * symlink under `.claude/skills/` did exactly that in the captured boot.
+   * TASK_2026_307: a single Windows-locked file did the same thing, because the
+   * lock codes were not in the set.
    *
-   * Only the per-entry codes in {@link MISSING_ENTRY_CODES} are absorbed;
+   * Only the per-entry codes in {@link UNREADABLE_ENTRY_CODES} are absorbed;
    * everything else still propagates, because a failure that is not about this
    * one entry will not be about the next one either.
    */
@@ -161,7 +211,7 @@ export class WorkspaceIndexerService {
     try {
       return await this.fileSystemService.stat(filePath);
     } catch (error: unknown) {
-      if (isMissingEntryError(error)) {
+      if (isUnreadableEntryError(error)) {
         return null;
       }
       throw error;
@@ -229,7 +279,7 @@ export class WorkspaceIndexerService {
     );
     const indexedFiles: IndexedFile[] = [];
     let filesIndexed = 0;
-    let skippedMissing = 0;
+    let skippedEntries = 0;
 
     for (const filePath of allFiles) {
       const relativePath = path.relative(workspaceFolder, filePath);
@@ -253,7 +303,7 @@ export class WorkspaceIndexerService {
       }
       const stat = await this.statOrNull(filePath);
       if (!stat) {
-        skippedMissing++;
+        skippedEntries++;
         continue;
       }
       if (stat.size > maxFileSize) {
@@ -292,7 +342,7 @@ export class WorkspaceIndexerService {
     this.reportSkipped(
       'indexWorkspace',
       workspaceFolder,
-      skippedMissing,
+      skippedEntries,
       allFiles.length,
     );
     const totalSize = indexedFiles.reduce((sum, file) => sum + file.size, 0);
@@ -338,7 +388,7 @@ export class WorkspaceIndexerService {
       options.includePatterns,
     );
 
-    let skippedMissing = 0;
+    let skippedEntries = 0;
     // `finally` rather than a trailing statement: the consumer
     // (`WorkspaceFileIndexService.build`) `return`s out of its `for await` when
     // the workspace root changes mid-stream, which closes the generator without
@@ -367,7 +417,7 @@ export class WorkspaceIndexerService {
         }
         const stat = await this.statOrNull(filePath);
         if (!stat) {
-          skippedMissing++;
+          skippedEntries++;
           continue;
         }
         if (stat.size > maxFileSize) {
@@ -396,7 +446,7 @@ export class WorkspaceIndexerService {
       this.reportSkipped(
         'indexWorkspaceStream',
         workspaceFolder,
-        skippedMissing,
+        skippedEntries,
         allFiles.length,
       );
     }

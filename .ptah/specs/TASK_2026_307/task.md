@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_307
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   A single Windows-locked file still aborts a whole workspace index because

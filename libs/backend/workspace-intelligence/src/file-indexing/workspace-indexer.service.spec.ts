@@ -13,6 +13,24 @@ import { FileType } from '../types/workspace.types';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 /**
+ * The libuv detail text each errno carries, so a fixture reads like the error
+ * Node actually raises. Only the `code` is load-bearing — the production
+ * narrowing never looks at the message — but a fixture that spelled every code
+ * "no such file or directory" would quietly teach the next reader that `EPERM`
+ * is an absence, which is the misreading TASK_2026_307 exists to correct.
+ */
+const ERRNO_DETAIL: Readonly<Record<string, string>> = {
+  ENOENT: 'no such file or directory',
+  ENOTDIR: 'not a directory',
+  ELOOP: 'too many symbolic links encountered',
+  EPERM: 'operation not permitted',
+  EBUSY: 'resource busy or locked',
+  EACCES: 'permission denied',
+  EMFILE: 'too many open files',
+  EIO: 'i/o error',
+};
+
+/**
  * Build the `FileSystemError`-wrapped errno that `FileSystemService.stat()`
  * actually throws (`services/file-system.service.ts:69-78`): a fixed
  * `Failed to stat: <path>` message with the errno only on the wrapped cause.
@@ -20,11 +38,12 @@ import type { Logger } from '@ptah-extension/vscode-core';
  * `Error('ENOENT')` would prove nothing.
  */
 function statError(filePath: string, code: string): Error {
-  const cause = new Error(
-    `${code}: no such file or directory, stat '${filePath}'`,
-  ) as Error & { code: string; errno: number; syscall: string };
+  const detail = ERRNO_DETAIL[code] ?? 'unknown error';
+  const cause = new Error(`${code}: ${detail}, stat '${filePath}'`) as Error & {
+    code: string;
+    syscall: string;
+  };
   cause.code = code;
-  cause.errno = -4058;
   cause.syscall = 'stat';
   const wrapped = new Error(`Failed to stat: ${filePath}`) as Error & {
     cause: Error;
@@ -588,21 +607,6 @@ describe('WorkspaceIndexerService', () => {
       },
     );
 
-    it('still propagates a stat failure that is not about the entry', async () => {
-      mockFsProvider.findFiles.mockResolvedValue([
-        '/workspace/a.ts',
-        '/workspace/locked.ts',
-      ]);
-      fileSystemService.stat.mockImplementation(async (filePath: string) => {
-        if (filePath.includes('locked')) {
-          throw statError(filePath, 'EACCES');
-        }
-        return OK_STAT;
-      });
-
-      await expect(collect()).rejects.toThrow('Failed to stat');
-    });
-
     it('narrows on the wrapped code, never on the message text', async () => {
       // Same wording an ENOENT produces, but no errno anywhere in the chain —
       // a substring check on the message would wrongly swallow this.
@@ -643,6 +647,168 @@ describe('WorkspaceIndexerService', () => {
         expect.objectContaining({ skipped: 1, discovered: 3 }),
       );
     });
+  });
+
+  /**
+   * TASK_2026_307. `ENOENT` was the Unix-shaped assumption. On Windows — the
+   * platform Ptah primarily ships to — the common reason an entry cannot be
+   * statted is a LOCK, not an absence: a sharing violation surfaces as `EPERM`,
+   * and a file being written right now as `EBUSY`. Neither was in the absorb
+   * set, so one transiently locked file in the workspace the user has open in
+   * an editor emptied the whole index.
+   *
+   * These specs are the mutation guard on that set: remove `'EPERM'` or
+   * `'EBUSY'` from `UNREADABLE_ENTRY_CODES` and every case below goes red,
+   * because the pass rejects instead of yielding the surviving entries.
+   */
+  describe('Windows lock codes (TASK_2026_307)', () => {
+    const OK_STAT = {
+      type: FileType.Source as unknown as number,
+      ctime: 0,
+      mtime: 0,
+      size: 1000,
+    };
+
+    beforeEach(() => {
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+    });
+
+    const collect = async (): Promise<string[]> => {
+      const paths: string[] = [];
+      for await (const file of service.indexWorkspaceStream({
+        workspaceFolder: WORKSPACE_ROOT,
+      })) {
+        paths.push(file.path);
+      }
+      return paths;
+    };
+
+    /** The locked entry sits in the MIDDLE, so "continues past it" is proven. */
+    it.each([
+      ['EPERM', 'held open by an editor or antivirus scanner'],
+      ['EBUSY', 'being written at this moment'],
+    ])('absorbs a %s entry (%s) and keeps indexing past it', async (code) => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/locked.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('locked')) {
+          throw statError(filePath, code);
+        }
+        return OK_STAT;
+      });
+
+      await expect(collect()).resolves.toEqual([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+    });
+
+    it.each(['EPERM', 'EBUSY'])(
+      'does not reduce the indexed count of the others when one entry is %s',
+      async (code) => {
+        mockFsProvider.findFiles.mockResolvedValue([
+          '/workspace/a.ts',
+          '/workspace/locked.ts',
+          '/workspace/b.ts',
+        ]);
+        fileSystemService.stat.mockImplementation(async (filePath: string) => {
+          if (filePath.includes('locked')) {
+            throw statError(filePath, code);
+          }
+          return OK_STAT;
+        });
+
+        const result = await service.indexWorkspace({
+          workspaceFolder: WORKSPACE_ROOT,
+        });
+
+        expect(result.files.map((f) => f.path)).toEqual([
+          '/workspace/a.ts',
+          '/workspace/b.ts',
+        ]);
+        expect(result.totalFiles).toBe(2);
+      },
+    );
+
+    /**
+     * The realistic Windows shape: a scanner sweep locks several entries at
+     * once, with the two codes interleaved. The index must survive with every
+     * readable entry present, and the run must still say so exactly once.
+     */
+    it('survives a mixed EPERM/EBUSY sweep and reports the skips once', async () => {
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/a.ts',
+        '/workspace/locked-perm.ts',
+        '/workspace/b.ts',
+        '/workspace/locked-busy.ts',
+        '/workspace/c.ts',
+      ]);
+      fileSystemService.stat.mockImplementation(async (filePath: string) => {
+        if (filePath.includes('locked-perm')) {
+          throw statError(filePath, 'EPERM');
+        }
+        if (filePath.includes('locked-busy')) {
+          throw statError(filePath, 'EBUSY');
+        }
+        return OK_STAT;
+      });
+
+      await expect(collect()).resolves.toEqual([
+        '/workspace/a.ts',
+        '/workspace/b.ts',
+        '/workspace/c.ts',
+      ]);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('indexWorkspaceStream'),
+        expect.objectContaining({ skipped: 2, discovered: 5 }),
+      );
+    });
+
+    /**
+     * The absorb must not become a swallow-everything. `EACCES` is deliberately
+     * NOT in the set: on Windows a transient lock is `EPERM`/`EBUSY`, while
+     * `EACCES` is a durable ACL decision about a path this process may not read
+     * — it will be just as true for the next entry and on the next pass.
+     * Absorbing it would trade a permanent, actionable failure for a silently
+     * partial index, which is the defect this guard exists to prevent. `EMFILE`
+     * and `EIO` describe the process and the device for the same reason.
+     *
+     * `EACCES` is the one to watch: it is in `harness-sync`'s
+     * `RETRYABLE_ERROR_CODES`, and that set is a RETRY list on a destructive
+     * write, not an absorb list on a read-only pass.
+     */
+    it.each(['EACCES', 'EMFILE', 'EIO'])(
+      'still aborts the run on %s, which is about the environment not the entry',
+      async (code) => {
+        mockFsProvider.findFiles.mockResolvedValue([
+          '/workspace/a.ts',
+          '/workspace/denied.ts',
+          '/workspace/b.ts',
+        ]);
+        fileSystemService.stat.mockImplementation(async (filePath: string) => {
+          if (filePath.includes('denied')) {
+            throw statError(filePath, code);
+          }
+          return OK_STAT;
+        });
+
+        await expect(collect()).rejects.toThrow('Failed to stat');
+        await expect(
+          service.indexWorkspace({ workspaceFolder: WORKSPACE_ROOT }),
+        ).rejects.toThrow('Failed to stat');
+      },
+    );
   });
 
   describe('node_modules exclusion regression (TASK_2026_119)', () => {
