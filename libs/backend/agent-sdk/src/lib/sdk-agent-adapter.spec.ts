@@ -244,17 +244,45 @@ function createMockPlatformInfo(
   };
 }
 
+/**
+ * `IWorkspaceProvider` stand-in with a MUTABLE folder list.
+ *
+ * `onDidChangeWorkspaceFolders` captures its listener — the adapter subscribes
+ * from its constructor — and `__state.setFolders` mutates the list BEFORE
+ * firing, which is the real contract: `ElectronWorkspaceProvider.removeFolder`
+ * splices and only then calls `fireFoldersChange`, so a handler always observes
+ * the POST-change folder list. A mock that fired first would let the
+ * no-workspace guard pass on a stale count and silently pass the specs below.
+ */
+type MockWorkspaceProvider = jest.Mocked<IWorkspaceProvider> & {
+  __state: { setFolders(folders: string[]): void };
+};
+
 function createMockWorkspaceProvider(
   root: string | null = '/fake/workspace-root',
-): jest.Mocked<IWorkspaceProvider> {
+): MockWorkspaceProvider {
+  let folders: string[] = root ? [root] : [];
+  const listeners: Array<() => void> = [];
+
   return {
-    getWorkspaceRoot: jest.fn(() => root),
-    getWorkspaceFolders: jest.fn(() => (root ? [root] : [])),
+    getWorkspaceRoot: jest.fn(() => folders[0]),
+    getWorkspaceFolders: jest.fn(() => [...folders]),
     getConfiguration: jest.fn(<T>(_: string, __: string, def?: T) => def),
     setConfiguration: jest.fn().mockResolvedValue(undefined),
     onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
-    onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
-  } as unknown as jest.Mocked<IWorkspaceProvider>;
+    onDidChangeWorkspaceFolders: jest.fn((listener: () => void) => {
+      listeners.push(listener);
+      return { dispose: jest.fn() };
+    }),
+    __state: {
+      setFolders(next: string[]): void {
+        folders = [...next];
+        for (const listener of [...listeners]) {
+          listener();
+        }
+      },
+    },
+  } as unknown as MockWorkspaceProvider;
 }
 
 function createFakeQuery(): Query {
@@ -286,7 +314,7 @@ interface AdapterHarness {
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
-  workspaceProvider: jest.Mocked<IWorkspaceProvider>;
+  workspaceProvider: MockWorkspaceProvider;
   forkService: ReturnType<typeof createMockForkService>;
   events: SdkAdapterEvents;
   activityRegistry: SessionActivityRegistry;
@@ -626,6 +654,113 @@ describe('SdkAgentAdapter', () => {
       expect(h.authManager.clearAuthentication).toHaveBeenCalledTimes(1);
       expect(h.cliDetector.findExecutable).toHaveBeenCalledTimes(2);
       expect(h.adapter.getHealth().status).toBe('available');
+    });
+  });
+
+  // TASK_2026_315 finding A1 — removing the LAST workspace folder started an
+  // OAuth proxy.
+  //
+  // `handleWorkspaceChanged` guarded only on `initialized`. With zero folders
+  // open `resolveActiveAuth()` has no workspace scope to read and falls through
+  // to the GLOBAL default provider, which differs from the workspace-scoped one
+  // that was active. The differing pair defeated the equality early-return in
+  // `reconfigureAuthIfChanged`, so a full reconfigure ran: an OAuth token
+  // refresh was burned and a translation proxy bound on 127.0.0.1 under the
+  // GLOBAL scope, where the `disposeForScope(path)` in `workspace:removeFolder`
+  // could not reach it. Nothing threw; a socket just stayed open for the rest
+  // of the session. Only a test stops that recurring.
+  describe('no-workspace guard on folder change (TASK_2026_315 A1)', () => {
+    /** Let the fire-and-forget reconfigure chain settle before asserting. */
+    function flush(): Promise<void> {
+      return new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    /**
+     * What `ActiveProviderResolver.resolveActiveAuth` returns once there is no
+     * workspace scope left to read: the global default, `openai-codex` in the
+     * captured log, against an `apiKey`/`anthropic` session.
+     */
+    function resolveToGlobalDefault(h: AdapterHarness): void {
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'thirdParty',
+        providerId: 'openai-codex',
+      });
+    }
+
+    it('does not reconfigure auth when the last workspace folder is removed', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+      resolveToGlobalDefault(h);
+      h.workspaceProvider.__state.setFolders([]);
+      await flush();
+
+      // The whole finding in one assertion: no second configure means no OAuth
+      // refresh and no proxy bind on the way to zero folders.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+      // And the provider-keyed caches stay warm — see decision note (b).
+      expect(h.cliDetector.clearCache).not.toHaveBeenCalled();
+      expect(h.modelService.clearCache).not.toHaveBeenCalled();
+    });
+
+    // Companion positive case: the guard must not be widened into a regression
+    // that freezes auth across a GENUINE switch.
+    it('still reconfigures on a switch from folder A to folder B with a different provider', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'thirdParty',
+        providerId: 'ollama-cloud',
+      });
+      h.workspaceProvider.__state.setFolders(['/ws/b']);
+      await flush();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.cliDetector.clearCache).toHaveBeenCalledTimes(1);
+      expect(h.modelService.clearCache).toHaveBeenCalledTimes(1);
+    });
+
+    // Pins decision note (a): FREEZING rather than tearing down keeps
+    // `lastConfiguredAuth` an accurate record of what the auth env holds, so
+    // re-adding a folder that resolves to the SAME provider is correctly a
+    // no-op. A teardown variant would have nulled it and reconfigured here —
+    // the same OAuth refresh, merely deferred.
+    it('re-adding a folder with the same provider does not reconfigure', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      resolveToGlobalDefault(h);
+      h.workspaceProvider.__state.setFolders([]);
+      await flush();
+
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'apiKey',
+        providerId: 'anthropic',
+      });
+      h.workspaceProvider.__state.setFolders(['/ws/a']);
+      await flush();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+    });
+
+    // Pins decision note (a), other half: the frozen record does not suppress a
+    // real change. A folder re-added with a DIFFERENT provider reconfigures.
+    it('re-adding a folder with a different provider reconfigures', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      resolveToGlobalDefault(h);
+      h.workspaceProvider.__state.setFolders([]);
+      await flush();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+      h.workspaceProvider.__state.setFolders(['/ws/b']);
+      await flush();
+
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
     });
   });
 
