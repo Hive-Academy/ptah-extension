@@ -40,14 +40,17 @@ Headless Node CLI that hosts the full Ptah agent backend in-process and exposes 
 
 ## Build & Run
 
-- `nx build ptah-cli` — esbuild ESM bundle to `dist/apps/ptah-cli/main.mjs` with `createRequire` + `__filename` + `__dirname` banner so the ESM bundle behaves like CJS for `require()`-using deps. `deleteOutputPath: true`.
+- `nx build ptah-cli` — an `nx:noop` wrapper over `build-esbuild` + `copy-wasm`, matching the `ptah-extension-vscode` shape. Call `build`, never `build-esbuild` directly: `build-esbuild` has `deleteOutputPath: true` and wipes `wasm/`, which is why `copy-wasm` runs after it.
+- `nx run ptah-cli:build-esbuild` — the actual esbuild ESM bundle to `dist/apps/ptah-cli/main.mjs`, with a `createRequire` + `__filename` + `__dirname` banner so the ESM bundle behaves like CJS for `require()`-using deps.
+- `nx run ptah-cli:copy-wasm` — copies the web-tree-sitter runtime and all five grammars into `dist/apps/ptah-cli/wasm/`. Load-bearing, not incidental: `resolveWasmPath` locates grammars as a sibling of the executing bundle, and `tui.mjs` builds into this same directory, so this one copy serves both `main.mjs` and `tui.mjs`. Without it, AST init aborts on every file in both the CLI and the TUI (TASK_2026_273).
 - `nx dev ptah-cli` — `npx tsx apps/ptah-cli/src/main.ts`.
 - `nx serve ptah-cli` — build then `node dist/apps/ptah-cli/main.mjs`.
 - `nx test ptah-cli` (jest); `nx run ptah-cli:e2e` (separate `jest.e2e.config.cjs`, `--runInBand`).
 - `nx run ptah-cli:e2e-pty` — TUI specs that press real keys on a real pseudo-terminal (`jest.pty.config.cjs`, `tests/e2e/**/*.pty.spec.ts`). Split from `e2e` solely because node-pty leaks a PIPEWRAP that needs `forceExit`; the JSON-RPC suite stays without it so a future leak there still surfaces.
 - **Rebuild the bundle with `--skip-nx-cache` before trusting an e2e run against changed source.** `restore-cli-manifest` will happily serve a cached `tui.mjs` from a previous source state, and the specs then pass against code you did not write.
 - `nx run ptah-cli:publish:dry-run` / `:publish` — runs from `dist/apps/ptah-cli`. Distribution is gated by the `publish-cli` GitHub workflow on `cli-v*` tag flow.
-- `package.json` declares `"bin": { "ptah": "./main.mjs" }`. Assets copied into dist: `package.json`, `README.md`, `docs/jsonrpc-schema.md`, `docs/migration.md`, repo-root `LICENSE.md`.
+- `package.json` declares `"bin": { "ptah": "./main.mjs" }`. Assets copied into dist: `package.json`, `README.md`, `docs/jsonrpc-schema.md`, `docs/migration.md`, repo-root `LICENSE.md`, plus `wasm/` from `copy-wasm`.
+- **A file in `dist/` is not a file in the published package.** `package.json` `files` gates what `npm publish` ships, so anything added to the build must be added there too — that gap is exactly how the grammars went missing. `nx run ptah-cli:verify-packed-wasm` (`scripts/verify-packed-wasm.cjs`) packs a real tarball and reads the grammars back out of it; it gates both `publish` and `publish:dry-run`, and the `publish-cli` workflow runs it directly because that job calls raw `npm publish` rather than the Nx target.
 
 ## Guidelines
 

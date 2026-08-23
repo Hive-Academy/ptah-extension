@@ -33,6 +33,7 @@
     "main.mjs",
     "tui.mjs",
     "embedder-worker.mjs",
+    "wasm",
     "README.md",
     "LICENSE.md",
     "docs/jsonrpc-schema.md",

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_273
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   ptah-cli and ptah-tui register AST services but never ship the tree-sitter
