@@ -13,6 +13,30 @@ import type {
   IDisposable,
   IFileWatcher,
 } from '@ptah-extension/platform-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
+
+/**
+ * The errno of a failed `fs` call, or `''` when the rejection carried none.
+ *
+ * Used to tell "the directory is not there" (the normal case) apart from "the
+ * directory is there and the OS refused" (a real problem the user must see).
+ */
+function errnoOf(error: unknown): string {
+  if (typeof error !== 'object' || error === null) return '';
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === 'string' ? code : '';
+}
+
+/**
+ * Errnos that mean "this path is simply not a directory that exists".
+ *
+ * `ENOENT` is by far the common one — `~/.claude/agents` does not exist for any
+ * user who has never authored a user-level agent, which is most of them.
+ * `ENOTDIR` covers the same absence expressed differently (a parent segment is
+ * a file), and Windows surfaces a missing path as `ENOENT` too.
+ */
+const ABSENT_DIR_ERRNOS: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR']);
 
 /**
  * Agent information parsed from .md file
@@ -84,11 +108,29 @@ export class AgentDiscoveryService {
   private cacheRootKey: string | undefined;
   private watchers: IDisposable[] = [];
 
+  /**
+   * `${dir}::${errno}` for every scan failure already reported this process.
+   *
+   * `scanAgentDirectory` runs on EVERY `autocomplete:agents` call, over both the
+   * project and the user agent directory, and a user with no `~/.claude/agents`
+   * fails the user half every single time. Reporting that repeatedly says
+   * nothing a reader did not learn the first time (TASK_2026_315 C5).
+   *
+   * Keyed by errno, not by directory alone, so a directory that degrades from
+   * absent to unreadable — ENOENT then EACCES after a permissions change — is
+   * reported again under its new failure mode instead of being swallowed by the
+   * earlier entry. Cleared for a directory the moment it reads successfully, so
+   * a later regression is a fresh report rather than a permanent silence.
+   */
+  private readonly reportedScanFailures = new Set<string>();
+
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fsProvider: IFileSystemProvider,
+    @inject(TOKENS.LOGGER)
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -299,16 +341,44 @@ export class AgentDiscoveryService {
         agentFiles.map((file) => this.parseAgentFile(path.join(dir, file))),
       );
 
+      for (const key of [...this.reportedScanFailures]) {
+        if (key.startsWith(`${dir}::`)) this.reportedScanFailures.delete(key);
+      }
+
       return agents.filter(Boolean) as AgentInfo[];
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      console.debug(
-        `[AgentDiscovery] Directory ${dir} not accessible:`,
-        errorMessage,
-      );
+    } catch (error: unknown) {
+      this.reportScanFailure(dir, error);
       return [];
     }
+  }
+
+  /**
+   * Report a directory scan that failed, at most once per directory per errno.
+   *
+   * The two failures are not the same event and must not read the same. An
+   * ABSENT directory is the expected shape of a machine where the user never
+   * created a user-level agent, so it belongs at debug. A directory that is
+   * present and the OS refused to open — EACCES, EPERM, EBUSY, EIO — is a real
+   * problem the user has to be able to see, so it is a warning; quietening it
+   * along with the expected miss is exactly the mistake this fix must not make.
+   */
+  private reportScanFailure(dir: string, error: unknown): void {
+    const errno = errnoOf(error);
+    const key = `${dir}::${errno}`;
+    if (this.reportedScanFailures.has(key)) return;
+    this.reportedScanFailures.add(key);
+
+    const detail = {
+      dir,
+      code: errno === '' ? undefined : errno,
+      error: error instanceof Error ? error.message : String(error),
+    };
+
+    if (ABSENT_DIR_ERRNOS.has(errno)) {
+      this.logger.debug('[AgentDiscovery] No agent directory here', detail);
+      return;
+    }
+    this.logger.warn('[AgentDiscovery] Agent directory unreadable', detail);
   }
 
   /**

@@ -13,7 +13,7 @@ import type {
   IDisposable,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type { Logger, SentryService } from '@ptah-extension/vscode-core';
 
 /**
  * Frontmatter block plus the markdown body that follows it.
@@ -192,6 +192,16 @@ export class CommandDiscoveryService {
   private cacheRootKey: string | undefined;
   private watchers: IDisposable[] = [];
 
+  /**
+   * Skills directories already reported ABSENT this process.
+   *
+   * Only the absent case is memoised — an unreadable directory keeps reporting,
+   * because it is a live fault the user needs to keep seeing. Cleared for a
+   * directory the moment it scans successfully, so one that appears and later
+   * disappears again is a fresh report. See the catch in `scanWorkspaceSkills`.
+   */
+  private readonly reportedSkillsDirFailures = new Set<string>();
+
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
@@ -199,6 +209,8 @@ export class CommandDiscoveryService {
     private readonly fsProvider: IFileSystemProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.LOGGER)
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -569,11 +581,32 @@ export class CommandDiscoveryService {
           );
         }
       }
-    } catch (error) {
-      console.debug(
-        `[CommandDiscovery] Skills directory not accessible at ${skillsDir}:`,
-        error instanceof Error ? error.message : String(error),
-      );
+      this.reportedSkillsDirFailures.delete(skillsDir);
+    } catch (error: unknown) {
+      // A workspace with no `.claude/skills` is the ordinary state of a
+      // workspace nobody has run the reconciler in — and this scan runs on
+      // every `autocomplete:commands` call, so reporting it each time was pure
+      // per-keystroke noise. Worse, it also raised a Sentry exception for a
+      // directory that was never expected to exist, spending the error budget
+      // on the normal case (TASK_2026_315 C5).
+      //
+      // A directory that IS there and cannot be read is a different event:
+      // that one still warns and still reaches Sentry, because it means the
+      // user's skills silently stopped resolving and nothing else would say so.
+      if (isEnoent(error)) {
+        if (!this.reportedSkillsDirFailures.has(skillsDir)) {
+          this.reportedSkillsDirFailures.add(skillsDir);
+          this.logger.debug('[CommandDiscovery] No skills directory here', {
+            skillsDir,
+          });
+        }
+        return skills;
+      }
+
+      this.logger.warn('[CommandDiscovery] Skills directory unreadable', {
+        skillsDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),
         { errorSource: 'CommandDiscoveryService.scanWorkspaceSkills' },
