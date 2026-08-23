@@ -533,7 +533,7 @@ export class HumanFormatter implements Formatter {
       `    sources:     ${this.color(
         sources,
         sources === 'ok' ? 'green' : 'yellow',
-      )}`,
+      )}${describeSkillSelection(obj['selection'])}`,
     );
     const collisions =
       health !== null && Array.isArray(health['collisions'])
@@ -784,6 +784,32 @@ function renderTable(headers: string[], rows: string[][]): string {
     out.push(line(headers.map((_, i) => row[i] ?? '')));
   }
   return `${out.join('\n')}\n`;
+}
+
+/**
+ * The skill-selection clause appended to the doctor's `sources` line
+ * (TASK_2026_316).
+ *
+ * A `'selected'` workspace propagates only its allowlist, and the counts above
+ * cannot show that — an unselected skill never enters `expected`, so a
+ * workspace that deliberately propagates nothing renders identically to one
+ * whose harness came up empty. This clause is the difference between the two.
+ *
+ * INFORMATIONAL ONLY. The verdict on the `status` line comes from
+ * `summarizeHarnessHealth`, which grades a narrow selection `ok`; nothing here
+ * colours or contradicts it. An absent or unrecognized `selection` renders
+ * nothing at all rather than guessing a mode.
+ */
+function describeSkillSelection(value: unknown): string {
+  if (typeof value !== 'object' || value === null) return '';
+  const obj = value as Record<string, unknown>;
+  const mode = obj['mode'];
+  if (mode !== 'all' && mode !== 'selected') return '';
+  const derived = obj['derived'] === true ? ', derived' : '';
+  if (mode === 'all') return `  (skills: all${derived})`;
+  const selected = numberField(obj, 'selected');
+  const available = numberField(obj, 'available');
+  return `  (skills: selected — ${selected} of ${available}${derived})`;
 }
 
 function stringField(obj: Record<string, unknown>, key: string): string {
