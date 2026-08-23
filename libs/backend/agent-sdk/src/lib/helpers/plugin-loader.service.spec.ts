@@ -938,3 +938,92 @@ describe('PluginLoaderService — external plugin allowlist', () => {
     });
   });
 });
+
+/**
+ * TASK_2026_315 C4 — a permanently broken skill root is reported ONCE.
+ *
+ * `tmp/logs/log.log` lines 793, 844 and 1012 carry the identical
+ *
+ *     [PluginLoaderService] Skipping skill without a readable SKILL.md
+ *     {"path":"…\\ptah-skillssh-oso95-scroll-world\\skills\\scroll-world\\SKILL.md", …}
+ *
+ * once per `plugins:list-available`. The condition is permanent — that
+ * directory tree has no SKILL.md and never will regain one on its own — so
+ * every repeat is a line that tells a reader nothing the first one did not.
+ *
+ * What must NOT change: the skill is still skipped, the surrounding plugin
+ * still lists, and the scan itself still runs on every call so a root that is
+ * repaired is picked up with no cache to invalidate.
+ */
+describe('PluginLoaderService.discoverSkillsForPlugins — broken-root log volume', () => {
+  /** A skill directory with no `SKILL.md`, the shape the log complains about. */
+  function breakSkill(base: string, pluginId: string, slug: string): string {
+    const dir = path.join(base, pluginId, 'skills', slug);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  function skipLines(h: Harness): unknown[][] {
+    return h.logger.debug.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('Skipping skill without a readable SKILL.md'),
+    );
+  }
+
+  it('logs the same unreadable SKILL.md once across repeated list calls', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+    const pluginPath = path.join(h.pluginsBasePath, 'ptah-harness-alpha');
+
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    h.service.discoverSkillsForPlugins([pluginPath]);
+
+    expect(skipLines(h)).toHaveLength(1);
+  });
+
+  it('still skips the broken skill and still lists a healthy sibling', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        skills: { 'ptah-harness-alpha': [{ dir: 'good' }] },
+      }),
+    );
+    breakSkill(h.pluginsBasePath, 'ptah-harness-alpha', 'broken');
+    const pluginPath = path.join(h.pluginsBasePath, 'ptah-harness-alpha');
+
+    const skills = h.service.discoverSkillsForPlugins([pluginPath]);
+
+    expect(skills.map((s) => s.skillId)).toEqual(['good']);
+  });
+
+  it('picks a repaired root back up, and reports it again if it breaks anew', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
+    const skillDir = breakSkill(
+      h.pluginsBasePath,
+      'ptah-harness-alpha',
+      'broken',
+    );
+    const pluginPath = path.join(h.pluginsBasePath, 'ptah-harness-alpha');
+    const skillMd = path.join(skillDir, 'SKILL.md');
+
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    expect(skipLines(h)).toHaveLength(1);
+
+    // Repaired: the scan is not cached, so it is picked up immediately.
+    fs.writeFileSync(
+      skillMd,
+      '---\nname: "broken"\ndescription: "now readable"\n---\nbody\n',
+      'utf-8',
+    );
+    const repaired = h.service.discoverSkillsForPlugins([pluginPath]);
+    expect(repaired.map((s) => s.skillId)).toEqual(['broken']);
+    expect(skipLines(h)).toHaveLength(1);
+
+    // Broken again is a NEW fault, not the memoised one.
+    fs.rmSync(skillMd, { force: true });
+    h.service.discoverSkillsForPlugins([pluginPath]);
+    expect(skipLines(h)).toHaveLength(2);
+  });
+});

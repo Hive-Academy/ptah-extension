@@ -284,6 +284,28 @@ export class PluginLoaderService {
   /** VS Code Memento for per-workspace persistent state */
   private workspaceState: IStateStorage | null = null;
 
+  /**
+   * `SKILL.md` paths already reported unreadable, mapped to the errno that was
+   * reported for them.
+   *
+   * `discoverSkillsForPlugins` runs on every `plugins:list-available`, and a
+   * skill directory with no `SKILL.md` fails identically every time. On the
+   * machine that produced `tmp/logs/log.log` one such directory
+   * (`ptah-skillssh-oso95-scroll-world/skills/scroll-world`) re-emitted the same
+   * ENOENT at lines 793, 844 and 1012 of a single session — a permanently
+   * broken root reported once per call, which is noise rather than news
+   * (TASK_2026_315 C4).
+   *
+   * Keyed by errno so a path that changes failure mode — ENOENT becoming EACCES
+   * after a permissions change — is reported again rather than hidden behind
+   * the first entry. The entry is dropped the moment the file reads
+   * successfully, so a root repaired and later broken again reports afresh.
+   *
+   * Only the LOG is memoised. The scan itself still runs every call, so a root
+   * that becomes readable is picked up immediately with no cache to invalidate.
+   */
+  private readonly reportedUnreadableSkills = new Map<string, string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLUGIN_MARKETPLACE_TOKENS.STATE_STORE)
@@ -899,14 +921,9 @@ export class PluginLoaderService {
         let content: string;
         try {
           content = fs.readFileSync(skillMdPath, 'utf-8');
+          this.reportedUnreadableSkills.delete(skillMdPath);
         } catch (error: unknown) {
-          this.logger.debug(
-            '[PluginLoaderService] Skipping skill without a readable SKILL.md',
-            {
-              path: skillMdPath,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
+          this.reportUnreadableSkill(skillMdPath, error);
           continue;
         }
 
@@ -929,6 +946,37 @@ export class PluginLoaderService {
     }
 
     return skills;
+  }
+
+  /**
+   * Report a skill directory whose `SKILL.md` could not be read — once per
+   * path, per failure mode.
+   *
+   * Deliberately still DEBUG and still non-fatal. A half-written skill folder is
+   * a real condition this method must survive (see the comment at the read
+   * site), and the user cannot act on a log line either way; the defect being
+   * fixed is repetition, not level. Nothing else changes: the skill is skipped
+   * exactly as before and the rest of the plugin still lists.
+   */
+  private reportUnreadableSkill(skillMdPath: string, error: unknown): void {
+    const code =
+      typeof error === 'object' &&
+      error !== null &&
+      typeof (error as NodeJS.ErrnoException).code === 'string'
+        ? ((error as NodeJS.ErrnoException).code as string)
+        : '';
+
+    if (this.reportedUnreadableSkills.get(skillMdPath) === code) return;
+    this.reportedUnreadableSkills.set(skillMdPath, code);
+
+    this.logger.debug(
+      '[PluginLoaderService] Skipping skill without a readable SKILL.md',
+      {
+        path: skillMdPath,
+        code: code === '' ? undefined : code,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
   }
 
   /**
