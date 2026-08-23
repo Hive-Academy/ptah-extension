@@ -1,6 +1,6 @@
 # Development Tasks — TASK_2026_316
 
-**Total Tasks**: 27 | **Batches**: 6 | **Status**: 2/6 complete
+**Total Tasks**: 27 | **Batches**: 6 | **Status**: 4/6 complete
 
 Two sequenced halves (U1). Batch 1 ships alone and needs no new state. Batches
 2–6 add the per-workspace gate and its surfaces.
@@ -492,7 +492,7 @@ Pass a temp `homeDir` override. No spec touches the real home directory.
 
 ---
 
-## Batch 3 — RPC surface ⏸️ PENDING
+## Batch 3 — RPC surface ✅ COMPLETE (37402030c)
 
 **Recommended Executor**: `backend-developer`
 **Fallback Executor**: `general-purpose`
@@ -574,7 +574,7 @@ prefix guard.
 
 ---
 
-## Batch 4 — The selection surface ⏸️ PENDING
+## Batch 4 — The selection surface ✅ COMPLETE
 
 **Recommended Executor**: `frontend-developer`
 **Fallback Executor**: `general-purpose`
