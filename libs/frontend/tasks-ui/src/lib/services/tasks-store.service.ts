@@ -431,6 +431,44 @@ export class TasksStore implements MessageHandler {
   private readonly _loaded = signal(false);
   private readonly _busy = signal(false);
   private readonly _error = signal<string | null>(null);
+
+  /**
+   * The last `tasks:board` for the ACTIVE workspace came back refused with the
+   * typed `WORKSPACE_NOT_OPEN` code — no folder is open, so the whole `tasks:*`
+   * namespace has nothing to answer with (`TasksRpcHandlers.resolveRoot` makes
+   * that one check the namespace boundary, deliberately).
+   *
+   * ## This is NOT a second source of truth for "is a folder open"
+   *
+   * It records a FETCH OUTCOME, exactly like {@link _error} and
+   * {@link _loaded} do — "the host refused the last board read, and why". The
+   * only thing this store ever reads the workspace itself from is
+   * `AppStateManager.workspaceInfo` (see {@link activeRoot} /
+   * {@link activeKey}), and that stays the single source of truth: it is what
+   * scopes every RPC, what keys the cache, and what {@link onWorkspaceSwitch}
+   * reacts to when a folder finally opens. Deriving this flag from
+   * `workspaceInfo` instead would be the wrong call in the other direction —
+   * the webview's copy can lag the host's (it is seeded from `ptahConfig` and
+   * pushed by the shell), and a board blanked on a stale local read is a worse
+   * failure than one blanked on the host's own answer.
+   *
+   * ## The trade this makes, stated plainly
+   *
+   * Release depends on an EXTERNAL event moving `workspaceInfo`
+   * ({@link onWorkspaceSwitch}) or on a later fetch succeeding. If a refusal
+   * ever arrives WITHOUT a matching `workspaceInfo` change — a host-side race,
+   * a dropped push — then `activeKey()` never moves, `onWorkspaceSwitch` never
+   * fires, and {@link setupVisibilityReconcile}'s guard means no focus event
+   * retries either. Recovery in that narrow case is manual, through the
+   * "Check again" button, which is deliberately NOT disabled by this flag.
+   *
+   * That is a trade, not an oversight: the old code self-healed a spurious
+   * refusal on the next focus, at the price of an unbounded retry loop for the
+   * ordinary case. This buys the bounded loop and pays for it with a manual
+   * escape hatch in a case that requires the host to be wrong about its own
+   * workspace. Do not "fix" it by re-arming the reconcile — that is the defect.
+   */
+  private readonly _noWorkspace = signal(false);
   private readonly _actionMessage = signal<string | null>(null);
   private readonly _selectedTaskId = signal<string | null>(null);
   private readonly _taskDetail = signal<TaskSpecDetail | null>(null);
@@ -608,6 +646,39 @@ export class TasksStore implements MessageHandler {
   public readonly loaded = this._loaded.asReadonly();
   public readonly busy = this._busy.asReadonly();
   public readonly error = this._error.asReadonly();
+  /**
+   * True while the host is refusing the board because no folder is open — the
+   * board's THIRD empty case, distinct from "no tasks yet" ({@link isEmpty})
+   * and from "the filter hides them all" ({@link filteredEmpty}). See
+   * {@link _noWorkspace}; the two are mutually exclusive by construction.
+   */
+  public readonly noWorkspace = this._noWorkspace.asReadonly();
+
+  /**
+   * THE ONE ANSWER to "may this surface write into `.ptah/specs` right now".
+   *
+   * ## Why this is a named signal rather than `!noWorkspace()` written inline
+   *
+   * Every control that can reach a `tasks:*` write has to be off while the host
+   * is refusing the namespace, and there is more than one such control: the
+   * four header buttons AND the command palette catalogue — which is a pure
+   * function over a snapshot and so cannot read a signal itself. The first cut
+   * of this fix gated only the header, and the palette's "Create a task" and
+   * "Reindex the workspace tasks" walked straight through, reopening the exact
+   * red-banner-over-calm-panel outcome this state exists to remove.
+   *
+   * Two independent gates that must be kept in sync is how that happened, so
+   * now there is one. The header reads this; the palette receives it as
+   * `TaskPaletteContext.canWriteSpecs`, where `ACTION_WRITES_SPECS` applies it
+   * to every write-capable action kind at once. A future third entry point
+   * either reads this signal or is not gated at all — there is no third
+   * half-correct copy of the rule for it to inherit.
+   *
+   * It is `!noWorkspace()` today and nothing more. The value is the name and
+   * the single read site, so the next precondition (a read-only workspace, an
+   * indexing pass holding the specs dir) lands in one place.
+   */
+  public readonly canWriteSpecs = computed(() => !this._noWorkspace());
   public readonly actionMessage = this._actionMessage.asReadonly();
   public readonly selectedTaskId = this._selectedTaskId.asReadonly();
   public readonly taskDetail = this._taskDetail.asReadonly();
@@ -906,10 +977,19 @@ export class TasksStore implements MessageHandler {
    * True when there is nothing to show: either no `.ptah/specs` directory yet,
    * or the directory exists but holds zero valid tasks. Only meaningful once a
    * board load has completed at least once.
+   *
+   * Explicitly FALSE while {@link noWorkspace} holds. A refused board is empty
+   * for a completely different reason and answers with a completely different
+   * action: this state offers "create your first task", and there is nowhere to
+   * create it without a folder. Made exclusive here rather than left to the
+   * template's branch order, so a second surface cannot reach the create CTA by
+   * asking the questions in the other order.
    */
   public readonly isEmpty = computed(
     () =>
-      this._loaded() && (!this._specsDirExists() || this.totalCount() === 0),
+      !this._noWorkspace() &&
+      this._loaded() &&
+      (!this._specsDirExists() || this.totalCount() === 0),
   );
 
   /**
@@ -2100,6 +2180,11 @@ export class TasksStore implements MessageHandler {
   private onWorkspaceSwitch(key: string): void {
     this.closeTask();
     this._error.set(null);
+    // The refusal belonged to the workspace we just left. Dropping it here is
+    // what re-arms the visibility reconcile on the way back in, and it is the
+    // reason opening a folder needs no manual refresh: `workspaceInfo` moves,
+    // this runs, and the fetch below asks the host again from a clean slate.
+    this._noWorkspace.set(false);
     // Task ids are per-workspace folder names, so a selection carried across a
     // switch would name tasks in the workspace the user just left — and the
     // bulk bar would offer to write them. This is the one place the selection
@@ -2132,6 +2217,10 @@ export class TasksStore implements MessageHandler {
    *  - `isActive()` — the workspace `key` is still the visible one, so a response
    *    for a workspace the user switched away from can never paint the visible
    *    board (it still refreshes its own cache slice for a later switch-back).
+   *
+   * A response is one of THREE things, not two: loaded, refused, or failed.
+   * See the `WORKSPACE_NOT_OPEN` branch below for why the refusal is not an
+   * error and must not be painted as one.
    */
   private async fetchBoard(
     key: string,
@@ -2153,9 +2242,28 @@ export class TasksStore implements MessageHandler {
         if (isActive()) {
           this.applySlice(slice);
           this._error.set(null);
+          this._noWorkspace.set(false);
         }
       } else if (isActive()) {
-        this._error.set(result.error ?? 'Failed to load tasks');
+        // `WORKSPACE_NOT_OPEN` is the one non-success that is not a failure.
+        // The host answered correctly: the `tasks:*` namespace is scoped to an
+        // open folder, and with none open there is no board — not now and not
+        // on the next attempt. Recording it as a refusal instead of an error
+        // does two things: the surface can say so in its own words instead of
+        // showing a red banner, and the visibility reconcile stops asking (see
+        // `setupVisibilityReconcile`).
+        //
+        // The code is matched EXACTLY. Every other outcome — a timeout, a scan
+        // crash, a dropped message — is a real error the user must see, and
+        // stays retryable on the next focus. Treating them all as "no
+        // workspace" would hide a broken host behind a calm empty state.
+        if (result.errorCode === 'WORKSPACE_NOT_OPEN') {
+          this._noWorkspace.set(true);
+          this._error.set(null);
+        } else {
+          this._noWorkspace.set(false);
+          this._error.set(result.error ?? 'Failed to load tasks');
+        }
       }
     } finally {
       if (isLatest() && isActive()) {
@@ -2202,6 +2310,21 @@ export class TasksStore implements MessageHandler {
       // load is already in flight — the guard doubles as the debounce.
       if (document.visibilityState === 'hidden') return;
       if (!this._loaded() || this._loading()) return;
+      // The host REFUSED the board because no folder is open. Focus cannot
+      // change that answer — only opening a folder can, and that arrives as an
+      // `AppStateManager.workspaceInfo` change, which `setupWorkspaceSwitch`
+      // already turns into a fetch. So the board still loads by itself the
+      // moment a folder appears; it just stops asking in the meantime.
+      //
+      // This guard is the whole fix, and it is deliberately NOT "stop setting
+      // `_loaded` on the error path". `_loaded` means "a fetch resolved, stop
+      // showing the first-visit spinner", and it is correct on every non-
+      // success too — a genuine failure SHOULD leave this loop armed so the
+      // next focus retries it. What was missing is that one refusal is
+      // permanent until an external event, and nothing said so: with `_loaded`
+      // latched, every `focus` and `visibilitychange` bought one more rejected
+      // round trip. Nine of them in the captured session.
+      if (this._noWorkspace()) return;
       // A bulk run owes exactly one board reload and issues it itself (R5). A
       // window regaining focus mid-run must not add a second — the run's own
       // reload lands after every write and is strictly fresher than anything

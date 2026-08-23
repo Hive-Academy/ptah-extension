@@ -2894,3 +2894,184 @@ describe('normalizeRootKey — backend parity', () => {
     expect(normalizeRootKey(CANONICAL)).toBe(CANONICAL);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TasksStore — no workspace open (A2)
+//
+// The host is correct and unchanged: `tasks:*` is scoped to an open folder, and
+// `TasksRpcHandlers.resolveRoot` refuses the whole namespace with a typed
+// `WORKSPACE_NOT_OPEN` when there is none. The defect was entirely here — the
+// store read that refusal as a failure, and `setupVisibilityReconcile` then
+// bought one more rejected round trip on every `focus` and `visibilitychange`
+// (nine in the captured session), because `fetchBoard`'s `finally` latches
+// `_loaded` on the non-success path too.
+//
+// These tests pin the three outcomes apart: loaded, refused, failed.
+// ---------------------------------------------------------------------------
+
+/** A `tasks:board` REFUSAL — the host's typed "no folder is open" answer. */
+const refused = () => ({
+  success: false,
+  isSuccess: () => false,
+  error: 'No workspace folder open.',
+  errorCode: 'WORKSPACE_NOT_OPEN' as const,
+});
+
+describe('TasksStore — no workspace open', () => {
+  let store: TasksStore;
+  let rpcCall: jest.Mock;
+  let workspaceInfo: ReturnType<typeof signal<Ws | null>>;
+
+  const wsA: Ws = { path: 'D:/ws-a', name: 'a', type: 'workspace' };
+
+  function configure(): void {
+    TestBed.configureTestingModule({
+      providers: [
+        TasksStore,
+        {
+          provide: ClaudeRpcService,
+          useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
+        },
+        { provide: AppStateManager, useValue: { workspaceInfo } },
+      ],
+    });
+    store = TestBed.inject(TasksStore);
+    // First effect run only records the current workspace key.
+    TestBed.tick();
+  }
+
+  const flush = async (): Promise<void> => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    rpcCall = jest.fn().mockResolvedValue(refused());
+    // No folder open — exactly the state `workspace:removeFolder` leaves behind.
+    workspaceInfo = signal<Ws | null>(null);
+  });
+
+  it('records a WORKSPACE_NOT_OPEN refusal as the no-workspace state, not an error', async () => {
+    configure();
+
+    await store.loadBoard();
+
+    expect(store.noWorkspace()).toBe(true);
+    // The banner is the wrong shape for this: nothing is broken and there is
+    // nothing to retry. It is also what the user actually saw before the fix.
+    expect(store.error()).toBeNull();
+    // And it is NOT the create-CTA empty state either — there is nowhere to
+    // create a task without a folder, so the two are mutually exclusive.
+    expect(store.isEmpty()).toBe(false);
+  });
+
+  /**
+   * THE REGRESSION TEST. Fails on the pre-fix store with 11 calls where the
+   * fix allows 1.
+   */
+  it('calls tasks:board once with no workspace, and N focus events buy no more', async () => {
+    configure();
+
+    await store.loadBoard();
+    expect(rpcCall).toHaveBeenCalledTimes(1);
+    expect(rpcCall).toHaveBeenCalledWith('tasks:board', {});
+
+    // The OLD guard is wide open here — `_loaded` is latched by `fetchBoard`'s
+    // `finally` even though the fetch did not load anything, and `_loading` is
+    // back to false. Asserted so this test cannot silently start passing for
+    // the wrong reason (a spinner stuck on, say) if `_loaded` semantics move.
+    expect(store.loaded()).toBe(true);
+    expect(store.loading()).toBe(false);
+
+    for (let i = 0; i < 5; i++) {
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flush();
+    }
+
+    expect(rpcCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('still surfaces a GENERIC failure as an error, and still retries it on focus', async () => {
+    rpcCall.mockResolvedValue(err('scan-failed'));
+    configure();
+
+    await store.loadBoard();
+    expect(store.error()).toBe('scan-failed');
+    expect(store.noWorkspace()).toBe(false);
+
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+
+    // A timeout or a crashed scan can succeed on the next attempt, so the
+    // reconcile stays armed. Only the refusal is permanent until a folder opens.
+    expect(rpcCall).toHaveBeenCalledTimes(2);
+  });
+
+  it('loads the board with no manual refresh once a folder is opened', async () => {
+    configure();
+    await store.loadBoard();
+    expect(store.noWorkspace()).toBe(true);
+
+    rpcCall.mockClear();
+    rpcCall.mockResolvedValue(
+      ok(makeBoard({ backlog: [makeTask('TASK_2026_315', 'backlog')] })),
+    );
+    // The ONE source of truth for "is a folder open" moving — the same signal
+    // that scopes every RPC. No parallel workspace state exists in this store.
+    workspaceInfo.set(wsA);
+    TestBed.tick();
+    await flush();
+
+    expect(rpcCall).toHaveBeenCalledWith('tasks:board', {
+      workspaceRoot: 'D:/ws-a',
+    });
+    expect(store.noWorkspace()).toBe(false);
+    expect(store.columns().backlog).toHaveLength(1);
+  });
+
+  it('re-arms the focus reconcile once a board load succeeds again', async () => {
+    configure();
+    await store.loadBoard();
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    expect(rpcCall).toHaveBeenCalledTimes(1);
+
+    // "Check again" in the no-workspace panel — one explicit request, and this
+    // time the host answers with a board.
+    rpcCall.mockResolvedValue(ok(makeBoard({})));
+    await store.loadBoard();
+    expect(rpcCall).toHaveBeenCalledTimes(2);
+    expect(store.noWorkspace()).toBe(false);
+
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+
+    expect(rpcCall).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-latches when a folder is closed again', async () => {
+    workspaceInfo = signal<Ws | null>(wsA);
+    rpcCall = jest.fn().mockResolvedValue(ok(makeBoard({})));
+    configure();
+    await store.loadBoard();
+    expect(store.noWorkspace()).toBe(false);
+
+    rpcCall.mockClear();
+    rpcCall.mockResolvedValue(refused());
+    workspaceInfo.set(null);
+    TestBed.tick();
+    await flush();
+
+    expect(store.noWorkspace()).toBe(true);
+    expect(rpcCall).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flush();
+
+    expect(rpcCall).toHaveBeenCalledTimes(1);
+  });
+});

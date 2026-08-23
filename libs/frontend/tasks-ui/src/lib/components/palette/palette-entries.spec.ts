@@ -196,6 +196,156 @@ describe('buildPaletteEntries', () => {
   });
 
   // -------------------------------------------------------------------------
+  // The write gate (A2) — one rule, applied to the whole catalogue
+  //
+  // The header buttons and this catalogue are two entry points to the same
+  // commands, and the first cut of the no-workspace state gated only the
+  // header: "Create a task" and "Reindex the workspace tasks" stayed runnable
+  // with no folder open and re-raised the generic red banner over the calm
+  // no-workspace panel. These tests pin the gate at the level it is now applied
+  // — the action union — rather than entry by entry.
+  // -------------------------------------------------------------------------
+  describe('when the host will not accept a write (canWriteSpecs: false)', () => {
+    const refused = () =>
+      buildPaletteEntries(context({ canWriteSpecs: false }));
+
+    it.each([['board:create'], ['board:reindex']])(
+      'disables the board write entry %s with the no-folder reason',
+      (id) => {
+        const entry = byId(refused(), id);
+        expect(entry.disabledReason).toContain('No folder is open');
+        // FR-C6.6: still LISTED, saying why — not removed from the catalogue.
+        expect(entry.label.length).toBeGreaterThan(0);
+      },
+    );
+
+    /**
+     * The case that shipped past both the gate and its first round of tests.
+     *
+     * `applyView` was classified as a read because applying a saved view sounds
+     * like a lens change, and `TaskViewsService.applyView` in fact persists the
+     * active-view pointer through `tasks:saveViews` every time. Views are NOT
+     * cleared when a folder closes, so a stale `view:<id>` entry from the
+     * previous workspace stays in the catalogue and stays clickable — the
+     * ordinary "still on the Tasks tab when the folder goes away" flow this
+     * whole task is about, not a cold-start curiosity.
+     *
+     * Every earlier gate test used an empty `views` list, which is exactly why
+     * none of them could see it.
+     */
+    it('disables a STALE saved view left over from a closed folder', () => {
+      const entry = byId(
+        buildPaletteEntries(
+          context({ canWriteSpecs: false, views: [view('v1', 'Mine')] }),
+        ),
+        'view:v1',
+      );
+
+      expect(entry.disabledReason).toContain('No folder is open');
+      expect(entry.label).toContain('Mine');
+    });
+
+    it('leaves saved views runnable while a folder IS open', () => {
+      expect(
+        byId(
+          buildPaletteEntries(context({ views: [view('v1', 'Mine')] })),
+          'view:v1',
+        ).disabledReason,
+      ).toBeNull();
+    });
+
+    /**
+     * The completeness assertion. It lists the write kinds independently of
+     * `ACTION_WRITES_SPECS` — copying that map in would make this test agree
+     * with the implementation by construction, including when the
+     * implementation is wrong, which is precisely how `applyView: false`
+     * survived the first round.
+     *
+     * The context deliberately produces at least one entry of EVERY write kind
+     * at once: a selection (`setStatus` / `setLabels`), checked tasks
+     * (`bulkSetStatus`), a saved view (`applyView`), and the two board commands.
+     */
+    it('disables EVERY write-capable entry, with one of each kind present', () => {
+      const selected = task('TASK_2026_200', { labels: ['licensing'] });
+      const entries = buildPaletteEntries(
+        context({
+          canWriteSpecs: false,
+          tasks: [selected],
+          selectedTask: selected,
+          selectionCount: 3,
+          knownLabels: ['licensing', 'billing'],
+          views: [view('v1', 'Mine')],
+        }),
+      );
+
+      const writeKinds = new Set([
+        'setStatus',
+        'setLabels',
+        'bulkSetStatus',
+        'createTask',
+        'reindex',
+        // Reaches `TaskViewsService.applyView`, which persists the active-view
+        // pointer through `tasks:saveViews` on every call.
+        'applyView',
+      ]);
+      // Guard the guard: if a kind in that set produced no entry, this test
+      // would pass while proving nothing about it.
+      for (const kind of writeKinds) {
+        expect(entries.some((entry) => entry.action.kind === kind)).toBe(true);
+      }
+
+      const runnableWrites = entries.filter(
+        (entry) =>
+          writeKinds.has(entry.action.kind) && entry.disabledReason === null,
+      );
+
+      expect(runnableWrites).toEqual([]);
+      // And the guard is not simply "disable everything": reads stay runnable.
+      expect(byId(entries, `task:${selected.id}`).disabledReason).toBeNull();
+      expect(byId(entries, 'filter:status:done').disabledReason).toBeNull();
+      expect(byId(entries, 'board:exclusions').disabledReason).not.toContain(
+        'No folder is open',
+      );
+    });
+
+    it('says the ROOT reason rather than a downstream one', () => {
+      // With no folder open there is no task to select and waiting will not
+      // help, so "open a task first" and "wait for it to finish" are both true
+      // and both useless. The no-folder sentence overrides them.
+      const entries = buildPaletteEntries(
+        context({ canWriteSpecs: false, busy: true }),
+      );
+
+      expect(byId(entries, 'board:reindex').disabledReason).toContain(
+        'No folder is open',
+      );
+      expect(byId(entries, 'status:done').disabledReason).toContain(
+        'No folder is open',
+      );
+    });
+
+    it('leaves the busy reason in place when a folder IS open', () => {
+      // Minor Issue 1 of the review: the new condition must not displace the
+      // old one in the case the old one was written for.
+      expect(
+        byId(
+          buildPaletteEntries(context({ busy: true, canWriteSpecs: true })),
+          'board:reindex',
+        ).disabledReason,
+      ).toContain('already running');
+    });
+
+    it('changes nothing at all while a folder is open', () => {
+      expect(buildPaletteEntries(context({ canWriteSpecs: true }))).toEqual(
+        buildPaletteEntries(context()),
+      );
+      expect(
+        byId(buildPaletteEntries(context()), 'board:create').disabledReason,
+      ).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Facet toggles carry the WHOLE next spec, computed here
   // -------------------------------------------------------------------------
   it('adds a facet value that is not selected', () => {
