@@ -181,3 +181,55 @@ export const HarnessRepairBlockedParamsSchema = z
       .max(200),
   })
   .strict();
+
+/**
+ * The per-workspace skill selection (TASK_2026_316 Batch 3).
+ *
+ * `get` takes nothing — the answer is a property of the open workspace — and is
+ * left non-strict like `harness:health`, because a caller that sends a stray
+ * key to a read-only method has done nothing that needs refusing.
+ */
+export const HarnessGetSkillSelectionParamsSchema = z.object({});
+
+/**
+ * One entry in the allowlist: a skill DIRECTORY name, keyed exactly as
+ * `disabledSkillIds` is.
+ *
+ * Checked for traversal rather than matched against a character class. The
+ * slug is the name of a directory the user created — `skills.sh` installs,
+ * harness-builder output and hand-authored skills all land here — and a
+ * pattern narrow enough to be a real guard would reject a legitimate name with
+ * a space in it, which would make that skill permanently unselectable. What
+ * genuinely must not pass is a path separator or a `..`, because this value is
+ * recorded in `state.json` and read back by a builder that joins names onto
+ * `~/.ptah/user/skills`.
+ */
+const HarnessSkillSlugSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine((value) => value.trim() !== '' && value !== '.' && value !== '..', {
+    message: 'slug must name a skill directory',
+  })
+  .refine((value) => !/[/\\]/.test(value), {
+    message: 'slug must be a single path segment',
+  });
+
+/**
+ * `.strict()`, and here that is a safety property rather than a style choice.
+ *
+ * Skills are manifest-owned, so `{ mode: 'selected' }` with no allowlist is a
+ * REAP of every managed skill copy in the workspace. That is a legitimate thing
+ * for a user to ask for — and it is also exactly what a caller misspelling
+ * `slugs` would get under the default strip. Refusing the unknown key is the
+ * difference between a deliberate empty selection and a typo that deletes.
+ *
+ * `slugs` carries no `.min(1)` for the same reason: an empty allowlist is a
+ * real state ("this workspace propagates no skills"), not an error.
+ */
+export const HarnessSetSkillSelectionParamsSchema = z
+  .object({
+    mode: z.enum(['all', 'selected']),
+    slugs: z.array(HarnessSkillSlugSchema).max(1000).optional(),
+  })
+  .strict();

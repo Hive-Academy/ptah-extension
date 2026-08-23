@@ -487,6 +487,106 @@ export interface HarnessRepairBlockedResult {
   summary: HarnessHealthSummary;
 }
 
+// ---------------------------------------------------------------------------
+// The per-workspace skill selection (TASK_2026_316, Batch 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this workspace propagates everything the user layer offers, or only
+ * the recorded allowlist.
+ *
+ * The string union is restated here rather than imported from
+ * `@ptah-extension/harness-sync`, for this file's whole reason to exist: the
+ * selection surface is a webview and a webview cannot import a backend lib.
+ * `SkillSyncMode` over there is the same two literals, so the two assign to
+ * each other structurally and neither is a cast.
+ */
+export type HarnessSkillSyncMode = 'all' | 'selected';
+
+/**
+ * One skill the selection surface can offer, as read off disk.
+ *
+ * `pluginId` is NULLABLE and its absence is the normal case, not an error. A
+ * hand-authored `SKILL.md`, a promoted synth skill and anything installed
+ * before the origin sidecar existed all have no plugin above them — and those
+ * are precisely the skills no plugin toggle can speak for, which is the whole
+ * reason this selection exists. A UI must render a `null` origin as ordinary.
+ */
+export interface HarnessSkillCandidate {
+  /**
+   * The DIRECTORY name, which is the key {@link HarnessGetSkillSelectionResult.slugs}
+   * and `disabledSkillIds` are both keyed by. Deliberately not the frontmatter
+   * `name`: the two can differ, and only the directory name is stable enough to
+   * record.
+   */
+  slug: string;
+  /** `SKILL.md` frontmatter `name`, falling back to {@link slug}. */
+  name: string;
+  /** `SKILL.md` frontmatter `description`. Empty when the file declares none. */
+  description: string;
+  /** The plugin this skill came from, or `null` when nothing names one. */
+  pluginId: string | null;
+}
+
+/**
+ * Params for `harness:get-skill-selection`.
+ *
+ * Deliberately empty: the answer is a property of the open workspace, and a
+ * caller cannot ask about a different one.
+ */
+export type HarnessGetSkillSelectionParams = Record<string, never>;
+
+/**
+ * Result of `harness:get-skill-selection`.
+ *
+ * READ-ONLY. This method resolves the gate and never persists the answer, for
+ * `verify()`'s exact reason: a derived decision is a write, and asking what
+ * state the harness is in must not change it. A surface that polls must not be
+ * able to record a selection on the user's behalf.
+ */
+export interface HarnessGetSkillSelectionResult {
+  mode: HarnessSkillSyncMode;
+  /** The recorded allowlist. Empty and meaningless under `'all'`. */
+  slugs: string[];
+  /** Everything this workspace COULD propagate, sorted by slug. */
+  available: HarnessSkillCandidate[];
+  /**
+   * The mode was absent on disk and this answer came from the migration's
+   * evidence walk. The UI needs it to tell "the user chose everything" from
+   * "this workspace predates the gate", which look identical otherwise.
+   */
+  derived: boolean;
+}
+
+/**
+ * Params for `harness:set-skill-selection`.
+ *
+ * `slugs` is meaningless under `'all'` and is cleared rather than kept — a
+ * stale allowlist surviving a switch to `'all'` would read as a selection
+ * nobody made the next time the user narrowed the mode again.
+ */
+export interface HarnessSetSkillSelectionParams {
+  mode: HarnessSkillSyncMode;
+  slugs?: string[];
+}
+
+/** Result of `harness:set-skill-selection`. */
+export interface HarnessSetSkillSelectionResult {
+  /**
+   * Whether the decision reached `{ws}/.ptah/harness/state.json`. A failed
+   * write leaves the previous selection in force, so no pass runs and `health`
+   * is `null` — reporting success there would show the user a selection the
+   * next reconcile does not honour.
+   */
+  saved: boolean;
+  mode: HarnessSkillSyncMode;
+  /** The allowlist as NORMALIZED and recorded (trimmed, deduplicated, sorted). */
+  slugs: string[];
+  /** Health after the propagation, or `null` when no pass ran. */
+  health: HarnessHealth | null;
+  summary: HarnessHealthSummary;
+}
+
 /**
  * Payload of the `harness:healthChanged` push.
  *

@@ -88,6 +88,10 @@ import type {
   HarnessRemoveResult,
   HarnessRepairBlockedParams,
   HarnessRepairBlockedResult,
+  HarnessGetSkillSelectionParams,
+  HarnessGetSkillSelectionResult,
+  HarnessSetSkillSelectionParams,
+  HarnessSetSkillSelectionResult,
   RpcMethodName,
   ExternalPluginRef,
   StackProfile,
@@ -106,10 +110,12 @@ import {
 } from '../harness/harness-constants';
 import type { WebviewBroadcaster } from '../harness/streaming';
 import {
+  HarnessGetSkillSelectionParamsSchema,
   HarnessHealthParamsSchema,
   HarnessReconcileParamsSchema,
   HarnessRemoveParamsSchema,
   HarnessRepairBlockedParamsSchema,
+  HarnessSetSkillSelectionParamsSchema,
   HarnessStartNewProjectParamsSchema,
   HarnessWorkflowPromptParamsSchema,
   HarnessWorkspacePinParamsSchema,
@@ -127,6 +133,7 @@ import type { HarnessFsService } from '../harness/io/harness-fs.service';
 import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install.service';
 import type { HarnessSkillInstallService } from '../harness/io/harness-skill-install.service';
 import type { HarnessHealthRpcService } from '../harness/health/harness-health-rpc.service';
+import type { HarnessSkillSelectionRpcService } from '../harness/selection/harness-skill-selection-rpc.service';
 
 interface WizardWebviewLifecycleLike {
   disposeWebview(viewType: string): void;
@@ -190,6 +197,11 @@ export class HarnessRpcHandlers {
     // the runtime half of the dual registration is satisfied by the namespace
     // and only the compile-time half in `rpc.types.ts` was new.
     'harness:repairBlocked',
+    // The per-workspace skill selection (TASK_2026_316 Batch 3). Same namespace
+    // and therefore the same free runtime registration; the work lives in
+    // `HarnessSkillSelectionRpcService`.
+    'harness:get-skill-selection',
+    'harness:set-skill-selection',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -232,6 +244,8 @@ export class HarnessRpcHandlers {
     private readonly skillInstall: HarnessSkillInstallService,
     @inject(HARNESS_TOKENS.HEALTH)
     private readonly healthService: HarnessHealthRpcService,
+    @inject(HARNESS_TOKENS.SKILL_SELECTION)
+    private readonly skillSelection: HarnessSkillSelectionRpcService,
   ) {}
 
   /**
@@ -340,6 +354,8 @@ export class HarnessRpcHandlers {
     this.registerReconcile();
     this.registerRemove();
     this.registerRepairBlocked();
+    this.registerGetSkillSelection();
+    this.registerSetSkillSelection();
 
     this.logger.debug('Harness RPC handlers registered', {
       methods: HarnessRpcHandlers.METHODS,
@@ -964,6 +980,43 @@ export class HarnessRpcHandlers {
       async (params) =>
         this.healthService.repairBlocked(
           HarnessRepairBlockedParamsSchema.parse(params),
+        ),
+    );
+  }
+
+  // -- Skill selection (TASK_2026_316 Batch 3) ------------------------------
+
+  /**
+   * `params` defaults to `{}` like `harness:health`, and for the same reason:
+   * this reads and writes nothing, so a caller that sends no params at all is
+   * asking a well-formed question.
+   */
+  private registerGetSkillSelection(): void {
+    this.wire<HarnessGetSkillSelectionParams, HarnessGetSkillSelectionResult>(
+      'harness:get-skill-selection',
+      'registerGetSkillSelection',
+      async (params) => {
+        HarnessGetSkillSelectionParamsSchema.parse(params ?? {});
+        return this.skillSelection.getSelection();
+      },
+    );
+  }
+
+  /**
+   * Parsed with no `?? {}` default, unlike the getter above.
+   *
+   * Skills are manifest-owned, so an absent `mode` cannot be given a default
+   * here — either candidate is a real user decision with a real consequence,
+   * and `'selected'` with no allowlist reaps every managed skill copy in the
+   * workspace. A caller that sends nothing is a bug and the schema says so.
+   */
+  private registerSetSkillSelection(): void {
+    this.wire<HarnessSetSkillSelectionParams, HarnessSetSkillSelectionResult>(
+      'harness:set-skill-selection',
+      'registerSetSkillSelection',
+      async (params) =>
+        this.skillSelection.setSelection(
+          HarnessSetSkillSelectionParamsSchema.parse(params),
         ),
     );
   }

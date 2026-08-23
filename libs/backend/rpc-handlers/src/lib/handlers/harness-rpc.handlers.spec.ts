@@ -53,6 +53,7 @@ import type { DependencyContainer } from 'tsyringe';
 
 import { HarnessRpcHandlers } from './harness-rpc.handlers';
 import type { HarnessHealthRpcService } from '../harness/health/harness-health-rpc.service';
+import type { HarnessSkillSelectionRpcService } from '../harness/selection/harness-skill-selection-rpc.service';
 import type { HarnessWorkspaceContextService } from '../harness/workspace/harness-workspace-context.service';
 import type { HarnessSuggestionService } from '../harness/ai/harness-suggestion.service';
 import type { HarnessSubagentDesignService } from '../harness/ai/harness-subagent-design.service';
@@ -311,6 +312,25 @@ function buildSuite(): Suite {
     }),
   } as unknown as HarnessHealthRpcService;
 
+  // Same deal for the selection surface (TASK_2026_316): its own spec covers
+  // the read-only rule and the propagation flag; the facade only has to hand
+  // its two delegates a collaborator that answers.
+  const skillSelection = {
+    getSelection: jest.fn().mockReturnValue({
+      mode: 'all',
+      slugs: [],
+      available: [],
+      derived: false,
+    }),
+    setSelection: jest.fn().mockResolvedValue({
+      saved: true,
+      mode: 'all',
+      slugs: [],
+      health: null,
+      summary: summarizeHarnessHealth(null),
+    }),
+  } as unknown as HarnessSkillSelectionRpcService;
+
   const handlers = new HarnessRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -333,6 +353,7 @@ function buildSuite(): Suite {
     mcpInstall,
     skillInstall,
     healthService,
+    skillSelection,
   );
 
   return {

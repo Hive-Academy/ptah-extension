@@ -71,6 +71,15 @@ export type {
   HarnessDesiredState,
 } from './lib/manifest/desired-state.types';
 export { canonicalSlug, isReservedSlug } from './lib/manifest/slug-rules';
+// The `.ptah-origin.json` reader, exported for the skill-selection surface in
+// `rpc-handlers`, which must name each candidate's origin plugin. The gate that
+// consumes it stays internal — a caller outside this lib has no business
+// re-deciding whether a clone survives a plugin toggle, and a second reader of
+// the sidecar is exactly how the two would come to disagree.
+export {
+  readUserLayerOrigin,
+  type UserLayerOrigin,
+} from './lib/manifest/plugin-origin-gate';
 
 // Workspace root normalization (E14) — every target writes at the ROOT.
 export {

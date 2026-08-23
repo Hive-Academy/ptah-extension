@@ -456,6 +456,8 @@ import type {
 // `harness:` namespace with the setup builder above but not its types: these
 // describe propagation health, not a wizard step.
 import type {
+  HarnessGetSkillSelectionParams,
+  HarnessGetSkillSelectionResult,
   HarnessHealthParams,
   HarnessHealthResult,
   HarnessReconcileParams,
@@ -464,6 +466,8 @@ import type {
   HarnessRemoveResult,
   HarnessRepairBlockedParams,
   HarnessRepairBlockedResult,
+  HarnessSetSkillSelectionParams,
+  HarnessSetSkillSelectionResult,
 } from './harness-sync.types';
 
 import type {
@@ -1563,6 +1567,21 @@ export interface RpcMethodRegistry {
   'harness:repairBlocked': {
     params: HarnessRepairBlockedParams;
     result: HarnessRepairBlockedResult;
+  };
+  /**
+   * The per-workspace skill selection (TASK_2026_316 Batch 3).
+   *
+   * `get` is READ-ONLY — it resolves the gate and never persists the derived
+   * answer, so a surface that polls cannot record a decision for the user.
+   * `set` writes the choice and then propagates it.
+   */
+  'harness:get-skill-selection': {
+    params: HarnessGetSkillSelectionParams;
+    result: HarnessGetSkillSelectionResult;
+  };
+  'harness:set-skill-selection': {
+    params: HarnessSetSkillSelectionParams;
+    result: HarnessSetSkillSelectionResult;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -3498,6 +3517,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:reconcile': true,
   'harness:remove': true,
   'harness:repairBlocked': true,
+  'harness:get-skill-selection': true,
+  'harness:set-skill-selection': true,
 
   'memory:list': true,
   'memory:search': true,
