@@ -9,6 +9,11 @@
  *   - Failure paths: handler error string, thrown transport error, and the
  *     summary surviving a payload that omits it.
  *   - Re-entrancy: a second call while one is in flight is dropped.
+ *   - `repairBlocked`: the empty-list guard (unreachable from the dialog,
+ *     which disables Confirm — so this is the only place that layer of the
+ *     defence-in-depth argument is exercised at all), the re-entrancy guard on
+ *     a call that MOVES USER FILES, and both failure paths including the
+ *     `finally` that frees the guard for a retry.
  *   - The `harness:healthChanged` push: adopted without a call, ignored when
  *     malformed, and never touching the call-scoped loading/error signals.
  */
@@ -448,6 +453,131 @@ describe('HarnessHealthStore', () => {
       );
       await store.reconcile();
 
+      expect(store.error()).toBeNull();
+    });
+  });
+
+  describe('repairBlocked', () => {
+    /**
+     * The store half of the consent-gated repair (TASK_2026_306 Batch 9).
+     *
+     * The DIALOG's spec covers which paths get sent and what the user is told.
+     * These four cases cover the three things only reachable here: the
+     * empty-list guard (the dialog's disabled button means nothing else ever
+     * exercises it), the re-entrancy guard, and both failure paths. This is the
+     * method that issues the RPC that MOVES USER FILES, so "correct by
+     * inspection" is not the bar — and an unexercised layer of a
+     * defence-in-depth argument is not verified to be a layer.
+     */
+    const PATHS = [
+      { target: 'claude' as const, relPath: '.claude/skills/orchestration' },
+    ];
+
+    /** A repair reply that reports one successful move and no new report. */
+    const repaired = () =>
+      ok({
+        paths: [
+          {
+            target: 'claude' as const,
+            relPath: '.claude/skills/orchestration',
+            outcome: 'repaired' as const,
+          },
+        ],
+        repaired: 1,
+        health: null,
+        summary: summarizeHarnessHealth(null),
+      });
+
+    it('refuses an empty list before it reaches the wire', async () => {
+      // The third of the three layers the dialog relies on, and the only one
+      // nothing else can reach: the dialog disables Confirm and returns early,
+      // so without this case the guard is asserted by the commit message and
+      // by nobody else. A consent RPC fired with an empty list is
+      // indistinguishable on the wire from one fired with consent.
+      //
+      // `error()` staying null is the discriminating half. Drop the
+      // `paths.length === 0` check and the call goes out, hits no responder,
+      // and comes back a failure — so a case asserting only the `null` return
+      // would still pass.
+      setResponder('harness:repairBlocked', repaired);
+
+      await expect(store.repairBlocked([])).resolves.toBeNull();
+
+      expect(calls).toHaveLength(0);
+      expect(store.error()).toBeNull();
+      expect(store.repairing()).toBe(false);
+      expect(store.health()).toBeNull();
+    });
+
+    it('drops a second repair while one is in flight, and says so by returning null', async () => {
+      // Double-press protection on a call that moves directories. Two calls
+      // for one consent would quarantine the same occupant twice and leave a
+      // stray copy in a folder nothing ever cleans up.
+      //
+      // The second call's `null` is asserted as well as the call count,
+      // because those are two different failures: without the `_repairing()`
+      // guard the count goes to 2, and a guard that silently resolved with the
+      // first call's result would let a caller believe its own request landed.
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      setResponder('harness:repairBlocked', () => gate.then(repaired));
+
+      const first = store.repairBlocked(PATHS);
+      expect(store.repairing()).toBe(true);
+      expect(store.busy()).toBe(true);
+      expect(store.loading()).toBe(false);
+
+      await expect(store.repairBlocked(PATHS)).resolves.toBeNull();
+      expect(calls).toHaveLength(1);
+
+      release?.();
+
+      expect((await first)?.repaired).toBe(1);
+      expect(store.repairing()).toBe(false);
+      expect(store.busy()).toBe(false);
+    });
+
+    it('reports a handler refusal without claiming anything moved', async () => {
+      // The `isSuccess()`-false branch. The last good report must survive: the
+      // user is looking at it, and a failed repair changed nothing, so
+      // blanking it would describe a call that did not happen.
+      const health = makeHealth();
+      setResponder('harness:health', () =>
+        ok({ health, summary: summarizeHarnessHealth(health), cached: true }),
+      );
+      await store.refresh();
+
+      setResponder('harness:repairBlocked', () =>
+        fail('another host holds the workspace lock'),
+      );
+
+      await expect(store.repairBlocked(PATHS)).resolves.toBeNull();
+
+      expect(store.error()).toBe('another host holds the workspace lock');
+      expect(store.health()).toEqual(health);
+      expect(store.repairing()).toBe(false);
+    });
+
+    it('narrows a thrown transport error and frees the guard for the retry', async () => {
+      // The `catch`, and — more importantly — the `finally`. A throw that left
+      // `_repairing` true would wedge the guard permanently: every later
+      // repair returns null having sent nothing, on a surface whose entire
+      // purpose is to act on the user's consent. So the retry is part of the
+      // assertion, not a courtesy.
+      setResponder('harness:repairBlocked', () => {
+        throw new Error('the host went away');
+      });
+
+      await expect(store.repairBlocked(PATHS)).resolves.toBeNull();
+      expect(store.error()).toBe('the host went away');
+      expect(store.repairing()).toBe(false);
+
+      setResponder('harness:repairBlocked', repaired);
+
+      expect((await store.repairBlocked(PATHS))?.repaired).toBe(1);
+      expect(calls).toHaveLength(2);
       expect(store.error()).toBeNull();
     });
   });
