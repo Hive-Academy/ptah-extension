@@ -227,7 +227,16 @@ describe('HarnessReconcilerService — reconcile and verify agree', () => {
     // plan/verify AGREEMENT over a fully-populated workspace, so consent is
     // recorded up front — the gate itself is pinned in
     // `harness-reconciler.agent-consent.spec.ts`.
-    new HarnessStateStore().save(ws, { version: 1, agentSyncEnabled: true });
+    // Agents are gated per workspace since TASK_2026_286 and skills since
+    // TASK_2026_316; a fresh temp workspace has no manifest evidence for
+    // either, so both migrations correctly gate it. This suite is about
+    // reconcile/verify agreement, so both are recorded up front rather than
+    // re-tested — `harness-reconciler.skill-consent.spec.ts` owns the skill gate.
+    new HarnessStateStore().save(ws, {
+      version: 1,
+      agentSyncEnabled: true,
+      skillSyncMode: 'all',
+    });
 
     const store = new ManagedManifestStore();
     const deps = {

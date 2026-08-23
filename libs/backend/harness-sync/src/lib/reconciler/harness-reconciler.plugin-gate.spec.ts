@@ -26,6 +26,7 @@
  */
 
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { ORIGIN_SIDECAR_FILENAME } from '@ptah-extension/shared';
@@ -237,6 +238,12 @@ describe('HarnessReconcilerService — the plugin gate on disk', () => {
     ws = mkdtempSync(join(tmpdir(), 'harness-plugin-gate-ws-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-plugin-gate-src-'));
     tempHome = mkdtempSync(join(tmpdir(), 'harness-plugin-gate-home-'));
+    // The skill-sync gate (TASK_2026_316 Batch 2) sits OUTSIDE the plugin gate
+    // this suite tests, and a fresh temp workspace has no manifest evidence, so
+    // its migration would gate everything before the plugin rules were reached.
+    // Recorded as `'all'` so the level under test is the only one filtering.
+    const stateStore = new HarnessStateStore();
+    stateStore.save(ws, { ...stateStore.load(ws), skillSyncMode: 'all' });
   });
 
   afterEach(() => {

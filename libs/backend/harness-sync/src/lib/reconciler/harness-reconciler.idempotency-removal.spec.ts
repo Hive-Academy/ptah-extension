@@ -28,6 +28,21 @@ import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { HarnessReconcilerService } from './harness-reconciler.service';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite predates the gate and is about idempotency and removal, so the
+ * selection is recorded up front rather than re-tested. The gate itself is
+ * owned by `reconciler/harness-reconciler.skill-consent.spec.ts`.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 import { HarnessSourceState } from '../sources/harness-source.port';
 
 interface FakeLogger {
@@ -91,6 +106,7 @@ describe('HarnessReconcilerService — idempotency and no-deactivate (E1)', () =
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-recon-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-src-'));
+    grantSkillSync(ws);
     manifestPath = join(ws, '.ptah', 'harness', 'claude.manifest.json');
   });
 
@@ -147,7 +163,11 @@ describe('HarnessReconcilerService — idempotency and no-deactivate (E1)', () =
     const workspaceAgent = join(ws, '.claude', 'agents', 'workspace-agent.md');
     mkdirSync(join(ws, '.claude', 'agents'), { recursive: true });
     writeFileSync(workspaceAgent, 'workspace-authored agent', 'utf-8');
-    new HarnessStateStore().save(ws, { version: 1, agentSyncEnabled: true });
+    const stateStore = new HarnessStateStore();
+    stateStore.save(ws, {
+      ...stateStore.load(ws),
+      agentSyncEnabled: true,
+    });
 
     const health = await newReconciler(sourceState).reconcile(ws, {
       mode: 'full',
@@ -206,6 +226,7 @@ describe('HarnessReconcilerService — removal on source deletion', () => {
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-recon-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-src-'));
+    grantSkillSync(ws);
   });
 
   afterEach(() => {

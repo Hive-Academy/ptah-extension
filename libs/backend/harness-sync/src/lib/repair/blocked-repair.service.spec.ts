@@ -73,6 +73,22 @@ import type {
 import { ClaudeTarget } from '../targets/claude-target';
 import { createVscodeMcpTarget } from '../targets/rival-targets';
 import { HarnessBlockedRepairService } from './blocked-repair.service';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite predates the gate and is about the quarantine repair, so the selection
+ * is recorded up front rather than re-tested. The gate itself is owned by
+ * `reconciler/harness-reconciler.skill-consent.spec.ts`.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 
 const FIXED = new Date('2026-08-23T14:15:30.123Z');
 const STAMP = '20260823T141530123';
@@ -261,6 +277,7 @@ describe('HarnessBlockedRepairService', () => {
 
   beforeEach(async () => {
     ws = mkdtempSync(join(tmpdir(), 'harness-repair-ws-'));
+    grantSkillSync(ws);
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-repair-src-'));
     home = mkdtempSync(join(tmpdir(), 'harness-repair-home-'));
     logger = makeFakeLogger();

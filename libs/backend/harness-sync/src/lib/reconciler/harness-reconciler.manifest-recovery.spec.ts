@@ -40,6 +40,22 @@ import type { HarnessSourceState } from '../sources/harness-source.port';
 import { createClaudeTarget } from '../targets/claude-target';
 import { createCodexTarget } from '../targets/rival-targets';
 import { HarnessReconcilerService } from './harness-reconciler.service';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite is about a manifest that could not be PERSISTED and the adoption that
+ * recovers from it, so the selection is recorded up front rather than
+ * re-tested. The gate is owned by `harness-reconciler.skill-consent.spec.ts`.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 
 function makeFakeLogger() {
   return {
@@ -88,6 +104,7 @@ describe('HarnessReconcilerService — a manifest that could not be persisted', 
 
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-mrec-ws-'));
+    grantSkillSync(ws);
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-mrec-src-'));
     tempHome = mkdtempSync(join(tmpdir(), 'harness-sync-mrec-home-'));
     skillsRoot = join(sourcesRoot, 'skills');

@@ -14,6 +14,13 @@
  * "asked and declined" either, and getting it wrong reaps files. See
  * `state/agent-sync-gate.ts`.
  *
+ * The third is `skillSyncMode` / `enabledSkillSlugs`: WHICH skills this
+ * workspace asked for. `~/.ptah/user/skills` is one directory per MACHINE that
+ * only ever grows, so "everything the user layer holds" stopped being a per-
+ * project answer the moment a second project existed. Same shape as the second
+ * and the same hazard — getting it wrong reaps files, and more of them. See
+ * `state/skill-sync-gate.ts`.
+ *
  * Read defensively for the same reason the managed manifests are: a corrupt or
  * hand-mangled file reads as the DEFAULT state, never as an error. The cost of
  * being wrong is one re-added `.gitignore` block, which the user can delete
@@ -65,6 +72,45 @@ export const HarnessWorkspaceStateSchema = z.object({
    * user asked for this" and "the migration inferred it".
    */
   wizardCompletedAt: z.string().optional(),
+  /**
+   * Which skills this workspace propagates: `'all'` of the user layer, or only
+   * the slugs named in {@link enabledSkillSlugs}.
+   *
+   * ABSENT is not `'selected'`. Skills are manifest-owned, so a bare
+   * `'selected'` with an empty allowlist on an upgrading install would not
+   * merely stop propagating — the first routine reconcile would DELETE every
+   * `.claude/skills/*`, `.agents/skills/*`, `.github/skills/*` and
+   * `.cursor/skills/*` Ptah had already written, in every existing workspace,
+   * silently, reported as an ordinary clean pass. Skills are the largest
+   * artifact family by count, so this is the worst available version of the
+   * failure `agentSyncEnabled` above exists to prevent.
+   *
+   * `SkillSyncGate` therefore resolves an absent mode from manifest evidence —
+   * prior propagation is prior consent — and persists the answer so the
+   * evidence walk runs once. See `state/skill-sync-gate.ts`.
+   */
+  skillSyncMode: z.enum(['all', 'selected']).optional(),
+  /**
+   * The allowlist, keyed by skill directory name exactly as `disabledSkillIds`
+   * is, so one saved selection and one saved denylist need no second
+   * canonicalisation rule to keep in step.
+   *
+   * Meaningful only under `skillSyncMode: 'selected'`, and absent under
+   * `'all'` — a stale allowlist left behind by a switch to `'all'` would read
+   * as a selection nobody made the next time the mode changed.
+   */
+  enabledSkillSlugs: z.array(z.string()).optional(),
+  /**
+   * ISO timestamp of the user explicitly choosing a skill selection, via
+   * `SkillSyncGate.select` or `enableAll`.
+   *
+   * Diagnostic, and the exact analogue of {@link wizardCompletedAt}: it is the
+   * difference between "the user asked for this" and "the migration inferred
+   * it". A workspace resolved to `'selected'` with an empty allowlist is a new
+   * workspace the migration gated when this field is absent, and a user who
+   * deliberately deselected everything when it is present.
+   */
+  skillSelectionAt: z.string().optional(),
 });
 
 export type HarnessWorkspaceState = z.infer<typeof HarnessWorkspaceStateSchema>;

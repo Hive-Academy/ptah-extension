@@ -1,6 +1,6 @@
 # Development Tasks — TASK_2026_316
 
-**Total Tasks**: 27 | **Batches**: 6 | **Status**: 0/6 complete
+**Total Tasks**: 27 | **Batches**: 6 | **Status**: 2/6 complete
 
 Two sequenced halves (U1). Batch 1 ships alone and needs no new state. Batches
 2–6 add the per-workspace gate and its surfaces.
@@ -69,7 +69,7 @@ task with its own spec (2.3).
 
 ---
 
-## Batch 1 — Restore the plugin gate over the user-layer base ⏸️ PENDING
+## Batch 1 — Restore the plugin gate over the user-layer base ✅ COMPLETE (95ffaea3a)
 
 **Goal**: unchecking a bundled plugin removes its skills from THIS workspace
 again, as `skill-toggles.md:38` has always claimed.
@@ -293,7 +293,7 @@ not exist until Batch 2 ships.
 
 ---
 
-## Batch 2 — `SkillSyncGate` + the state field ⏸️ PENDING
+## Batch 2 — `SkillSyncGate` + the state field ✅ COMPLETE
 
 **Goal**: the per-workspace allowlist and its migration, backend only, nothing
 wired to a surface.

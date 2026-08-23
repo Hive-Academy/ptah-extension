@@ -251,6 +251,15 @@ export {
   type AgentSyncDecision,
 } from './lib/state/agent-sync-gate';
 
+// The per-workspace selection gate for the `skills` facet, and its migration.
+// Exported because the selection surface RECORDS the choice from `rpc-handlers`.
+export {
+  SkillSyncGate,
+  type SkillSyncDecision,
+  type SkillSyncMode,
+  type SkillSyncSelection,
+} from './lib/state/skill-sync-gate';
+
 // Durable writes — every file this lib owns lands through these, atomically and
 // with the Windows sharing-violation retry (E21).
 export { atomicWriteWithRetry } from './lib/fs/atomic-write';

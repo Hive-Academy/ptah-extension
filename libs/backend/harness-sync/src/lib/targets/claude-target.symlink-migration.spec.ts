@@ -41,6 +41,21 @@ import { HarnessReconcilerService } from '../reconciler/harness-reconciler.servi
 import { createStaticSourceResolver } from '../sources/plugin-config-source-resolver';
 import type { HarnessSourceState } from '../sources/harness-source.port';
 import { createClaudeTarget } from './claude-target';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite is about symlink MIGRATION, so the selection is recorded up front
+ * rather than re-tested.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 
 function makeFakeLogger() {
   return {
@@ -84,6 +99,7 @@ describe("ClaudeTarget — only Ptah's own symlinks are migrated", () => {
 
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-sync-link-ws-'));
+    grantSkillSync(ws);
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-sync-link-src-'));
     elsewhere = mkdtempSync(join(tmpdir(), 'harness-sync-link-mine-'));
     skillsRoot = join(sourcesRoot, 'skills');

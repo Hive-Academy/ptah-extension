@@ -43,6 +43,7 @@ import {
 } from '../gitignore/gitignore-writer';
 import { HarnessStateStore } from '../gitignore/harness-state-store';
 import { AgentSyncGate } from '../state/agent-sync-gate';
+import { SkillSyncGate } from '../state/skill-sync-gate';
 import { ClaudeTarget } from '../targets/claude-target';
 import type { IHarnessTarget } from '../targets/harness-target.port';
 import {
@@ -163,6 +164,11 @@ export function registerHarnessSyncServices(
     useValue: agentSyncGate,
   });
 
+  const skillSyncGate = new SkillSyncGate(manifestStore, stateStore);
+  container.register(HARNESS_SYNC_TOKENS.SKILL_SYNC_GATE, {
+    useValue: skillSyncGate,
+  });
+
   const reconciler = new HarnessReconcilerService(
     reconcilerLogger,
     builder,
@@ -171,6 +177,7 @@ export function registerHarnessSyncServices(
     targets,
     gitignore,
     agentSyncGate,
+    skillSyncGate,
   );
   container.register(HARNESS_SYNC_TOKENS.RECONCILER, { useValue: reconciler });
 

@@ -37,6 +37,22 @@ import type {
 import { ClaudeTarget } from '../targets/claude-target';
 import { createVscodeMcpTarget } from '../targets/rival-targets';
 import { HarnessReconcilerService } from './harness-reconciler.service';
+import { HarnessStateStore } from '../gitignore/harness-state-store';
+
+/**
+ * Skills are gated per workspace since TASK_2026_316, and a fresh temp
+ * workspace has no manifest evidence, so the migration correctly gates it. This
+ * suite predates the gate and is about something else, so the selection is
+ * recorded up front rather than re-tested. The gate itself is owned by
+ * `reconciler/harness-reconciler.skill-consent.spec.ts`.
+ */
+function grantSkillSync(workspaceRoot: string): void {
+  const store = new HarnessStateStore();
+  store.save(workspaceRoot, {
+    ...store.load(workspaceRoot),
+    skillSyncMode: 'all',
+  });
+}
 
 const BLOCKED_MESSAGE =
   '[harness-sync] Blocked: desired paths an unowned file occupies — refused, not failed';
@@ -197,6 +213,7 @@ describe('HarnessReconcilerService — the blocked-path line', () => {
 
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-blocked-ws-'));
+    grantSkillSync(ws);
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-blocked-src-'));
     home = mkdtempSync(join(tmpdir(), 'harness-blocked-home-'));
     logger = makeFakeLogger();

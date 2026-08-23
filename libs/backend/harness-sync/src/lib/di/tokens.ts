@@ -54,6 +54,13 @@ export const HARNESS_SYNC_TOKENS = {
    */
   AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
   /**
+   * `SkillSyncGate` — the per-workspace selection gate for the `skills` facet.
+   * Registered as well as handed to the reconciler because the selection
+   * surface RECORDS the user's choice from `rpc-handlers`, which has no
+   * reconciler to reach through.
+   */
+  SKILL_SYNC_GATE: Symbol.for('HarnessSyncSkillSyncGate'),
+  /**
    * `HarnessBlockedRepairService` — the consent-gated repair of a blocked path
    * (TASK_2026_306 Batch 8).
    *

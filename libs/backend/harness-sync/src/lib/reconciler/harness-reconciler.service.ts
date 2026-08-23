@@ -59,6 +59,10 @@ import {
 } from '../health/harness-health';
 import type { HarnessGitignoreWriter } from '../gitignore/gitignore-writer';
 import { AgentSyncGate } from '../state/agent-sync-gate';
+import {
+  SkillSyncGate,
+  type SkillSyncSelection,
+} from '../state/skill-sync-gate';
 
 export interface HarnessReconcileOptions {
   mode: 'full' | 'preflight';
@@ -103,6 +107,16 @@ export class HarnessReconcilerService {
      * close. Every construction gets one.
      */
     private readonly agentSync: AgentSyncGate = new AgentSyncGate(
+      manifestStore,
+    ),
+    /**
+     * DEFAULTED, not nullable, for the same reason `agentSync` above is — and
+     * with more at stake. An absent skill gate would mean every skill on the
+     * machine propagates into every workspace ungated in any host that forgot
+     * to wire it, which is the defect this gate exists to close. Every
+     * construction gets one.
+     */
+    private readonly skillSync: SkillSyncGate = new SkillSyncGate(
       manifestStore,
     ),
   ) {}
@@ -150,12 +164,14 @@ export class HarnessReconcilerService {
    */
   async verify(cwd: string, reason = 'harness:health'): Promise<HarnessHealth> {
     const workspaceRoot = resolveHarnessWorkspaceRoot(cwd);
-    // Resolved but NOT persisted. A derived decision is a write, and `verify()`
-    // writes nothing — a badge that polls must not be able to record a consent
-    // decision on the user's behalf.
+    // BOTH gates are resolved and NEITHER is persisted. A derived decision is a
+    // write, and `verify()` writes nothing — a badge that polls must not be
+    // able to record a consent or selection decision on the user's behalf.
+    const skillSync = this.skillSync.resolve(workspaceRoot);
     const desired = this.builder.build(this.sourceResolver.resolve(), {
       downloadPending: false,
       agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
+      skillSync,
     });
 
     const targetHealth: HarnessTargetHealth[] = [];
@@ -319,9 +335,11 @@ export class HarnessReconcilerService {
     options: HarnessReconcileOptions,
   ): Promise<HarnessHealth> {
     const agentSync = this.agentSync.resolve(workspaceRoot);
+    const skillSync = this.skillSync.resolve(workspaceRoot);
     const desired = this.builder.build(this.sourceResolver.resolve(), {
       downloadPending: options.downloadPending === true,
       agentSyncEnabled: agentSync.enabled,
+      skillSync,
     });
 
     const selected = this.selectTargets(options.targets);
@@ -341,6 +359,9 @@ export class HarnessReconcilerService {
       // is never overwritten by a reconcile.
       if (agentSync.derived) {
         this.persistAgentSyncDecision(workspaceRoot, agentSync.enabled);
+      }
+      if (skillSync.derived) {
+        this.persistSkillSyncDecision(workspaceRoot, skillSync);
       }
       for (const target of selected) {
         targetHealth.push(
@@ -388,6 +409,35 @@ export class HarnessReconcilerService {
     } catch (error: unknown) {
       this.logger.warn(
         '[harness-sync] Recording the agent-sync decision threw',
+        {
+          workspaceRoot,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * Record the skill-selection migration's answer so the manifest evidence walk
+   * runs once and cannot be re-answered after a reap has emptied the manifests.
+   *
+   * Non-fatal for the same reason its agent twin is: a state file that could
+   * not be written means the next pass re-derives the same answer from the same
+   * manifests, which is a repeated read and never a different decision.
+   */
+  private persistSkillSyncDecision(
+    workspaceRoot: string,
+    decision: SkillSyncSelection,
+  ): void {
+    try {
+      if (this.skillSync.persist(workspaceRoot, decision)) return;
+      this.logger.warn(
+        '[harness-sync] Could not record the skill-selection decision; it will be re-derived next pass',
+        { workspaceRoot, skillSyncMode: decision.mode },
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[harness-sync] Recording the skill-selection decision threw',
         {
           workspaceRoot,
           error: error instanceof Error ? error.message : String(error),
