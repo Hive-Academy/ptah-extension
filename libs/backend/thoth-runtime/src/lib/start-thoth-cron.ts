@@ -115,11 +115,18 @@ function registerSkillDrainJobs(
           signal: ctx.signal,
           onBattery: monitor.isOnBattery(),
         });
-        return {
-          summary: summary.skipped
-            ? `skipped: ${summary.reason ?? 'unknown'}`
-            : `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
-        };
+        // A gated tick did no work, so it is not a success. `DrainSummary`
+        // has carried `skipped` + `reason` since phase 1; before
+        // TASK_2026_315 it could only reach the run row as prose inside
+        // `summary`, and `cron:runs` said "succeeded". The reason token is
+        // passed through verbatim (`daily-token-budget-exhausted`,
+        // `on-battery`, …) rather than re-worded, so the run history shows
+        // the same string the drain logs.
+        return summary.skipped
+          ? { outcome: 'skipped', reason: summary.reason ?? 'unknown' }
+          : {
+              summary: `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
+            };
       });
     }
     jobStore.upsert({

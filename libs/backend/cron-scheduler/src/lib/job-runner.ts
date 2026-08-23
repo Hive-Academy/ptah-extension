@@ -20,6 +20,13 @@
  * Abort: every run is wrapped in an `AbortController` linked to the optional
  * caller `signal`. Aborts are recorded as `skipped` with the reason carried
  * forward (`shutdown`, `runNow-cancelled`, …).
+ *
+ * Outcome: a handler that returns `{ outcome: 'skipped', reason }` is recorded
+ * as `skipped` too — it ran and deliberately did nothing (see
+ * {@link JobHandlerResult.outcome}). So `job_runs` carries three distinct
+ * terminal answers for a handler that was actually entered: `succeeded` (work
+ * happened), `skipped` (a gate closed, nothing to retry) and `failed` (it
+ * threw).
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -167,14 +174,41 @@ export class JobRunner {
 
     try {
       const result = await this.dispatch(job, scheduledFor, localCtl);
-      this.runs.markSucceeded(runId, result.summary);
+      // A handler that ran to completion and deliberately did nothing is not a
+      // success. `markSucceeded` used to be unconditional here, so a skill
+      // drain that stopped at its daily token budget wrote "succeeded" into
+      // `cron:runs` roughly once a minute (TASK_2026_315 / C2) — the history a
+      // user reads to find out why background work stopped was the one place
+      // that denied it had. `outcome` is the handler's own verdict; absent
+      // still means succeeded.
+      if (result.outcome === 'skipped') {
+        this.runs.markSkipped(
+          runId,
+          result.reason ?? result.summary ?? 'handler-skipped',
+        );
+      } else {
+        this.runs.markSucceeded(runId, result.summary);
+      }
+      // `lastRunAt` records that the HANDLER executed, which is true of both
+      // branches above and of the failure branch below — the job fired on
+      // schedule and reached a verdict. The runner's own two skips
+      // (concurrency cap, abort) deliberately leave it alone: there the
+      // handler never ran at all.
       if (!opts.suppressJobTimestamps) {
         this.jobs.update(job.id, { lastRunAt: Date.now() });
       }
-      this.logger.debug('[cron-scheduler] run succeeded', {
-        jobId: job.id,
-        runId,
-      });
+      if (result.outcome === 'skipped') {
+        this.logger.debug('[cron-scheduler] run skipped by handler', {
+          jobId: job.id,
+          runId,
+          reason: result.reason,
+        });
+      } else {
+        this.logger.debug('[cron-scheduler] run succeeded', {
+          jobId: job.id,
+          runId,
+        });
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (localCtl.signal.aborted) {

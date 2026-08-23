@@ -508,11 +508,15 @@ function registerSkillDrainJobs(
             signal: ctx.signal,
             onBattery: monitor.isOnBattery(),
           });
-          return {
-            summary: summary.skipped
-              ? `skipped: ${summary.reason ?? 'unknown'}`
-              : `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
-          };
+          // Same rule as the Electron/VS Code seam in
+          // `thoth-runtime/start-thoth-cron.ts`: a gated tick did no work, so
+          // it records as `skipped` with the drain's own reason token, not as
+          // a success (TASK_2026_315 / C2).
+          return summary.skipped
+            ? { outcome: 'skipped', reason: summary.reason ?? 'unknown' }
+            : {
+                summary: `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
+              };
         });
       }
       jobStore.upsert({
