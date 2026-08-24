@@ -10,6 +10,7 @@ import {
   AgentCompletedEvent,
   BackgroundAgentStartedEvent,
   SessionId,
+  isAgentTaskType,
 } from '@ptah-extension/shared';
 
 import type {
@@ -146,6 +147,22 @@ export class SystemMessageTransformer {
   ): FlatStreamEventUnion[] {
     const toolUseId = msg.tool_use_id;
 
+    // A background Bash command arrives on the very same task lifecycle as a
+    // subagent, tagged `task_type: 'local_bash'` and parented to the Bash
+    // tool_use id. Left alone it becomes an agent_start, which the execution
+    // tree nests as a subagent bubble under the Bash node and the monitor
+    // store files as a live agent. Reject it here and mark the task so the
+    // rest of its lifecycle is rejected too — none of the bookkeeping below
+    // (task parent link, subagent registry) applies to a shell command.
+    if (!isAgentTaskType(msg.task_type)) {
+      state.markNonAgentTask(msg.task_id);
+      helpers.logger.debug(
+        '[SdkMessageTransformer] task_started with non-agent task_type — skipping AgentStartEvent',
+        { taskId: msg.task_id, taskType: msg.task_type, toolUseId },
+      );
+      return [];
+    }
+
     if (toolUseId) {
       state.setTaskParent(msg.task_id, toolUseId);
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
@@ -223,6 +240,10 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    if (state.isNonAgentTask(msg.task_id)) {
+      return [];
+    }
+
     const parentToolUseId =
       msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
 
@@ -270,6 +291,10 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    if (state.isNonAgentTask(msg.task_id)) {
+      return [];
+    }
+
     const parentToolUseId = state.getTaskParentToolUseId(msg.task_id);
 
     if (!parentToolUseId) {
@@ -370,9 +395,12 @@ export class SystemMessageTransformer {
     const parentToolUseId =
       msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
 
+    // Read before clearing — `clearTaskParent` also drops the non-agent mark.
+    const isNonAgentTask = state.isNonAgentTask(msg.task_id);
+
     state.clearTaskParent(msg.task_id);
 
-    if (msg.skip_transcript) {
+    if (isNonAgentTask || msg.skip_transcript) {
       return [];
     }
 

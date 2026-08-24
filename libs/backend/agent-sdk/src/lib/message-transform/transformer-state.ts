@@ -26,6 +26,13 @@ export interface TransformerState {
   hasBackgroundTaskToolUseId(toolUseId: string): boolean;
   getTaskParentToolUseId(taskId: string): string | undefined;
   isTaskStartedEmitted(toolUseId: string): boolean;
+  /**
+   * True for a task whose `task_started` was rejected as non-agent (see
+   * `isAgentTaskType`). Keyed by task id because the later lifecycle messages
+   * (`task_progress` / `task_updated` / `task_notification`) carry the task id
+   * and would otherwise upsert a phantom agent into the monitor store.
+   */
+  isNonAgentTask(taskId: string): boolean;
   hasActiveSkillToolUseId(toolUseId: string): boolean;
   activeSkillToolUseIdsCount(): number;
   snapshotActiveSkillToolUseIds(): string[];
@@ -44,7 +51,9 @@ export interface TransformerState {
   addBackgroundTaskToolUseId(toolUseId: string): void;
   removeBackgroundTaskToolUseId(toolUseId: string): void;
   setTaskParent(taskId: string, parentToolUseId: string): void;
+  /** Clears the task→tool_use link AND any non-agent mark for `taskId`. */
   clearTaskParent(taskId: string): void;
+  markNonAgentTask(taskId: string): void;
   markTaskStartedEmitted(toolUseId: string): void;
   addActiveSkillToolUseId(toolUseId: string): void;
   clearActiveSkillToolUseIds(): void;

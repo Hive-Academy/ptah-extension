@@ -17,6 +17,7 @@ import type {
 import {
   createExecutionNode,
   isAgentDispatchTool,
+  isAgentTaskType,
 } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { MAX_DEPTH } from '../execution-tree.constants';
@@ -243,8 +244,17 @@ export function buildToolChildren(
 
   const children: ExecutionNode[] = [];
 
+  // `isAgentTaskType` keeps a background Bash out of the tree: the SDK runs it
+  // on the subagent task lifecycle, so a stale or replayed `agent_start` can
+  // still arrive carrying `agentType: 'local_bash'` and parented to the Bash
+  // tool_use id. Without the guard it renders as a subagent bubble nested
+  // inside the Bash node. The producer-side fix lives in
+  // `SystemMessageTransformer.transformTaskStarted`.
   const agentStarts = [...state.events.values()].filter(
-    (e) => e.eventType === 'agent_start' && e.parentToolUseId === toolCallId,
+    (e) =>
+      e.eventType === 'agent_start' &&
+      e.parentToolUseId === toolCallId &&
+      isAgentTaskType((e as AgentStartEvent).agentType),
   ) as AgentStartEvent[];
 
   for (const agentStart of agentStarts) {
