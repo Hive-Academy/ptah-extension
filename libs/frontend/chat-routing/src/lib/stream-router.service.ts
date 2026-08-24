@@ -346,6 +346,15 @@ export class StreamRouter {
       batchedUpdate: this.batchedUpdate,
       backgroundAgentStore: this.backgroundAgentStore,
       agentMonitorStore: this.agentMonitorStore,
+      // The accumulator mutates the surface's state object IN PLACE. A
+      // signal-backed adapter therefore never sees a new reference and never
+      // notifies, so a surface transcript stayed blank for the whole run and
+      // only filled in when the host component was re-created (which re-reads
+      // the already-mutated object from scratch). `onStateChanged` exists for
+      // exactly this — push every mutation back through the adapter so the
+      // host can re-emit. Chat does not need it: it owns the state slot
+      // directly. See `AccumulatorContext.onStateChanged`.
+      onStateChanged: (next) => adapter.setState(next),
     };
 
     const result = this.accumulatorCore.process(adapter.getState(), event, ctx);

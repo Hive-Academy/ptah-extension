@@ -39,7 +39,12 @@ interface SurfaceAdapter {
 }
 ```
 
-The accumulator mutates state **in place** for every event except `compaction_complete` (which mints a fresh `StreamingState` via `AccumulatorResult.replacementState` and calls `setState`). Because of in-place mutation, signal-backed adapters need a **nudge counter** so Angular's equality check fires — see `WizardSurfaceFacade.nudgePhase` and harness equivalents.
+The accumulator mutates state **in place** for every event except `compaction_complete` (which mints a fresh `StreamingState` via `AccumulatorResult.replacementState`).
+
+`routeStreamEventForSurface` wires `AccumulatorContext.onStateChanged` to `adapter.setState`, so the adapter is called back on **every** mutation — with the SAME object reference for the in-place cases. A signal-backed adapter must therefore break reference equality itself, or the write is swallowed and the surface renders nothing until its host component is re-created. Two ways, both live:
+
+- `signal(..., { equal: () => false })` — `HarnessBuilderStateService._streamingState`
+- a separate nudge counter re-emitted on write — `SetupWizardStateService.nudgePhaseStreamingStates`
 
 ## Lifecycle Invariant
 

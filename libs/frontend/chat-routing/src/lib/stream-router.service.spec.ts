@@ -1631,6 +1631,20 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(probe.state.messageEventIds).toContain(`msg-${SESSION_A}`);
     });
 
+    it('pushes every in-place mutation back through adapter.setState', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const slot = probe.state;
+
+      router.routeStreamEventForSurface(msgStart(SESSION_A), probe.surfaceId);
+
+      // The accumulator mutates the SAME object, so a signal-backed host only
+      // learns about the write through this call. Without it the harness
+      // transcript stayed blank for a whole run and only rendered once the
+      // view component was re-created.
+      expect(probe.setState).toHaveBeenCalledWith(slot);
+    });
+
     it('appends a new session to the conversation when the first event carries a different sessionId', () => {
       const probe = makeSurfaceProbe();
       const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);

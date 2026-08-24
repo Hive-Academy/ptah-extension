@@ -1,9 +1,10 @@
-import { signal, type WritableSignal } from '@angular/core';
+import { computed, signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   StreamRouter,
   StreamingSurfaceRegistry,
 } from '@ptah-extension/chat-routing';
+import { SurfaceId } from '@ptah-extension/chat-state';
 import { AppStateManager } from '@ptah-extension/core';
 import type { HarnessInitializeResponse } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
@@ -192,6 +193,30 @@ describe('HarnessBuilderStateService', () => {
       } as any;
       setState(replacement);
       expect(service.streamingState()).toBe(replacement);
+    });
+
+    it('notifies downstream readers when setState hands back the SAME state object', () => {
+      service.registerWorkflowSurface(SurfaceId.create());
+      const [, getState, setState] = mockSurfaceRegistry.register.mock.calls[0];
+
+      let recomputes = 0;
+      const transcript = computed(() => {
+        recomputes++;
+        return service.streamingState();
+      });
+      transcript();
+      expect(recomputes).toBe(1);
+
+      // What the accumulator actually does: mutate the live object in place
+      // and hand the SAME reference back. Under default reference equality
+      // this write is swallowed and the transcript stays blank for the whole
+      // run — the bug this pins.
+      const live = getState();
+      live.currentMessageId = 'm1';
+      setState(live);
+
+      transcript();
+      expect(recomputes).toBe(2);
     });
 
     it('unregisterOperationSurface calls StreamRouter.onSurfaceClosed and removes the mapping', () => {
