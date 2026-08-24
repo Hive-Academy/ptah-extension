@@ -14,6 +14,7 @@ import type {
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, SentryService } from '@ptah-extension/vscode-core';
+import { watchWorkspaceFolders } from './workspace-folder-watchers';
 
 /**
  * Frontmatter block plus the markdown body that follows it.
@@ -179,18 +180,23 @@ export interface CommandSearchRequest {
  */
 @injectable()
 export class CommandDiscoveryService {
-  private cache: CommandInfo[] = [];
   /**
-   * `normalizeWorkspaceRoot()` of the root {@link cache} was built from.
+   * Discovered commands PER WORKSPACE, keyed by `normalizeWorkspaceRoot()`.
    *
-   * TASK_2026_200: `cache` is process-global and `searchCommands` served it to
-   * every caller regardless of the workspace asked about, so the first
-   * workspace to populate it answered for all later ones. Keying it is what
-   * makes the explicit `workspaceRoot` override observable rather than accepted
-   * and ignored. Written only alongside `cache`, synchronously and adjacently.
+   * TASK_2026_200 keyed a single slot, which killed the wrong-workspace answer
+   * (a request for a root the slot did not belong to rescans rather than
+   * serving another workspace's commands). What one slot cannot do is hold two
+   * workspaces — folders in alternating use evicted each other on every `/`
+   * keystroke — or be invalidated per folder, which is what the file watcher
+   * now needs. See `AgentDiscoveryService.caches`; the two are deliberately the
+   * same shape.
    */
-  private cacheRootKey: string | undefined;
-  private watchers: IDisposable[] = [];
+  private readonly caches = new Map<string, CommandInfo[]>();
+
+  /** Retained workspaces before the least-recently-discovered is evicted. */
+  private static readonly CACHE_CAP = 8;
+
+  private folderWatchers: IDisposable | undefined;
 
   /**
    * Skills directories already reported ABSENT this process.
@@ -215,15 +221,20 @@ export class CommandDiscoveryService {
 
   /**
    * Invalidate the command cache.
-   * Called when plugin configuration changes so the next search
-   * picks up newly junctioned skills and copied commands.
+   *
+   * With a root, only that workspace's entry goes — what the per-folder file
+   * watcher uses. Without one, everything goes, which is what the plugin
+   * handlers want: a plugin install or a harness reconcile rewrites
+   * `.claude/commands` and `.claude/skills` and is not attributable to a single
+   * folder, so over-invalidating (a rescan) beats under-invalidating (a stale
+   * list). The no-argument call is unchanged for those callers.
    */
-  invalidateCache(): void {
-    this.cache = [];
-    // Clear the key with the list. Leaving a stale key behind a cleared cache
-    // is harmless today (`cache.length > 0` is checked first) but becomes a
-    // wrong-root cache hit the moment that check is relaxed.
-    this.cacheRootKey = undefined;
+  invalidateCache(workspaceRoot?: string): void {
+    if (workspaceRoot === undefined) {
+      this.caches.clear();
+      return;
+    }
+    this.caches.delete(normalizeWorkspaceRoot(workspaceRoot));
   }
 
   /**
@@ -260,10 +271,7 @@ export class CommandDiscoveryService {
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
         ...workspaceSkills,
       ];
-      // List and its root key published together — two adjacent synchronous
-      // writes, no await between them, so the pair can never disagree.
-      this.cache = allCommands;
-      this.cacheRootKey = normalizeWorkspaceRoot(workspaceRoot);
+      this.publish(normalizeWorkspaceRoot(workspaceRoot), allCommands);
 
       return { success: true, commands: allCommands };
     } catch (error) {
@@ -287,14 +295,15 @@ export class CommandDiscoveryService {
       const root = workspaceRoot ?? this.workspaceProvider.getWorkspaceRoot();
       const rootKey = root ? normalizeWorkspaceRoot(root) : undefined;
 
-      // Resolve into a LOCAL and filter that — never re-read `this.cache`
-      // after an await. See `AgentDiscoveryService.searchAgents` for why:
-      // a concurrent discovery for another workspace can replace the field
-      // while we are suspended.
+      // Resolve into a LOCAL and filter that — never re-read the cache after an
+      // await. See `AgentDiscoveryService.searchAgents` for why: a concurrent
+      // discovery can publish or evict entries while we are suspended.
+      const cached =
+        rootKey === undefined ? undefined : this.caches.get(rootKey);
       let commands: CommandInfo[];
-      if (this.cache.length > 0 && this.cacheRootKey === rootKey) {
-        // Check and read in one synchronous block.
-        commands = this.cache;
+      if (cached !== undefined && cached.length > 0) {
+        // Lookup and read in one synchronous block.
+        commands = cached;
       } else {
         const discovered = await this.discoverCommands(root);
         // The awaited call's OWN return value — immune to a later publish.
@@ -333,35 +342,26 @@ export class CommandDiscoveryService {
   /**
    * Initialize file watchers.
    *
-   * DELIBERATELY NOT root-parameterized (TASK_2026_200 task 2.4) — same
-   * reasoning as `AgentDiscoveryService.initializeWatchers`: a background
-   * refresh armed once at activation has no caller whose workspace it could be
-   * scoped to, and pinning it to the activation-time root would be worse than
-   * tracking the process-global active folder. Per-request correctness lives in
-   * `searchCommands`/`discoverCommands`. Please do not "fix" this.
+   * One watcher PER OPEN FOLDER, invalidating the folder it was armed for —
+   * see `AgentDiscoveryService.initializeWatchers` for the full argument,
+   * including why this satisfies the old "do not root-parameterize" constraint
+   * rather than overruling it (nothing is pinned; the folder set is re-armed
+   * when it changes).
+   *
+   * Idempotent — a second call is a no-op rather than a second watcher set.
    */
   initializeWatchers(): void {
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-    if (!workspaceRoot) return;
-    const projectWatcher = this.fsProvider.createFileWatcher(
+    if (this.folderWatchers) return;
+    this.folderWatchers = watchWorkspaceFolders(
+      this.workspaceProvider,
+      this.fsProvider,
       '.claude/commands/**/*.md',
-    );
-
-    const refreshCache = () => {
-      this.discoverCommands().catch((error) => {
-        console.error('[CommandDiscovery] Failed to refresh cache:', error);
-      });
-    };
-
-    const createDisposable = projectWatcher.onDidCreate(refreshCache);
-    const changeDisposable = projectWatcher.onDidChange(refreshCache);
-    const deleteDisposable = projectWatcher.onDidDelete(refreshCache);
-
-    this.watchers.push(
-      projectWatcher,
-      createDisposable,
-      changeDisposable,
-      deleteDisposable,
+      (folder) => this.invalidateCache(folder),
+      (folder, error) =>
+        this.logger.warn('[CommandDiscovery] command watcher unavailable', {
+          folder,
+          error: error instanceof Error ? error.message : String(error),
+        }),
     );
   }
 
@@ -617,10 +617,25 @@ export class CommandDiscoveryService {
   }
 
   /**
+   * Publish a workspace's command list, evicting the least recently discovered
+   * workspace once the map exceeds {@link CACHE_CAP}. Mirrors
+   * `AgentDiscoveryService.publish`.
+   */
+  private publish(rootKey: string, commands: CommandInfo[]): void {
+    this.caches.delete(rootKey);
+    this.caches.set(rootKey, commands);
+    while (this.caches.size > CommandDiscoveryService.CACHE_CAP) {
+      const oldest = this.caches.keys().next();
+      if (oldest.done) break;
+      this.caches.delete(oldest.value);
+    }
+  }
+
+  /**
    * Cleanup on disposal
    */
   dispose(): void {
-    this.watchers.forEach((w) => w.dispose());
-    this.watchers = [];
+    this.folderWatchers?.dispose();
+    this.folderWatchers = undefined;
   }
 }

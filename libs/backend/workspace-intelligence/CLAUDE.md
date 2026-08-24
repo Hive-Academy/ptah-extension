@@ -42,9 +42,45 @@ Plus rich typing (`WorkspaceAnalysisResult`, `WorkspaceInfo`, `ContextRecommenda
 - `src/context-analysis/` — classifier, relevance scorer, size optimizer, enrichment
 - `src/ast/` — tree-sitter parser, dependency graph, types/config
 - `src/services/` — `TokenCounterService`, `FileSystemService`
-- `src/autocomplete/`, `src/quality/` — additional capability buckets
+- `src/autocomplete/` — `AgentDiscoveryService` (`@` picker) + `CommandDiscoveryService`
+  (`/` picker) + `workspace-folder-watchers.ts`. See "Autocomplete discovery" below
+- `src/quality/` — additional capability bucket
 - `src/types/workspace.types.ts`
 - `src/di/`
+
+## Autocomplete discovery (`@` and `/` pickers)
+
+`AgentDiscoveryService` and `CommandDiscoveryService` back
+`autocomplete:agents` / `autocomplete:commands`. That manifest entry has
+`requires: []`, so **every host serves them** — VS Code, Electron and the CLI.
+Three rules, all learned from defects:
+
+- **The cache is per workspace root** (`Map` keyed by `normalizeWorkspaceRoot`,
+  LRU-capped at 8), never a single slot. A single slot was first a correctness
+  bug (one workspace answered for every other — TASK_2026_200) and then a
+  thrash bug (two folders in alternating use evicted each other on every
+  keystroke). Never re-read the cache field after an `await`: resolve it into a
+  local in the same synchronous block as the lookup and filter that.
+- **Watchers are per OPEN FOLDER, and invalidate the folder they were armed
+  for.** `watchWorkspaceFolders` arms one per `getWorkspaceFolders()` entry with
+  the folder as `cwd`, and re-arms on `onDidChangeWorkspaceFolders`. The
+  earlier single unscoped watcher re-ran discovery for whatever
+  `getWorkspaceRoot()` reported, so an edit in folder B rescanned folder A and
+  left B stale. The old header said not to thread a root through, because doing
+  so would pin the watcher to the activation-time folder — that constraint still
+  holds and is met: nothing is pinned, and the folder is closed over rather than
+  parsed back out of the event path.
+- **The handler invalidates; it does not re-discover.** Warming a background
+  folder's list on an edit nobody has asked about is work for an answer that may
+  never be requested. `invalidateCache(root?)` drops one root, or everything
+  when the change is not attributable to a folder (the plugin handlers' call
+  after a harness reconcile).
+
+Both hosts that switch or add folders at runtime must call `initializeWatchers()`
+once after the RPC surface is registered — `apps/ptah-extension-vscode`'s
+`bootstrap.ts` and `apps/ptah-electron`'s `wire-runtime.ts`. It is idempotent.
+The cache has no TTL, so a host that skips it serves the list captured at first
+use for the rest of the session.
 
 ## Dependencies
 

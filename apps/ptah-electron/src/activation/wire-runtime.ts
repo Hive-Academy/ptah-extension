@@ -192,6 +192,34 @@ export async function wireRuntime(
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
   );
+
+  // Autocomplete discovery watchers. `autocomplete:*` has no capability
+  // requirement in `RPC_HANDLER_MANIFEST`, so this host has always SERVED the
+  // `@` and `/` pickers — it just never armed their invalidation, which only
+  // the VS Code bootstrap did. Without it the per-workspace cache had no way to
+  // learn that `.claude/agents` or `.claude/commands` changed, and since it has
+  // no TTL the picker served the list captured at first use for the rest of the
+  // session. Each service arms one watcher per open folder and re-arms them on
+  // `onDidChangeWorkspaceFolders`, which is exactly what this host needs: the
+  // active workspace changes at runtime here, unlike in a VS Code window.
+  for (const [label, token] of [
+    ['agents', TOKENS.AGENT_DISCOVERY_SERVICE],
+    ['commands', TOKENS.COMMAND_DISCOVERY_SERVICE],
+  ] as const) {
+    try {
+      const service = container.resolve(token) as {
+        initializeWatchers: () => void;
+      };
+      service.initializeWatchers();
+    } catch (error) {
+      // A missing watcher degrades the pickers to "refreshes on workspace
+      // switch", never to a failed boot.
+      console.warn(
+        `[Ptah Electron] Could not arm ${label} discovery watcher:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   try {
     resolvedStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.STATE_STORAGE,
