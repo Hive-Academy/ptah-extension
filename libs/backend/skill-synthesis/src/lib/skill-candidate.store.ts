@@ -58,6 +58,13 @@ interface RawCandidateRow {
   rejected_reason: string | null;
   pinned: number;
   residency: string;
+  // ── 0040 ──────────────────────────────────────────────────────────────────
+  // Same `SELECT *` trap as the two blocks below. `NULL` here means UNKNOWN
+  // origin and is INCLUDED by a workspace-scoped read; a column missing from
+  // this interface reads back `undefined`, becomes `null`, and every candidate
+  // silently reverts to appearing in every workspace — the defect `0040`
+  // exists to fix, looking exactly like the fix working.
+  workspace_root: string | null;
   // ── 0033 ──────────────────────────────────────────────────────────────────
   // Reads are `SELECT *`, so a column that is missing from this interface is
   // silently invisible to the store no matter what the DDL says. Adding a
@@ -195,8 +202,8 @@ export class SkillCandidateStore {
          id, name, description, body_path, source_session_ids,
          trajectory_hash, embedding_rowid, status,
          success_count, failure_count, created_at,
-         promoted_at, rejected_at, rejected_reason
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', 0, 0, ?, NULL, NULL, NULL)`,
+         promoted_at, rejected_at, rejected_reason, workspace_root
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', 0, 0, ?, NULL, NULL, NULL, ?)`,
     );
     stmt.run(
       id,
@@ -207,6 +214,10 @@ export class SkillCandidateStore {
       input.trajectoryHash,
       embeddingRowid,
       input.createdAt,
+      // `?? null`, never `?? ''`. A caller that did not supply a root does not
+      // know where the session ran; writing `''` would record the unrelated
+      // claim "deliberately cross-project". See `NewCandidateInput`.
+      input.workspaceRoot ?? null,
     );
 
     const row = this.findById(id as CandidateId);
@@ -240,13 +251,53 @@ export class SkillCandidateStore {
     return raw ? this.toCandidateRow(raw) : null;
   }
 
-  listByStatus(status: SkillStatus): SkillCandidateRow[] {
+  /**
+   * ## `workspaceRoot` IS OPTIONAL, AND OMITTING IT IS NOT A DEFAULT — IT IS A
+   * ## SEPARATE, LOUDER READ.
+   *
+   * This mirrors `getWinRates` exactly; read its header for the full
+   * reasoning, because the same two rules apply here.
+   *
+   * The unscoped form is what almost every caller wants, and that is not an
+   * accident of history. Clustering, dedup, the residency budget, the
+   * promotion sweep and the phase-3 gates all read the candidate set ACROSS
+   * projects on purpose: a promoted skill is written to `~/.ptah/skills/` and
+   * propagated into every workspace, so scoping any of those reads would
+   * change what the subsystem does, not just what it shows.
+   *
+   * Exactly ONE caller passes a root — `SkillsSynthesisRpcHandlers`, backing
+   * the Skills tab's list. A candidate is unreviewed work from one session in
+   * one project, and the person who can judge it is the person working there.
+   * Widening the scoped form into the default would silently re-scope the
+   * other six.
+   *
+   * ## A `NULL` `workspace_root` IS INCLUDED IN A SCOPED READ
+   *
+   * `workspace_root` is three-valued — a real path is that workspace, `''` is
+   * DELIBERATELY cross-project, and `NULL` is UNKNOWN. Every candidate
+   * predating `0040` whose queue row the backfill could not resolve is `NULL`,
+   * and dropping those would make them invisible in every workspace forever:
+   * a display defect traded for silent data loss. `''` is NOT folded in — it
+   * is a known value meaning "not this workspace".
+   */
+  listByStatus(
+    status: SkillStatus,
+    workspaceRoot?: string,
+  ): SkillCandidateRow[] {
+    const scoped = workspaceRoot !== undefined;
     const stmt = this.db.prepare(
-      `SELECT * FROM skill_candidates
-       WHERE status = ?
-       ORDER BY created_at DESC`,
+      scoped
+        ? `SELECT * FROM skill_candidates
+            WHERE status = ?
+              AND (workspace_root = ? OR workspace_root IS NULL)
+            ORDER BY created_at DESC`
+        : `SELECT * FROM skill_candidates
+            WHERE status = ?
+            ORDER BY created_at DESC`,
     );
-    const rows = stmt.all(status) as RawCandidateRow[];
+    const rows = (
+      scoped ? stmt.all(status, workspaceRoot) : stmt.all(status)
+    ) as RawCandidateRow[];
     return rows.map((r) => this.toCandidateRow(r));
   }
 
@@ -1407,6 +1458,10 @@ export class SkillCandidateStore {
       rejectedReason: raw.rejected_reason,
       pinned: raw.pinned === 1,
       residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
+      // `?? null` normalizes a driver's `undefined` for an absent column. It
+      // does NOT coalesce to `''` — `null` is "origin unknown" and `''` is
+      // "deliberately cross-project", and only the second is a claim.
+      workspaceRoot: raw.workspace_root ?? null,
       judgeStatus: this.toJudgeStatus(raw.judge_status),
       // `?? null` normalizes a driver's `undefined` for an absent column. It
       // does NOT coalesce a stored NULL to 0 — that would resurrect the exact

@@ -2194,6 +2194,13 @@ export interface SkillSynthesisCandidateSummary {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  /**
+   * The workspace this candidate was captured in, or `null` when its origin is
+   * unknown (captured before the column existed and not resolvable from the
+   * synthesis queue). `null` is NOT "cross-project" and must not be rendered as
+   * one — the honest label is "unknown project".
+   */
+  workspaceRoot: string | null;
   // ── Judge verdict (TASK_2026_180, Phase 1) ────────────────────────────────
   /** Human-readable title. `null` = none yet; the UI falls back to `name`. */
   displayName: string | null;
@@ -2263,9 +2270,33 @@ export interface SkillSynthesisInvocationEntry {
   notes: string | null;
 }
 
+/**
+ * How wide the candidate list reaches across projects.
+ *
+ * `'workspace'` — the current workspace, PLUS every candidate whose origin is
+ * unknown (`workspaceRoot: null`: captured before the origin column existed).
+ * Unknown rows are included rather than hidden, because hiding them would make
+ * pre-existing candidates unreachable in every project.
+ *
+ * `'all'` — every candidate in `~/.ptah/state/ptah.sqlite`, which is shared by
+ * every workspace on the machine.
+ */
+export type SkillSynthesisCandidateScope = 'workspace' | 'all';
+
 export interface SkillSynthesisListCandidatesParams {
   status?: 'candidate' | 'promoted' | 'rejected' | 'all';
   limit?: number;
+  /**
+   * Defaults to `'workspace'`. The default is deliberately the NARROW one: a
+   * candidate is unreviewed work captured from one session in one project, and
+   * before this existed a freshly opened project's review queue was every
+   * other project's backlog.
+   *
+   * This scopes the LIST only. Promotion, clustering, dedup, the residency
+   * budget and the empirical gates all read the candidate set across projects
+   * on purpose — a promoted skill is propagated into every workspace.
+   */
+  scope?: SkillSynthesisCandidateScope;
 }
 export interface SkillSynthesisListCandidatesResult {
   candidates: SkillSynthesisCandidateSummary[];

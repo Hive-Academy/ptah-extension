@@ -148,6 +148,24 @@ export interface SkillCandidateRow {
   rejectedReason: string | null;
   pinned: boolean;
   residency: SkillResidency;
+  /**
+   * The workspace this candidate was captured in (`0040`). Three-valued, and
+   * the three values are not interchangeable:
+   *
+   * - a real path — captured in that workspace;
+   * - `''` — deliberately cross-project. Reserved so the column means what it
+   *   means in `skill_synthesis_queue`; the candidate write path never emits
+   *   it;
+   * - `null` — UNKNOWN. Every row predating `0040` that the migration's
+   *   backfill could not resolve, plus any host that registers a candidate
+   *   without a workspace root.
+   *
+   * A workspace-scoped read INCLUDES `null`, exactly as `getWinRates` does —
+   * see its header. Never coalesce this to `''`: that would assert "this
+   * candidate is deliberately cross-project" about a row whose origin nobody
+   * knows.
+   */
+  workspaceRoot: string | null;
   // ── 0033 judge verdict ────────────────────────────────────────────────────
   /** `null` = never judged (every row predating `0033`). */
   judgeStatus: JudgeStatus | null;
@@ -438,6 +456,14 @@ export interface NewCandidateInput {
   trajectoryHash: string;
   embedding: Float32Array | null;
   createdAt: number;
+  /**
+   * The workspace the source session ran in. OPTIONAL, and omitting it is not
+   * a default — it records "this caller does not know", which the store writes
+   * as `NULL` and every workspace-scoped read then includes. A caller that DOES
+   * know must pass it; passing `''` instead means "deliberately cross-project"
+   * and is a different claim. See {@link SkillCandidateRow.workspaceRoot}.
+   */
+  workspaceRoot?: string | null;
 }
 
 /** Result returned to callers when a new candidate is registered. */

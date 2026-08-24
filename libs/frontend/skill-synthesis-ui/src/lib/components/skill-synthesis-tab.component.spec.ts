@@ -153,6 +153,7 @@ interface StubState {
   readonly statusFilter: ReturnType<
     typeof signal<'all' | 'pending' | 'promoted' | 'rejected'>
   >;
+  readonly scopeFilter: ReturnType<typeof signal<'workspace' | 'all'>>;
   readonly selectedCandidateId: ReturnType<typeof signal<string | null>>;
   readonly selectedCandidate: ReturnType<
     typeof signal<SkillSynthesisCandidateSummary | null>
@@ -254,6 +255,9 @@ function makeStub(
       activeSkills: 0,
     }),
     statusFilter: signal<'all' | 'pending' | 'promoted' | 'rejected'>('all'),
+    // Matches the real service's default — the NARROW scope, which is the
+    // whole point of the control this stands in for.
+    scopeFilter: signal<'workspace' | 'all'>('workspace'),
     selectedCandidateId: signal<string | null>(null),
     selectedCandidate: signal<SkillSynthesisCandidateSummary | null>(null),
     loading: signal<boolean>(false),

@@ -2023,6 +2023,8 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
       judgePanelRationales: null,
       judgedAt: null,
       displayName: null,
+      // ── 0040 origin ────────────────────────────────────────────────────────
+      workspaceRoot: null,
       // ── 0036 empirical gates ───────────────────────────────────────────────
       replayConfidence: null,
       replayHoldoutSessionId: null,
@@ -2043,6 +2045,75 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
     })) as { candidates: Array<Record<string, unknown>> };
     return result.candidates[0];
   }
+
+  it('scopes the list to the open workspace by DEFAULT', async () => {
+    // The reported defect: a brand-new project's review queue was every other
+    // project's backlog, because this read never named a workspace. The
+    // default is the NARROW one, so a caller that says nothing gets the
+    // scoped read.
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+    });
+    expect(store.listByStatus).toHaveBeenCalledWith(
+      'candidate',
+      '/workspace/project',
+    );
+  });
+
+  it("scope: 'all' passes no root, so the store reads every project", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+      scope: 'all',
+    });
+    // `undefined`, NOT `''`. An empty string is a real value meaning
+    // "deliberately cross-project" and would match almost nothing.
+    expect(store.listByStatus).toHaveBeenCalledWith('candidate', undefined);
+  });
+
+  it("status: 'all' scopes each of the three status reads", async () => {
+    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', { status: 'all' });
+    expect(store.listByStatus).toHaveBeenCalledTimes(3);
+    for (const status of ['candidate', 'promoted', 'rejected']) {
+      expect(store.listByStatus).toHaveBeenCalledWith(
+        status,
+        '/workspace/project',
+      );
+    }
+  });
+
+  it('a host with no workspace open reads every project rather than nothing', async () => {
+    // There is nothing to scope to, and scoping to `''` would match only rows
+    // explicitly marked cross-project — which the capture path never writes —
+    // so the list would be permanently empty.
+    const { rpcHandler, store } = buildHandlers([]);
+    store.listByStatus.mockReturnValue([]);
+    await rpcHandler.call('skillSynthesis:listCandidates', {
+      status: 'candidate',
+    });
+    expect(store.listByStatus).toHaveBeenCalledWith('candidate', undefined);
+  });
+
+  it('carries the originating workspace onto the summary', async () => {
+    const summary = await listOne(
+      candidateRow({ workspaceRoot: 'D:\\projects\\alpha' }),
+    );
+    expect(summary['workspaceRoot']).toBe('D:\\projects\\alpha');
+  });
+
+  it('projects an unknown origin as null, never an empty string', async () => {
+    // `null` is "we do not know which project this came from"; `''` is the
+    // distinct claim "deliberately cross-project". The UI renders them
+    // differently and must be able to tell them apart.
+    const summary = await listOne(candidateRow({ workspaceRoot: null }));
+    expect(summary['workspaceRoot']).toBeNull();
+    expect(summary['workspaceRoot']).not.toBe('');
+  });
 
   it('projects a never-judged candidate as all-null, never zero', async () => {
     const summary = await listOne(candidateRow());

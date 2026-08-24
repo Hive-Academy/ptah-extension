@@ -18,6 +18,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
   SkillLanesDto,
+  SkillSynthesisCandidateScope,
   SkillSynthesisCandidateSummary,
   SkillSynthesisSettingsDto,
   SkillSynthesisRunCuratorResult,
@@ -189,25 +190,56 @@ interface ActionDialogState {
                 produces Recommended skills — promote here only for one-off
                 power use.
               </p>
-              <nav
-                role="tablist"
-                aria-label="Status filter"
-                class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
-              >
-                @for (f of filters; track f.id) {
-                  <button
-                    type="button"
-                    role="tab"
-                    class="tab transition-colors duration-150"
-                    [attr.data-testid]="'skills-filter-' + f.id"
-                    [class.tab-active]="statusFilter() === f.id"
-                    [attr.aria-selected]="statusFilter() === f.id"
-                    (click)="onFilterChange(f.id)"
-                  >
-                    {{ f.label }}
-                  </button>
-                }
-              </nav>
+              <div class="flex flex-wrap items-center gap-2">
+                <nav
+                  role="tablist"
+                  aria-label="Status filter"
+                  class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+                >
+                  @for (f of filters; track f.id) {
+                    <button
+                      type="button"
+                      role="tab"
+                      class="tab transition-colors duration-150"
+                      [attr.data-testid]="'skills-filter-' + f.id"
+                      [class.tab-active]="statusFilter() === f.id"
+                      [attr.aria-selected]="statusFilter() === f.id"
+                      (click)="onFilterChange(f.id)"
+                    >
+                      {{ f.label }}
+                    </button>
+                  }
+                </nav>
+
+                <nav
+                  role="tablist"
+                  aria-label="Project scope"
+                  class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+                >
+                  @for (s of scopes; track s.id) {
+                    <button
+                      type="button"
+                      role="tab"
+                      class="tab transition-colors duration-150"
+                      [attr.data-testid]="'skills-scope-' + s.id"
+                      [attr.title]="s.hint"
+                      [class.tab-active]="scopeFilter() === s.id"
+                      [attr.aria-selected]="scopeFilter() === s.id"
+                      (click)="onScopeChange(s.id)"
+                    >
+                      {{ s.label }}
+                    </button>
+                  }
+                </nav>
+              </div>
+
+              @if (scopeFilter() === 'workspace') {
+                <p class="text-xs text-base-content-muted">
+                  Showing captures from this project, plus any whose project was
+                  never recorded. Every project on this machine shares one
+                  skills database.
+                </p>
+              }
 
               @if (ineligibleHint(); as hint) {
                 <p class="text-xs text-base-content-muted">{{ hint }}</p>
@@ -298,6 +330,7 @@ interface ActionDialogState {
                 [selectedCandidateId]="selectedCandidateId()"
                 [selectedIds]="selectedIds()"
                 [loading]="loading()"
+                [showOrigin]="scopeFilter() === 'all'"
                 (selectRow)="onSelectRow($event)"
                 (promote)="onOpenAction('promote', $event)"
                 (reject)="onOpenAction('reject', $event)"
@@ -700,6 +733,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly invocations = this.state.invocations;
   public readonly stats = this.state.stats;
   public readonly statusFilter = this.state.statusFilter;
+  public readonly scopeFilter = this.state.scopeFilter;
   public readonly selectedCandidateId = this.state.selectedCandidateId;
   public readonly selectedCandidate = this.state.selectedCandidate;
   public readonly loading = this.state.loading;
@@ -811,6 +845,23 @@ export class SkillSynthesisTabComponent implements OnInit {
     { id: 'promoted', label: 'Promoted' },
     { id: 'rejected', label: 'Rejected' },
     { id: 'all', label: 'All' },
+  ];
+
+  protected readonly scopes: ReadonlyArray<{
+    readonly id: SkillSynthesisCandidateScope;
+    readonly label: string;
+    readonly hint: string;
+  }> = [
+    {
+      id: 'workspace',
+      label: 'This project',
+      hint: 'Captures from the open workspace, plus any whose project was never recorded.',
+    },
+    {
+      id: 'all',
+      label: 'All projects',
+      hint: 'Every capture in the shared skills database, whichever project produced it.',
+    },
   ];
 
   protected readonly subViews: ReadonlyArray<{
@@ -981,6 +1032,10 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected onFilterChange(filter: SkillStatusFilter): void {
     void this.state.setStatusFilter(filter);
+  }
+
+  protected onScopeChange(scope: SkillSynthesisCandidateScope): void {
+    void this.state.setScopeFilter(scope);
   }
 
   protected onSelectRow(id: string): void {

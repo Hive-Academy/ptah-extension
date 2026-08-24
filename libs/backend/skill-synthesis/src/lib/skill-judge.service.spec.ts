@@ -84,6 +84,7 @@ function fakeCandidate(): SkillCandidateRow {
     rejectedReason: null,
     pinned: false,
     residency: 'resident',
+    workspaceRoot: null,
     ...unjudgedVerdictFields(),
     ...unmeasuredGateFields(),
   };
