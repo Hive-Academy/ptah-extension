@@ -34,6 +34,7 @@ import {
   output,
 } from '@angular/core';
 import { NativeCardComponent, type NativeCardTone } from '@ptah-extension/ui';
+import { lastPathSegment } from '@ptah-extension/shared';
 import type {
   SkillJudgeCriteriaDto,
   SkillJudgeStatusDto,
@@ -556,9 +557,8 @@ function buildTitle(candidate: SkillSynthesisCandidateSummary): string {
  *
  * The label is the trailing path segment because the card is one line and a
  * full Windows path pushes everything else off it; the whole path stays
- * reachable in the tooltip. Both separators are split on — the paths are
- * written by whichever host captured the session, so a POSIX root can appear in
- * a database opened on Windows and the reverse.
+ * reachable in the tooltip. `lastPathSegment` handles both separators and the
+ * trailing-separator case — see its own header.
  */
 function buildOrigin(
   candidate: SkillSynthesisCandidateSummary,
@@ -571,9 +571,8 @@ function buildOrigin(
       toneClass: 'italic text-base-content/40',
     };
   }
-  const segments = root.split(/[\\/]/).filter((s) => s.length > 0);
   return {
-    label: segments[segments.length - 1] ?? root,
+    label: lastPathSegment(root),
     full: root,
     toneClass: 'text-base-content-muted',
   };

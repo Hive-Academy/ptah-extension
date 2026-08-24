@@ -2046,6 +2046,62 @@ describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)
     return result.candidates[0];
   }
 
+  it('rejects an unknown status instead of returning an empty list', async () => {
+    // The gap this closes: `status` reached the handler unvalidated and
+    // `collectByStatus` cast it, so a malformed value produced a
+    // `WHERE status = ?` that matched nothing. An empty review queue that is
+    // really a rejected request is indistinguishable from the feature working.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', { status: 'pending' }),
+    ).rejects.toThrow();
+    expect(store.listByStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown scope rather than silently narrowing', async () => {
+    // Without the schema this fell into the `else` branch and quietly became
+    // the workspace-scoped read — safe, but it answered a question nobody
+    // asked.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', {
+        status: 'candidate',
+        scope: 'global',
+      }),
+    ).rejects.toThrow();
+    expect(store.listByStatus).not.toHaveBeenCalled();
+  });
+
+  it('still accepts no params at all', async () => {
+    // The method has no required parameter and every caller may send
+    // `undefined`; `.nullish()` is what keeps that true.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', undefined),
+    ).resolves.toEqual({ candidates: [] });
+    expect(store.listByStatus).toHaveBeenCalledWith(
+      'candidate',
+      '/workspace/project',
+    );
+  });
+
+  it('leaves limit clamping to clampLimit rather than rejecting', async () => {
+    // `limit` is typed at the boundary but NOT range-checked: `clampLimit`
+    // owns the range, and rejecting `limit: 0` would be a behaviour change
+    // wearing validation's clothes.
+    const { rpcHandler, store } = buildHandlers();
+    store.listByStatus.mockReturnValue([]);
+    await expect(
+      rpcHandler.call('skillSynthesis:listCandidates', {
+        status: 'candidate',
+        limit: 0,
+      }),
+    ).resolves.toEqual({ candidates: [] });
+  });
+
   it('scopes the list to the open workspace by DEFAULT', async () => {
     // The reported defect: a brand-new project's review queue was every other
     // project's backlog, because this read never named a workspace. The

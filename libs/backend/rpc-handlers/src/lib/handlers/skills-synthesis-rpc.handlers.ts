@@ -192,6 +192,7 @@ import {
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
   SkillAcceptSuggestionParamsSchema,
   SkillDismissSuggestionParamsSchema,
@@ -395,11 +396,12 @@ export class SkillsSynthesisRpcHandlers {
       SkillSynthesisListCandidatesResult
     >('skillSynthesis:listCandidates', async (params) => {
       try {
-        const filter = params?.status ?? 'candidate';
-        const limit = clampLimit(params?.limit, 100);
+        const parsed = SkillListCandidatesParamsSchema.parse(params);
+        const filter = parsed?.status ?? 'candidate';
+        const limit = clampLimit(parsed?.limit, 100);
         const rows = this.collectByStatus(
           filter,
-          this.listScope(params?.scope),
+          this.listScope(parsed?.scope),
         );
         const candidates = rows.slice(0, limit).map((r) => toSummary(r));
         return { candidates };
@@ -2022,7 +2024,12 @@ export class SkillsSynthesisRpcHandlers {
         ...this.store.listByStatus('rejected', workspaceRoot),
       ];
     }
-    return this.store.listByStatus(filter as SkillStatus, workspaceRoot);
+    // No cast. `filter` is narrowed to the three lifecycle values by the branch
+    // above, which IS `SkillStatus`. It used to carry `as SkillStatus` because
+    // the value arrived unvalidated from the wire; now that
+    // `SkillListCandidatesParamsSchema` rejects anything else at the boundary,
+    // the assertion has nothing left to assert.
+    return this.store.listByStatus(filter, workspaceRoot);
   }
 
   private report(error: unknown, errorSource: string): void {

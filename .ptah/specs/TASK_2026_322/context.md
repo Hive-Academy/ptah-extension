@@ -81,3 +81,33 @@ shown in every workspace — honest, and the reason the scope toggle exists.
 
 Out of scope: any change to promotion, clustering, dedup, residency, the gates,
 or the harness propagation of promoted skills.
+
+## Review follow-ups
+
+Both reviews ran against commit `1b1bcbe`. The logic review found no correctness
+defects. Two findings were applied on top:
+
+- **`skillSynthesis:listCandidates` had no Zod schema.** `rpc-handlers`'
+  CLAUDE.md makes one mandatory at every inbound boundary, with a single
+  documented exception. `status` and `limit` had been unvalidated since the
+  method shipped, and `collectByStatus` cast the status — so a malformed value
+  produced an empty list rather than an error. `SkillListCandidatesParamsSchema`
+  now covers all three params and the cast is gone.
+- **`buildOrigin` duplicated `ElectronLayoutService.folderName`.** Both are now
+  `lastPathSegment` from `@ptah-extension/shared`. The shared version drops
+  empty segments, which fixes a latent defect on the layout side: a folder path
+  with a trailing separator used to render the whole path in the sidebar's
+  name slot.
+
+Two were recorded rather than actioned:
+
+- **No e2e coverage for the `skills-scope-*` toggle.** The change is covered by
+  store, RPC and state-service specs; `apps/ptah-electron-e2e`'s skills spec
+  still exercises only the status filter. Adding a scope case needs a running
+  Electron app to verify, so it belongs in its own change rather than shipped
+  unverified.
+- **`skill-candidates-table.component.ts` reached 713 lines**, crossing the
+  700-line warn ceiling for the first time. Well short of the 1000-line mark
+  that warrants a deliberate look, and no collaborator here passes the
+  nameability test yet — noted for whoever adds the next feature to that
+  component.
