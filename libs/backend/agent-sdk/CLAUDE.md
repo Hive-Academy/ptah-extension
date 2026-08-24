@@ -70,6 +70,7 @@ stay a leaf. The port in `src/lib/harness/` is the whole relationship.
 
 ## Guidelines
 
+- **Harness plugins live in TWO roots and only ONE of them may be mirrored.** `~/.ptah/plugins` is user-global; `{ws}/.ptah/plugins` is workspace-scoped and committable beside `.ptah/specs`. Both reach `resolveCurrentPluginPaths` (the reconciler's overlay); only `discoverHarnessPluginPaths` — the user-global one — reaches each host's `buildMirrorSources`. That asymmetry is what makes the scope real, and it is the same rule `discoverSkillsShPluginPaths` documents: the user-layer mirror clones create-if-absent into `~/.ptah/user/skills`, and the user layer is the desired state's BASE, so a mirrored workspace skill would outlive its workspace and propagate into every other project forever. **Never add `discoverWorkspaceHarnessPluginPaths()` to `buildMirrorSources`.** A slug present in both roots resolves workspace-wins with a warn, and `ptah.harness.createSkill` refuses the second write rather than creating the clash.
 - **Session identity**: the SDK's UUID from the system 'init' message is the canonical sessionId everywhere. Never mint a Ptah-side sessionId.
 - **Message persistence**: rely on SDK JSONL files at `~/.claude/projects/{sessionId}.jsonl`. `SessionMetadataStore` only tracks UI metadata.
 - **Interactive vs headless**: chat path = `SdkAgentAdapter`; everything else (skill synthesis, memory curator) = `InternalQueryService`.

@@ -62,6 +62,45 @@ export const HARNESS_PLUGIN_ID_PREFIX = 'ptah-harness-';
 export const SKILLS_SH_PLUGIN_ID_PREFIX = 'ptah-skillssh-';
 
 /**
+ * Directory segments of the WORKSPACE-scoped plugin root, relative to the
+ * workspace folder: `{ws}/.ptah/plugins`.
+ *
+ * A harness plugin written here is scoped to one project. It is deliberately
+ * the same `ptah-harness-*` shape as a user-global one, because that shape is
+ * already a first-class overlay source and needs no new concept to reach every
+ * CLI — only a second root to scan.
+ *
+ * It sits under `.ptah/` alongside `specs/`, so a skill that only makes sense
+ * for this codebase can be committed with it and travels to the whole team.
+ */
+export const WORKSPACE_PLUGINS_DIR_SEGMENTS = ['.ptah', 'plugins'] as const;
+
+/**
+ * Absolute path of a workspace's plugin root.
+ *
+ * Spelled once, here, because the plugin loader SCANS it and the harness
+ * namespace WRITES into it. Two hand-rolled joins is how those two drift and a
+ * created skill lands somewhere nothing discovers.
+ *
+ * Returns null for an absent or blank workspace root, which is the honest
+ * answer for a host with no folder open — the caller must then refuse a
+ * workspace-scoped write rather than invent a path.
+ */
+export function workspacePluginsDir(
+  workspaceRoot: string | undefined | null,
+): string | null {
+  const trimmed = workspaceRoot?.trim() ?? '';
+  if (trimmed.length === 0) return null;
+  // Plain join — no `path` import, so this stays usable from the frontend half
+  // of the bridge. Separator choice is irrelevant on Windows, which accepts
+  // both, and every consumer feeds the result back through `path.join`.
+  return [
+    trimmed.replace(/[\\/]+$/, ''),
+    ...WORKSPACE_PLUGINS_DIR_SEGMENTS,
+  ].join('/');
+}
+
+/**
  * True for a plugin id that is active on discovery rather than by enrolment.
  *
  * The distinction matters to any consumer filtering on `enabledPluginIds`:
