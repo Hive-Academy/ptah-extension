@@ -165,6 +165,17 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     });
 
     tasks = TestBed.inject(TasksStore);
+    // The surface gate (tasks-ui guideline 9): `TasksStore` drops a
+    // `tasks:changed` push when no Tasks surface is mounted, because a full
+    // `.ptah/specs` scan to repaint a board nobody is looking at is waste and
+    // the surface re-fetches on mount. That gate would make this file's
+    // delivery assertion unobservable, so the spec stands in for the mount with
+    // the SAME lifecycle call `TasksViewComponent`'s constructor makes —
+    // `attachSurface()` loads nothing and renders nothing. R4 is unharmed: the
+    // deferred component is still never instantiated and the store is still
+    // reached only through `@ptah-extension/tasks-ui/services`, which is exactly
+    // what the lazy-loader + narrow-barrel swap could have broken.
+    tasks.attachSurface();
     harness = TestBed.inject(HarnessWorkflowMessageHandler);
     wizard = TestBed.inject(SetupWizardStateService);
     appState = TestBed.inject(AppStateManager);
