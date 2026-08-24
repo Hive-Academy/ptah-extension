@@ -116,8 +116,10 @@ describe('EditorService message routing (C1)', () => {
   it('routes file:tree-changed to a debounced tree reload (window unchanged at 500ms)', () => {
     jest.useFakeTimers();
     service.switchWorkspace('/ws/a');
-    mockRpcCall.mockClear();
     service.startFileTreeWatcher();
+    // Arming reconciles the tree it could not see while shut; the debounce
+    // assertions below are about the pushes that follow.
+    mockRpcCall.mockClear();
 
     service.handleMessage({ type: MESSAGE_TYPES.FILE_TREE_CHANGED });
     service.handleMessage({ type: MESSAGE_TYPES.FILE_TREE_CHANGED });
