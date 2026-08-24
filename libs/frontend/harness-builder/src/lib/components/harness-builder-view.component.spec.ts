@@ -66,6 +66,7 @@ import {
 } from '@ptah-extension/core';
 import type {
   AskUserQuestionRequest,
+  ExecutionNode,
   HarnessConfig,
   PermissionRequest,
 } from '@ptah-extension/shared';
@@ -446,5 +447,186 @@ describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_26
 
     click('workflow-error-dismiss');
     expect(workflow.clearError).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Transcript ordering.
+ *
+ * The view used to render two consecutive lists — every user bubble, then every
+ * execution node. The surface's execution tree accumulates for the whole
+ * workflow, so the second turn's bubble was drawn ABOVE the first turn's reply,
+ * and it got worse with every follow-up. The transcript is now one list ordered
+ * by wall clock, and these specs pin that.
+ */
+describe('HarnessBuilderViewComponent — transcript ordering', () => {
+  let fixture: ComponentFixture<HarnessBuilderViewComponent>;
+  let bubbles: ReturnType<typeof signal<{ text: string; at: number }[]>>;
+  let streamingState: ReturnType<typeof signal<StreamingState>>;
+  let nodes: ExecutionNode[];
+
+  /**
+   * Drive one render. The tree comes from a memoized computed over
+   * `streamingState`, so a new tree only reaches the view when that signal
+   * moves — exactly as it does in the app, where the tree is rebuilt on each
+   * streamed event.
+   */
+  function render(
+    nextNodes: ExecutionNode[],
+    nextBubbles: { text: string; at: number }[],
+  ): void {
+    nodes = nextNodes;
+    bubbles.set(nextBubbles);
+    streamingState.set(makeStreamingState());
+    fixture.detectChanges();
+  }
+
+  /** A state that looks like a session which actually streamed something —
+   * `executionNodes` short-circuits on an empty event map. */
+  function makeStreamingState(): StreamingState {
+    return {
+      ...createEmptyStreamingState(),
+      events: new Map([['evt-1', {} as never]]),
+    } as StreamingState;
+  }
+
+  function makeNode(id: string, startTime: number): ExecutionNode {
+    return {
+      id,
+      type: 'message',
+      status: 'complete',
+      content: id,
+      startTime,
+    } as ExecutionNode;
+  }
+
+  /** Recover which node a rendered stub element was handed. */
+  function nodeIdOf(el: Element): string {
+    const stub = fixture.debugElement
+      .queryAll(By.directive(StubExecutionNodeComponent))
+      .find((de) => de.nativeElement === el);
+    const node = (stub?.componentInstance as StubExecutionNodeComponent)
+      ?.node as { id: string } | undefined;
+    return node?.id ?? '';
+  }
+
+  /** Each transcript entry, top to bottom, as the user reads them. */
+  function renderedOrder(): string[] {
+    const container = fixture.nativeElement.querySelector(
+      '[aria-label="Conversation transcript"]',
+    ) as HTMLElement;
+    const entries = container.querySelectorAll(
+      '[data-testid="user-turn"], ptah-execution-node',
+    );
+    return Array.from(entries).map((el) =>
+      el.tagName.toLowerCase() === 'ptah-execution-node'
+        ? `node:${nodeIdOf(el)}`
+        : `user:${(el.textContent ?? '').trim()}`,
+    );
+  }
+
+  beforeEach(async () => {
+    bubbles = signal<{ text: string; at: number }[]>([]);
+    nodes = [];
+
+    streamingState = signal<StreamingState>(makeStreamingState());
+    const state = makeStateStub();
+    state['streamingState'] = streamingState;
+
+    const workflow = makeWorkflowStub();
+    workflow['userBubbles'] = bubbles;
+
+    TestBed.configureTestingModule({
+      imports: [HarnessBuilderViewComponent],
+      providers: [
+        PermissionHandlerService,
+        {
+          provide: TabManagerService,
+          useValue: {
+            activeTabId: signal<string | null>(null),
+            activeTabMessages: signal<unknown[]>([]),
+            activeTabStreamingState: signal<StreamingState | null>(null),
+            tabs: signal<{ id: string }[]>([]),
+          } as unknown as TabManagerService,
+        },
+        {
+          provide: VSCodeService,
+          useValue: { postMessage: jest.fn() } as unknown as VSCodeService,
+        },
+        { provide: HarnessBuilderStateService, useValue: state },
+        { provide: HarnessWorkflowService, useValue: workflow },
+        {
+          provide: HarnessRpcService,
+          useValue: {
+            initialize: jest.fn().mockResolvedValue({}),
+            workflowPrompt: jest.fn().mockResolvedValue({ prompt: '' }),
+            apply: jest.fn().mockResolvedValue({}),
+          },
+        },
+        {
+          provide: WebviewNavigationService,
+          useValue: { navigateToView: jest.fn() },
+        },
+        {
+          provide: AppStateManager,
+          useValue: { consumeHarnessWorkflowRequest: jest.fn(() => null) },
+        },
+        {
+          provide: ExecutionTreeBuilderService,
+          useValue: { buildTree: jest.fn(() => nodes) },
+        },
+      ],
+    });
+
+    TestBed.overrideComponent(HarnessBuilderViewComponent, {
+      set: {
+        imports: [
+          LucideAngularModule,
+          FormsModule,
+          StubExecutionNodeComponent,
+          StubPermissionRequestCardComponent,
+          StubQuestionCardComponent,
+          StubHarnessConfigPreviewComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(HarnessBuilderViewComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('draws a follow-up turn BELOW the reply that preceded it', () => {
+    render(
+      [makeNode('reply-1', 1_000), makeNode('reply-2', 3_000)],
+      [
+        { text: 'first ask', at: 500 },
+        { text: 'follow-up', at: 2_000 },
+      ],
+    );
+
+    expect(renderedOrder()).toEqual([
+      'user:first ask',
+      'node:reply-1',
+      'user:follow-up',
+      'node:reply-2',
+    ]);
+  });
+
+  it('keeps an unstamped (pre-timeline) bubble above the replayed tree', () => {
+    render([makeNode('replayed', 9_000)], [{ text: 'from a reload', at: 0 }]);
+
+    expect(renderedOrder()).toEqual(['user:from a reload', 'node:replayed']);
+  });
+
+  it('puts the bubble first when a turn and its reply share a millisecond', () => {
+    render([makeNode('same-ms', 7_000)], [{ text: 'tie', at: 7_000 }]);
+
+    expect(renderedOrder()).toEqual(['user:tie', 'node:same-ms']);
   });
 });

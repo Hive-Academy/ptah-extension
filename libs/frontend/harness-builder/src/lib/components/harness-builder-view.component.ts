@@ -40,6 +40,7 @@ import {
   AppStateManager,
 } from '@ptah-extension/core';
 import type {
+  ExecutionNode,
   PermissionResponse,
   AskUserQuestionResponse,
 } from '@ptah-extension/shared';
@@ -48,6 +49,26 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessWorkflowService } from '../services/harness-workflow.service';
 import { formatIntakeSummary } from '../services/new-project-intake';
 import { HarnessConfigPreviewComponent } from './harness-config-preview.component';
+
+/** One entry of the merged transcript — a user turn or a root execution node. */
+type TranscriptItem =
+  | {
+      readonly kind: 'user';
+      readonly key: string;
+      readonly at: number;
+      readonly text: string;
+    }
+  | {
+      readonly kind: 'node';
+      readonly key: string;
+      readonly at: number;
+      readonly node: ExecutionNode;
+    };
+
+/** Sort rank for entries that share a millisecond: the user turn came first. */
+function rankTranscriptKind(item: TranscriptItem): number {
+  return item.kind === 'user' ? 0 : 1;
+}
 
 @Component({
   selector: 'ptah-harness-builder-view',
@@ -184,11 +205,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
             role="log"
             aria-label="Conversation transcript"
           >
-            @if (
-              userBubbles().length === 0 &&
-              executionNodes().length === 0 &&
-              !isProcessing()
-            ) {
+            @if (transcriptItems().length === 0 && !isProcessing()) {
               <div
                 class="flex flex-col items-center justify-center h-full text-center px-4"
               >
@@ -253,23 +270,23 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
               </div>
             }
 
-            @for (bubble of userBubbles(); track $index) {
-              <div class="flex justify-end">
-                <div
-                  class="max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-primary text-primary-content text-sm whitespace-pre-wrap"
-                >
-                  {{ bubble.text }}
-                </div>
-              </div>
-            }
-
-            @if (executionNodes().length > 0) {
+            @if (transcriptItems().length > 0) {
               <div class="space-y-1">
-                @for (node of executionNodes(); track node.id) {
-                  <ptah-execution-node
-                    [node]="node"
-                    [isStreaming]="isProcessing()"
-                  />
+                @for (item of transcriptItems(); track item.key) {
+                  @if (item.kind === 'user') {
+                    <div class="flex justify-end my-3" data-testid="user-turn">
+                      <div
+                        class="max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-primary text-primary-content text-sm whitespace-pre-wrap"
+                      >
+                        {{ item.text }}
+                      </div>
+                    </div>
+                  } @else {
+                    <ptah-execution-node
+                      [node]="item.node"
+                      [isStreaming]="isProcessing()"
+                    />
+                  }
                 }
               </div>
             }
@@ -555,6 +572,38 @@ export class HarnessBuilderViewComponent implements OnInit {
     const streamState = this.state.streamingState();
     if (streamState.events.size === 0) return [];
     return this.treeBuilder.buildTree(streamState, 'harness-workflow');
+  });
+
+  /**
+   * The transcript as ONE time-ordered list.
+   *
+   * Rendering user turns and agent output as two consecutive lists was wrong in
+   * a way that only showed up on the second turn: the surface's execution tree
+   * accumulates for the whole workflow, so every follow-up bubble landed above
+   * every reply the agent had already given. Both sides carry wall-clock times
+   * (`HarnessUserBubble.at`, `ExecutionNode.startTime`), so merging them is the
+   * whole fix.
+   *
+   * Ties go to the user: a bubble is the cause of the turn whose nodes share
+   * its millisecond, and a rehydrated pre-timeline bubble carries `at: 0`,
+   * which must stay above the replayed tree.
+   */
+  protected readonly transcriptItems = computed<TranscriptItem[]>(() => {
+    const bubbles: TranscriptItem[] = this.userBubbles().map((bubble, i) => ({
+      kind: 'user',
+      key: `user-${i}`,
+      at: bubble.at,
+      text: bubble.text,
+    }));
+    const nodes: TranscriptItem[] = this.executionNodes().map((node) => ({
+      kind: 'node',
+      key: `node-${node.id}`,
+      at: node.startTime ?? 0,
+      node,
+    }));
+    return [...bubbles, ...nodes].sort(
+      (a, b) => a.at - b.at || rankTranscriptKind(a) - rankTranscriptKind(b),
+    );
   });
 
   protected readonly canSend = computed(

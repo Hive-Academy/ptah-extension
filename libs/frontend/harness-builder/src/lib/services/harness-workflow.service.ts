@@ -35,7 +35,20 @@ export type HarnessWorkflowMode = 'new-project' | 'configure-harness';
 /** One turn the user contributed, rendered right-aligned in the transcript. */
 export interface HarnessUserBubble {
   text: string;
+  /**
+   * When the user sent this turn (epoch ms).
+   *
+   * The transcript is ONE timeline, and this is what places a bubble in it. The
+   * surface's execution tree accumulates across the whole workflow, so a view
+   * that renders "all bubbles, then all nodes" puts every follow-up above every
+   * earlier agent reply — the ordering bug this field exists to prevent. Merged
+   * against `ExecutionNode.startTime`, which comes off the same wall clock.
+   */
+  at: number;
 }
+
+/** A bubble as it survives a reload — `at` is absent in pre-timeline records. */
+type PersistedBubble = { readonly text: string; readonly at?: number };
 
 /**
  * `localStorage` key for the in-flight workflow. Versioned in the key itself
@@ -50,7 +63,7 @@ interface PersistedWorkflow {
   /** Resolved agent session; null until the backend reports one. */
   readonly sessionId: string | null;
   readonly workspaceRoot: string;
-  readonly bubbles: readonly HarnessUserBubble[];
+  readonly bubbles: readonly PersistedBubble[];
 }
 
 function isPersistedWorkflow(value: unknown): value is PersistedWorkflow {
@@ -66,12 +79,15 @@ function isPersistedWorkflow(value: unknown): value is PersistedWorkflow {
     return false;
   const bubbles = record['bubbles'];
   if (!Array.isArray(bubbles)) return false;
-  return bubbles.every(
-    (bubble) =>
-      typeof bubble === 'object' &&
-      bubble !== null &&
-      typeof (bubble as Record<string, unknown>)['text'] === 'string',
-  );
+  return bubbles.every((bubble) => {
+    if (typeof bubble !== 'object' || bubble === null) return false;
+    const entry = bubble as Record<string, unknown>;
+    if (typeof entry['text'] !== 'string') return false;
+    // `at` is deliberately optional: records written before the transcript
+    // became one timeline have no timestamp, and rejecting them here would
+    // discard a live workflow on the first reload after an upgrade.
+    return entry['at'] === undefined || typeof entry['at'] === 'number';
+  });
 }
 
 /**
@@ -235,14 +251,21 @@ export class HarnessWorkflowService {
     this._error.set(null);
   }
 
-  /** Append a user turn to the transcript. */
+  /** Append a user turn to the transcript, stamped with its place in time. */
   addUserBubble(text: string): void {
-    this._userBubbles.update((bubbles) => [...bubbles, { text }]);
+    const at = Date.now();
+    this._userBubbles.update((bubbles) => [...bubbles, { text, at }]);
   }
 
-  /** Replace the transcript, e.g. with the intake summary as the first turn. */
-  setUserBubbles(bubbles: readonly HarnessUserBubble[]): void {
-    this._userBubbles.set([...bubbles]);
+  /**
+   * Replace the transcript, e.g. with the intake summary as the first turn.
+   * Callers may omit `at`; an unstamped bubble is taken as "now".
+   */
+  setUserBubbles(bubbles: readonly PersistedBubble[]): void {
+    const now = Date.now();
+    this._userBubbles.set(
+      bubbles.map((bubble) => ({ text: bubble.text, at: bubble.at ?? now })),
+    );
   }
 
   async startWorkflow(
@@ -537,7 +560,14 @@ export class HarnessWorkflowService {
     this._surfaceId.set(surfaceId);
     this._mode.set(record.mode);
     this._viewMode.set(record.mode);
-    this._userBubbles.set([...record.bubbles]);
+    // A pre-timeline record has no `at`. Zero keeps those bubbles above the
+    // replayed tree, which is exactly where the old two-list view drew them.
+    this._userBubbles.set(
+      record.bubbles.map((bubble) => ({
+        text: bubble.text,
+        at: bubble.at ?? 0,
+      })),
+    );
     this._started.set(false);
     this._resumedFromReload.set(true);
     this._error.set(null);
