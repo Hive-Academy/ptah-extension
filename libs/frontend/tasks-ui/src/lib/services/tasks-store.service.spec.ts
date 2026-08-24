@@ -145,6 +145,9 @@ describe('TasksStore', () => {
       ],
     });
     store = TestBed.inject(TasksStore);
+    // Stand in for `TasksViewComponent`'s mount — see `configure()` in the
+    // workspace-awareness suite and the "surface gate" block below.
+    store.attachSurface();
   });
 
   it('loadBoard() populates columns, excluded count, and specsDirExists', async () => {
@@ -326,6 +329,138 @@ describe('TasksStore', () => {
 
       // Listener was torn down with the root injector — no extra fetch.
       expect(rpcCall).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The surface gate: this store is eagerly constructed for MESSAGE_HANDLERS
+  // and outlives every TasksViewComponent, so the background refresh paths ask
+  // whether anything is mounted before paying for a `.ptah/specs` scan.
+  // -------------------------------------------------------------------------
+  describe('surface gate', () => {
+    it('drops a tasks:changed push while no surface is mounted', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      store.detachSurface();
+
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
+    it('does NOT reconcile on focus once the surface is destroyed', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      // `_loaded` is latched true for the rest of the session; the surface
+      // going away is what must stop the focus refetch, not the load flag.
+      store.detachSurface();
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * The control for the two assertions above, and the reason the gate is a
+     * COUNTER: the app shell destroys and re-creates this surface on every view
+     * switch, and the new instance's constructor can run before the outgoing
+     * instance's `onDestroy`. A boolean would be left false by that ordering
+     * and the board would go permanently deaf to pushes after one switch.
+     */
+    it('stays armed while an overlapping remount is in progress', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+
+      store.attachSurface(); // incoming instance constructs…
+      store.detachSurface(); // …then the outgoing one is destroyed.
+
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Refresh coalescing. `boardReqSeq` already stops an older response from
+  // painting over a newer one — but only after both scans have been paid for.
+  // -------------------------------------------------------------------------
+  describe('board refresh coalescing', () => {
+    it('collapses a burst of refresh triggers into ONE tasks:board call', async () => {
+      let resolve: ((v: unknown) => void) | undefined;
+      rpcCall.mockReturnValue(
+        new Promise((r) => {
+          resolve = r;
+        }),
+      );
+
+      // One tick, five triggers — the exact shape observed in the host log:
+      // a push per watcher debounce window, plus focus, plus visibilitychange.
+      // Deliberately not awaited: the first fetch is still on the wire, which
+      // is the whole condition under test.
+      void store.loadBoard();
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      resolve?.(ok(makeBoard({})));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    it('issues a fresh fetch once the coalesced one has settled', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Coalescing is per in-flight request, NOT a time window: a push that
+      // arrives after the previous fetch resolved must still be answered.
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * The asymmetry that makes coalescing safe. A post-write reload must never
+     * be answered by a response that was already on the wire when the write
+     * happened — that response predates the change and no request stamping can
+     * repair it, because it would be the newest one to resolve.
+     */
+    it('never joins an in-flight refresh onto a post-write reload', async () => {
+      const boardResolvers: Array<(v: unknown) => void> = [];
+      rpcCall.mockImplementation((method: string) => {
+        if (method === 'tasks:board') {
+          return new Promise((r) => boardResolvers.push(r));
+        }
+        return Promise.resolve(
+          ok({ success: true, task: makeTask('TASK_2026_200', 'in_progress') }),
+        );
+      });
+
+      // A push-triggered refresh is on the wire…
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      await Promise.resolve();
+      expect(boardResolvers).toHaveLength(1);
+
+      // …and a write lands while it is still outstanding.
+      const write = store.updateStatus('TASK_2026_200', 'in_progress');
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+
+      expect(boardResolvers).toHaveLength(2);
+
+      boardResolvers.forEach((r) => r(ok(makeBoard({}))));
+      await write;
     });
   });
 
@@ -1371,6 +1506,10 @@ describe('TasksStore — workspace awareness', () => {
       ],
     });
     store = TestBed.inject(TasksStore);
+    // Stand in for `TasksViewComponent`'s mount. Every background refresh path
+    // is gated on a mounted surface, so a store nobody attached to answers no
+    // push and no focus event — see the "surface gate" block.
+    store.attachSurface();
   }
 
   beforeEach(() => {
@@ -1740,6 +1879,9 @@ describe('TasksStore — selection and bulk status', () => {
       ],
     });
     store = TestBed.inject(TasksStore);
+    // Stand in for `TasksViewComponent`'s mount — the push and focus paths
+    // exercised below are gated on a mounted surface.
+    store.attachSurface();
   });
 
   // -------------------------------------------------------------------------
@@ -2936,6 +3078,9 @@ describe('TasksStore — no workspace open', () => {
       ],
     });
     store = TestBed.inject(TasksStore);
+    // Stand in for `TasksViewComponent`'s mount — the focus reconcile asserted
+    // in this block is gated on a mounted surface.
+    store.attachSurface();
     // First effect run only records the current workspace key.
     TestBed.tick();
   }

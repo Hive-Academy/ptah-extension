@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
@@ -886,6 +887,7 @@ export class TasksViewComponent {
   protected readonly taskStart = inject(TaskStartService);
   protected readonly views = inject(TaskViewsService);
   protected readonly viewMode = inject(TaskViewModeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly taskTypes = TASK_TYPES;
   protected readonly taskStatuses = TASK_STATUSES;
@@ -1092,6 +1094,14 @@ export class TasksViewComponent {
   protected readonly XIcon = X;
 
   public constructor() {
+    // The store is root-provided and eagerly constructed (it joins
+    // `MESSAGE_HANDLERS`), so it cannot tell from its own lifetime whether a
+    // board is on screen. This pair is how it finds out: with nothing mounted,
+    // `tasks:changed` pushes and focus events stop buying board scans that
+    // nothing would render. The surface is destroyed and re-created on every
+    // view switch, so this runs on every visit — as does the load below.
+    this.store.attachSurface();
+    this.destroyRef.onDestroy(() => this.store.detachSurface());
     void this.store.loadBoard();
     // Independent of the board load, and deliberately not awaited behind it:
     // saved views live in `~/.ptah/settings.json`, not in the task index, so a

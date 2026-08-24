@@ -600,6 +600,50 @@ export class TasksStore implements MessageHandler {
   private readonly boardReqSeq = new Map<string, number>();
 
   /**
+   * The board fetch currently in flight per workspace key, for coalescing.
+   *
+   * {@link boardReqSeq} already keeps an older response from painting over a
+   * newer one, but it does so AFTER both round trips have been paid for. Each
+   * one costs the host a full `.ptah/specs` rescan, and the triggers that reach
+   * this store fan in badly: a `tasks:changed` push per watcher debounce window,
+   * a window `focus`, a `visibilitychange`, a workspace switch and the surface's
+   * own initial load can all land in the same tick. Nothing deduplicated them,
+   * so a burst of five triggers bought five identical scans (observed in the
+   * host log as five back-to-back `tasks:board` round trips).
+   *
+   * REFRESH-ONLY. {@link refreshBoard} joins whatever is already running;
+   * {@link loadBoard} never does, and that asymmetry is the whole correctness
+   * argument. Every post-write reload goes through `loadBoard`, and joining a
+   * fetch that was ISSUED BEFORE the write would resolve it with a board that
+   * predates the change the user just made — the one thing no amount of request
+   * stamping can repair, because the stale response would be the newest one.
+   * A refresh joining a post-write fetch is fine in the other direction: that
+   * fetch is strictly fresher than anything the refresh would have issued.
+   */
+  private readonly boardInFlight = new Map<string, Promise<void>>();
+
+  /**
+   * How many {@link TasksViewComponent} instances are currently mounted.
+   *
+   * This store is root-provided AND eagerly constructed — it joins
+   * `MESSAGE_HANDLERS`, which the message router resolves at webview bootstrap
+   * — so it is alive for the whole session whether or not the Tasks surface has
+   * ever been on screen. Without this counter, every `tasks:changed` push and
+   * every window `focus` bought a full board scan to repaint a board nobody was
+   * looking at, for the rest of the session.
+   *
+   * A counter rather than a boolean: the surface is destroyed and re-created on
+   * every view switch (`@case ('tasks')` in the app shell), so the new
+   * instance's constructor can run before the old instance's `onDestroy`, and a
+   * boolean would latch closed on a switch that never actually closed anything.
+   *
+   * Suppressing a background refresh loses nothing: the surface's constructor
+   * issues {@link loadBoard} on mount, so what it renders is always fetched
+   * after it appeared.
+   */
+  private surfaceCount = 0;
+
+  /**
    * Per-task write queue: the tail of the promise chain currently outstanding
    * for a task id. Consumed by {@link enqueueWrite}; the entry is removed once
    * its own tail settles and nothing newer has replaced it.
@@ -1007,6 +1051,30 @@ export class TasksStore implements MessageHandler {
   }
 
   /**
+   * The Tasks surface is on screen. Called by `TasksViewComponent`'s
+   * constructor, paired with {@link detachSurface} on its `DestroyRef`.
+   *
+   * This is a LIFECYCLE signal, not a data one: it never loads anything (the
+   * component's own `loadBoard()` does that) and never renders anything. All it
+   * does is tell the background refresh paths — the `tasks:changed` push and
+   * the visibility reconcile — whether a board exists for them to refresh. See
+   * {@link surfaceCount}.
+   */
+  public attachSurface(): void {
+    this.surfaceCount++;
+  }
+
+  /** The Tasks surface was destroyed. See {@link attachSurface}. */
+  public detachSurface(): void {
+    this.surfaceCount = Math.max(0, this.surfaceCount - 1);
+  }
+
+  /** Whether any Tasks surface is currently mounted. */
+  private get surfaceOpen(): boolean {
+    return this.surfaceCount > 0;
+  }
+
+  /**
    * `tasks:changed` — refresh whatever the push says moved.
    *
    * ## The second of the two fronts holding the bulk path to ≤ 1 reload (R5)
@@ -1030,6 +1098,16 @@ export class TasksStore implements MessageHandler {
    *    push was dropped;
    *  - a BACKGROUND workspace's cached slice goes stale, which costs nothing:
    *    `onWorkspaceSwitch` revalidates on every switch regardless.
+   *
+   * ## The third front: no surface, no fetch
+   *
+   * The push arrives whether or not the Tasks board is on screen, and the
+   * backend emits one per watcher debounce window over `.ptah/specs/**` — so an
+   * agent writing a spec folder pushes repeatedly, and before the
+   * {@link surfaceOpen} guard every one of those bought a full board scan for a
+   * surface that was not mounted. The mounted surface is the only thing that
+   * can render the result, and it re-fetches on mount, so a push that arrives
+   * with nothing mounted has nothing to update.
    */
   public handleMessage(message: { type: string; payload?: unknown }): void {
     if (message.type !== TASKS_CHANGED_MESSAGE_TYPE) return;
@@ -1038,6 +1116,8 @@ export class TasksStore implements MessageHandler {
       this.missedPush = true;
       return;
     }
+
+    if (!this.surfaceOpen) return;
 
     const payload = message.payload as TasksChangedNotification | undefined;
     const changedRoot = payload?.workspaceRoot;
@@ -1054,7 +1134,7 @@ export class TasksStore implements MessageHandler {
     } else if (this.boardCache.has(changedKey)) {
       // A background (visited-but-not-visible) workspace changed on disk —
       // silently refresh just its cached slice so a later switch-back is fresh.
-      void this.fetchBoard(changedKey, changedRoot);
+      void this.refreshBoard(changedKey, changedRoot);
     }
   }
 
@@ -1062,11 +1142,46 @@ export class TasksStore implements MessageHandler {
    * Load (or reload) the full board for the active workspace in one
    * `tasks:board` round trip. Shows the loading flag while the request is in
    * flight (explicit reload path — the switch/push paths refresh silently).
+   *
+   * ALWAYS issues its own fetch — it never joins an in-flight one. Every
+   * post-write reload lands here, and a write must never be answered by a
+   * response that was already on the wire when it happened. See
+   * {@link boardInFlight} for the full argument, and {@link refreshBoard} for
+   * the coalescing half.
    */
   public async loadBoard(): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
-    await this.fetchBoard(this.activeKey(), this.activeRoot());
+    await this.trackFetch(this.activeKey(), this.activeRoot());
+  }
+
+  /**
+   * A silent, COALESCING board refresh: joins the fetch already in flight for
+   * this workspace when there is one, and issues a new one otherwise.
+   *
+   * The refresh triggers are all "something may have moved on disk, ask again"
+   * — a `tasks:changed` push, a window regaining focus, a workspace switch's
+   * revalidate. None of them carries a local change that has to be reflected,
+   * so any fetch already in flight answers all of them, and issuing a second is
+   * pure duplicated work on both sides of the wire.
+   */
+  private refreshBoard(key: string, root: string | undefined): Promise<void> {
+    return this.boardInFlight.get(key) ?? this.trackFetch(key, root);
+  }
+
+  /**
+   * Issue a board fetch and publish it as this workspace's in-flight request so
+   * concurrent {@link refreshBoard} callers join it instead of duplicating it.
+   *
+   * The entry is removed only if it is still this fetch's — a newer fetch that
+   * replaced it owns the slot and must survive this one settling.
+   */
+  private trackFetch(key: string, root: string | undefined): Promise<void> {
+    const run = this.fetchBoard(key, root).finally(() => {
+      if (this.boardInFlight.get(key) === run) this.boardInFlight.delete(key);
+    });
+    this.boardInFlight.set(key, run);
+    return run;
   }
 
   /**
@@ -2199,11 +2314,11 @@ export class TasksStore implements MessageHandler {
     if (cached) {
       this.applySlice(cached);
       // Stale-while-revalidate: repaint instantly, refresh silently.
-      void this.fetchBoard(key, this.activeRoot());
+      void this.refreshBoard(key, this.activeRoot());
     } else {
       this.resetVisibleForLoading();
       this._loading.set(true);
-      void this.fetchBoard(key, this.activeRoot());
+      void this.refreshBoard(key, this.activeRoot());
     }
   }
 
@@ -2295,10 +2410,11 @@ export class TasksStore implements MessageHandler {
    * Client-side staleness safety net (no optimistic state — R5.7). If a
    * `tasks:changed` push is missed while the webview is backgrounded, the board
    * could sit stale indefinitely. Re-fetch the authoritative board whenever the
-   * surface regains visibility/focus. Guarded so it never stacks or fires before
-   * the first load, and no-op-safe: an in-flight `loadBoard` (`_loading`) short-
-   * circuits re-entry, so back-to-back `focus` + `visibilitychange` collapse to
-   * one refetch. Listeners are torn down with the root injector.
+   * surface regains visibility/focus. Guarded so it never stacks, never fires
+   * before the first load, and never fires with no surface mounted; back-to-back
+   * `focus` + `visibilitychange` collapse to one refetch through
+   * {@link refreshBoard}'s coalescing. Listeners are torn down with the root
+   * injector.
    */
   private setupVisibilityReconcile(): void {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
@@ -2310,6 +2426,13 @@ export class TasksStore implements MessageHandler {
       // load is already in flight — the guard doubles as the debounce.
       if (document.visibilityState === 'hidden') return;
       if (!this._loaded() || this._loading()) return;
+      // Nothing is rendering the board, so there is nothing to reconcile. This
+      // store outlives the surface (it is eagerly constructed for
+      // `MESSAGE_HANDLERS`), and `_loaded` latches true for the rest of the
+      // session after the first visit — so without this guard, every window
+      // focus for the rest of the session paid for a board scan whose only
+      // consumer had been destroyed views ago. The surface fetches on mount.
+      if (!this.surfaceOpen) return;
       // The host REFUSED the board because no folder is open. Focus cannot
       // change that answer — only opening a folder can, and that arrives as an
       // `AppStateManager.workspaceInfo` change, which `setupWorkspaceSwitch`
@@ -2331,7 +2454,12 @@ export class TasksStore implements MessageHandler {
       // this could fetch now. Same reasoning as the push suppression in
       // `handleMessage`, on the other input that can re-enter `loadBoard`.
       if (this._bulk() !== null) return;
-      void this.loadBoard();
+      // Coalescing and silent, like the other refresh triggers: a focus that
+      // lands while a push-triggered refresh is already on the wire joins it
+      // rather than issuing a second scan of the same tree. The `_loading`
+      // guard above stays — it is what keeps an EXPLICIT reload (which does
+      // show a spinner) from being interrupted by a stray focus event.
+      void this.refreshBoard(this.activeKey(), this.activeRoot());
     };
     const onVisibilityChange = (): void => {
       if (document.visibilityState === 'visible') reconcile();
@@ -2346,7 +2474,7 @@ export class TasksStore implements MessageHandler {
   }
 
   private async refreshActiveFromPush(): Promise<void> {
-    await this.fetchBoard(this.activeKey(), this.activeRoot());
+    await this.refreshBoard(this.activeKey(), this.activeRoot());
     const selected = this._selectedTaskId();
     if (selected) {
       await this.openTask(selected);

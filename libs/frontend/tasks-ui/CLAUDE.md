@@ -37,6 +37,7 @@ generateRegistry`); `MessageHandler` for `tasks:changed` → refresh. **No
   the wire for the CLI and MCP paths). Writes are serialized per task id by
   `enqueueWrite`, which removes this UI's ability to raise a `TASK_CONFLICT`
   against itself; correctness still comes from the writer's pre-write re-read.
+  **Board fetches are coalesced and surface-gated** — see guidelines 8 and 9.
 - `src/lib/components/tasks-view.component.ts` — smart page: header actions
   (New Task, Registry, the exclusions drawer trigger, Reindex), empty state with
   create CTA, board + detail panel, New Task modal, exclusions drawer.
@@ -107,3 +108,21 @@ Standalone, `ChangeDetectionStrategy.OnPush` on every component, signals +
 7. **Excluded folders are listed by name, never counted.** A count tells a user
    that folders vanished without telling them which or why; that silent drop is
    the exact failure the drawer exists to end.
+8. **`loadBoard` never coalesces; `refreshBoard` always does.** Every
+   post-write reload goes through `loadBoard`, and joining a fetch that was
+   issued BEFORE the write would answer it with a board that predates the
+   change — a staleness `boardReqSeq` cannot repair, because the stale response
+   would be the newest one to resolve. Refresh triggers (the `tasks:changed`
+   push, the focus/visibility reconcile, the workspace-switch revalidate) carry
+   no local change, so they join whatever is in flight. Do not "simplify" this
+   by pointing both at one path.
+9. **Nothing mounted, nothing fetched.** The store is root-provided AND eagerly
+   constructed (it joins `MESSAGE_HANDLERS`), so it outlives every
+   `TasksViewComponent` — while the app shell destroys and re-creates the
+   surface on every view switch. `attachSurface` / `detachSurface` is how it
+   knows, and the push and reconcile paths return early without it: a full
+   `.ptah/specs` scan to repaint a board nobody is looking at is pure waste, and
+   an agent writing spec folders pushes once per watcher debounce window.
+   Losing those refreshes costs nothing — the surface fetches on mount. Keep it
+   a COUNTER: the incoming instance's constructor runs before the outgoing
+   instance's `onDestroy`, and a boolean would latch closed on a remount.
