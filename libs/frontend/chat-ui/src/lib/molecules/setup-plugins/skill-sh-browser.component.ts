@@ -22,6 +22,17 @@ import type {
 /** SkillShEntry enriched with pre-formatted install count for template use */
 interface DisplaySkillEntry extends SkillShEntry {
   formattedInstalls: string;
+  /**
+   * `@for` track key. skills.sh identifies a skill by BOTH halves of
+   * `owner/repo@skill-id` — the same slug (`threejs`, `remotion`) ships from
+   * many owner repos, so `skillId` alone collides and Angular raises NG0955.
+   */
+  key: string;
+}
+
+/** The identity skills.sh actually keys a skill by. */
+function skillKey(skill: SkillShEntry): string {
+  return `${skill.source}@${skill.skillId}`;
 }
 
 /**
@@ -114,7 +125,7 @@ interface DisplaySkillEntry extends SkillShEntry {
               Recommended for your project
             </div>
             <div class="space-y-1.5">
-              @for (skill of recommendedDisplaySkills(); track skill.skillId) {
+              @for (skill of recommendedDisplaySkills(); track skill.key) {
                 <div
                   class="flex items-start gap-2 p-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
                 >
@@ -154,12 +165,12 @@ interface DisplaySkillEntry extends SkillShEntry {
                     @if (isSkillInstalled(skill)) {
                       <button
                         class="btn btn-ghost btn-xs text-error"
-                        [disabled]="uninstallingSkillIds().has(skill.skillId)"
+                        [disabled]="uninstallingSkillIds().has(skill.key)"
                         (click)="uninstallSkill(skill)"
                         type="button"
                         [attr.aria-label]="'Remove ' + skill.name"
                       >
-                        @if (uninstallingSkillIds().has(skill.skillId)) {
+                        @if (uninstallingSkillIds().has(skill.key)) {
                           <span
                             class="loading loading-spinner loading-xs"
                           ></span>
@@ -170,12 +181,12 @@ interface DisplaySkillEntry extends SkillShEntry {
                     } @else {
                       <button
                         class="btn btn-primary btn-xs"
-                        [disabled]="installingSkillIds().has(skill.skillId)"
+                        [disabled]="installingSkillIds().has(skill.key)"
                         (click)="installSkill(skill)"
                         type="button"
                         [attr.aria-label]="'Install ' + skill.name"
                       >
-                        @if (installingSkillIds().has(skill.skillId)) {
+                        @if (installingSkillIds().has(skill.key)) {
                           <span
                             class="loading loading-spinner loading-xs"
                           ></span>
@@ -213,7 +224,7 @@ interface DisplaySkillEntry extends SkillShEntry {
               </div>
             }
             <div class="space-y-1.5">
-              @for (skill of displaySkills(); track skill.skillId) {
+              @for (skill of displaySkills(); track skill.key) {
                 <div
                   class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
                 >
@@ -253,12 +264,12 @@ interface DisplaySkillEntry extends SkillShEntry {
                     @if (isSkillInstalled(skill)) {
                       <button
                         class="btn btn-ghost btn-xs text-error"
-                        [disabled]="uninstallingSkillIds().has(skill.skillId)"
+                        [disabled]="uninstallingSkillIds().has(skill.key)"
                         (click)="uninstallSkill(skill)"
                         type="button"
                         [attr.aria-label]="'Remove ' + skill.name"
                       >
-                        @if (uninstallingSkillIds().has(skill.skillId)) {
+                        @if (uninstallingSkillIds().has(skill.key)) {
                           <span
                             class="loading loading-spinner loading-xs"
                           ></span>
@@ -269,12 +280,12 @@ interface DisplaySkillEntry extends SkillShEntry {
                     } @else {
                       <button
                         class="btn btn-primary btn-xs"
-                        [disabled]="installingSkillIds().has(skill.skillId)"
+                        [disabled]="installingSkillIds().has(skill.key)"
                         (click)="installSkill(skill)"
                         type="button"
                         [attr.aria-label]="'Install ' + skill.name"
                       >
-                        @if (installingSkillIds().has(skill.skillId)) {
+                        @if (installingSkillIds().has(skill.key)) {
                           <span
                             class="loading loading-spinner loading-xs"
                           ></span>
@@ -423,10 +434,19 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   readonly recommendedDisplaySkills = computed<DisplaySkillEntry[]>(() => {
     const recs = this.recommendations()?.recommendedSkills;
     if (!recs) return [];
-    return recs.map((s) => ({
-      ...s,
-      formattedInstalls: this.formatInstallCount(s.installs),
-    }));
+    const seen = new Set<string>();
+    const entries: DisplaySkillEntry[] = [];
+    for (const s of recs) {
+      const key = skillKey(s);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        ...s,
+        key,
+        formattedInstalls: this.formatInstallCount(s.installs),
+      });
+    }
+    return entries;
   });
 
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -473,9 +493,13 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   }
 
   async installSkill(skill: SkillShEntry): Promise<void> {
-    if (this.installingSkillIds().has(skill.skillId)) return;
+    // Keyed by `owner/repo@skill-id`, matching the template's `skill.key`. On
+    // `skillId` alone, installing one `threejs` row lit the spinner and
+    // disabled the button on every other repo's `threejs` too.
+    const pendingKey = skillKey(skill);
+    if (this.installingSkillIds().has(pendingKey)) return;
 
-    this.addToSet(this.installingSkillIds, skill.skillId);
+    this.addToSet(this.installingSkillIds, pendingKey);
     this.error.set(null);
 
     try {
@@ -498,14 +522,15 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       this.error.set('Install failed — is npx available?');
     } finally {
       if (!this.destroyed)
-        this.removeFromSet(this.installingSkillIds, skill.skillId);
+        this.removeFromSet(this.installingSkillIds, pendingKey);
     }
   }
 
   async uninstallSkill(skill: SkillShEntry): Promise<void> {
-    if (this.uninstallingSkillIds().has(skill.skillId)) return;
+    const pendingKey = skillKey(skill);
+    if (this.uninstallingSkillIds().has(pendingKey)) return;
 
-    this.addToSet(this.uninstallingSkillIds, skill.skillId);
+    this.addToSet(this.uninstallingSkillIds, pendingKey);
     this.error.set(null);
 
     try {
@@ -527,7 +552,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
       this.error.set('Uninstall failed');
     } finally {
       if (!this.destroyed)
-        this.removeFromSet(this.uninstallingSkillIds, skill.skillId);
+        this.removeFromSet(this.uninstallingSkillIds, pendingKey);
     }
   }
 
@@ -572,17 +597,33 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     return count.toString();
   }
 
+  /**
+   * Stamp display fields onto raw entries and drop exact repeats.
+   *
+   * The dedupe is not belt-and-braces: search and popular both come back from
+   * an upstream API that can list the same `owner/repo@skill-id` twice, and a
+   * repeated track key is an NG0955 whichever half produced it.
+   */
   private enrichWithFormattedInstalls(
     skills: SkillShEntry[],
   ): DisplaySkillEntry[] {
     const installed = this.installedSkills();
-    return skills.map((s) => ({
-      ...s,
-      isInstalled: installed.some(
-        (i) => i.name === s.skillId || i.name === s.name,
-      ),
-      formattedInstalls: this.formatInstallCount(s.installs),
-    }));
+    const seen = new Set<string>();
+    const entries: DisplaySkillEntry[] = [];
+    for (const s of skills) {
+      const key = skillKey(s);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        ...s,
+        key,
+        isInstalled: installed.some(
+          (i) => i.name === s.skillId || i.name === s.name,
+        ),
+        formattedInstalls: this.formatInstallCount(s.installs),
+      });
+    }
+    return entries;
   }
 
   private async performSearch(query: string): Promise<void> {
