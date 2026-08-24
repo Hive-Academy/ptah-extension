@@ -47,7 +47,10 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  type SurfaceSessionStats,
+} from '@ptah-extension/chat-state';
 import {
   ExecutionTreeBuilderService,
   PermissionHandlerService,
@@ -177,6 +180,7 @@ function makeWorkflowStub(): Record<string, unknown> {
     isProcessing: signal(false),
     resumedFromReload: signal(false),
     error: signal<string | null>(null),
+    sessionStats: signal<SurfaceSessionStats | null>(null),
     setViewMode: jest.fn(),
     setUserBubbles: jest.fn(),
     addUserBubble: jest.fn(),

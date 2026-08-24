@@ -223,6 +223,42 @@ describe('HarnessWorkflowService', () => {
     });
   });
 
+  it('abort marks the session idle so the spinner actually stops', async () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    await service.startWorkflow('configure-harness', 'configure');
+    const surfaceId = surfaceRegistry.surfaces()[0];
+    const convId = binding.conversationForSurface(surfaceId)!;
+    registry.appendSession(convId, REAL_SESSION);
+    liveness.markStreaming(REAL_SESSION);
+    expect(service.isProcessing()).toBe(true);
+
+    await service.abort();
+
+    // `session:turnEnded` — the only thing that normally flips liveness — is
+    // raised from the SDK's Stop hook, which an interrupt tears down before it
+    // can run. Without this the Stop button and the disabled composer stayed
+    // stuck for the rest of the session.
+    expect(service.isProcessing()).toBe(false);
+    expect(service.error()).toBeNull();
+  });
+
+  it('a failed abort reports the error and leaves the session marked live', async () => {
+    const liveness = TestBed.inject(SessionLivenessRegistry);
+    await service.startWorkflow('configure-harness', 'configure');
+    const surfaceId = surfaceRegistry.surfaces()[0];
+    const convId = binding.conversationForSurface(surfaceId)!;
+    registry.appendSession(convId, REAL_SESSION);
+    liveness.markStreaming(REAL_SESSION);
+
+    rpc.call.mockResolvedValueOnce(failedResult('interrupt refused'));
+    await service.abort();
+
+    // The agent is very likely still running — claiming idle would hand back a
+    // composer that interleaves with a live turn.
+    expect(service.isProcessing()).toBe(true);
+    expect(service.error()).toBe('interrupt refused');
+  });
+
   it('dispose releases the claim and closes the surface', async () => {
     await service.startWorkflow('configure-harness', 'configure');
     const surfaceId = surfaceRegistry.surfaces()[0];

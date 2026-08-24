@@ -29,6 +29,10 @@ import {
   PermissionRequestCardComponent,
   QuestionCardComponent,
 } from '@ptah-extension/chat';
+import {
+  SessionStatsSummaryComponent,
+  type ModelUsageEntry,
+} from '@ptah-extension/chat-ui';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import {
@@ -55,6 +59,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
     PermissionRequestCardComponent,
     QuestionCardComponent,
     HarnessConfigPreviewComponent,
+    SessionStatsSummaryComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -368,6 +373,17 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
             </div>
 
             <div class="flex-1 min-h-0 overflow-y-auto p-3">
+              @if (sessionStats(); as stats) {
+                <div class="mb-3">
+                  <ptah-session-stats-summary
+                    [messages]="[]"
+                    [preloadedStats]="stats.totals"
+                    [liveModelStats]="stats.live"
+                    [modelUsageList]="modelUsageList()"
+                  />
+                </div>
+              }
+
               <ptah-harness-config-preview />
 
               @if (hasAnyConfig()) {
@@ -514,6 +530,26 @@ export class HarnessBuilderViewComponent implements OnInit {
   protected readonly pinnedWorkspaceName = computed(
     () => this.state.workspaceContext()?.projectName ?? 'original workspace',
   );
+
+  /**
+   * Cost / tokens / context fill for this workflow's session.
+   *
+   * A workflow surface has no `TabState`, so these arrive through
+   * `SurfaceSessionStatsRegistry` rather than the tab path — but they are
+   * derived by the same code, so the panel and a chat tab report identical
+   * numbers for identical turns.
+   */
+  protected readonly sessionStats = this.workflow.sessionStats;
+
+  /**
+   * `modelUsage` as the presentational component types it. The registry stores
+   * it readonly (nothing downstream may mutate a recorded turn); the component
+   * predates that and asks for a mutable array, so copy rather than cast.
+   */
+  protected readonly modelUsageList = computed<ModelUsageEntry[] | null>(() => {
+    const usage = this.sessionStats()?.modelUsage;
+    return usage ? usage.map((entry) => ({ ...entry })) : null;
+  });
 
   protected readonly executionNodes = computed(() => {
     const streamState = this.state.streamingState();

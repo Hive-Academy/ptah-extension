@@ -16,9 +16,11 @@ import {
   ConversationRegistry,
   SessionLivenessRegistry,
   SurfaceId,
+  SurfaceSessionStatsRegistry,
   TabId,
   TabSessionBinding,
   type ClaudeSessionId,
+  type SurfaceSessionStats,
 } from '@ptah-extension/chat-state';
 import {
   StreamRouter,
@@ -102,6 +104,7 @@ export class HarnessWorkflowService {
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly surfaceStats = inject(SurfaceSessionStatsRegistry);
   private readonly permissionHandler = inject(PermissionHandlerService);
 
   private readonly _correlationId = signal<TabId | null>(null);
@@ -157,6 +160,20 @@ export class HarnessWorkflowService {
     const record = this.conversationRegistry.getRecord(convId);
     if (!record || record.sessions.length === 0) return null;
     return record.sessions[record.sessions.length - 1];
+  });
+
+  /**
+   * Cost / token / context-fill totals for this workflow's session, or null
+   * before the first turn completes.
+   *
+   * Session-keyed rather than surface-keyed on purpose: a reload mints a fresh
+   * `SurfaceId` but rebinds the SAME session, so a surface-keyed record would
+   * reset the totals every time the user reloaded mid-run.
+   */
+  readonly sessionStats = computed<SurfaceSessionStats | null>(() => {
+    const sessionId = this.sessionId();
+    if (!sessionId) return null;
+    return this.surfaceStats.stats(sessionId as string)();
   });
 
   readonly isProcessing = computed(() => {
@@ -337,22 +354,26 @@ export class HarnessWorkflowService {
       });
       if (!result.success || result.data?.success === false) {
         this.failTurn(
+          'chat:continue',
           result.data?.error ?? result.error ?? 'Failed to send the message.',
         );
       }
     } catch (error: unknown) {
-      this.failTurn(error instanceof Error ? error.message : String(error));
+      this.failTurn(
+        'chat:continue',
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
   /**
-   * A turn that never reached the agent. The workflow itself survives (the
+   * An RPC that never reached the agent. The workflow itself survives (the
    * session and transcript are still good), but `_started` must come back down
    * or `isProcessing()` would report a spinner forever on a session that has
    * no liveness entry yet.
    */
-  private failTurn(message: string): void {
-    console.error('[HarnessWorkflowService] chat:continue failed:', message);
+  private failTurn(method: string, message: string): void {
+    console.error(`[HarnessWorkflowService] ${method} failed:`, message);
     this._started.set(false);
     this._error.set(message);
   }
@@ -360,16 +381,38 @@ export class HarnessWorkflowService {
   /**
    * Stop the running agent, keeping the transcript, the surface and the claim.
    * This is the "Stop" button; "Start over" calls it and then {@link dispose}.
+   *
+   * Marking the session idle locally is not belt-and-braces — it is the ONLY
+   * thing that ends the spinner. `isProcessing()` reads
+   * `SessionLivenessRegistry` once a session id has resolved, and the registry
+   * is driven by `session:turnEnded`, which the SDK raises from its Stop hook.
+   * An interrupt tears the query down before that hook runs, so a successful
+   * abort emitted no turn-end at all: the backend stopped, the button stayed
+   * "Stop", and the composer stayed disabled forever. The chat path has always
+   * done the same thing by hand (`ConversationService.abortCurrentMessage`
+   * calls `tabManager.markTabIdle`) — this is the surface's equivalent.
+   *
+   * Only marked idle when the abort actually succeeded. A failed abort means
+   * the agent is very likely still running, and claiming otherwise would hand
+   * the user a composer that silently interleaves with a live turn.
    */
   async abort(): Promise<void> {
     const sessionId = this.sessionId();
     if (!sessionId) return;
     try {
-      await this.rpc.call('chat:abort', { sessionId });
+      const result = await this.rpc.call('chat:abort', { sessionId });
+      if (!result.success || result.data?.success === false) {
+        this.failTurn(
+          'chat:abort',
+          result.data?.error ?? result.error ?? 'Failed to stop the workflow.',
+        );
+        return;
+      }
       this._started.set(false);
+      this.liveness.markIdle(sessionId, this._workspaceRoot() ?? undefined);
     } catch (error: unknown) {
-      console.warn(
-        '[HarnessWorkflowService] chat:abort failed:',
+      this.failTurn(
+        'chat:abort',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -388,6 +431,13 @@ export class HarnessWorkflowService {
   dispose(): void {
     const correlationId = this._correlationId();
     const surfaceId = this._surfaceId();
+    // Read the session BEFORE the surface unbinds — `sessionId()` resolves
+    // through that binding, so after `onSurfaceClosed` there is nothing left to
+    // key the stats record by and it would leak for the app's lifetime.
+    const sessionId = this.sessionId();
+    if (sessionId) {
+      this.surfaceStats.clear(sessionId as string);
+    }
     if (correlationId) {
       this.claims.release(correlationId as string);
     }
