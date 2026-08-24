@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_319
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Booting Ptah issues LLM calls before the user has asked for anything

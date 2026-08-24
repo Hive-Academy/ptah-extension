@@ -818,6 +818,44 @@ export class MemoryTriggerService {
         logger: this.logger,
         signal,
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
+          // The boot scan draws from the SAME hourly budget as the cue path
+          // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
+          // It did not until TASK_2026_319: this callback calls
+          // `curator.curate` directly, and `curate` holds no limiter of its own
+          // — its only internal gate is the provider QUOTA gate — so
+          // `maxCuratesPerHour` simply did not apply here. A cold boot could
+          // issue one LLM call per session with nothing but a 200 ms throttle
+          // in the way.
+          //
+          // Refusal returns `'stalled'`, never `'ran'`, and that is the whole
+          // point: `BootScanRunner` stops the scan, leaves the watermark below
+          // this session, and the next boot retries it. `'ran'` would record a
+          // session that was never read and lose it at the next
+          // `mtime > watermark` filter.
+          //
+          // The SKILLS boot scan deliberately does not do this. Its callback
+          // enqueues a local SQLite row and spends nothing upstream, so
+          // charging it to the curate budget would starve real curation to pay
+          // for free work — see `skill-trigger.service.ts`'s `runBootScan`.
+          const decision = this.rateLimiter.tryAcquire(
+            RATE_LIMIT_KEY,
+            this.readMaxCuratesPerHour(),
+          );
+          if (!decision.allowed) {
+            this.curator.pushEvent({
+              kind: 'rate-limited',
+              timestamp: Date.now(),
+              sessionId: scanSessionId,
+              stats: {
+                source: 'boot',
+                limit: decision.limit,
+                resetAt: decision.resetAt,
+                usedThisWindow: decision.usedThisWindow,
+              },
+            });
+            return 'stalled';
+          }
+
           let transcript = '';
           try {
             transcript = await this.transcriptReader.read(

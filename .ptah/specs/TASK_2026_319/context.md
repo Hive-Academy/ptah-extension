@@ -55,10 +55,23 @@ The behaviour is not reckless. Before deciding, weigh what already exists:
 - **Watermarked** — only sessions newer than the mark are processed. In the
   verification boot during TASK_2026_315, this meant **no query was issued at
   all**, because the watermark had already advanced.
-- **Budget-limited** downstream.
+- **Budget-limited** downstream. **This claim was FALSE when it was written.**
+  `runBootScan` called `curator.curate` directly, and `curate` holds no limiter
+  of its own — its only internal gate is the provider QUOTA gate.
+  `CuratorRateLimitService.tryAcquire` was reached from the cue path and the
+  episode path only, so `maxCuratesPerHour` did not apply to the boot scan at
+  all. It applies as of this task, and only as of this task.
 
-So the question is not "should this be uncontrolled" — it isn't. It is: should
-the default be on, and does the user know it is?
+The watermark bullet also hid a matching hole: it is only reassuring in **steady
+state**. A cold read — fresh install, changed workspace fingerprint, reset
+`ptah.db` — produced a watermark of `0`, so every session on disk satisfied
+`mtime > watermark` and the FIRST launch in a workspace curated that project's
+entire Claude history, one LLM call each. That is exactly why the verification
+boot saw nothing: it was not a cold one.
+
+So the question is not "should this be uncontrolled" — but it was less
+controlled than this section claimed. Both holes are now closed, which is what
+makes the `true` default defensible.
 
 ## Options
 
@@ -72,20 +85,37 @@ the default be on, and does the user know it is?
 Whichever is chosen, record the reasoning where the default lives, so the next
 person does not re-litigate it from scratch.
 
-## Decision (2026-08-24, user)
+## Decision (2026-08-24, user) — keep `true`, bound the cold start
 
-**Flip `memory.triggers.bootScan` to default `false`.** Booting must not spend
-against the user's provider until they opt in. Consent and cost outweigh the
-unprompted-learning benefit, which only reaches users who would have found the
-switch anyway.
+**`memory.triggers.bootScan` stays `true`.** Do not flip it.
 
-The decision is recorded here, but the change was **not** implemented in this
-session — the deploy batch was scoped to ship blockers only (TASK_2026_307,
-TASK_2026_273). Whoever picks this up: flip the default at
-`memory-trigger-config.ts:53`, write the reasoning above as a comment where the
-default lives so it is not re-litigated, and add a spec pinning the default so a
-future edit has to be deliberate. The existing gating (setting, watermark, abort
-controller, budget limit) stays as it is.
+Flipping the default to `false` was considered first, and an earlier revision of
+this file recorded it as the decision. It was **superseded on the same day**,
+before any code was written. The reasoning: the objection was never "the boot
+scan exists", it was "the boot scan is unbounded and unbudgeted" — and both of
+those were real defects with real fixes, not properties of the feature. Turning
+the feature off would have hidden them rather than fixed them, and would have
+cost unprompted learning to everyone who never finds a settings switch.
+
+So the two defects were fixed instead (TASK_2026_319):
+
+1. **A cold start is bounded to the last 7 days.** `BootScanRunner.readWatermark`
+   now returns `null` for an absent row — including when the read throws — and
+   the caller floors that to `now - 7 days`. A persisted watermark is used
+   verbatim and never floored, in either direction. Nothing the user did before
+   they installed Ptah is eligible.
+2. **The boot scan draws from `maxCuratesPerHour`.** The `run` callback in
+   `MemoryTriggerService.runBootScan` acquires from the same hourly bucket as
+   the cue and episode paths, and a refusal returns `'stalled'` — so the runner
+   stops the scan, leaves the watermark below the refused session, emits a
+   `rate-limited` event, and the next boot retries it.
+
+Both defaults stay exactly where they are: `memory-trigger-config.ts:53` and
+`platform-core/src/file-settings-keys.ts:555`. The pre-existing gating (setting,
+watermark, abort controller) is unchanged; the budget limit is new.
+
+Do not re-litigate the default without first reading the two fixes above — the
+version of this feature that motivated the flip no longer exists.
 
 ## Not in scope
 

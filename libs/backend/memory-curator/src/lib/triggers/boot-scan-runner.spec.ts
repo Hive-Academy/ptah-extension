@@ -49,6 +49,50 @@ function makeSqlite(
   return { db, isOpen } as unknown as SqliteConnectionService;
 }
 
+/**
+ * A connection whose watermark row EXISTS and holds `value` — including `0`.
+ *
+ * `makeSqlite` cannot express this: it reports "no row" for any value `<= 0`,
+ * which is the very conflation TASK_2026_319 removed. Kept separate so the
+ * absent case and the stored-zero case can be asserted against each other.
+ */
+function makeSqliteWithRow(value: number): SqliteConnectionService {
+  const db = {
+    prepare: jest.fn((sql: string) => {
+      if (sql.includes('SELECT last_scanned_session_mtime')) {
+        return { get: jest.fn(() => ({ last_scanned_session_mtime: value })) };
+      }
+      return { run: jest.fn(() => ({ changes: 1, lastInsertRowid: 1 })) };
+    }),
+  } as unknown as SqliteDatabase;
+  return { db, isOpen: true } as unknown as SqliteConnectionService;
+}
+
+/** A connection whose watermark SELECT throws — a locked or corrupt database. */
+function makeSqliteReadThrows(state: WatermarkState): SqliteConnectionService {
+  const db = {
+    prepare: jest.fn((sql: string) => {
+      if (sql.includes('SELECT last_scanned_session_mtime')) {
+        return {
+          get: jest.fn(() => {
+            throw new Error('SQLITE_CORRUPT: database disk image is malformed');
+          }),
+        };
+      }
+      return {
+        run: jest.fn((..._args: unknown[]) => {
+          const args = _args as [string, string, number, number];
+          state.value = args[2];
+          return { changes: 1, lastInsertRowid: 1 };
+        }),
+      };
+    }),
+  } as unknown as SqliteDatabase;
+  return { db, isOpen: true } as unknown as SqliteConnectionService;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 async function makeTempSessionsDir(
   files: { name: string; mtime: number }[],
 ): Promise<string> {
@@ -344,6 +388,191 @@ describe('BootScanRunner', () => {
       expect(result.succeeded).toBe(1);
       expect(result.stalled).toBe(0);
       expect(Math.floor(state.value)).toBeGreaterThanOrEqual(now - 4000 - 1);
+    });
+  });
+
+  /**
+   * TASK_2026_319 — a cold start is bounded to the last 7 days.
+   *
+   * With no persisted row the watermark used to be `0`, so `mtime > watermark`
+   * admitted every session file on disk and the FIRST launch in a workspace
+   * curated that project's entire Claude history, one LLM call each. Steady
+   * state hid it: once the watermark advances there is nothing left to scan.
+   */
+  describe('the cold-start floor (TASK_2026_319)', () => {
+    it('makes a session older than 7 days ineligible, and one inside the window eligible', async () => {
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'ancient.jsonl', mtime: now - 30 * DAY_MS },
+        { name: 'lastweek.jsonl', mtime: now - 8 * DAY_MS },
+        { name: 'recent.jsonl', mtime: now - 2 * DAY_MS },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const run = jest.fn().mockResolvedValue('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run,
+        throttleMs: 0,
+        now,
+      });
+      expect(result.scanned).toBe(1);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith('recent', '/ws', undefined);
+    });
+
+    it('uses a PERSISTED watermark verbatim, even one older than 7 days', async () => {
+      // Flooring a live watermark FORWARD would silently skip every session
+      // between the real mark and `now - 7 days` — the sessions the scan
+      // exists to pick up. The floor is for absence only.
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'before.jsonl', mtime: now - 40 * DAY_MS },
+        { name: 'after.jsonl', mtime: now - 20 * DAY_MS },
+      ]);
+      const run = jest.fn().mockResolvedValue('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqliteWithRow(now - 30 * DAY_MS),
+        logger: makeLogger(),
+        run,
+        throttleMs: 0,
+        now,
+      });
+      expect(result.scanned).toBe(1);
+      expect(run).toHaveBeenCalledWith('after', '/ws', undefined);
+    });
+
+    it('honours a persisted watermark of 0 — a stored zero is not an absent row', async () => {
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'ancient.jsonl', mtime: now - 30 * DAY_MS },
+      ]);
+      const run = jest.fn().mockResolvedValue('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqliteWithRow(0),
+        logger: makeLogger(),
+        run,
+        throttleMs: 0,
+        now,
+      });
+      expect(result.scanned).toBe(1);
+      expect(run).toHaveBeenCalledWith('ancient', '/ws', undefined);
+    });
+
+    it('treats a watermark read that THROWS as cold, so it floors rather than scanning everything', async () => {
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'ancient.jsonl', mtime: now - 30 * DAY_MS },
+        { name: 'recent.jsonl', mtime: now - 2 * DAY_MS },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const logger = makeLogger();
+      const run = jest.fn().mockResolvedValue('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqliteReadThrows(state),
+        logger,
+        run,
+        throttleMs: 0,
+        now,
+      });
+      expect(result.scanned).toBe(1);
+      expect(run).toHaveBeenCalledWith('recent', '/ws', undefined);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[boot-scan] watermark read failed — treating as cold',
+        expect.objectContaining({ error: expect.stringContaining('SQLITE') }),
+      );
+    });
+
+    it('applies the same floor to the skills pipeline', async () => {
+      // The runner is shared. Neither pipeline should reach back into history
+      // the user accumulated before Ptah existed.
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'ancient.jsonl', mtime: now - 30 * DAY_MS },
+        { name: 'recent.jsonl', mtime: now - 1 * DAY_MS },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const run = jest.fn().mockResolvedValue('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'skills',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run,
+        throttleMs: 0,
+        now,
+      });
+      expect(result.scanned).toBe(1);
+      expect(run).toHaveBeenCalledWith('recent', '/ws', undefined);
+    });
+
+    it('writes NO watermark when the 7-day window is empty, so the next boot re-floors', async () => {
+      // The rolling half of the design. `maxMtime > watermark` is false when
+      // nothing ran, so no row is written and the next cold read floors to a
+      // fresh `now - 7 days` rather than freezing this boot's floor forever.
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'ancient.jsonl', mtime: now - 30 * DAY_MS },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const run = jest.fn().mockResolvedValue('ran');
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run,
+        throttleMs: 0,
+        now,
+      });
+      expect(result.scanned).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+      expect(state.value).toBe(0);
+    });
+
+    it('still advances the watermark when the cold window DOES hold sessions', async () => {
+      // The paired positive: the floor must bound the scan, not disable it.
+      const now = Date.now();
+      const dir = await makeTempSessionsDir([
+        { name: 'a.jsonl', mtime: now - 3 * DAY_MS },
+        { name: 'b.jsonl', mtime: now - 1 * DAY_MS },
+      ]);
+      const state: WatermarkState = { value: 0 };
+      const result = await new BootScanRunner().run({
+        pipeline: 'memory',
+        workspaceRoot: '/ws',
+        workspaceFingerprint: 'fp1',
+        sessionsDirectory: dir,
+        sqlite: makeSqlite(state),
+        logger: makeLogger(),
+        run: jest.fn().mockResolvedValue('ran'),
+        throttleMs: 0,
+        now,
+      });
+      expect(result.succeeded).toBe(2);
+      expect(Math.floor(state.value)).toBeGreaterThanOrEqual(
+        now - 1 * DAY_MS - 1,
+      );
     });
   });
 
