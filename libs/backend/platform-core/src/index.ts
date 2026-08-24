@@ -82,6 +82,11 @@ export {
   POSIX_SHELLS,
 } from './utils/shell-allowlist';
 export { isPathWithinRoots } from './utils/path-containment';
+export { planGlobWatch } from './utils/glob-watch-plan';
+export type {
+  GlobWatchPlan,
+  GlobWatchPlanOptions,
+} from './utils/glob-watch-plan';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';

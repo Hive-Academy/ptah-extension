@@ -95,7 +95,12 @@ interface WorkspaceState {
 
 const DEBOUNCE_MS = 300;
 const REGISTRY_FILE = 'registry.md';
-const SPECS_GLOB = '**/.ptah/specs/**';
+/**
+ * Watched RELATIVE to the workspace root (see `startWatcher`), which is what
+ * lets every adapter resolve it exactly: `RelativePattern` in VS Code, and a
+ * concrete `<root>/.ptah/specs` directory in the chokidar-backed adapters.
+ */
+const SPECS_GLOB = '.ptah/specs/**';
 
 /**
  * Files this service itself generates at the ROOT of `.ptah/specs/`.
@@ -421,7 +426,12 @@ export class TaskIndexService implements ITaskIndexNotifier {
   private startWatcher(root: string, state: WorkspaceState): void {
     if (state.watcher) return;
     try {
-      const watcher = this.fs.createFileWatcher(SPECS_GLOB);
+      // Scoped to THIS root, not a bare cross-workspace glob. One watcher is
+      // created per workspace and `extractFolder` already discards anything
+      // outside `<root>/.ptah/specs/`, so an unscoped watch only bought every
+      // root a copy of every other root's events. Scoping also gives the Node
+      // adapters a concrete directory to watch instead of the workspace tree.
+      const watcher = this.fs.createFileWatcher(SPECS_GLOB, { cwd: root });
       state.watcher = watcher;
       state.subscriptions.push(
         watcher.onDidChange((p) => this.onWatchEvent(root, p)),
