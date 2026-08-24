@@ -86,6 +86,7 @@ function makeModelResolver(): jest.Mocked<
 function makePricingProvider(): jest.Mocked<IPricingProvider> {
   return {
     getPricing: jest.fn().mockResolvedValue(null),
+    ensureHydrated: jest.fn().mockResolvedValue(true),
   };
 }
 

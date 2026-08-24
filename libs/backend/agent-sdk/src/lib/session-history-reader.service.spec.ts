@@ -87,6 +87,7 @@ function makeStubs(): Stubs {
     },
     pricingProvider: {
       getPricing: jest.fn().mockResolvedValue(null),
+      ensureHydrated: jest.fn().mockResolvedValue(true),
     },
     authEnv: {} as AuthEnv,
     logger: createMockLogger(),
