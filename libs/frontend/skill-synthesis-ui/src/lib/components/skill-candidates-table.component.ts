@@ -568,7 +568,7 @@ function buildOrigin(
     return {
       label: UNKNOWN_ORIGIN,
       full: UNKNOWN_ORIGIN,
-      toneClass: 'italic text-base-content/40',
+      toneClass: 'italic text-base-content-muted',
     };
   }
   return {
