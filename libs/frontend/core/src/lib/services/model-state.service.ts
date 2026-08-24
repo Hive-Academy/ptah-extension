@@ -8,7 +8,11 @@
 
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService } from './claude-rpc.service';
-import { SessionId, SdkModelInfo } from '@ptah-extension/shared';
+import {
+  SessionId,
+  SdkModelInfo,
+  updatePricingMap,
+} from '@ptah-extension/shared';
 
 /**
  * Model State Service - Signal-based model selection state
@@ -42,6 +46,12 @@ export class ModelStateService {
   private readonly _availableModels = signal<SdkModelInfo[]>([]);
   private readonly _isPending = signal(false);
   private readonly _isLoaded = signal(false);
+  /**
+   * True once the host has handed over a pricing map that includes the live
+   * provider catalog (not just the bundled table). False means the answer is
+   * worth asking for again — {@link refreshModels} does.
+   */
+  private readonly _pricingHydrated = signal(false);
   /**
    * Current selected model (full API name, e.g., 'claude-sonnet-4-20250514')
    * Read-only signal, updates reactively when model changes
@@ -103,6 +113,43 @@ export class ModelStateService {
 
   constructor() {
     this.loadModels();
+    void this.hydratePricing();
+  }
+
+  /**
+   * Pull the extension host's pricing map into THIS bundle's copy of
+   * `pricing.utils`.
+   *
+   * `pricing.utils` owns a module-level map, and the webview loads its own
+   * instance of that module. Every hydration path — OpenRouter's catalog,
+   * `seedStaticModelPricing`, Ollama Cloud's metadata — runs host-side, so the
+   * renderer's map held nothing but the handful of bundled OpenAI/local entries
+   * and knew no Claude model at all. Anything here that reads the map
+   * (`getModelContextWindow`, and any future cost rendering) was answering from
+   * that stub.
+   *
+   * Best-effort by construction: a failure leaves the bundled table in place,
+   * which is exactly the behaviour that shipped before, so nothing regresses if
+   * the host is slow or the catalog fetch failed.
+   */
+  private async hydratePricing(): Promise<void> {
+    try {
+      const result = await this.rpc.call('config:pricing-get', {});
+      if (!result.isSuccess() || !result.data?.pricing) {
+        console.warn(
+          '[ModelStateService] config:pricing-get failed — keeping bundled pricing:',
+          result.error,
+        );
+        return;
+      }
+      updatePricingMap(result.data.pricing);
+      this._pricingHydrated.set(result.data.hydrated);
+    } catch (error: unknown) {
+      console.warn(
+        '[ModelStateService] config:pricing-get threw — keeping bundled pricing:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   /**
@@ -162,6 +209,12 @@ export class ModelStateService {
    */
   async refreshModels(): Promise<void> {
     await this.loadModels();
+    // A boot that raced the catalog fetch left us on the bundled table. A
+    // refresh is the natural retry point — the host has had time by now, and
+    // re-merging an already-current map is a no-op.
+    if (!this._pricingHydrated()) {
+      await this.hydratePricing();
+    }
   }
 
   /**

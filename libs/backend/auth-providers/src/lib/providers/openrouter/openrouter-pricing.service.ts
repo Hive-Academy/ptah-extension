@@ -74,6 +74,22 @@ export class OpenRouterPricingService implements IPricingProvider {
     });
   }
 
+  /**
+   * Await the in-flight warmup (starting one if nobody has yet) and report
+   * whether the catalog actually landed.
+   *
+   * Callers that read the SHARED pricing map rather than calling
+   * {@link getPricing} need this: `warmup()` returns void, so without a join
+   * point they observe whatever the map happens to hold at that instant. A
+   * failed fetch resolves `false` rather than throwing — a consumer serving the
+   * bundled table is degraded, not broken.
+   */
+  async ensureHydrated(): Promise<boolean> {
+    this.warmup();
+    const models = await (this.warmupPromise ?? Promise.resolve([]));
+    return models.length > 0;
+  }
+
   async fetchAndRegister(): Promise<OpenRouterModel[]> {
     const catalog = await this.ensureCatalog();
     if (catalog.models.length === 0) return [];

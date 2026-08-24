@@ -258,6 +258,30 @@ describe('pricing.utils', () => {
       // The "local" and ":cloud" entries do not set maxTokens.
       expect(getModelContextWindow('local')).toBe(0);
     });
+
+    it('resolves ids with no minor version (the Opus 5 naming scheme)', () => {
+      // Anthropic dropped the minor segment after `claude-opus-4-5`. While the
+      // family regex demanded one, every id in the new scheme fell through to
+      // 0 and the context-fill bar read 0% for the whole line.
+      expect(getModelContextWindow('claude-opus-5')).toBe(1_000_000);
+      expect(getModelContextWindow('claude-opus-5[1m]')).toBe(1_000_000);
+      expect(getModelContextWindow('claude-sonnet-5')).toBe(200_000);
+      // Absent minor is .0, so 4.0 must NOT inherit 4.6's 1M window.
+      expect(getModelContextWindow('claude-opus-4')).toBe(200_000);
+    });
+
+    it('does not warn about cost for a model it resolves by family', () => {
+      // A context-window lookup makes no cost decision. Routing it through the
+      // warning variant printed "cost will render as unavailable" on every
+      // session load in the renderer, whose pricing map is only ever the
+      // bundled table.
+      const warn = jest.spyOn(console, 'warn');
+      warn.mockClear();
+
+      expect(getModelContextWindow('claude-opus-5')).toBe(1_000_000);
+
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 
   describe('getModelPricingDescription', () => {
@@ -325,6 +349,24 @@ describe('pricing.utils', () => {
       ['claude-opus-4-8', 'Opus 4.8'],
       ['claude-sonnet-5-0', 'Sonnet 5.0'],
     ])('renders modern Claude %s as %s', (id, expected) => {
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
+    });
+
+    it.each([
+      ['claude-opus-5', 'Opus 5'],
+      ['claude-sonnet-5', 'Sonnet 5'],
+      ['claude-opus-5-fast', 'Opus 5 (fast)'],
+    ])('renders the minor-less Opus 5 scheme %s as %s', (id, expected) => {
+      expect(formatClaudeModelDisplayName(id)).toBe(expected);
+    });
+
+    it.each([
+      ['claude-opus-5[1m]', 'Opus 5 (1m)'],
+      ['claude-opus-4-7[1m]', 'Opus 4.7 (1m)'],
+      ['claude-opus-5-fast[1m]', 'Opus 5 (fast, 1m)'],
+    ])('lifts the bracketed variant tag out of %s -> %s', (id, expected) => {
+      // The SDK reports `claude-opus-5[1m]` verbatim in `modelUsage`, so this
+      // id reaches the UI; it used to render raw.
       expect(formatClaudeModelDisplayName(id)).toBe(expected);
     });
 

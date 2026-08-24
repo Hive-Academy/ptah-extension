@@ -150,8 +150,14 @@ function createMockModelResolver(): MockModelResolver {
 // Harness
 // ---------------------------------------------------------------------------
 
+interface MockPricingProvider {
+  getPricing: jest.Mock;
+  ensureHydrated: jest.Mock;
+}
+
 interface Harness {
   handlers: ConfigRpcHandlers;
+  pricingProvider: MockPricingProvider;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   configManager: MockConfigManager;
@@ -189,6 +195,11 @@ function makeHarness(
     reasoningSettings.effort.get.mockReturnValue(opts.reasoningEffort);
   }
 
+  const pricingProvider = {
+    getPricing: jest.fn().mockResolvedValue(null),
+    ensureHydrated: jest.fn().mockResolvedValue(true),
+  };
+
   const handlers = new ConfigRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -200,10 +211,12 @@ function makeHarness(
     sentry as unknown as SentryService,
     modelSettings as unknown as ModelSettings,
     reasoningSettings as unknown as ReasoningSettings,
+    pricingProvider,
   );
 
   return {
     handlers,
+    pricingProvider,
     logger,
     rpcHandler,
     configManager,
@@ -882,6 +895,41 @@ describe('ConfigRpcHandlers', () => {
         'high',
         'workspace',
       );
+    });
+  });
+
+  describe('config:pricing-get', () => {
+    it('waits for catalog hydration before serving the map', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{
+        pricing: Record<string, unknown>;
+        hydrated: boolean;
+      }>(h, 'config:pricing-get');
+
+      // The webview owns a SEPARATE module instance of `pricing.utils`, so a
+      // response that raced the OpenRouter fetch would cache the bundled table
+      // in the renderer for the rest of the run.
+      expect(h.pricingProvider.ensureHydrated).toHaveBeenCalled();
+      expect(result.hydrated).toBe(true);
+      expect(Object.keys(result.pricing).length).toBeGreaterThan(0);
+    });
+
+    it('still serves the bundled map when hydration fails', async () => {
+      const h = makeHarness();
+      h.pricingProvider.ensureHydrated.mockRejectedValue(new Error('offline'));
+      h.handlers.register();
+
+      const result = await call<{
+        pricing: Record<string, unknown>;
+        hydrated: boolean;
+      }>(h, 'config:pricing-get');
+
+      // Degraded, not broken — a renderer on the bundled table is exactly what
+      // shipped before, and `hydrated: false` tells it to ask again.
+      expect(result.hydrated).toBe(false);
+      expect(Object.keys(result.pricing).length).toBeGreaterThan(0);
     });
   });
 });

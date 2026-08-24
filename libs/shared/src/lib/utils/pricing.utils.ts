@@ -295,22 +295,40 @@ export function calculateMessageCost(
   return Math.round(totalCost * 1000000) / 1000000;
 }
 
+/**
+ * Context window for a model, in tokens. `0` when genuinely unknown.
+ *
+ * Deliberately uses the SILENT {@link lookupPricingEntry} rather than
+ * {@link findModelPricing}. A catalogue entry is a convenient carrier for
+ * `maxTokens`, but a miss here is not a pricing failure: the family regex below
+ * answers every modern Claude id without any catalogue at all. Routing through
+ * the warning variant made every webview context-window lookup print
+ * "cost will render as unavailable" about a cost nobody was calculating — the
+ * renderer's pricing map is only ever the bundled table (hydration from
+ * OpenRouter happens in the extension host, a different module instance), so
+ * that warning fired for every Claude model on every session load.
+ */
 export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
-  const pricing = findModelPricing(modelId);
+  const pricing = lookupPricingEntry(modelId);
   if (pricing?.maxTokens) return pricing.maxTokens;
 
   const stripped = modelId
     .replace(/^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i, '')
     .toLowerCase();
 
+  // The minor version is OPTIONAL. Anthropic's ids carried one up to
+  // `claude-opus-4-5`, then dropped it at `claude-opus-5`. Requiring it meant
+  // every id in the new scheme fell through to `return 0` — no context window
+  // at all, so the header's context-fill bar read 0% for the whole Opus 5 line.
   const claudeModern = stripped.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)[-.](\d+)/,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/,
   );
   if (claudeModern) {
     const family = claudeModern[1];
     const major = Number.parseInt(claudeModern[2], 10);
-    const minor = Number.parseInt(claudeModern[3], 10);
+    // Absent minor reads as .0 — `claude-opus-5` is 5.0, not 5.undefined.
+    const minor = claudeModern[3] ? Number.parseInt(claudeModern[3], 10) : 0;
     if (family === 'opus' && (major > 4 || (major === 4 && minor >= 6))) {
       return 1_000_000;
     }
@@ -358,16 +376,31 @@ export function formatClaudeModelDisplayName(modelId: string): string {
     /^(?:anthropic|openrouter|google|openai|moonshot|zai)\//i,
     '',
   );
-  const noDate = stripped
+  // A trailing bracketed variant tag — `claude-opus-5[1m]` for the 1M-context
+  // beta — is part of the id the SDK reports back in `modelUsage`, so it lands
+  // in front of users. It is not part of the version, so lift it out before
+  // matching and re-attach it as the suffix.
+  const variantMatch = stripped.match(/^(.*?)\[([^\]]+)\]$/);
+  const withoutVariant = variantMatch ? variantMatch[1] : stripped;
+  const variant = variantMatch ? variantMatch[2] : null;
+  const noDate = withoutVariant
     .replace(/-\d{8}$/, '')
     .replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  // Minor version OPTIONAL — Anthropic dropped it after `claude-opus-4-5`, so
+  // requiring it left the whole Opus 5 line falling through to the raw id.
   const modern = noDate.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-(.+))?$/i,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-(.+))?$/i,
   );
   if (modern) {
     const [, family, maj, min, suffix] = modern;
     const cap = family[0].toUpperCase() + family.slice(1).toLowerCase();
-    return suffix ? `${cap} ${maj}.${min} (${suffix})` : `${cap} ${maj}.${min}`;
+    const version = min ? `${maj}.${min}` : maj;
+    // A variant tag and a name suffix can both be present
+    // (`claude-opus-5-fast[1m]`); show both rather than silently dropping one.
+    const qualifiers = [suffix, variant].filter(Boolean).join(', ');
+    return qualifiers
+      ? `${cap} ${version} (${qualifiers})`
+      : `${cap} ${version}`;
   }
   const legacy = noDate.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)$/i);
   if (legacy) {

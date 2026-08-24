@@ -14,7 +14,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import type { SdkModelInfo } from '@ptah-extension/shared';
+import { getPricingMap, type SdkModelInfo } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
 import {
@@ -300,6 +300,96 @@ describe('ModelStateService', () => {
         (c: unknown[]) => c[0] === 'config:models-list',
       );
       expect(listCalls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('pricing hydration (config:pricing-get)', () => {
+    /** Route each RPC method to its own canned response. */
+    function routeRpc(handlers: Record<string, unknown>): void {
+      rpc.call.mockImplementation((method: string) =>
+        Promise.resolve(
+          (handlers[method] as never) ?? rpcSuccess({ models: [] }),
+        ),
+      );
+    }
+
+    it('merges the host pricing map into this bundle at construction', async () => {
+      routeRpc({
+        'config:pricing-get': rpcSuccess({
+          pricing: {
+            'anthropic/claude-opus-5': {
+              inputCostPerToken: 5e-6,
+              outputCostPerToken: 25e-6,
+              maxTokens: 1_000_000,
+              provider: 'openrouter',
+            },
+          },
+          hydrated: true,
+        }),
+      });
+
+      const service = createService();
+      const harness = makeSignalStoreHarness<ModelStoreState>(service);
+      await harness.flush();
+
+      // `pricing.utils` keeps its map in a module-level `let`, and the webview
+      // loads its OWN instance — so without this call the renderer's map never
+      // held a single Claude model.
+      expect(rpc.call).toHaveBeenCalledWith('config:pricing-get', {});
+      expect(getPricingMap()['anthropic/claude-opus-5']).toBeDefined();
+    });
+
+    it('keeps the bundled map when the host cannot hydrate', async () => {
+      routeRpc({ 'config:pricing-get': rpcError('offline') });
+
+      const service = createService();
+      const harness = makeSignalStoreHarness<ModelStoreState>(service);
+      await harness.flush();
+
+      // Degraded, not broken — the bundled entries are still there.
+      expect(getPricingMap()['gpt-4o']).toBeDefined();
+    });
+
+    it('retries hydration on refresh when the first attempt was not hydrated', async () => {
+      routeRpc({
+        'config:pricing-get': rpcSuccess({ pricing: {}, hydrated: false }),
+      });
+
+      const service = createService();
+      const harness = makeSignalStoreHarness<ModelStoreState>(service);
+      await harness.flush();
+
+      const before = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'config:pricing-get',
+      ).length;
+      await service.refreshModels();
+      const after = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'config:pricing-get',
+      ).length;
+
+      // A boot that raced the catalog fetch must not be stuck on the bundled
+      // table for the rest of the run.
+      expect(after).toBeGreaterThan(before);
+    });
+
+    it('does not re-fetch on refresh once hydrated', async () => {
+      routeRpc({
+        'config:pricing-get': rpcSuccess({ pricing: {}, hydrated: true }),
+      });
+
+      const service = createService();
+      const harness = makeSignalStoreHarness<ModelStoreState>(service);
+      await harness.flush();
+
+      const before = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'config:pricing-get',
+      ).length;
+      await service.refreshModels();
+      const after = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'config:pricing-get',
+      ).length;
+
+      expect(after).toBe(before);
     });
   });
 });

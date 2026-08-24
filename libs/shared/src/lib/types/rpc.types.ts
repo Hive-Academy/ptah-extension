@@ -110,6 +110,7 @@ import type {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  ConfigPricingGetResult,
 } from './rpc/rpc-config.types';
 
 import type {
@@ -711,6 +712,10 @@ export interface RpcMethodRegistry {
   'config:effort-set': {
     params: ConfigEffortSetParams;
     result: ConfigEffortSetResult;
+  };
+  'config:pricing-get': {
+    params: Record<string, never>;
+    result: ConfigPricingGetResult;
   };
   'auth:getHealth': {
     params: AuthGetHealthParams;
@@ -3363,6 +3368,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'config:models-list': true,
   'config:effort-get': true,
   'config:effort-set': true,
+  'config:pricing-get': true,
   'auth:getHealth': true,
   'auth:saveSettings': true,
   'auth:testConnection': true,
