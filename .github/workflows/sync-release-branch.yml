@@ -1,0 +1,144 @@
+# Fast-forward a release/* branch to main, then dispatch its pipeline.
+#
+# WHY THIS EXISTS
+# The release branches carry no unique work — they are deploy triggers that
+# only ever receive main. They used to be updated by opening a PR from main and
+# merging it, which quietly rotted them:
+#
+#   1. main carries files that `nx format:check` flags (there is no format gate).
+#   2. .lintstagedrc.mjs runs `nx format:write` on staged *.{ts,js,json,md}.
+#   3. A LOCAL merge of main into a release branch that hits conflicts stages
+#      those files; committing fires husky, which reformats them. The merge
+#      commit now differs from main in files nobody edited.
+#   4. Next time main touches one of those files, both sides have changed, so
+#      it CONFLICTS. Hand-resolving produces content that exists nowhere in
+#      main, and it sticks — every later merge re-conflicts on it.
+#
+# That is how release/electron ended up holding the pre-open-source premium
+# gating in gateway-chat-bridge.ts months after main deleted it (PR #443).
+#
+# A fast-forward has no merge commit, runs no hook, and has nothing to resolve,
+# so steps 3 and 4 cannot happen. If a release branch has drifted, this job
+# refuses to push and prints the divergent commits instead of papering over it.
+name: Sync Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Release branch to fast-forward to main'
+        required: true
+        type: choice
+        options:
+          - landing
+          - docs
+          - electron
+      trigger_pipeline:
+        description: 'Dispatch the deploy/publish workflow after syncing'
+        required: false
+        type: boolean
+        default: true
+      bump:
+        description: 'Version bump (electron only, ignored otherwise)'
+        required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+concurrency:
+  group: sync-release-${{ inputs.target }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fast-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fast-forward release/${{ inputs.target }} to main
+        env:
+          BRANCH: release/${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+
+          MAIN_SHA="$(git rev-parse origin/main)"
+          BRANCH_SHA="$(git rev-parse "origin/$BRANCH")"
+
+          if [ "$MAIN_SHA" = "$BRANCH_SHA" ]; then
+            echo "$BRANCH is already at main ($MAIN_SHA). Nothing to push."
+            exit 0
+          fi
+
+          # The whole guarantee: refuse anything that is not a fast-forward.
+          # A release branch that is not an ancestor of main has picked up work
+          # of its own -- reformatted merge commits, a hotfix landed directly,
+          # a hand-resolved conflict. Pushing over it would destroy that, and
+          # merging it back would be how the rot started. Stop and show it.
+          if ! git merge-base --is-ancestor "origin/$BRANCH" origin/main; then
+            {
+              echo "### :x: \`$BRANCH\` has drifted from main"
+              echo
+              echo "It is not an ancestor of main, so this cannot fast-forward."
+              echo
+              echo "Commits on \`$BRANCH\` that main does not have:"
+              echo '```'
+              git log --oneline origin/main.."origin/$BRANCH"
+              echo '```'
+              echo
+              echo "Files differing from main:"
+              echo '```'
+              git diff --stat origin/main "origin/$BRANCH"
+              echo '```'
+              echo
+              echo "Decide deliberately: port anything real onto main, then"
+              echo "reset the branch with \`git push --force-with-lease\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$BRANCH is not an ancestor of main — refusing to push."
+            exit 1
+          fi
+
+          echo "Fast-forwarding $BRANCH: $BRANCH_SHA -> $MAIN_SHA"
+          git push origin "$MAIN_SHA:refs/heads/$BRANCH"
+
+      - name: Verify the branch now matches main exactly
+        env:
+          BRANCH: release/${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+          if ! git diff --quiet origin/main "origin/$BRANCH"; then
+            echo "::error::$BRANCH still differs from main after the push."
+            git diff --stat origin/main "origin/$BRANCH"
+            exit 1
+          fi
+          echo ":white_check_mark: \`$BRANCH\` is byte-identical to main." >> "$GITHUB_STEP_SUMMARY"
+
+      # A push made with GITHUB_TOKEN does not trigger other workflows, so the
+      # deploy/publish job that listens on `push: release/*` will NOT fire on
+      # its own. Dispatch it explicitly.
+      - name: Dispatch the pipeline for release/${{ inputs.target }}
+        if: ${{ inputs.trigger_pipeline }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ inputs.target }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            landing)  gh workflow run deploy-landing.yml  --ref "release/landing" ;;
+            docs)     gh workflow run deploy-docs.yml     --ref "release/docs" ;;
+            electron) gh workflow run publish-electron.yml --ref "release/electron" -f "bump=$BUMP" ;;
+          esac
+          echo "Dispatched the pipeline for release/$TARGET." >> "$GITHUB_STEP_SUMMARY"
