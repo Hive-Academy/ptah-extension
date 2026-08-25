@@ -24,6 +24,14 @@ import type { ChatSdkContextService } from '../session/chat-sdk-context.service'
 interface PtahCliSessionEntry {
   readonly agentId: string;
   readonly agentName: string;
+  /**
+   * Key of this session's proxy lease in `PtahCliRegistry`. The entry object
+   * is shared between the `tabId` and `realSessionId` map keys, so whichever
+   * key an abort or delete arrives under, it releases the same lease
+   * (TASK_2026_323 — a third session on one agent must not stop the proxy
+   * sessions 1 and 2 are still using).
+   */
+  readonly leaseKey: string;
 }
 
 /**
@@ -82,7 +90,8 @@ export class ChatPtahCliService {
       workspacePath,
     });
 
-    const profile = await this.ptahCliRegistry.getProfile(agentId);
+    const leaseKey = tabId;
+    const profile = await this.ptahCliRegistry.getProfile(agentId, leaseKey);
     if (!profile) {
       this.logger.error(`[RPC] Ptah CLI profile not found: ${agentId}`);
       return {
@@ -106,7 +115,9 @@ export class ChatPtahCliService {
     });
 
     if (mcpServerRunning) {
-      this.codeExecutionMcp.ensureRegisteredForSubagents();
+      // Awaited: the CLI spawned below reads `.mcp.json` to discover this
+      // server, so the entry has to be on disk first (TASK_2026_318).
+      await this.codeExecutionMcp.ensureRegisteredForSubagents();
     }
 
     const enhancedPromptsContent =
@@ -125,7 +136,7 @@ export class ChatPtahCliService {
       providerProfile: profile,
     });
 
-    this.ptahCliSessions.set(tabId, { agentId, agentName });
+    this.ptahCliSessions.set(tabId, { agentId, agentName, leaseKey });
 
     this.logger.info('[RPC] chat:start - Ptah CLI session started', {
       tabId,
@@ -159,7 +170,7 @@ export class ChatPtahCliService {
     });
 
     if (this.sdkContext.isMcpServerRunning()) {
-      this.codeExecutionMcp.ensureRegisteredForSubagents();
+      await this.codeExecutionMcp.ensureRegisteredForSubagents();
     }
 
     if (!this.agentAdapter.isSessionActive(sessionId)) {
@@ -195,6 +206,7 @@ export class ChatPtahCliService {
     this.agentAdapter.endSession(sessionId);
 
     this.ptahCliSessions.delete(sessionId as string);
+    await this.ptahCliRegistry.releaseProfile(entry.leaseKey);
 
     return { success: true };
   }
@@ -228,7 +240,21 @@ export class ChatPtahCliService {
   }
 
   deleteSession(key: string): void {
+    const entry = this.ptahCliSessions.get(key);
     this.ptahCliSessions.delete(key);
+    if (entry) {
+      // Fire-and-forget: callers are synchronous, and `releaseProfile` is a
+      // no-op on an unknown key, so a double release (abort then delete) is
+      // harmless.
+      void this.ptahCliRegistry
+        .releaseProfile(entry.leaseKey)
+        .catch((error: unknown) => {
+          this.logger.warn('[RPC] Ptah CLI proxy lease release failed', {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
   }
 
   registerResumedSession(
@@ -239,6 +265,7 @@ export class ChatPtahCliService {
     const entry: PtahCliSessionEntry = {
       agentId: ptahCliId,
       agentName: ptahCliId,
+      leaseKey: tabId ?? sessionId,
     };
     this.ptahCliSessions.set(sessionId, entry);
     if (tabId) {

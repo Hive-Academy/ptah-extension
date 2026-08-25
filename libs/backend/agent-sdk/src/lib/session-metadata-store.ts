@@ -15,7 +15,19 @@
  * - Messages (SDK handles this)
  * - Conversation history (SDK handles this)
  * - Message content (SDK handles this)
+ * - CLI agent stream events (own key per agent — see {@link PersistedAgentOutput})
  *
+ * All sessions live under ONE storage key, so every write re-serializes every
+ * session. Two rules keep that affordable, and both were bought the hard way
+ * (TASK_2026_323 blocker B5):
+ *
+ *  1. Nothing unbounded goes in the blob. A `CliSessionReference` carries ids,
+ *     status and a short segment tail; the bulk output lives under
+ *     `ptah.agentOutput:<agentId>`, written once when the agent exits and read
+ *     back only when a session is restored.
+ *  2. A burst of writes serializes once. Mutations are staged in memory and
+ *     flushed when the write queue drains, so ten CLI agents exiting together
+ *     cost one `IStateStorage.update`, not ten.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -25,7 +37,9 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
 import type {
+  CliOutputSegment,
   CliSessionReference,
+  FlatStreamEventUnion,
   SessionMetadataChangedNotification,
   SessionMetadataChangeKind,
 } from '@ptah-extension/shared';
@@ -83,9 +97,79 @@ export interface SessionMetadata {
 }
 
 /**
+ * Bulk output captured from one CLI agent, stored under its OWN key.
+ *
+ * `streamEvents` used to be embedded in the `CliSessionReference` inside the
+ * all-sessions blob. An agent can accumulate 50 000 of them
+ * (`MAX_ACCUMULATED_STREAM_EVENTS`), and every session metadata write
+ * re-serializes EVERY session — so N agents spawning and exiting cost
+ * O(N² × events) bytes of JSON on the main thread (TASK_2026_323 blocker B5).
+ * Splitting them onto a per-agent key makes that cost O(N × events), paid once
+ * at exit, and leaves the hot all-sessions blob small enough to rewrite freely.
+ */
+export interface PersistedAgentOutput {
+  /** Agent this output belongs to (same value as `CliSessionReference.agentId`). */
+  readonly agentId: string;
+  /** When the snapshot was taken (ms epoch). */
+  readonly savedAt: number;
+  /** Full structured segments (already capped upstream at 500). */
+  readonly segments?: readonly CliOutputSegment[];
+  /** Rich stream events for the execution-tree renderer (Ptah CLI only). */
+  readonly streamEvents?: readonly FlatStreamEventUnion[];
+}
+
+/**
  * Storage key for session metadata
  */
 const STORAGE_KEY = 'ptah.sessionMetadata';
+
+/** Key prefix for per-agent bulk output. One key per agent, written once. */
+const AGENT_OUTPUT_KEY_PREFIX = 'ptah.agentOutput:';
+
+/**
+ * Segments retained INLINE on a `CliSessionReference`.
+ *
+ * The Codex / Copilot agent cards render `segments` directly, so a small tail
+ * keeps a restored card useful even before {@link
+ * SessionMetadataStore.getCliSessionsForRestore} rehydrates the full set from
+ * the per-agent key.
+ */
+const MAX_PERSISTED_REF_SEGMENTS = 200;
+
+function agentOutputKey(agentId: string): string {
+  return `${AGENT_OUTPUT_KEY_PREFIX}${agentId}`;
+}
+
+/**
+ * Strip the bulk fields from a CLI session reference before it enters the
+ * all-sessions blob. `streamEvents` never belongs there; `segments` is trimmed
+ * to a tail. Returns the SAME object when nothing needed removing so callers
+ * can cheaply detect a no-op.
+ */
+function leanCliSessionRef(ref: CliSessionReference): CliSessionReference {
+  const segmentCount = ref.segments?.length ?? 0;
+  if (
+    ref.streamEvents === undefined &&
+    segmentCount <= MAX_PERSISTED_REF_SEGMENTS
+  ) {
+    return ref;
+  }
+  const lean: Record<string, unknown> = { ...ref };
+  delete lean['streamEvents'];
+  if (ref.segments && segmentCount > MAX_PERSISTED_REF_SEGMENTS) {
+    lean['segments'] = ref.segments.slice(-MAX_PERSISTED_REF_SEGMENTS);
+  }
+  return lean as unknown as CliSessionReference;
+}
+
+/** Apply {@link leanCliSessionRef} across a record's `cliSessions`. */
+function withLeanCliSessions(metadata: SessionMetadata): SessionMetadata {
+  const refs = metadata.cliSessions;
+  if (!refs || refs.length === 0) return metadata;
+  const lean = refs.map(leanCliSessionRef);
+  const unchanged = lean.every((ref, i) => ref === refs[i]);
+  return unchanged ? metadata : { ...metadata, cliSessions: lean };
+}
 
 /**
  * Session Metadata Store
@@ -107,6 +191,22 @@ export class SessionMetadataStore {
    * Each write waits for the previous one to complete before reading fresh data.
    */
   private writeQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * Number of write operations currently queued (running or waiting).
+   * Only the LAST one to finish flushes {@link pendingAll} to storage — see
+   * {@link settleWrite}.
+   */
+  private queueDepth = 0;
+
+  /**
+   * The all-sessions array as mutated by writes that have not yet reached
+   * storage. Non-null only between a staged mutation and its flush, which is
+   * always within the same write-queue drain, so a workspace switch cannot
+   * slip in between. Reads consult it so a caller never observes its own write
+   * as missing.
+   */
+  private pendingAll: SessionMetadata[] | null = null;
 
   /**
    * Emits `session:metadataChanged` events after each successful mutation
@@ -178,7 +278,7 @@ export class SessionMetadataStore {
 
     if (index >= 0) {
       const existing = all[index];
-      all[index] = {
+      all[index] = withLeanCliSessions({
         ...metadata,
         ...(existing.isChildSession && !metadata.isChildSession
           ? { isChildSession: true }
@@ -186,15 +286,48 @@ export class SessionMetadataStore {
         ...(existing.cliSessions && !metadata.cliSessions
           ? { cliSessions: existing.cliSessions }
           : {}),
-      };
+      });
     } else {
-      all.push(metadata);
+      all.push(withLeanCliSessions(metadata));
     }
 
-    await this.storage.update(STORAGE_KEY, all);
+    this.stage(all);
     this.logger.debug(
-      `[SessionMetadataStore] Saved metadata for session ${metadata.sessionId}`,
+      `[SessionMetadataStore] Staged metadata for session ${metadata.sessionId}`,
     );
+  }
+
+  /**
+   * Record the new all-sessions array without touching storage. The flush is
+   * deferred to the end of the write-queue drain ({@link settleWrite}), so a
+   * burst of writes — ten CLI agents exiting at once, or the re-persist pass
+   * that runs for every exited agent when a session id resolves — serializes
+   * the blob ONCE instead of once per event (TASK_2026_323 blocker B5).
+   *
+   * This is a coalesce, not a write-behind: `await save()` still resolves only
+   * after the value has reached `IStateStorage`, because the flush happens
+   * inside the awaited queue entry. Nothing is lost if the process exits.
+   */
+  private stage(all: SessionMetadata[]): void {
+    this.pendingAll = all;
+  }
+
+  /**
+   * Write the staged snapshot, if any. Public so a host can force durability
+   * at a checkpoint; normally called for you when the write queue drains.
+   *
+   * `pendingAll` is cleared only AFTER the update resolves, and only when it is
+   * still the snapshot we wrote — otherwise an unqueued reader would fall back
+   * to storage that has not caught up yet, and a write landing mid-flush would
+   * be discarded.
+   */
+  async flush(): Promise<void> {
+    const snapshot = this.pendingAll;
+    if (!snapshot) return;
+    await this.storage.update(STORAGE_KEY, snapshot);
+    if (this.pendingAll === snapshot) {
+      this.pendingAll = null;
+    }
   }
 
   /**
@@ -226,10 +359,101 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Get all session metadata
+   * Get all session metadata.
+   *
+   * Served from the staged snapshot while a write-queue drain is in progress
+   * so a read never observes a mutation that has been applied but not yet
+   * flushed. Always a fresh array — `_saveInternal` mutates what it gets back.
    */
   async getAll(): Promise<SessionMetadata[]> {
+    if (this.pendingAll) return [...this.pendingAll];
     return (await this.storage.get<SessionMetadata[]>(STORAGE_KEY)) || [];
+  }
+
+  /**
+   * Persist one agent's bulk output under its OWN storage key.
+   *
+   * Called once, when the agent exits. Nothing here ever reaches the
+   * all-sessions blob — that is the entire point of the split. A snapshot with
+   * neither segments nor stream events writes nothing.
+   */
+  async saveAgentOutput(
+    agentId: string,
+    output: {
+      segments?: readonly CliOutputSegment[];
+      streamEvents?: readonly FlatStreamEventUnion[];
+    },
+  ): Promise<void> {
+    if (blankToUndefined(agentId) === undefined) return;
+    const hasSegments = (output.segments?.length ?? 0) > 0;
+    const hasStreamEvents = (output.streamEvents?.length ?? 0) > 0;
+    if (!hasSegments && !hasStreamEvents) return;
+
+    const record: PersistedAgentOutput = {
+      agentId,
+      savedAt: Date.now(),
+      ...(hasSegments ? { segments: output.segments } : {}),
+      ...(hasStreamEvents ? { streamEvents: output.streamEvents } : {}),
+    };
+    await this.storage.update(agentOutputKey(agentId), record);
+    this.logger.debug(
+      `[SessionMetadataStore] Stored agent output for ${agentId}`,
+      {
+        segments: output.segments?.length ?? 0,
+        streamEvents: output.streamEvents?.length ?? 0,
+      },
+    );
+  }
+
+  /** Read one agent's bulk output, or null when nothing was stored. */
+  async getAgentOutput(agentId: string): Promise<PersistedAgentOutput | null> {
+    if (blankToUndefined(agentId) === undefined) return null;
+    return (
+      (await this.storage.get<PersistedAgentOutput>(agentOutputKey(agentId))) ??
+      null
+    );
+  }
+
+  /** Drop one agent's bulk output. Silent when there is nothing stored. */
+  async deleteAgentOutput(agentId: string): Promise<void> {
+    if (blankToUndefined(agentId) === undefined) return;
+    await this.storage.update(agentOutputKey(agentId), undefined);
+  }
+
+  /**
+   * CLI session references for a session, rehydrated with the bulk output the
+   * blob no longer carries.
+   *
+   * This is the LAZY read half of the split: the restore path (RPC
+   * `session:cli-sessions`, and the `cliSessions` payload of `chat:resume`)
+   * calls this instead of spreading `metadata.cliSessions`, so the agent cards
+   * still get their `streamEvents` execution tree and full `segments` — but
+   * only when someone actually asks to restore a session, rather than on every
+   * agent spawn and exit.
+   */
+  async getCliSessionsForRestore(
+    sessionId: string,
+  ): Promise<CliSessionReference[]> {
+    const metadata = await this.get(sessionId);
+    const refs = metadata?.cliSessions;
+    if (!refs || refs.length === 0) return [];
+
+    const hydrated: CliSessionReference[] = [];
+    for (const ref of refs) {
+      const output = await this.getAgentOutput(ref.agentId);
+      if (!output) {
+        hydrated.push(ref);
+        continue;
+      }
+      hydrated.push({
+        ...ref,
+        ...(output.segments?.length ? { segments: output.segments } : {}),
+        ...(output.streamEvents?.length
+          ? { streamEvents: output.streamEvents }
+          : {}),
+      });
+    }
+    return hydrated;
   }
 
   /**
@@ -329,17 +553,21 @@ export class SessionMetadataStore {
       const existingIndex = existing.findIndex(
         (s) => s.cliSessionId === cliSession.cliSessionId,
       );
+      // Bulk output goes to its own key (`saveAgentOutput`), never into the
+      // all-sessions blob. Callers that hand us a fat reference are trimmed
+      // here rather than trusted.
+      const lean = leanCliSessionRef(cliSession);
 
       let updated: readonly CliSessionReference[];
       if (existingIndex >= 0) {
         const mutable = [...existing];
-        mutable[existingIndex] = cliSession;
+        mutable[existingIndex] = lean;
         updated = mutable;
         this.logger.info(
           `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`,
         );
       } else {
-        updated = [...existing, cliSession];
+        updated = [...existing, lean];
         this.logger.info(
           `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`,
         );
@@ -372,10 +600,19 @@ export class SessionMetadataStore {
    */
   private async _deleteInternal(sessionId: string): Promise<void> {
     const all = await this.getAll();
+    const removed = all.filter((m) => m.sessionId === sessionId);
     const filtered = all.filter((m) => m.sessionId !== sessionId);
 
     if (filtered.length !== all.length) {
-      await this.storage.update(STORAGE_KEY, filtered);
+      this.stage(filtered);
+      // The per-agent output keys are only reachable through this session's
+      // references, so dropping the session without them would leak a key per
+      // agent forever.
+      for (const record of removed) {
+        for (const ref of record.cliSessions ?? []) {
+          await this.deleteAgentOutput(ref.agentId);
+        }
+      }
       this.logger.info(
         `[SessionMetadataStore] Deleted metadata for session ${sessionId}`,
       );
@@ -566,12 +803,52 @@ export class SessionMetadataStore {
    * Enqueue a write operation. Each write waits for the previous one to finish
    * before executing, ensuring read-modify-write cycles see fresh data.
    * Errors are propagated to the caller but don't break the queue chain.
+   *
+   * The operation stages its result in memory; the storage write happens in
+   * {@link settleWrite} once no further operation is queued behind it. The
+   * caller still awaits the storage write, so `save()` keeps its durability
+   * contract while a burst costs one serialize instead of N.
    */
   private enqueueWrite(fn: () => Promise<void>): Promise<void> {
-    const next = this.writeQueue.then(fn, () => fn());
+    this.queueDepth++;
+    const next = this.writeQueue
+      .then(fn, () => fn())
+      .then(
+        () => this.settleWrite(),
+        async (error: unknown) => {
+          // The operation's own failure is what the caller is waiting to hear —
+          // `addCliSession` callers branch on "Parent session not found". A
+          // flush failure on top of it is logged inside settleWrite, not
+          // substituted for the original.
+          await this.settleWrite().catch(() => undefined);
+          throw error;
+        },
+      );
     this.writeQueue = next.catch(() => {
       /* swallow to keep chain alive */
     });
     return next;
+  }
+
+  /**
+   * Leave the write queue. The last operation out flushes what the whole burst
+   * staged; the others return immediately, having contributed their mutation
+   * to the snapshot the last one writes.
+   *
+   * A failed flush keeps the snapshot staged, so the value stays visible to
+   * readers and the next write retries it rather than silently dropping it.
+   */
+  private async settleWrite(): Promise<void> {
+    this.queueDepth--;
+    if (this.queueDepth > 0) return;
+    try {
+      await this.flush();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[SessionMetadataStore] Failed to flush session metadata',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      throw error;
+    }
   }
 }

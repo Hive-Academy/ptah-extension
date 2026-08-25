@@ -47,7 +47,7 @@ export async function bringUpSubsystems(
       const mcpService = container.resolve(TOKENS.CODE_EXECUTION_MCP) as {
         start: () => Promise<number>;
         getPort: () => number | null;
-        ensureRegisteredForSubagents: () => void;
+        ensureRegisteredForSubagents: () => void | Promise<void>;
       };
 
       if (mcpService.getPort() !== null) {
@@ -61,7 +61,9 @@ export async function bringUpSubsystems(
         logger.info(`[SubsystemBringUp] MCP server started on port ${port}`);
       }
       try {
-        mcpService.ensureRegisteredForSubagents();
+        // Awaited so a rejection lands in this catch rather than as an
+        // unhandled rejection — the call became async in TASK_2026_318.
+        await mcpService.ensureRegisteredForSubagents();
       } catch (regError: unknown) {
         logger.warn(
           '[SubsystemBringUp] MCP ensureRegisteredForSubagents failed (non-fatal)',

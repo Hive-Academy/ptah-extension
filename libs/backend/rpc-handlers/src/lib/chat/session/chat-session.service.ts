@@ -401,7 +401,10 @@ export class ChatSessionService {
       });
 
       if (mcpServerRunning) {
-        this.codeExecutionMcp.ensureRegisteredForSubagents();
+        // Awaited: subagents spawned by this session discover the server
+        // through `.mcp.json`, so the entry must be on disk before the session
+        // starts (TASK_2026_318).
+        await this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
 
       const enhancedPromptsContent =
@@ -526,7 +529,7 @@ export class ChatSessionService {
         return ptahCliResult;
       }
       if (this.sdkContext.isMcpServerRunning()) {
-        this.codeExecutionMcp.ensureRegisteredForSubagents();
+        await this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
       const resumeOutcome = await this.autoResumeIfInactive(
         sessionId,
@@ -675,9 +678,12 @@ export class ChatSessionService {
         this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
-        const metadata = await this.sessionMetadataStore.get(sessionId);
-        if (metadata?.cliSessions && metadata.cliSessions.length > 0) {
-          cliSessions = [...metadata.cliSessions];
+        // Rehydrates full agent output from the per-agent keys (TASK_2026_323
+        // B5); must agree with `session:cli-sessions`, the other restore path.
+        const restored =
+          await this.sessionMetadataStore.getCliSessionsForRestore(sessionId);
+        if (restored.length > 0) {
+          cliSessions = restored;
           this.logger.info('[RPC] CLI sessions found for session', {
             sessionId,
             cliSessionCount: cliSessions.length,

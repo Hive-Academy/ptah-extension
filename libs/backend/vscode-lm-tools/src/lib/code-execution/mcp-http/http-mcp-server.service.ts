@@ -35,6 +35,7 @@ import { type IIDECapabilities } from '../namespace-builders';
 import { PermissionPromptService } from '../../permission/permission-prompt.service';
 import { PtahAPI } from '../types';
 import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
+import { withMcpConfigLock } from '@ptah-extension/harness-sync';
 import {
   startHttpServer,
   stopHttpServer,
@@ -94,10 +95,20 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     this.hasIDECapabilities = ideCapabilities !== undefined;
     this.hasSqliteLayer = this.apiBuilder.hasSymbolAndMemoryLayer();
     this.ptahAPI = this.apiBuilder.build();
+    // The event has nowhere to return a promise to, so this one call site is
+    // genuinely fire-and-forget. Nothing waits on the re-point: it only moves
+    // an entry that is already correct for the workspace being left.
     this.workspaceFoldersSubscription =
-      this.workspaceProvider.onDidChangeWorkspaceFolders(() =>
-        this.syncMcpJsonRegistration(),
-      );
+      this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
+        void this.syncMcpJsonRegistration().catch((error: unknown) => {
+          this.logger.warn(
+            `[CodeExecutionMCP] Failed to re-point .mcp.json after a workspace change: ${
+              error instanceof Error ? error.message : error
+            }`,
+            'CodeExecutionMCP',
+          );
+        });
+      });
   }
 
   /**
@@ -149,8 +160,15 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * the same port write nothing. A call after the workspace root changed moves
    * the entry — the old file's `ptah` key is removed before the new file gets
    * one, so exactly one repository on disk ever advertises this server.
+   *
+   * **Await it before spawning anything that reads `.mcp.json`.** It became
+   * async in TASK_2026_318 because the write now takes the config-file lock,
+   * and the callers that start a session immediately afterwards
+   * (`ChatSessionService`, `ChatPtahCliService`, `GatewayChatBridge`) depend on
+   * the entry being on disk before the subagent looks for it. Fire-and-forget
+   * here is a race, not an optimisation.
    */
-  ensureRegisteredForSubagents(): void {
+  async ensureRegisteredForSubagents(): Promise<void> {
     if (!this.port) return;
 
     const target = this.getMcpJsonPath();
@@ -163,9 +181,9 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
     }
 
     if (this.registeredMcpJsonPath && this.registeredMcpJsonPath !== target) {
-      this.unregisterFromMcpJson();
+      await this.unregisterFromMcpJson();
     }
-    this.registerInMcpJson(target, this.port);
+    await this.registerInMcpJson(target, this.port);
   }
 
   /**
@@ -180,15 +198,15 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * we unregister without re-registering, which is what stops a dead-port entry
    * outliving the workspace it was written into.
    */
-  private syncMcpJsonRegistration(): void {
+  private async syncMcpJsonRegistration(): Promise<void> {
     if (this.registeredMcpJsonPath === null) return;
 
     const target = this.getMcpJsonPath();
     if (target === this.registeredMcpJsonPath) return;
 
-    this.unregisterFromMcpJson();
+    await this.unregisterFromMcpJson();
     if (target && this.port) {
-      this.registerInMcpJson(target, this.port);
+      await this.registerInMcpJson(target, this.port);
     }
   }
 
@@ -196,7 +214,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * Stop MCP server and clean up resources
    */
   async stop(): Promise<void> {
-    this.unregisterFromMcpJson();
+    await this.unregisterFromMcpJson();
     await stopHttpServer(this.server, this.workspaceState, this.logger);
     this.server = null;
     this.port = null;
@@ -258,25 +276,45 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * Without this, only the parent SDK session has access to Ptah tools via
    * the programmatic `Options.mcpServers` config — subagents get nothing.
    */
-  private registerInMcpJson(mcpJsonPath: string, port: number): void {
+  private async registerInMcpJson(
+    mcpJsonPath: string,
+    port: number,
+  ): Promise<void> {
     try {
-      // Read-merge-write, deliberately. `.mcp.json` is a USER-OWNED file that
-      // may hold hand-authored servers; only the `ptah` key is ours to touch
-      // and a blocking writeFileSync over it has no undo.
-      let config: Record<string, unknown> = {};
-      if (fs.existsSync(mcpJsonPath)) {
-        const content = fs.readFileSync(mcpJsonPath, 'utf-8');
-        config = JSON.parse(content);
-      }
+      // `harness-sync` also writes this file (it is the `claude` target's MCP
+      // facet), so the read-modify-write below runs inside that lib's
+      // config-file lock (TASK_2026_318). Atomicity is NOT the same problem:
+      // a temp+rename guarantees no reader sees half a file and guarantees
+      // nothing about two writers that each READ, each edit their own key and
+      // each write their own copy back — the second write wins whole and the
+      // first key is gone, silently.
+      //
+      // This is the same borrow `AntigravityCliAdapter` makes on
+      // `~/.gemini/config/mcp_config.json`: the MECHANISM comes from
+      // `harness-sync`, the POLICY stays here. Recording an intent for the
+      // reconciler to write instead would be wrong — `ptah` is an ephemeral
+      // per-session localhost port, and the reconciler's desired state is the
+      // user's DURABLE `~/.ptah/mcp-installed.json`, which it fans out to every
+      // detected CLI.
+      await withMcpConfigLock(mcpJsonPath, async () => {
+        // Read-merge-write, deliberately. `.mcp.json` is a USER-OWNED file that
+        // may hold hand-authored servers; only the `ptah` key is ours to touch
+        // and a blocking writeFileSync over it has no undo.
+        let config: Record<string, unknown> = {};
+        if (fs.existsSync(mcpJsonPath)) {
+          const content = fs.readFileSync(mcpJsonPath, 'utf-8');
+          config = JSON.parse(content);
+        }
 
-      const servers = (config['mcpServers'] as Record<string, unknown>) || {};
-      servers['ptah'] = {
-        type: 'http',
-        url: `http://localhost:${port}`,
-      };
-      config['mcpServers'] = servers;
+        const servers = (config['mcpServers'] as Record<string, unknown>) || {};
+        servers['ptah'] = {
+          type: 'http',
+          url: `http://localhost:${port}`,
+        };
+        config['mcpServers'] = servers;
 
-      fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+        fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+      });
       this.registeredMcpJsonPath = mcpJsonPath;
       this.registeredPort = port;
       this.logger.info(
@@ -302,36 +340,42 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * workspace switch (or after the last folder was removed) it either edited
    * the wrong repository or gave up entirely, leaving the written entry behind.
    */
-  private unregisterFromMcpJson(): void {
+  private async unregisterFromMcpJson(): Promise<void> {
     const mcpJsonPath = this.registeredMcpJsonPath;
     if (!mcpJsonPath) return;
 
     try {
-      if (!fs.existsSync(mcpJsonPath)) {
-        this.clearRegistration();
-        return;
-      }
+      // Under the same lock as registration, and for the same reason — see
+      // `registerInMcpJson`. The whole read/check/delete/write is one critical
+      // section: deciding `ptah` is present and then removing it are two halves
+      // of one decision, and a reconcile landing between them would be written
+      // over by the copy read before it.
+      const removed = await withMcpConfigLock(mcpJsonPath, async () => {
+        if (!fs.existsSync(mcpJsonPath)) return false;
 
-      const content = fs.readFileSync(mcpJsonPath, 'utf-8');
-      const config = JSON.parse(content) as Record<string, unknown>;
-      const servers = (config['mcpServers'] as Record<string, unknown>) || {};
+        const content = fs.readFileSync(mcpJsonPath, 'utf-8');
+        const config = JSON.parse(content) as Record<string, unknown>;
+        const servers = (config['mcpServers'] as Record<string, unknown>) || {};
 
-      if (!('ptah' in servers)) {
-        this.clearRegistration();
-        return;
-      }
+        if (!('ptah' in servers)) return false;
 
-      // Same read-merge-write contract as registration: every other key in the
-      // user's file — their own servers included — is written back untouched.
-      delete servers['ptah'];
-      config['mcpServers'] = servers;
+        // Same read-merge-write contract as registration: every other key in
+        // the user's file — their own servers included — is written back
+        // untouched.
+        delete servers['ptah'];
+        config['mcpServers'] = servers;
 
-      fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+        fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+        return true;
+      });
+
       this.clearRegistration();
-      this.logger.info(
-        `[CodeExecutionMCP] Unregistered ptah from ${mcpJsonPath}`,
-        'CodeExecutionMCP',
-      );
+      if (removed) {
+        this.logger.info(
+          `[CodeExecutionMCP] Unregistered ptah from ${mcpJsonPath}`,
+          'CodeExecutionMCP',
+        );
+      }
     } catch (error) {
       this.logger.warn(
         `[CodeExecutionMCP] Failed to unregister from .mcp.json: ${
