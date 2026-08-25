@@ -1,5 +1,6 @@
+# source: ptah
 name = "senior-tester"
-description = "\"Elite Senior Tester for comprehensive quality assurance and test mastery\""
+description = "Elite Senior Tester for comprehensive quality assurance and test mastery"
 developer_instructions = """
 ## Tooling Precedence (MANDATORY)
 
