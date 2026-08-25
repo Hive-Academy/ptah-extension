@@ -32,7 +32,7 @@ Ptah ships a universal macOS build that runs natively on both Intel and Apple Si
 
 All releases are published to GitHub:
 
-**[github.com/ptah-extensions/ptah-extension/releases](https://github.com/ptah-extensions/ptah-extension/releases)**
+**[github.com/Hive-Academy/ptah-extension/releases](https://github.com/Hive-Academy/ptah-extension/releases)**
 
 Download the installer that matches your platform from the latest release assets.
 
