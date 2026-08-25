@@ -65,6 +65,15 @@ static_sites:
     # App spec field is `envs`, NOT `env_vars` — doctl rejects the whole spec
     # with `unknown field "env_vars"` before it ever reaches the builder.
     # A static site has no runtime, so every var here is BUILD_TIME.
+    # NODE/NPM VERSION — do NOT put a range in `engines.npm`.
+    # The buildpack compares `npm --version` to `engines.npm` with STRING
+    # EQUALITY, so any range ('>=11.0.0', '11.x') never matches and it always
+    # shells out to `npm install -g npm@<range>`. On a node 22 builder that
+    # means npm 10.9.x replacing itself with npm 11, which deletes its own
+    # bundled `promise-retry` mid-reify and dies with MODULE_NOT_FOUND.
+    # Instead `engines.node` is pinned to `24.x`, whose bundled npm 11 already
+    # reads our npm-11 lockfile, and `engines.npm` is omitted so the buildpack
+    # takes the "Using default npm version" path and never self-installs.
     envs:
       # The buildpack defaults to NODE_ENV=production, which skips
       # devDependencies and breaks the Nx/Angular build. Force a full install.

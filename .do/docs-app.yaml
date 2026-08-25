@@ -59,3 +59,7 @@ static_sites:
     output_dir: dist/apps/ptah-docs
     environment_slug: node-js
     catchall_document: index.html
+    # Node/npm version policy is shared with the landing app — see the long
+    # note in .do/app.yaml. Short form: `engines.node` is pinned to `24.x` and
+    # `engines.npm` is omitted, because the buildpack string-compares
+    # `engines.npm` and will otherwise try to self-install npm and crash.
