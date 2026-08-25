@@ -38,6 +38,27 @@ import {
   type DiagnosticsProviderSetup,
 } from '@ptah-extension/platform-core/testing';
 import { TypeScriptDiagnosticsProvider } from './type-script-diagnostics-provider';
+import { tsDiagnosticsWorker } from './ts-diagnostics-worker';
+
+/**
+ * Every behavioural case below runs a real `ts.createProgram` +
+ * `getPreEmitDiagnostics` pass. Even against a one-file fixture that costs
+ * seconds — TypeScript parses, binds and checks its own `lib.*.d.ts` set on
+ * every program — so Jest's 5 s default was always a lottery this suite
+ * happened to keep winning on an idle machine. Stating the real budget makes
+ * the suite report compiler failures instead of stopwatch failures.
+ */
+jest.setTimeout(60_000);
+
+/**
+ * Terminate the shared type-check worker, and AWAIT it. `Worker.terminate()` is
+ * asynchronous: a fire-and-forget teardown lets this file finish while the
+ * thread is still winding down, which Jest reports as a worker process that
+ * "failed to exit gracefully".
+ */
+afterAll(async () => {
+  await tsDiagnosticsWorker.dispose();
+});
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -361,5 +382,259 @@ describe('TypeScriptDiagnosticsProvider', () => {
     expect(result.status).toBe('available');
     if (result.status !== 'available') return;
     expect(result.diagnostics).toEqual([]);
+  });
+
+  /**
+   * TASK_2026_301. `findFiles` took a bare limit of 200 and nothing downstream
+   * could tell "every config in the workspace" from "the first 200 of an
+   * unknown larger number". Configs past the cap were never parsed, never
+   * compiled and never reported — and the result read exactly like a clean
+   * subtree.
+   *
+   * The cap is parameterized so these cases can saturate it with two files
+   * rather than 2000.
+   */
+  describe('partial config discovery cannot report a clean result', () => {
+    it('saturated discovery + zero diagnostics -> unavailable, naming the cap', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const x: number = 1;\n',
+      });
+      // One config returned, cap of one — the page is full, so discovery may
+      // have dropped others. The project itself is clean, which is precisely
+      // the answer this pass is not entitled to give.
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([path.join(root, 'tsconfig.json')]),
+        1,
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      expect(result.status).toBe('unavailable');
+      if (result.status !== 'unavailable') return;
+      expect(result.reason).toContain('maximum of 1 tsconfig');
+      expect(result.reason).toContain('partial coverage');
+    });
+
+    it('saturated discovery + real diagnostics -> still available with those findings', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([path.join(root, 'tsconfig.json')]),
+        1,
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      // Partial coverage does not make a found error wrong. Hiding a real
+      // diagnostic behind a capability message is the worse trade.
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      expect(result.diagnostics.length).toBeGreaterThan(0);
+    });
+
+    it('an unsaturated page still reports a clean project as clean', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const x: number = 1;\n',
+      });
+      // One config returned against a cap of two — discovery is exhausted, so
+      // "clean" is a claim this pass CAN make. Without this case the fix could
+      // regress into reporting every workspace unavailable.
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([path.join(root, 'tsconfig.json')]),
+        2,
+      );
+
+      const result = await provider.getDiagnostics(root);
+
+      expect(result.status).toBe('available');
+      if (result.status !== 'available') return;
+      expect(result.diagnostics).toEqual([]);
+    });
+  });
+
+  /**
+   * TASK_2026_323 blocker B3. `ptah_get_diagnostics` is bound to this provider
+   * in the Electron and CLI hosts, and the core prompt tells every agent to
+   * call it — so three agents in one session call it in a burst, and in
+   * Electron the thread they land on is the MAIN process. The compile now runs
+   * on a worker thread, a burst on one root collapses into one run, and a
+   * repeat within `RESULT_CACHE_TTL_MS` is served from the last result.
+   */
+  describe('does not block the caller and does not re-run per caller', () => {
+    it('leaves the calling event loop free while the compile runs', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const provider = new TypeScriptDiagnosticsProvider(
+        fsProviderReturning([path.join(root, 'tsconfig.json')]),
+      );
+
+      // A 5 ms interval is the probe: it can only tick if the caller's loop is
+      // free. The pre-fix implementation ran `ts.createProgram` inline, so this
+      // counter stayed near zero for the entire call.
+      let ticks = 0;
+      const probe = setInterval(() => {
+        ticks += 1;
+      }, 5);
+
+      const startedAt = Date.now();
+      const result = await provider.getDiagnostics(root);
+      const elapsedMs = Date.now() - startedAt;
+      clearInterval(probe);
+
+      expect(result.status).toBe('available');
+      // Guards the guard: if the compile were somehow instant there would be
+      // nothing to be blocked by, and the tick assertion would prove nothing.
+      expect(elapsedMs).toBeGreaterThan(200);
+      // At minimum one tick per 100 ms of wall clock. Off-thread this lands
+      // near one per 5 ms; on-thread it lands at zero.
+      expect(ticks).toBeGreaterThan(elapsedMs / 100);
+    });
+
+    it('single-flight: concurrent callers on one root share a single run', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const [first, second, third] = await Promise.all([
+        provider.getDiagnostics(root),
+        provider.getDiagnostics(root),
+        provider.getDiagnostics(root),
+      ]);
+
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(1);
+      expect(first.status).toBe('available');
+      expect(second).toEqual(first);
+      expect(third).toEqual(first);
+    });
+
+    it('single-flight releases the slot, so a later call can still run', async () => {
+      // Without the `finally` that clears the in-flight entry, the first run
+      // would be served forever and the TTL would never be consulted.
+      const rootA = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const rootB = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      const fsProvider = createMockFileSystemProvider({
+        findFiles: jest.fn(async (_pattern, _exclude, _maxResults, cwd) =>
+          cwd === rootA
+            ? [path.join(rootA, 'tsconfig.json')]
+            : [path.join(rootB, 'tsconfig.json')],
+        ),
+      });
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      await provider.getDiagnostics(rootA);
+      const resultB = await provider.getDiagnostics(rootB);
+
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+      expect(resultB.status).toBe('available');
+      if (resultB.status !== 'available') return;
+      expect(resultB.diagnostics).toEqual([]);
+    });
+
+    it('cache: a repeat call within the TTL is served without a second compile', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const first = await provider.getDiagnostics(root);
+      const second = await provider.getDiagnostics(root);
+
+      expect(fsProvider.findFiles).toHaveBeenCalledTimes(1);
+      expect(second).toEqual(first);
+    });
+
+    it('cache: the entry expires, so a fixed error is not reported forever', async () => {
+      const root = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const fsProvider = fsProviderReturning([
+        path.join(root, 'tsconfig.json'),
+      ]);
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const realNow = Date.now.bind(Date);
+      let clockOffsetMs = 0;
+      const nowSpy = jest
+        .spyOn(Date, 'now')
+        .mockImplementation(() => realNow() + clockOffsetMs);
+
+      try {
+        const stale = await provider.getDiagnostics(root);
+        expect(stale.status).toBe('available');
+        if (stale.status === 'available') {
+          expect(stale.diagnostics).toHaveLength(1);
+        }
+
+        // The agent fixes the error, then asks again past the TTL.
+        fs.writeFileSync(
+          path.join(root, 'src', 'index.ts'),
+          'export const ok: number = 1;\n',
+        );
+        clockOffsetMs = 60_000;
+
+        const fresh = await provider.getDiagnostics(root);
+
+        expect(fsProvider.findFiles).toHaveBeenCalledTimes(2);
+        expect(fresh.status).toBe('available');
+        if (fresh.status !== 'available') return;
+        expect(fresh.diagnostics).toEqual([]);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
+    it('cache is per root, so one workspace never answers for another', async () => {
+      const rootA = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const bad: number = "nope";\n',
+      });
+      const rootB = writeFixture({
+        'tsconfig.json': tsconfigContent({ include: ['src/**/*.ts'] }),
+        'src/index.ts': 'export const ok: number = 1;\n',
+      });
+      const fsProvider = createMockFileSystemProvider({
+        findFiles: jest.fn(async (_pattern, _exclude, _maxResults, cwd) =>
+          cwd === rootA
+            ? [path.join(rootA, 'tsconfig.json')]
+            : [path.join(rootB, 'tsconfig.json')],
+        ),
+      });
+      const provider = new TypeScriptDiagnosticsProvider(fsProvider);
+
+      const [resultA, resultB] = await Promise.all([
+        provider.getDiagnostics(rootA),
+        provider.getDiagnostics(rootB),
+      ]);
+
+      expect(resultA.status).toBe('available');
+      expect(resultB.status).toBe('available');
+      if (resultA.status !== 'available' || resultB.status !== 'available') {
+        return;
+      }
+      expect(resultA.diagnostics).toHaveLength(1);
+      expect(resultB.diagnostics).toEqual([]);
+    });
   });
 });
