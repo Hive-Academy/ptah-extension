@@ -199,6 +199,24 @@ module.exports = {
       // sheet. Don't.
     ],
     darkTheme: 'anubis',
+    // Keep the eager themes OFF bare `:root`.
+    //
+    // daisyUI copies the first theme to `themeRoot` (default `:root`) as an
+    // unconditional fallback, on top of the `[data-theme=anubis]` block it
+    // emits anyway. That `:root` copy and `theme-extra.css`'s
+    // `[data-theme=<one of 32>]` rules have the SAME specificity (0,1,0), so
+    // which one wins is decided purely by sheet order — and the deferred sheet
+    // loads BEFORE styles.css (index.html inserts it while the parser is still
+    // mid-`<head>`, and the build appends styles.css at the end of `<head>`).
+    // anubis therefore won every deferred theme, and selecting one of the 32
+    // changed only `--bcm`, which styles.css sets per theme further down.
+    //
+    // Pointing themeRoot at the theme's own attribute selector collapses the
+    // duplicate: styles.css now contributes NO theme variables unless
+    // `data-theme` is actually `anubis`. `<html data-theme="anubis">` is
+    // hardcoded in index.html and ThemeService always writes the attribute, so
+    // nothing relies on the bare-`:root` fallback.
+    themeRoot: '[data-theme=anubis]',
     base: true,
     styled: true,
     utils: true,
