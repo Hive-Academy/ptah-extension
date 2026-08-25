@@ -268,6 +268,17 @@ jobs:
       - name: Copy tree-sitter WASM (re-copy pre-pack)
         run: node scripts/copy-wasm.js dist/apps/ptah-electron
 
+      # Same cache-restore hazard as the WASM re-copy above, one file over:
+      # build-main's outputs include dist/apps/ptah-electron/package.json, so a
+      # restore brings back the UNPRUNED manifest that Nx generated from the
+      # project graph. Packing that manifest walks electron-builder into the
+      # renderer's packages and it dies on
+      #   production dependency not found  parent=monaco-editor
+      #     dependency=dompurify version=3.2.7
+      # because it does not read npm `overrides`. Re-run the prune (idempotent).
+      - name: Prune renderer-only deps from the packaged manifest (pre-pack)
+        run: node apps/ptah-electron/scripts/prune-dist-deps.js
+
       # macOS / Linux: single-shot package (build app + distributable together).
       # Windows is split below into dir-build -> sign-exe -> repack-NSIS so the
       # main app executable (Ptah.exe) carries the SSL.com IV signature INSIDE
