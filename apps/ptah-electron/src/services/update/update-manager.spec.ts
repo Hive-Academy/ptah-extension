@@ -10,6 +10,10 @@
  *   - Mock electron net.fetch to return a releases payload.
  *   - Override process.platform for installer-asset selection tests.
  *   - Instantiate UpdateManager directly (no DI container).
+ *
+ * Timing: both the deferred first check and the single retry sleep on real
+ * `setTimeout` calls, so every test that crosses one of those pauses installs
+ * fake timers and advances them. `afterEach` restores real timers.
  */
 
 import 'reflect-metadata';
@@ -26,6 +30,11 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 const getVersion = app.getVersion as jest.Mock;
 const netFetch = net.fetch as unknown as jest.Mock;
+
+// Mirrors the private constants in update-manager.ts.
+const INITIAL_CHECK_DELAY_MS = 10_000;
+const RETRY_DELAY_MS = 3_000;
+const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // DI stub factories
@@ -44,16 +53,34 @@ function makeWebviewManager() {
   return { broadcastMessage: jest.fn().mockResolvedValue(undefined) };
 }
 
+/** In-memory IStateStorage — the same synchronous get / async update contract. */
+function makeStateStorage(seed: Record<string, unknown> = {}) {
+  const store = new Map<string, unknown>(Object.entries(seed));
+  return {
+    get: jest.fn((key: string) => store.get(key)),
+    update: jest.fn(async (key: string, value: unknown) => {
+      store.set(key, value);
+    }),
+    keys: jest.fn(() => [...store.keys()]),
+  };
+}
+
 function createUpdateManager(
   overrides: {
     logger?: ReturnType<typeof makeLogger>;
     webviewManager?: ReturnType<typeof makeWebviewManager>;
+    stateStorage?: ReturnType<typeof makeStateStorage>;
   } = {},
 ) {
   const logger = overrides.logger ?? makeLogger();
   const webviewManager = overrides.webviewManager ?? makeWebviewManager();
-  const manager = new UpdateManager(webviewManager as never, logger as never);
-  return { manager, logger, webviewManager };
+  const stateStorage = overrides.stateStorage ?? makeStateStorage();
+  const manager = new UpdateManager(
+    webviewManager as never,
+    logger as never,
+    stateStorage as never,
+  );
+  return { manager, logger, webviewManager, stateStorage };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +146,19 @@ function availablePayload(
 function lastState(webviewManager: ReturnType<typeof makeWebviewManager>) {
   const calls = webviewManager.broadcastMessage.mock.calls;
   return calls[calls.length - 1]?.[1] as UpdateLifecycleState | undefined;
+}
+
+/**
+ * Run a check whose first fetch attempt fails, so the single retry runs.
+ *
+ * The retry sleeps on a real `setTimeout`, so the pause has to be advanced on
+ * fake timers or the returned promise never settles.
+ */
+async function runCheckThroughRetry(manager: UpdateManager): Promise<void> {
+  jest.useFakeTimers();
+  const done = manager.checkViaGitHub();
+  await jest.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+  await done;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +229,11 @@ describe('UpdateManager', () => {
       process.env['PTAH_E2E'] = '1';
       process.env['PTAH_E2E_ALLOW_UPDATE_CHECK'] = '1';
       mockFetchReleases([release('0.1.49')]);
+      jest.useFakeTimers();
       const { manager } = createUpdateManager();
 
       await manager.start();
-      await Promise.resolve();
-      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(INITIAL_CHECK_DELAY_MS);
 
       expect(netFetch).toHaveBeenCalledTimes(1);
       expect(manager.getCheckInterval()).not.toBeNull();
@@ -201,11 +241,11 @@ describe('UpdateManager', () => {
 
     it('is unaffected when PTAH_E2E is unset — production/default behavior unchanged', async () => {
       mockFetchReleases([release('0.1.49')]);
+      jest.useFakeTimers();
       const { manager } = createUpdateManager();
 
       await manager.start();
-      await Promise.resolve();
-      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(INITIAL_CHECK_DELAY_MS);
 
       expect(netFetch).toHaveBeenCalledTimes(1);
       expect(manager.getCheckInterval()).not.toBeNull();
@@ -331,7 +371,7 @@ describe('UpdateManager', () => {
       } as unknown as Response);
       const { manager, webviewManager } = createUpdateManager();
 
-      await manager.checkViaGitHub();
+      await runCheckThroughRetry(manager);
 
       const state = lastState(webviewManager);
       expect(state?.state).toBe('error');
@@ -344,7 +384,7 @@ describe('UpdateManager', () => {
       netFetch.mockRejectedValue(new Error('ECONNREFUSED'));
       const { manager, webviewManager } = createUpdateManager();
 
-      await manager.checkViaGitHub();
+      await runCheckThroughRetry(manager);
 
       expect(lastState(webviewManager)?.state).toBe('error');
     });
@@ -357,7 +397,7 @@ describe('UpdateManager', () => {
       netFetch.mockRejectedValue(wrapped);
       const { manager, webviewManager } = createUpdateManager();
 
-      await manager.checkViaGitHub();
+      await runCheckThroughRetry(manager);
 
       const state = lastState(webviewManager);
       expect(state?.state).toBe('error');
@@ -372,7 +412,7 @@ describe('UpdateManager', () => {
       netFetch.mockRejectedValue(abort);
       const { manager, webviewManager } = createUpdateManager();
 
-      await manager.checkViaGitHub();
+      await runCheckThroughRetry(manager);
 
       const state = lastState(webviewManager);
       expect(state?.state).toBe('error');
@@ -382,14 +422,56 @@ describe('UpdateManager', () => {
     });
   });
 
-  describe('start()', () => {
-    it('runs an initial check and sets the periodic interval', async () => {
+  describe('checkViaGitHub() — retry', () => {
+    it('retries once and reports available when the second attempt succeeds', async () => {
+      netFetch
+        .mockRejectedValueOnce(new Error('ECONNRESET'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: jest.fn().mockResolvedValue([release('0.1.49')]),
+        } as unknown as Response);
+      const { manager, webviewManager } = createUpdateManager();
+
+      await runCheckThroughRetry(manager);
+
+      expect(netFetch).toHaveBeenCalledTimes(2);
+      expect(availablePayload(webviewManager)?.newVersion).toBe('0.1.49');
+      expect(lastState(webviewManager)?.state).toBe('available');
+    });
+
+    it('makes exactly two attempts before giving up — no unbounded retry loop', async () => {
+      netFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+      const { manager, logger } = createUpdateManager();
+
+      await runCheckThroughRetry(manager);
+
+      expect(netFetch).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[UpdateManager] GitHub releases check failed after a retry',
+        expect.any(Error),
+      );
+    });
+
+    it('does not retry when the first attempt succeeds', async () => {
       mockFetchReleases([release('0.1.49')]);
+      const { manager } = createUpdateManager();
+
+      await manager.checkViaGitHub();
+
+      expect(netFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('start()', () => {
+    it('defers the first check off the boot burst, then reports the update', async () => {
+      mockFetchReleases([release('0.1.49')]);
+      jest.useFakeTimers();
       const { manager, webviewManager } = createUpdateManager();
 
       await manager.start();
-      await Promise.resolve();
-      await Promise.resolve();
+      expect(netFetch).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(INITIAL_CHECK_DELAY_MS);
 
       expect(netFetch).toHaveBeenCalledTimes(1);
       expect(manager.getCheckInterval()).not.toBeNull();
@@ -398,6 +480,7 @@ describe('UpdateManager', () => {
 
     it('is idempotent — calling start() twice creates the interval only once', async () => {
       mockFetchReleases([release('0.1.49')]);
+      jest.useFakeTimers();
       const { manager } = createUpdateManager();
 
       await manager.start();
@@ -414,11 +497,73 @@ describe('UpdateManager', () => {
       const { manager } = createUpdateManager();
 
       await manager.start();
-      const initial = netFetch.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(INITIAL_CHECK_DELAY_MS);
+      expect(netFetch).toHaveBeenCalledTimes(1);
 
-      await jest.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
+      await jest.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
 
-      expect(netFetch.mock.calls.length).toBeGreaterThan(initial);
+      expect(netFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('markDownloaded() — prompt until downloaded', () => {
+    const KEY = 'ptah.update.downloadedVersion';
+
+    it('persists the version the user downloaded', async () => {
+      const { manager, stateStorage } = createUpdateManager();
+
+      await manager.markDownloaded('0.1.49');
+
+      expect(stateStorage.update).toHaveBeenCalledWith(KEY, '0.1.49');
+    });
+
+    it('stops prompting for a version the user already downloaded', async () => {
+      const stateStorage = makeStateStorage({ [KEY]: '0.1.49' });
+      mockFetchReleases([release('0.1.49')]);
+      const { manager, webviewManager } = createUpdateManager({ stateStorage });
+
+      await manager.checkViaGitHub();
+
+      expect(lastState(webviewManager)).toEqual({ state: 'idle' });
+      expect(availablePayload(webviewManager)).toBeUndefined();
+    });
+
+    it('prompts again for a release newer than the downloaded one', async () => {
+      const stateStorage = makeStateStorage({ [KEY]: '0.1.49' });
+      mockFetchReleases([release('0.1.50'), release('0.1.49')]);
+      const { manager, webviewManager } = createUpdateManager({ stateStorage });
+
+      await manager.checkViaGitHub();
+
+      expect(availablePayload(webviewManager)?.newVersion).toBe('0.1.50');
+    });
+
+    it('keeps prompting for a version the user only snoozed', async () => {
+      // No recorded download — "Later" is renderer-side and never reaches the
+      // store, so every later check must still report the update.
+      mockFetchReleases([release('0.1.49')]);
+      const { manager, webviewManager } = createUpdateManager();
+
+      await manager.checkViaGitHub();
+      await manager.checkViaGitHub();
+
+      const availableCalls = webviewManager.broadcastMessage.mock.calls.filter(
+        ([, payload]) =>
+          (payload as UpdateLifecycleState).state === 'available',
+      );
+      expect(availableCalls).toHaveLength(2);
+    });
+
+    it('survives a restart — a fresh manager reads the persisted version', async () => {
+      const stateStorage = makeStateStorage();
+      mockFetchReleases([release('0.1.49')]);
+      const first = createUpdateManager({ stateStorage });
+      await first.manager.markDownloaded('0.1.49');
+
+      const second = createUpdateManager({ stateStorage });
+      await second.manager.checkViaGitHub();
+
+      expect(lastState(second.webviewManager)).toEqual({ state: 'idle' });
     });
   });
 
@@ -452,6 +597,7 @@ describe('UpdateManager', () => {
   describe('dispose()', () => {
     it('clears the interval', async () => {
       mockFetchReleases([release('0.1.49')]);
+      jest.useFakeTimers();
       const { manager } = createUpdateManager();
 
       await manager.start();
@@ -459,6 +605,18 @@ describe('UpdateManager', () => {
 
       manager.dispose();
       expect(manager.getCheckInterval()).toBeNull();
+    });
+
+    it('cancels the pending first check — a quit during the delay makes no request', async () => {
+      mockFetchReleases([release('0.1.49')]);
+      jest.useFakeTimers();
+      const { manager } = createUpdateManager();
+
+      await manager.start();
+      manager.dispose();
+      await jest.advanceTimersByTimeAsync(INITIAL_CHECK_DELAY_MS);
+
+      expect(netFetch).not.toHaveBeenCalled();
     });
 
     it('does not throw when called before start()', () => {

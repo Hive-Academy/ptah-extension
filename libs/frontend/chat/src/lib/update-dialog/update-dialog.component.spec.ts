@@ -1,21 +1,22 @@
 /**
- * UpdateBannerComponent specs
+ * UpdateDialogComponent specs
  *
  * Coverage:
- *  1. Banner not rendered when state = idle
- *  2. Banner rendered when state = available AND isElectron = true
- *  3. Banner NOT rendered when isElectron = false (VS Code mode)
+ *  1. Dialog not rendered when state = idle
+ *  2. Dialog rendered when state = available AND isElectron = true
+ *  3. Dialog NOT rendered when isElectron = false (VS Code mode)
  *  4. Download link rendered with href = platform installer URL
  *  5. Download link falls back to the release page URL when no installer asset
- *  6. Later button click → bannerService.dismiss() called
- *  7. Release notes rendered via ptah-markdown-block selector (NOT [innerHTML])
- *  8. Fallback "View release notes" link when releaseNotesMarkdown is null
- *  9. Error state renders the error message and no Download link
+ *  6. Later button click → dialogService.dismiss() called
+ *  7. Backdrop click → dialogService.dismiss() called
+ *  8. Release notes rendered via ptah-markdown-block selector (NOT [innerHTML])
+ *  9. Fallback "View release notes" link when releaseNotesMarkdown is null
+ * 10. Error state renders nothing — a failed check is not user-actionable
  *
  * Stubs:
  *   - ngx-markdown (ESM-only, breaks Jest) via jest.mock
  *   - MarkdownBlockComponent overridden with a stub via TestBed.overrideComponent
- *   - VSCodeService, UpdateBannerService provided as value mocks
+ *   - VSCodeService, UpdateDialogService provided as value mocks
  */
 
 import {
@@ -59,8 +60,8 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { UpdateBannerComponent } from './update-banner.component';
-import { UpdateBannerService } from './update-banner.service';
+import { UpdateDialogComponent } from './update-dialog.component';
+import { UpdateDialogService } from './update-dialog.service';
 import { VSCodeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
@@ -108,9 +109,10 @@ function setup(opts: { isElectron?: boolean; stateSig?: StateSig } = {}) {
   const stateSig =
     opts.stateSig ?? signal<UpdateLifecycleState>({ state: 'idle' });
 
-  const bannerServiceStub = {
+  const dialogServiceStub = {
     state: stateSig.asReadonly(),
     dismiss: jest.fn(),
+    markDownloaded: jest.fn().mockResolvedValue(undefined),
   };
 
   const vscodeStub = {
@@ -120,60 +122,63 @@ function setup(opts: { isElectron?: boolean; stateSig?: StateSig } = {}) {
   };
 
   TestBed.configureTestingModule({
-    imports: [UpdateBannerComponent],
+    imports: [UpdateDialogComponent],
     providers: [
-      { provide: UpdateBannerService, useValue: bannerServiceStub },
+      { provide: UpdateDialogService, useValue: dialogServiceStub },
       { provide: VSCodeService, useValue: vscodeStub },
     ],
   });
 
-  TestBed.overrideComponent(UpdateBannerComponent, {
+  TestBed.overrideComponent(UpdateDialogComponent, {
     remove: { imports: [MarkdownBlockComponent] },
     add: { imports: [MarkdownBlockStubComponent] },
   });
 
-  const fixture = TestBed.createComponent(UpdateBannerComponent);
+  const fixture = TestBed.createComponent(UpdateDialogComponent);
   fixture.detectChanges();
 
-  return { fixture, stateSig, bannerServiceStub };
+  return { fixture, stateSig, dialogServiceStub };
 }
 
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
 
-describe('UpdateBannerComponent', () => {
+describe('UpdateDialogComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('does NOT render the banner when state is idle', () => {
+  it('does NOT render the dialog when state is idle', () => {
     const { fixture } = setup();
-    const banner = fixture.nativeElement.querySelector(
-      '[data-testid="update-banner"]',
+    const dialog = fixture.nativeElement.querySelector(
+      '[data-testid="update-dialog"]',
     );
-    expect(banner).toBeNull();
+    expect(dialog).toBeNull();
   });
 
-  it('renders the banner when state is available and isElectron is true', () => {
+  it('renders the dialog when state is available and isElectron is true', () => {
     const { fixture } = setup({ stateSig: signal(availableState()) });
     fixture.detectChanges();
 
-    const banner = fixture.nativeElement.querySelector(
-      '[data-testid="update-banner"]',
+    const dialog = fixture.nativeElement.querySelector(
+      '[data-testid="update-dialog"]',
     );
-    expect(banner).not.toBeNull();
+    expect(dialog).not.toBeNull();
+    expect(dialog.classList).toContain('modal-open');
+    expect(dialog.textContent).toContain('0.1.48');
+    expect(dialog.textContent).toContain('0.1.49');
   });
 
-  it('does NOT render the banner when isElectron is false (VS Code mode)', () => {
+  it('does NOT render the dialog when isElectron is false (VS Code mode)', () => {
     const { fixture } = setup({
       isElectron: false,
       stateSig: signal(availableState()),
     });
     fixture.detectChanges();
 
-    const banner = fixture.nativeElement.querySelector(
-      '[data-testid="update-banner"]',
+    const dialog = fixture.nativeElement.querySelector(
+      '[data-testid="update-dialog"]',
     );
-    expect(banner).toBeNull();
+    expect(dialog).toBeNull();
   });
 
   it('renders a Download link pointing at the platform installer URL', () => {
@@ -206,8 +211,24 @@ describe('UpdateBannerComponent', () => {
     expect(link.nativeElement.getAttribute('href')).toBe(releaseUrl);
   });
 
-  it('calls bannerService.dismiss() when Later button is clicked', () => {
-    const { fixture, bannerServiceStub } = setup({
+  it('records the version when Download is clicked, without blocking navigation', () => {
+    const { fixture, dialogServiceStub } = setup({
+      stateSig: signal(availableState()),
+    });
+    fixture.detectChanges();
+
+    const link = fixture.debugElement.query(
+      By.css('[data-testid="update-download"]'),
+    );
+    const event = new MouseEvent('click', { cancelable: true });
+    link.nativeElement.dispatchEvent(event);
+
+    expect(dialogServiceStub.markDownloaded).toHaveBeenCalledWith('0.1.49');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('calls dialogService.dismiss() when Later button is clicked', () => {
+    const { fixture, dialogServiceStub } = setup({
       stateSig: signal(availableState()),
     });
     fixture.detectChanges();
@@ -216,7 +237,22 @@ describe('UpdateBannerComponent', () => {
     expect(laterBtn).not.toBeNull();
     laterBtn.nativeElement.click();
 
-    expect(bannerServiceStub.dismiss).toHaveBeenCalledTimes(1);
+    expect(dialogServiceStub.dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls dialogService.dismiss() when the backdrop is clicked', () => {
+    const { fixture, dialogServiceStub } = setup({
+      stateSig: signal(availableState()),
+    });
+    fixture.detectChanges();
+
+    const backdropBtn = fixture.debugElement.query(
+      By.css('.modal-backdrop button'),
+    );
+    expect(backdropBtn).not.toBeNull();
+    backdropBtn.nativeElement.click();
+
+    expect(dialogServiceStub.dismiss).toHaveBeenCalledTimes(1);
   });
 
   it('renders release notes via ptah-markdown-block selector, not [innerHTML]', () => {
@@ -253,24 +289,19 @@ describe('UpdateBannerComponent', () => {
     expect(markdownEl).toBeNull();
   });
 
-  it('renders the error message and no Download link in the error state', () => {
+  it('renders nothing in the error state — a failed check is not user-actionable', () => {
     const { fixture } = setup({
       stateSig: signal<UpdateLifecycleState>({
         state: 'error',
-        message: 'GitHub releases request failed: HTTP 503',
+        message: 'request timed out after 15000ms',
       }),
     });
     fixture.detectChanges();
 
-    const banner = fixture.nativeElement.querySelector(
-      '[data-testid="update-banner"]',
+    const dialog = fixture.nativeElement.querySelector(
+      '[data-testid="update-dialog"]',
     );
-    expect(banner).not.toBeNull();
-    expect(banner.textContent).toContain('HTTP 503');
-
-    const downloadLink = fixture.debugElement.query(
-      By.css('[data-testid="update-download"]'),
-    );
-    expect(downloadLink).toBeNull();
+    expect(dialog).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('timed out');
   });
 });

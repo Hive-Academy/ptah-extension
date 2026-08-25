@@ -81,7 +81,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'embedder:', // Embedder status + retry (lazy ONNX download recovery)
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
   'indexing:', // Workspace indexing control
-  'update:', // Desktop update banner (get-state, check-now)
+  'update:', // Desktop update dialog (get-state, check-now, mark-downloaded)
   'tasks:', // Task specs board (list, get, create, updateStatus, generateRegistry, board, reindex)
 ] as const;
 

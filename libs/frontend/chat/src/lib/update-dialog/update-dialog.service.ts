@@ -1,19 +1,26 @@
 /**
- * UpdateBannerService
+ * UpdateDialogService
  *
- * Tracks the Electron auto-update lifecycle state for the in-app banner UX.
+ * Tracks the Electron update lifecycle state for the in-app update dialog.
  *
  * Implements the `MessageHandler` contract: receives `update:statusChanged`
  * push events from the Electron main process via the
  * `MessageRouterService` → `MESSAGE_HANDLERS` multi-provider pipeline, and
  * exposes the current `UpdateLifecycleState` as a readonly signal that the
- * banner component subscribes to.
+ * dialog component subscribes to.
  *
  * Dismissed-state suppression (critical UX):
  * When the user clicks "Later", the service transitions to
- * `{ state: 'dismissed' }`. Background re-checks emit `idle` and `checking`
- * states which MUST NOT re-show the banner. Only the actionable states
- * (`available`, `error`) can exit dismissed.
+ * `{ state: 'dismissed' }`. Background re-checks emit `idle`, `checking` and
+ * `error` states which MUST NOT re-open the dialog. Only `available` — the one
+ * state the user can act on — exits dismissed.
+ *
+ * "Later" is deliberately a SESSION-LOCAL snooze, not an acknowledgement: the
+ * next check still broadcasts `available`, so the prompt returns and an update
+ * cannot be lost to a single stray click. "Download" is the acknowledgement.
+ * It records the version in the main process (`update:mark-downloaded`), which
+ * suppresses that one version for good — across restarts — while a later
+ * release prompts again.
  */
 
 import { Injectable, inject, signal } from '@angular/core';
@@ -29,7 +36,7 @@ import {
 } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
-export class UpdateBannerService implements MessageHandler {
+export class UpdateDialogService implements MessageHandler {
   readonly handledMessageTypes = [MESSAGE_TYPES.UPDATE_STATUS_CHANGED] as const;
 
   private readonly rpcService = inject(ClaudeRpcService);
@@ -62,15 +69,15 @@ export class UpdateBannerService implements MessageHandler {
         this._state.set(result.data.state);
       }
     } catch {
-      // Non-fatal: push events still drive the banner once subscribed.
+      // Non-fatal: push events still drive the dialog once subscribed.
     }
   }
 
   /**
    * Process an inbound `update:statusChanged` push event.
    *
-   * Dismissed suppression: once dismissed, do not re-show on background
-   * idle/checking events. Only actionable states exit dismissed.
+   * Dismissed suppression: once dismissed, only an `available` state re-opens
+   * the dialog.
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
     const payload = message.payload as UpdateStatusChangedPayload | undefined;
@@ -78,21 +85,34 @@ export class UpdateBannerService implements MessageHandler {
       return;
     }
 
-    const current = this._state();
-    if (current.state === 'dismissed') {
-      if (payload.state === 'idle' || payload.state === 'checking') {
-        return;
-      }
+    if (this._state().state === 'dismissed' && payload.state !== 'available') {
+      return;
     }
 
     this._state.set(payload);
   }
 
   /**
-   * User clicked "Later" — hide the banner until the next actionable state
-   * arrives.
+   * User clicked "Later" — close the dialog. The next check re-opens it.
    */
   dismiss(): void {
     this._state.set({ state: 'dismissed' });
+  }
+
+  /**
+   * User clicked "Download" — record the version so no later check prompts for
+   * it again, and close the dialog.
+   *
+   * The anchor's navigation is not blocked: this runs alongside the browser
+   * opening the installer URL. A failed RPC only costs a repeat prompt on the
+   * next check, so it is swallowed rather than surfaced.
+   */
+  async markDownloaded(version: string): Promise<void> {
+    this.dismiss();
+    try {
+      await this.rpcService.call('update:mark-downloaded', { version });
+    } catch {
+      // Non-fatal: the worst case is one more prompt on the next check.
+    }
   }
 }

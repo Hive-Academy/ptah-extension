@@ -32,4 +32,10 @@ export interface IAppUpdater {
   getCurrentState(): AppUpdateState;
   /** Run an immediate check. Resolves once the state has been broadcast. */
   triggerCheck(): Promise<void>;
+  /**
+   * Record that the user downloaded `version`, so later checks stop prompting
+   * for it. Persisted — a restart must not bring the prompt back. Only that
+   * one version is suppressed: the next release prompts again.
+   */
+  markDownloaded(version: string): Promise<void>;
 }

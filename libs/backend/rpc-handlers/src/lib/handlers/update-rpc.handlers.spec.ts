@@ -2,10 +2,11 @@
  * update-rpc.handlers.spec.ts
  *
  * Unit tests for UpdateRpcHandlers — the RPC methods backing the desktop
- * update banner:
+ * update dialog:
  *
  *   update:get-state — returns the current lifecycle state (race-proof hydration)
  *   update:check-now — triggers an immediate GitHub Releases check
+ *   update:mark-downloaded — stops later checks prompting for one version
  *
  * Strategy:
  *   - Construct UpdateRpcHandlers directly (no DI container) by passing mocks.
@@ -45,6 +46,7 @@ import { UpdateRpcHandlers } from './update-rpc.handlers';
 interface MockAppUpdater extends IAppUpdater {
   triggerCheck: jest.Mock;
   getCurrentState: jest.Mock;
+  markDownloaded: jest.Mock;
 }
 
 function createMockAppUpdater(
@@ -53,6 +55,7 @@ function createMockAppUpdater(
   return {
     triggerCheck: jest.fn().mockResolvedValue(undefined),
     getCurrentState: jest.fn().mockReturnValue(stateOverride),
+    markDownloaded: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -174,6 +177,48 @@ describe('UpdateRpcHandlers', () => {
           correlationId: 'c1',
         }),
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe('update:mark-downloaded', () => {
+    it('forwards the version to updateManager.markDownloaded()', async () => {
+      const { rpcHandler } = buildHandlers();
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:mark-downloaded',
+        params: { version: '0.1.49' },
+        correlationId: 'c-mark',
+      });
+
+      expect(raw.success).toBe(true);
+      expect((raw.data as Record<string, unknown>)['success']).toBe(true);
+      expect(updateManager.markDownloaded).toHaveBeenCalledWith('0.1.49');
+    });
+
+    it('rejects a missing version at the schema boundary', async () => {
+      const { rpcHandler } = buildHandlers();
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:mark-downloaded',
+        params: {},
+        correlationId: 'c-mark-missing',
+      });
+
+      expect(raw.success).toBe(false);
+      expect(updateManager.markDownloaded).not.toHaveBeenCalled();
+    });
+
+    it('rejects an empty version at the schema boundary', async () => {
+      const { rpcHandler } = buildHandlers();
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'update:mark-downloaded',
+        params: { version: '' },
+        correlationId: 'c-mark-empty',
+      });
+
+      expect(raw.success).toBe(false);
+      expect(updateManager.markDownloaded).not.toHaveBeenCalled();
     });
   });
 });
