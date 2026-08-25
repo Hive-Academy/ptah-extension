@@ -567,9 +567,6 @@ export class StreamingAccumulatorCore {
       case 'background_agent_started':
         backgroundAgentStore.onStarted(event);
         return this.mutated(event.eventType);
-      case 'background_agent_progress':
-        backgroundAgentStore.onProgress(event);
-        return this.mutated(event.eventType);
       case 'background_agent_completed':
         backgroundAgentStore.onCompleted(event);
         return this.mutated(event.eventType);

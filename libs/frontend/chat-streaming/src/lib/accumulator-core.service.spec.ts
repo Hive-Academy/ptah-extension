@@ -30,7 +30,6 @@ import {
 import type {
   AgentStartEvent,
   BackgroundAgentCompletedEvent,
-  BackgroundAgentProgressEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
   CompactionCompleteEvent,
@@ -269,24 +268,6 @@ function bgAgentStarted(
   } as BackgroundAgentStartedEvent;
 }
 
-function bgAgentProgress(
-  o: Partial<BackgroundAgentProgressEvent> = {},
-): BackgroundAgentProgressEvent {
-  return {
-    id: 'evt-bg-progress',
-    eventType: 'background_agent_progress',
-    timestamp: 12,
-    sessionId: SESSION_ID,
-    messageId: MESSAGE_ID,
-    toolCallId: 'toolu_bg_1',
-    agentId: 'bg-agent-1',
-    summaryDelta: 'progress',
-    status: 'running',
-    source: 'hook',
-    ...o,
-  } as BackgroundAgentProgressEvent;
-}
-
 function bgAgentCompleted(
   o: Partial<BackgroundAgentCompletedEvent> = {},
 ): BackgroundAgentCompletedEvent {
@@ -333,11 +314,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   let backgroundAgentStore: jest.Mocked<
     Pick<
       BackgroundAgentStore,
-      | 'onStarted'
-      | 'onProgress'
-      | 'onCompleted'
-      | 'onStopped'
-      | 'isBackgroundAgent'
+      'onStarted' | 'onCompleted' | 'onStopped' | 'isBackgroundAgent'
     >
   >;
   let agentMonitorStore: jest.Mocked<
@@ -385,7 +362,6 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     >;
     backgroundAgentStore = {
       onStarted: jest.fn(),
-      onProgress: jest.fn(),
       onCompleted: jest.fn(),
       onStopped: jest.fn(),
       isBackgroundAgent: jest.fn().mockReturnValue(false),
@@ -814,10 +790,6 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('background_agent_started → onStarted', () => {
       core.process(state, bgAgentStarted(), makeCtx());
       expect(backgroundAgentStore.onStarted).toHaveBeenCalled();
-    });
-    it('background_agent_progress → onProgress', () => {
-      core.process(state, bgAgentProgress(), makeCtx());
-      expect(backgroundAgentStore.onProgress).toHaveBeenCalled();
     });
     it('background_agent_completed → onCompleted', () => {
       core.process(state, bgAgentCompleted(), makeCtx());

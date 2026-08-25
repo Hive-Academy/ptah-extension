@@ -49,28 +49,6 @@ export interface BackgroundAgentStartedEvent extends FlatStreamEvent {
 }
 
 /**
- * Background agent progress event
- *
- * Emitted periodically while a background agent executes. Contains streaming
- * summary deltas from the agent's JSONL transcript file. These events flow
- * through a separate delivery path (WebviewManager.broadcastMessage) since
- * they outlive the main agent's streaming loop.
- */
-export interface BackgroundAgentProgressEvent extends FlatStreamEvent {
-  readonly eventType: 'background_agent_progress';
-  /** Links to the parent Task tool_use */
-  readonly toolCallId: string;
-  /** Short agent identifier for lookup */
-  readonly agentId: string;
-  /** New summary text delta from the agent's transcript */
-  readonly summaryDelta?: string;
-  /** Current agent execution status */
-  readonly status: 'running' | 'completed' | 'error';
-  /** Tab ID for routing */
-  readonly tabId?: string;
-}
-
-/**
  * Background agent completed event
  *
  * Emitted when a background subagent finishes execution (SubagentStop hook fires).
@@ -236,7 +214,6 @@ export type FlatStreamEventUnion =
   | CompactionStartEvent
   | CompactionCompleteEvent
   | BackgroundAgentStartedEvent
-  | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
   | BackgroundAgentStoppedEvent
   | AgentProgressEvent

@@ -33,7 +33,6 @@ import { BackgroundAgentStore } from './background-agent.store';
 import { BackgroundAgentId } from '@ptah-extension/chat-state';
 import type {
   BackgroundAgentCompletedEvent,
-  BackgroundAgentProgressEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
 } from '@ptah-extension/shared';
@@ -50,20 +49,6 @@ function startEvent(
     timestamp: Date.now(),
     ...overrides,
   } as BackgroundAgentStartedEvent;
-}
-
-function progressEvent(
-  overrides: Partial<BackgroundAgentProgressEvent> = {},
-): BackgroundAgentProgressEvent {
-  return {
-    toolCallId: 'tc-1',
-    agentId: 'a-1',
-    sessionId: 'sess-1',
-    summaryDelta: 'tick ',
-    status: 'running',
-    timestamp: Date.now(),
-    ...overrides,
-  } as BackgroundAgentProgressEvent;
 }
 
 function completedEvent(
@@ -121,7 +106,6 @@ describe('BackgroundAgentStore', () => {
         agentId: 'a-1',
         agentType: 'general-purpose',
         status: 'running',
-        summary: '',
         hasRealAgentId: true,
       });
       expect(store.hasRunningAgents()).toBe(true);
@@ -156,46 +140,6 @@ describe('BackgroundAgentStore', () => {
       const secondMap = store.agents();
       expect(secondMap).toHaveLength(1);
       expect(secondMap[0]).toBe(firstMap[0]);
-    });
-  });
-
-  describe('onProgress', () => {
-    it('appends summaryDelta to the existing summary', () => {
-      store.onStarted(startEvent({ agentId: 'a-X', toolCallId: 'tc-X' }));
-      store.onProgress(
-        progressEvent({
-          agentId: 'a-X',
-          toolCallId: 'tc-X',
-          summaryDelta: 'hello ',
-        }),
-      );
-      store.onProgress(
-        progressEvent({
-          agentId: 'a-X',
-          toolCallId: 'tc-X',
-          summaryDelta: 'world',
-        }),
-      );
-      expect(store.agents()[0].summary).toBe('hello world');
-    });
-
-    it('is a no-op for an unknown agentId', () => {
-      store.onProgress(
-        progressEvent({ agentId: 'missing', toolCallId: 'missing' }),
-      );
-      expect(store.agents()).toHaveLength(0);
-    });
-
-    it('propagates error status from the event', () => {
-      store.onStarted(startEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
-      store.onProgress(
-        progressEvent({
-          agentId: 'a-E',
-          toolCallId: 'tc-E',
-          status: 'error',
-        }),
-      );
-      expect(store.agents()[0].status).toBe('error');
     });
   });
 
@@ -378,8 +322,8 @@ describe('BackgroundAgentStore', () => {
 
       // First fallback for tc-fb1 — warns.
       store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb1' }));
-      // Second event (progress) for the same tc-fb1 — no extra warn.
-      store.onProgress(progressEvent({ agentId: '', toolCallId: 'tc-fb1' }));
+      // Second event (stopped) for the same tc-fb1 — no extra warn.
+      store.onStopped(stoppedEvent({ agentId: '', toolCallId: 'tc-fb1' }));
       // Different toolCallId — warns again (one per id).
       store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb2' }));
 

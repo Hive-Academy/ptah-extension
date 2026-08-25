@@ -27,7 +27,6 @@
 import { Injectable, signal, computed, OnDestroy } from '@angular/core';
 import type {
   BackgroundAgentStartedEvent,
-  BackgroundAgentProgressEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
 } from '@ptah-extension/shared';
@@ -62,7 +61,6 @@ export interface BackgroundAgentEntry {
   status: 'running' | 'completed' | 'error' | 'stopped';
   readonly startedAt: number;
   completedAt?: number;
-  summary: string;
   result?: string;
   cost?: number;
   duration?: number;
@@ -257,27 +255,10 @@ export class BackgroundAgentStore implements OnDestroy {
           | undefined,
         status: 'running',
         startedAt: event.timestamp,
-        summary: '',
       });
       return next;
     });
     this.syncTick();
-  }
-
-  onProgress(event: BackgroundAgentProgressEvent): void {
-    const key = this.resolveKey(event.agentId, event.toolCallId);
-    this._agents.update((map) => {
-      const agent = map.get(key);
-      if (!agent) return map;
-
-      const next = new Map(map);
-      next.set(key, {
-        ...agent,
-        summary: agent.summary + (event.summaryDelta || ''),
-        status: event.status === 'error' ? 'error' : agent.status,
-      });
-      return next;
-    });
   }
 
   onCompleted(event: BackgroundAgentCompletedEvent): void {
@@ -307,7 +288,6 @@ export class BackgroundAgentStore implements OnDestroy {
           status: 'completed',
           startedAt: event.timestamp,
           completedAt: event.timestamp,
-          summary: '',
           result: event.result,
           cost: event.cost,
           duration: event.duration,
@@ -343,7 +323,6 @@ export class BackgroundAgentStore implements OnDestroy {
           status: 'stopped',
           startedAt: event.timestamp,
           completedAt: event.timestamp,
-          summary: '',
         });
       }
 

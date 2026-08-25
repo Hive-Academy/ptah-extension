@@ -40,6 +40,7 @@ import {
   userMessageHasToolResult,
 } from './message-transform';
 import type {
+  BackgroundTaskInfo,
   TransformerState,
   TransformerHelpers,
   WorkflowRunInfo,
@@ -52,7 +53,8 @@ export class SdkMessageTransformer implements TransformerState {
   private readonly currentMessageIdByContext: Map<string, string> = new Map();
   private readonly currentModelByContext: Map<string, string> = new Map();
   private readonly toolCallIdByContextAndBlock: Map<string, string> = new Map();
-  private readonly backgroundTaskToolUseIds: Set<string> = new Set();
+  private readonly backgroundTaskToolUseIds: Map<string, BackgroundTaskInfo> =
+    new Map();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
   private readonly nonAgentTaskIds: Set<string> = new Set();
@@ -299,6 +301,10 @@ export class SdkMessageTransformer implements TransformerState {
     return this.backgroundTaskToolUseIds.has(toolUseId);
   }
 
+  getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined {
+    return this.backgroundTaskToolUseIds.get(toolUseId);
+  }
+
   getTaskParentToolUseId(taskId: string): string | undefined {
     return this.taskIdToParentToolUseId.get(taskId);
   }
@@ -359,8 +365,11 @@ export class SdkMessageTransformer implements TransformerState {
     }
   }
 
-  addBackgroundTaskToolUseId(toolUseId: string): void {
-    this.backgroundTaskToolUseIds.add(toolUseId);
+  addBackgroundTaskToolUseId(
+    toolUseId: string,
+    info?: BackgroundTaskInfo,
+  ): void {
+    this.backgroundTaskToolUseIds.set(toolUseId, info ?? {});
   }
 
   removeBackgroundTaskToolUseId(toolUseId: string): void {

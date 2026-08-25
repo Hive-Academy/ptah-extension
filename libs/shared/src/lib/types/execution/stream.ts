@@ -46,7 +46,6 @@ export type StreamEventType =
   | 'compaction_start'
   | 'compaction_complete'
   | 'background_agent_started'
-  | 'background_agent_progress'
   | 'background_agent_completed'
   | 'background_agent_stopped'
   | 'agent_progress'
