@@ -15,73 +15,14 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const {
+  RUNTIME_PROVIDED,
+  collectExternalImports,
+} = require('./lib/bundle-imports');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const DIST_MAIN = path.join(ROOT, 'dist', 'apps', 'ptah-electron', 'main.mjs');
 const ELECTRON_PKG = path.join(ROOT, 'apps', 'ptah-electron', 'package.json');
-
-// Packages provided by Electron runtime (not needed in package.json)
-const RUNTIME_PROVIDED = new Set(['electron']);
-
-// Node.js built-in modules
-const NODE_BUILTINS = new Set([
-  'assert',
-  'buffer',
-  'child_process',
-  'cluster',
-  'console',
-  'constants',
-  'crypto',
-  'dgram',
-  'dns',
-  'domain',
-  'events',
-  'fs',
-  'http',
-  'http2',
-  'https',
-  'module',
-  'net',
-  'os',
-  'path',
-  'perf_hooks',
-  'process',
-  'punycode',
-  'querystring',
-  'readline',
-  'repl',
-  'stream',
-  'string_decoder',
-  'sys',
-  'timers',
-  'tls',
-  'tty',
-  'url',
-  'util',
-  'v8',
-  'vm',
-  'worker_threads',
-  'zlib',
-]);
-
-function isBuiltin(specifier) {
-  if (specifier.startsWith('node:')) return true;
-  const base = specifier.split('/')[0];
-  return NODE_BUILTINS.has(base);
-}
-
-function isValidPackageName(name) {
-  // npm package names: lowercase, may start with @scope/
-  return /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/.test(name);
-}
-
-function getPackageName(specifier) {
-  if (specifier.startsWith('@')) {
-    const parts = specifier.split('/');
-    return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : specifier;
-  }
-  return specifier.split('/')[0];
-}
 
 function validateNativeDeps() {
   const platform = process.platform; // 'win32' | 'darwin' | 'linux'
@@ -155,69 +96,7 @@ if (
 // Step 2: Read the bundle and find external imports
 const bundle = fs.readFileSync(DIST_MAIN, 'utf8');
 
-// esbuild emits CommonJS require shims with UNSTABLE minified names when it
-// targets ESM output. Their identifier changes every build (historically `Fc`,
-// now `ve` / `yD` / `require`), so hardcoding one name silently misses external
-// `require()` calls — packages like chokidar, grammy, croner, better-sqlite3
-// are loaded this way and were being false-flagged as "unused". Discover the
-// shim identifiers from the bundle instead.
-function discoverRequireShims(src) {
-  const shims = new Set(['require', '__require']);
-  const patterns = [
-    // Banner / aliased createRequire result: `const X = <alias>(import.meta.url)`
-    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\(import\.meta\.url\)/g,
-    // esbuild __require helper: `var X=(i=>typeof require<"u"?require:...`
-    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(\s*[A-Za-z_$][\w$]*\s*=>\s*typeof require/g,
-  ];
-  for (const re of patterns) {
-    let m;
-    while ((m = re.exec(src)) !== null) shims.add(m[1]);
-  }
-  return shims;
-}
-
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-const requireShims = discoverRequireShims(bundle);
-
-// Match all import/require forms (handles minified code with no spaces):
-//   - Static ESM:       from"pkg" / from 'pkg'
-//   - Dynamic import:   import("pkg")   (how the in-process SDKs + jsonrepair load)
-//   - Bare side-effect: import"pkg"     (e.g. reflect-metadata)
-//   - Require shims:    require("pkg") / ve("pkg") / yD("pkg") — names discovered above
-const importPatterns = [
-  /\bfrom\s*"([^"./][^"]*)"/g,
-  /\bfrom\s*'([^'./][^']*)'/g,
-  /\bimport\s*\(\s*"([^"./][^"]*)"\s*\)/g,
-  /\bimport\s*\(\s*'([^'./][^']*)'\s*\)/g,
-  // Bare side-effect import — must NOT be preceded by an identifier char (avoids
-  // matching the tail of tokens like `SETTINGS_IMPORT"`) and excludes `import(`.
-  /(?<![\w$.])import\s*"([^"(./][^"]*)"/g,
-  /(?<![\w$.])import\s*'([^'(./][^']*)'/g,
-];
-for (const shim of requireShims) {
-  const s = escapeRegExp(shim);
-  importPatterns.push(
-    new RegExp(`(?<![\\w$])${s}\\(\\s*"([^"./][^"]*)"\\s*\\)`, 'g'),
-    new RegExp(`(?<![\\w$])${s}\\(\\s*'([^'./][^']*)'\\s*\\)`, 'g'),
-  );
-}
-
-const externalImports = new Set();
-for (const pattern of importPatterns) {
-  let match;
-  while ((match = pattern.exec(bundle)) !== null) {
-    const specifier = match[1];
-    if (!isBuiltin(specifier)) {
-      const pkgName = getPackageName(specifier);
-      if (isValidPackageName(pkgName)) {
-        externalImports.add(pkgName);
-      }
-    }
-  }
-}
+const externalImports = collectExternalImports(bundle);
 
 // Step 3: Read electron package.json dependencies
 const electronPkg = JSON.parse(fs.readFileSync(ELECTRON_PKG, 'utf8'));

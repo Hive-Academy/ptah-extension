@@ -161,6 +161,28 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - Provider settings with trademarked keys moved to `~/.ptah/settings.json` (transparent via `IWorkspaceProvider.getConfiguration()`). Never re-add to `package.json contributes.configuration`.
 - **Once an extension ID fails marketplace validation, that ID is permanently burned.** Test throwaway IDs first.
 
+## Release Branches (`release/electron | landing | docs`)
+
+- **Never merge into a release branch, and never open a PR against one.** They
+  carry no work of their own — they are deploy triggers that mirror `main`.
+  Release with the **Sync Release Branch** workflow (`workflow_dispatch`), which
+  fast-forwards `release/<target>` to `main` and then dispatches its pipeline.
+- **Why the ban**: `main` ships files that `nx format:check` flags (there is no
+  format gate) and `.lintstagedrc.mjs` runs `nx format:write` on staged
+  `*.{ts,js,json,md}`. A _local_ merge into a release branch that hits conflicts
+  stages those files, so committing fires husky and reformats them — the merge
+  commit now differs from `main` in files nobody edited. The next merge then
+  conflicts on them, and hand-resolving mints content that exists nowhere in
+  `main` and never goes away. That is how `release/electron` still held the
+  pre-open-source premium gating in `gateway-chat-bridge.ts` months after `main`
+  deleted it (PR #443). A fast-forward has no merge commit, runs no hook, and
+  has nothing to resolve.
+- **A push made with `GITHUB_TOKEN` does not trigger other workflows**, so the
+  `on: push: release/*` deploy jobs do not fire from the sync. The sync workflow
+  dispatches them explicitly; that is deliberate, not a workaround to remove.
+- If the sync fails with "not an ancestor of main", the branch has drifted.
+  Port anything real onto `main` first — do **not** merge the branch back.
+
 ## Module Index
 
 ### Apps

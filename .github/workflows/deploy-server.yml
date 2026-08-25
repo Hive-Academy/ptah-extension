@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - release/server
+  # Needed by the Sync Release Branch workflow: a push made with GITHUB_TOKEN
+  # does not trigger other workflows, so after it fast-forwards release/server
+  # it has to dispatch this one explicitly.
+  workflow_dispatch:
 
 concurrency:
   group: deploy-server
