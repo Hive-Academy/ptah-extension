@@ -83,3 +83,82 @@ Commands.
 
 Rewriting the affected specs to avoid the resource. Find the leak and close it
 at its source.
+
+## Outcome (2026-08-25, branch `fix/electron-update-check-timeout`)
+
+### The leak: one timer, five handles
+
+`npx nx test @ptah-extension/rpc-handlers --detectOpenHandles` named it on the
+first run. All five open handles are the SAME `setTimeout` —
+`wizard-generation-rpc.handlers.ts:539`, the 10-minute `GENERATION_TIMEOUT_MS`
+watchdog in `runGenerationInBackground`. Not SQLite, not chokidar.
+
+The `.finally()` at `:639` does clear it, so the timer is only leaked when that
+`finally` never runs — and `registerSubmitSelection` returns `{ success: true }`
+WITHOUT awaiting the generation. Four specs in
+`wizard-generation-rpc.handlers.spec.ts` therefore leak one each by design:
+their orchestrator never resolves, which is the point of the
+`returns success immediately (fire-and-forget orchestration)` case. The suite
+ends with a 10-minute armed timer, and an armed timer keeps Node's event loop
+alive.
+
+This is a PRODUCTION property, not a test artifact. A watchdog for work nobody
+is awaiting must never be the reason a process stays up.
+
+### The fix
+
+`timer.unref()`, guarded by `typeof … === 'function'` — the shape already used
+by `SessionRegistryService`, `CuratorProxyManager`, `CopilotAuthService` and
+`CliPlatformCommands`, because `unref` is on Node's `Timeout` and not on the
+DOM's numeric handle. The `clearTimeout` in `finally` is unchanged; `unref` only
+removes the handle's claim on the loop.
+
+Pinned by a new spec, `leaves no timer holding the event loop open when the
+generation never settles`. It asserts `hasRef()` on every timer the RPC creates
+rather than spying on `unref`, so the property stated is the one that matters —
+does this handle hold the loop up — and any future timer added to this path is
+caught by the same assertion. Verified red before the fix.
+
+### Verification
+
+- `--detectOpenHandles`: the `Jest has detected the following 5 open handles`
+  block is gone. 88 suites, 2467 passed / 31 skipped.
+- Concurrent load, the original repro:
+  `nx run-many -t test -p rpc-handlers agent-sdk harness-sync --parallel=3`
+  passes, and `rpc-handlers` no longer emits the worker warning.
+- `lint`, `typecheck`, `test` green. The 20 remaining lint warnings in this
+  project are pre-existing (including two in this file: an unused
+  `CliDetectionService` import at `:44` and the empty arrow at `:652`).
+
+### The `nx test projA projB` trap — documented, and worse than recorded
+
+Now a block in the root `CLAUDE.md` under Development Commands. Measured here
+rather than taken on trust, and the measurement was worse than the note above
+said. `npx nx test @ptah-extension/thoth-shell @ptah-extension/markdown` does
+not "run only the first project" — the trailing name becomes a Jest test-path
+FILTER, so the first project ran with a filter matching nothing and printed
+`No tests found, exiting with code 0` followed by `Successfully ran target
+test`. ZERO tests ran, exit 0.
+
+The block also records the adjacent trap hit in this session: a misspelled
+project name is silently DROPPED from a `run-many` set. `-p a b c` with one bad
+name ran two projects and exited 0, so the `Running target test for N projects`
+header has to be read.
+
+## Follow-up: `harness-sync` leaks a worker, but only under concurrent load
+
+Found while verifying the fix above, and NOT the same defect. In isolation
+`@ptah-extension/harness-sync` is clean (38 suites, 302 tests, no warning). In
+the 3-project `--parallel=3` run it emits `A worker process has failed to exit
+gracefully` on every attempt — reproduced twice, attributed to harness-sync by
+position in the interleaved output.
+
+Not chased here, because the obvious candidate is already correct: the preflight
+budget timer at `preflight/harness-preflight.service.ts:212` calls `unref()`
+right below itself. The two remaining `setTimeout` uses in the lib are both
+awaited sleeps — `fs/windows-retry.ts:54` (the EBUSY/EPERM backoff) and
+`lock/file-lock.ts:99` — which fits a load-only symptom, since retries fire under
+contention and not in a quiet run. That is a hypothesis, not a finding: nothing
+has been measured against it, and `unref`-ing a backoff sleep is a real change to
+retry semantics rather than a drive-by. It needs its own task and its own
+`--detectOpenHandles` run taken UNDER load.

@@ -130,6 +130,22 @@ nx serve ptah-license-server         # NestJS API
 nx graph                             # Visualize dep graph
 ```
 
+**Never run `nx test projA projB projC`.** Nx runs the target for the FIRST
+project only and hands the trailing names to Jest, where they become test-path
+filters. Measured 2026-08-25: `npx nx test @ptah-extension/thoth-shell
+@ptah-extension/markdown` printed `No tests found, exiting with code 0` and then
+`Successfully ran target test` — ZERO tests ran and the command exited 0. That is
+a confident green tick for work that was never tested. Use `run-many`:
+
+```bash
+npx nx run-many -t test -p projA projB projC
+```
+
+The project name is the one in `project.json`, which for a lib is the package
+alias (`@ptah-extension/thoth-shell`), not the folder name. A misspelled name is
+silently dropped from a `run-many` set, so read the `Running target test for N
+projects` header and check that N is the number you asked for.
+
 ## Coding Standards
 
 - **Type safety**: `catch (error: unknown)`, narrow with `instanceof Error` before `.message`. No `@ts-ignore` without `@ts-expect-error + reason`.

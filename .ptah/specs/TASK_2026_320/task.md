@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_320
-status: backlog
+status: in_review
 type: BUGFIX
 title: >-
   Jest leaks a worker in rpc-handlers, which makes any concurrent multi-project

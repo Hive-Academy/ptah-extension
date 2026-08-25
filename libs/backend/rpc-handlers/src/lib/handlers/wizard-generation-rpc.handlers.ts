@@ -536,13 +536,29 @@ export class WizardGenerationRpcHandlers {
     const GENERATION_TIMEOUT_MS = 10 * 60 * 1000;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
-      timeoutHandle = setTimeout(() => {
+      const timer = setTimeout(() => {
         reject(
           new Error(
             `Agent generation exceeded ${GENERATION_TIMEOUT_MS / 60_000}-minute timeout`,
           ),
         );
       }, GENERATION_TIMEOUT_MS);
+      // This method is fire-and-forget — `registerSubmitSelection` returns
+      // `{ success: true }` without awaiting it — so between the RPC returning
+      // and the orchestrator settling there is a 10-minute timer nothing is
+      // waiting on. The `finally` below clears it on the normal path, but a
+      // caller that never observes the generation leaves it armed, and an
+      // ARMED timer keeps the Node event loop alive. That is the whole of
+      // TASK_2026_320: five of these were the open handles behind
+      // `rpc-handlers`' "worker process has failed to exit gracefully", which
+      // made every concurrent Jest run untrustworthy. A watchdog must never be
+      // the reason a process stays up. Same guarded shape as
+      // `SessionRegistryService` and `CuratorProxyManager` — `unref` exists on
+      // Node's `Timeout` but not on the DOM's numeric handle.
+      if (typeof (timer as { unref?: () => void }).unref === 'function') {
+        (timer as { unref: () => void }).unref();
+      }
+      timeoutHandle = timer;
     });
 
     Promise.race([
