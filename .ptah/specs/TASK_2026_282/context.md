@@ -30,3 +30,18 @@ Unrelated to the other two; needs its own read of the merge logic vs. the fixtur
 ## Acceptance
 
 `nx affected -t test` green on this branch, with each fix landing in the spec (or the stub) that owns the gap — no product code changed unless a failure turns out to be real.
+
+## Outcome (2026-08-25, branch `fix/electron-update-check-timeout`)
+
+Re-verified all three projects at HEAD. Two were already repaired by later commits and one was still leaking.
+
+1. **`ptah-extension-webview` — already fixed.** `dd1209413 test(webview): give the unit5 TestBed the model-refresh token it resolves` added `...provideModelRefreshControl()` at `unit5-message-routing.spec.ts:150`, and `0bfd77f29` taught the spec about the tasks surface gate. 7 suites / 141 tests pass.
+2. **`api-member-hub` — already fixed.** 9 suites / 125 tests pass. No SessionsSection failure remains.
+3. **`thoth-shell` — repaired here.** The `refreshQueue` half was already gone, but `TypeError: this.appState.workspaceInfo is not a function` was still thrown twice per run. The tests PASSED anyway: Angular routes an exception raised inside a subscription to the application `ErrorHandler`, which logged it and let the suite go green. Two of the four hand-written `AppStateManager` stubs (the gateway and skills placeholder cases) had no `workspaceInfo`, which `ThothStatusService` reads on behalf of the shell.
+
+The fix is two parts, both spec-local. No product code changed.
+
+- One `makeAppStateStub()` factory replaces the four literals. Four separate literals is how two of them lost the signal in the first place.
+- A `RecordingErrorHandler` is provided into every TestBed and asserted empty in `afterEach`. This is the durable half: a swallowed error is now a red suite rather than a line of console noise. Verified by deleting `workspaceInfo` from the factory — all 5 tests fail; restored, all 5 pass.
+
+`lint`, `typecheck` and `test` are green for `@ptah-extension/thoth-shell`.

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_282
-status: backlog
+status: in_review
 type: bugfix
 title: >-
   Nine specs on this branch die in `beforeEach` — three suites failing for three
