@@ -92,3 +92,51 @@ taken, state that the ordering no longer matters.
   or that a WARN is emitted (option 1). Today that case passes silently, which
   is what makes it untested.
 - The comment update in the VS Code host.
+
+## Outcome (2026-08-26) — option 2, the deferred arm
+
+**Option 1 (WARN) was rejected, and the reason is worth recording.** An absent
+`SQLITE_CONNECTION` is ALSO the normal VS Code shape — that host runs on
+`InMemoryTaskIndexStore` and registers no connection at all. A bare WARN would
+therefore fire on every boot of a correctly-configured host, which is how a real
+signal gets trained away. The warning could not tell a misordered host from a
+correct one, because at that instant the two are indistinguishable.
+
+**Option 2 turned out to be available.** tsyringe's `afterResolution(token, cb,
+{ frequency: 'Once' })` stores an interceptor in a map keyed by the token
+**whether or not that token is registered yet** — verified in
+`node_modules/tsyringe/dist/cjs/dependency-container.js:250`, which does a bare
+`interceptors.postResolution.set(token, …)` with no registry lookup, and fires
+it from `executePostResolutionInterceptor` on the next `resolve`. So
+`subscribeToPersistenceOpen` now ARMS on the late path instead of returning:
+
+| Token registered when the helper runs? | Behaviour                                                       |
+| -------------------------------------- | --------------------------------------------------------------- |
+| yes                                    | resolve + `onDidOpen`, exactly as before                        |
+| no                                     | arm `afterResolution`; subscribe the first time anyone resolves |
+
+**Why arming on RESOLUTION is sufficient.** Whoever calls `openAndMigrate` must
+resolve the connection first, and the interceptor runs before `resolve` returns
+to that caller — so the subscription is always in place before the connection
+can emit its first open. A host that registers a connection and never resolves
+it gets nothing, but that host has no database either.
+
+The ordering requirement is now **removed rather than documented**. A fourth
+host, or a re-ordered phase 2, cannot revert defect E.
+
+Disposal latches a flag the interceptor callback checks, because tsyringe
+exposes no way to remove an interceptor.
+
+### Verified
+
+Five new cases in `start-index.spec.ts` under `registration order does not
+matter (TASK_2026_314)`, all running the hosts in the WRONG order on purpose:
+late registration still upgrades, a subscriber is live before the first open can
+fire, a REOPEN still re-warms, a disposed helper never subscribes, and VS Code
+stays silent. Three of the five go red when the deferred arm is removed
+(measured). `lint`, `typecheck`, `test` green for `@ptah-extension/task-specs`
+(16 suites, 445 passed).
+
+The comment at `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:90` is
+updated to say the ordering no longer matters, rather than to restate a rule
+nothing enforces.

@@ -92,6 +92,13 @@ export function registerPhase2Libraries(
   // ordering fix is entirely lib-side (startTaskSpecsIndex subscribes to the
   // connection's onDidOpen), so this call site needs no change and none of the
   // three hosts got a bespoke remedy.
+  //
+  // The sentence above used to hide a requirement: defect E's fix held only
+  // while a host registered SQLITE_CONNECTION BEFORE this call, and nothing
+  // enforced that. It no longer matters in either direction (TASK_2026_314) —
+  // the helper arms a deferred subscription when the token is absent, so this
+  // call may sit anywhere in phase 2. This host registers no connection at all
+  // and the armed hook simply never fires.
   startTaskSpecsIndex(container, logger);
   // output-styles registered in all three hosts: OutputStyleRpcHandlers is a
   // `requires: []` manifest entry, so every host resolves it. Its services

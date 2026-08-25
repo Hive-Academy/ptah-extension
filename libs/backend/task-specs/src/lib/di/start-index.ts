@@ -30,7 +30,10 @@
  *     hosts open the connection from two different places
  *     (`thoth-runtime/boot-thoth-runtime.ts` vs
  *     `cli-engine/bootstrap/thoth-runtime.ts`), so a re-order is two edits that
- *     any future boot change silently re-breaks.
+ *     any future boot change silently re-breaks. The order in which a host
+ *     registers the connection and calls this helper does NOT matter — see
+ *     `subscribeToPersistenceOpen` for why that is enforced rather than merely
+ *     documented (TASK_2026_314).
  *
  * `ensureStarted` is idempotent per normalized root, so the repeated calls this
  * produces cost one map lookup each.
@@ -144,28 +147,78 @@ export function startTaskSpecsIndex(
  *
  * Hosts that never register the connection (VS Code, which uses the in-memory
  * store) get a no-op: nothing to subscribe to, and nothing that was broken.
+ *
+ * **The registration ORDER does not matter, and that is deliberate
+ * (TASK_2026_314).** This used to `return` when the token was not registered
+ * yet — silently, with no warning and no retry — so defect E's fix held only
+ * while every host happened to register the connection BEFORE calling
+ * `startTaskSpecsIndex`. All three did, nothing made them, and a fourth host or
+ * a re-ordered phase 2 would have reverted defect E to a merely STALE Tasks
+ * board: no error, no failing test, and exactly the kind of regression that
+ * survives manual QA.
+ *
+ * A WARN was the cheaper answer and is the wrong one here, because an absent
+ * token is ALSO the normal VS Code shape — the warning would fire on every boot
+ * of a correctly-configured host, which is how a real signal gets ignored.
+ * So the late case ARMS instead: `afterResolution` stores an interceptor keyed
+ * by token whether or not that token is registered yet, and fires the first
+ * time anyone resolves it. Whoever opens the connection must resolve it first,
+ * so the subscription is always in place before `openAndMigrate` can emit.
+ * A host that registers a connection and never resolves it gets nothing — but
+ * that host has no database either.
  */
 function subscribeToPersistenceOpen(
   container: DependencyContainer,
   logger: Logger,
   warm: () => void,
 ): IDisposable {
-  if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
-    return NOOP_DISPOSABLE;
-  }
+  let disposed = false;
+  let subscription: IDisposable = NOOP_DISPOSABLE;
+
+  const subscribe = (connection: SqliteConnectionService): void => {
+    if (disposed) return;
+    try {
+      // Subscribed unconditionally rather than only while `isOpen` is false: a
+      // reopen (the database-reset RPC) is the same "the store is available
+      // now" transition, and `ensureStarted` is idempotent, so an extra call
+      // costs one map lookup.
+      subscription = connection.onDidOpen(() => warm());
+    } catch (error: unknown) {
+      logger.warn('[task-specs] persistence-open subscription unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   try {
-    const connection = container.resolve<SqliteConnectionService>(
-      PERSISTENCE_TOKENS.SQLITE_CONNECTION,
-    );
-    // Subscribed unconditionally rather than only while `isOpen` is false: a
-    // reopen (the database-reset RPC) is the same "the store is available now"
-    // transition, and `ensureStarted` is idempotent, so an extra call costs one
-    // map lookup.
-    return connection.onDidOpen(() => warm());
+    if (container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
+      subscribe(
+        container.resolve<SqliteConnectionService>(
+          PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+        ),
+      );
+    } else {
+      container.afterResolution<SqliteConnectionService>(
+        PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+        (_token, result) => {
+          const connection = Array.isArray(result) ? result[0] : result;
+          if (connection) subscribe(connection);
+        },
+        { frequency: 'Once' },
+      );
+    }
   } catch (error: unknown) {
     logger.warn('[task-specs] persistence-open subscription unavailable', {
       error: error instanceof Error ? error.message : String(error),
     });
-    return NOOP_DISPOSABLE;
   }
+
+  // tsyringe has no API to remove an interceptor, so disposal latches a flag
+  // the callback checks rather than unregistering the hook.
+  return {
+    dispose: () => {
+      disposed = true;
+      subscription.dispose();
+    },
+  };
 }
